@@ -1,12 +1,13 @@
 <!-- 檔案路徑: src/App.vue -->
 <script setup>
 import { RouterLink, RouterView } from 'vue-router'
+import '@/assets/main.css'
 </script>
 
 <template>
   <div class="dashboard-container">
     <aside class="sidebar">
-      <div class="sidebar-header">管理平台</div>
+      <div class="sidebar-header">部北透析管理平台</div>
       <ul class="sidebar-nav">
         <!-- RouterLink 是 Vue 中用來替代 <a> 標籤進行頁面導航的元件 -->
         <!-- `to` 屬性對應我們將在下一步設定的路由路徑 -->
@@ -14,7 +15,7 @@ import { RouterLink, RouterView } from 'vue-router'
         <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
         <li><RouterLink to="/patients" class="nav-link">病人管理系統</RouterLink></li>
         <li><RouterLink to="/weekly" class="nav-link">週排班總表</RouterLink></li>
-        <li><RouterLink to="/base-schedule" class="nav-link">常規門診設定</RouterLink></li>
+        <li><RouterLink to="/base-schedule" class="nav-link">常規門診床位</RouterLink></li>
         <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
       </ul>
     </aside>
@@ -59,9 +60,11 @@ body {
   padding: 0 20px 20px 20px;
   font-size: 1.5em;
   font-weight: bold;
-  text-align: center;
   border-bottom: 1px solid #34495e;
   white-space: nowrap;
+  display: flex; /* 1. 將此元素變為 Flex 容器 */
+  align-items: center; /* 2. 讓內容垂直居中 (如果需要的話) */
+  justify-content: center; /* 3. 讓內容水平居中 */
 }
 .sidebar-nav {
   list-style: none;
@@ -93,7 +96,10 @@ body {
 }
 .content-area {
   flex-grow: 1;
-  overflow: hidden;
+  overflow: auto;
+  display: flex;
+  flex-direction: column; /* 讓子元素垂直排列 */
+  align-items: stretch;
 }
 .content-iframe {
   width: 100%;

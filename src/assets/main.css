@@ -1,0 +1,10 @@
+/* src/assets/main.css */
+.page-container {
+  width: 100%;
+  max-width: 1400px; /* 設定一個你喜歡的全域最大寬度 */
+  margin: 0 auto;
+  padding: 20px;
+  background-color: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.075);
+}

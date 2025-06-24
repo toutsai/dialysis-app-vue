@@ -210,7 +210,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="container">
+    <div class="page-container">
       <h1>透析病人管理系統</h1>
 
       <div class="tabs">
@@ -427,14 +427,7 @@ onMounted(() => {
   --danger-color: #dc3545;
   --info-color: #17a2b8;
 }
-.container {
-  max-width: 1400px;
-  margin: 0 auto;
-  background-color: #fff;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
+
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;

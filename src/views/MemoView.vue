@@ -1,6 +1,6 @@
 <!-- src/views/MemoView.vue 的 <template> 部分修改後 -->
 <template>
-  <div class="container">
+  <div class="page-container">
     <h1>交班備忘錄</h1>
     <div class="memo-form">
       <!-- 1. 使用 v-model 綁定輸入 -->
@@ -178,16 +178,8 @@ body {
   font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
   background-color: #f9f9f9;
   margin: 0;
-  padding: 20px;
 }
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  background: #fff;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
+
 h1 {
   text-align: center;
   color: #333;
