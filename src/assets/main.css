@@ -8,3 +8,40 @@
   border-radius: 8px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.075);
 }
+
+/* 1. 定義全域顏色變數 */
+:root {
+  --primary-color: #007bff;
+  --success-color: #28a745;
+  --danger-color: #dc3545;
+  --border-color: #dee2e6;
+  --sidebar-bg: #f8f9fa;
+  --green-bg: #e8f5e9;
+  --hepatitis-bg: #fffde7;
+  --blue-bg: #e3f2fd;
+}
+
+/* 2. 定義通用的表格樣式 */
+.weekly-schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.weekly-schedule-table th,
+.weekly-schedule-table td {
+  border: 1px solid var(--border-color);
+  padding: 4px;
+  text-align: center;
+  vertical-align: middle;
+  height: 65px;
+}
+.weekly-schedule-table thead th {
+  background-color: #e9ecef;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.hepatitis-bed td {
+  background-color: var(--hepatitis-bg);
+}
+/* ... 其他你希望全域共用的表格樣式 ... */

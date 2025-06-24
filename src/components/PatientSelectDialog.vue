@@ -21,7 +21,11 @@ const FREQUENCIES = ['一三五', '二四六', '一四', '二五', '三六', '�
 const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
 
 const filteredPatients = computed(() => {
-  if (!props.patients) return []
+  // 在這裡打印出每次計算時，從父層接收到的 props
+  console.log('[PatientSelectDialog] 接收到的 patients prop:', props.patients)
+  if (!props.patients || props.patients.length === 0) {
+    return []
+  }
   return props.patients.filter((p) => {
     const term = searchTerm.value.toLowerCase()
     const matchesSearch =

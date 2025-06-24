@@ -1,12 +1,16 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終問題修正版) -->
+// 檔案路徑: src/views/BaseScheduleView.vue (真正的 SPA 版本)
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+// 直接從 firebase SDK 引入 where，不再依賴 window 物件
+import { where } from 'firebase/firestore'
 
+// --- API 實例 (直接在頂層建立) ---
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
 
+// --- 常量定義 ---
 const SHIFTS = ['早班', '午班', '晚班']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const bedLayout = [
@@ -24,6 +28,7 @@ const FREQ_MAP_TO_DAY_INDEX = {
   二六: [1, 5],
 }
 
+// --- 核心狀態 ---
 const allOpdPatients = ref([])
 const patientMap = ref(new Map())
 const baseSchedule = ref(new Map())
@@ -34,6 +39,23 @@ const saveBtnDisabled = ref(true)
 const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
 
+// --- 計算屬性 (用於人數統計) ---
+const dailyCounts = computed(() => {
+  const counts = Array(6)
+    .fill(null)
+    .map(() => ({ 早班: 0, 午班: 0, 晚班: 0 }))
+  baseSchedule.value.forEach((patientId, slotId) => {
+    const [bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
+    if (dayIndex >= 0 && dayIndex < 6 && counts[dayIndex]) {
+      if (shiftIndex === 0) counts[dayIndex]['早班']++
+      else if (shiftIndex === 1) counts[dayIndex]['午班']++
+      else if (shiftIndex === 2) counts[dayIndex]['晚班']++
+    }
+  })
+  return counts
+})
+
+// --- 方法定義 ---
 function setChange() {
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
@@ -45,14 +67,14 @@ async function loadAllData() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
-    // 修正一：將 where 的解構移到函式內部
-    const { where } = window.firebase.firestore
     const [patients, baseScheduleRecords] = await Promise.all([
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
       baseSchedulesApi.fetchAll(),
     ])
 
     allOpdPatients.value = patients
+    console.log('[BaseScheduleView] 成功獲取到的門診病人:', allOpdPatients.value) // 關鍵日誌
+
     patientMap.value = new Map(patients.map((p) => [p.id, p]))
     originalBaseSchedule.value = baseScheduleRecords
 
@@ -66,8 +88,7 @@ async function loadAllData() {
     statusText.value = '常規床位已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
-    statusText.value = '讀取失敗'
-    alert(`載入床位失敗: ${error.message}`)
+    statusText.value = `載入失敗，請檢查索引或網路連線。`
   }
 }
 
@@ -94,11 +115,9 @@ async function saveChanges() {
     const savePromises = newRecords.map((record) => baseSchedulesApi.save(record))
     await Promise.all(savePromises)
 
-    // 修正三：提供更好的使用者回饋
     hasUnsavedChanges.value = false
     statusText.value = '✓ 床位儲存成功！'
 
-    // 重新載入資料以獲取新的 ID
     await loadAllData()
 
     setTimeout(() => {
@@ -164,11 +183,14 @@ function handleDialogCancel() {
   isDialogVisible.value = false
 }
 
-onMounted(loadAllData)
+// --- 生命週期鉤子 ---
+// 當元件被掛載到畫面上時，自動執行 loadAllData
+onMounted(() => {
+  loadAllData()
+})
 </script>
 
 <template>
-  <!-- 修正二：將對話框移到 page-container 的外部 -->
   <div>
     <div class="page-container">
       <div class="header-toolbar">
@@ -180,6 +202,18 @@ onMounted(loadAllData)
           <span id="status-text">{{ statusText }}</span>
         </div>
       </div>
+
+      <div class="stats-toolbar">
+        <div v-for="(dayCount, index) in dailyCounts" :key="index" class="stat-item">
+          <strong>{{ WEEKDAYS[index].slice(-1) }}:</strong>
+          <div class="stat-shift-group">
+            <span class="shift-early">早:{{ dayCount['早班'] }}</span>
+            <span class="shift-noon">午:{{ dayCount['午班'] }}</span>
+            <span class="shift-late">晚:{{ dayCount['晚班'] }}</span>
+          </div>
+        </div>
+      </div>
+
       <div class="table-wrapper">
         <table class="weekly-schedule-table">
           <thead>
@@ -235,69 +269,56 @@ onMounted(loadAllData)
 </template>
 
 <style>
-/* 複製貼上舊專案 base_schedule.html 的所有 CSS */
 .page-container {
   width: 100%;
+  /* 其他全域樣式在 main.css */
 }
-:root {
-  --primary-color: #007bff;
-  --success-color: #28a745;
-  --danger-color: #dc3545;
-  --border-color: #dee2e6;
-  --sidebar-bg: #f8f9fa;
-  --green-bg: #e8f5e9;
-  --hepatitis-bg: #fffde7;
-  --hepatitis-border: #fff176;
-  --blue-bg: #e3f2fd;
+.header-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #dee2e6;
 }
+.header-toolbar h1 {
+  margin: 0;
+}
+.main-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+/* 修正三：儲存按鈕樣式 */
+#save-changes-btn {
+  background-color: var(--primary-color); /* 改為藍色 */
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-size: 1.1em;
+  font-weight: bold;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+#save-changes-btn:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+#save-changes-btn:disabled {
+  background-color: #ccc;
+  border-color: #ccc;
+  cursor: not-allowed;
+}
+#status-text {
+  font-weight: bold;
+  color: #6c757d;
+}
+
+/* ... 其他表格相關樣式 ... */
 .table-wrapper {
   max-height: 75vh;
   overflow: auto;
-}
-.weekly-schedule-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-.weekly-schedule-table th,
-.weekly-schedule-table td {
-  border: 1px solid var(--border-color);
-  padding: 4px;
-  text-align: center;
-  vertical-align: middle;
-  height: 65px;
-}
-.weekly-schedule-table thead th {
-  background-color: #e9ecef;
-  position: sticky;
-  top: 0;
-  z-index: 10;
-}
-.weekly-schedule-table th:nth-child(1) {
-  width: 80px;
-}
-.weekly-schedule-table th:nth-child(2) {
-  width: 60px;
-}
-.weekly-schedule-table tbody td:nth-child(1),
-.weekly-schedule-table tbody td:nth-child(2) {
-  background-color: var(--sidebar-bg);
-  font-weight: bold;
-  position: sticky;
-  z-index: 5;
-}
-.weekly-schedule-table tbody td:nth-child(1) {
-  left: 0;
-}
-.weekly-schedule-table tbody td:nth-child(2) {
-  left: 80px;
-}
-.hepatitis-bed td {
-  background-color: var(--hepatitis-bg);
-}
-.hepatitis-bed td:nth-child(1),
-.hepatitis-bed td:nth-child(2) {
-  background-color: var(--hepatitis-bg) !important;
 }
 .schedule-slot {
   width: 100%;
@@ -323,31 +344,47 @@ onMounted(loadAllData)
 .slot-patient-name {
   font-weight: bold;
 }
-/* 新的、更完整的規則 */
-#save-changes-btn {
-  background-color: var(--success-color);
-  color: white;
-  border-color: var(--success-color);
-  padding: 10px 20px; /* 放大按鈕的內距 */
-  font-size: 1.1em; /* 放大字體 */
+.stats-toolbar {
+  display: flex;
+  gap: 20px;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 5px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 5px;
+  background-color: #fff;
+  border: 1px solid #e0e0e0;
+}
+.stat-item strong {
+  font-size: 1.1em;
+}
+.stat-shift-group {
+  display: flex;
+  gap: 8px;
+}
+.stat-shift-group span {
+  padding: 4px 10px;
+  border-radius: 15px;
   font-weight: bold;
-  transition: background-color 0.2s;
+  color: #fff;
+  font-size: 0.9em;
 }
-#save-changes-btn:hover:not(:disabled) {
-  background-color: #218838; /* 滑鼠懸停時的深綠色 */
+.stat-shift-group .shift-early {
+  background-color: #28a745;
 }
-
-/* 舊的 #save-changes-btn:disabled 規則可以合併或移除 */
-#save-changes-btn:disabled {
-  background-color: #ccc;
-  border-color: #ccc;
-  cursor: not-allowed;
+.stat-shift-group .shift-noon {
+  background-color: #ffc107;
+  color: #212529;
 }
-
-/* 為狀態文字新增樣式 */
-#status-text {
-  font-weight: bold;
-  color: #6c757d;
-  margin-left: 15px; /* 讓它和按鈕之間有點距離 */
+.stat-shift-group .shift-late {
+  background-color: #17a2b8;
 }
 </style>
