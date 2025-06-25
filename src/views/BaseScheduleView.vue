@@ -5,6 +5,7 @@ import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 // 直接從 firebase SDK 引入 where，不再依賴 window 物件
 import { where } from 'firebase/firestore'
+import SelectionDialog from '@/components/SelectionDialog.vue'
 
 // --- API 實例 (直接在頂層建立) ---
 const patientsApi = ApiManager('patients')
@@ -38,6 +39,13 @@ const statusText = ref('')
 const saveBtnDisabled = ref(true)
 const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
+const isClearDialogVisible = ref(false)
+const clearingSlotId = ref(null) // 記錄正在操作的格子 ID
+const CLEAR_OPTIONS = [
+  { value: 'single', text: '僅清除此班次' },
+  { value: 'all_this_patient', text: '清除此病人在本表的所有排班' },
+  // { value: 'all_future', text: '清除此班次及往後所有排班' } // 這是更進階的功能，我們先註解掉
+]
 
 // --- 計算屬性 (用於人數統計) ---
 const dailyCounts = computed(() => {
@@ -264,6 +272,14 @@ onMounted(() => {
       :patients="allOpdPatients"
       @confirm="handlePatientSelect"
       @cancel="handleDialogCancel"
+    />
+
+    <SelectionDialog
+      :is-visible="isClearDialogVisible"
+      title="清除排班選項"
+      :options="CLEAR_OPTIONS.map((opt) => opt.text)"
+      @select="handleClearSelect"
+      @cancel="isClearDialogVisible = false"
     />
   </div>
 </template>

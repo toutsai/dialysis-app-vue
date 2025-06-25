@@ -23,6 +23,7 @@
   --red-bg: #ffcdd2;
   --orange-bg: #fff3e0;
   --hepatitis-bg: #fffde7;
+  --red-text: #c62828;
 }
 
 /* 2. 定義通用的表格樣式 */
@@ -75,6 +76,7 @@
 }
 .header-toolbar h1 {
   margin: 0;
+  text-align: left;
 }
 .main-actions {
   display: flex;
@@ -103,3 +105,16 @@
 #status-text {
   font-weight: bold;
   color: #6c757d;
+}
+.disease-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  font-size: 0.8em;
+  font-weight: bold;
+  /* --- 關鍵修正 --- */
+  color: #c62828; /* 直接使用顏色碼，而不是 var(--red-text) */
+  border: 1px solid #c62828; /* 直接使用顏色碼，而不是 var(--red-text) */
+  /* --- 修正結束 --- */
+  border-radius: 4px;
+}

@@ -2,24 +2,6 @@
 <template>
   <div class="page-container">
     <h1>交班備忘錄</h1>
-    <div class="memo-form">
-      <!-- 1. 使用 v-model 綁定輸入 -->
-      <textarea v-model="contentInput" placeholder="請輸入交班事項或備註..."></textarea>
-      <div class="memo-options">
-        <label for="memo-patient-input">關聯病人(可選):</label>
-        <input
-          v-model="patientInput"
-          type="text"
-          id="memo-patient-input"
-          placeholder="輸入病人姓名"
-        />
-        <label for="memo-date-input">目標日期(可選):</label>
-        <input v-model="dateInput" type="date" id="memo-date-input" />
-      </div>
-      <!-- 2. 使用 @click 綁定事件 -->
-      <button @click="addMemo">新增備忘</button>
-    </div>
-
     <div class="memo-section">
       <h2>待處理事項</h2>
       <!-- 3. 使用 v-for 渲染列表 -->
@@ -43,6 +25,25 @@
           </div>
         </li>
       </ul>
+    </div>
+
+    <div class="memo-form">
+      <h2>新增備忘</h2>
+      <!-- 1. 使用 v-model 綁定輸入 -->
+      <textarea v-model="contentInput" placeholder="請輸入交班事項或備註..."></textarea>
+      <div class="memo-options">
+        <label for="memo-patient-input">關聯病人(可選):</label>
+        <input
+          v-model="patientInput"
+          type="text"
+          id="memo-patient-input"
+          placeholder="輸入病人姓名"
+        />
+        <label for="memo-date-input">目標日期(可選):</label>
+        <input v-model="dateInput" type="date" id="memo-date-input" />
+      </div>
+      <!-- 2. 使用 @click 綁定事件 -->
+      <button @click="addMemo">新增備忘</button>
     </div>
 
     <div class="memo-section">
@@ -181,7 +182,7 @@ body {
 }
 
 h1 {
-  text-align: center;
+  text-align: left;
   color: #333;
 }
 .memo-form {

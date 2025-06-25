@@ -4,6 +4,7 @@ import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore' // 直接從 SDK import 我們需要的工具
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import StatsToolbar from '@/components/StatsToolbar.vue'
 
 // import PatientSelectDialog from '@/components/PatientSelectDialog.vue' // 稍後再實現
 
@@ -85,6 +86,10 @@ const weekDates = computed(() => {
   })
 })
 
+const statsToolbarWeekdays = computed(() => {
+  return WEEKDAYS.map((w) => w.slice(-1)) // ['一', '二', '三', ...]
+})
+
 const inpatientList = computed(() => {
   let inpatients = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
   const regularFreqs = ['一三五', '二四六']
@@ -99,24 +104,33 @@ const inpatientList = computed(() => {
 })
 
 const statsToolbarData = computed(() => {
-  const dailyCounts = Array.from({ length: 6 }).map(() => ({ 早班: 0, 午班: 0, 晚班: 0 }))
+  // 1. 先建立一個包含完整結構的基礎陣列
+  const baseData = WEEKDAYS.map((day) => ({
+    weekday: day.slice(-1), // '一', '二', '三'...
+    counts: { 早班: 0, 午班: 0, 晚班: 0 },
+  }))
+
+  // 2. 遍歷已有的排班記錄，填充人數
   for (const record of weekScheduleRecords.value.values()) {
     if (record && record.schedule) {
       const d = new Date(record.date + 'T00:00:00')
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
-      if (dayIndex >= 0 && dayIndex < 6 && dailyCounts[dayIndex]) {
+
+      if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.shiftId) {
             const shift = slotData.shiftId.split('-')[2]
-            if (dailyCounts[dayIndex][shift] !== undefined) {
-              dailyCounts[dayIndex][shift]++
+            if (baseData[dayIndex].counts[shift] !== undefined) {
+              baseData[dayIndex].counts[shift]++
             }
           }
         }
       }
     }
   }
-  return dailyCounts
+
+  // 3. 總是回傳這個結構完整的陣列
+  return baseData
 })
 
 // --- 方法 ---
@@ -362,6 +376,7 @@ onMounted(() => {
 <template>
   <div class="page-container">
     <div class="header-toolbar">
+      <h1>週排班總表</h1>
       <div class="date-navigator">
         <button @click="changeWeek(-7)">< 上一週</button>
         <h2>{{ weekDisplay }}</h2>
@@ -369,23 +384,13 @@ onMounted(() => {
         <button @click="goToToday">回到本週</button>
       </div>
       <div class="main-actions">
-        <button @click="loadBaseSchedule">載入常規班表</button>
         <span class="status-text">{{ statusText }}</span>
+        <button @click="loadBaseSchedule">載入常規班表</button>
         <button :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">儲存變更</button>
       </div>
     </div>
 
-    <div class="stats-toolbar">
-      <div v-for="(dayCount, index) in statsToolbarData" :key="index" class="stat-item">
-        <strong>{{ WEEKDAYS[index].slice(-1) }}:</strong>
-        <div class="stat-shift-group">
-          <span class="shift-early">早{{ dayCount['早班'] }}</span>
-          <span class="shift-noon">午{{ dayCount['午班'] }}</span>
-          <span class="shift-late">晚{{ dayCount['晚班'] }}</span>
-        </div>
-      </div>
-    </div>
-
+    <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
     <div class="main-content">
       <div class="schedule-area">
         <div class="table-wrapper">
