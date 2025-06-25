@@ -207,9 +207,9 @@ onMounted(() => {
         <div v-for="(dayCount, index) in dailyCounts" :key="index" class="stat-item">
           <strong>{{ WEEKDAYS[index].slice(-1) }}:</strong>
           <div class="stat-shift-group">
-            <span class="shift-early">早:{{ dayCount['早班'] }}</span>
-            <span class="shift-noon">午:{{ dayCount['午班'] }}</span>
-            <span class="shift-late">晚:{{ dayCount['晚班'] }}</span>
+            <span class="shift-early">早{{ dayCount['早班'] }}</span>
+            <span class="shift-noon">午{{ dayCount['午班'] }}</span>
+            <span class="shift-late">晚{{ dayCount['晚班'] }}</span>
           </div>
         </div>
       </div>
@@ -272,47 +272,6 @@ onMounted(() => {
 .page-container {
   width: 100%;
   /* 其他全域樣式在 main.css */
-}
-.header-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid #dee2e6;
-}
-.header-toolbar h1 {
-  margin: 0;
-}
-.main-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-/* 修正三：儲存按鈕樣式 */
-#save-changes-btn {
-  background-color: var(--primary-color); /* 改為藍色 */
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  font-size: 1.1em;
-  font-weight: bold;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-#save-changes-btn:hover:not(:disabled) {
-  background-color: #0056b3;
-}
-#save-changes-btn:disabled {
-  background-color: #ccc;
-  border-color: #ccc;
-  cursor: not-allowed;
-}
-#status-text {
-  font-weight: bold;
-  color: #6c757d;
 }
 
 /* ... 其他表格相關樣式 ... */

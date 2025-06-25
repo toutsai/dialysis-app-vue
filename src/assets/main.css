@@ -14,11 +14,15 @@
   --primary-color: #007bff;
   --success-color: #28a745;
   --danger-color: #dc3545;
+  --warning-color: #ffc107;
+  --info-color: #17a2b8;
   --border-color: #dee2e6;
   --sidebar-bg: #f8f9fa;
   --green-bg: #e8f5e9;
-  --hepatitis-bg: #fffde7;
   --blue-bg: #e3f2fd;
+  --red-bg: #ffcdd2;
+  --orange-bg: #fff3e0;
+  --hepatitis-bg: #fffde7;
 }
 
 /* 2. 定義通用的表格樣式 */
@@ -45,3 +49,57 @@
   background-color: var(--hepatitis-bg);
 }
 /* ... 其他你希望全域共用的表格樣式 ... */
+.header-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.date-navigator {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+.date-navigator button,
+.main-actions button {
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 8px 12px;
+  font-size: 1em;
+  cursor: pointer;
+  background-color: #fff;
+}
+.header-toolbar h1 {
+  margin: 0;
+}
+.main-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+#save-changes-btn {
+  background-color: var(--primary-color); /* 改為藍色 */
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-size: 1.1em;
+  font-weight: bold;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+#save-changes-btn:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+#save-changes-btn:disabled {
+  background-color: #ccc;
+  border-color: #ccc;
+  cursor: not-allowed;
+}
+#status-text {
+  font-weight: bold;
+  color: #6c757d;

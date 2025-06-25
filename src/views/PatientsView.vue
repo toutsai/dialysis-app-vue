@@ -410,24 +410,6 @@ onMounted(() => {
 </template>
 
 <style>
-/* 複製貼上舊專案 patients.html 的所有 CSS */
-:root {
-  --green-bg: #e8f5e9;
-  --green-text: #2e7d32;
-  --blue-bg: #e3f2fd;
-  --blue-text: #1565c0;
-  --orange-bg: #fff3e0;
-  --orange-text: #ef6c00;
-  --grey-bg: #f5f5f5;
-  --grey-text: #616161;
-  --red-text: #c62828;
-  --primary-color: #007bff;
-  --success-color: #28a745;
-  --warning-color: #ffc107;
-  --danger-color: #dc3545;
-  --info-color: #17a2b8;
-}
-
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
