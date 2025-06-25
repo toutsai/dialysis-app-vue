@@ -382,10 +382,10 @@ onMounted(() => {
         <h2>{{ weekDisplay }}</h2>
         <button @click="changeWeek(7)">下一週 ></button>
         <button @click="goToToday">回到本週</button>
+        <button @click="loadBaseSchedule">載入常規班表</button>
       </div>
       <div class="main-actions">
         <span class="status-text">{{ statusText }}</span>
-        <button @click="loadBaseSchedule">載入常規班表</button>
         <button :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">儲存變更</button>
       </div>
     </div>
@@ -410,13 +410,22 @@ onMounted(() => {
                 <tr
                   v-for="(shift, shiftIndex) in SHIFTS"
                   :key="shift"
-                  :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNumber) }"
+                  :class="{
+                    'hepatitis-bed': hepatitisBeds.includes(bedNumber),
+                    'noon-shift-row': shift === '午班' /* <-- 新增這一行規則 */,
+                  }"
                 >
                   <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
                   <td>{{ shift }}</td>
                   <td v-for="(day, dayIndex) in weekDates" :key="day.weekday">
                     <div
                       class="schedule-slot"
+                      :class="{
+                        filled: weekScheduleRecords.get(day.queryDate)?.schedule?.[
+                          `bed-${bedNumber}-${shift}`
+                        ],
+                        /* 其他可能的 class，例如病人狀態 */
+                      }"
                       @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
                       @drop="onDrop($event, `${bedNumber}-${shiftIndex}-${dayIndex}`)"
                       @dragover="onDragOver"
@@ -519,5 +528,34 @@ onMounted(() => {
   width: 240px;
   flex-shrink: 0; /* <-- 關鍵！防止這個區域被壓縮 */
   /* ... 其他樣式 ... */
+}
+.noon-shift-row > td {
+  background-color: var(--blue-bg); /* 使用我們在 :root 定義的淺藍色 */
+}
+.schedule-slot {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 5px;
+  padding: 5px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+}
+.slot-patient-name {
+  font-weight: bold;
+}
+.schedule-slot:not(.filled):hover {
+  background-color: #e0e0e0;
+}
+.schedule-slot.filled {
+  cursor: pointer;
+  background-color: transparent; /* 或者 #fff，讓它和空格子一樣是白色 */
+  /* 也可以加上一個細微的邊框來區分 */
+  border: 1px solid #e0e0e0;
 }
 </style>

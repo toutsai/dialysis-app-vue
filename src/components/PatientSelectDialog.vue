@@ -15,6 +15,7 @@ const searchTerm = ref('')
 const freqFilter = ref('')
 const diseaseFilter = ref('')
 const selectedPatientId = ref(null)
+const patientStatusFilter = ref('') // '' 代表全部, 'opd' 代表門診, 'ipd' 代表住院
 const fillType = ref('frequency')
 
 const FREQUENCIES = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六', '每周一次', '臨時']
@@ -22,7 +23,6 @@ const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
 
 const filteredPatients = computed(() => {
   // 在這裡打印出每次計算時，從父層接收到的 props
-  console.log('[PatientSelectDialog] 接收到的 patients prop:', props.patients)
   if (!props.patients || props.patients.length === 0) {
     return []
   }
@@ -35,7 +35,9 @@ const filteredPatients = computed(() => {
     const matchesFreq = !freqFilter.value || p.frequency === freqFilter.value
     const matchesDisease =
       !diseaseFilter.value || (p.diseases && p.diseases.includes(diseaseFilter.value))
-    return matchesSearch && matchesFreq && matchesDisease
+    const matchesStatus = !patientStatusFilter.value || p.status === patientStatusFilter.value
+
+    return matchesSearch && matchesFreq && matchesDisease && matchesStatus
   })
 })
 
@@ -88,6 +90,26 @@ function resetDialog() {
           <option v-for="d in DISEASES" :key="d" :value="d">{{ d }}</option>
         </select>
       </div>
+      <div class="filter-group">
+        <label>病人狀態</label>
+        <div class="button-tabs">
+          <button :class="{ active: patientStatusFilter === '' }" @click="patientStatusFilter = ''">
+            全部
+          </button>
+          <button
+            :class="{ active: patientStatusFilter === 'opd' }"
+            @click="patientStatusFilter = 'opd'"
+          >
+            門診
+          </button>
+          <button
+            :class="{ active: patientStatusFilter === 'ipd' }"
+            @click="patientStatusFilter = 'ipd'"
+          >
+            住院
+          </button>
+        </div>
+      </div>
     </div>
 
     <div id="patient-list-container">
@@ -130,8 +152,10 @@ function resetDialog() {
     </div>
 
     <div class="modal-footer">
+      <button class="btn-primary" @click="handleConfirm" :disabled="!selectedPatientId">
+        確認
+      </button>
       <button @click="handleCancel">取消</button>
-      <button @click="handleConfirm" :disabled="!selectedPatientId">確認</button>
     </div>
   </dialog>
 </template>
@@ -247,6 +271,72 @@ dialog h3 {
 .modal-footer button:disabled {
   background-color: #ccc;
   border-color: #ccc;
+  cursor: not-allowed;
+}
+.button-tabs {
+  display: flex;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  overflow: hidden; /* 讓內部按鈕的圓角生效 */
+}
+.button-tabs button {
+  flex-grow: 1;
+  padding: 8px;
+  border: none;
+  background-color: #f0f0f0;
+  cursor: pointer;
+  border-left: 1px solid #ccc;
+}
+.button-tabs button:first-child {
+  border-left: none;
+}
+.button-tabs button.active {
+  background-color: var(--primary-color);
+  color: white;
+}
+.modal-footer {
+  margin-top: 20px;
+  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* 1. 所有按鈕的基礎樣式 (通用) */
+.modal-footer button {
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  padding: 8px 16px;
+  font-size: 1em;
+  cursor: pointer;
+  background-color: #fff;
+  color: #333;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s;
+}
+
+/* 2. 主按鈕的樣式 (啟用狀態) */
+/* 關鍵修正：我們同時指定了 class 和 :not(:disabled) 偽類 */
+/* 這使得它的特殊性高於通用的 button 規則 */
+.modal-footer button.btn-primary:not(:disabled) {
+  background-color: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+/* 3. 主按鈕的滑鼠懸停效果 (啟用狀態) */
+.modal-footer button.btn-primary:not(:disabled):hover {
+  background-color: #0056b3;
+  border-color: #0056b3;
+}
+
+/* 4. 所有按鈕的禁用樣式 (最高優先級) */
+/* 這條規則會覆蓋上面所有的顏色設定，當按鈕被禁用時 */
+.modal-footer button:disabled {
+  background-color: #e0e0e0; /* 稍微深一點的灰色，更易讀 */
+  border-color: #e0e0e0;
+  color: #9e9e9e;
   cursor: not-allowed;
 }
 </style>

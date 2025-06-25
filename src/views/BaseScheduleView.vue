@@ -238,7 +238,10 @@ onMounted(() => {
               <tr
                 v-for="(shift, shiftIndex) in SHIFTS"
                 :key="shift"
-                :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNumber) }"
+                :class="{
+                  'hepatitis-bed': hepatitisBeds.includes(bedNumber),
+                  'noon-shift-row': shift === '午班' /* <-- 新增這一行規則 */,
+                }"
               >
                 <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
                 <td>{{ shift }}</td>
@@ -309,15 +312,17 @@ onMounted(() => {
   align-items: center;
   gap: 2px;
 }
+.slot-patient-name {
+  font-weight: bold;
+}
 .schedule-slot:not(.filled):hover {
   background-color: #e0e0e0;
 }
 .schedule-slot.filled {
   cursor: pointer;
-  background-color: var(--green-bg);
-}
-.slot-patient-name {
-  font-weight: bold;
+  background-color: transparent; /* 或者 #fff，讓它和空格子一樣是白色 */
+  /* 也可以加上一個細微的邊框來區分 */
+  border: 1px solid #e0e0e0;
 }
 .stats-toolbar {
   display: flex;
@@ -361,5 +366,8 @@ onMounted(() => {
 }
 .stat-shift-group .shift-late {
   background-color: #17a2b8;
+}
+.noon-shift-row > td {
+  background-color: var(--blue-bg); /* 使用我們在 :root 定義的淺藍色 */
 }
 </style>

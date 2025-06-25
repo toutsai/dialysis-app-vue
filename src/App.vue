@@ -96,8 +96,8 @@ body {
 }
 .content-area {
   flex-grow: 1;
-  overflow: auto;
-  display: flex;
+  overflow: hidden; /* 這裡保持 hidden，滾動條由子層控制 */
+  display: flex; /* 確保它是 Flex 容器 */
   flex-direction: column; /* 讓子元素垂直排列 */
   align-items: stretch;
 }
