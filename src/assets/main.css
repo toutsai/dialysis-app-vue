@@ -8,6 +8,7 @@
   flex-direction: column; /* 讓內部的 header 和 table-wrapper 垂直排列 */
   height: 100%; /* 讓它填滿父層 .content-area 的高度 */
   padding: 20px; /* 為了佈局，我們先把 padding 移到內層 */
+  overflow-y: auto; /* 當垂直內容溢出時，顯示滾動條 */
 }
 
 /* 1. 定義全域顏色變數 */
@@ -129,4 +130,13 @@
   border: 1px solid #c62828; /* 直接使用顏色碼，而不是 var(--red-text) */
   /* --- 修正結束 --- */
   border-radius: 4px;
+}
+.page-header {
+  flex-shrink: 0; /* 確保頭部區域不會被壓縮 */
+}
+
+.page-main-content {
+  flex-grow: 1; /* 讓主內容區佔滿所有剩餘的垂直空間 */
+  min-height: 0; /* 防止子元素溢出的關鍵技巧 */
+  display: flex; /* 讓它自己也成為 Flex 容器，以便內部佈局（例如 weeklyview 的側邊欄） */
 }

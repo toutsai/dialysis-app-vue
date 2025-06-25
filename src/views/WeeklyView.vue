@@ -490,8 +490,9 @@ onMounted(loadAllData)
 }
 
 .table-wrapper {
-  flex-grow: 1;
-  overflow: auto;
+  flex-grow: 1; /* <-- 關鍵！讓它佔滿所有剩餘的垂直空間 */
+  overflow: auto; /* <-- 關鍵！當表格內容過多時，讓這個容器自己滾動 */
+  min-height: 0; /* 一個防止 Flex 溢出的技巧 */
 }
 
 .noon-shift-row > td {
