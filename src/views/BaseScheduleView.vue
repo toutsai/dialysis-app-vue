@@ -1,13 +1,13 @@
-// 檔案路徑: src/views/BaseScheduleView.vue (真正的 SPA 版本)
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終完整版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
-import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
-// 直接從 firebase SDK 引入 where，不再依賴 window 物件
 import { where } from 'firebase/firestore'
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
+import StatsToolbar from '@/components/StatsToolbar.vue'
 
-// --- API 實例 (直接在頂層建立) ---
+// --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
 
@@ -28,50 +28,48 @@ const FREQ_MAP_TO_DAY_INDEX = {
   一五: [0, 4],
   二六: [1, 5],
 }
+const CLEAR_OPTIONS = [
+  { value: 'single', text: '僅清除此班次' },
+  { value: 'all_this_patient', text: '清除此病人在本表的所有排班' },
+]
 
 // --- 核心狀態 ---
 const allOpdPatients = ref([])
-const patientMap = ref(new Map())
 const baseSchedule = ref(new Map())
 const originalBaseSchedule = ref([])
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
-const saveBtnDisabled = ref(true)
+
+// --- UI 狀態 ---
 const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const isClearDialogVisible = ref(false)
-const clearingSlotId = ref(null) // 記錄正在操作的格子 ID
-const CLEAR_OPTIONS = [
-  { value: 'single', text: '僅清除此班次' },
-  { value: 'all_this_patient', text: '清除此病人在本表的所有排班' },
-  // { value: 'all_future', text: '清除此班次及往後所有排班' } // 這是更進階的功能，我們先註解掉
-]
+const clearingSlotId = ref(null)
 
-// --- 計算屬性 (用於人數統計) ---
-const dailyCounts = computed(() => {
-  const counts = Array(6)
-    .fill(null)
-    .map(() => ({ 早班: 0, 午班: 0, 晚班: 0 }))
-  baseSchedule.value.forEach((patientId, slotId) => {
-    const [bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
-    if (dayIndex >= 0 && dayIndex < 6 && counts[dayIndex]) {
-      if (shiftIndex === 0) counts[dayIndex]['早班']++
-      else if (shiftIndex === 1) counts[dayIndex]['午班']++
-      else if (shiftIndex === 2) counts[dayIndex]['晚班']++
+// --- 計算屬性 ---
+const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
+const statsToolbarData = computed(() => {
+  const dailyCounts = Array.from({ length: 6 }).map(() => ({ 早班: 0, 午班: 0, 晚班: 0 }))
+  for (const slotId of baseSchedule.value.keys()) {
+    const [_bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
+    if (dayIndex >= 0 && dayIndex < 6) {
+      const shiftName = SHIFTS[shiftIndex]
+      if (dailyCounts[dayIndex] && dailyCounts[dayIndex][shiftName] !== undefined) {
+        dailyCounts[dayIndex][shiftName]++
+      }
     }
-  })
-  return counts
+  }
+  return dailyCounts.map((counts) => ({ counts }))
 })
+const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
-// --- 方法定義 ---
+// --- 方法 ---
 function setChange() {
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
-  saveBtnDisabled.value = false
 }
 
 async function loadAllData() {
-  saveBtnDisabled.value = true
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
@@ -79,11 +77,7 @@ async function loadAllData() {
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
       baseSchedulesApi.fetchAll(),
     ])
-
     allOpdPatients.value = patients
-    console.log('[BaseScheduleView] 成功獲取到的門診病人:', allOpdPatients.value) // 關鍵日誌
-
-    patientMap.value = new Map(patients.map((p) => [p.id, p]))
     originalBaseSchedule.value = baseScheduleRecords
 
     const newBaseSchedule = new Map()
@@ -96,12 +90,17 @@ async function loadAllData() {
     statusText.value = '常規床位已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
-    statusText.value = `載入失敗，請檢查索引或網路連線。`
+    statusText.value = '讀取失敗'
+    alert(`載入床位失敗: ${error.message}`)
   }
 }
 
+function populateScheduleData() {
+  // 這個函式在新架構中可以被 Vue 的響應式系統取代，但暫時保留以防萬一
+  // 當 baseSchedule.value 改變時，Vue 會自動重新渲染模板
+}
+
 async function saveChanges() {
-  saveBtnDisabled.value = true
   statusText.value = '儲存中...'
   try {
     const deletePromises = originalBaseSchedule.value.map((record) =>
@@ -124,43 +123,28 @@ async function saveChanges() {
     await Promise.all(savePromises)
 
     hasUnsavedChanges.value = false
-    statusText.value = '✓ 床位儲存成功！'
-
+    statusText.value = '床位儲存成功！'
+    alert('常規門診床位已成功儲存！')
     await loadAllData()
-
-    setTimeout(() => {
-      if (!hasUnsavedChanges.value) {
-        statusText.value = '常規床位已載入'
-      }
-    }, 3000)
   } catch (error) {
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
     alert(`儲存失敗: ${error.message}`)
-    saveBtnDisabled.value = false
   }
 }
 
+function openPatientDialog(slotId) {
+  currentSlotId.value = slotId
+  isDialogVisible.value = true
+}
+
 function handleGridClick(slotId) {
-  if (baseSchedule.value.has(slotId)) {
-    const patientId = baseSchedule.value.get(slotId)
-    const choice = prompt(
-      `此床位已安排病人。\n請輸入 1 清除此班次，或輸入 2 清除此病人在本表的所有排班。\n(按取消以離開)`,
-    )
-    if (choice === '1') {
-      baseSchedule.value.delete(slotId)
-      setChange()
-    } else if (choice === '2') {
-      const entriesToDelete = []
-      baseSchedule.value.forEach((pid, sid) => {
-        if (pid === patientId) entriesToDelete.push(sid)
-      })
-      entriesToDelete.forEach((sid) => baseSchedule.value.delete(sid))
-      setChange()
-    }
+  const patientId = baseSchedule.value.get(slotId)
+  if (patientId) {
+    clearingSlotId.value = slotId
+    isClearDialogVisible.value = true
   } else {
-    currentSlotId.value = slotId
-    isDialogVisible.value = true
+    openPatientDialog(slotId)
   }
 }
 
@@ -171,17 +155,17 @@ function handlePatientSelect({ patientId, fillType }) {
   const patient = allOpdPatients.value.find((p) => p.id === patientId)
   if (!patient) return
 
-  const [bed, shiftIndex] = slotId.split('-')
+  const [bed, shiftIndex, dayIndex] = slotId.split('-')
 
-  if (fillType === 'frequency' && patient.frequency && FREQ_MAP_TO_DAY_INDEX[patient.frequency]) {
-    const dayIndexes = FREQ_MAP_TO_DAY_INDEX[patient.frequency]
-    dayIndexes.forEach((dayIndex) => {
-      const newSlotId = `${bed}-${shiftIndex}-${dayIndex}`
-      baseSchedule.value.set(newSlotId, patientId)
-    })
-  } else {
-    baseSchedule.value.set(slotId, patientId)
-  }
+  const daysToFill =
+    fillType === 'frequency' && patient.frequency && FREQ_MAP_TO_DAY_INDEX[patient.frequency]
+      ? FREQ_MAP_TO_DAY_INDEX[patient.frequency]
+      : [parseInt(dayIndex)]
+
+  daysToFill.forEach((d_idx) => {
+    const newSlotId = `${bed}-${shiftIndex}-${d_idx}`
+    baseSchedule.value.set(newSlotId, patientId)
+  })
 
   setChange()
   isDialogVisible.value = false
@@ -191,87 +175,92 @@ function handleDialogCancel() {
   isDialogVisible.value = false
 }
 
+function handleClearSelect(selectedOptionText) {
+  const slotId = clearingSlotId.value
+  if (!slotId) return
+
+  const selectedAction = CLEAR_OPTIONS.find((opt) => opt.text === selectedOptionText)?.value
+  const patientId = baseSchedule.value.get(slotId)
+
+  if (selectedAction === 'single') {
+    baseSchedule.value.delete(slotId)
+  } else if (selectedAction === 'all_this_patient') {
+    const entriesToDelete = []
+    for (const [key, value] of baseSchedule.value.entries()) {
+      if (value === patientId) {
+        entriesToDelete.push(key)
+      }
+    }
+    entriesToDelete.forEach((key) => baseSchedule.value.delete(key))
+  }
+
+  setChange()
+  isClearDialogVisible.value = false
+}
+
 // --- 生命週期鉤子 ---
-// 當元件被掛載到畫面上時，自動執行 loadAllData
-onMounted(() => {
-  loadAllData()
-})
+onMounted(loadAllData)
 </script>
 
 <template>
-  <div>
-    <div class="page-container">
-      <div class="header-toolbar">
-        <h1>常規門診床位表</h1>
-        <div class="main-actions">
-          <button id="save-changes-btn" :disabled="saveBtnDisabled" @click="saveChanges">
-            儲存床位
-          </button>
-          <span id="status-text">{{ statusText }}</span>
-        </div>
+  <div class="page-container">
+    <div class="header-toolbar">
+      <h1>常規門診床位表</h1>
+      <div class="main-actions">
+        <span class="status-text">{{ statusText }}</span>
+        <button :disabled="!hasUnsavedChanges" @click="saveChanges">儲存床位</button>
       </div>
+    </div>
 
-      <div class="stats-toolbar">
-        <div v-for="(dayCount, index) in dailyCounts" :key="index" class="stat-item">
-          <strong>{{ WEEKDAYS[index].slice(-1) }}:</strong>
-          <div class="stat-shift-group">
-            <span class="shift-early">早{{ dayCount['早班'] }}</span>
-            <span class="shift-noon">午{{ dayCount['午班'] }}</span>
-            <span class="shift-late">晚{{ dayCount['晚班'] }}</span>
-          </div>
-        </div>
-      </div>
+    <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
 
-      <div class="table-wrapper">
-        <table class="weekly-schedule-table">
-          <thead>
-            <tr>
-              <th>床位</th>
-              <th>班次</th>
-              <th v-for="day in WEEKDAYS" :key="day">
-                <div class="weekday">{{ day }}</div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="bedNumber in bedLayout" :key="bedNumber">
-              <tr
-                v-for="(shift, shiftIndex) in SHIFTS"
-                :key="shift"
-                :class="{
-                  'hepatitis-bed': hepatitisBeds.includes(bedNumber),
-                  'noon-shift-row': shift === '午班' /* <-- 新增這一行規則 */,
-                }"
-              >
-                <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
-                <td>{{ shift }}</td>
-                <td v-for="(day, dayIndex) in WEEKDAYS" :key="day">
+    <div class="table-wrapper">
+      <table class="weekly-schedule-table">
+        <thead>
+          <tr>
+            <th>床位</th>
+            <th>班次</th>
+            <th v-for="day in WEEKDAYS" :key="day">{{ day }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="bedNumber in bedLayout" :key="bedNumber">
+            <tr
+              v-for="(shift, shiftIndex) in SHIFTS"
+              :key="shift"
+              :class="{
+                'hepatitis-bed': hepatitisBeds.includes(bedNumber),
+                'noon-shift-row': shift === '午班',
+              }"
+            >
+              <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
+              <td>{{ shift }}</td>
+              <td v-for="(day, dayIndex) in WEEKDAYS" :key="day">
+                <div
+                  class="schedule-slot"
+                  :class="{ filled: baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`) }"
+                  @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
+                >
                   <div
-                    class="schedule-slot"
-                    :class="{ filled: baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`) }"
-                    @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
+                    v-if="baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
+                    class="slot-patient-name"
                   >
-                    <div
-                      v-if="baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                      class="slot-patient-name"
-                    >
-                      {{
-                        patientMap.get(baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`))
-                          ?.name || 'ID不存在'
-                      }}
-                    </div>
+                    {{
+                      patientMap.get(baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`))
+                        ?.name || 'ID不存在'
+                    }}
                   </div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
+                </div>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </div>
 
     <PatientSelectDialog
       :is-visible="isDialogVisible"
-      :title="`為床位 ${currentSlotId ? currentSlotId.split('-')[0] : ''} - ${currentSlotId ? SHIFTS[currentSlotId.split('-')[1]] : ''} (${currentSlotId ? WEEKDAYS[currentSlotId.split('-')[2]] : ''}) 選擇病人`"
+      title="選擇門診病人"
       :patients="allOpdPatients"
       @confirm="handlePatientSelect"
       @cancel="handleDialogCancel"

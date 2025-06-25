@@ -44,6 +44,7 @@ function handleCancel() {
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
   width: 90%;
   max-width: 400px; /* 調整寬度以適應按鈕列表 */
+  z-index: 100; /* 給一個比表格的 10 更大的值，例如 100 */
 }
 
 /* ::backdrop 是 dialog 元素的背景遮罩 */
