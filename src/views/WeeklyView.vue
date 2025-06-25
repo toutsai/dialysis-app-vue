@@ -8,7 +8,7 @@ import { where } from 'firebase/firestore'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
-
+import SelectionDialog from '@/components/SelectionDialog.vue'
 // --- 輔助函式 ---
 
 /**
@@ -92,6 +92,12 @@ const statusText = ref('資料已載入')
 // --- UI 狀態 ---
 const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
+const isClearDialogVisible = ref(false)
+const clearingSlotId = ref(null)
+const CLEAR_OPTIONS = [
+  { value: 'single', text: '僅清除此班次' },
+  // 週排班總表比較適合只清除單次，暫不提供清除全部的選項
+]
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -227,14 +233,30 @@ function handleGridClick(slotId) {
   const shiftName = SHIFTS[shiftIndex]
   const dailyShiftId = `bed-${bed}-${shiftName}`
   const patientId = dailyRecord?.schedule?.[dailyShiftId]?.patientId
+
   if (patientId) {
-    if (confirm('確定要清除此床位的排班嗎？')) {
-      handleSlotUpdate(slotId, null)
-    }
+    // 如果格子已填充，記錄 slotId 並打開清除對話框
+    clearingSlotId.value = slotId
+    isClearDialogVisible.value = true
   } else {
+    // 如果格子是空的，打開病人選擇對話框
     currentSlotId.value = slotId
     isDialogVisible.value = true
   }
+}
+
+function handleClearSelect(selectedOptionText) {
+  const slotId = clearingSlotId.value
+  if (!slotId) return
+
+  const selectedAction = CLEAR_OPTIONS.find((opt) => opt.text === selectedOptionText)?.value
+
+  // 在週排班中，我們通常只清除單次
+  if (selectedAction === 'single') {
+    handleSlotUpdate(slotId, null) // 呼叫我們已有的更新函式，傳入 null 來清除病人
+  }
+
+  isClearDialogVisible.value = false // 關閉對話框
 }
 
 function handleSlotUpdate(slotId, patientId) {
@@ -342,7 +364,6 @@ function onDragOver(event) {
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
-
 // --- 生命週期鉤子 ---
 onMounted(loadAllData)
 </script>
@@ -360,7 +381,9 @@ onMounted(loadAllData)
       </div>
       <div class="main-actions">
         <span class="status-text">{{ statusText }}</span>
-        <button :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">儲存變更</button>
+        <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
+          儲存變更
+        </button>
       </div>
     </div>
 
@@ -439,6 +462,13 @@ onMounted(loadAllData)
       :patients="allPatients"
       @confirm="handlePatientSelect"
       @cancel="handleDialogCancel"
+    />
+    <SelectionDialog
+      :is-visible="isClearDialogVisible"
+      title="清除排班選項"
+      :options="CLEAR_OPTIONS.map((opt) => opt.text)"
+      @select="handleClearSelect"
+      @cancel="isClearDialogVisible = false"
     />
   </div>
 </template>

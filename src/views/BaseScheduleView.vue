@@ -100,7 +100,7 @@ function populateScheduleData() {
   // 當 baseSchedule.value 改變時，Vue 會自動重新渲染模板
 }
 
-async function saveChanges() {
+async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
     const deletePromises = originalBaseSchedule.value.map((record) =>
@@ -208,7 +208,9 @@ onMounted(loadAllData)
       <h1>常規門診床位表</h1>
       <div class="main-actions">
         <span class="status-text">{{ statusText }}</span>
-        <button :disabled="!hasUnsavedChanges" @click="saveChanges">儲存床位</button>
+        <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
+          儲存變更
+        </button>
       </div>
     </div>
 
