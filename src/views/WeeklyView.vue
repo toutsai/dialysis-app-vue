@@ -370,26 +370,30 @@ onMounted(loadAllData)
 
 <template>
   <div class="page-container">
-    <div class="header-toolbar">
-      <h1>週排班總表</h1>
-      <div class="date-navigator">
-        <button @click="changeWeek(-7)">< 上一週</button>
-        <h2>{{ weekDisplay }}</h2>
-        <button @click="changeWeek(7)">下一週 ></button>
-        <button @click="goToToday">回到本週</button>
-        <button @click="loadBaseSchedule">載入常規班表</button>
+    <!-- 1. 將所有頂部的、固定高度的內容，都放進一個 <header> 裡 -->
+    <header class="page-header">
+      <div class="header-toolbar">
+        <h1>週排班總表</h1>
+        <div class="date-navigator">
+          <button @click="changeWeek(-7)">< 上一週</button>
+          <h2>{{ weekDisplay }}</h2>
+          <button @click="changeWeek(7)">下一週 ></button>
+          <button @click="goToToday">回到本週</button>
+          <button @click="loadBaseSchedule">載入常規班表</button>
+        </div>
+        <div class="main-actions">
+          <span class="status-text">{{ statusText }}</span>
+          <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
+            儲存變更
+          </button>
+        </div>
       </div>
-      <div class="main-actions">
-        <span class="status-text">{{ statusText }}</span>
-        <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
-          儲存變更
-        </button>
-      </div>
-    </div>
 
-    <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+    </header>
 
-    <div class="main-content">
+    <!-- 2. 將需要伸展和滾動的內容，放進一個 <main> 裡 -->
+    <main class="page-main-content">
       <div class="schedule-area">
         <div class="table-wrapper">
           <table class="weekly-schedule-table">
@@ -428,22 +432,23 @@ onMounted(loadAllData)
                       @dragover.prevent="onDragOver"
                       @dragleave.prevent="onDragLeave"
                     >
-                      <div
+                      <template
                         v-if="
                           weekScheduleRecords.get(day.queryDate)?.schedule?.[
                             `bed-${bedNumber}-${shift}`
                           ]
                         "
-                        class="slot-patient-name"
                       >
-                        {{
-                          patientMap.get(
-                            weekScheduleRecords.get(day.queryDate).schedule[
-                              `bed-${bedNumber}-${shift}`
-                            ].patientId,
-                          )?.name
-                        }}
-                      </div>
+                        <div class="slot-patient-name">
+                          {{
+                            patientMap.get(
+                              weekScheduleRecords.get(day.queryDate).schedule[
+                                `bed-${bedNumber}-${shift}`
+                              ].patientId,
+                            )?.name
+                          }}
+                        </div>
+                      </template>
                     </div>
                   </td>
                 </tr>
@@ -454,8 +459,9 @@ onMounted(loadAllData)
       </div>
 
       <InpatientSidebar :patients="allPatients" />
-    </div>
+    </main>
 
+    <!-- 彈出視窗元件，放在最外層，不受佈局影響 -->
     <PatientSelectDialog
       :is-visible="isDialogVisible"
       title="選擇排班病人"

@@ -204,61 +204,63 @@ onMounted(loadAllData)
 
 <template>
   <div class="page-container">
-    <div class="header-toolbar">
-      <h1>常規門診床位表</h1>
-      <div class="main-actions">
-        <span class="status-text">{{ statusText }}</span>
-        <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
-          儲存變更
-        </button>
+    <header class="page-header">
+      <div class="header-toolbar">
+        <h1>常規門診床位表</h1>
+        <div class="main-actions">
+          <span class="status-text">{{ statusText }}</span>
+          <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChanges">
+            儲存床位
+          </button>
+        </div>
       </div>
-    </div>
+      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+    </header>
 
-    <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
-
-    <div class="table-wrapper">
-      <table class="weekly-schedule-table">
-        <thead>
-          <tr>
-            <th>床位</th>
-            <th>班次</th>
-            <th v-for="day in WEEKDAYS" :key="day">{{ day }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="bedNumber in bedLayout" :key="bedNumber">
-            <tr
-              v-for="(shift, shiftIndex) in SHIFTS"
-              :key="shift"
-              :class="{
-                'hepatitis-bed': hepatitisBeds.includes(bedNumber),
-                'noon-shift-row': shift === '午班',
-              }"
-            >
-              <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
-              <td>{{ shift }}</td>
-              <td v-for="(day, dayIndex) in WEEKDAYS" :key="day">
-                <div
-                  class="schedule-slot"
-                  :class="{ filled: baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`) }"
-                  @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                >
-                  <div
-                    v-if="baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                    class="slot-patient-name"
-                  >
-                    {{
-                      patientMap.get(baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`))
-                        ?.name || 'ID不存在'
-                    }}
-                  </div>
-                </div>
-              </td>
+    <main class="page-main-content">
+      <div class="table-wrapper">
+        <table class="weekly-schedule-table">
+          <thead>
+            <tr>
+              <th>床位</th>
+              <th>班次</th>
+              <th v-for="day in WEEKDAYS" :key="day">{{ day }}</th>
             </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            <template v-for="bedNumber in bedLayout" :key="bedNumber">
+              <tr
+                v-for="(shift, shiftIndex) in SHIFTS"
+                :key="shift"
+                :class="{
+                  'hepatitis-bed': hepatitisBeds.includes(bedNumber),
+                  'noon-shift-row': shift === '午班',
+                }"
+              >
+                <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
+                <td>{{ shift }}</td>
+                <td v-for="(day, dayIndex) in WEEKDAYS" :key="day">
+                  <div
+                    class="schedule-slot"
+                    :class="{ filled: baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`) }"
+                    @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
+                  >
+                    <template v-if="baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`)">
+                      <div class="slot-patient-name">
+                        {{
+                          patientMap.get(baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`))
+                            ?.name || 'ID不存在'
+                        }}
+                      </div>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </main>
 
     <PatientSelectDialog
       :is-visible="isDialogVisible"
@@ -286,8 +288,9 @@ onMounted(loadAllData)
 
 /* ... 其他表格相關樣式 ... */
 .table-wrapper {
-  max-height: 75vh;
-  overflow: auto;
+  flex-grow: 1; /* <-- 關鍵！讓它佔滿所有剩餘的垂直空間 */
+  overflow: auto; /* <-- 關鍵！當表格內容過多時，讓這個容器自己滾動 */
+  min-height: 0; /* 一個防止 Flex 溢出的技巧 */
 }
 .schedule-slot {
   width: 100%;
