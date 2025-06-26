@@ -50,11 +50,6 @@ const allMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 
-function setChange() {
-  hasUnsavedChanges.value = true
-  statusIndicator.value = '有未儲存的變更'
-}
-
 // --- 輔助函式 ---
 const formatDate = (date) => {
   const year = date.getFullYear()
@@ -115,26 +110,15 @@ async function loadData(date) {
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
 
-  // **新增除錯日誌**
-  console.log(`[Debug] 準備查詢 schedules，日期為: "${dateStr}" (類型: ${typeof dateStr})`)
-
   try {
     const [dailyRecords, patientsData, memosData] = await Promise.all([
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       patientsApi.fetchAll(),
       memosApi.fetchAll([where('isResolved', '==', false)]),
     ])
-
-    // **新增除錯日誌**
-    console.log('[Debug] Firestore 查詢結束。收到的 dailyRecords:', dailyRecords)
-
     allPatients.value = patientsData
     allMemos.value = memosData
     currentRecord.value = dailyRecords.length > 0 ? dailyRecords[0] : null
-
-    // **新增除錯日誌**
-    console.log('[Debug] 更新後的 currentRecord.value:', currentRecord.value)
-
     if (currentRecord.value) {
       statusIndicator.value = '資料已載入'
     } else {
@@ -158,14 +142,19 @@ function goToToday() {
   loadData(currentDate.value)
 }
 
+function setChange() {
+  hasUnsavedChanges.value = true
+  statusIndicator.value = '有未儲存的變更'
+}
+
 async function saveChangesToCloud() {
-  // 1. 安全性檢查：確保我們有一個可以更新的目標
+  // 安全性檢查
   if (!currentRecord.value || !currentRecord.value.id) {
-    alert('錯誤：找不到當天的排班記錄可以儲存。請確認本日已有排班，或刷新頁面後重試。')
-    statusIndicator.value = '儲存失敗：無目標記錄'
+    alert('錯誤：找不到當天的排班記錄可以儲存。')
     return
   }
-  // 2. 收集使用者在介面上的修改 (護理師姓名)
+
+  // 收集使用者在介面上的修改 (護理師姓名)
   const newNames = {}
   document.querySelectorAll('.name-select').forEach((select) => {
     const teamId = select.dataset.teamId
@@ -173,20 +162,25 @@ async function saveChangesToCloud() {
       newNames[teamId] = select.value
     }
   })
-  // 3. 準備要更新的資料
-  // 我們只更新 names 和可能被修改的 schedule 物件
+
+  // 準備要更新的資料
+  // 我們只更新 names，同時保留舊的 schedule 和 date
   const dataToUpdate = {
-    ...currentRecord.value, // 繼承舊記錄的所有資料
-    names: newNames, // 覆蓋上新的護理師名單
+    date: currentRecord.value.date,
+    schedule: currentRecord.value.schedule,
+    names: newNames,
   }
+
   statusIndicator.value = '儲存中...'
   try {
-    // 4. 執行更新操作
+    // 執行更新操作
     await schedulesApi.update(currentRecord.value.id, dataToUpdate)
-    // 5. 更新 UI 狀態
+
+    // 更新 UI 狀態
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存'
     alert('變更儲存成功！')
+
     // 重新載入資料以確保同步
     await loadData(currentDate.value)
   } catch (error) {
@@ -209,9 +203,9 @@ onMounted(() => {
       <div class="toolbar">
         <div class="toolbar-left">
           <div class="date-navigator">
-            <button @click="changeDate(-1)" class="date-nav-btn"><</button>
+            <button @click="changeDate(-1)" class="date-nav-btn"><上一天</button>
             <span class="current-date-text">{{ formatDate(currentDate) }}</span>
-            <button @click="changeDate(1)" class="date-nav-btn">></button>
+            <button @click="changeDate(1)" class="date-nav-btn">下一天></button>
           </div>
           <button @click="goToToday" id="today-btn">回到今日</button>
         </div>
@@ -287,7 +281,7 @@ onMounted(() => {
                 :key="teamName"
                 class="team-name-cell"
               >
-                <select class="name-select" :data-team-id="teamName" @change="setChange">
+                <select class="name-select">
                   <option value=""></option>
                   <option v-for="name in nurseNameList" :key="name" :value="name">
                     {{ name }}
@@ -327,10 +321,16 @@ onMounted(() => {
   gap: 15px; /* 設定項目之間的間距 */
   margin-bottom: 20px; /*設定整個容器外部下方的間距 */
 }
+.page-title {
+  font-size: 1.8em; /* 字體大小：1.8 倍 */
+  color: #333;
+  margin: 0; /* 確保沒有外部間距 */
+  text-align: left;
+}
 .toolbar {
   display: flex;
   justify-content: space-between; /* 讓左右兩側的工具欄分開 */
-  align-items: center; /* 垂直對齊 */
+  align-items: center;
   width: 100%;
 }
 .toolbar-left,
@@ -345,7 +345,7 @@ onMounted(() => {
   gap: 10px;
 }
 .current-date-text {
-  font-size: 1.4em;
+  font-size: 1.2em;
   font-weight: bold;
   color: #333;
 }

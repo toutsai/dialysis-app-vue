@@ -157,3 +157,11 @@ body {
   min-height: 0; /* 防止子元素溢出的關鍵技巧 */
   display: flex; /* 讓它自己也成為 Flex 容器，以便內部佈局（例如 weeklyview 的側邊欄） */
 }
+/* 4. 新增：定義全域通用的頁面標題樣式 */
+.page-title {
+  font-size: 1.8em; /* 或者你喜歡的任何統一大小，例如 2rem 或 32px */
+  font-weight: bold; /* 確保所有標題都是粗體 */
+  color: #333;
+  margin-bottom: 20px; /* 在標題和下方內容之間增加一些間距 */
+  margin-top: 0;
+}

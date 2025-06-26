@@ -373,14 +373,22 @@ onMounted(loadAllData)
     <!-- 1. 將所有頂部的、固定高度的內容，都放進一個 <header> 裡 -->
     <header class="page-header">
       <div class="header-toolbar">
-        <h1 class="page-title">週排班總表</h1>
-        <div class="date-navigator">
-          <button @click="changeWeek(-7)">< 上一週</button>
-          <h2>{{ weekDisplay }}</h2>
-          <button @click="changeWeek(7)">下一週 ></button>
-          <button @click="goToToday">回到本週</button>
-          <button @click="loadBaseSchedule">載入常規班表</button>
+        <!-- 1. 新增一個 .toolbar-left 容器 -->
+        <div class="toolbar-left">
+          <h1 class="page-title">週排班總表</h1>
+          <div class="date-navigator">
+            <button @click="changeWeek(-7)">< 上一週</button>
+            <!-- 使用 span 代替 h2，語義更正確，也更容易控制樣式 -->
+            <span class="week-display-text">{{ weekDisplay }}</span>
+            <button @click="changeWeek(7)">下一週 ></button>
+          </div>
+          <div class="main-actions">
+            <button @click="goToToday">回到本週</button>
+            <button @click="loadBaseSchedule">載入常規班表</button>
+          </div>
         </div>
+
+        <!-- 2. 右側的 .main-actions 保持不變 -->
         <div class="main-actions">
           <span class="status-text">{{ statusText }}</span>
           <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
@@ -531,5 +539,25 @@ onMounted(loadAllData)
 .schedule-slot.drag-over {
   transform: scale(1.05);
   background-color: #c8e6c9;
+}
+
+/* 新增：讓左側所有元素水平排列並對齊 */
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 20px; /* 在標題、日期導航、按鈕之間增加間距 */
+}
+
+/* 移除 h1 和 h2 的預設邊距，讓對齊更精確 */
+.page-title,
+.header-toolbar h2 {
+  margin: 0;
+}
+
+/* 為新的 week-display-text 設定樣式 */
+.week-display-text {
+  font-size: 1.5em; /* 保持和原來 h2 一樣的大小 */
+  font-weight: bold;
+  color: #343a40;
 }
 </style>

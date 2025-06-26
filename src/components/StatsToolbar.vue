@@ -17,11 +17,11 @@ defineProps({
   <div class="stats-toolbar">
     <div v-for="(dayData, index) in statsData" :key="index" class="stat-item">
       <!-- 從 props 獲取星期 -->
-      <strong>{{ weekdays[index] }}:</strong>
+      <strong>{{ weekdays[index] }}</strong>
       <div class="stat-shift-group">
-        <span class="shift-early">早:{{ dayData.counts['早班'] }}</span>
-        <span class="shift-noon">午:{{ dayData.counts['午班'] }}</span>
-        <span class="shift-late">晚:{{ dayData.counts['晚班'] }}</span>
+        <span class="shift-early">早 {{ dayData.counts['早班'] }}</span>
+        <span class="shift-noon">午 {{ dayData.counts['午班'] }}</span>
+        <span class="shift-late">晚 {{ dayData.counts['晚班'] }}</span>
       </div>
     </div>
   </div>
