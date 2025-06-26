@@ -206,10 +206,10 @@ onMounted(loadAllData)
   <div class="page-container">
     <header class="page-header">
       <div class="header-toolbar">
-        <h1>常規門診床位表</h1>
+        <h1 class="page-title">常規門診床位表</h1>
         <div class="main-actions">
           <span class="status-text">{{ statusText }}</span>
-          <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChanges">
+          <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
             儲存床位
           </button>
         </div>
@@ -280,7 +280,7 @@ onMounted(loadAllData)
   </div>
 </template>
 
-<style>
+<style scoped>
 .page-container {
   width: 100%;
   /* 其他全域樣式在 main.css */

@@ -211,7 +211,7 @@ onMounted(() => {
 <template>
   <div>
     <div class="page-container">
-      <h1>透析病人管理系統</h1>
+      <h1 class="page-title">透析病人管理系統</h1>
 
       <div class="tabs">
         <button
@@ -409,7 +409,7 @@ onMounted(() => {
   </div>
 </template>
 
-<style>
+<style scoped>
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
@@ -537,16 +537,6 @@ onMounted(() => {
 .patient-table tr.status-deleted {
   background-color: var(--grey-bg);
   color: var(--grey-text);
-}
-.disease-tag {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 6px;
-  font-size: 0.8em;
-  font-weight: bold;
-  color: var(--red-text);
-  border: 1px solid var(--red-text);
-  border-radius: 4px;
 }
 .action-buttons button {
   margin-right: 5px;

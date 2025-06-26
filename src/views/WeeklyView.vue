@@ -373,7 +373,7 @@ onMounted(loadAllData)
     <!-- 1. 將所有頂部的、固定高度的內容，都放進一個 <header> 裡 -->
     <header class="page-header">
       <div class="header-toolbar">
-        <h1>週排班總表</h1>
+        <h1 class="page-title">週排班總表</h1>
         <div class="date-navigator">
           <button @click="changeWeek(-7)">< 上一週</button>
           <h2>{{ weekDisplay }}</h2>
@@ -479,7 +479,7 @@ onMounted(loadAllData)
   </div>
 </template>
 
-<style>
+<style scoped>
 /* 這裡只保留此頁面特有的、且不能被全域化的樣式 */
 .main-content {
   display: flex;
@@ -487,24 +487,20 @@ onMounted(loadAllData)
   flex-grow: 1;
   min-height: 0;
 }
-
 .schedule-area {
   flex-grow: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-
 .table-wrapper {
   flex-grow: 1; /* <-- 關鍵！讓它佔滿所有剩餘的垂直空間 */
   overflow: auto; /* <-- 關鍵！當表格內容過多時，讓這個容器自己滾動 */
   min-height: 0; /* 一個防止 Flex 溢出的技巧 */
 }
-
 .noon-shift-row > td {
   background-color: var(--blue-bg);
 }
-
 .schedule-slot {
   width: 100%;
   height: 100%;

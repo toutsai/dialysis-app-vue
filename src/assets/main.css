@@ -1,16 +1,4 @@
-/* src/assets/main.css */
-.page-container {
-  width: 100%;
-  max-width: 1400px;
-  margin: 0 auto;
-  background-color: #fff;
-  display: flex;
-  flex-direction: column; /* 讓內部的 header 和 table-wrapper 垂直排列 */
-  height: 100%; /* 讓它填滿父層 .content-area 的高度 */
-  padding: 20px; /* 為了佈局，我們先把 padding 移到內層 */
-  overflow-y: auto; /* 當垂直內容溢出時，顯示滾動條 */
-}
-
+/* 檔案路徑: src/assets/main.css (最終全域版) */
 /* 1. 定義全域顏色變數 */
 :root {
   --primary-color: #007bff;
@@ -28,7 +16,41 @@
   --red-text: #c62828;
 }
 
-/* 2. 定義通用的表格樣式 */
+/* 2. 基礎 HTML/Body 樣式重設 */
+html {
+  box-sizing: border-box;
+  font-size: 16px;
+}
+
+*,
+*:before,
+*:after {
+  box-sizing: inherit;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+  background-color: var(--sidebar-bg); /* 使用變數 */
+  color: #212529;
+  line-height: 1.5;
+}
+
+/* 3. 全域頁面容器樣式 */
+.page-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  background-color: #fff;
+  display: flex;
+  flex-direction: column; /* 讓內部的 header 和 table-wrapper 垂直排列 */
+  height: 100%; /* 讓它填滿父層 .content-area 的高度 */
+  padding: 20px; /* 為了佈局，我們先把 padding 移到內層 */
+  overflow-y: auto; /* 當垂直內容溢出時，顯示滾動條 */
+}
+
+/* 4. 定義通用的表格樣式 */
 .weekly-schedule-table {
   width: 100%;
   border-collapse: collapse;
@@ -55,12 +77,10 @@
 .weekly-schedule-table td:nth-child(1) {
   width: 70px; /* 調整你喜歡的寬度，例如 90px */
 }
-
 .weekly-schedule-table th:nth-child(2),
 .weekly-schedule-table td:nth-child(2) {
   width: 70px; /* 調整你喜歡的寬度，例如 70px */
 }
-
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -103,13 +123,11 @@
   color: white;
   border-color: var(--primary-color);
 }
-
 /* 同樣地，也為 hover 和 disabled 狀態提高特殊性 */
 .main-actions button.btn-save:hover:not(:disabled) {
   background-color: #0056b3;
   border-color: #0056b3;
 }
-
 .main-actions button.btn-save:disabled {
   background-color: #ccc;
   border-color: #ccc;
@@ -134,7 +152,6 @@
 .page-header {
   flex-shrink: 0; /* 確保頭部區域不會被壓縮 */
 }
-
 .page-main-content {
   flex-grow: 1; /* 讓主內容區佔滿所有剩餘的垂直空間 */
   min-height: 0; /* 防止子元素溢出的關鍵技巧 */

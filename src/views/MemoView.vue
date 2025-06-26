@@ -1,7 +1,7 @@
 <!-- src/views/MemoView.vue 的 <template> 部分修改後 -->
 <template>
   <div class="page-container">
-    <h1>交班備忘錄</h1>
+    <h1 class="page-title">交班備忘錄</h1>
     <div class="memo-form">
       <h2>新增備忘</h2>
       <!-- 1. 使用 v-model 綁定輸入 -->
