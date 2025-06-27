@@ -1,15 +1,14 @@
 <!-- 檔案路徑: src/components/StatsToolbar.vue -->
 <script setup>
-// 1. 定義 props，接收來自父元件的統計資料
-defineProps({
-  statsData: {
-    type: Array,
-    required: true,
-  },
-  weekdays: {
-    type: Array,
-    required: true,
-  },
+const props = defineProps({
+  statsData: Array,
+  weekdays: Array,
+})
+
+// **新增這個 console.log**
+console.log('[Debug StatsToolbar] 元件接收到的 props:', {
+  statsData: JSON.parse(JSON.stringify(props.statsData)),
+  weekdays: props.weekdays,
 })
 </script>
 

@@ -66,19 +66,52 @@ const weekdayDisplay = computed(
 )
 const shiftPatientCount = computed(() => {
   const counts = { 早: 0, 午: 0, 晚: 0 }
+
+  // 確保 currentRecord 和 schedule 物件都存在
   if (currentRecord.value && currentRecord.value.schedule) {
-    for (const slotData of Object.values(currentRecord.value.schedule)) {
-      if (slotData.patientId) {
-        const shiftId = slotData.shiftId || ''
-        if (shiftId.includes('-早')) counts['早']++
-        else if (shiftId.includes('-午')) counts['午']++
-        else if (shiftId.includes('-晚')) counts['晚']++
+    // **關鍵修正：直接遍歷 schedule 物件的所有鍵 (shiftId)**
+    for (const shiftId in currentRecord.value.schedule) {
+      // 確保這個排班記錄是有效的 (有 patientId)
+      if (currentRecord.value.schedule[shiftId]?.patientId) {
+        // 直接根據鍵的名稱來判斷班別
+        if (shiftId.includes('-早班')) {
+          counts['早']++
+        } else if (shiftId.includes('-午班')) {
+          counts['午']++
+        } else if (shiftId.includes('-晚班')) {
+          counts['晚']++
+        }
       }
     }
   }
+  // **新增除錯日誌，親眼看看計算結果**
+  console.log('[Debug] shiftPatientCount 計算結果:', counts)
   return counts
 })
-const statsToolbarData = computed(() => [{ counts: shiftPatientCount.value }])
+
+const statsToolbarData = computed(() => {
+  const counts = { 早: 0, 午: 0, 晚: 0 }
+  if (currentRecord.value && currentRecord.value.schedule) {
+    for (const shiftId in currentRecord.value.schedule) {
+      if (currentRecord.value.schedule[shiftId]?.patientId) {
+        if (shiftId.includes('-早班')) {
+          counts['早班']++
+        } else if (shiftId.includes('-午班')) {
+          counts['午班']++
+        } else if (shiftId.includes('-晚班')) {
+          counts['晚班']++
+        }
+      }
+    }
+  }
+  const result = [{ counts }]
+  // **新增這個 console.log**
+  console.log(
+    '[Debug ScheduleView] 準備傳遞給 StatsToolbar 的資料 (statsToolbarData):',
+    JSON.parse(JSON.stringify(result)),
+  )
+  return result
+})
 const statsToolbarWeekdays = computed(() => ['本日'])
 
 // --- 方法 ---
