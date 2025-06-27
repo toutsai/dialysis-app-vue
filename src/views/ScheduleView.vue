@@ -3,8 +3,8 @@
 import { ref, onMounted, computed, reactive } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
-import StatsToolbar from '@/components/StatsToolbar.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
+import StatsToolbar from '@/components/StatsToolbar.vue'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
@@ -36,6 +36,10 @@ const layoutData = {
 const hepatitisBeds = ['空', 31, 32, 33, 35, 36]
 const aisleSideBeds = [1, 7, 8, 15, 16, 22, 23, 29, 31, 36, 37, 53, 55, 61, 62, 65]
 const peripheralBedCount = 6
+const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
+const earlyTeams = baseTeams.map((t) => `早${t}`)
+const lateTeams = baseTeams.map((t) => `晚${t}`)
+const allTeams = [...earlyTeams, ...lateTeams] // 用於午班收針
 
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
@@ -44,7 +48,6 @@ const allPatients = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const searchInput = ref('')
-
 function formatDate(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -54,20 +57,19 @@ function formatDate(date) {
 const copySourceDate = ref(formatDate(new Date()))
 
 // --- 計算屬性 ---
-const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+const patientMap = computed(() => {
+  console.log('[Debug] patientMap re-computed. allPatients count:', allPatients.value.length)
+  return new Map(allPatients.value.map((p) => [p.id, p]))
+})
 const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
-  () =>
-    ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][
-      currentDate.value.getDay()
-    ],
+  () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
-
 const shiftPatientCount = computed(() => {
   const counts = { 早: 0, 午: 0, 晚: 0 }
   if (currentRecord.value && currentRecord.value.schedule) {
     for (const slotData of Object.values(currentRecord.value.schedule)) {
-      if (slotData.patientId || slotData.patient) {
+      if (slotData.patientId) {
         const shiftId = slotData.shiftId || ''
         if (shiftId.includes('-早')) counts['早']++
         else if (shiftId.includes('-午')) counts['午']++
@@ -77,7 +79,6 @@ const shiftPatientCount = computed(() => {
   }
   return counts
 })
-
 const statsToolbarData = computed(() => [{ counts: shiftPatientCount.value }])
 const statsToolbarWeekdays = computed(() => ['本日'])
 
@@ -85,18 +86,30 @@ const statsToolbarWeekdays = computed(() => ['本日'])
 async function loadDataForDay(date) {
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
+  console.clear()
+  console.log(`%c[1. 準備查詢] - 目標日期: "${dateStr}"`, 'color: blue; font-weight: bold;')
   try {
     const [patientsData, dailyRecords] = await Promise.all([
       patientsApi.fetchAll(),
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
     ])
+
+    console.log(
+      `%c[2. 查詢結束] - Firestore 返回了 ${dailyRecords.length} 筆排班記錄。`,
+      'color: green;',
+    )
+    console.log('返回的病人資料 (allPatients):', patientsData)
+
     allPatients.value = patientsData
     currentRecord.value =
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {}, names: {} }
-    statusIndicator.value = dailyRecords.length > 0 ? '資料已載入' : '本日無雲端資料'
+
+    console.log(
+      '%c[3. 狀態更新] - 更新後的 currentRecord:',
+      JSON.parse(JSON.stringify(currentRecord.value)),
+    )
   } catch (error) {
     console.error('載入資料失敗:', error)
-    statusIndicator.value = '讀取失敗'
   }
 }
 
@@ -110,6 +123,24 @@ function changeDate(days) {
 function goToToday() {
   currentDate.value = new Date()
   loadDataForDay(currentDate.value)
+}
+
+function getPatientName(bedIdentifier, shift) {
+  const shiftName = `${shift}班`
+  const shiftId = `bed-${bedIdentifier}-${shiftName}`
+
+  const patientId = currentRecord.value?.schedule?.[shiftId]?.patientId
+
+  // **新增詳細除錯日誌**
+  if (patientId) {
+    const patient = patientMap.value.get(patientId)
+    console.log(
+      `[Debug getPatientName] 正在查找 shiftId: ${shiftId}, 找到 patientId: ${patientId}, 在 patientMap 中找到的病人:`,
+      patient,
+    )
+    return patient?.name || '病人ID無效'
+  }
+  return ''
 }
 
 // --- 生命週期鉤子 ---
@@ -161,6 +192,7 @@ onMounted(() => {
     <main class="page-main-content">
       <div class="schedule-content">
         <div class="dialysis-unit">
+          <!-- 左翼 -->
           <div class="left-wing">
             <div
               v-for="(row, rowIndex) in layoutData.leftWingRows"
@@ -168,25 +200,21 @@ onMounted(() => {
               class="bed-row"
             >
               <div
-                v-for="bedNumber in row"
-                :key="`bed-${bedNumber}`"
+                v-for="bedNum in row"
+                :key="`bed-left-${bedNum}`"
                 class="bed"
                 :class="{
-                  placeholder: bedNumber === null,
-                  unassigned: bedNumber === '空',
-                  hepatitis: hepatitisBeds.includes(bedNumber),
-                  'aisle-side': aisleSideBeds.includes(bedNumber),
+                  unassigned: bedNum === '空',
+                  hepatitis: hepatitisBeds.includes(bedNum),
+                  'aisle-side': aisleSideBeds.includes(bedNum),
                   'left-wing-bed': true,
                 }"
               >
                 <div class="bed-header">
-                  <template v-if="bedNumber === '空'">未排床</template>
-                  <template v-else
-                    >床號 {{ bedNumber
-                    }}<span v-if="hepatitisBeds.includes(bedNumber)"> (BC肝炎)</span></template
-                  >
+                  {{ bedNum === '空' ? '未排床' : `床號 ${bedNum}` }}
+                  <span v-if="hepatitisBeds.includes(bedNum) && bedNum !== '空'">(BC肝炎)</span>
                 </div>
-                <template v-if="bedNumber !== '空' && bedNumber !== null">
+                <template v-if="bedNum !== '空'">
                   <div
                     v-for="shift in SHIFTS"
                     :key="shift"
@@ -194,28 +222,43 @@ onMounted(() => {
                     :class="{ 'split-shift': shift === '午' }"
                   >
                     <div class="shift-label">{{ shift }}</div>
+                    <!-- **關鍵修正 1：加入午班和其他班別的 select 邏輯** -->
                     <div v-if="shift === '午'" class="nurse-split-column">
                       <select class="nurse-team-select nurse-in" title="上針">
                         <option value="">上針</option>
+                        <option v-for="team in earlyTeams" :key="team" :value="team">
+                          {{ team }}組
+                        </option>
                       </select>
                       <select class="nurse-team-select nurse-out" title="收針">
                         <option value="">收針</option>
+                        <option v-for="team in allTeams" :key="team" :value="team">
+                          {{ team }}組
+                        </option>
                       </select>
                     </div>
                     <select v-else class="nurse-team-select">
                       <option value="">-</option>
+                      <option
+                        v-for="team in shift === '早' ? earlyTeams : lateTeams"
+                        :key="team"
+                        :value="team"
+                      >
+                        {{ team }}組
+                      </option>
                     </select>
-                    <div class="patient-name" contenteditable="true"></div>
+                    <div class="patient-name" contenteditable="true">
+                      {{ getPatientName(bedNum, shift) }}
+                    </div>
                     <div class="patient-tag" contenteditable="true"></div>
                   </div>
                 </template>
               </div>
             </div>
-            <div class="bed-row">
-              <div class="nursing-station">護理站</div>
-            </div>
+            <div class="bed-row"><div class="nursing-station">護理站</div></div>
           </div>
           <div class="aisle">中 央 走 道</div>
+          <!-- 右翼 -->
           <div class="right-wing">
             <div
               v-for="(row, rowIndex) in layoutData.rightWingRows"
@@ -223,33 +266,54 @@ onMounted(() => {
               class="bed-row"
             >
               <div
-                v-for="bedNumber in row"
-                :key="`bed-${bedNumber}-right`"
+                v-for="bedNum in row"
+                :key="`bed-right-${bedNum}`"
                 class="bed"
-                :class="{ 'aisle-side': aisleSideBeds.includes(bedNumber), 'right-wing-bed': true }"
+                :class="{
+                  'aisle-side': aisleSideBeds.includes(bedNum),
+                  'right-wing-bed': true,
+                }"
               >
-                <div class="bed-header">床號 {{ bedNumber }}</div>
-                <div
-                  v-for="shift in SHIFTS"
-                  :key="shift"
-                  class="shift-row"
-                  :class="{ 'split-shift': shift === '午' }"
-                >
-                  <div class="shift-label">{{ shift }}</div>
-                  <div v-if="shift === '午'" class="nurse-split-column">
-                    <select class="nurse-team-select nurse-in" title="上針">
-                      <option value="">上針</option>
+                <div class="bed-header">床號 {{ bedNum }}</div>
+                <template v-if="bedNum !== '空'">
+                  <div
+                    v-for="shift in SHIFTS"
+                    :key="shift"
+                    class="shift-row"
+                    :class="{ 'split-shift': shift === '午' }"
+                  >
+                    <div class="shift-label">{{ shift }}</div>
+                    <!-- **關鍵修正 2：右翼也加入同樣的 select 邏輯** -->
+                    <div v-if="shift === '午'" class="nurse-split-column">
+                      <select class="nurse-team-select nurse-in" title="上針">
+                        <option value="">上針</option>
+                        <option v-for="team in earlyTeams" :key="team" :value="team">
+                          {{ team }}組
+                        </option>
+                      </select>
+                      <select class="nurse-team-select nurse-out" title="收針">
+                        <option value="">收針</option>
+                        <option v-for="team in allTeams" :key="team" :value="team">
+                          {{ team }}組
+                        </option>
+                      </select>
+                    </div>
+                    <select v-else class="nurse-team-select">
+                      <option value="">-</option>
+                      <option
+                        v-for="team in shift === '早' ? earlyTeams : lateTeams"
+                        :key="team"
+                        :value="team"
+                      >
+                        {{ team }}組
+                      </option>
                     </select>
-                    <select class="nurse-team-select nurse-out" title="收針">
-                      <option value="">收針</option>
-                    </select>
+                    <div class="patient-name" contenteditable="true">
+                      {{ getPatientName(bedNum, shift) }}
+                    </div>
+                    <div class="patient-tag" contenteditable="true"></div>
                   </div>
-                  <select v-else class="nurse-team-select">
-                    <option value="">-</option>
-                  </select>
-                  <div class="patient-name" contenteditable="true"></div>
-                  <div class="patient-tag" contenteditable="true"></div>
-                </div>
+                </template>
               </div>
             </div>
           </div>
@@ -262,11 +326,25 @@ onMounted(() => {
                 <div class="peripheral-header">外圍床位 {{ i }}</div>
                 <div v-for="shift in SHIFTS" :key="shift" class="peripheral-shift-row">
                   <div class="shift-label">{{ shift }}</div>
+                  <!-- **關鍵修正 3：為外圍床位加入 select 邏輯** -->
                   <select class="nurse-team-select">
                     <option value="">-</option>
+                    <option
+                      v-for="team in shift === '早'
+                        ? earlyTeams
+                        : shift === '晚'
+                          ? lateTeams
+                          : allTeams"
+                      :key="team"
+                      :value="team"
+                    >
+                      {{ team }}組
+                    </option>
                   </select>
                   <div class="peripheral-bed-number" contenteditable="true"></div>
-                  <div class="peripheral-patient-name" contenteditable="true"></div>
+                  <div class="peripheral-patient-name" contenteditable="true">
+                    {{ getPatientName(`peripheral-${i}`, shift) }}
+                  </div>
                   <div class="patient-tag" contenteditable="true"></div>
                 </div>
               </div>
@@ -274,25 +352,7 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <aside class="inpatient-sidebar">
-        <h3>住院病人清單</h3>
-        <div class="filter-group">
-          <button data-filter="all" class="active">全部</button>
-          <button data-filter="135">一三五</button>
-          <button data-filter="246">二四六</button>
-          <button data-filter="other">其他</button>
-        </div>
-        <ul id="inpatient-list">
-          <li>
-            <div class="patient-info-row">
-              <span class="name">劉錦榮</span><span class="freq">二四六</span>
-            </div>
-            <div class="patient-info-row">
-              <span class="mrn">(2358246)</span>
-            </div>
-          </li>
-        </ul>
-      </aside>
+      <InpatientSidebar :patients="allPatients" />
     </main>
   </div>
 </template>
@@ -498,7 +558,7 @@ onMounted(() => {
   font-weight: bold;
   color: #558b2f;
   grid-column: span 3;
-  padding: 30px 0; /* 上下 padding 30px，左右 padding 0 */
+  padding: 60px 0; /* 上下 padding 30px，左右 padding 0 */
 }
 .bed-header,
 .peripheral-header {
