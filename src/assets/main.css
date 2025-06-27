@@ -1,5 +1,5 @@
 /* 檔案路徑: src/assets/main.css (最終全域版) */
-/* 1. 定義全域顏色變數 */
+/* 定義全域顏色變數 */
 :root {
   --primary-color: #007bff;
   --success-color: #28a745;
@@ -16,7 +16,7 @@
   --red-text: #c62828;
 }
 
-/* 2. 基礎 HTML/Body 樣式重設 */
+/* 基礎 HTML/Body 樣式重設 */
 html {
   box-sizing: border-box;
   font-size: 16px;
@@ -37,10 +37,10 @@ body {
   line-height: 1.5;
 }
 
-/* 3. 全域頁面容器樣式 */
+/* 全域頁面容器樣式 */
 .page-container {
   width: 100%;
-  max-width: 1400px;
+  max-width: 2000px;
   margin: 0 auto;
   background-color: #fff;
   display: flex;
@@ -48,9 +48,27 @@ body {
   height: 100%; /* 讓它填滿父層 .content-area 的高度 */
   padding: 20px; /* 為了佈局，我們先把 padding 移到內層 */
   overflow-y: auto; /* 當垂直內容溢出時，顯示滾動條 */
+  box-sizing: border-box;
 }
 
-/* 4. 定義通用的表格樣式 */
+/* 定義全域通用的頁面標題樣式 */
+.page-title {
+  font-size: 1.8em; /* 或者你喜歡的任何統一大小，例如 2rem 或 32px */
+  font-weight: bold; /* 確保所有標題都是粗體 */
+  color: #333;
+  margin-bottom: 20px; /* 在標題和下方內容之間增加一些間距 */
+  margin-top: 0;
+}
+.page-header {
+  flex-shrink: 0; /* 確保頭部區域不會被壓縮 */
+}
+.page-main-content {
+  flex-grow: 1; /* 讓主內容區佔滿所有剩餘的垂直空間 */
+  min-height: 0; /* 防止子元素溢出的關鍵技巧 */
+  display: flex; /* 讓它自己也成為 Flex 容器，以便內部佈局（例如 weeklyview 的側邊欄） */
+}
+
+/* 定義通用的表格樣式 */
 .weekly-schedule-table {
   width: 100%;
   border-collapse: collapse;
@@ -123,7 +141,6 @@ body {
   color: white;
   border-color: var(--primary-color);
 }
-/* 同樣地，也為 hover 和 disabled 狀態提高特殊性 */
 .main-actions button.btn-save:hover:not(:disabled) {
   background-color: #0056b3;
   border-color: #0056b3;
@@ -148,20 +165,4 @@ body {
   border: 1px solid #c62828; /* 直接使用顏色碼，而不是 var(--red-text) */
   /* --- 修正結束 --- */
   border-radius: 4px;
-}
-.page-header {
-  flex-shrink: 0; /* 確保頭部區域不會被壓縮 */
-}
-.page-main-content {
-  flex-grow: 1; /* 讓主內容區佔滿所有剩餘的垂直空間 */
-  min-height: 0; /* 防止子元素溢出的關鍵技巧 */
-  display: flex; /* 讓它自己也成為 Flex 容器，以便內部佈局（例如 weeklyview 的側邊欄） */
-}
-/* 4. 新增：定義全域通用的頁面標題樣式 */
-.page-title {
-  font-size: 1.8em; /* 或者你喜歡的任何統一大小，例如 2rem 或 32px */
-  font-weight: bold; /* 確保所有標題都是粗體 */
-  color: #333;
-  margin-bottom: 20px; /* 在標題和下方內容之間增加一些間距 */
-  margin-top: 0;
 }
