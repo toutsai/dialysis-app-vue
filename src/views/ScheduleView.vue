@@ -65,14 +65,17 @@ const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
 const shiftPatientCount = computed(() => {
-  const counts = { 早: 0, 午: 0, 晚: 0 }
-  if (currentRecord.value && currentRecord.value.schedule) {
-    for (const slotData of Object.values(currentRecord.value.schedule)) {
+  // 1. 初始化時就使用 '早班', '午班', '晚班' 作為 key
+  const counts = { 早班: 0, 午班: 0, 晚班: 0 }
+  // 直接存取 reactive 物件的屬性，不需 .value
+  if (currentRecord && currentRecord.schedule) {
+    for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData.patientId) {
         const shiftId = slotData.shiftId || ''
-        if (shiftId.includes('-早')) counts['早']++
-        else if (shiftId.includes('-午')) counts['午']++
-        else if (shiftId.includes('-晚')) counts['晚']++
+        // 2. 判斷後，更新對應的 key
+        if (shiftId.includes('-早')) counts['早班']++
+        else if (shiftId.includes('-午')) counts['午班']++
+        else if (shiftId.includes('-晚')) counts['晚班']++
       }
     }
   }
