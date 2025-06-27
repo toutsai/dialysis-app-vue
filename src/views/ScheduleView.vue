@@ -9,6 +9,7 @@ import StatsToolbar from '@/components/StatsToolbar.vue'
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
+const baseSchedulesApi = ApiManager('base_schedules') // 載入常規需要
 
 // --- 常量 ---
 const SHIFTS = ['早', '午', '晚']
@@ -43,11 +44,12 @@ const allTeams = [...earlyTeams, ...lateTeams] // 用於午班收針
 
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
-const currentRecord = ref(null)
 const allPatients = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const searchInput = ref('')
+const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
+
 function formatDate(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -57,10 +59,7 @@ function formatDate(date) {
 const copySourceDate = ref(formatDate(new Date()))
 
 // --- 計算屬性 ---
-const patientMap = computed(() => {
-  console.log('[Debug] patientMap re-computed. allPatients count:', allPatients.value.length)
-  return new Map(allPatients.value.map((p) => [p.id, p]))
-})
+const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
@@ -83,7 +82,13 @@ const statsToolbarData = computed(() => [{ counts: shiftPatientCount.value }])
 const statsToolbarWeekdays = computed(() => ['本日'])
 
 // --- 方法 ---
+function setChange() {
+  hasUnsavedChanges.value = true
+  statusIndicator.value = '有未儲存的變更'
+}
+
 async function loadDataForDay(date) {
+  hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
   console.clear()
@@ -101,19 +106,34 @@ async function loadDataForDay(date) {
     console.log('返回的病人資料 (allPatients):', patientsData)
 
     allPatients.value = patientsData
-    currentRecord.value =
+    const record =
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {}, names: {} }
+    // 更新元資料
+    currentRecord.id = record.id
+    currentRecord.date = record.date
+    currentRecord.names = record.names
 
-    console.log(
-      '%c[3. 狀態更新] - 更新後的 currentRecord:',
-      JSON.parse(JSON.stringify(currentRecord.value)),
-    )
+    // **用「替換」的方式來更新 schedule 物件，以確保響應性**
+    currentRecord.schedule = record.schedule || {}
+    statusIndicator.value = dailyRecords.length > 0 ? '資料已載入' : '本日無雲端資料'
   } catch (error) {
     console.error('載入資料失敗:', error)
+    statusIndicator.value = '讀取失敗'
   }
 }
 
+// **實現 handleSlotUpdate (解決問題 1)**
+function handleSlotUpdate(shiftId, patientId) {
+  if (patientId) {
+    currentRecord.schedule[shiftId] = { patientId, shiftId }
+  } else {
+    delete currentRecord.schedule[shiftId]
+  }
+  setChange()
+}
+
 function changeDate(days) {
+  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
@@ -121,26 +141,108 @@ function changeDate(days) {
 }
 
 function goToToday() {
+  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   currentDate.value = new Date()
   loadDataForDay(currentDate.value)
 }
 
-function getPatientName(bedIdentifier, shift) {
+function getPatientName(bedNum, shift) {
   const shiftName = `${shift}班`
-  const shiftId = `bed-${bedIdentifier}-${shiftName}`
+  const shiftId = `bed-${bedNum}-${shiftName}`
+  const patientId = currentRecord.schedule?.[shiftId]?.patientId
+  return patientId ? patientMap.value.get(patientId)?.name : ''
+}
 
-  const patientId = currentRecord.value?.schedule?.[shiftId]?.patientId
+// **實現 saveDataToCloud (解決問題 2)**
+async function saveDataToCloud() {
+  statusIndicator.value = '儲存中...'
+  try {
+    // 準備一個乾淨的資料物件來儲存
+    const dataToSave = {
+      date: currentRecord.date,
+      schedule: currentRecord.schedule,
+      names: currentRecord.names || {},
+    }
 
-  // **新增詳細除錯日誌**
-  if (patientId) {
-    const patient = patientMap.value.get(patientId)
-    console.log(
-      `[Debug getPatientName] 正在查找 shiftId: ${shiftId}, 找到 patientId: ${patientId}, 在 patientMap 中找到的病人:`,
-      patient,
-    )
-    return patient?.name || '病人ID無效'
+    if (currentRecord.id) {
+      await schedulesApi.update(currentRecord.id, dataToSave)
+    } else {
+      const savedRecord = await schedulesApi.save(dataToSave)
+      currentRecord.id = savedRecord.id // 更新 ID，以便下次是更新
+    }
+    hasUnsavedChanges.value = false
+    statusIndicator.value = '儲存成功！'
+    alert('排程已成功儲存！')
+  } catch (error) {
+    console.error('儲存失敗:', error)
+    statusIndicator.value = '儲存失敗'
   }
-  return ''
+}
+
+// **實現 clearBoard (解決問題 2)**
+function clearBoard() {
+  if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
+    // 清空 schedule 物件的所有屬性
+    Object.keys(currentRecord.schedule).forEach((key) => {
+      delete currentRecord.schedule[key]
+    })
+    setChange()
+  }
+}
+
+// **實現 copySchedule (解決問題 2)**
+async function copySchedule() {
+  if (!copySourceDate.value) {
+    alert('請選擇一個來源日期！')
+    return
+  }
+  if (copySourceDate.value === formatDate(currentDate.value)) {
+    alert('來源日期與目前日期相同，無需複製。')
+    return
+  }
+  if (
+    !confirm(`確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`)
+  )
+    return
+
+  statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
+  try {
+    const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
+    if (sourceRecords.length > 0) {
+      // 直接用來源資料的 schedule 物件，覆蓋當前的 schedule 物件
+      Object.keys(currentRecord.schedule).forEach((key) => delete currentRecord.schedule[key])
+      Object.assign(currentRecord.schedule, sourceRecords[0].schedule || {})
+      setChange()
+      statusIndicator.value = '複製成功，請記得儲存'
+    } else {
+      alert(`在雲端找不到 ${copySourceDate.value} 的排程資料。`)
+      statusIndicator.value = '複製失敗'
+    }
+  } catch (error) {
+    alert(`複製失敗: ${error.message}`)
+    statusIndicator.value = '複製失敗'
+  }
+}
+
+// **實現拖曳功能 (解決問題 1)**
+function onDragStart(event, patientId) {
+  event.dataTransfer.setData('text/plain', patientId)
+}
+function onDrop(event, shiftId) {
+  event.preventDefault()
+  event.target.closest('.patient-name')?.classList.remove('drag-over')
+  const patientId = event.dataTransfer.getData('text/plain')
+  if (patientId) handleSlotUpdate(shiftId, patientId)
+}
+function onDragOver(event) {
+  event.preventDefault()
+  const targetCell = event.target.closest('.patient-name')
+  if (targetCell && !targetCell.textContent.trim()) {
+    targetCell.classList.add('drag-over')
+  }
+}
+function onDragLeave(event) {
+  event.target.closest('.patient-name')?.classList.remove('drag-over')
 }
 
 // --- 生命週期鉤子 ---
@@ -173,11 +275,13 @@ onMounted(() => {
       <!-- 第二行：控制面板 -->
       <div class="controls-panel">
         <div class="controls-left">
-          <button id="save-btn" :disabled="!hasUnsavedChanges">儲存資料至雲端</button>
+          <button id="save-btn" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
+            儲存資料至雲端
+          </button>
           <button id="print-btn" @click="window.print()">列印排程</button>
-          <button id="clear-all-btn">清除本日畫面</button>
-          <input type="date" v-model="copySourceDate" class="date-input" />
-          <button id="copy-schedule-btn">從他日複製排程</button>
+          <button id="clear-all-btn" @click="clearBoard">清除本日畫面</button>
+          <input type="date" v-model="copySourceDate" />
+          <button id="copy-schedule-btn" @click="copySchedule">從他日複製排程</button>
           <div class="search-group">
             <input type="text" v-model="searchInput" placeholder="搜尋..." class="search-input" />
             <button id="search-btn">搜尋</button>
@@ -247,7 +351,12 @@ onMounted(() => {
                         {{ team }}組
                       </option>
                     </select>
-                    <div class="patient-name" contenteditable="true">
+                    <div
+                      class="patient-name"
+                      @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
+                      @dragover="onDragOver"
+                      @dragleave="onDragLeave"
+                    >
                       {{ getPatientName(bedNum, shift) }}
                     </div>
                     <div class="patient-tag" contenteditable="true"></div>
@@ -320,7 +429,6 @@ onMounted(() => {
         </div>
         <div class="extra-sections">
           <div class="peripheral-section">
-            <h2>外圍床位</h2>
             <div class="peripheral-bed-container">
               <div v-for="i in peripheralBedCount" :key="`p-bed-${i}`" class="peripheral-bed">
                 <div class="peripheral-header">外圍床位 {{ i }}</div>
@@ -432,14 +540,22 @@ onMounted(() => {
   font-weight: bold;
   color: #6c757d;
 }
+.controls-panel button,
+.controls-panel input {
+  padding: 8px 15px;
+  font-size: 1.1em;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  height: 45px; /* 統一高度 */
+  box-sizing: border-box;
+}
 
 /* 按鈕的通用樣式 */
-.controls-panel button,
 .date-navigator button,
 .toolbar-center > button {
   /* 也應用於「回到今日」按鈕 */
   padding: 8px 15px;
-  font-size: 1em;
+  font-size: 1.1em;
   border-radius: 5px;
   border: 1px solid #ccc;
   cursor: pointer;
@@ -470,14 +586,7 @@ onMounted(() => {
   align-items: center;
   gap: 5px;
 }
-.date-input,
-.search-input {
-  padding: 8px;
-  border: 1px solid #ccc; /* 5px 的 border 可能太粗了，我改回 1px */
-  border-radius: 5px;
-  height: 38px; /* 和按鈕的高度保持一致 */
-  box-sizing: border-box;
-}
+
 .shift-patient-count {
   margin-left: auto;
   display: flex;
@@ -616,6 +725,7 @@ onMounted(() => {
   text-align: center;
   overflow-wrap: break-word;
   min-height: 28px; /* 給一個最小高度避免空值時塌陷 */
+  transition: background-color 0.2s; /* 增加過渡效果 */
 }
 .patient-name:empty::before,
 .peripheral-patient-name:empty::before {
@@ -689,7 +799,9 @@ onMounted(() => {
   color: #aaa;
   font-style: italic;
 }
-
+.patient-name.drag-over {
+  background-color: #c8e6c9; /* 拖曳到上方時的高亮效果 */
+}
 /* ==========================================================================
    4. 側邊欄 (Sidebar)
    ========================================================================== */
