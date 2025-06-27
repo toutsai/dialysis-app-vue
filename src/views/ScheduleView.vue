@@ -5,6 +5,7 @@ import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
@@ -40,7 +41,16 @@ const peripheralBedCount = 6
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const earlyTeams = baseTeams.map((t) => `早${t}`)
 const lateTeams = baseTeams.map((t) => `晚${t}`)
-const allTeams = [...earlyTeams, ...lateTeams] // 用於午班收針
+const allTeams = [...earlyTeams, ...lateTeams]
+// 定義樣式優先級
+const STYLE_PRIORITY = {
+  抽: { class: 'tag-chou', color: 'blue' },
+  新: { class: 'tag-new', color: 'yellow' },
+  住: { class: 'tag-ip', color: 'red' },
+  換: { class: 'tag-huan', color: 'lightblue' },
+  兩: { class: 'tag-liang', color: 'orange' },
+  B: { class: 'tag-b', color: 'ivory' },
+}
 
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
@@ -67,9 +77,7 @@ const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
 const shiftPatientCount = computed(() => {
-  // 1. 初始化時就使用 '早班', '午班', '晚班' 作為 key
   const counts = { 早班: 0, 午班: 0, 晚班: 0 }
-  // 直接存取 reactive 物件的屬性，不需 .value
   if (currentRecord && currentRecord.schedule) {
     for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData.patientId) {
