@@ -49,6 +49,8 @@ const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const searchInput = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
+const isDialogVisible = ref(false)
+const currentEditingShiftId = ref(null)
 
 function formatDate(date) {
   const year = date.getFullYear()
@@ -71,11 +73,10 @@ const shiftPatientCount = computed(() => {
   if (currentRecord && currentRecord.schedule) {
     for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData.patientId) {
-        const shiftId = slotData.shiftId || ''
-        // 2. 判斷後，更新對應的 key
-        if (shiftId.includes('-早')) counts['早班']++
-        else if (shiftId.includes('-午')) counts['午班']++
-        else if (shiftId.includes('-晚')) counts['晚班']++
+        const shiftId = slotData.shiftId || '' // 現在可以直接從 slotData 獲取
+        if (shiftId.endsWith('早班')) counts['早班']++
+        else if (shiftId.endsWith('午班')) counts['午班']++
+        else if (shiftId.endsWith('晚班')) counts['晚班']++
       }
     }
   }
@@ -125,16 +126,6 @@ async function loadDataForDay(date) {
   }
 }
 
-// **實現 handleSlotUpdate (解決問題 1)**
-function handleSlotUpdate(shiftId, patientId) {
-  if (patientId) {
-    currentRecord.schedule[shiftId] = { patientId, shiftId }
-  } else {
-    delete currentRecord.schedule[shiftId]
-  }
-  setChange()
-}
-
 function changeDate(days) {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentDate.value)
@@ -153,32 +144,107 @@ function getPatientName(bedNum, shift) {
   const shiftName = `${shift}班`
   const shiftId = `bed-${bedNum}-${shiftName}`
   const patientId = currentRecord.schedule?.[shiftId]?.patientId
-  return patientId ? patientMap.value.get(patientId)?.name : ''
+
+  if (!patientId) {
+    return '' // 如果沒有 patientId，直接返回空字串，這是正常情況
+  }
+
+  // --- 開始偵錯 ---
+  console.log(
+    `[getPatientName] 正在為 shiftId "${shiftId}" 查找 patientId:`,
+    patientId,
+    `(型別: ${typeof patientId})`,
+  )
+
+  const patient = patientMap.value.get(patientId)
+
+  if (patient) {
+    console.log(`[getPatientName] 成功在 patientMap 中找到病人:`, patient)
+    return patient.name
+  } else {
+    // 這是問題的關鍵所在！！！
+    console.error(`[getPatientName] 失敗！在 patientMap 中找不到 ID 為 "${patientId}" 的病人。`)
+
+    // 為了找出原因，我們列出 patientMap 的所有 keys 來比較
+    const allKeys = Array.from(patientMap.value.keys())
+    console.log('[getPatientName] 當前 patientMap 中的所有 Keys:', allKeys)
+
+    // 比較一下 keys 的型別
+    if (allKeys.length > 0) {
+      console.log(`[getPatientName] Map 中的第一個 key 的型別是: ${typeof allKeys[0]}`)
+    }
+
+    // 為了在畫面上能看到是哪個 ID 出錯，我們臨時返回 ID
+    return `未找到: ${patientId}`
+  }
+  // --- 結束偵錯 ---
 }
 
-// **實現 saveDataToCloud (解決問題 2)**
+// 計算病人格樣式的函式
+function getPatientCellStyle(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  if (!slotData || !slotData.patientId) return {} // 沒有病人，沒有樣式
+
+  const patient = patientMap.value.get(slotData.patientId)
+  if (!patient) return {}
+
+  const note = slotData.note || '' // 獲取當前格的備註
+
+  // 1. 根據備註決定樣式 (最高優先級)
+  for (const key in STYLE_PRIORITY) {
+    if (note.includes(key)) {
+      return { [STYLE_PRIORITY[key].class]: true }
+    }
+  }
+
+  // 2. 如果備註中沒有關鍵字，則根據病人狀態決定
+  if (patient.status === 'ip') {
+    return { [STYLE_PRIORITY['住'].class]: true }
+  }
+
+  // 3. 如果是新病人標記 (需要一個邏輯來判斷，例如看 creationDate)
+  // const isNew = ...
+  // if (isNew) return { [STYLE_PRIORITY['新'].class]: true };
+
+  return {} // 預設無特殊樣式
+}
+
 async function saveDataToCloud() {
   statusIndicator.value = '儲存中...'
   try {
-    // 準備一個乾淨的資料物件來儲存
+    const cleanSchedule = {}
+    for (const shiftId in currentRecord.schedule) {
+      const slotData = currentRecord.schedule[shiftId]
+      // **就是修改下面這幾行**
+      cleanSchedule[shiftId] = {
+        patientId: slotData.patientId,
+        note: slotData.note || '', // <--- 在這裡加上 || '' 的保護
+        shiftId: slotData.shiftId,
+      }
+    }
+
     const dataToSave = {
       date: currentRecord.date,
-      schedule: currentRecord.schedule,
+      schedule: cleanSchedule,
       names: currentRecord.names || {},
     }
+
+    console.log('準備儲存到雲端的資料:', JSON.parse(JSON.stringify(dataToSave)))
 
     if (currentRecord.id) {
       await schedulesApi.update(currentRecord.id, dataToSave)
     } else {
       const savedRecord = await schedulesApi.save(dataToSave)
-      currentRecord.id = savedRecord.id // 更新 ID，以便下次是更新
+      currentRecord.id = savedRecord.id
     }
+
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
     alert('排程已成功儲存！')
   } catch (error) {
     console.error('儲存失敗:', error)
     statusIndicator.value = '儲存失敗'
+    alert(`儲存失敗: ${error.message}`)
   }
 }
 
@@ -227,16 +293,67 @@ async function copySchedule() {
   }
 }
 
-// **實現拖曳功能 (解決問題 1)**
-function onDragStart(event, patientId) {
-  event.dataTransfer.setData('text/plain', patientId)
+function onDragStart(event, source) {
+  let patientId
+  let sourceShiftId = null
+
+  if (typeof source === 'string') {
+    // 來源是床位 (source is a shiftId)
+    const slotData = currentRecord.schedule[source]
+    if (!slotData || !slotData.patientId) {
+      event.preventDefault() // 空格不允許拖曳
+      return
+    }
+    patientId = slotData.patientId
+    sourceShiftId = source // 記錄來源 shiftId
+  } else {
+    // 來源是側邊欄 (假設 source 是 patientId)
+    // 為了安全起見，應該檢查 source 的類型，但這裡我們先簡化
+    patientId = source
+  }
+
+  // 統一使用 'patientId' 和 'sourceShiftId' 作為 key
+  event.dataTransfer.setData('patientId', patientId)
+  if (sourceShiftId) {
+    event.dataTransfer.setData('sourceShiftId', sourceShiftId)
+  }
 }
-function onDrop(event, shiftId) {
+
+function onDrop(event, targetShiftId) {
   event.preventDefault()
   event.target.closest('.patient-name')?.classList.remove('drag-over')
-  const patientId = event.dataTransfer.getData('text/plain')
-  if (patientId) handleSlotUpdate(shiftId, patientId)
+
+  const patientId = event.dataTransfer.getData('patientId')
+  const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
+
+  if (!patientId) return
+
+  const existingSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
+  const patient = patientMap.value.get(patientId)
+
+  let noteToSet = '' // 預設為空字串
+
+  if (existingSlotData) {
+    // 如果是移動，繼承舊的 note，如果舊 note 是 undefined 也轉為空字串
+    noteToSet = existingSlotData.note || ''
+  } else if (patient) {
+    // 如果是從側邊欄新增，使用病人的 baseNote
+    noteToSet = patient.baseNote || ''
+  }
+
+  currentRecord.schedule[targetShiftId] = {
+    shiftId: targetShiftId,
+    patientId: patientId,
+    note: noteToSet, // 使用我們準備好的、絕對安全的 note 值
+  }
+
+  if (sourceShiftId && sourceShiftId !== targetShiftId) {
+    delete currentRecord.schedule[sourceShiftId]
+  }
+
+  setChange()
 }
+
 function onDragOver(event) {
   event.preventDefault()
   const targetCell = event.target.closest('.patient-name')
@@ -246,6 +363,36 @@ function onDragOver(event) {
 }
 function onDragLeave(event) {
   event.target.closest('.patient-name')?.classList.remove('drag-over')
+}
+
+function handlePatientSelectedFromDialog(patientId) {
+  if (currentEditingShiftId.value && patientId) {
+    // 使用我們之前重構好的 handleSlotUpdate 函式
+    handleSlotUpdate(currentEditingShiftId.value, patientId)
+  }
+  // 選擇後自動關閉 Dialog
+  isDialogVisible.value = false
+}
+
+function handleSlotUpdate(shiftId, patientId) {
+  if (patientId) {
+    const patient = patientMap.value.get(patientId)
+    currentRecord.schedule[shiftId] = {
+      shiftId: shiftId, // <-- 把 shiftId 也存進來！
+      patientId: patientId,
+      note: patient ? patient.baseNote || '' : '',
+    }
+  } else {
+    delete currentRecord.schedule[shiftId]
+  }
+  setChange()
+}
+
+function openPatientDialog(shiftId) {
+  // 如果該格子已經有病人，也許您想提供一個清除選項，或者直接打開編輯
+  // 這裡我們先做簡單的：點擊就打開選擇器
+  currentEditingShiftId.value = shiftId
+  isDialogVisible.value = true
 }
 
 // --- 生命週期鉤子 ---
@@ -356,9 +503,12 @@ onMounted(() => {
                     </select>
                     <div
                       class="patient-name"
+                      :class="getPatientCellStyle(`bed-${bedNum}-${shift}班`)"
+                      @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
                       @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
-                      @dragover="onDragOver"
-                      @dragleave="onDragLeave"
+                      @dragover.prevent
+                      @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
+                      draggable="true"
                     >
                       {{ getPatientName(bedNum, shift) }}
                     </div>
@@ -420,7 +570,15 @@ onMounted(() => {
                         {{ team }}組
                       </option>
                     </select>
-                    <div class="patient-name" contenteditable="true">
+                    <div
+                      class="patient-name"
+                      :class="getPatientCellStyle(`bed-${bedNum}-${shift}班`)"
+                      @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
+                      @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
+                      @dragover.prevent
+                      @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
+                      draggable="true"
+                    >
                       {{ getPatientName(bedNum, shift) }}
                     </div>
                     <div class="patient-tag" contenteditable="true"></div>
@@ -453,7 +611,15 @@ onMounted(() => {
                     </option>
                   </select>
                   <div class="peripheral-bed-number" contenteditable="true"></div>
-                  <div class="peripheral-patient-name" contenteditable="true">
+                  <div
+                    class="peripheral-patient-name"
+                    :class="getPatientCellStyle(`peripheral-${i}-${shift}班`)"
+                    @click="openPatientDialog(`peripheral-${i}-${shift}班`)"
+                    @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
+                    @dragover.prevent
+                    @dragstart="onDragStart($event, `peripheral-${i}-${shift}班`)"
+                    draggable="true"
+                  >
                     {{ getPatientName(`peripheral-${i}`, shift) }}
                   </div>
                   <div class="patient-tag" contenteditable="true"></div>
@@ -463,9 +629,15 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <InpatientSidebar :patients="allPatients" />
+      <InpatientSidebar :patients="allPatients" @drag-start="onSidebarDragStart" />
     </main>
   </div>
+  <PatientSelectDialog
+    v-if="isDialogVisible"
+    :patients="allPatients"
+    @close="isDialogVisible = false"
+    @patient-selected="handlePatientSelectedFromDialog"
+  />
 </template>
 
 <style scoped>
