@@ -77,42 +77,40 @@ const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
 const shiftPatientCount = computed(() => {
-  const counts = { 早: 0, 午: 0, 晚: 0 }
-  if (currentRecord.value && currentRecord.value.schedule) {
-    for (const slotData of Object.values(currentRecord.value.schedule)) {
-      if (slotData.patientId) {
-        const shiftId = slotData.shiftId || ''
-        if (shiftId.includes('-早')) counts['早']++
-        else if (shiftId.includes('-午')) counts['午']++
-        else if (shiftId.includes('-晚')) counts['晚']++
-      }
-    }
-  }
-  return counts
-})
+  // 1. 初始化時使用 '早班', '午班', '晚班' 作為 key，以匹配 StatsToolbar 的期望
+  const counts = { 早班: 0, 午班: 0, 晚班: 0 }
 
-const statsToolbarData = computed(() => {
-  const counts = { 早: 0, 午: 0, 晚: 0 }
-  if (currentRecord.value && currentRecord.value.schedule) {
-    for (const shiftId in currentRecord.value.schedule) {
-      if (currentRecord.value.schedule[shiftId]?.patientId) {
-        if (shiftId.includes('-早班')) {
+  // 2. 直接存取 reactive 物件，不要用 .value
+  if (currentRecord.schedule) {
+    // 3. 遍歷 schedule 物件的所有值
+    for (const slotData of Object.values(currentRecord.schedule)) {
+      // 確保 slotData 和 patientId 存在
+      if (slotData && slotData.patientId) {
+        // 4. 從 slotData 中獲取 shiftId
+        const shiftId = slotData.shiftId || ''
+
+        // 5. 根據 shiftId 判斷班別並計數
+        if (shiftId.endsWith('早班')) {
           counts['早班']++
-        } else if (shiftId.includes('-午班')) {
+        } else if (shiftId.endsWith('午班')) {
           counts['午班']++
-        } else if (shiftId.includes('-晚班')) {
+        } else if (shiftId.endsWith('晚班')) {
           counts['晚班']++
         }
       }
     }
   }
-  const result = [{ counts }]
-  // **新增這個 console.log**
-  console.log(
-    '[Debug ScheduleView] 準備傳遞給 StatsToolbar 的資料 (statsToolbarData):',
-    JSON.parse(JSON.stringify(result)),
-  )
-  return result
+
+  // **偵錯日誌**
+  console.log('[Debug] 計算出的人數 (shiftPatientCount):', JSON.parse(JSON.stringify(counts)))
+
+  return counts
+})
+
+// **用來傳遞資料的 computed，它直接依賴 shiftPatientCount**
+const statsToolbarData = computed(() => {
+  // 格式化成 StatsToolbar 期望的 [{ counts: {...} }] 結構
+  return [{ counts: shiftPatientCount.value }]
 })
 const statsToolbarWeekdays = computed(() => ['本日'])
 
