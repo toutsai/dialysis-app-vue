@@ -165,4 +165,8 @@ function handleDragStart(event, patientId) {
   padding: 2px 6px;
   border-radius: 10px;
 }
+#inpatient-list li.is-scheduled {
+  background-color: #fffbe6; /* 淡黃色 */
+  border-color: #ffe58f;
+}
 </style>

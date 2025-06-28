@@ -10,6 +10,7 @@ import {
   updateDoc,
   deleteDoc,
   query,
+  getDoc, // <-- 在這裡加上 getDoc
 } from 'firebase/firestore'
 
 // 假設您從 './firebase' 導入 db 實例
@@ -87,6 +88,27 @@ const ApiManager = (resourceType) => {
     }
   }
 
+  // **新增 fetchById 函式**
+  const fetchById = async (id) => {
+    try {
+      if (!id) throw new Error('Document ID is required.')
+
+      const docRef = doc(db, resourceType, id)
+      const docSnap = await getDoc(docRef) // <-- 使用 getDoc 來獲取單一文件
+
+      if (docSnap.exists()) {
+        console.log(`[ApiManager] Fetched document with ID ${id} from ${resourceType}`)
+        return { id: docSnap.id, ...docSnap.data() }
+      } else {
+        console.warn(`[ApiManager] No document found with ID ${id} in ${resourceType}`)
+        return null // 如果文件不存在，返回 null
+      }
+    } catch (error) {
+      console.error(`[ApiManager] Error fetching document with id ${id}:`, error)
+      throw error
+    }
+  }
+
   const deleteDocument = async (id) => {
     try {
       const docRef = doc(db, resourceType, id)
@@ -103,6 +125,7 @@ const ApiManager = (resourceType) => {
     save,
     update,
     delete: deleteDocument,
+    fetchById, // <-- **將新函式加入到返回的物件中**
   }
 }
 
