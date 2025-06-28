@@ -7,6 +7,11 @@ const props = defineProps({
   isVisible: Boolean,
   title: String,
   patients: Array,
+  // **新增這個 prop**
+  showFillOptions: {
+    type: Boolean,
+    default: true, // 預設情況下，顯示這些選項 (為了兼容舊的 ScheduleView)
+  },
 })
 const emit = defineEmits(['confirm', 'cancel'])
 
@@ -45,13 +50,24 @@ function selectPatient(patientId) {
   selectedPatientId.value = patientId
 }
 
+// **修改 handleConfirm 函式**
 function handleConfirm() {
-  if (!selectedPatientId.value) return
-  emit('confirm', {
-    patientId: selectedPatientId.value,
-    fillType: fillType.value,
-  })
-  resetDialog()
+  if (!selectedPatientId.value) {
+    alert('請先選擇一位病人！')
+    return
+  }
+
+  // **根據新的 prop 決定 emit 出去的資料格式**
+  if (props.showFillOptions) {
+    // 如果顯示了選項，就傳遞包含 fillType 的物件
+    emit('confirm', {
+      patientId: selectedPatientId.value,
+      fillType: fillType.value,
+    })
+  } else {
+    // 如果沒顯示選項，就只傳遞 patientId 字串
+    emit('confirm', selectedPatientId.value)
+  }
 }
 
 function handleCancel() {
@@ -69,8 +85,11 @@ function resetDialog() {
 </script>
 
 <template>
+  <!-- 使用 isVisible prop 來控制 dialog 的 open 屬性 -->
   <dialog :open="isVisible" @cancel.prevent="handleCancel">
     <h3>{{ title }}</h3>
+
+    <!-- 篩選器區塊 -->
     <div class="dialog-filters">
       <div class="filter-group">
         <label for="patient-search">姓名/病歷號</label>
@@ -112,12 +131,13 @@ function resetDialog() {
       </div>
     </div>
 
+    <!-- 病人列表容器 -->
     <div id="patient-list-container">
       <div
         v-if="filteredPatients.length === 0"
         style="padding: 20px; text-align: center; color: #888"
       >
-        無符合條件的門診病人
+        無符合條件的病人
       </div>
       <div
         v-for="p in filteredPatients"
@@ -139,7 +159,11 @@ function resetDialog() {
       </div>
     </div>
 
-    <div class="form-field" style="margin-top: 15px">
+    <!-- ====================================================== -->
+    <!-- ==      「填入方式」區塊 - 這是唯一的修改點         == -->
+    <!-- ====================================================== -->
+    <!-- 使用 v-if 指令，根據 showFillOptions prop 來決定是否渲染這個區塊 -->
+    <div v-if="showFillOptions" class="form-field" style="margin-top: 15px">
       <label>填入方式：</label>
       <div class="radio-group">
         <input type="radio" id="fill-by-freq" value="frequency" v-model="fillType" />
@@ -151,6 +175,7 @@ function resetDialog() {
       </div>
     </div>
 
+    <!-- 底部按鈕區塊 -->
     <div class="modal-footer">
       <button class="btn-primary" @click="handleConfirm" :disabled="!selectedPatientId">
         確認
@@ -160,7 +185,7 @@ function resetDialog() {
   </dialog>
 </template>
 
-<style scoped>
+<style>
 /* 關鍵修正：為 dialog 新增 z-index */
 dialog {
   z-index: 1000;
