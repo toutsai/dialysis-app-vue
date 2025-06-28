@@ -7,14 +7,17 @@ import { ref, computed } from 'vue'
 const props = defineProps({
   patients: {
     type: Array,
-    required: true, // 標示為必需的 prop
-    default: () => [], // 提供一個預設值，防止在父層還沒傳遞資料時出錯
+    required: true,
+  },
+  scheduledIds: {
+    type: Set,
+    default: () => new Set(), // prop 的預設值如果是物件或陣列，必須用工廠函式返回
   },
 })
 
 // 2. 定義 emits：告訴父層這個元件可能會發出哪些事件。
 //    雖然拖曳是透過原生 API 處理，但定義出來是個好習慣。
-const emit = defineEmits(['dragstart'])
+const emit = defineEmits(['drag-start'])
 
 // 3. 內部狀態：篩選器的狀態由元件自己管理
 const inpatientFilter = ref('all')
@@ -35,11 +38,9 @@ const inpatientList = computed(() => {
   return inpatients
 })
 
-// 5. 方法：拖曳開始時，我們也可以透過 emit 通知父層（雖然目前不是必需的）
-function onDragStart(event, patientId) {
-  event.dataTransfer.setData('text/plain', patientId)
-  event.dataTransfer.effectAllowed = 'copy'
-  emit('dragstart', patientId) // 發出一個事件
+function handleDragStart(event, patientId) {
+  // 直接將收到的原生事件和 patientId 傳給父元件
+  emit('drag-start', event, patientId)
 }
 </script>
 
@@ -66,7 +67,8 @@ function onDragStart(event, patientId) {
         v-for="p in inpatientList"
         :key="p.id"
         draggable="true"
-        @dragstart="onDragStart($event, p.id)"
+        :class="{ 'is-scheduled': scheduledIds.has(p.id) }"
+        @dragstart="handleDragStart($event, p.id)"
       >
         <div class="patient-info-row">
           <span class="name">{{ p.name }}</span>
@@ -81,7 +83,6 @@ function onDragStart(event, patientId) {
 </template>
 
 <style scoped>
-/* 加上 scoped 是一個非常好的習慣，確保樣式不會洩漏出去 */
 .inpatient-sidebar {
   width: 240px;
   flex-shrink: 0;

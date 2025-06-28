@@ -1,15 +1,14 @@
 <!-- 檔案路徑: src/components/StatsToolbar.vue -->
 <script setup>
-// 1. 定義 props，接收來自父元件的統計資料
-defineProps({
-  statsData: {
-    type: Array,
-    required: true,
-  },
-  weekdays: {
-    type: Array,
-    required: true,
-  },
+const props = defineProps({
+  statsData: Array,
+  weekdays: Array,
+})
+
+// **新增這個 console.log**
+console.log('[Debug StatsToolbar] 元件接收到的 props:', {
+  statsData: JSON.parse(JSON.stringify(props.statsData)),
+  weekdays: props.weekdays,
 })
 </script>
 
@@ -31,11 +30,10 @@ defineProps({
 /* 2. 將所有相關樣式都封裝在這個元件內部，並加上 scoped */
 .stats-toolbar {
   display: flex;
-  gap: 10px; /* 稍微減小間距 */
-  padding: 10px;
-  background-color: #f8f9fa;
+  gap: 15px; /* 稍微減小間距 */
+  padding: 5px;
   border-radius: 5px;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   overflow-x: auto;
   white-space: nowrap;
 }
