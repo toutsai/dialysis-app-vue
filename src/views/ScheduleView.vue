@@ -113,6 +113,13 @@ const statsToolbarData = computed(() => {
   return [{ counts: shiftPatientCount.value }]
 })
 const statsToolbarWeekdays = computed(() => ['本日'])
+const scheduledPatientIds = computed(() => {
+  return new Set(
+    Object.values(currentRecord.schedule)
+      .filter((s) => s && s.patientId)
+      .map((s) => s.patientId),
+  )
+})
 
 // --- 方法 ---
 function setChange() {
@@ -169,44 +176,25 @@ function goToToday() {
   loadDataForDay(currentDate.value)
 }
 
-function getPatientName(bedNum, shift) {
-  const shiftName = `${shift}班`
-  const shiftId = `bed-${bedNum}-${shiftName}`
-  const patientId = currentRecord.schedule?.[shiftId]?.patientId
+function getPatientName(bedIdentifier, shift) {
+  // 1. 根據傳入的參數，組合出唯一的 shiftId
+  const shiftId = `${bedIdentifier}-${shift}班`
 
+  // 2. 安全地從排程資料中獲取 patientId
+  //    如果 schedule[shiftId] 不存在，patientId 會是 undefined
+  const patientId = currentRecord.schedule[shiftId]?.patientId
+
+  // 3. 如果沒有 patientId，就沒有病人，直接返回空字串
   if (!patientId) {
-    return '' // 如果沒有 patientId，直接返回空字串，這是正常情況
+    return ''
   }
 
-  // --- 開始偵錯 ---
-  console.log(
-    `[getPatientName] 正在為 shiftId "${shiftId}" 查找 patientId:`,
-    patientId,
-    `(型別: ${typeof patientId})`,
-  )
-
+  // 4. 使用 patientId 從 patientMap 中查找完整的病人物件
   const patient = patientMap.value.get(patientId)
 
-  if (patient) {
-    console.log(`[getPatientName] 成功在 patientMap 中找到病人:`, patient)
-    return patient.name
-  } else {
-    // 這是問題的關鍵所在！！！
-    console.error(`[getPatientName] 失敗！在 patientMap 中找不到 ID 為 "${patientId}" 的病人。`)
-
-    // 為了找出原因，我們列出 patientMap 的所有 keys 來比較
-    const allKeys = Array.from(patientMap.value.keys())
-    console.log('[getPatientName] 當前 patientMap 中的所有 Keys:', allKeys)
-
-    // 比較一下 keys 的型別
-    if (allKeys.length > 0) {
-      console.log(`[getPatientName] Map 中的第一個 key 的型別是: ${typeof allKeys[0]}`)
-    }
-
-    // 為了在畫面上能看到是哪個 ID 出錯，我們臨時返回 ID
-    return `未找到: ${patientId}`
-  }
-  // --- 結束偵錯 ---
+  // 5. 如果找到了 patient 物件，返回它的 name 屬性；
+  //    如果沒找到 (patient 為 undefined)，也返回空字串。
+  return patient ? patient.name : ''
 }
 
 // 計算病人格樣式的函式
@@ -326,56 +314,85 @@ function onDragStart(event, source) {
   let patientId
   let sourceShiftId = null
 
-  if (typeof source === 'string') {
-    // 來源是床位 (source is a shiftId)
+  // 1. 判斷來源
+  if (
+    typeof source === 'string' &&
+    (source.startsWith('bed-') || source.startsWith('peripheral-'))
+  ) {
+    // 來源是床位
     const slotData = currentRecord.schedule[source]
     if (!slotData || !slotData.patientId) {
-      event.preventDefault() // 空格不允許拖曳
+      event.preventDefault()
       return
     }
     patientId = slotData.patientId
-    sourceShiftId = source // 記錄來源 shiftId
+    sourceShiftId = source
   } else {
-    // 來源是側邊欄 (假設 source 是 patientId)
-    // 為了安全起見，應該檢查 source 的類型，但這裡我們先簡化
+    // 來源是側邊欄，source 就是 patientId
     patientId = source
   }
 
-  // 統一使用 'patientId' 和 'sourceShiftId' 作為 key
+  // 如果無論如何都沒拿到 patientId，則中止拖曳
+  if (!patientId) {
+    event.preventDefault()
+    return
+  }
+
+  // 2. **在這裡統一設定 dataTransfer**
   event.dataTransfer.setData('patientId', patientId)
   if (sourceShiftId) {
     event.dataTransfer.setData('sourceShiftId', sourceShiftId)
+    event.dataTransfer.effectAllowed = 'move' // 從床位拖曳是「移動」
+  } else {
+    event.dataTransfer.effectAllowed = 'copy' // 從側邊欄拖曳是「複製」
   }
 }
 
 function onDrop(event, targetShiftId) {
   event.preventDefault()
-  event.target.closest('.patient-name')?.classList.remove('drag-over')
+  event.target.closest('.patient-name, .patient-tag')?.classList.remove('drag-over')
 
   const patientId = event.dataTransfer.getData('patientId')
-  const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
-
   if (!patientId) return
 
-  const existingSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
+  const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
+
+  // 獲取來源格子的資料 (如果有的話)
+  const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
+  // 獲取目標格子**已存在**的資料 (如果有的話，例如目標格子已有護理師設定)
+  const existingTargetData = currentRecord.schedule[targetShiftId] || {}
+
   const patient = patientMap.value.get(patientId)
 
-  let noteToSet = '' // 預設為空字串
+  // --- 準備要設定的資料 ---
 
-  if (existingSlotData) {
-    // 如果是移動，繼承舊的 note，如果舊 note 是 undefined 也轉為空字串
-    noteToSet = existingSlotData.note || ''
+  // 1. 準備 note
+  let noteToSet = ''
+  if (sourceSlotData) {
+    noteToSet = sourceSlotData.note || '' // 移動時繼承 note
   } else if (patient) {
-    // 如果是從側邊欄新增，使用病人的 baseNote
-    noteToSet = patient.baseNote || ''
+    noteToSet = patient.baseNote || '' // 新增時使用預設 note
   }
 
+  // 2. 準備護理師組別
+  // 邏輯：優先使用目標格子已有的設定，其次繼承來源格子的設定，最後才是 null
+  const nurseTeamToSet = existingTargetData.nurseTeam || sourceSlotData?.nurseTeam || null
+  const nurseTeamInToSet = existingTargetData.nurseTeamIn || sourceSlotData?.nurseTeamIn || null
+  const nurseTeamOutToSet = existingTargetData.nurseTeamOut || sourceSlotData?.nurseTeamOut || null
+
+  // --- 更新 schedule ---
+
+  // 3. 更新目標格子
   currentRecord.schedule[targetShiftId] = {
     shiftId: targetShiftId,
     patientId: patientId,
-    note: noteToSet, // 使用我們準備好的、絕對安全的 note 值
+    note: noteToSet,
+    nurseTeam: nurseTeamToSet,
+    nurseTeamIn: nurseTeamInToSet,
+    nurseTeamOut: nurseTeamOutToSet,
   }
 
+  // 4. 如果是移動，清空來源格子
   if (sourceShiftId && sourceShiftId !== targetShiftId) {
     delete currentRecord.schedule[sourceShiftId]
   }
@@ -407,9 +424,12 @@ function handleSlotUpdate(shiftId, patientId) {
   if (patientId) {
     const patient = patientMap.value.get(patientId)
     currentRecord.schedule[shiftId] = {
-      shiftId: shiftId, // <-- 把 shiftId 也存進來！
+      shiftId: shiftId,
       patientId: patientId,
       note: patient ? patient.baseNote || '' : '',
+      nurseTeam: null,
+      nurseTeamIn: null,
+      nurseTeamOut: null,
     }
   } else {
     delete currentRecord.schedule[shiftId]
@@ -422,6 +442,59 @@ function openPatientDialog(shiftId) {
   // 這裡我們先做簡單的：點擊就打開選擇器
   currentEditingShiftId.value = shiftId
   isDialogVisible.value = true
+}
+
+function updateNurseTeam(event, shiftId, type) {
+  // 從事件目標（<select> 元素）中獲取選中的值
+  const value = event.target.value
+
+  // 為了安全起見，確保資料物件存在。
+  // 這可以處理一種邊界情況：使用者在一個完全空的格子（連病人都沒有）上選擇了護理師。
+  if (!currentRecord.schedule[shiftId]) {
+    currentRecord.schedule[shiftId] = {
+      shiftId: shiftId,
+      patientId: null,
+      note: '',
+      nurseTeam: null,
+      nurseTeamIn: null,
+      nurseTeamOut: null,
+    }
+  }
+
+  // 根據傳入的 type 參數，更新對應的欄位
+  const slot = currentRecord.schedule[shiftId]
+  if (type === 'single') {
+    slot.nurseTeam = value || null // 如果選擇空值，則設為 null
+  } else if (type === 'in') {
+    slot.nurseTeamIn = value || null
+  } else if (type === 'out') {
+    slot.nurseTeamOut = value || null
+  }
+
+  // **觸發未儲存狀態，啟用儲存按鈕**
+  setChange()
+}
+
+function updateNote(event, shiftId) {
+  const value = event.target.textContent // 從 contenteditable 的 div 獲取內容
+
+  // 確保資料物件存在，以防使用者在空格子上直接輸入備註
+  if (!currentRecord.schedule[shiftId]) {
+    currentRecord.schedule[shiftId] = {
+      shiftId: shiftId,
+      patientId: null,
+      note: '',
+      nurseTeam: null,
+      nurseTeamIn: null,
+      nurseTeamOut: null,
+    }
+  }
+
+  // 更新對應的 note
+  currentRecord.schedule[shiftId].note = value
+
+  // **觸發未儲存提示**
+  setChange()
 }
 
 // --- 生命週期鉤子 ---
@@ -475,148 +548,127 @@ onMounted(() => {
     <main class="page-main-content">
       <div class="schedule-content">
         <div class="dialysis-unit">
-          <!-- 左翼 -->
-          <div class="left-wing">
-            <div
-              v-for="(row, rowIndex) in layoutData.leftWingRows"
-              :key="`left-${rowIndex}`"
-              class="bed-row"
-            >
-              <div
-                v-for="bedNum in row"
-                :key="`bed-left-${bedNum}`"
-                class="bed"
-                :class="{
-                  unassigned: bedNum === '空',
-                  hepatitis: hepatitisBeds.includes(bedNum),
-                  'aisle-side': aisleSideBeds.includes(bedNum),
-                  'left-wing-bed': true,
-                }"
-              >
-                <div class="bed-header">
-                  {{ bedNum === '空' ? '未排床' : `床號 ${bedNum}` }}
-                  <span v-if="hepatitisBeds.includes(bedNum) && bedNum !== '空'">(BC肝炎)</span>
+          <!-- ====================================================== -->
+          <!-- ==           動態生成左右翼床位區 (已整合)           == -->
+          <!-- ====================================================== -->
+          <template
+            v-for="(wing, wingName) in {
+              left: layoutData.leftWingRows,
+              right: layoutData.rightWingRows,
+            }"
+            :key="wingName"
+          >
+            <div :class="`${wingName}-wing`">
+              <div v-for="(row, rowIndex) in wing" :key="`${wingName}-${rowIndex}`" class="bed-row">
+                <div
+                  v-for="bedNum in row"
+                  :key="`bed-${wingName}-${bedNum}`"
+                  class="bed"
+                  :class="{
+                    unassigned: bedNum === '空',
+                    hepatitis: hepatitisBeds.includes(bedNum),
+                    'aisle-side': aisleSideBeds.includes(bedNum),
+                    [`${wingName}-wing-bed`]: true,
+                  }"
+                >
+                  <div class="bed-header">
+                    {{ bedNum === '空' ? '未排床' : `床號 ${bedNum}` }}
+                    <span v-if="hepatitisBeds.includes(bedNum) && bedNum !== '空'">(BC肝炎)</span>
+                  </div>
+                  <template v-if="bedNum !== '空'">
+                    <div
+                      v-for="shift in SHIFTS"
+                      :key="shift"
+                      class="shift-row"
+                      :class="{ 'split-shift': shift === '午' }"
+                    >
+                      <div class="shift-label">{{ shift }}</div>
+
+                      <!-- 午班的 Selects -->
+                      <div v-if="shift === '午'" class="nurse-split-column">
+                        <select
+                          class="nurse-team-select nurse-in"
+                          title="上針"
+                          :value="currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.nurseTeamIn"
+                          @change="updateNurseTeam($event, `bed-${bedNum}-${shift}班`, 'in')"
+                        >
+                          <option value="">上針</option>
+                          <option v-for="team in earlyTeams" :key="team" :value="team">
+                            {{ team }}組
+                          </option>
+                        </select>
+                        <select
+                          class="nurse-team-select nurse-out"
+                          title="收針"
+                          :value="currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.nurseTeamOut"
+                          @change="updateNurseTeam($event, `bed-${bedNum}-${shift}班`, 'out')"
+                        >
+                          <option value="">收針</option>
+                          <option v-for="team in allTeams" :key="team" :value="team">
+                            {{ team }}組
+                          </option>
+                        </select>
+                      </div>
+
+                      <!-- 早班和晚班的 Select -->
+                      <select
+                        v-else
+                        class="nurse-team-select"
+                        :value="currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.nurseTeam"
+                        @change="updateNurseTeam($event, `bed-${bedNum}-${shift}班`, 'single')"
+                      >
+                        <option value="">-</option>
+                        <option
+                          v-for="team in shift === '早' ? earlyTeams : lateTeams"
+                          :key="team"
+                          :value="team"
+                        >
+                          {{ team }}組
+                        </option>
+                      </select>
+
+                      <!-- 病人姓名欄位 -->
+                      <div
+                        class="patient-name"
+                        draggable="true"
+                        :class="getPatientCellStyle(`bed-${bedNum}-${shift}班`)"
+                        @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
+                        @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
+                        @dragover="onDragOver"
+                        @dragleave="onDragLeave"
+                        @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
+                      >
+                        {{ getPatientName(`bed-${bedNum}`, shift) }}
+                      </div>
+
+                      <!-- 備註欄位 -->
+                      <div
+                        class="patient-tag"
+                        contenteditable="true"
+                        @blur="updateNote($event, `bed-${bedNum}-${shift}班`)"
+                        @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
+                        @dragover="onDragOver"
+                        @dragleave="onDragLeave"
+                      >
+                        {{ currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.note }}
+                      </div>
+                    </div>
+                  </template>
                 </div>
-                <template v-if="bedNum !== '空'">
-                  <div
-                    v-for="shift in SHIFTS"
-                    :key="shift"
-                    class="shift-row"
-                    :class="{ 'split-shift': shift === '午' }"
-                  >
-                    <div class="shift-label">{{ shift }}</div>
-                    <!-- **關鍵修正 1：加入午班和其他班別的 select 邏輯** -->
-                    <div v-if="shift === '午'" class="nurse-split-column">
-                      <select class="nurse-team-select nurse-in" title="上針">
-                        <option value="">上針</option>
-                        <option v-for="team in earlyTeams" :key="team" :value="team">
-                          {{ team }}組
-                        </option>
-                      </select>
-                      <select class="nurse-team-select nurse-out" title="收針">
-                        <option value="">收針</option>
-                        <option v-for="team in allTeams" :key="team" :value="team">
-                          {{ team }}組
-                        </option>
-                      </select>
-                    </div>
-                    <select v-else class="nurse-team-select">
-                      <option value="">-</option>
-                      <option
-                        v-for="team in shift === '早' ? earlyTeams : lateTeams"
-                        :key="team"
-                        :value="team"
-                      >
-                        {{ team }}組
-                      </option>
-                    </select>
-                    <div
-                      class="patient-name"
-                      :class="getPatientCellStyle(`bed-${bedNum}-${shift}班`)"
-                      @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
-                      @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
-                      @dragover.prevent
-                      @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
-                      draggable="true"
-                    >
-                      {{ getPatientName(bedNum, shift) }}
-                    </div>
-                    <div class="patient-tag" contenteditable="true"></div>
-                  </div>
-                </template>
+              </div>
+              <!-- 護理站只在左翼下方顯示 -->
+              <div v-if="wingName === 'left'" class="bed-row">
+                <div class="nursing-station">護理站</div>
               </div>
             </div>
-            <div class="bed-row"><div class="nursing-station">護理站</div></div>
-          </div>
-          <div class="aisle">中 央 走 道</div>
-          <!-- 右翼 -->
-          <div class="right-wing">
-            <div
-              v-for="(row, rowIndex) in layoutData.rightWingRows"
-              :key="`right-${rowIndex}`"
-              class="bed-row"
-            >
-              <div
-                v-for="bedNum in row"
-                :key="`bed-right-${bedNum}`"
-                class="bed"
-                :class="{
-                  'aisle-side': aisleSideBeds.includes(bedNum),
-                  'right-wing-bed': true,
-                }"
-              >
-                <div class="bed-header">床號 {{ bedNum }}</div>
-                <template v-if="bedNum !== '空'">
-                  <div
-                    v-for="shift in SHIFTS"
-                    :key="shift"
-                    class="shift-row"
-                    :class="{ 'split-shift': shift === '午' }"
-                  >
-                    <div class="shift-label">{{ shift }}</div>
-                    <!-- **關鍵修正 2：右翼也加入同樣的 select 邏輯** -->
-                    <div v-if="shift === '午'" class="nurse-split-column">
-                      <select class="nurse-team-select nurse-in" title="上針">
-                        <option value="">上針</option>
-                        <option v-for="team in earlyTeams" :key="team" :value="team">
-                          {{ team }}組
-                        </option>
-                      </select>
-                      <select class="nurse-team-select nurse-out" title="收針">
-                        <option value="">收針</option>
-                        <option v-for="team in allTeams" :key="team" :value="team">
-                          {{ team }}組
-                        </option>
-                      </select>
-                    </div>
-                    <select v-else class="nurse-team-select">
-                      <option value="">-</option>
-                      <option
-                        v-for="team in shift === '早' ? earlyTeams : lateTeams"
-                        :key="team"
-                        :value="team"
-                      >
-                        {{ team }}組
-                      </option>
-                    </select>
-                    <div
-                      class="patient-name"
-                      :class="getPatientCellStyle(`bed-${bedNum}-${shift}班`)"
-                      @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
-                      @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
-                      @dragover.prevent
-                      @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
-                      draggable="true"
-                    >
-                      {{ getPatientName(bedNum, shift) }}
-                    </div>
-                    <div class="patient-tag" contenteditable="true"></div>
-                  </div>
-                </template>
-              </div>
-            </div>
-          </div>
+            <!-- 中央走道只在左翼右側顯示 -->
+            <div v-if="wingName === 'left'" class="aisle">中 央 走 道</div>
+          </template>
         </div>
+
+        <!-- ====================================================== -->
+        <!-- ==              外圍床位區 (已整合)                 == -->
+        <!-- ====================================================== -->
         <div class="extra-sections">
           <div class="peripheral-section">
             <div class="peripheral-bed-container">
@@ -624,9 +676,15 @@ onMounted(() => {
                 <div class="peripheral-header">外圍床位 {{ i }}</div>
                 <div v-for="shift in SHIFTS" :key="shift" class="peripheral-shift-row">
                   <div class="shift-label">{{ shift }}</div>
-                  <!-- **關鍵修正 3：為外圍床位加入 select 邏輯** -->
-                  <select class="nurse-team-select">
+
+                  <!-- 外圍床位的 Select -->
+                  <select
+                    class="nurse-team-select"
+                    :value="currentRecord.schedule[`peripheral-${i}-${shift}班`]?.nurseTeam"
+                    @change="updateNurseTeam($event, `peripheral-${i}-${shift}班`, 'single')"
+                  >
                     <option value="">-</option>
+                    <!-- 注意: 午班的護理師組別選項是 allTeams -->
                     <option
                       v-for="team in shift === '早'
                         ? earlyTeams
@@ -639,26 +697,46 @@ onMounted(() => {
                       {{ team }}組
                     </option>
                   </select>
+
                   <div class="peripheral-bed-number" contenteditable="true"></div>
+
+                  <!-- 外圍床位病人姓名欄位 -->
                   <div
                     class="peripheral-patient-name"
+                    draggable="true"
                     :class="getPatientCellStyle(`peripheral-${i}-${shift}班`)"
                     @click="openPatientDialog(`peripheral-${i}-${shift}班`)"
                     @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
-                    @dragover.prevent
+                    @dragover="onDragOver"
+                    @dragleave="onDragLeave"
                     @dragstart="onDragStart($event, `peripheral-${i}-${shift}班`)"
-                    draggable="true"
                   >
                     {{ getPatientName(`peripheral-${i}`, shift) }}
                   </div>
-                  <div class="patient-tag" contenteditable="true"></div>
+
+                  <!-- 外圍床位備註欄位 -->
+                  <div
+                    class="patient-tag"
+                    contenteditable="true"
+                    @blur="updateNote($event, `peripheral-${i}-${shift}班`)"
+                    @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
+                    @dragover="onDragOver"
+                    @dragleave="onDragLeave"
+                  >
+                    {{ currentRecord.schedule[`peripheral-${i}-${shift}班`]?.note }}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      <InpatientSidebar :patients="allPatients" @drag-start="onSidebarDragStart" />
+
+      <InpatientSidebar
+        :patients="allPatients"
+        :scheduled-ids="scheduledPatientIds"
+        @drag-start="onDragStart"
+      />
     </main>
   </div>
   <PatientSelectDialog

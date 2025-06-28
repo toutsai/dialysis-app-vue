@@ -39,11 +39,7 @@ const inpatientList = computed(() => {
 })
 
 function handleDragStart(event, patientId) {
-  // 在這裡設定 dataTransfer，因為這是拖曳的源頭
-  event.dataTransfer.setData('patientId', patientId)
-  event.dataTransfer.effectAllowed = 'copy' // 提示使用者這是複製操作
-
-  // 然後再 emit 事件，通知父元件
+  // 直接將收到的原生事件和 patientId 傳給父元件
   emit('drag-start', event, patientId)
 }
 </script>
@@ -87,7 +83,6 @@ function handleDragStart(event, patientId) {
 </template>
 
 <style scoped>
-/* 加上 scoped 是一個非常好的習慣，確保樣式不會洩漏出去 */
 .inpatient-sidebar {
   width: 240px;
   flex-shrink: 0;
