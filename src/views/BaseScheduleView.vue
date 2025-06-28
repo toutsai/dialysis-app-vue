@@ -1,11 +1,13 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終完整版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (重構版) -->
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, reactive } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
+// 導入我們在 ScheduleView 中也用到的工具函式
+import { createEmptySlotData } from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
@@ -35,8 +37,10 @@ const CLEAR_OPTIONS = [
 
 // --- 核心狀態 ---
 const allOpdPatients = ref([])
-const baseSchedule = ref(new Map())
-const originalBaseSchedule = ref([])
+const masterRecord = reactive({
+  id: 'MASTER_SCHEDULE', // 我們鎖定操作這個文件
+  schedule: {},
+})
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
 
@@ -49,13 +53,17 @@ const clearingSlotId = ref(null)
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
 const statsToolbarData = computed(() => {
+  // 這個計算邏輯需要重寫以適應新的 masterRecord.schedule 結構
   const dailyCounts = Array.from({ length: 6 }).map(() => ({ 早班: 0, 午班: 0, 晚班: 0 }))
-  for (const slotId of baseSchedule.value.keys()) {
-    const [_bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
-    if (dayIndex >= 0 && dayIndex < 6) {
-      const shiftName = SHIFTS[shiftIndex]
-      if (dailyCounts[dayIndex] && dailyCounts[dayIndex][shiftName] !== undefined) {
-        dailyCounts[dayIndex][shiftName]++
+  for (const slotId in masterRecord.schedule) {
+    const slotData = masterRecord.schedule[slotId]
+    if (slotData && slotData.patientId) {
+      const [_bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
+      if (dayIndex >= 0 && dayIndex < 6) {
+        const shiftName = SHIFTS[shiftIndex]
+        if (dailyCounts[dayIndex] && dailyCounts[dayIndex][shiftName] !== undefined) {
+          dailyCounts[dayIndex][shiftName]++
+        }
       }
     }
   }
@@ -75,23 +83,32 @@ async function loadAllData() {
   try {
     const [patients, baseScheduleRecords] = await Promise.all([
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
-      baseSchedulesApi.fetchAll(),
+      baseSchedulesApi.fetchAll([where('id', '==', 'MASTER_SCHEDULE')]), // 改為只獲取 MASTER 文件
     ])
-    allOpdPatients.value = patients
-    originalBaseSchedule.value = baseScheduleRecords
 
-    const newBaseSchedule = new Map()
-    originalBaseSchedule.value.forEach((record) => {
-      const slotId = `${record.bedNumber}-${record.shiftIndex}-${record.dayIndex}`
-      newBaseSchedule.set(slotId, record.patientId)
-    })
-    baseSchedule.value = newBaseSchedule
+    allOpdPatients.value = patients
+
+    if (baseScheduleRecords.length > 0) {
+      // **資料補全**：確保載入的資料符合最新結構
+      const loadedSchedule = baseScheduleRecords[0].schedule || {}
+      const finalSchedule = {}
+      for (const slotId in loadedSchedule) {
+        finalSchedule[slotId] = {
+          ...createEmptySlotData(slotId), // 用標準空白物件打底
+          ...loadedSchedule[slotId],
+        }
+      }
+      masterRecord.schedule = finalSchedule
+      masterRecord.id = baseScheduleRecords[0].id // 確保 id 正確
+    } else {
+      // 如果 MASTER 文件不存在，可以考慮在本地創建一個空的
+      masterRecord.schedule = {}
+    }
 
     statusText.value = '常規床位已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
     statusText.value = '讀取失敗'
-    alert(`載入床位失敗: ${error.message}`)
   }
 }
 
@@ -103,33 +120,23 @@ function populateScheduleData() {
 async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
-    const deletePromises = originalBaseSchedule.value.map((record) =>
-      baseSchedulesApi.delete(record.id),
-    )
-    await Promise.all(deletePromises)
+    // 現在不再需要先刪除所有舊記錄，而是直接更新或創建 MASTER 文件
+    const dataToSave = {
+      id: masterRecord.id,
+      schedule: masterRecord.schedule, // 直接儲存整個 schedule map
+      updatedAt: new Date(),
+    }
 
-    const newRecords = []
-    baseSchedule.value.forEach((patientId, fullSlotId) => {
-      const [bedNumber, shiftIndex, dayIndex] = fullSlotId.split('-')
-      newRecords.push({
-        patientId,
-        bedNumber: parseInt(bedNumber, 10),
-        shiftIndex: parseInt(shiftIndex, 10),
-        dayIndex: parseInt(dayIndex, 10),
-      })
-    })
-
-    const savePromises = newRecords.map((record) => baseSchedulesApi.save(record))
-    await Promise.all(savePromises)
+    // 使用 setDoc (或您的 save 方法的等效實現) 來覆蓋整個文件
+    await baseSchedulesApi.save(masterRecord.id, dataToSave, { merge: false }) // 假設 save 支援 setDoc
 
     hasUnsavedChanges.value = false
     statusText.value = '床位儲存成功！'
     alert('常規門診床位已成功儲存！')
-    await loadAllData()
+    await loadAllData() // 重新載入以同步
   } catch (error) {
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
-    alert(`儲存失敗: ${error.message}`)
   }
 }
 
@@ -139,11 +146,16 @@ function openPatientDialog(slotId) {
 }
 
 function handleGridClick(slotId) {
-  const patientId = baseSchedule.value.get(slotId)
+  // **從新的資料來源 masterRecord.schedule 中讀取**
+  // 使用可選鏈 (?.) 來安全地獲取 patientId
+  const patientId = masterRecord.schedule[slotId]?.patientId
+
   if (patientId) {
+    // 如果這個格子裡有病人，打開清除對話框
     clearingSlotId.value = slotId
     isClearDialogVisible.value = true
   } else {
+    // 如果這個格子是空的，打開病人選擇對話框
     openPatientDialog(slotId)
   }
 }
@@ -164,7 +176,11 @@ function handlePatientSelect({ patientId, fillType }) {
 
   daysToFill.forEach((d_idx) => {
     const newSlotId = `${bed}-${shiftIndex}-${d_idx}`
-    baseSchedule.value.set(newSlotId, patientId)
+    // 使用工廠函式創建標準物件
+    const newSlotData = createEmptySlotData(newSlotId)
+    newSlotData.patientId = patientId
+    newSlotData.note = patient.baseNote || ''
+    masterRecord.schedule[newSlotId] = newSlotData
   })
 
   setChange()
@@ -180,18 +196,16 @@ function handleClearSelect(selectedOptionText) {
   if (!slotId) return
 
   const selectedAction = CLEAR_OPTIONS.find((opt) => opt.text === selectedOptionText)?.value
-  const patientId = baseSchedule.value.get(slotId)
+  const patientId = masterRecord.schedule[slotId]?.patientId
 
   if (selectedAction === 'single') {
-    baseSchedule.value.delete(slotId)
+    delete masterRecord.schedule[slotId]
   } else if (selectedAction === 'all_this_patient') {
-    const entriesToDelete = []
-    for (const [key, value] of baseSchedule.value.entries()) {
-      if (value === patientId) {
-        entriesToDelete.push(key)
+    for (const key in masterRecord.schedule) {
+      if (masterRecord.schedule[key]?.patientId === patientId) {
+        delete masterRecord.schedule[key]
       }
     }
-    entriesToDelete.forEach((key) => baseSchedule.value.delete(key))
   }
 
   setChange()
@@ -242,15 +256,28 @@ onMounted(loadAllData)
                 <td v-for="(day, dayIndex) in WEEKDAYS" :key="day">
                   <div
                     class="schedule-slot"
-                    :class="{ filled: baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`) }"
+                    :class="{
+                      filled: masterRecord.schedule[`${bedNumber}-${shiftIndex}-${dayIndex}`],
+                    }"
                     @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
                   >
-                    <template v-if="baseSchedule.has(`${bedNumber}-${shiftIndex}-${dayIndex}`)">
+                    <template
+                      v-if="masterRecord.schedule[`${bedNumber}-${shiftIndex}-${dayIndex}`]"
+                    >
                       <div class="slot-patient-name">
                         {{
-                          patientMap.get(baseSchedule.get(`${bedNumber}-${shiftIndex}-${dayIndex}`))
-                            ?.name || 'ID不存在'
+                          patientMap.get(
+                            masterRecord.schedule[`${bedNumber}-${shiftIndex}-${dayIndex}`]
+                              .patientId,
+                          )?.name || 'ID不存在'
                         }}
+                      </div>
+                      <!-- 在這裡，您現在可以添加顯示 note 或 nurseTeam 的邏輯了 -->
+                      <div
+                        class="slot-note"
+                        v-if="masterRecord.schedule[`${bedNumber}-${shiftIndex}-${dayIndex}`].note"
+                      >
+                        {{ masterRecord.schedule[`${bedNumber}-${shiftIndex}-${dayIndex}`].note }}
                       </div>
                     </template>
                   </div>
