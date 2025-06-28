@@ -9,6 +9,7 @@ import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import { createEmptySlotData } from '@/utils/scheduleUtils.js'
+import ScheduleDisplay from '@/components/ScheduleDisplay.vue'
 
 // --- 輔助函式 ---
 function getStartOfWeek(date) {
@@ -119,6 +120,42 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
+
+const weekScheduleMap = computed(() => {
+  const combinedSchedule = {}
+
+  // 遍歷我們定義好的每一天
+  weekDates.value.forEach((day, dayIndex) => {
+    // 從 weekScheduleRecords 中找到對應日期的記錄
+    const dailyRecord = weekScheduleRecords.value.get(day.queryDate)
+
+    if (dailyRecord && dailyRecord.schedule) {
+      // 遍歷當天的所有排班
+      for (const dailyShiftId in dailyRecord.schedule) {
+        const slotData = dailyRecord.schedule[dailyShiftId]
+        if (slotData) {
+          // 從 'bed-28-早班' 中解析出 '28' 和 '早班'
+          const parts = dailyShiftId.split('-')
+          if (parts.length === 3) {
+            const bedNumber = parts[1]
+            const shiftName = parts[2]
+            // 找到 '早班' 在 SHIFTS 陣列中的索引
+            const shiftIndex = SHIFTS.indexOf(shiftName)
+
+            if (shiftIndex !== -1) {
+              // 構建新的、統一的 key
+              const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
+              // 將 slotData 存入新的 key
+              combinedSchedule[weeklySlotId] = slotData
+            }
+          }
+        }
+      }
+    }
+  })
+
+  return combinedSchedule
+})
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 const scheduledPatientIds = computed(() => {
   const ids = new Set()
@@ -210,15 +247,17 @@ function handleSlotUpdate(slotId, patientId, note = '') {
   }
 
   const shiftName = SHIFTS[shiftIndex]
-  const dailyShiftId = `bed-${bed}-${shiftName}`
+  const dailyShiftId = `bed-${bed}-${shiftName}` // <-- 我們要用的 ID
 
   if (patientId) {
     const patient = patientMap.value.get(patientId)
-    const newSlotData = createEmptySlotData(shiftId)
+    // **關鍵修正：將正確的 dailyShiftId 傳入**
+    const newSlotData = createEmptySlotData(dailyShiftId)
+
     newSlotData.patientId = patientId
-    // **使用新函式生成備註**
-    newSlotData.note = generateStandardNote(patient)
-    currentRecord.schedule[shiftId] = newSlotData
+    newSlotData.note = note || patient?.baseNote || ''
+
+    dailyRecord.schedule[dailyShiftId] = newSlotData
   } else {
     delete dailyRecord.schedule[dailyShiftId]
   }
@@ -503,89 +542,27 @@ onMounted(loadAllData)
           </button>
         </div>
       </div>
-      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
     </header>
 
     <main class="page-main-content">
-      <div class="schedule-area">
-        <div class="table-wrapper">
-          <table class="weekly-schedule-table">
-            <thead>
-              <tr>
-                <th>床位</th>
-                <th>班次</th>
-                <th v-for="day in weekDates" :key="day.weekday">
-                  <div class="weekday">{{ day.weekday }}</div>
-                  <div class="date">{{ day.date }}</div>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <template v-for="bedNumber in bedLayout" :key="bedNumber">
-                <tr
-                  v-for="(shift, shiftIndex) in SHIFTS"
-                  :key="shift"
-                  :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNumber) }"
-                >
-                  <td v-if="shiftIndex === 0" :rowspan="SHIFTS.length">{{ bedNumber }}號床</td>
-                  <td>{{ shift }}</td>
-                  <td v-for="(day, dayIndex) in weekDates" :key="day.weekday">
-                    <div
-                      class="schedule-slot"
-                      :class="getWeeklyCellStyle(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                      @click="handleGridClick(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                      @drop="onDrop($event, `${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                      @dragover.prevent="onDragOver"
-                      @dragleave.prevent="onDragLeave"
-                      @dragstart="onDragStart($event, `${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                      :draggable="
-                        !!getSlotData(`${bedNumber}-${shiftIndex}-${dayIndex}`)?.patientId
-                      "
-                    >
-                      <!-- 使用 v-for 技巧為 slotData 創建一個局部變數 -->
-                      <template
-                        v-for="slotData in [getSlotData(`${bedNumber}-${shiftIndex}-${dayIndex}`)]"
-                        :key="slotData?.shiftId"
-                      >
-                        <!-- 只有當 slotData 和 patientId 都存在時才渲染內部 -->
-                        <template v-if="slotData && slotData.patientId">
-                          <!-- 同樣地，為 patient 物件創建一個局部變數 -->
-                          <template
-                            v-for="patient in [patientMap.get(slotData.patientId)]"
-                            :key="patient?.id"
-                          >
-                            <template v-if="patient">
-                              <!-- 現在，我們可以清晰地顯示所有資訊 -->
-                              <div class="slot-patient-name">
-                                <span>{{ patient.name }}</span>
-                                <!-- 遍歷並顯示疾病標籤 -->
-                                <span
-                                  v-for="disease in patient.diseases"
-                                  :key="disease"
-                                  class="disease-tag"
-                                >
-                                  {{ disease }}
-                                </span>
-                              </div>
-                              <div class="slot-patient-mrn">
-                                ({{ patient.medicalRecordNumber || 'N/A' }})
-                              </div>
-                              <div class="slot-note" v-if="slotData.note">
-                                {{ slotData.note }}
-                              </div>
-                            </template>
-                          </template>
-                        </template>
-                      </template>
-                    </div>
-                  </td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
+      <ScheduleDisplay
+        class="schedule-area"
+        :layout="bedLayout"
+        :schedule-data="weekScheduleMap"
+        :patient-map="patientMap"
+        :shifts="SHIFTS"
+        :weekdays="WEEKDAYS"
+        :week-dates="weekDates"
+        :hepatitis-beds="hepatitisBeds"
+        :get-style-func="getWeeklyCellStyle"
+        :stats-data="statsToolbarData"
+        :stats-toolbar-weekdays="statsToolbarWeekdays"
+        @grid-click="handleGridClick"
+        @drop="onDrop"
+        @drag-start="onDragStart"
+        @drag-over="onDragOver"
+        @drag-leave="onDragLeave"
+      />
       <InpatientSidebar
         :patients="allPatients"
         :scheduled-ids="scheduledPatientIds"
