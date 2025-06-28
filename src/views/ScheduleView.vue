@@ -6,6 +6,7 @@ import { where } from 'firebase/firestore'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import { createEmptySlotData } from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
@@ -121,6 +122,18 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
+async function loadAllPatients() {
+  try {
+    console.log('正在獲取所有病人資料...')
+    const patientsData = await patientsApi.fetchAll()
+    allPatients.value = patientsData
+    console.log('病人資料獲取成功:', allPatients.value.length, '人')
+  } catch (error) {
+    console.error('獲取病人資料失敗:', error)
+    // 可以在這裡給使用者一些提示
+  }
+}
+
 // --- 方法 ---
 function setChange() {
   hasUnsavedChanges.value = true
@@ -131,31 +144,36 @@ async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
-  console.clear()
-  console.log(`%c[1. 準備查詢] - 目標日期: "${dateStr}"`, 'color: blue; font-weight: bold;')
+
   try {
-    const [patientsData, dailyRecords] = await Promise.all([
-      patientsApi.fetchAll(),
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-    ])
+    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+    const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
 
-    console.log(
-      `%c[2. 查詢結束] - Firestore 返回了 ${dailyRecords.length} 筆排班記錄。`,
-      'color: green;',
-    )
-    console.log('返回的病人資料 (allPatients):', patientsData)
+    const loadedSchedule = record.schedule || {}
+    const finalSchedule = {} // 我們將在這裡構建一個完全標準化的 schedule
 
-    allPatients.value = patientsData
-    const record =
-      dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {}, names: {} }
-    // 更新元資料
-    currentRecord.id = record.id
+    // 遍歷從資料庫載入的每一個 slot
+    for (const shiftId in loadedSchedule) {
+      const dbSlotData = loadedSchedule[shiftId]
+      if (dbSlotData) {
+        // 使用工廠函式創建一個標準的空白 slot 作為基礎
+        const standardSlot = createEmptySlotData(shiftId)
+
+        // 用從資料庫讀取到的資料，覆蓋掉空白基礎
+        // 這一步確保了即使資料庫中的資料缺少某些欄位，我們的前端物件也一定是完整的
+        finalSchedule[shiftId] = {
+          ...standardSlot,
+          ...dbSlotData,
+        }
+      }
+    }
+
+    currentRecord.id = record.id || null
     currentRecord.date = record.date
-    currentRecord.names = record.names
+    // 將這個完全標準化的 finalSchedule 賦值給我們的響應式狀態
+    currentRecord.schedule = finalSchedule
 
-    // **用「替換」的方式來更新 schedule 物件，以確保響應性**
-    currentRecord.schedule = record.schedule || {}
-    statusIndicator.value = dailyRecords.length > 0 ? '資料已載入' : '本日無雲端資料'
+    statusIndicator.value = '資料已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
     statusIndicator.value = '讀取失敗'
@@ -179,21 +197,13 @@ function goToToday() {
 function getPatientName(bedIdentifier, shift) {
   // 1. 根據傳入的參數，組合出唯一的 shiftId
   const shiftId = `${bedIdentifier}-${shift}班`
-
-  // 2. 安全地從排程資料中獲取 patientId
-  //    如果 schedule[shiftId] 不存在，patientId 會是 undefined
   const patientId = currentRecord.schedule[shiftId]?.patientId
 
-  // 3. 如果沒有 patientId，就沒有病人，直接返回空字串
   if (!patientId) {
     return ''
   }
 
-  // 4. 使用 patientId 從 patientMap 中查找完整的病人物件
   const patient = patientMap.value.get(patientId)
-
-  // 5. 如果找到了 patient 物件，返回它的 name 屬性；
-  //    如果沒找到 (patient 為 undefined)，也返回空字串。
   return patient ? patient.name : ''
 }
 
@@ -232,11 +242,19 @@ async function saveDataToCloud() {
     const cleanSchedule = {}
     for (const shiftId in currentRecord.schedule) {
       const slotData = currentRecord.schedule[shiftId]
-      // **就是修改下面這幾行**
-      cleanSchedule[shiftId] = {
-        patientId: slotData.patientId,
-        note: slotData.note || '', // <--- 在這裡加上 || '' 的保護
-        shiftId: slotData.shiftId,
+      if (slotData) {
+        // 增加一個檢查，確保 slotData 不是 null 或 undefined
+        // **關鍵修正：確保複製所有需要的欄位**
+        cleanSchedule[shiftId] = {
+          patientId: slotData.patientId || null,
+          note: slotData.note || '',
+          shiftId: slotData.shiftId || shiftId,
+
+          // **把這些欄位加回來！**
+          nurseTeam: slotData.nurseTeam || null,
+          nurseTeamIn: slotData.nurseTeamIn || null,
+          nurseTeamOut: slotData.nurseTeamOut || null,
+        }
       }
     }
 
@@ -356,45 +374,42 @@ function onDrop(event, targetShiftId) {
   if (!patientId) return
 
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
-
-  // 獲取來源格子的資料 (如果有的話)
-  const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
-  // 獲取目標格子**已存在**的資料 (如果有的話，例如目標格子已有護理師設定)
-  const existingTargetData = currentRecord.schedule[targetShiftId] || {}
-
   const patient = patientMap.value.get(patientId)
 
-  // --- 準備要設定的資料 ---
+  // 1. 從來源和目標獲取舊的 slot 資料
+  const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
+  const targetSlotData = currentRecord.schedule[targetShiftId]
 
-  // 1. 準備 note
-  let noteToSet = ''
-  if (sourceSlotData) {
-    noteToSet = sourceSlotData.note || '' // 移動時繼承 note
-  } else if (patient) {
-    noteToSet = patient.baseNote || '' // 新增時使用預設 note
-  }
+  // 2. 準備 note
+  // 邏輯：移動時繼承 note，新增時使用病人的 baseNote
+  const noteToSet = sourceSlotData ? sourceSlotData.note || '' : patient?.baseNote || ''
 
-  // 2. 準備護理師組別
-  // 邏輯：優先使用目標格子已有的設定，其次繼承來源格子的設定，最後才是 null
-  const nurseTeamToSet = existingTargetData.nurseTeam || sourceSlotData?.nurseTeam || null
-  const nurseTeamInToSet = existingTargetData.nurseTeamIn || sourceSlotData?.nurseTeamIn || null
-  const nurseTeamOutToSet = existingTargetData.nurseTeamOut || sourceSlotData?.nurseTeamOut || null
+  // 3. 使用擴展語法 (...) 來優雅地合併資料
+  const newSlotData = {
+    // a. 以一個標準的空白物件打底
+    ...createEmptySlotData(targetShiftId),
 
-  // --- 更新 schedule ---
+    // b. 用目標格子已有的資料覆蓋 (保留未被移動影響的設定，例如預設的護理師)
+    ...(targetSlotData || {}),
 
-  // 3. 更新目標格子
-  currentRecord.schedule[targetShiftId] = {
-    shiftId: targetShiftId,
+    // c. 用來源格子的資料覆蓋 (繼承 note 和護理師組別等)
+    ...(sourceSlotData || {}),
+
+    // d. 最後，用本次操作的最終資料覆蓋，確保它們的優先級最高
     patientId: patientId,
     note: noteToSet,
-    nurseTeam: nurseTeamToSet,
-    nurseTeamIn: nurseTeamInToSet,
-    nurseTeamOut: nurseTeamOutToSet,
+    shiftId: targetShiftId, // 確保 shiftId 是目標格子的
   }
 
-  // 4. 如果是移動，清空來源格子
+  // 4. 更新目標格子
+  currentRecord.schedule[targetShiftId] = newSlotData
+
+  // 5. 如果是移動操作，清空來源格子
   if (sourceShiftId && sourceShiftId !== targetShiftId) {
-    delete currentRecord.schedule[sourceShiftId]
+    // 這裡我們不再需要 'delete'，而是將其重置為一個真正的「空」狀態
+    // 這樣可以避免未來對 undefined 的操作，但會保留空的 key 在資料庫
+    // 如果想徹底刪除，還是用 delete currentRecord.schedule[sourceShiftId];
+    currentRecord.schedule[sourceShiftId] = createEmptySlotData(sourceShiftId)
   }
 
   setChange()
@@ -423,14 +438,13 @@ function handlePatientSelectedFromDialog(patientId) {
 function handleSlotUpdate(shiftId, patientId) {
   if (patientId) {
     const patient = patientMap.value.get(patientId)
-    currentRecord.schedule[shiftId] = {
-      shiftId: shiftId,
-      patientId: patientId,
-      note: patient ? patient.baseNote || '' : '',
-      nurseTeam: null,
-      nurseTeamIn: null,
-      nurseTeamOut: null,
-    }
+    // 先用工廠函式創建一個標準的空白 slot
+    const newSlotData = createEmptySlotData(shiftId)
+    // 再填入病人的特定資訊
+    newSlotData.patientId = patientId
+    newSlotData.note = patient ? patient.baseNote || '' : ''
+
+    currentRecord.schedule[shiftId] = newSlotData
   } else {
     delete currentRecord.schedule[shiftId]
   }
@@ -445,23 +459,13 @@ function openPatientDialog(shiftId) {
 }
 
 function updateNurseTeam(event, shiftId, type) {
-  // 從事件目標（<select> 元素）中獲取選中的值
   const value = event.target.value
 
-  // 為了安全起見，確保資料物件存在。
-  // 這可以處理一種邊界情況：使用者在一個完全空的格子（連病人都沒有）上選擇了護理師。
   if (!currentRecord.schedule[shiftId]) {
-    currentRecord.schedule[shiftId] = {
-      shiftId: shiftId,
-      patientId: null,
-      note: '',
-      nurseTeam: null,
-      nurseTeamIn: null,
-      nurseTeamOut: null,
-    }
+    // 使用工廠函式創建標準物件
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
   }
 
-  // 根據傳入的 type 參數，更新對應的欄位
   const slot = currentRecord.schedule[shiftId]
   if (type === 'single') {
     slot.nurseTeam = value || null // 如果選擇空值，則設為 null
@@ -476,30 +480,20 @@ function updateNurseTeam(event, shiftId, type) {
 }
 
 function updateNote(event, shiftId) {
-  const value = event.target.textContent // 從 contenteditable 的 div 獲取內容
+  const value = event.target.textContent
 
-  // 確保資料物件存在，以防使用者在空格子上直接輸入備註
   if (!currentRecord.schedule[shiftId]) {
-    currentRecord.schedule[shiftId] = {
-      shiftId: shiftId,
-      patientId: null,
-      note: '',
-      nurseTeam: null,
-      nurseTeamIn: null,
-      nurseTeamOut: null,
-    }
+    // 使用工廠函式創建標準物件
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
   }
 
-  // 更新對應的 note
   currentRecord.schedule[shiftId].note = value
-
-  // **觸發未儲存提示**
   setChange()
 }
 
 // --- 生命週期鉤子 ---
-onMounted(() => {
-  loadDataForDay(currentDate.value)
+onMounted(async () => {
+  await Promise.all([loadAllPatients(), loadDataForDay(currentDate.value)])
 })
 </script>
 
