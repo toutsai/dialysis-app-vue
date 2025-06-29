@@ -601,7 +601,6 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
-/* ======================= 【修改點】新增佈局樣式 ======================= */
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -619,6 +618,7 @@ onMounted(loadAllData)
   flex-grow: 1;
   display: flex;
   min-height: 0; /* 關鍵：防止 flex item 溢出 */
+  overflow-x: hidden; /* 防止 main 自身產生水平滾動條 */
 }
 
 .schedule-area {
@@ -640,11 +640,14 @@ onMounted(loadAllData)
   min-height: 0;
   /* 滾動的職責交給 ScheduleTable 元件內部處理 */
 }
-
-.InpatientSidebar {
-  flex-shrink: 0;
-  width: 280px; /* 或你需要的寬度 */
-  border-left: 1px solid #dee2e6;
+.date-navigator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
-/* ======================= 修改結束 ======================= */
+.week-display-text {
+  font-size: 1.5em;
+  font-weight: bold;
+  white-space: nowrap;
+}
 </style>

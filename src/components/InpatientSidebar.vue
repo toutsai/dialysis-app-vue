@@ -46,7 +46,7 @@ function handleDragStart(event, patientId) {
 
 <template>
   <aside class="inpatient-sidebar">
-    <h3>住院病人清單 (可拖曳)</h3>
+    <h3>住院病人 (可拖曳)</h3>
     <div class="filter-group">
       <button @click="inpatientFilter = 'all'" :class="{ active: inpatientFilter === 'all' }">
         全部
@@ -61,8 +61,12 @@ function handleDragStart(event, patientId) {
         其他
       </button>
     </div>
+
     <ul id="inpatient-list">
-      <!-- v-for 的資料來源 inpatientList 現在是基於 props 計算的 -->
+      <!--
+        假設您的 script 中有 inpatientList 這個 computed property
+        來處理過濾後的病人列表
+      -->
       <li
         v-for="p in inpatientList"
         :key="p.id"
@@ -70,13 +74,23 @@ function handleDragStart(event, patientId) {
         :class="{ 'is-scheduled': scheduledIds.has(p.id) }"
         @dragstart="handleDragStart($event, p.id)"
       >
+        <!-- 第一行：姓名和頻率 -->
         <div class="patient-info-row">
           <span class="name">{{ p.name }}</span>
           <span class="freq">{{ p.frequency || '未設定' }}</span>
         </div>
-        <div class="patient-info-row">
-          <span class="mrn">({{ p.medicalRecordNumber || 'N/A' }})</span>
+
+        <!-- ======================= 【修改點】 ======================= -->
+        <!-- 第二行：顯示疾病標籤，而不是病歷號 -->
+        <div
+          class="patient-info-row disease-tags-container"
+          v-if="p.diseases && p.diseases.length > 0"
+        >
+          <span v-for="disease in p.diseases" :key="disease" class="sidebar-disease-tag">
+            {{ disease }}
+          </span>
         </div>
+        <!-- ======================= 修改結束 ======================= -->
       </li>
     </ul>
   </aside>
@@ -84,89 +98,125 @@ function handleDragStart(event, patientId) {
 
 <style scoped>
 .inpatient-sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background-color: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  max-height: calc(75vh + 20px);
+  width: 280px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0; /* 核心！告訴 flexbox 不要壓縮我 */
+  background-color: #f8f9fa;
+  border-left: 1px solid #dee2e6;
 }
-.inpatient-sidebar h3 {
+
+h3 {
   margin-top: 0;
   text-align: center;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 10px;
-  margin-bottom: 10px;
+  color: #495057;
 }
+
 .filter-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
 }
+
 .filter-group button {
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  padding: 4px 8px;
-  font-size: 0.8em;
-  flex-grow: 1;
-  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
   background-color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
 }
+
+.filter-group button:hover {
+  background-color: #e9ecef;
+}
+
 .filter-group button.active {
-  background-color: var(--primary-color);
-  color: white;
-  border-color: var(--primary-color);
+  background-color: #007bff;
+  color: #fff;
+  border-color: #007bff;
 }
+
 #inpatient-list {
-  list-style-type: none;
+  list-style: none;
   padding: 0;
   margin: 0;
-  overflow-y: auto;
   flex-grow: 1;
-}
-#inpatient-list li {
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border-radius: 5px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  transition: background-color 0.3s;
+  gap: 10px;
+}
+
+li {
+  padding: 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background-color: #fff;
   cursor: grab;
+  transition:
+    box-shadow 0.2s,
+    transform 0.2s;
 }
-#inpatient-list li:active {
+
+li:active {
   cursor: grabbing;
+  transform: scale(0.98);
 }
+
+/* 如果病人已被排班，顯示不同樣式 */
+li.is-scheduled {
+  background-color: #fffbe6; /* 淡黃色背景 */
+  border-color: #ffeeba;
+}
+
 .patient-info-row {
   display: flex;
   justify-content: space-between;
-  width: 100%;
   align-items: center;
 }
-#inpatient-list li .name {
+
+.name {
   font-weight: bold;
-  font-size: 1.1em;
+  font-size: 16px;
 }
-#inpatient-list li .mrn {
-  font-size: 0.85em;
+
+.freq {
+  font-size: 12px;
+  background-color: #e9ecef;
+  color: #495057;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/*
+  ======================= 【新增樣式】 =======================
+  這是顯示疾病標籤所需的全新樣式
+*/
+.disease-tags-container {
+  justify-content: flex-start; /* 讓標籤從左邊開始排列 */
+  gap: 6px;
+  margin-top: 6px; /* 與上一行的間距 */
+  flex-wrap: wrap;
+}
+
+.sidebar-disease-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #721c24; /* 深紅色文字 */
+  background-color: #f8d7da; /* 淡紅色背景 */
+  border-radius: 12px;
+}
+
+/* 原本的 .mrn 樣式可以被註解或刪除 */
+/*
+.mrn {
+  font-size: 13px;
   color: #6c757d;
 }
-#inpatient-list li .freq {
-  font-size: 0.9em;
-  color: #555;
-  background-color: #e9ecef;
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-#inpatient-list li.is-scheduled {
-  background-color: #fffbe6; /* 淡黃色 */
-  border-color: #ffe58f;
-}
+*/
 </style>

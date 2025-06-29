@@ -158,33 +158,69 @@ async function loadDataForDay(date) {
     const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
 
     const loadedSchedule = record.schedule || {}
-    const finalSchedule = {} // 我們將在這裡構建一個完全標準化的 schedule
+    const finalSchedule = {}
 
     // 遍歷從資料庫載入的每一個 slot
     for (const shiftId in loadedSchedule) {
       const dbSlotData = loadedSchedule[shiftId]
-      if (dbSlotData) {
+      if (dbSlotData && dbSlotData.patientId) {
         // 使用工廠函式創建一個標準的空白 slot 作為基礎
         const standardSlot = createEmptySlotData(shiftId)
 
-        // 用從資料庫讀取到的資料，覆蓋掉空白基礎
-        // 這一步確保了即使資料庫中的資料缺少某些欄位，我們的前端物件也一定是完整的
-        finalSchedule[shiftId] = {
+        // 從 patientMap 中找到完整的病人資料
+        const patient = patientMap.value.get(dbSlotData.patientId)
+
+        // 將從資料庫讀取的資料與標準 slot 合併
+        const mergedSlot = {
           ...standardSlot,
-          ...dbSlotData,
+          ...dbSlotData, // 這會載入 patientId, manualNote 等
         }
+
+        // 如果找到了病人，就為他生成 autoNote
+        if (patient) {
+          mergedSlot.autoNote = generateAutoNote(patient)
+        }
+
+        finalSchedule[shiftId] = mergedSlot
       }
     }
+    // **↑↑↑ 關鍵修改結束 ↑↑↑**
 
     currentRecord.id = record.id || null
     currentRecord.date = record.date
-    // 將這個完全標準化的 finalSchedule 賦值給我們的響應式狀態
     currentRecord.schedule = finalSchedule
 
     statusIndicator.value = '資料已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
     statusIndicator.value = '讀取失敗'
+  }
+}
+
+function handleSlotClick(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+
+  // 檢查此欄位是否已經有病人
+  if (slotData && slotData.patientId) {
+    // 有病人 -> 執行刪除邏輯
+
+    // **↓↓↓ 關鍵修正處 ↓↓↓**
+    // 1. 直接從 slotData 取得 patientId
+    // 2. 使用 patientMap 查詢完整的病人物件
+    const patient = patientMap.value.get(slotData.patientId)
+
+    // 3. 從病人物件中取得姓名，如果找不到病人則給一個空字串
+    const patientName = patient ? patient.name : ''
+
+    // 4. 在確認對話框中使用正確的姓名
+    if (confirm(`確定要將「${patientName}」從此班次中移除嗎？`)) {
+      // 若使用者確認，則呼叫 handleSlotUpdate 並傳入 null 來清空此欄位
+      handleSlotUpdate(shiftId, null)
+    }
+    // **↑↑↑ 修正結束 ↑↑↑**
+  } else {
+    // 沒有病人 -> 開啟選擇對話框
+    openPatientDialog(shiftId)
   }
 }
 
@@ -333,9 +369,42 @@ async function copySchedule() {
   try {
     const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
     if (sourceRecords.length > 0) {
-      // 直接用來源資料的 schedule 物件，覆蓋當前的 schedule 物件
+      // **↓↓↓ 關鍵修改處 ↓↓↓**
+      const sourceSchedule = sourceRecords[0].schedule || {}
+      const processedSchedule = {} // 建立一個新的物件來存放處理後的排程
+
+      // 遍歷從來源日期讀取到的每一個 slot
+      for (const shiftId in sourceSchedule) {
+        const dbSlotData = sourceSchedule[shiftId]
+        if (dbSlotData && dbSlotData.patientId) {
+          // 找到完整的病人物件
+          const patient = patientMap.value.get(dbSlotData.patientId)
+
+          // 建立一個標準的 slot 作為基礎
+          const standardSlot = createEmptySlotData(shiftId)
+
+          // 合併從資料庫讀取的資料
+          const mergedSlot = {
+            ...standardSlot,
+            ...dbSlotData,
+          }
+
+          // 如果找到了病人，就為他重新生成 autoNote
+          if (patient) {
+            mergedSlot.autoNote = generateAutoNote(patient)
+          }
+
+          // 將這個處理完畢的 slot 存入我們的新排程物件
+          processedSchedule[shiftId] = mergedSlot
+        }
+      }
+
+      // 用處理過後的排程，來覆蓋當前的排程
+      // 為了乾淨，先清空再賦值
       Object.keys(currentRecord.schedule).forEach((key) => delete currentRecord.schedule[key])
-      Object.assign(currentRecord.schedule, sourceRecords[0].schedule || {})
+      Object.assign(currentRecord.schedule, processedSchedule)
+      // **↑↑↑ 修改結束 ↑↑↑**
+
       setChange()
       statusIndicator.value = '複製成功，請記得儲存'
     } else {
@@ -645,7 +714,7 @@ onMounted(async () => {
                       <div
                         class="patient-name"
                         draggable="true"
-                        @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
+                        @click="handleSlotClick(`bed-${bedNum}-${shift}班`)"
                         @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
@@ -713,7 +782,7 @@ onMounted(async () => {
                   <div
                     class="peripheral-patient-name"
                     draggable="true"
-                    @click="openPatientDialog(`peripheral-${i}-${shift}班`)"
+                    @click="handleSlotClick(`peripheral-${i}-${shift}班`)"
                     @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
@@ -757,40 +826,68 @@ onMounted(async () => {
 
 <style scoped>
 /* ==========================================================================
-   2. 頭部工具欄 (Header & Controls) - 修正版
+   1. 頁面整體佈局 (Layout) - **此區為本次修改核心**
    ========================================================================== */
 
-/* 整個頭部區塊的容器 */
-.page-header {
-  flex-shrink: 0;
+/* 最外層容器，設定為佔滿整個視窗高度的 Flex 容器 */
+.page-container {
+  display: flex;
+  flex-direction: column; /* 讓 header 和 main-content 垂直排列 */
+  height: 100vh; /* 佔滿整個可視螢幕高度 */
+  overflow: hidden; /* 防止整個頁面出現滾動條 */
+  background-color: #f4f7f9;
 }
 
-/* 第一行：標題、日期導航、統計 */
+/* 頂部標頭區塊 */
+.page-header {
+  flex-shrink: 0; /* 防止 header 在空間不足時被壓縮 */
+  border-bottom: 1px solid #e0e0e0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  z-index: 10; /* 確保在最上層 */
+}
+
+/* 主內容區 (包含床位區和側邊欄) */
+.page-main-content {
+  flex-grow: 1; /* 讓主內容區填滿 header 下方所有剩餘的垂直空間 */
+  display: flex; /* 內部使用 flex，讓床位區和側邊欄水平排列 */
+  min-height: 0; /* 解決 flex 子項目 overflow 的問題，非常重要 */
+}
+
+/* 中間的床位內容區 (將會滾動的部分) */
+.schedule-content {
+  flex-grow: 1; /* 佔滿側邊欄以外所有剩餘的水平空間 */
+  overflow-y: auto; /* **關鍵！讓這個區塊產生自己的垂直滾動條** */
+  min-width: 0;
+}
+
+/* 右側側邊欄 (固定不動的部分) */
+.inpatient-sidebar {
+  flex-shrink: 0; /* 防止側邊欄被壓縮 */
+  width: 200px; /* 給一個固定寬度 */
+  border-left: 1px solid #e0e0e0;
+  /* 讓側邊欄內部也能滾動 (如果病人列表太長) */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ==========================================================================
+   2. 元件樣式 (Components) - 大部分為您原有的樣式微調
+   ========================================================================== */
+
+/* -- Header 內部樣式 -- */
 .header-toolbar {
   display: flex;
-  justify-content: space-between; /* 讓 left, center, right 三部分分離 */
+  justify-content: space-between;
   align-items: center;
   margin-bottom: 15px;
-  gap: 25px; /* 在三部分之間增加一些間距 */
+  gap: 20px;
 }
-/* 左、中、右三個子容器的通用設定 */
-.toolbar-left,
-.toolbar-center,
-.toolbar-right {
+.toolbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 15px;
 }
-/* 讓中間的日期導航佔據主要空間 */
-.toolbar-center {
-  flex-grow: 1;
-  justify-content: center; /* 讓日期導航在其中間區域居中 */
-}
-/* 讓右側的統計資訊靠右 */
-.toolbar-right {
-  justify-content: flex-end;
-}
-
 .page-title {
   font-size: 1.8em;
   margin: 0;
@@ -805,23 +902,11 @@ onMounted(async () => {
 .weekday-display {
   font-size: 1.5em;
   font-weight: bold;
-  white-space: nowrap;
 }
 .weekday-display {
   color: var(--primary-color);
 }
-
-/* 第二行：控制面板 */
-.controls-panel {
-  display: flex;
-  justify-content: space-between; /* 讓左右兩部分分離 */
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  border-radius: 8px;
-}
-.controls-left,
-.controls-right {
+.toolbar-right {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -830,26 +915,37 @@ onMounted(async () => {
   font-weight: bold;
   color: #6c757d;
 }
+
+/* -- 控制面板樣式 -- */
+.controls-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.controls-left,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .controls-panel button,
-.controls-panel input {
+.controls-panel input[type='date'],
+.controls-panel input[type='text'] {
   padding: 8px 15px;
-  font-size: 1.1em;
+  font-size: 1em;
   border: 1px solid #ccc;
   border-radius: 5px;
-  height: 45px; /* 統一高度 */
+  height: 40px;
   box-sizing: border-box;
 }
-
-/* 按鈕的通用樣式 */
-.date-navigator button,
-.toolbar-center > button {
-  /* 也應用於「回到今日」按鈕 */
-  padding: 8px 15px;
-  font-size: 1.1em;
+.date-navigator button {
+  padding: 8px 12px;
+  font-size: 1em;
   border-radius: 5px;
   border: 1px solid #ccc;
   cursor: pointer;
-  transition: background-color 0.2s;
+  background-color: #fff;
 }
 #save-btn {
   background-color: var(--success-color);
@@ -874,63 +970,19 @@ onMounted(async () => {
 .search-group {
   display: flex;
   align-items: center;
-  gap: 5px;
+}
+.search-group input {
+  border-radius: 5px 0 0 5px;
+}
+.search-group button {
+  border-radius: 0 5px 5px 0;
+  border-left: none;
 }
 
-.shift-patient-count {
-  margin-left: auto;
-  display: flex;
-  gap: 15px;
-  font-weight: bold;
-}
-.shift-patient-count span {
-  color: #005a9c;
-}
-.status-indicator {
-  margin-left: auto;
-  font-weight: bold;
-}
-/* ============================================= */
-/* ==      整行變色的核心樣式 (新)             == */
-/* ============================================= */
-.shift-row.tag-ip {
-  background-color: #ffebee;
-} /* 住 - 淡紅色 */
-.shift-row.tag-chou {
-  background-color: #e3f2fd;
-} /* 抽 - 淡藍色 */
-.shift-row.tag-new {
-  background-color: #fffde7;
-} /* 新 - 淡黃色 */
-.shift-row.tag-huan {
-  background-color: #e0f7fa;
-} /* 換 - 淡青色 */
-.shift-row.tag-liang {
-  background-color: #fff3e0;
-} /* 兩 - 淡橘色 */
-.shift-row.tag-b {
-  background-color: #fff9c4;
-} /* B - 象牙黃 */
-
-/* 確保拖曳高亮樣式優先級最高 */
-.shift-row.drag-over {
-  background-color: #d4edda !important;
-}
 /* ==========================================================================
-   3. 主內容區 (Main Content Area)
+   3. 床位與排程樣式 (Bed & Schedule Styles)
    ========================================================================== */
-/* 4. 調整主內容區的上邊距 */
-.page-main-content {
-  flex-grow: 1;
-  min-height: 0;
-  display: flex;
-  gap: 20px;
-  margin-top: 15px;
-}
-.schedule-content {
-  flex-grow: 1;
-  min-width: 0;
-}
+
 .dialysis-unit {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -939,14 +991,15 @@ onMounted(async () => {
 .aisle {
   writing-mode: vertical-lr;
   text-align: center;
-  padding: 20px 3px;
-  background-color: #dcdcdc;
+  padding: 20px 5px;
+  background-color: #e9ecef;
   border-radius: 8px;
   font-size: 1.5em;
   letter-spacing: 0.5em;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #6c757d;
 }
 .left-wing,
 .right-wing {
@@ -963,14 +1016,13 @@ onMounted(async () => {
 .nursing-station,
 .peripheral-bed {
   border: 1px solid #ccc;
-  border-radius: 5px;
+  border-radius: 8px;
   overflow: hidden;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 .bed {
   min-height: 160px;
-}
-.bed.placeholder {
-  visibility: hidden;
 }
 .nursing-station {
   background-color: #f0f4c3;
@@ -982,33 +1034,33 @@ onMounted(async () => {
   font-weight: bold;
   color: #558b2f;
   grid-column: span 3;
-  padding: 60px 0; /* 上下 padding 30px，左右 padding 0 */
+  padding: 40px 0;
 }
 .bed-header,
 .peripheral-header {
   background-color: #e3f2fd;
   color: #0d47a1;
   font-weight: bold;
-  padding: 5px;
+  padding: 6px;
   text-align: center;
   font-size: 1em;
 }
+
+/* -- 排程行 & 格子樣式 -- */
 .shift-row,
 .peripheral-shift-row {
   display: grid;
-  grid-template-columns: 28px 70px 1fr 1fr;
-  /* align-items: stretch; <-- 將這個改為 center */
-  align-items: center; /* 讓所有格子內容在垂直方向上置中 */
+  align-items: stretch; /* 讓格子填滿高度 */
   border-top: 1px solid #e0e0e0;
   transition: background-color 0.3s;
 }
 .shift-row {
-  grid-template-columns: 28px 70px 1fr 40px;
+  grid-template-columns: 28px 60px 1fr 50px;
 }
 .peripheral-shift-row {
   grid-template-columns: 28px 70px 70px 1fr 40px;
-  border-top-color: #f8bbd0;
 }
+
 .shift-label {
   background-color: #f5f5f5;
   font-size: 0.8em;
@@ -1017,6 +1069,42 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   border-right: 1px solid #e0e0e0;
+}
+.shift-row > div,
+.shift-row > select,
+.peripheral-shift-row > div,
+.peripheral-shift-row > select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  min-height: 48px;
+  border-left: 1px solid #e0e0e0;
+  word-break: break-all;
+  text-align: center;
+}
+.patient-name,
+.peripheral-patient-name {
+  font-size: 1em; /* 從 1.1em 縮小 */
+  padding: 4px 6px; /* 微調內距 */
+}
+.patient-name:empty::before,
+.peripheral-patient-name:empty::before {
+  content: '輸入病人';
+  color: #aaa;
+  font-style: italic;
+}
+.patient-tag:empty::before {
+  content: '備註';
+  color: #aaa;
+  font-style: italic;
+}
+.patient-tag {
+  font-size: 0.9em; /* 縮小字體 */
+  white-space: nowrap; /* 強制不換行 */
+  overflow: hidden; /* 隱藏超出部分 */
+  text-overflow: ellipsis; /* 超出部分顯示省略號 */
+  padding: 4px 6px; /* 微調內距 */
 }
 .nurse-team-select {
   padding: 4px;
@@ -1030,66 +1118,20 @@ onMounted(async () => {
   -moz-appearance: none;
   text-align: center;
 }
-/* 為所有內容欄位設定統一的置中樣式 */
-.shift-row > .nurse-team-select,
-.shift-row > .nurse-split-column,
-.shift-row > .patient-name,
-.shift-row > .patient-tag {
-  display: flex;
-  align-items: center; /* 垂直置中 */
-  justify-content: center; /* 水平置中 */
-  padding: 4px 8px;
-  min-height: 48px;
-  border-left: 1px solid #e0e0e0;
-  word-break: break-all; /* 防止長內容破壞佈局 */
-  text-align: center; /* 讓文字本身也置中 */
-}
-
-/* 對特定欄位進行微調（如果需要的話） */
-.shift-row > .patient-tag {
-  justify-content: center; /* 確保備註也是置中的 */
-  font-size: 0.9em;
-  color: #555;
-}
-.patient-name,
-.peripheral-patient-name,
-.peripheral-bed-number {
-  padding: 4px;
-  border: none;
-  font-size: 0.9em;
-  text-align: center;
-  overflow-wrap: break-word;
-  min-height: 28px; /* 給一個最小高度避免空值時塌陷 */
-  transition: background-color 0.2s; /* 增加過渡效果 */
-}
-.patient-name:empty::before,
-.peripheral-patient-name:empty::before {
-  content: '輸入病人';
-  color: #aaa;
-  font-style: italic;
-}
-.peripheral-bed-number:empty::before {
-  content: '床號';
-  color: #aaa;
-  font-style: italic;
-}
 .shift-row.split-shift .nurse-split-column {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e0e0e0;
+  padding: 0;
 }
 .nurse-split-column .nurse-team-select {
   flex-grow: 1;
+  height: 50%;
 }
 .nurse-split-column .nurse-team-select:first-child {
   border-bottom: 1px solid #e0e0e0;
 }
-.bed.aisle-side.right-wing-bed {
-  border-left: 5px solid #4caf50;
-}
-.bed.aisle-side.left-wing-bed {
-  border-right: 5px solid #4caf50;
-}
+
+/* -- 特殊床位 & 狀態顏色 -- */
 .bed.hepatitis .bed-header {
   background-color: var(--hepatitis-bg);
   color: #af8203;
@@ -1101,18 +1143,50 @@ onMounted(async () => {
 .bed.unassigned .shift-row {
   display: none;
 }
+.bed.aisle-side.right-wing-bed {
+  border-left: 5px solid #4caf50;
+}
+.bed.aisle-side.left-wing-bed {
+  border-right: 5px solid #4caf50;
+}
+
+/* --- ↓↓↓ 關鍵修正處 ↓↓↓ --- */
+/* 使用群組選擇器，讓主床位和外圍床位共用顏色規則 */
+.shift-row.tag-ip,
+.peripheral-shift-row.tag-ip {
+  background-color: #ffebee; /* 住 */
+}
+.shift-row.tag-chou,
+.peripheral-shift-row.tag-chou {
+  background-color: #e3f2fd; /* 抽 */
+}
+.shift-row.tag-new,
+.peripheral-shift-row.tag-new {
+  background-color: #fffde7; /* 新 */
+}
+.shift-row.tag-huan,
+.peripheral-shift-row.tag-huan {
+  background-color: #e0f7fa; /* 換 */
+}
+.shift-row.tag-liang,
+.peripheral-shift-row.tag-liang {
+  background-color: #fff3e0; /* 兩 */
+}
+.shift-row.tag-b,
+.peripheral-shift-row.tag-b {
+  background-color: #fff9c4; /* B */
+}
+
+.patient-name.drag-over {
+  background-color: #c8e6c9 !important;
+}
+
+/* -- 外圍床位 -- */
 .extra-sections {
   margin-top: 30px;
 }
 .peripheral-section {
-  padding: 15px;
-  background-color: #fff;
-  border-radius: 8px;
   margin-bottom: 20px;
-}
-.peripheral-section h2 {
-  text-align: center;
-  margin-top: 0;
 }
 .peripheral-bed-container {
   display: grid;
@@ -1121,60 +1195,26 @@ onMounted(async () => {
 }
 .peripheral-bed .peripheral-header {
   background-color: #fce4ec;
-  border-color: #f48fb1;
   color: #c2185b;
 }
-.patient-tag {
-  border-left: 1px solid #e0e0e0;
-  font-size: 0.8em;
-  min-height: 28px;
-}
-.patient-tag:empty::before {
-  content: '備註';
-  color: #aaa;
-  font-style: italic;
-}
-.patient-name.drag-over {
-  background-color: #c8e6c9; /* 拖曳到上方時的高亮效果 */
-}
-.patient-main-info {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-.disease-tag-display {
-  /* 您的疾病標籤樣式 */
-}
-.slot-note-display {
-  font-size: 0.85em;
-  color: #6c757d;
-  margin-top: 2px;
-}
+
 /* ==========================================================================
-   4. 側邊欄 (Sidebar)
+   4. 側邊欄樣式 (Sidebar Styles) - **此區有微調**
    ========================================================================== */
-.inpatient-sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background-color: var(--sidebar-bg);
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-}
 .inpatient-sidebar h3 {
   margin-top: 0;
   text-align: center;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 10px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .filter-group {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .filter-group button {
   padding: 4px 8px;
@@ -1190,14 +1230,14 @@ onMounted(async () => {
 .filter-group button.active {
   background-color: var(--primary-color);
   color: white;
-  border-color: var(--primary-color);
 }
+
 #inpatient-list {
   list-style-type: none;
   padding: 0;
   margin: 0;
-  overflow-y: auto;
-  flex-grow: 1;
+  flex-grow: 1; /* **關鍵：讓列表填滿側邊欄剩餘空間** */
+  overflow-y: auto; /* **關鍵：如果列表太長，讓列表自己滾動** */
 }
 #inpatient-list li {
   background-color: #fff;
@@ -1205,41 +1245,14 @@ onMounted(async () => {
   padding: 8px 12px;
   margin-bottom: 8px;
   border-radius: 5px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  cursor: grab;
 }
-.patient-info-row {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  align-items: center;
-}
-#inpatient-list li .name {
-  font-weight: bold;
-  font-size: 1.1em;
-}
-#inpatient-list li .mrn {
-  font-size: 0.85em;
-  color: #6c757d;
-}
-#inpatient-list li .freq {
-  font-size: 0.9em;
-  color: #555;
-  background-color: #e9ecef;
-  padding: 2px 6px;
-  border-radius: 10px;
-}
-.shift-row {
-  display: grid;
-  align-items: stretch;
-  border-top: 1px solid #e0e0e0;
-  transition: background-color 0.3s; /* 讓顏色變化有動畫效果 */
+#inpatient-list li:active {
+  cursor: grabbing;
 }
 
 /* ==========================================================================
-   5. 列印樣式 (Print Styles)
+   5. 列印樣式 (Print Styles) - 維持不變
    ========================================================================== */
 @page {
   size: A4 landscape;
@@ -1291,25 +1304,34 @@ onMounted(async () => {
   .bed {
     min-height: 120px;
   }
+  /* -- 排程行 & 格子樣式 -- */
   .shift-row,
   .peripheral-shift-row {
-    font-size: 1em;
-    min-height: 25px;
-    align-items: center;
+    display: grid;
+    align-items: stretch; /* 讓格子填滿高度 */
+    border-top: 1px solid #e0e0e0;
+    transition: background-color 0.3s;
   }
   .shift-row {
-    grid-template-columns: 20px 55px 1fr 30px;
-  }
+    grid-template-columns: 28px 60px 1fr 60px;
+  } /* 微調備註欄寬度 */
   .peripheral-shift-row {
-    display: grid;
-    grid-template-columns: 20px 55px 55px 1fr 30px;
+    grid-template-columns: 28px 70px 70px 1fr 50px;
+  } /* 微調備註欄寬度 */
+
+  .shift-label {
+    background-color: #f5f5f5;
+    font-size: 0.8em;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid #e0e0e0;
   }
-  .shift-label,
   .nurse-team-select,
   .patient-name,
   .peripheral-patient-name,
   .peripheral-bed-number,
-  .patient-tag,
   .nurse-split-column {
     display: flex;
     align-items: center;
@@ -1323,11 +1345,21 @@ onMounted(async () => {
     width: 100%;
     flex-grow: 1;
   }
-  .patient-name:empty::before,
-  .peripheral-bed-number:empty::before,
-  .peripheral-patient-name:empty::before,
-  .patient-tag:empty::before {
+  .peripheral-bed-number:empty::before {
     content: '';
+  }
+
+  .patient-name:empty::before,
+  .peripheral-patient-name:empty::before {
+    content: '輸入病人';
+    color: #aaa;
+    font-style: italic;
+    font-size: 0.9em; /* 也可調整提示文字大小 */
+  }
+  .patient-tag:empty::before {
+    content: '備註';
+    color: #aaa;
+    font-style: italic;
   }
   .patient-name:empty,
   .peripheral-patient-name:empty {
