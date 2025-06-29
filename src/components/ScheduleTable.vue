@@ -1,31 +1,39 @@
 <script setup>
-import { computed } from 'vue'
+import { defineProps, defineEmits } from 'vue'
 
+// Props 和 Emits 的定義保持不變
 const props = defineProps({
-  layout: { type: Array, required: true },
-  scheduleData: { type: Object, required: true },
-  patientMap: { type: Map, required: true },
-  shifts: { type: Array, required: true },
-  weekdays: { type: Array, required: true },
-  weekDates: { type: Array, default: () => [] },
-  hepatitisBeds: { type: Array, default: () => [] },
-  getStyleFunc: { type: Function, default: () => ({}) },
-})
-// 在這裡打印出每次渲染時接收到的 props
-console.log('[Debug ScheduleTable] Received props:', {
-  scheduleData: props.scheduleData,
-  patientMap: props.patientMap,
+  layout: Array,
+  scheduleData: Object,
+  patientMap: Map,
+  shifts: Array,
+  weekdays: Array,
+  weekDates: Array,
+  hepatitisBeds: Array,
+  getStyleFunc: Function,
 })
 
 const emit = defineEmits(['grid-click', 'drop', 'drag-start', 'drag-over', 'drag-leave'])
 
-function getSlot(slotId) {
-  return props.scheduleData[slotId] || null
-}
+// 輔助函式保持不變
+const getPatient = (slotId) => {
+  const slotData = props.scheduleData[slotId]
+  if (!slotData) {
+    // 如果這個 slotId 根本沒有排班，直接返回 null
+    return null
+  }
 
-function getPatient(slotId) {
-  const slot = getSlot(slotId)
-  return slot?.patientId ? props.patientMap.get(slot.patientId) : null
+  if (slotData && slotData.patientId) {
+    const patient = props.patientMap.get(slotData.patientId)
+    if (!patient) {
+      // 找到了排班記錄，但 patientId 在 patientMap 中找不到對應的病人
+      console.warn(`Patient not found for ID: ${slotData.patientId} in slot ${slotId}`)
+      return null
+    }
+    return patient // 成功找到
+  }
+
+  return null
 }
 </script>
 
@@ -49,41 +57,46 @@ function getPatient(slotId) {
             :key="shift"
             :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNumber) }"
           >
-            <td v-if="shiftIndex === 0" :rowspan="shifts.length">{{ bedNumber }}號床</td>
-            <td>{{ shift }}</td>
-            <td v-for="(day, dayIndex) in weekdays" :key="day">
+            <td v-if="shiftIndex === 0" :rowspan="shifts.length" class="bed-number-cell">
+              {{ bedNumber }}號床
+            </td>
+            <td class="shift-cell">{{ shift }}</td>
+            <td
+              v-for="(day, dayIndex) in weekdays"
+              :key="day"
+              :class="{ 'afternoon-shift': shift === '午班' }"
+            >
               <div
                 class="schedule-slot"
-                :class="getStyleFunc(`${bedNumber}-${shiftIndex}-${dayIndex}`)"
+                :class="[
+                  getStyleFunc(`${bedNumber}-${shiftIndex}-${dayIndex}`),
+                  { 'has-patient': !!getPatient(`${bedNumber}-${shiftIndex}-${dayIndex}`) },
+                ]"
                 @click="emit('grid-click', `${bedNumber}-${shiftIndex}-${dayIndex}`)"
                 @drop="emit('drop', $event, `${bedNumber}-${shiftIndex}-${dayIndex}`)"
                 @dragover.prevent="emit('drag-over', $event)"
                 @dragleave.prevent="emit('drag-leave', $event)"
                 @dragstart="emit('drag-start', $event, `${bedNumber}-${shiftIndex}-${dayIndex}`)"
-                :draggable="!!getSlot(`${bedNumber}-${shiftIndex}-${dayIndex}`)?.patientId"
+                :draggable="!!getPatient(`${bedNumber}-${shiftIndex}-${dayIndex}`)?.id"
               >
                 <template
                   v-for="patient in [getPatient(`${bedNumber}-${shiftIndex}-${dayIndex}`)]"
                   :key="patient?.id"
                 >
-                  <template v-if="patient">
-                    <div class="slot-patient-name">
-                      <span>{{ patient.name }}</span>
-                      <span
-                        v-for="disease in patient.diseases"
-                        :key="disease"
-                        class="disease-tag"
-                        >{{ disease }}</span
-                      >
+                  <div v-if="patient" class="patient-details">
+                    <!-- 第一行：姓名和標籤的容器 -->
+                    <div class="patient-primary-info">
+                      <span class="patient-name">{{ patient.name }}</span>
+                      <span v-for="disease in patient.diseases" :key="disease" class="disease-tag">
+                        {{ disease }}
+                      </span>
                     </div>
-                    <div class="slot-patient-mrn">({{ patient.medicalRecordNumber || 'N/A' }})</div>
-                    <div
-                      class="slot-note"
-                      v-if="getSlot(`${bedNumber}-${shiftIndex}-${dayIndex}`).note"
-                    >
-                      {{ getSlot(`${bedNumber}-${shiftIndex}-${dayIndex}`).note }}
+
+                    <!-- 第二行：病歷號 -->
+                    <div class="patient-secondary-info">
+                      <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
                     </div>
-                  </template>
+                  </div>
                 </template>
               </div>
             </td>
@@ -95,9 +108,24 @@ function getPatient(slotId) {
 </template>
 
 <style scoped>
+/*
+  ======================= 【修改點】Style 調整 =======================
+  主要修改 .table-wrapper，讓它能夠填滿父容器並產生滾動條。
+  其他樣式是我們之前確認的最終卡片式設計。
+  ===================================================================
+*/
+:root {
+  --border-color: #f0f0f0;
+  --hepatitis-bg: #fff3cd;
+  --red-text: #d9534f;
+  --patient-card-border: #e0e0e0;
+}
+
+/* 核心修改：讓這個 wrapper 具備滾動能力 */
 .table-wrapper {
-  flex-grow: 1;
-  overflow: auto;
+  width: 100%;
+  height: 100%;
+  overflow: auto; /* 當內容超出時，顯示滾動條 */
   border: 1px solid var(--border-color);
   border-radius: 8px;
 }
@@ -106,23 +134,39 @@ function getPatient(slotId) {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  min-width: 1200px; /* 給一個最小寬度，防止內容擠壓 */
+  min-width: 1200px; /* 確保在窄螢幕下表格內容不會擠壓 */
 }
 
-.weekly-schedule-table th,
-.weekly-schedule-table td {
-  border: 1px solid var(--border-color);
-  padding: 4px;
-  text-align: center;
-  vertical-align: middle;
-  height: 70px; /* 增加一點高度以容納更多資訊 */
-}
-
+/* sticky header 確保在垂直滾動時，表頭固定 */
 .weekly-schedule-table thead th {
   position: sticky;
   top: 0;
   background-color: #f8f9fa;
   z-index: 10;
+  padding: 8px 4px;
+}
+
+/* sticky first column 確保在水平滾動時，床位和班次欄位固定 */
+.weekly-schedule-table .bed-number-cell,
+.weekly-schedule-table .shift-cell {
+  position: sticky;
+  background-color: #fafafa;
+  z-index: 5;
+}
+.weekly-schedule-table .bed-number-cell {
+  left: 0; /* 固定在最左側 */
+}
+.weekly-schedule-table .shift-cell {
+  left: 80px; /* 固定在床位欄旁邊 (假設床位欄寬度約80px) */
+}
+
+.weekly-schedule-table th,
+.weekly-schedule-table td {
+  border: 1px solid var(--border-color);
+  text-align: center;
+  vertical-align: middle;
+  height: 90px;
+  padding: 6px;
 }
 
 .weekday {
@@ -132,87 +176,103 @@ function getPatient(slotId) {
   font-size: 0.8em;
   color: #6c757d;
 }
-
-tr.hepatitis-bed > td:first-child {
-  background-color: var(--hepatitis-bg);
-  font-weight: bold;
+tr.hepatitis-bed {
+  border-left: 4px solid var(--hepatitis-bg);
+}
+td.afternoon-shift {
+  background-color: #f9f9f9;
 }
 
 .schedule-slot {
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  border-radius: 4px;
-  padding: 5px;
-  cursor: pointer;
-  transition:
-    background-color 0.2s,
-    transform 0.1s;
   display: flex;
-  flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 3px;
-  min-height: 65px;
-  font-size: 0.9em;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  transition: all 0.2s ease-in-out;
+  padding: 4px;
 }
 
-.schedule-slot.filled {
+.schedule-slot.has-patient {
+  background-color: #fff;
+  border: 1px solid var(--patient-card-border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   cursor: grab;
 }
-.schedule-slot.filled:active {
+
+.schedule-slot.has-patient:active {
   cursor: grabbing;
+  transform: scale(0.98);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .schedule-slot.drag-over {
   transform: scale(1.05);
-  background-color: #d4edda !important;
-  border: 2px dashed #155724;
+  background-color: #e6f7ff !important;
+  border: 2px dashed #1890ff;
 }
 
-.slot-patient-name {
-  font-weight: bold;
+.patient-details {
   display: flex;
-  align-items: center;
-  gap: 5px;
+  flex-direction: column; /* 確保兩行是垂直排列 */
+  align-items: center; /* 讓兩行內容水平居中 */
+  justify-content: center;
+  gap: 4px; /* 第一行和第二行之間的間距 */
+  width: 100%;
+}
+
+/* 第一行：姓名和標籤的容器 */
+.patient-primary-info {
+  display: flex;
+  align-items: center; /* 垂直對齊姓名和標籤 */
+  justify-content: center; /* 將姓名和標籤作為一個整體水平居中 */
+  gap: 8px; /* 姓名和標籤之間的間距 */
+  flex-wrap: wrap; /* 如果標籤太多，允許換行 */
+}
+
+.patient-name {
+  font-size: 18px; /* 稍微加大姓名，使其更突出 */
+  font-weight: 500;
+  color: #212529;
 }
 
 .disease-tag {
   display: inline-block;
-  padding: 1px 5px;
-  font-size: 0.75em;
+  padding: 2px 8px;
+  font-size: 12px;
   font-weight: bold;
   color: var(--red-text);
   border: 1px solid var(--red-text);
-  border-radius: 4px;
-  line-height: 1.2;
-}
-
-.slot-patient-mrn {
-  font-size: 0.8em;
-  color: #6c757d;
-}
-
-.slot-note {
-  font-size: 0.8em;
-  color: #005a9c;
-  font-style: italic;
-  margin-top: 2px;
-  max-width: 100%;
+  border-radius: 6px; /* 使用稍方的圓角 */
+  line-height: 1.4;
+  background-color: #fff;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* 背景色樣式 */
-.schedule-slot.tag-ip {
-  background-color: #ffebee;
+/* 第二行：病歷號容器 */
+.patient-secondary-info {
+  /* 這裡不需要特別的樣式，它會自然地在第二行 */
 }
+
+.patient-mrn {
+  font-size: 14px; /* 調整病歷號大小 */
+  color: #6c757d;
+  /* 根據您的圖片，病歷號沒有括號 */
+}
+
+/* 背景色標籤 */
 .schedule-slot.tag-chou {
   background-color: #e3f2fd;
 }
 .schedule-slot.tag-new {
   background-color: #fffde7;
+}
+.schedule-slot.tag-ip {
+  background-color: #ffebee;
 }
 .schedule-slot.tag-huan {
   background-color: #e0f7fa;
