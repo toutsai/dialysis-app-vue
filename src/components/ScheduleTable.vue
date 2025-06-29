@@ -115,7 +115,7 @@ const getPatient = (slotId) => {
   ===================================================================
 */
 :root {
-  --border-color: #f0f0f0;
+  --border-color: #dee2e6;
   --hepatitis-bg: #fff3cd;
   --red-text: #d9534f;
   --patient-card-border: #e0e0e0;
@@ -126,7 +126,7 @@ const getPatient = (slotId) => {
   width: 100%;
   height: 100%;
   overflow: auto; /* 當內容超出時，顯示滾動條 */
-  border: 1px solid var(--border-color);
+  border: 0;
   border-radius: 8px;
 }
 
@@ -141,7 +141,7 @@ const getPatient = (slotId) => {
 .weekly-schedule-table thead th {
   position: sticky;
   top: 0;
-  background-color: #f8f9fa;
+  background-color: #e9ecef;
   z-index: 10;
   padding: 8px 4px;
 }
@@ -150,14 +150,16 @@ const getPatient = (slotId) => {
 .weekly-schedule-table .bed-number-cell,
 .weekly-schedule-table .shift-cell {
   position: sticky;
-  background-color: #fafafa;
+  font-weight: normal; /* 可以將字重調回正常，看起來更清爽 */
+  color: #495057;
+  background-color: #e9ecef;
   z-index: 5;
 }
 .weekly-schedule-table .bed-number-cell {
   left: 0; /* 固定在最左側 */
 }
 .weekly-schedule-table .shift-cell {
-  left: 80px; /* 固定在床位欄旁邊 (假設床位欄寬度約80px) */
+  left: 60px; /* 固定在床位欄旁邊 (假設床位欄寬度約80px) */
 }
 
 .weekly-schedule-table th,
@@ -165,8 +167,8 @@ const getPatient = (slotId) => {
   border: 1px solid var(--border-color);
   text-align: center;
   vertical-align: middle;
-  height: 90px;
-  padding: 6px;
+  height: 60px;
+  padding: 4px;
 }
 
 .weekday {
@@ -180,7 +182,7 @@ tr.hepatitis-bed {
   border-left: 4px solid var(--hepatitis-bg);
 }
 td.afternoon-shift {
-  background-color: #f9f9f9;
+  background-color: #e9ecef;
 }
 
 .schedule-slot {
@@ -194,12 +196,11 @@ td.afternoon-shift {
   border: none;
   border-radius: 8px;
   transition: all 0.2s ease-in-out;
-  padding: 4px;
 }
 
 .schedule-slot.has-patient {
   background-color: #fff;
-  border: 1px solid var(--patient-card-border);
+  border: 1px solid #e0e0e0;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   cursor: grab;
 }

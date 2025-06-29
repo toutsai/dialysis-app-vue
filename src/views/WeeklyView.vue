@@ -626,7 +626,6 @@ onMounted(loadAllData)
   display: flex;
   flex-direction: column;
   overflow: hidden; /* 防止自身滾動 */
-  padding: 20px;
   box-sizing: border-box;
   min-width: 0;
 }
