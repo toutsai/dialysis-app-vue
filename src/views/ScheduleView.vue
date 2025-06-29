@@ -9,17 +9,18 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import {
   createEmptySlotData,
   generateStandardNote,
-  generateAutoNote,
+  generateAutoNote, // 確保這個函式內部也將 'ip' 改為 'ipd'
 } from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
-const baseSchedulesApi = ApiManager('base_schedules') // 載入常規需要
+const baseSchedulesApi = ApiManager('base_schedules')
 
 // --- 常量 ---
 const SHIFTS = ['早', '午', '晚']
 const layoutData = {
+  // ... (您的 layoutData 維持不變)
   leftWingRows: [
     ['空', 32, 31],
     [33, 35, 36],
@@ -47,7 +48,6 @@ const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外�
 const earlyTeams = baseTeams.map((t) => `早${t}`)
 const lateTeams = baseTeams.map((t) => `晚${t}`)
 const allTeams = [...earlyTeams, ...lateTeams]
-// 定義樣式優先級
 const STYLE_PRIORITY = {
   抽: { class: 'tag-chou', color: 'blue' },
   新: { class: 'tag-new', color: 'yellow' },
@@ -55,6 +55,12 @@ const STYLE_PRIORITY = {
   換: { class: 'tag-huan', color: 'lightblue' },
   兩: { class: 'tag-liang', color: 'orange' },
   B: { class: 'tag-b', color: 'ivory' },
+  隔: { class: 'tag-ip', color: 'red' },
+  R: { class: 'tag-ip', color: 'red' },
+}
+const freqToDays = {
+  一三五: [1, 3, 5],
+  二四六: [2, 4, 6],
 }
 
 // --- 核心狀態 ---
@@ -67,6 +73,7 @@ const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 const isDialogVisible = ref(false)
 const currentEditingShiftId = ref(null)
 
+// --- Helper Functions ---
 function formatDate(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -82,47 +89,23 @@ const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
 const shiftPatientCount = computed(() => {
-  // 1. 初始化時使用 '早班', '午班', '晚班' 作為 key，以匹配 StatsToolbar 的期望
   const counts = { 早班: 0, 午班: 0, 晚班: 0 }
-
-  // 2. 直接存取 reactive 物件，不要用 .value
   if (currentRecord.schedule) {
-    // 3. 遍歷 schedule 物件的所有值
     for (const slotData of Object.values(currentRecord.schedule)) {
-      // 確保 slotData 和 patientId 存在
       if (slotData && slotData.patientId) {
-        // 4. 從 slotData 中獲取 shiftId
         const shiftId = slotData.shiftId || ''
-
-        // 5. 根據 shiftId 判斷班別並計數
-        if (shiftId.endsWith('早班')) {
-          counts['早班']++
-        } else if (shiftId.endsWith('午班')) {
-          counts['午班']++
-        } else if (shiftId.endsWith('晚班')) {
-          counts['晚班']++
-        }
+        if (shiftId.endsWith('早班')) counts['早班']++
+        else if (shiftId.endsWith('午班')) counts['午班']++
+        else if (shiftId.endsWith('晚班')) counts['晚班']++
       }
     }
   }
-
-  // **偵錯日誌**
-  console.log('[Debug] 計算出的人數 (shiftPatientCount):', JSON.parse(JSON.stringify(counts)))
-
   return counts
 })
-
-// **用來傳遞資料的 computed，它直接依賴 shiftPatientCount**
-const statsToolbarData = computed(() => {
-  // 格式化成 StatsToolbar 期望的 [{ counts: {...} }] 結構
-  return [{ counts: shiftPatientCount.value }]
-})
+const statsToolbarData = computed(() => [{ counts: shiftPatientCount.value }])
 const statsToolbarWeekdays = computed(() => ['本日'])
 const scheduledPatientIds = computed(() => {
-  if (!currentRecord.schedule) {
-    return new Set()
-  }
-  // 從 currentRecord.schedule 中提取所有有效的 patientId
+  if (!currentRecord.schedule) return new Set()
   return new Set(
     Object.values(currentRecord.schedule)
       .filter((slot) => slot && slot.patientId)
@@ -130,16 +113,71 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
+// --- 【關鍵修改處】 ---
+// 使用 'ipd' 來精確過濾住院病人
+const inpatientList = computed(() => allPatients.value.filter((p) => p.status === 'ipd'))
+
 // --- 方法 ---
+
+function shouldPatientBeScheduled(patient, dayOfWeek) {
+  if (!patient.freq) return false
+  const scheduledDays = freqToDays[patient.freq]
+  return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
+}
+
+function checkForUnsavedChangesAndMissingPatients() {
+  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要離開嗎？')) {
+    return false
+  }
+
+  // --- 開始偵錯日誌 ---
+  console.clear() // 清空控制台，方便查看
+  console.log('--- 開始檢查遺漏排班 ---')
+
+  const dayOfWeek = currentDate.value.getDay()
+  console.log(`今天是星期${'日一二三四五六'[dayOfWeek]} (數字: ${dayOfWeek})`)
+  console.log(`需要檢查的住院病人總數: ${inpatientList.value.length}人`)
+  console.log('所有已排班的病人ID:', scheduledPatientIds.value)
+
+  const missingPatients = inpatientList.value.filter((p) => {
+    // 為每一位住院病人打印詳細資訊
+    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
+    const isAlreadyScheduled = scheduledPatientIds.value.has(p.id)
+
+    console.log(
+      `[檢查中...] 病人: ${p.name}, ` +
+        `Firebase中的頻率(freq): "${p.freq}" (型別: ${typeof p.freq}), ` +
+        `今天應該排班嗎?: ${shouldBeScheduled}, ` +
+        `已經排班了嗎?: ${isAlreadyScheduled}`,
+    )
+
+    return shouldBeScheduled && !isAlreadyScheduled
+  })
+
+  console.log('--- 檢查完畢 ---')
+  console.log(
+    `找到 ${missingPatients.length} 位遺漏的病人:`,
+    missingPatients.map((p) => p.name),
+  )
+  // --- 結束偵錯日誌 ---
+
+  if (missingPatients.length > 0) {
+    const patientNames = missingPatients.map((p) => p.name).join('\n')
+    const message = `警告：下列病人今日應排班但尚未排入：\n\n${patientNames}\n\n您確定要離開目前頁面嗎？`
+    if (!confirm(message)) {
+      return false
+    }
+  }
+
+  return true
+}
+
 async function loadAllPatients() {
   try {
-    console.log('正在獲取所有病人資料...')
     const patientsData = await patientsApi.fetchAll()
     allPatients.value = patientsData
-    console.log('病人資料獲取成功:', allPatients.value.length, '人')
   } catch (error) {
     console.error('獲取病人資料失敗:', error)
-    // 可以在這裡給使用者一些提示
   }
 }
 
@@ -152,44 +190,26 @@ async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
-
   try {
     const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
     const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
-
     const loadedSchedule = record.schedule || {}
     const finalSchedule = {}
-
-    // 遍歷從資料庫載入的每一個 slot
     for (const shiftId in loadedSchedule) {
       const dbSlotData = loadedSchedule[shiftId]
       if (dbSlotData && dbSlotData.patientId) {
-        // 使用工廠函式創建一個標準的空白 slot 作為基礎
         const standardSlot = createEmptySlotData(shiftId)
-
-        // 從 patientMap 中找到完整的病人資料
         const patient = patientMap.value.get(dbSlotData.patientId)
-
-        // 將從資料庫讀取的資料與標準 slot 合併
-        const mergedSlot = {
-          ...standardSlot,
-          ...dbSlotData, // 這會載入 patientId, manualNote 等
-        }
-
-        // 如果找到了病人，就為他生成 autoNote
+        const mergedSlot = { ...standardSlot, ...dbSlotData }
         if (patient) {
           mergedSlot.autoNote = generateAutoNote(patient)
         }
-
         finalSchedule[shiftId] = mergedSlot
       }
     }
-    // **↑↑↑ 關鍵修改結束 ↑↑↑**
-
     currentRecord.id = record.id || null
     currentRecord.date = record.date
     currentRecord.schedule = finalSchedule
-
     statusIndicator.value = '資料已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
@@ -197,35 +217,8 @@ async function loadDataForDay(date) {
   }
 }
 
-function handleSlotClick(shiftId) {
-  const slotData = currentRecord.schedule[shiftId]
-
-  // 檢查此欄位是否已經有病人
-  if (slotData && slotData.patientId) {
-    // 有病人 -> 執行刪除邏輯
-
-    // **↓↓↓ 關鍵修正處 ↓↓↓**
-    // 1. 直接從 slotData 取得 patientId
-    // 2. 使用 patientMap 查詢完整的病人物件
-    const patient = patientMap.value.get(slotData.patientId)
-
-    // 3. 從病人物件中取得姓名，如果找不到病人則給一個空字串
-    const patientName = patient ? patient.name : ''
-
-    // 4. 在確認對話框中使用正確的姓名
-    if (confirm(`確定要將「${patientName}」從此班次中移除嗎？`)) {
-      // 若使用者確認，則呼叫 handleSlotUpdate 並傳入 null 來清空此欄位
-      handleSlotUpdate(shiftId, null)
-    }
-    // **↑↑↑ 修正結束 ↑↑↑**
-  } else {
-    // 沒有病人 -> 開啟選擇對話框
-    openPatientDialog(shiftId)
-  }
-}
-
 function changeDate(days) {
-  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+  if (!checkForUnsavedChangesAndMissingPatients()) return
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
@@ -233,83 +226,67 @@ function changeDate(days) {
 }
 
 function goToToday() {
-  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+  if (!checkForUnsavedChangesAndMissingPatients()) return
   currentDate.value = new Date()
   loadDataForDay(currentDate.value)
 }
 
 function getPatientName(bedIdentifier, shift) {
-  // 1. 根據傳入的參數，組合出唯一的 shiftId
   const shiftId = `${bedIdentifier}-${shift}班`
   const patientId = currentRecord.schedule[shiftId]?.patientId
-
-  if (!patientId) {
-    return ''
-  }
-
+  if (!patientId) return ''
   const patient = patientMap.value.get(patientId)
   return patient ? patient.name : ''
 }
 
 function getCombinedNote(slotData) {
   if (!slotData) return ''
-
-  // 將兩個備註都用空格分割成單詞陣列
   const autoNotes = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualNotes = (slotData.manualNote || '').split(' ').filter(Boolean)
-
-  // **使用 Set 來合併並自動去重**
   const allNotes = new Set([...autoNotes, ...manualNotes])
-
-  // 將去重後的結果重新組合為字串
   return Array.from(allNotes).join(' ')
 }
 
-/**
- * 根據 slotData 計算並返回對應的 CSS class 物件，用於整行變色。
- * @param {string} shiftId - 該床位班次的唯一標識符。
- * @returns {object} - 一個 class 物件，例如 { 'tag-ip': true }。
- */
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
-  if (!slotData || !slotData.patientId) {
-    return {} // 如果沒有病人，不添加任何特殊 class
-  }
-
-  // 使用 getCombinedNote 獲取完整的備註來進行判斷
+  if (!slotData || !slotData.patientId) return {}
   const combinedNote = getCombinedNote(slotData)
-
-  // 根據我們定義的優先級來遍歷
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
-      // 找到第一個匹配的最高優先級狀態，並返回對應的 class
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-
-  // 如果備註中沒有匹配的關鍵字，再檢查病人身份
   const patient = patientMap.value.get(slotData.patientId)
-  if (patient && patient.status === 'ip') {
-    // 請確認您的住院狀態值是 'ip' 還是 'ipd'
+  if (patient && inpatientList.value.some((p) => p.id === patient.id)) {
     return { [STYLE_PRIORITY['住'].class]: true }
   }
-
-  // 如果以上都不匹配，返回空物件
   return {}
 }
 
 async function saveDataToCloud() {
+  const dayOfWeek = currentDate.value.getDay()
+  const missingPatients = inpatientList.value.filter(
+    (p) => shouldPatientBeScheduled(p, dayOfWeek) && !scheduledPatientIds.value.has(p.id),
+  )
+
+  if (missingPatients.length > 0) {
+    const patientNames = missingPatients.map((p) => p.name).join('\n')
+    const message = `警告：下列病人今日應排班但尚未排入：\n\n${patientNames}\n\n您確定要繼續儲存嗎？`
+    if (!confirm(message)) {
+      statusIndicator.value = '操作已取消'
+      return
+    }
+  }
+
   statusIndicator.value = '儲存中...'
   try {
     const cleanSchedule = {}
     for (const shiftId in currentRecord.schedule) {
       const slotData = currentRecord.schedule[shiftId]
       if (slotData && slotData.patientId) {
-        // 只儲存有病人的格子
         cleanSchedule[shiftId] = {
           patientId: slotData.patientId,
           shiftId: slotData.shiftId || shiftId,
-          // **分別儲存 autoNote 和 manualNote**
           autoNote: slotData.autoNote || '',
           manualNote: slotData.manualNote || '',
           nurseTeam: slotData.nurseTeam || null,
@@ -319,16 +296,12 @@ async function saveDataToCloud() {
       }
     }
     const dataToSave = { date: currentRecord.date, schedule: cleanSchedule }
-
-    console.log('準備儲存到雲端的資料:', JSON.parse(JSON.stringify(dataToSave)))
-
     if (currentRecord.id) {
       await schedulesApi.update(currentRecord.id, dataToSave)
     } else {
       const savedRecord = await schedulesApi.save(dataToSave)
       currentRecord.id = savedRecord.id
     }
-
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
     alert('排程已成功儲存！')
@@ -339,10 +312,8 @@ async function saveDataToCloud() {
   }
 }
 
-// **實現 clearBoard (解決問題 2)**
 function clearBoard() {
   if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
-    // 清空 schedule 物件的所有屬性
     Object.keys(currentRecord.schedule).forEach((key) => {
       delete currentRecord.schedule[key]
     })
@@ -350,8 +321,8 @@ function clearBoard() {
   }
 }
 
-// **實現 copySchedule (解決問題 2)**
 async function copySchedule() {
+  if (!checkForUnsavedChangesAndMissingPatients()) return
   if (!copySourceDate.value) {
     alert('請選擇一個來源日期！')
     return
@@ -364,47 +335,26 @@ async function copySchedule() {
     !confirm(`確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`)
   )
     return
-
   statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
   try {
     const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
     if (sourceRecords.length > 0) {
-      // **↓↓↓ 關鍵修改處 ↓↓↓**
       const sourceSchedule = sourceRecords[0].schedule || {}
-      const processedSchedule = {} // 建立一個新的物件來存放處理後的排程
-
-      // 遍歷從來源日期讀取到的每一個 slot
+      const processedSchedule = {}
       for (const shiftId in sourceSchedule) {
         const dbSlotData = sourceSchedule[shiftId]
         if (dbSlotData && dbSlotData.patientId) {
-          // 找到完整的病人物件
           const patient = patientMap.value.get(dbSlotData.patientId)
-
-          // 建立一個標準的 slot 作為基礎
           const standardSlot = createEmptySlotData(shiftId)
-
-          // 合併從資料庫讀取的資料
-          const mergedSlot = {
-            ...standardSlot,
-            ...dbSlotData,
-          }
-
-          // 如果找到了病人，就為他重新生成 autoNote
+          const mergedSlot = { ...standardSlot, ...dbSlotData }
           if (patient) {
             mergedSlot.autoNote = generateAutoNote(patient)
           }
-
-          // 將這個處理完畢的 slot 存入我們的新排程物件
           processedSchedule[shiftId] = mergedSlot
         }
       }
-
-      // 用處理過後的排程，來覆蓋當前的排程
-      // 為了乾淨，先清空再賦值
       Object.keys(currentRecord.schedule).forEach((key) => delete currentRecord.schedule[key])
       Object.assign(currentRecord.schedule, processedSchedule)
-      // **↑↑↑ 修改結束 ↑↑↑**
-
       setChange()
       statusIndicator.value = '複製成功，請記得儲存'
     } else {
@@ -420,13 +370,10 @@ async function copySchedule() {
 function onDragStart(event, source) {
   let patientId
   let sourceShiftId = null
-
-  // 1. 判斷來源
   if (
     typeof source === 'string' &&
     (source.startsWith('bed-') || source.startsWith('peripheral-'))
   ) {
-    // 來源是床位
     const slotData = currentRecord.schedule[source]
     if (!slotData || !slotData.patientId) {
       event.preventDefault()
@@ -435,31 +382,21 @@ function onDragStart(event, source) {
     patientId = slotData.patientId
     sourceShiftId = source
   } else {
-    // 來源是側邊欄，source 就是 patientId
     patientId = source
   }
-
-  // 如果無論如何都沒拿到 patientId，則中止拖曳
   if (!patientId) {
     event.preventDefault()
     return
   }
-
-  // 2. **在這裡統一設定 dataTransfer**
   event.dataTransfer.setData('patientId', patientId)
   if (sourceShiftId) {
     event.dataTransfer.setData('sourceShiftId', sourceShiftId)
-    event.dataTransfer.effectAllowed = 'move' // 從床位拖曳是「移動」
+    event.dataTransfer.effectAllowed = 'move'
   } else {
-    event.dataTransfer.effectAllowed = 'copy' // 從側邊欄拖曳是「複製」
+    event.dataTransfer.effectAllowed = 'copy'
   }
 }
 
-/**
- * 處理拖放事件的最終函式。
- * @param {DragEvent} event - 拖放事件物件。
- * @param {string} targetShiftId - 放置目標格子的唯一 ID。
- */
 function onDrop(event, targetShiftId) {
   event.preventDefault()
   event.target.closest('.patient-name, .patient-tag, .schedule-slot')?.classList.remove('drag-over')
@@ -469,12 +406,18 @@ function onDrop(event, targetShiftId) {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
 
+  const isFromSidebar = !sourceShiftId
+  if (isFromSidebar && scheduledPatientIds.value.has(patientId)) {
+    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
+      return
+    }
+  }
+
   const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
   const targetSlotData = currentRecord.schedule[targetShiftId]
 
-  // **分離處理 note**
-  const manualNoteToSet = sourceSlotData?.manualNote || '' // 移動時只繼承手動備註
-  const autoNoteToSet = generateAutoNote(patient) // 無論如何都重新生成自動備註
+  const manualNoteToSet = sourceSlotData?.manualNote || ''
+  const autoNoteToSet = generateAutoNote(patient)
 
   const newSlotData = {
     ...createEmptySlotData(targetShiftId),
@@ -488,27 +431,23 @@ function onDrop(event, targetShiftId) {
 
   currentRecord.schedule[targetShiftId] = newSlotData
 
-  // 6. 處理來源格子 (如果是從床位移動過來的)
   if (sourceShiftId && sourceShiftId !== targetShiftId) {
-    // 判斷是否為「換床」操作
     if (targetSlotData && targetSlotData.patientId) {
-      // 目標格子原本有病人，執行交換邏輯
       const swappedPatient = patientMap.value.get(targetSlotData.patientId)
-      const swappedNote = generateStandardNote(swappedPatient, targetSlotData.note || '')
-
-      const swappedSlotData = { ...newSlotData } // 複製一份結構
-      swappedSlotData.patientId = targetSlotData.patientId
-      swappedSlotData.note = swappedNote
-      swappedSlotData.shiftId = sourceShiftId
-
+      const swappedAutoNote = generateAutoNote(swappedPatient)
+      const swappedManualNote = targetSlotData.manualNote || ''
+      const swappedSlotData = {
+        ...createEmptySlotData(sourceShiftId),
+        patientId: targetSlotData.patientId,
+        autoNote: swappedAutoNote,
+        manualNote: swappedManualNote,
+        shiftId: sourceShiftId,
+      }
       currentRecord.schedule[sourceShiftId] = swappedSlotData
     } else {
-      // 目標格子是空的，清空來源格子
       currentRecord.schedule[sourceShiftId] = createEmptySlotData(sourceShiftId)
     }
   }
-
-  // 7. 觸發未儲存狀態
   setChange()
 }
 
@@ -519,13 +458,33 @@ function onDragOver(event) {
     targetCell.classList.add('drag-over')
   }
 }
+
 function onDragLeave(event) {
   event.target.closest('.patient-name')?.classList.remove('drag-over')
 }
 
+function handleSlotClick(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  if (slotData && slotData.patientId) {
+    const patient = patientMap.value.get(slotData.patientId)
+    const patientName = patient ? patient.name : ''
+    if (confirm(`確定要將「${patientName}」從此班次中移除嗎？`)) {
+      handleSlotUpdate(shiftId, null)
+    }
+  } else {
+    openPatientDialog(shiftId)
+  }
+}
+
 function handlePatientSelectedFromDialog(patientId) {
   if (currentEditingShiftId.value && patientId) {
-    // 直接呼叫 handleSlotUpdate 來處理
+    if (scheduledPatientIds.value.has(patientId)) {
+      const patient = patientMap.value.get(patientId)
+      if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
+        isDialogVisible.value = false
+        return
+      }
+    }
     handleSlotUpdate(currentEditingShiftId.value, patientId)
   }
   isDialogVisible.value = false
@@ -536,8 +495,7 @@ function handleSlotUpdate(shiftId, patientId) {
     const patient = patientMap.value.get(patientId)
     const newSlotData = createEmptySlotData(shiftId)
     newSlotData.patientId = patientId
-    newSlotData.autoNote = generateAutoNote(patient) // 只生成 autoNote
-    // manualNote 保持為空 ''
+    newSlotData.autoNote = generateAutoNote(patient)
     currentRecord.schedule[shiftId] = newSlotData
   } else {
     delete currentRecord.schedule[shiftId]
@@ -546,30 +504,19 @@ function handleSlotUpdate(shiftId, patientId) {
 }
 
 function openPatientDialog(shiftId) {
-  // 如果該格子已經有病人，也許您想提供一個清除選項，或者直接打開編輯
-  // 這裡我們先做簡單的：點擊就打開選擇器
   currentEditingShiftId.value = shiftId
   isDialogVisible.value = true
 }
 
 function updateNurseTeam(event, shiftId, type) {
   const value = event.target.value
-
   if (!currentRecord.schedule[shiftId]) {
-    // 使用工廠函式創建標準物件
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
   }
-
   const slot = currentRecord.schedule[shiftId]
-  if (type === 'single') {
-    slot.nurseTeam = value || null // 如果選擇空值，則設為 null
-  } else if (type === 'in') {
-    slot.nurseTeamIn = value || null
-  } else if (type === 'out') {
-    slot.nurseTeamOut = value || null
-  }
-
-  // **觸發未儲存狀態，啟用儲存按鈕**
+  if (type === 'single') slot.nurseTeam = value || null
+  else if (type === 'in') slot.nurseTeamIn = value || null
+  else if (type === 'out') slot.nurseTeamOut = value || null
   setChange()
 }
 
@@ -578,7 +525,6 @@ function updateNote(event, shiftId) {
   if (!currentRecord.schedule[shiftId]) {
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
   }
-  // **只更新 manualNote**
   currentRecord.schedule[shiftId].manualNote = value
   setChange()
 }
