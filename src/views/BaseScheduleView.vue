@@ -302,22 +302,10 @@ onMounted(loadAllData)
 
 <style scoped>
 /* ==========================================================================
-   1. 頁面佈局 (Page Layout)
-   ========================================================================== */
-.page-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-  background-color: #f8f9fa; /* 給整個頁面一個非常淡的背景色 */
-}
-
-/* ==========================================================================
    2. 頁面頭部 (Header)
    ========================================================================== */
 .page-header {
   flex-shrink: 0; /* 防止頭部被壓縮 */
-  padding: 15px 24px;
   background-color: #fff;
   border-bottom: 1px solid #dee2e6;
   box-sizing: border-box;
@@ -332,7 +320,7 @@ onMounted(loadAllData)
 }
 
 .page-title {
-  font-size: 1.6rem;
+  font-size: 28px;
   font-weight: 600;
   margin: 0;
   color: #343a40;
@@ -355,13 +343,6 @@ onMounted(loadAllData)
   padding: 8px 16px;
   /* ... */
 }
-
-/* StatsToolbar 本身的樣式可以由其元件內部定義，
-   但我們可以在這裡控制它的外邊距等 */
-.page-header .stats-toolbar {
-  /* 如果您把 StatsToolbar 放在 header 裡，可以在這裡微調 */
-}
-
 /* ==========================================================================
    3. 主內容區 (Main Content)
    ========================================================================== */
@@ -369,7 +350,6 @@ onMounted(loadAllData)
   flex-grow: 1;
   display: flex; /* 讓子元素填滿空間 */
   min-height: 0;
-  padding: 24px; /* 在主內容區周圍增加統一的內邊距 */
   box-sizing: border-box;
 }
 
