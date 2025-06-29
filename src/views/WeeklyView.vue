@@ -4,9 +4,8 @@ import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 
 // 1. 引入所有需要的子元件和工具函式
-// --- 【修改點】移除 ScheduleDisplay 的 import ---
 import StatsToolbar from '@/components/StatsToolbar.vue'
-import ScheduleTable from '@/components/ScheduleTable.vue' // <-- 直接引入 ScheduleTable
+import ScheduleTable from '@/components/ScheduleTable.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
@@ -49,6 +48,11 @@ const baseSchedulesApi = ApiManager('base_schedules')
 // --- 常量定義 (保持不變) ---
 const SHIFTS = ['早班', '午班', '晚班']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+// 【新增】定義病人狀態常量，提高代碼健壯性
+const PATIENT_STATUS = {
+  INPATIENT: 'ipd',
+  // 如果有其他狀態也可以加在這裡
+}
 const bedLayout = [
   1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 28, 29, 31, 32,
   33, 35, 36, 37, 38, 39, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 65,
@@ -66,7 +70,7 @@ const FREQ_MAP_TO_DAY_INDEX = {
 const STYLE_PRIORITY = {
   抽: { class: 'tag-chou' },
   新: { class: 'tag-new' },
-  住: { class: 'tag-ip' },
+  住: { class: 'tag-ip' }, // 確保 "住" 對應到 'tag-ip'
   換: { class: 'tag-huan' },
   兩: { class: 'tag-liang' },
   B: { class: 'tag-b' },
@@ -161,8 +165,7 @@ const scheduledPatientIds = computed(() => {
   return ids
 })
 
-// --- 方法 (保持不變) ---
-// ... (所有方法，如 setChange, loadAllData, changeWeek, handleSlotUpdate 等，都維持原樣) ...
+// --- 方法 ---
 function setChange() {
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
@@ -219,35 +222,69 @@ function goToToday() {
   loadAllData()
 }
 
+// 【最終修正版】handleSlotUpdate
 function handleSlotUpdate(slotId, patientId, note = '') {
+  // === 【除錯點 2】 ===
+  console.log(`--- handleSlotUpdate ---`)
+  console.log(`執行的 Slot ID: ${slotId}`, `病人 ID: ${patientId || 'null (清除)'}`)
+  // ===================
+
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
-  const d = new Date(currentWeekStartDate.value)
-  d.setDate(d.getDate() + parseInt(dayIndex, 10))
-  const dateStr = formatDateForQuery(d)
-
-  const newWeekRecords = new Map(weekScheduleRecords.value)
-  let dailyRecord = newWeekRecords.get(dateStr)
-
-  if (!dailyRecord) {
-    dailyRecord = { id: null, date: dateStr, schedule: {} }
-    newWeekRecords.set(dateStr, dailyRecord)
+  const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
+  if (!dateStr) {
+    console.error(`在 handleSlotUpdate 中找不到對應的日期, dayIndex: ${dayIndex}`)
+    return
   }
 
+  const newWeekRecords = new Map(weekScheduleRecords.value)
+  const oldDailyRecord = newWeekRecords.get(dateStr) || { id: null, date: dateStr, schedule: {} }
+  const newSchedule = { ...oldDailyRecord.schedule }
   const shiftName = SHIFTS[shiftIndex]
   const dailyShiftId = `bed-${bed}-${shiftName}`
 
   if (patientId) {
+    // 【新增/更新】
     const patient = patientMap.value.get(patientId)
-    const newSlotData = createEmptySlotData(dailyShiftId)
-    newSlotData.patientId = patientId
-    newSlotData.note = note || patient?.baseNote || ''
-    dailyRecord.schedule[dailyShiftId] = newSlotData
+    if (!patient) return
+
+    const isNewIpPatient = !note && patient.status === PATIENT_STATUS.INPATIENT
+    const finalNote = note || (isNewIpPatient ? '住' : patient.baseNote || '')
+
+    // 在新的 schedule 物件上操作
+    newSchedule[dailyShiftId] = {
+      ...createEmptySlotData(dailyShiftId),
+      patientId: patientId,
+
+      note: finalNote,
+    }
   } else {
-    delete dailyRecord.schedule[dailyShiftId]
+    // 【清除】
+    // 在新的 schedule 物件上操作
+    delete newSchedule[dailyShiftId]
   }
 
-  weekScheduleRecords.value = new Map(newWeekRecords)
+  // 4. 用一個包含新 schedule 的全新物件來更新 Map
+  newWeekRecords.set(dateStr, {
+    ...oldDailyRecord,
+    schedule: newSchedule,
+  })
+
+  // 5. 將 ref 的值指向這個全新的 Map，觸發畫面更新
+  weekScheduleRecords.value = newWeekRecords
+
+  // 6. 標記變更
   setChange()
+  // === 【除錯點 3】 ===
+  // 使用 nextTick 確保在 DOM 更新之後再打印日誌
+  import('vue').then(({ nextTick }) => {
+    nextTick(() => {
+      console.log(`--- 更新完成後 ---`)
+      console.log('當前的 weekScheduleRecords:', weekScheduleRecords.value)
+      console.log('重新計算的 weekScheduleMap:', weekScheduleMap.value)
+      console.log(`檢查剛剛更新的格子 ${slotId}:`, weekScheduleMap.value[slotId])
+    })
+  })
+  // ===================
 }
 
 async function loadBaseSchedule() {
@@ -355,93 +392,119 @@ async function saveChangesToCloud() {
   }
 }
 
+// 【已更新】這個函數現在依賴於 handleSlotUpdate 自動添加的 '住'
 function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
+
   const classes = {}
   const note = slotData.note || ''
+
+  // 優先級判斷
   for (const key in STYLE_PRIORITY) {
     if (note.includes(key)) {
       classes[STYLE_PRIORITY[key].class] = true
       return classes
     }
   }
-  if (patient.status === 'ip') {
-    classes[STYLE_PRIORITY['住'].class] = true
+
+  // 備用邏輯 (雖然現在主要靠 note)
+  if (patient.status === PATIENT_STATUS.INPATIENT) {
+    classes['tag-ip'] = true
   }
+
   return classes
 }
 
-// --- Drag and Drop (優化版) ---
-const draggedItem = ref(null) // 用來追蹤被拖曳的項目資訊
+// --- Drag and Drop (已更新) ---
+const draggedItem = ref(null)
 
-// 從表格內部開始拖曳
 function onDragStart(event, slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
-  // 設置 draggedItem
   draggedItem.value = {
     patientId: slotData.patientId,
-    source: slotId, // 來源是表格的 slotId
+    note: slotData.note || '', // 帶上現有的 note
+    source: slotId,
   }
-  // 為了瀏覽器兼容性，仍然可以設置 dataTransfer
-  event.dataTransfer.setData('text/plain', 'moving')
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// 從側邊欄開始拖曳
-function onSidebarDragStart(event, patient) {
-  // 設置 draggedItem
+// 【最終修正版 - 推薦】
+function onSidebarDragStart(event, patientId) {
+  // 函數簽名直接反映出接收的是 ID
+  // === 【除錯點】 ===
+  console.log('Sidebar Drag Start - Patient ID:', patientId)
+  // ===================
+
+  if (!patientId) {
+    console.error('從側邊欄拖曳時，未獲取到有效的病人ID！')
+    event.preventDefault()
+    return
+  }
+
+  // 【關鍵修改】不再依賴傳入的物件，而是用收到的 ID 自己去 patientMap 查找
+  const patient = patientMap.value.get(patientId)
+  if (!patient) {
+    console.error(`在 onSidebarDragStart 中找不到 ID 為 ${patientId} 的病患！`)
+    event.preventDefault()
+    return
+  }
+
   draggedItem.value = {
-    patientId: patient.id,
-    source: 'sidebar', // 來源是側邊欄
+    patientId: patient.id, // 現在這裡的 patient.id 是可靠的
+    note: '',
+    source: 'sidebar',
   }
-  event.dataTransfer.setData('text/plain', 'adding')
+
   event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', patient.id)
 }
 
-// 在目標位置放下
+// 【修正 onDrop】
+// 不再解析 dataTransfer，完全依賴 draggedItem
 function onDrop(event, targetSlotId) {
   event.preventDefault()
-  // 直接使用 draggedItem.value，這是最可靠的資料來源
-  if (!draggedItem.value) return
+  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
 
-  const targetSlotIsEmpty = !weekScheduleMap.value[targetSlotId]
+  // 【最可靠的數據來源】
+  const itemToDrop = draggedItem.value
 
-  if (targetSlotIsEmpty) {
-    // 更新目標格子
-    handleSlotUpdate(targetSlotId, draggedItem.value.patientId)
-
-    // 如果來源不是側邊欄，則清空來源格子
-    if (draggedItem.value.source !== 'sidebar') {
-      handleSlotUpdate(draggedItem.value.source, null)
-    }
-  } else {
-    // 可以在此處添加「交換」或「提示目標非空」的邏輯
-    console.log('目標位置非空，目前不執行任何操作。')
+  if (!itemToDrop || !itemToDrop.patientId) {
+    console.error('onDrop 觸發，但 draggedItem 無效或缺少 patientId。')
+    draggedItem.value = null // 清理無效狀態
+    return
   }
 
-  // 清理工作
-  draggedItem.value = null // 操作完成後務必清除
-  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+  if (weekScheduleMap.value[targetSlotId]) {
+    console.warn('目標位置非空，操作取消。')
+    draggedItem.value = null
+    return
+  }
+
+  // 使用 itemToDrop 中的數據
+  handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.note)
+
+  if (itemToDrop.source !== 'sidebar') {
+    handleSlotUpdate(itemToDrop.source, null)
+  }
+
+  draggedItem.value = null
 }
 
-// 拖曳經過目標
 function onDragOver(event) {
   event.preventDefault()
   const targetSlot = event.target.closest('.schedule-slot')
   if (targetSlot && !targetSlot.querySelector('.patient-details')) {
-    // 只在高亮空格子上
     targetSlot.classList.add('drag-over')
   }
 }
 
-// 拖曳離開目標
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
@@ -539,20 +602,6 @@ onMounted(loadAllData)
 
 <style scoped>
 /* ======================= 【修改點】新增佈局樣式 ======================= */
-.page-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.page-header {
-  flex-shrink: 0;
-  /* 你可以添加 header 的樣式 */
-  padding: 10px 20px;
-  border-bottom: 1px solid #dee2e6;
-}
-
 .header-toolbar {
   display: flex;
   justify-content: space-between;
