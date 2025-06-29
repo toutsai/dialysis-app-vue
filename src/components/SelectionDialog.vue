@@ -4,29 +4,43 @@
 const props = defineProps({
   isVisible: Boolean,
   title: String,
-  options: Array, // 接收一個選項陣列，例如 ['出院', '死亡', ...]
+  // 【修改點】明確 props 的結構，讓它接收物件陣列
+  // 每個物件應該有 { value: 'some_value', text: '顯示的文字' }
+  options: {
+    type: Array,
+    required: true,
+    // 添加一個 validator 來確保傳入的 options 格式正確
+    validator: (options) => {
+      return options.every((opt) => typeof opt === 'object' && 'value' in opt && 'text' in opt)
+    },
+  },
 })
 const emit = defineEmits(['select', 'cancel'])
 
 // 2. 定義方法
-function handleSelect(option) {
-  emit('select', option) // 發送 'select' 事件，並回傳被點選的選項
+function handleSelect(selectedValue) {
+  // 【修改點】發送 'select' 事件時，回傳的是選項的 'value'，而不是整個物件或文字
+  emit('select', selectedValue)
 }
 
 function handleCancel() {
-  emit('cancel') // 發送 'cancel' 事件
+  emit('cancel')
 }
 </script>
 
 <template>
-  <!-- 我們用 <dialog> 元素，這是 HTML5 內建的對話框，非常方便 -->
-  <!-- :open 屬性控制 dialog 的顯示與否 -->
-  <dialog :open="isVisible" class="selection-dialog">
+  <dialog :open="isVisible" class="selection-dialog" @close="handleCancel">
     <h3>{{ title }}</h3>
     <div class="button-group">
-      <!-- 使用 v-for 遍歷傳入的 options，為每個選項建立一個按鈕 -->
-      <button v-for="option in options" :key="option" @click="handleSelect(option)">
-        {{ option }}
+      <!--
+        ======================= 【修改點】 =======================
+        - v-for 遍歷物件陣列，key 使用 option.value
+        - @click 傳遞 option.value
+        - 按鈕顯示的文字是 option.text
+        ==========================================================
+      -->
+      <button v-for="option in options" :key="option.value" @click="handleSelect(option.value)">
+        {{ option.text }}
       </button>
     </div>
     <div class="button-group">
@@ -36,18 +50,17 @@ function handleCancel() {
 </template>
 
 <style scoped>
-/* 這是從舊專案 delete-reason-dialog 借來的樣式，並稍作修改 */
+/* 樣式保持不變，因為它只關心按鈕的渲染，不關心內容 */
 .selection-dialog {
   border: 1px solid #ccc;
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
   width: 90%;
-  max-width: 400px; /* 調整寬度以適應按鈕列表 */
-  z-index: 100; /* 給一個比表格的 10 更大的值，例如 100 */
+  max-width: 400px;
+  z-index: 100;
 }
 
-/* ::backdrop 是 dialog 元素的背景遮罩 */
 .selection-dialog::backdrop {
   background-color: rgba(0, 0, 0, 0.5);
 }

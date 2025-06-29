@@ -1,33 +1,33 @@
 <!-- 檔案路徑: src/components/PatientSelectDialog.vue (z-index 修正版) -->
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 // props 和 emits 的定義保持不變
 const props = defineProps({
   isVisible: Boolean,
   title: String,
   patients: Array,
-  // **新增這個 prop**
   showFillOptions: {
     type: Boolean,
-    default: true, // 預設情況下，顯示這些選項 (為了兼容舊的 ScheduleView)
+    default: true,
   },
 })
 const emit = defineEmits(['confirm', 'cancel'])
 
-// 內部狀態和方法的定義保持不變
+// 內部狀態
 const searchTerm = ref('')
 const freqFilter = ref('')
 const diseaseFilter = ref('')
 const selectedPatientId = ref(null)
-const patientStatusFilter = ref('') // '' 代表全部, 'opd' 代表門診, 'ipd' 代表住院
+const patientStatusFilter = ref('')
 const fillType = ref('frequency')
 
+// 常量
 const FREQUENCIES = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六', '每周一次', '臨時']
 const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
 
+// 計算屬性
 const filteredPatients = computed(() => {
-  // 在這裡打印出每次計算時，從父層接收到的 props
   if (!props.patients || props.patients.length === 0) {
     return []
   }
@@ -37,7 +37,12 @@ const filteredPatients = computed(() => {
       !term ||
       (p.name && p.name.toLowerCase().includes(term)) ||
       (p.medicalRecordNumber && p.medicalRecordNumber.includes(term))
-    const matchesFreq = !freqFilter.value || p.frequency === freqFilter.value
+
+    // ======================= 【核心修改點】 =======================
+    // 將所有 p.frequency 的引用，全部改為 p.freq
+    const matchesFreq = !freqFilter.value || p.freq === freqFilter.value
+    // ==========================================================
+
     const matchesDisease =
       !diseaseFilter.value || (p.diseases && p.diseases.includes(diseaseFilter.value))
     const matchesStatus = !patientStatusFilter.value || p.status === patientStatusFilter.value
@@ -46,34 +51,40 @@ const filteredPatients = computed(() => {
   })
 })
 
+// 方法
 function selectPatient(patientId) {
   selectedPatientId.value = patientId
 }
 
-// **修改 handleConfirm 函式**
 function handleConfirm() {
   if (!selectedPatientId.value) {
     alert('請先選擇一位病人！')
     return
   }
-
-  // **根據新的 prop 決定 emit 出去的資料格式**
   if (props.showFillOptions) {
-    // 如果顯示了選項，就傳遞包含 fillType 的物件
     emit('confirm', {
       patientId: selectedPatientId.value,
       fillType: fillType.value,
     })
   } else {
-    // 如果沒顯示選項，就只傳遞 patientId 字串
     emit('confirm', selectedPatientId.value)
   }
 }
 
 function handleCancel() {
   emit('cancel')
-  resetDialog()
 }
+
+// 監聽 isVisible 的變化，在 dialog 關閉時重置內部狀態
+// 這樣可以避免上次的選擇殘留
+watch(
+  () => props.isVisible,
+  (newValue) => {
+    if (!newValue) {
+      resetDialog()
+    }
+  },
+)
 
 function resetDialog() {
   searchTerm.value = ''
@@ -81,6 +92,7 @@ function resetDialog() {
   diseaseFilter.value = ''
   selectedPatientId.value = null
   fillType.value = 'frequency'
+  patientStatusFilter.value = ''
 }
 </script>
 
@@ -154,15 +166,14 @@ function resetDialog() {
           <span v-if="p.diseases && p.diseases.length" class="disease-tag-small">{{
             p.diseases.join(', ')
           }}</span>
-          <span>{{ p.frequency || '未設定' }}</span>
+          <!-- ======================= 【核心修改點】 ======================= -->
+          <span>{{ p.freq || '未設定' }}</span>
+          <!-- ========================================================== -->
         </div>
       </div>
     </div>
 
-    <!-- ====================================================== -->
-    <!-- ==      「填入方式」區塊 - 這是唯一的修改點         == -->
-    <!-- ====================================================== -->
-    <!-- 使用 v-if 指令，根據 showFillOptions prop 來決定是否渲染這個區塊 -->
+    <!-- 「填入方式」區塊 -->
     <div v-if="showFillOptions" class="form-field" style="margin-top: 15px">
       <label>填入方式：</label>
       <div class="radio-group">
