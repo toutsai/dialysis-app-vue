@@ -2,7 +2,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 
-// 1. Props 和 Emits 維持不變
+// 1. Props 和 Emits 定義
 const props = defineProps({
   patients: {
     type: Array,
@@ -13,12 +13,13 @@ const props = defineProps({
     default: () => new Set(),
   },
 })
+
 const emit = defineEmits(['drag-start'])
 
-// 2. 內部狀態維持不變
+// 2. 內部狀態
 const inpatientFilter = ref('all')
 
-// ========== 【修改一】修正 inpatientList 計算屬性 ==========
+// 3. 計算屬性，用於過濾住院病人列表
 const inpatientList = computed(() => {
   // 從 props.patients 中篩選出住院病人
   let inpatients = props.patients.filter((p) => p.status === 'ipd' && !p.isDeleted)
@@ -35,10 +36,11 @@ const inpatientList = computed(() => {
   }
   return inpatients
 })
-// ========================================================
 
-function handleDragStart(event, patientId) {
-  emit('drag-start', event, patientId)
+// 4. 事件處理函式
+function handleDragStart(event, patient) {
+  // 發送 event 和完整的 patient 物件給父元件
+  emit('drag-start', event, patient)
 }
 </script>
 
@@ -66,14 +68,12 @@ function handleDragStart(event, patientId) {
         :key="p.id"
         draggable="true"
         :class="{ 'is-scheduled': scheduledIds.has(p.id) }"
-        @dragstart="handleDragStart($event, p.id)"
+        @dragstart="handleDragStart($event, p)"
       >
         <!-- 第一行：姓名和頻率 -->
         <div class="patient-info-row">
           <span class="name">{{ p.name }}</span>
-          <!-- ========== 【修改二】修正頻率顯示 ========== -->
           <span class="freq">{{ (p.freq ?? p.frequency) || '未設定' }}</span>
-          <!-- ============================================= -->
         </div>
 
         <!-- 第二行：疾病標籤 -->

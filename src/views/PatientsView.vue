@@ -18,7 +18,14 @@ const editingPatient = ref(null)
 const modalType = ref('ipd')
 const isDeleteDialogVisible = ref(false)
 const patientToDeleteId = ref(null)
-const DELETE_REASONS = ['出院', '死亡', '轉外院透析', '轉PD', '腎臟移植', '作廢']
+const DELETE_REASONS = [
+  { value: '出院', text: '出院' },
+  { value: '死亡', text: '死亡' },
+  { value: '轉外院透析', text: '轉外院透析' },
+  { value: '轉PD', text: '轉PD' },
+  { value: '腎臟移植', text: '腎臟移植' },
+  { value: '作廢', text: '作廢' },
+]
 
 // --- 計算屬性 ---
 const displayedPatients = computed(() => {

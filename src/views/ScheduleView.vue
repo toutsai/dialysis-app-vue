@@ -331,27 +331,27 @@ async function copySchedule() {
   }
 }
 
-function onDragStart(event, source) {
-  let patientId
-  let sourceShiftId = null
-  if (typeof source === 'object' && source.id) {
-    patientId = source.id
-  } else if (typeof source === 'string') {
-    const slotData = currentRecord.schedule[source]
-    if (!slotData || !slotData.patientId) {
-      event.preventDefault()
-      return
-    }
-    patientId = slotData.patientId
-    sourceShiftId = source
-  } else {
+// 【新增】函式一：專門處理從「床位」開始的拖曳
+function onBedDragStart(event, sourceShiftId) {
+  const slotData = currentRecord.schedule[sourceShiftId]
+  // 如果拖曳的是空格子，或格子裡沒有病人，就取消
+  if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
-  event.dataTransfer.setData('patientId', patientId)
-  if (sourceShiftId) {
-    event.dataTransfer.setData('sourceShiftId', sourceShiftId)
-  }
+
+  // 設置拖曳資料
+  event.dataTransfer.setData('patientId', slotData.patientId)
+  event.dataTransfer.setData('sourceShiftId', sourceShiftId) // 標明來源床位
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+// 【新增】函式二：專門處理從「住院病人側邊欄」開始的拖曳
+function onSidebarDragStart(event, patient) {
+  // 設置拖曳資料
+  event.dataTransfer.setData('patientId', patient.id)
+  // 注意：從側邊欄拖曳時，沒有 sourceShiftId
+  event.dataTransfer.effectAllowed = 'move'
 }
 
 function onDrop(event, targetShiftId) {
@@ -637,6 +637,8 @@ onMounted(async () => {
                           {{ team }}組
                         </option>
                       </select>
+
+                      <!-- 【註解已修正】註解現在位於元素標籤之外 -->
                       <div
                         class="patient-name"
                         draggable="true"
@@ -644,7 +646,7 @@ onMounted(async () => {
                         @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
-                        @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
+                        @dragstart="onBedDragStart($event, `bed-${bedNum}-${shift}班`)"
                       >
                         {{ getPatientName(`bed-${bedNum}`, shift) }}
                       </div>
@@ -699,7 +701,15 @@ onMounted(async () => {
                       {{ team }}組
                     </option>
                   </select>
-                  <div class="peripheral-bed-number" contenteditable="true"></div>
+                  <div
+                    class="peripheral-bed-number"
+                    contenteditable="true"
+                    @blur="updateWardNumber($event, `peripheral-${i}-${shift}班`)"
+                  >
+                    {{ currentRecord.schedule[`peripheral-${i}-${shift}班`]?.wardNumber }}
+                  </div>
+
+                  <!-- 【註解已修正】註解現在位於元素標籤之外 -->
                   <div
                     class="peripheral-patient-name"
                     draggable="true"
@@ -707,7 +717,7 @@ onMounted(async () => {
                     @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
-                    @dragstart="onDragStart($event, `peripheral-${i}-${shift}班`)"
+                    @dragstart="onBedDragStart($event, `peripheral-${i}-${shift}班`)"
                   >
                     {{ getPatientName(`peripheral-${i}`, shift) }}
                   </div>
@@ -727,13 +737,15 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+
       <InpatientSidebar
         :patients="allPatients"
         :scheduled-ids="scheduledPatientIds"
-        @drag-start="onDragStart"
+        @drag-start="onSidebarDragStart"
       />
     </main>
   </div>
+
   <PatientSelectDialog
     :is-visible="isDialogVisible"
     title="選擇排班病人"

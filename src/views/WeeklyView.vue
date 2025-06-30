@@ -86,6 +86,7 @@ const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
 const hasUnsavedChanges = ref(false)
 const statusText = ref('資料已載入')
+const draggedItem = ref(null)
 
 // --- UI 狀態 ---
 const isDialogVisible = ref(false)
@@ -98,17 +99,18 @@ const alertDialogMessage = ref('')
 const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
-// 用一個 ref 來儲存「確定」後要執行的回呼函數
 const confirmAction = ref(null)
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+
 const weekDisplay = computed(() => {
   const start = new Date(currentWeekStartDate.value)
   const end = new Date(start)
   end.setDate(start.getDate() + 5)
   return `${formatDate(start, true)} ~ ${formatDate(end, true)}`
 })
+
 const weekDates = computed(() => {
   return Array.from({ length: 6 }).map((_, i) => {
     const d = new Date(currentWeekStartDate.value)
@@ -116,6 +118,7 @@ const weekDates = computed(() => {
     return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateForQuery(d) }
   })
 })
+
 const statsToolbarData = computed(() => {
   const baseData = WEEKDAYS.map(() => ({ counts: { 早班: 0, 午班: 0, 晚班: 0 } }))
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
@@ -136,6 +139,7 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
+
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   weekDates.value.forEach((day, dayIndex) => {
@@ -160,7 +164,9 @@ const weekScheduleMap = computed(() => {
   })
   return combinedSchedule
 })
+
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
+
 const scheduledPatientIds = computed(() => {
   const ids = new Set()
   for (const dailyRecord of weekScheduleRecords.value.values()) {
@@ -180,6 +186,7 @@ function setChange() {
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
+
 async function loadAllData() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
@@ -216,6 +223,7 @@ async function loadAllData() {
     statusText.value = '讀取失敗'
   }
 }
+
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentWeekStartDate.value)
@@ -223,11 +231,13 @@ function changeWeek(days) {
   currentWeekStartDate.value = newDate
   loadAllData()
 }
+
 function goToToday() {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   currentWeekStartDate.value = getStartOfWeek(new Date())
   loadAllData()
 }
+
 function handleSlotUpdate(slotId, patientId, note = '') {
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
   const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
@@ -257,6 +267,7 @@ function handleSlotUpdate(slotId, patientId, note = '') {
   weekScheduleRecords.value = newWeekRecords
   setChange()
 }
+
 async function loadBaseSchedule() {
   if (!confirm('確定要載入常規班表嗎？這將會覆蓋當前週的所有排班。')) return
   statusText.value = '正在載入常規班表...'
@@ -285,6 +296,7 @@ async function loadBaseSchedule() {
     statusText.value = '載入失敗'
   }
 }
+
 function handleGridClick(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (slotData?.patientId) {
@@ -295,6 +307,7 @@ function handleGridClick(slotId) {
     isDialogVisible.value = true
   }
 }
+
 function handleClearSelect(selectedValue) {
   if (!clearingSlotId.value) return
 
@@ -316,7 +329,6 @@ function handleClearSelect(selectedValue) {
 }
 
 function handlePatientSelect({ patientId, fillType }) {
-  // 1. 基本資料獲取與驗證
   const slotId = currentSlotId.value
   if (!patientId || !slotId) return
 
@@ -324,17 +336,11 @@ function handlePatientSelect({ patientId, fillType }) {
   if (!patient) return
 
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
-
-  // 2. 【核心修正】計算預期排班日，並確保 daysToFill 永遠是陣列
   const expectedDays = (patient.freq && FREQ_MAP_TO_DAY_INDEX[patient.freq]) || []
-
   const daysToFill =
     fillType === 'frequency' && expectedDays.length > 0 ? expectedDays : [parseInt(dayIndex)]
-
-  // 現在 daysToFill 絕對是一個陣列，可以安全地使用 .map
   const targetSlots = daysToFill.map((d_idx) => `${bed}-${shiftIndex}-${d_idx}`)
 
-  // 3. 檢測衝突
   const emptySlots = []
   const conflictedSlots = []
 
@@ -346,9 +352,7 @@ function handlePatientSelect({ patientId, fillType }) {
     }
   })
 
-  // 根據是否有衝突來決定流程
   if (conflictedSlots.length > 0) {
-    // 【有衝突】
     const conflictMessages = conflictedSlots
       .map((csId) => {
         const [_b, _s, _d] = csId.split('-')
@@ -360,8 +364,6 @@ function handlePatientSelect({ patientId, fillType }) {
       })
       .join('\n- ')
 
-    // ======================= 【核心修改點】 =======================
-    // 生成可排入床位的訊息
     let availableSlotsMessage = ''
     if (emptySlots.length > 0) {
       const availableDaysText = emptySlots
@@ -374,116 +376,84 @@ function handlePatientSelect({ patientId, fillType }) {
     } else {
       availableSlotsMessage = '\n\n已無其他可排入的空床位。'
     }
-    // ==========================================================
 
-    // 組合最終的提示訊息
     const confirmMessage = `部分班次因床位已被佔用而未排入：\n- ${conflictMessages}${availableSlotsMessage}`
 
     confirmDialogTitle.value = '排班衝突提醒'
     confirmDialogMessage.value = confirmMessage
 
-    // 定義「確定」後要執行的操作
     confirmAction.value = () => {
       if (emptySlots.length > 0) {
         emptySlots.forEach((newSlotId) => {
           handleSlotUpdate(newSlotId, patientId)
         })
       }
-      // 如果沒有空格子，點擊確定後不做任何事即可，因為訊息已經提示過了。
     }
-
     isConfirmDialogVisible.value = true
   } else {
-    // 【無衝突】直接排入所有目標格子
     emptySlots.forEach((newSlotId) => {
       handleSlotUpdate(newSlotId, patientId)
     })
   }
-
   isDialogVisible.value = false
 }
 
-// 處理 ConfirmDialog 結果的函數
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
-    confirmAction.value() // 執行我們之前儲存的操作
+    confirmAction.value()
   }
-  isConfirmDialogVisible.value = false // 關閉對話框
-  confirmAction.value = null // 清理
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
 }
 
 function handleConflictCancel() {
-  isConfirmDialogVisible.value = false // 關閉對話框
-  confirmAction.value = null // 清理
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
 }
 
 async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
     const promises = []
-
-    // 遍歷我們本地的 weekScheduleRecords Map
     for (const record of weekScheduleRecords.value.values()) {
-      // 準備要儲存的、乾淨的 schedule 物件
       const cleanSchedule = {}
-
-      // 遍歷當天的所有排班
       for (const shiftId in record.schedule) {
         const slotData = record.schedule[shiftId]
-        // 只儲存有病人的排班
         if (slotData && slotData.patientId) {
           cleanSchedule[shiftId] = {
             patientId: slotData.patientId,
             note: slotData.note || '',
-            shiftId: slotData.shiftId || shiftId, // 確保 shiftId 被儲存
-            // 保留其他可能的欄位
+            shiftId: slotData.shiftId || shiftId,
             nurseTeam: slotData.nurseTeam || null,
             nurseTeamIn: slotData.nurseTeamIn || null,
             nurseTeamOut: slotData.nurseTeamOut || null,
           }
         }
       }
-
       const dataToSave = {
         date: record.date,
         schedule: cleanSchedule,
       }
-
-      // 根據記錄是否存在，決定是更新、刪除還是新增
       if (record.id) {
-        // 這天在資料庫中已經有記錄了
         if (Object.keys(cleanSchedule).length > 0) {
-          // 如果當天還有排班，就更新
           promises.push(schedulesApi.update(record.id, dataToSave))
         } else {
-          // 如果當天所有排班都被清空了，就刪除這天的文件
           promises.push(schedulesApi.delete(record.id))
         }
       } else if (Object.keys(cleanSchedule).length > 0) {
-        // 這天在資料庫中沒有記錄，但我們現在有排班了，所以要新增
         promises.push(schedulesApi.save(dataToSave))
       }
     }
-
-    // 等待所有異步操作完成
     await Promise.all(promises)
-
-    // 更新 UI 狀態
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
-
-    // 使用自定義 Alert 提示成功
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '週排班已成功儲存！'
     isAlertDialogVisible.value = true
-
-    // 重新載入資料以同步
     await loadAllData()
   } catch (error) {
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
-
-    // 使用自定義 Alert 提示失敗
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = `儲存失敗：${error.message}`
     isAlertDialogVisible.value = true
@@ -491,37 +461,28 @@ async function saveChangesToCloud() {
 }
 
 function runScheduleCheck() {
-  // 【關鍵修正】確保在使用前，先定義 patientsToCheck
   const patientsToCheck = allPatients.value.filter(
     (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
   )
-
   const validationResult = {
     unscheduled: [],
     freqMismatch: [],
     duplicates: [],
   }
-
-  // --- 檢查 1: 頻率與是否排班 ---
-  // 現在可以安全地使用 patientsToCheck
   patientsToCheck.forEach((patient) => {
     const patientName = patient.name
     const expectedFreq = patient.freq
     const expectedDays = FREQ_MAP_TO_DAY_INDEX[expectedFreq] || []
-
     const scheduledSlots = Object.keys(weekScheduleMap.value).filter(
       (slotId) => weekScheduleMap.value[slotId]?.patientId === patient.id,
     )
-
     if (scheduledSlots.length > 0) {
       const actualScheduledDays = new Set(
         scheduledSlots.map((slotId) => parseInt(slotId.split('-')[2], 10)),
       )
-
       if (expectedDays.length > 0) {
         const actualDaysArray = Array.from(actualScheduledDays).sort()
-        const expectedDaysArray = [...expectedDays].sort() // 確保拷貝後再排序
-
+        const expectedDaysArray = [...expectedDays].sort()
         if (JSON.stringify(actualDaysArray) !== JSON.stringify(expectedDaysArray)) {
           const statusText = patient.status === 'ipd' ? '住院病人' : '門診病人'
           const actualDaysText = actualDaysArray
@@ -539,12 +500,9 @@ function runScheduleCheck() {
       }
     }
   })
-
-  // --- 檢查 2: 同日重複排班 ---
   for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
     const patientsOnThisDay = new Set()
     const duplicatesOnThisDay = new Set()
-
     for (const slotId in weekScheduleMap.value) {
       if (parseInt(slotId.split('-')[2], 10) === dayIndex) {
         const patientId = weekScheduleMap.value[slotId]?.patientId
@@ -552,7 +510,6 @@ function runScheduleCheck() {
           const patientName = patientMap.value.get(patientId)?.name
           if (patientName) {
             if (patientsOnThisDay.has(patientName)) {
-              // 改為用名字判斷重複
               duplicatesOnThisDay.add(patientName)
             } else {
               patientsOnThisDay.add(patientName)
@@ -561,16 +518,13 @@ function runScheduleCheck() {
         }
       }
     }
-
     duplicatesOnThisDay.forEach((name) => {
       validationResult.duplicates.push(`病人 ${name} 在 ${WEEKDAYS[dayIndex]} 重複排班。`)
     })
   }
 
-  // --- 顯示結果 ---
-  let message = '' // 不再需要 "排班檢視完畢" 的開頭
+  let message = ''
   let hasWarnings = false
-
   if (validationResult.unscheduled.length > 0) {
     message += '【未排床病人】:\n- ' + validationResult.unscheduled.join('\n- ') + '\n\n'
     hasWarnings = true
@@ -584,15 +538,14 @@ function runScheduleCheck() {
     hasWarnings = true
   }
 
-  // 【修改】不再使用 alert()，而是設置狀態來顯示自定義對話框
   if (!hasWarnings) {
     alertDialogTitle.value = '排班檢視完畢'
     alertDialogMessage.value = '未發現明顯的排班問題。'
   } else {
     alertDialogTitle.value = '發現以下潛在問題'
-    alertDialogMessage.value = message.trim() // 去掉結尾多餘的換行
+    alertDialogMessage.value = message.trim()
   }
-  isAlertDialogVisible.value = true // 打開對話框
+  isAlertDialogVisible.value = true
 }
 
 function getWeeklyCellStyle(slotId) {
@@ -600,25 +553,27 @@ function getWeeklyCellStyle(slotId) {
   if (!slotData || !slotData.patientId) return {}
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
-
   const classes = {}
   const note = slotData.note || ''
-
   for (const key in STYLE_PRIORITY) {
     if (note.includes(key)) {
       classes[STYLE_PRIORITY[key].class] = true
       return classes
     }
   }
-
   if (patient.status === PATIENT_STATUS.INPATIENT) {
     classes['tag-ip'] = true
   }
-
   return classes
 }
-// --- Drag and Drop ---
-const draggedItem = ref(null)
+
+function handleDialogCancel() {
+  isDialogVisible.value = false
+}
+
+// ========== 【核心修正區域】 ==========
+
+// 函式一：專門處理從「表格內部」開始的拖曳
 function onDragStart(event, slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) {
@@ -628,37 +583,30 @@ function onDragStart(event, slotId) {
   draggedItem.value = {
     patientId: slotData.patientId,
     note: slotData.note || '',
-    source: slotId,
+    source: slotId, // 來源是表格內的 slotId
   }
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// ======================= 【最終修正點】 =======================
-// 函數簽名改為接收 patientId，並在內部查找完整的 patient 物件
-function onSidebarDragStart(event, patientId) {
-  if (!patientId) {
-    console.error('從側邊欄拖曳時，未獲取到有效的病人ID！')
+// 函式二：專門處理從「住院病人側邊欄」開始的拖曳
+// 這個函式現在接收 event 和 patient 兩個參數，與 InpatientSidebar.vue 的 emit 格式匹配
+function onSidebarDragStart(event, patient) {
+  if (!patient || !patient.id) {
+    console.error('從側邊欄拖曳時，未獲取到有效的病患物件！')
     event.preventDefault()
     return
   }
 
-  // 使用 patientMap 查找完整的病人物件，確保資料的權威性
-  const patient = patientMap.value.get(patientId)
-  if (!patient) {
-    console.error(`在 onSidebarDragStart 中找不到 ID 為 ${patientId} 的病患！`)
-    event.preventDefault()
-    return
-  }
-
+  // 將拖曳的資料設定到 draggedItem 中
   draggedItem.value = {
     patientId: patient.id,
-    note: '',
-    source: 'sidebar',
+    note: '', // 從側邊欄拖曳時，預設沒有備註
+    source: 'sidebar', // 來源是側邊欄
   }
   event.dataTransfer.effectAllowed = 'move'
 }
-// ==========================================================
 
+// onDrop 函式保持不變，因為它本來就是依賴 draggedItem.value，與事件參數無關
 function onDrop(event, targetSlotId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
@@ -683,19 +631,7 @@ function onDrop(event, targetSlotId) {
 
   draggedItem.value = null
 }
-function onDragOver(event) {
-  event.preventDefault()
-  const targetSlot = event.target.closest('.schedule-slot')
-  if (targetSlot && !targetSlot.querySelector('.patient-details')) {
-    targetSlot.classList.add('drag-over')
-  }
-}
-function onDragLeave(event) {
-  event.target.closest('.schedule-slot')?.classList.remove('drag-over')
-}
-function handleDialogCancel() {
-  isDialogVisible.value = false
-}
+
 // --- 生命週期鉤子 ---
 onMounted(loadAllData)
 </script>
@@ -850,17 +786,10 @@ onMounted(loadAllData)
   white-space: nowrap;
 }
 
-/* 【新增】定義一個專門用於「警告」或「檢視」功能的黃色按鈕樣式 */
-.btn-warning {
-  background-color: #ffc107; /* 一個明亮的黃色 (Bootstrap 的 warning 顏色) */
-  border-color: #ffc107;
-  color: #212529; /* 深色文字以確保可讀性 */
-  font-weight: 500;
-}
-
-/* 為黃色按鈕添加 hover 效果 */
-.btn-warning:hover:not(:disabled) {
-  background-color: #e0a800;
-  border-color: #d39e00;
+/* 使用 :deep() 來「穿透」scoped 的限制，強制應用黃色樣式 */
+:deep(.btn-warning) {
+  background-color: #ffc107 !important; /* 使用 !important 來確保最高優先級 */
+  border-color: #ffc107 !important;
+  color: #212529 !important;
 }
 </style>
