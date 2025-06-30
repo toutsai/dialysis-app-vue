@@ -170,3 +170,17 @@ body {
   align-items: center;
   gap: 5px; /* 姓名和標籤之間的間距 */
 }
+
+/* 【新增】定義一個專門用於「警告」或「檢視」功能的黃色按鈕樣式 */
+.btn-warning {
+  background-color: #ffc107; /* 一個明亮的黃色 (Bootstrap 的 warning 顏色) */
+  border-color: #ffc107;
+  color: #212529; /* 深色文字以確保可讀性 */
+  font-weight: 500;
+}
+
+/* 為黃色按鈕添加 hover 效果 */
+.btn-warning:hover:not(:disabled) {
+  background-color: #e0a800;
+  border-color: #d39e00;
+}

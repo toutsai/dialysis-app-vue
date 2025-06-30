@@ -544,7 +544,7 @@ onMounted(async () => {
           <button id="save-btn" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
             儲存資料至雲端
           </button>
-          <button @click="runScheduleCheck">排班檢視</button>
+          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
           <button id="print-btn" @click="triggerPrint">列印排程</button>
           <button id="clear-all-btn" @click="clearBoard">清除本日畫面</button>
           <input type="date" v-model="copySourceDate" />

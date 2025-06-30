@@ -346,23 +346,41 @@ function handlePatientSelect({ patientId, fillType }) {
     }
   })
 
-  // 4. 根據是否有衝突，執行不同流程
+  // 根據是否有衝突來決定流程
   if (conflictedSlots.length > 0) {
-    // 【流程A：有衝突】彈出決策對話框
+    // 【有衝突】
     const conflictMessages = conflictedSlots
       .map((csId) => {
         const [_b, _s, _d] = csId.split('-')
         const day = WEEKDAYS[parseInt(_d, 10)]
-        const shift = SHIFTS[parseInt(_s, 10)] // 注意：WeeklyView 的 SHIFTS 是 '早班', '午班', '晚班'
+        const shift = SHIFTS[parseInt(_s, 10)]
         const existingPatientName =
-          patientMap.value.get(weekScheduleMap.value[csId].patientId)?.name || '未知病人'
+          patientMap.value.get(weekScheduleMap.value[csId].patientId)?.name || '未知'
         return `${day}${shift}已被 ${existingPatientName} 佔用`
       })
       .join('\n- ')
 
-    // 設置 ConfirmDialog 的內容
+    // ======================= 【核心修改點】 =======================
+    // 生成可排入床位的訊息
+    let availableSlotsMessage = ''
+    if (emptySlots.length > 0) {
+      const availableDaysText = emptySlots
+        .map((esId) => {
+          const [_b, _s, _d] = esId.split('-')
+          return WEEKDAYS[parseInt(_d, 10)].replace('星期', '')
+        })
+        .join('')
+      availableSlotsMessage = `\n\n您是否要繼續排入【未被佔用】的 ${availableDaysText} 床位？`
+    } else {
+      availableSlotsMessage = '\n\n已無其他可排入的空床位。'
+    }
+    // ==========================================================
+
+    // 組合最終的提示訊息
+    const confirmMessage = `部分班次因床位已被佔用而未排入：\n- ${conflictMessages}${availableSlotsMessage}`
+
     confirmDialogTitle.value = '排班衝突提醒'
-    confirmDialogMessage.value = `部分班次因床位已被佔用而未排入：\n\n- ${conflictMessages}\n\n您是否要繼續排入【未被佔用】的床位？`
+    confirmDialogMessage.value = confirmMessage
 
     // 定義「確定」後要執行的操作
     confirmAction.value = () => {
@@ -370,28 +388,22 @@ function handlePatientSelect({ patientId, fillType }) {
         emptySlots.forEach((newSlotId) => {
           handleSlotUpdate(newSlotId, patientId)
         })
-      } else {
-        // 如果連一個空格子都沒有，也用 AlertDialog 提示
-        alertDialogTitle.value = '提示'
-        alertDialogMessage.value = '沒有可排入的空床位。'
-        isAlertDialogVisible.value = true
       }
+      // 如果沒有空格子，點擊確定後不做任何事即可，因為訊息已經提示過了。
     }
 
-    // 顯示確認對話框
     isConfirmDialogVisible.value = true
   } else {
-    // 【流程B：無衝突】直接排入所有目標格子
-    targetSlots.forEach((newSlotId) => {
+    // 【無衝突】直接排入所有目標格子
+    emptySlots.forEach((newSlotId) => {
       handleSlotUpdate(newSlotId, patientId)
     })
   }
 
-  // 5. 關閉病人選擇對話框
   isDialogVisible.value = false
 }
 
-// 【第4步】新增處理 ConfirmDialog 結果的函數
+// 處理 ConfirmDialog 結果的函數
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value() // 執行我們之前儲存的操作
@@ -702,7 +714,7 @@ onMounted(loadAllData)
           <div class="main-actions">
             <button @click="goToToday">回到本週</button>
             <button @click="loadBaseSchedule">載入常規班表</button>
-            <button @click="runScheduleCheck">排班檢視</button>
+            <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
           </div>
         </div>
         <div class="main-actions">
@@ -836,5 +848,19 @@ onMounted(loadAllData)
   font-size: 1.5em;
   font-weight: bold;
   white-space: nowrap;
+}
+
+/* 【新增】定義一個專門用於「警告」或「檢視」功能的黃色按鈕樣式 */
+.btn-warning {
+  background-color: #ffc107; /* 一個明亮的黃色 (Bootstrap 的 warning 顏色) */
+  border-color: #ffc107;
+  color: #212529; /* 深色文字以確保可讀性 */
+  font-weight: 500;
+}
+
+/* 為黃色按鈕添加 hover 效果 */
+.btn-warning:hover:not(:disabled) {
+  background-color: #e0a800;
+  border-color: #d39e00;
 }
 </style>

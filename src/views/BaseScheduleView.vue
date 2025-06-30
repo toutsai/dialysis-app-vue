@@ -235,8 +235,8 @@ function handleGridClick(slotId) {
   }
 }
 
-// 【已更新】handlePatientSelect，加入衝突處理
 function handlePatientSelect({ patientId, fillType }) {
+  // 1. 基本資料獲取與驗證
   const slotId = currentSlotId.value
   if (!patientId || !slotId) return
 
@@ -249,6 +249,7 @@ function handlePatientSelect({ patientId, fillType }) {
     fillType === 'frequency' && expectedDays.length > 0 ? expectedDays : [parseInt(dayIndex)]
   const targetSlots = daysToFill.map((d_idx) => `${bed}-${shiftIndex}-${d_idx}`)
 
+  // 2. 檢測衝突
   const emptySlots = []
   const conflictedSlots = []
   targetSlots.forEach((targetSlotId) => {
@@ -259,8 +260,10 @@ function handlePatientSelect({ patientId, fillType }) {
     }
   })
 
+  // 3. 【核心】定義一個局部的、可複用的排班執行函數
   const performScheduling = (slotsToSchedule) => {
     if (slotsToSchedule.length > 0) {
+      // 創建一個新的 schedule 物件來進行修改，以觸發響應式
       const newSchedule = { ...masterRecord.value.schedule }
       slotsToSchedule.forEach((newSlotId) => {
         newSchedule[newSlotId] = {
@@ -269,12 +272,15 @@ function handlePatientSelect({ patientId, fillType }) {
           note: patient.baseNote || '',
         }
       })
+      // 一次性地更新 ref，效率最高
       masterRecord.value.schedule = newSchedule
       setChange()
     }
   }
 
+  // 4. 根據是否有衝突，執行不同流程
   if (conflictedSlots.length > 0) {
+    // 【流程A：有衝突】
     const conflictMessages = conflictedSlots
       .map((csId) => {
         const [_b, _s, _d] = csId.split('-')
@@ -286,14 +292,31 @@ function handlePatientSelect({ patientId, fillType }) {
       })
       .join('\n- ')
 
+    let availableSlotsMessage = ''
+    if (emptySlots.length > 0) {
+      const availableDaysText = emptySlots
+        .map((esId) => WEEKDAYS[parseInt(esId.split('-')[2], 10)].replace('星期', ''))
+        .join('')
+      availableSlotsMessage = `\n\n您是否要繼續排入【未被佔用】的 ${availableDaysText} 床位？`
+    } else {
+      availableSlotsMessage = '\n\n已無其他可排入的空床位。'
+    }
+
+    const confirmMessage = `部分班次因床位已被佔用而未排入：\n- ${conflictMessages}${availableSlotsMessage}`
+
     confirmDialogTitle.value = '排班衝突提醒'
-    confirmDialogMessage.value = `部分班次因床位已被佔用而未排入：\n\n- ${conflictMessages}\n\n您是否要繼續排入【未被佔用】的床位？`
+    confirmDialogMessage.value = confirmMessage
+
+    // 將我們局部的 performScheduling 函數存起來
     confirmAction.value = () => performScheduling(emptySlots)
+
     isConfirmDialogVisible.value = true
   } else {
+    // 【流程B：無衝突】直接調用局部的排班函數
     performScheduling(emptySlots)
   }
 
+  // 5. 關閉病人選擇對話框
   isDialogVisible.value = false
 }
 
@@ -419,7 +442,7 @@ onMounted(loadAllData)
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <button @click="runBedCheck">病人床位檢視</button>
+          <button class="btn btn-warning" @click="runBedCheck">病人床位檢視</button>
         </div>
         <div class="toolbar-right">
           <span class="status-text">{{ statusText }}</span>
@@ -511,7 +534,7 @@ onMounted(loadAllData)
   gap: 16px;
 }
 .page-title {
-  font-size: 1.6rem;
+  font-size: 32px;
   font-weight: 600;
   margin: 0;
   color: #343a40;
@@ -521,11 +544,10 @@ onMounted(loadAllData)
 .toolbar-left button,
 .toolbar-right button {
   padding: 8px 16px;
-  font-size: 0.95rem;
+  font-size: 1rem;
   line-height: 1.5;
   border-radius: 6px;
   border: 1px solid #ced4da;
-  background-color: #fff;
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
