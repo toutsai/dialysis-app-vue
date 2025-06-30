@@ -322,7 +322,7 @@ onMounted(() => {
   margin-bottom: 20px; /*設定整個容器外部下方的間距 */
 }
 .page-title {
-  font-size: 1.8em; /* 字體大小：1.8 倍 */
+  font-size: 32px;
   color: #333;
   margin: 0; /* 確保沒有外部間距 */
   text-align: left;

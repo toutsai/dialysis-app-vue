@@ -4,18 +4,19 @@ import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 
-// 【第1步】引入需要的元件
+// 1. 引入所有需要的元件
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
-import ScheduleTable from '@/components/ScheduleTable.vue' // <--- 引入可複用的表格元件
+import ScheduleTable from '@/components/ScheduleTable.vue'
+import AlertDialog from '@/components/AlertDialog.vue'
 import { createEmptySlotData } from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
 
-// --- 常量定義 (與 WeeklyView 保持一致) ---
+// --- 常量定義 ---
 const SHIFTS = ['早班', '午班', '晚班']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const bedLayout = [
@@ -59,6 +60,10 @@ const CLEAR_OPTIONS = [
   { value: 'single', text: '僅清除此班次' },
   { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
 ]
+// AlertDialog 的狀態
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
@@ -92,7 +97,7 @@ async function loadAllData() {
   try {
     const [patients, baseScheduleDoc] = await Promise.all([
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
-      baseSchedulesApi.fetchById('MASTER_SCHEDULE'), // 直接獲取 MASTER 文件
+      baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
     ])
 
     allOpdPatients.value = patients
@@ -131,11 +136,79 @@ async function saveChangesToCloud() {
     await baseSchedulesApi.save(masterRecord.value.id, dataToSave)
     hasUnsavedChanges.value = false
     statusText.value = '床位儲存成功！'
-    alert('常規門診床位已成功儲存！')
+
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '常規門診床位已成功儲存！'
+    isAlertDialogVisible.value = true
   } catch (error) {
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '儲存失敗，請檢查網路連線或聯繫管理員。'
+    isAlertDialogVisible.value = true
   }
+}
+
+function runBedCheck() {
+  const warnings = []
+
+  // --- 檢查 1: 頻率檢查 ---
+  allOpdPatients.value.forEach((patient) => {
+    const patientName = patient.name
+    const expectedFreq = patient.freq
+    const expectedDays = FREQ_MAP_TO_DAY_INDEX[expectedFreq] || []
+    const actualScheduledDays = new Set()
+    for (const slotId in masterRecord.value.schedule) {
+      if (masterRecord.value.schedule[slotId]?.patientId === patient.id) {
+        actualScheduledDays.add(parseInt(slotId.split('-')[2], 10))
+      }
+    }
+    if (actualScheduledDays.size > 0) {
+      if (expectedDays.length > 0) {
+        const actualDaysArray = Array.from(actualScheduledDays).sort()
+        const expectedDaysArray = [...expectedDays].sort()
+        if (JSON.stringify(actualDaysArray) !== JSON.stringify(expectedDaysArray)) {
+          const actualDaysText = actualDaysArray
+            .map((d) => WEEKDAYS[d].replace('星期', ''))
+            .join('')
+          warnings.push(
+            `門診病人 ${patientName} (預定 ${expectedFreq})，但目前排 ${actualDaysText}。`,
+          )
+        }
+      }
+    } else {
+      if (expectedFreq) {
+        warnings.push(`有門診病人 ${patientName} 未被排床。`)
+      }
+    }
+  })
+
+  // --- 檢查 2: 同日重複排班檢查 ---
+  const dailyPatientSets = Array.from({ length: 6 }).map(() => new Set())
+  for (const slotId in masterRecord.value.schedule) {
+    const slotData = masterRecord.value.schedule[slotId]
+    if (slotData && slotData.patientId) {
+      const dayIndex = parseInt(slotId.split('-')[2], 10)
+      const patientName = patientMap.value.get(slotData.patientId)?.name
+      if (patientName) {
+        if (dailyPatientSets[dayIndex].has(patientName)) {
+          warnings.push(`病人 ${patientName} 在 ${WEEKDAYS[dayIndex]} 出現超過一次。`)
+        } else {
+          dailyPatientSets[dayIndex].add(patientName)
+        }
+      }
+    }
+  }
+
+  // --- 顯示結果 ---
+  if (warnings.length > 0) {
+    alertDialogTitle.value = '發現以下潛在問題'
+    alertDialogMessage.value = '- ' + warnings.join('\n- ')
+  } else {
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '未發現明顯的排班問題。'
+  }
+  isAlertDialogVisible.value = true
 }
 
 function handleGridClick(slotId) {
@@ -149,47 +222,34 @@ function handleGridClick(slotId) {
   }
 }
 
-// 在 WeeklyView.vue 和 BaseScheduleView.vue 中
-
 function handlePatientSelect({ patientId, fillType }) {
   const slotId = currentSlotId.value
   if (!patientId || !slotId) return
 
-  // 這裡的 allOpdPatients 或 allPatients 取決於您在哪個檔案
   const patient = allOpdPatients.value.find((p) => p.id === patientId)
   if (!patient) return
 
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
-
-  // ======================= 【核心修改點】 =======================
-  // 將 patient.frequency 改為 patient.freq
   const daysToFill =
     fillType === 'frequency' && patient.freq && FREQ_MAP_TO_DAY_INDEX[patient.freq]
       ? FREQ_MAP_TO_DAY_INDEX[patient.freq]
       : [parseInt(dayIndex)]
-  // ==========================================================
 
-  // 為了觸發響應式，創建一個新的 schedule 物件
-  // 這裡的 masterRecord.value.schedule 或 weekScheduleMap.value 也取決於您在哪個檔案
   const newSchedule = { ...masterRecord.value.schedule }
-
   daysToFill.forEach((d_idx) => {
     const newSlotId = `${bed}-${shiftIndex}-${d_idx}`
     newSchedule[newSlotId] = {
       ...createEmptySlotData(newSlotId),
       patientId: patientId,
-      note: patient.baseNote || '', // 或者其他 note 生成邏輯
+      note: patient.baseNote || '',
     }
   })
-
-  // 更新 ref
   masterRecord.value.schedule = newSchedule
 
   setChange()
   isDialogVisible.value = false
 }
 
-// 【第2步】實現清除邏輯
 function handleClearSelect(selectedValue) {
   if (!clearingSlotId.value) return
 
@@ -219,7 +279,6 @@ function handleDialogCancel() {
   isDialogVisible.value = false
 }
 
-// 【第3步】為 ScheduleTable 準備 getStyleFunc
 function getBaseCellStyle(slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
@@ -245,27 +304,28 @@ onMounted(loadAllData)
 
 <template>
   <div class="page-container">
+    <!-- ======================= 【修改點】簡化 Header ======================= -->
     <header class="page-header">
       <div class="header-toolbar">
-        <h1 class="page-title">常規門診床位表</h1>
-        <div class="main-actions">
+        <!-- 左側：標題和檢視按鈕 -->
+        <div class="toolbar-left">
+          <h1 class="page-title">常規門診床位表</h1>
+          <button class="btn-secondary" @click="runBedCheck">病人床位檢視</button>
+        </div>
+
+        <!-- 右側：狀態和儲存按鈕 -->
+        <div class="toolbar-right">
           <span class="status-text">{{ statusText }}</span>
           <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
             儲存床位
           </button>
         </div>
       </div>
-      <!-- StatsToolbar 放在 header 的末尾 -->
-      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+      <!-- StatsToolbar 已被移除 -->
     </header>
+    <!-- ======================= 修改結束 ======================= -->
 
-    <!-- ======================= 【核心修改點】 ======================= -->
     <main class="page-main-content">
-      <!--
-        舊的 <div class="table-wrapper"> 和 <table> 已被移除。
-        取而代之的是一個簡潔的 <ScheduleTable> 元件。
-        我們給它加上了 class="schedule-table-component" 以便 CSS 能控制它。
-      -->
       <ScheduleTable
         class="schedule-table-component"
         :layout="bedLayout"
@@ -279,7 +339,6 @@ onMounted(loadAllData)
         @grid-click="handleGridClick"
       />
     </main>
-    <!-- ======================= 修改結束 ======================= -->
 
     <!-- Dialogs 部分保持不變，它們獨立於主內容 -->
     <PatientSelectDialog
@@ -297,39 +356,77 @@ onMounted(loadAllData)
       @select="handleClearSelect"
       @cancel="isClearDialogVisible = false"
     />
+
+    <AlertDialog
+      :is-visible="isAlertDialogVisible"
+      :title="alertDialogTitle"
+      :message="alertDialogMessage"
+      @confirm="isAlertDialogVisible = false"
+    />
   </div>
 </template>
 
 <style scoped>
-/* ==========================================================================
-   2. 頁面頭部 (Header)
-   ========================================================================== */
-.page-header {
-  flex-shrink: 0; /* 防止頭部被壓縮 */
-  background-color: #fff;
-  border-bottom: 1px solid #dee2e6;
-  box-sizing: border-box;
-}
-
+/* ======================= 【修改點】Header 樣式 ======================= */
 .header-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
   gap: 16px;
-  margin-bottom: 15px; /* header 第一行和 StatsToolbar 之間的間距 */
 }
 
 .page-title {
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 600;
   margin: 0;
   color: #343a40;
 }
 
-.main-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/*
+  【核心修改】
+  使用一個更通用的選擇器，直接針對 header 裡的所有按鈕。
+  這樣可以確保所有按鈕樣式一致。
+*/
+.header-toolbar button {
+  padding: 8px 16px;
+  font-size: 0.9em;
+  line-height: 1.5;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  background-color: #fff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap; /* 防止按鈕內文字換行 */
+}
+
+/* 按鈕的 hover 效果 */
+.header-toolbar button:not(:disabled):hover {
+  border-color: #adb5bd;
+  background-color: #f8f9fa;
+}
+
+/* 儲存按鈕的特殊樣式 (覆蓋通用樣式) */
+.btn-save {
+  background-color: #007bff;
+  border-color: #007bff;
+  color: white;
+}
+.btn-save:hover {
+  background-color: #0069d9;
+  border-color: #0062cc;
+}
+.btn-save:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .status-text {
@@ -337,32 +434,18 @@ onMounted(loadAllData)
   font-style: italic;
   font-size: 0.9rem;
 }
+/* ======================= 修改結束 ======================= */
 
-.btn-save {
-  /* 可以在這裡定義儲存按鈕的樣式 */
-  padding: 8px 16px;
-  /* ... */
-}
-/* ==========================================================================
-   3. 主內容區 (Main Content)
-   ========================================================================== */
+/* 主內容區樣式保持不變 */
 .page-main-content {
   flex-grow: 1;
-  display: flex; /* 讓子元素填滿空間 */
+  display: flex;
   min-height: 0;
   box-sizing: border-box;
 }
 
-/*
-  【核心佈局】
-  這是 ScheduleTable 元件的直接容器，確保它能正確伸展和滾動。
-  在模板中，您應該給 ScheduleTable 元件加上這個 class。
-  <ScheduleTable class="schedule-table-component" ... />
-*/
 .schedule-table-component {
-  flex-grow: 1; /* 佔滿所有可用空間 */
+  flex-grow: 1;
   min-height: 0;
-  /* 所有關於表格內部（滾動、邊框、圓角）的樣式，
-     都由 ScheduleTable.vue 自己管理，這裡保持乾淨。 */
 }
 </style>

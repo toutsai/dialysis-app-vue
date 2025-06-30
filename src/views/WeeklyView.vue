@@ -10,6 +10,7 @@ import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import { createEmptySlotData } from '@/utils/scheduleUtils.js'
+import AlertDialog from '@/components/AlertDialog.vue'
 
 // --- 輔助函式 ---
 function getStartOfWeek(date) {
@@ -90,6 +91,9 @@ const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const isClearDialogVisible = ref(false)
 const clearingSlotId = ref(null)
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -325,45 +329,185 @@ function handlePatientSelect({ patientId, fillType }) {
 
   isDialogVisible.value = false
 }
+
 async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
     const promises = []
+
+    // 遍歷我們本地的 weekScheduleRecords Map
     for (const record of weekScheduleRecords.value.values()) {
+      // 準備要儲存的、乾淨的 schedule 物件
       const cleanSchedule = {}
+
+      // 遍歷當天的所有排班
       for (const shiftId in record.schedule) {
         const slotData = record.schedule[shiftId]
+        // 只儲存有病人的排班
         if (slotData && slotData.patientId) {
           cleanSchedule[shiftId] = {
             patientId: slotData.patientId,
             note: slotData.note || '',
-            shiftId: slotData.shiftId || shiftId,
+            shiftId: slotData.shiftId || shiftId, // 確保 shiftId 被儲存
+            // 保留其他可能的欄位
             nurseTeam: slotData.nurseTeam || null,
             nurseTeamIn: slotData.nurseTeamIn || null,
             nurseTeamOut: slotData.nurseTeamOut || null,
           }
         }
       }
-      const dataToSave = { date: record.date, schedule: cleanSchedule }
+
+      const dataToSave = {
+        date: record.date,
+        schedule: cleanSchedule,
+      }
+
+      // 根據記錄是否存在，決定是更新、刪除還是新增
       if (record.id) {
+        // 這天在資料庫中已經有記錄了
         if (Object.keys(cleanSchedule).length > 0) {
+          // 如果當天還有排班，就更新
           promises.push(schedulesApi.update(record.id, dataToSave))
         } else {
+          // 如果當天所有排班都被清空了，就刪除這天的文件
           promises.push(schedulesApi.delete(record.id))
         }
       } else if (Object.keys(cleanSchedule).length > 0) {
+        // 這天在資料庫中沒有記錄，但我們現在有排班了，所以要新增
         promises.push(schedulesApi.save(dataToSave))
       }
     }
+
+    // 等待所有異步操作完成
     await Promise.all(promises)
+
+    // 更新 UI 狀態
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
+
+    // 使用自定義 Alert 提示成功
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '週排班已成功儲存！'
+    isAlertDialogVisible.value = true
+
+    // 重新載入資料以同步
     await loadAllData()
   } catch (error) {
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
+
+    // 使用自定義 Alert 提示失敗
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `儲存失敗：${error.message}`
+    isAlertDialogVisible.value = true
   }
 }
+
+function runScheduleCheck() {
+  // 【關鍵修正】確保在使用前，先定義 patientsToCheck
+  const patientsToCheck = allPatients.value.filter(
+    (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
+  )
+
+  const validationResult = {
+    unscheduled: [],
+    freqMismatch: [],
+    duplicates: [],
+  }
+
+  // --- 檢查 1: 頻率與是否排班 ---
+  // 現在可以安全地使用 patientsToCheck
+  patientsToCheck.forEach((patient) => {
+    const patientName = patient.name
+    const expectedFreq = patient.freq
+    const expectedDays = FREQ_MAP_TO_DAY_INDEX[expectedFreq] || []
+
+    const scheduledSlots = Object.keys(weekScheduleMap.value).filter(
+      (slotId) => weekScheduleMap.value[slotId]?.patientId === patient.id,
+    )
+
+    if (scheduledSlots.length > 0) {
+      const actualScheduledDays = new Set(
+        scheduledSlots.map((slotId) => parseInt(slotId.split('-')[2], 10)),
+      )
+
+      if (expectedDays.length > 0) {
+        const actualDaysArray = Array.from(actualScheduledDays).sort()
+        const expectedDaysArray = [...expectedDays].sort() // 確保拷貝後再排序
+
+        if (JSON.stringify(actualDaysArray) !== JSON.stringify(expectedDaysArray)) {
+          const statusText = patient.status === 'ipd' ? '住院病人' : '門診病人'
+          const actualDaysText = actualDaysArray
+            .map((d) => WEEKDAYS[d].replace('星期', ''))
+            .join('')
+          validationResult.freqMismatch.push(
+            `${statusText} ${patientName} (預定 ${expectedFreq})，但目前排 ${actualDaysText}。`,
+          )
+        }
+      }
+    } else {
+      if ((patient.status === 'opd' && expectedFreq) || patient.status === 'ipd') {
+        const statusText = patient.status === 'ipd' ? '住院病人' : '門診病人'
+        validationResult.unscheduled.push(`${statusText} ${patientName} 未被排床。`)
+      }
+    }
+  })
+
+  // --- 檢查 2: 同日重複排班 ---
+  for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
+    const patientsOnThisDay = new Set()
+    const duplicatesOnThisDay = new Set()
+
+    for (const slotId in weekScheduleMap.value) {
+      if (parseInt(slotId.split('-')[2], 10) === dayIndex) {
+        const patientId = weekScheduleMap.value[slotId]?.patientId
+        if (patientId) {
+          const patientName = patientMap.value.get(patientId)?.name
+          if (patientName) {
+            if (patientsOnThisDay.has(patientName)) {
+              // 改為用名字判斷重複
+              duplicatesOnThisDay.add(patientName)
+            } else {
+              patientsOnThisDay.add(patientName)
+            }
+          }
+        }
+      }
+    }
+
+    duplicatesOnThisDay.forEach((name) => {
+      validationResult.duplicates.push(`病人 ${name} 在 ${WEEKDAYS[dayIndex]} 重複排班。`)
+    })
+  }
+
+  // --- 顯示結果 ---
+  let message = '' // 不再需要 "排班檢視完畢" 的開頭
+  let hasWarnings = false
+
+  if (validationResult.unscheduled.length > 0) {
+    message += '【未排床病人】:\n- ' + validationResult.unscheduled.join('\n- ') + '\n\n'
+    hasWarnings = true
+  }
+  if (validationResult.freqMismatch.length > 0) {
+    message += '【排班頻率不符】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
+    hasWarnings = true
+  }
+  if (validationResult.duplicates.length > 0) {
+    message += '【同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
+    hasWarnings = true
+  }
+
+  // 【修改】不再使用 alert()，而是設置狀態來顯示自定義對話框
+  if (!hasWarnings) {
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '未發現明顯的排班問題。'
+  } else {
+    alertDialogTitle.value = '發現以下潛在問題'
+    alertDialogMessage.value = message.trim() // 去掉結尾多餘的換行
+  }
+  isAlertDialogVisible.value = true // 打開對話框
+}
+
 function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
@@ -483,6 +627,7 @@ onMounted(loadAllData)
           <div class="main-actions">
             <button @click="goToToday">回到本週</button>
             <button @click="loadBaseSchedule">載入常規班表</button>
+            <button @click="runScheduleCheck">排班檢視</button>
           </div>
         </div>
         <div class="main-actions">
@@ -532,8 +677,12 @@ onMounted(loadAllData)
       />
     </main>
     <!-- ======================= 修改結束 ======================= -->
-
-    <!-- Dialogs 保持不變 -->
+    <AlertDialog
+      :is-visible="isAlertDialogVisible"
+      :title="alertDialogTitle"
+      :message="alertDialogMessage"
+      @confirm="isAlertDialogVisible = false"
+    />
     <PatientSelectDialog
       :is-visible="isDialogVisible"
       title="選擇排班病人"

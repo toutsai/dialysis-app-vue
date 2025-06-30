@@ -849,7 +849,7 @@ onMounted(async () => {
   gap: 15px;
 }
 .page-title {
-  font-size: 1.8em;
+  font-size: 32px;
   margin: 0;
   white-space: nowrap;
 }
