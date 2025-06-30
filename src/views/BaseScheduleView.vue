@@ -10,6 +10,7 @@ import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue' // 【新增】引入 ConfirmDialog
 import { createEmptySlotData } from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
@@ -50,6 +51,7 @@ const masterRecord = ref({
 })
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
+const draggedItem = ref(null) // 【新增】拖曳狀態
 
 // --- UI 狀態 ---
 const isDialogVisible = ref(false)
@@ -60,10 +62,14 @@ const CLEAR_OPTIONS = [
   { value: 'single', text: '僅清除此班次' },
   { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
 ]
-// AlertDialog 的狀態
+// Dialog 狀態
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
+const isConfirmDialogVisible = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+const confirmAction = ref(null)
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
@@ -99,9 +105,7 @@ async function loadAllData() {
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
       baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
     ])
-
     allOpdPatients.value = patients
-
     if (baseScheduleDoc) {
       const loadedSchedule = baseScheduleDoc.schedule || {}
       const finalSchedule = {}
@@ -136,7 +140,6 @@ async function saveChangesToCloud() {
     await baseSchedulesApi.save(masterRecord.value.id, dataToSave)
     hasUnsavedChanges.value = false
     statusText.value = '床位儲存成功！'
-
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '常規門診床位已成功儲存！'
     isAlertDialogVisible.value = true
@@ -150,26 +153,17 @@ async function saveChangesToCloud() {
 }
 
 function runBedCheck() {
-  // 【修改點 1】將 warnings 初始化為物件，用於分類
-  const validationResult = {
-    unscheduled: [],
-    freqMismatch: [],
-    duplicates: [],
-  }
-
-  // --- 檢查 1: 頻率檢查 ---
+  const validationResult = { unscheduled: [], freqMismatch: [], duplicates: [] }
   allOpdPatients.value.forEach((patient) => {
     const patientName = patient.name
     const expectedFreq = patient.freq
     const expectedDays = FREQ_MAP_TO_DAY_INDEX[expectedFreq] || []
     const actualScheduledDays = new Set()
-
     for (const slotId in masterRecord.value.schedule) {
       if (masterRecord.value.schedule[slotId]?.patientId === patient.id) {
         actualScheduledDays.add(parseInt(slotId.split('-')[2], 10))
       }
     }
-
     if (actualScheduledDays.size > 0) {
       if (expectedDays.length > 0) {
         const actualDaysArray = Array.from(actualScheduledDays).sort()
@@ -178,7 +172,6 @@ function runBedCheck() {
           const actualDaysText = actualDaysArray
             .map((d) => WEEKDAYS[d].replace('星期', ''))
             .join('')
-          // 【修改點 2】將警告推入對應的分類
           validationResult.freqMismatch.push(
             `門診病人 ${patientName} (預定 ${expectedFreq})，但目前排 ${actualDaysText}。`,
           )
@@ -186,13 +179,10 @@ function runBedCheck() {
       }
     } else {
       if (expectedFreq) {
-        // 【修改點 2】將警告推入對應的分類
         validationResult.unscheduled.push(`有門診病人 ${patientName} 未被排床。`)
       }
     }
   })
-
-  // --- 檢查 2: 同日重複排班檢查 ---
   const dailyPatientSets = Array.from({ length: 6 }).map(() => new Set())
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
@@ -201,7 +191,6 @@ function runBedCheck() {
       const patientName = patientMap.value.get(slotData.patientId)?.name
       if (patientName) {
         if (dailyPatientSets[dayIndex].has(patientName)) {
-          // 【修改點 2】將警告推入對應的分類
           validationResult.duplicates.push(
             `病人 ${patientName} 在 ${WEEKDAYS[dayIndex]} 出現超過一次。`,
           )
@@ -211,11 +200,8 @@ function runBedCheck() {
       }
     }
   }
-
-  // --- 【修改點 3】顯示分類後的結果 ---
   let message = ''
   let hasWarnings = false
-
   if (validationResult.unscheduled.length > 0) {
     message += '【未排床病人】:\n- ' + validationResult.unscheduled.join('\n- ') + '\n\n'
     hasWarnings = true
@@ -228,13 +214,12 @@ function runBedCheck() {
     message += '【同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
     hasWarnings = true
   }
-
   if (!hasWarnings) {
     alertDialogTitle.value = '排班檢視完畢'
     alertDialogMessage.value = '未發現明顯的排班問題。'
   } else {
     alertDialogTitle.value = '發現以下潛在問題'
-    alertDialogMessage.value = message.trim() // 去掉結尾多餘的換行
+    alertDialogMessage.value = message.trim()
   }
   isAlertDialogVisible.value = true
 }
@@ -250,6 +235,7 @@ function handleGridClick(slotId) {
   }
 }
 
+// 【已更新】handlePatientSelect，加入衝突處理
 function handlePatientSelect({ patientId, fillType }) {
   const slotId = currentSlotId.value
   if (!patientId || !slotId) return
@@ -258,23 +244,56 @@ function handlePatientSelect({ patientId, fillType }) {
   if (!patient) return
 
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
+  const expectedDays = (patient.freq && FREQ_MAP_TO_DAY_INDEX[patient.freq]) || []
   const daysToFill =
-    fillType === 'frequency' && patient.freq && FREQ_MAP_TO_DAY_INDEX[patient.freq]
-      ? FREQ_MAP_TO_DAY_INDEX[patient.freq]
-      : [parseInt(dayIndex)]
+    fillType === 'frequency' && expectedDays.length > 0 ? expectedDays : [parseInt(dayIndex)]
+  const targetSlots = daysToFill.map((d_idx) => `${bed}-${shiftIndex}-${d_idx}`)
 
-  const newSchedule = { ...masterRecord.value.schedule }
-  daysToFill.forEach((d_idx) => {
-    const newSlotId = `${bed}-${shiftIndex}-${d_idx}`
-    newSchedule[newSlotId] = {
-      ...createEmptySlotData(newSlotId),
-      patientId: patientId,
-      note: patient.baseNote || '',
+  const emptySlots = []
+  const conflictedSlots = []
+  targetSlots.forEach((targetSlotId) => {
+    if (masterRecord.value.schedule[targetSlotId]?.patientId) {
+      conflictedSlots.push(targetSlotId)
+    } else {
+      emptySlots.push(targetSlotId)
     }
   })
-  masterRecord.value.schedule = newSchedule
 
-  setChange()
+  const performScheduling = (slotsToSchedule) => {
+    if (slotsToSchedule.length > 0) {
+      const newSchedule = { ...masterRecord.value.schedule }
+      slotsToSchedule.forEach((newSlotId) => {
+        newSchedule[newSlotId] = {
+          ...createEmptySlotData(newSlotId),
+          patientId: patientId,
+          note: patient.baseNote || '',
+        }
+      })
+      masterRecord.value.schedule = newSchedule
+      setChange()
+    }
+  }
+
+  if (conflictedSlots.length > 0) {
+    const conflictMessages = conflictedSlots
+      .map((csId) => {
+        const [_b, _s, _d] = csId.split('-')
+        const day = WEEKDAYS[parseInt(_d, 10)]
+        const shift = SHIFTS[parseInt(_s, 10)]
+        const existingPatientName =
+          patientMap.value.get(masterRecord.value.schedule[csId].patientId)?.name || '未知'
+        return `${day}${shift}已被 ${existingPatientName} 佔用`
+      })
+      .join('\n- ')
+
+    confirmDialogTitle.value = '排班衝突提醒'
+    confirmDialogMessage.value = `部分班次因床位已被佔用而未排入：\n\n- ${conflictMessages}\n\n您是否要繼續排入【未被佔用】的床位？`
+    confirmAction.value = () => performScheduling(emptySlots)
+    isConfirmDialogVisible.value = true
+  } else {
+    performScheduling(emptySlots)
+  }
+
   isDialogVisible.value = false
 }
 
@@ -307,16 +326,26 @@ function handleDialogCancel() {
   isDialogVisible.value = false
 }
 
+// 【新增】ConfirmDialog 的處理函數
+function handleConflictConfirm() {
+  if (typeof confirmAction.value === 'function') {
+    confirmAction.value()
+  }
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+function handleConflictCancel() {
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+
 function getBaseCellStyle(slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
-
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
-
   const classes = {}
   const note = slotData.note || ''
-
   for (const key in STYLE_PRIORITY) {
     if (note.includes(key)) {
       classes[STYLE_PRIORITY[key].class] = true
@@ -326,22 +355,72 @@ function getBaseCellStyle(slotId) {
   return classes
 }
 
+// 【新增】完整的拖曳功能函數
+function onDragStart(event, slotId) {
+  const slotData = masterRecord.value.schedule[slotId]
+  if (!slotData || !slotData.patientId) {
+    event.preventDefault()
+    return
+  }
+  draggedItem.value = {
+    patientId: slotData.patientId,
+    note: slotData.note || '',
+    source: slotId,
+  }
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+function onDrop(event, targetSlotId) {
+  event.preventDefault()
+  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+  const itemToDrop = draggedItem.value
+  if (!itemToDrop || !itemToDrop.patientId) return
+
+  if (masterRecord.value.schedule[targetSlotId]) {
+    console.warn('目標位置非空，操作取消。')
+    draggedItem.value = null
+    return
+  }
+
+  const newSchedule = { ...masterRecord.value.schedule }
+  newSchedule[targetSlotId] = {
+    ...createEmptySlotData(targetSlotId),
+    patientId: itemToDrop.patientId,
+    note: itemToDrop.note,
+  }
+  if (itemToDrop.source !== 'sidebar') {
+    delete newSchedule[itemToDrop.source]
+  }
+  masterRecord.value.schedule = newSchedule
+  setChange()
+
+  draggedItem.value = null
+}
+
+function onDragOver(event) {
+  event.preventDefault()
+  const targetSlot = event.target.closest('.schedule-slot')
+  if (targetSlot && !targetSlot.querySelector('.patient-details')) {
+    targetSlot.classList.add('drag-over')
+  }
+}
+
+function onDragLeave(event) {
+  event.target.closest('.schedule-slot')?.classList.remove('drag-over')
+}
+
 // --- 生命週期鉤子 ---
 onMounted(loadAllData)
 </script>
 
 <template>
   <div class="page-container">
-    <!-- ======================= 【修改點】簡化 Header ======================= -->
     <header class="page-header">
       <div class="header-toolbar">
-        <!-- 左側：標題和檢視按鈕 -->
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <button class="btn-secondary" @click="runBedCheck">病人床位檢視</button>
+          <button @click="runBedCheck">病人床位檢視</button>
         </div>
-
-        <!-- 右側：狀態和儲存按鈕 -->
         <div class="toolbar-right">
           <span class="status-text">{{ statusText }}</span>
           <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
@@ -351,7 +430,6 @@ onMounted(loadAllData)
       </div>
       <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
     </header>
-    <!-- ======================= 修改結束 ======================= -->
 
     <main class="page-main-content">
       <ScheduleTable
@@ -365,10 +443,13 @@ onMounted(loadAllData)
         :hepatitis-beds="hepatitisBeds"
         :get-style-func="getBaseCellStyle"
         @grid-click="handleGridClick"
+        @drop="onDrop"
+        @drag-start="onDragStart"
+        @drag-over="onDragOver"
+        @drag-leave="onDragLeave"
       />
     </main>
 
-    <!-- Dialogs 部分保持不變，它們獨立於主內容 -->
     <PatientSelectDialog
       :is-visible="isDialogVisible"
       title="選擇門診病人"
@@ -376,7 +457,6 @@ onMounted(loadAllData)
       @confirm="handlePatientSelect"
       @cancel="handleDialogCancel"
     />
-
     <SelectionDialog
       :is-visible="isClearDialogVisible"
       title="清除排班選項"
@@ -384,46 +464,64 @@ onMounted(loadAllData)
       @select="handleClearSelect"
       @cancel="isClearDialogVisible = false"
     />
-
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
+    <!-- 【新增】ConfirmDialog 元件 -->
+    <ConfirmDialog
+      :is-visible="isConfirmDialogVisible"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      @confirm="handleConflictConfirm"
+      @cancel="handleConflictCancel"
+    />
   </div>
 </template>
 
 <style scoped>
-/* ======================= 【修改點】Header 樣式 ======================= */
+/* 頁面佈局 */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #f8f9fa;
+}
+.page-header {
+  flex-shrink: 0;
+  background-color: #fff;
+  border-bottom: 1px solid #dee2e6;
+  box-sizing: border-box;
+}
+
+/* Header 工具欄 */
 .header-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 15px;
 }
-
 .toolbar-left,
 .toolbar-right {
   display: flex;
   align-items: center;
   gap: 16px;
 }
-
 .page-title {
-  font-size: 32px;
+  font-size: 1.6rem;
   font-weight: 600;
   margin: 0;
   color: #343a40;
 }
 
-/*
-  【核心修改】
-  使用一個更通用的選擇器，直接針對 header 裡的所有按鈕。
-  這樣可以確保所有按鈕樣式一致。
-*/
-.header-toolbar button {
+/* 【核心修正】按鈕樣式 */
+.toolbar-left button,
+.toolbar-right button {
   padding: 8px 16px;
-  font-size: 0.9em;
+  font-size: 0.95rem;
   line-height: 1.5;
   border-radius: 6px;
   border: 1px solid #ced4da;
@@ -431,28 +529,30 @@ onMounted(loadAllData)
   cursor: pointer;
   font-weight: 500;
   transition: all 0.2s;
-  white-space: nowrap; /* 防止按鈕內文字換行 */
+  white-space: nowrap;
+  color: #212529; /* 確保預設文字顏色 */
 }
 
-/* 按鈕的 hover 效果 */
-.header-toolbar button:not(:disabled):hover {
+/* 按鈕 Hover 效果 */
+.toolbar-left button:hover,
+.toolbar-right button:not(:disabled):hover {
   border-color: #adb5bd;
   background-color: #f8f9fa;
 }
 
-/* 儲存按鈕的特殊樣式 (覆蓋通用樣式) */
+/* 儲存按鈕的特殊樣式 */
 .btn-save {
-  background-color: #007bff;
-  border-color: #007bff;
-  color: white;
+  background-color: #007bff !important; /* 使用 !important 提高優先級 */
+  border-color: #007bff !important;
+  color: white !important;
 }
 .btn-save:hover {
-  background-color: #0069d9;
-  border-color: #0062cc;
+  background-color: #0069d9 !important;
+  border-color: #0062cc !important;
 }
 .btn-save:disabled {
-  background-color: #6c757d;
-  border-color: #6c757d;
+  background-color: #6c757d !important;
+  border-color: #6c757d !important;
   cursor: not-allowed;
   opacity: 0.65;
 }
@@ -462,16 +562,14 @@ onMounted(loadAllData)
   font-style: italic;
   font-size: 0.9rem;
 }
-/* ======================= 修改結束 ======================= */
 
-/* 主內容區樣式保持不變 */
+/* 主內容區 */
 .page-main-content {
   flex-grow: 1;
   display: flex;
   min-height: 0;
   box-sizing: border-box;
 }
-
 .schedule-table-component {
   flex-grow: 1;
   min-height: 0;
