@@ -3,24 +3,25 @@
 import { ref, onMounted, computed, reactive } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
+
+// 1. 引入所有需要的子元件和工具函式
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue' // 引入 AlertDialog
 import {
   createEmptySlotData,
   generateStandardNote,
-  generateAutoNote, // 確保這個函式內部也將 'ip' 改為 'ipd'
+  generateAutoNote,
 } from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
-const baseSchedulesApi = ApiManager('base_schedules')
 
 // --- 常量 ---
 const SHIFTS = ['早', '午', '晚']
 const layoutData = {
-  // ... (您的 layoutData 維持不變)
   leftWingRows: [
     ['空', 32, 31],
     [33, 35, 36],
@@ -55,8 +56,8 @@ const STYLE_PRIORITY = {
   換: { class: 'tag-huan', color: 'lightblue' },
   兩: { class: 'tag-liang', color: 'orange' },
   B: { class: 'tag-b', color: 'ivory' },
-  隔: { class: 'tag-ip', color: 'red' },
-  R: { class: 'tag-ip', color: 'red' },
+  隔: { class: 'tag-ip' },
+  R: { class: 'tag-ip' },
 }
 const freqToDays = {
   // 標準頻率
@@ -67,7 +68,7 @@ const freqToDays = {
   一四: [1, 4],
   二五: [2, 5],
   三六: [3, 6],
-  一五: [1, 5], // 修正：加入 '一五'
+  一五: [1, 5],
   二六: [2, 6],
 
   // 每週一次
@@ -84,8 +85,16 @@ const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const searchInput = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
+const copySourceDate = ref(formatDate(new Date()))
+
+// --- UI 狀態 ---
 const isDialogVisible = ref(false)
 const currentEditingShiftId = ref(null)
+
+// AlertDialog 的狀態
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
 
 // --- Helper Functions ---
 function formatDate(date) {
@@ -94,7 +103,6 @@ function formatDate(date) {
   const day = date.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-const copySourceDate = ref(formatDate(new Date()))
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -127,11 +135,15 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
-// --- 【關鍵修改處】 ---
-// 使用 'ipd' 來精確過濾住院病人
-const inpatientList = computed(() => allPatients.value.filter((p) => p.status === 'ipd'))
+const inpatientList = computed(() =>
+  allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted),
+)
 
 // --- 方法 ---
+function setChange() {
+  hasUnsavedChanges.value = true
+  statusIndicator.value = '有未儲存的變更'
+}
 
 function shouldPatientBeScheduled(patient, dayOfWeek) {
   if (!patient.freq) return false
@@ -139,65 +151,59 @@ function shouldPatientBeScheduled(patient, dayOfWeek) {
   return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
 }
 
-function checkForUnsavedChangesAndMissingPatients() {
-  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要離開嗎？')) {
-    return false
-  }
-
-  // --- 開始偵錯日誌 ---
-  console.clear() // 清空控制台，方便查看
-  console.log('--- 開始檢查遺漏排班 ---')
-
+function runScheduleCheck() {
+  const warnings = []
   const dayOfWeek = currentDate.value.getDay()
-  console.log(`今天是星期${'日一二三四五六'[dayOfWeek]} (數字: ${dayOfWeek})`)
-  console.log(`需要檢查的住院病人總數: ${inpatientList.value.length}人`)
-  console.log('所有已排班的病人ID:', scheduledPatientIds.value)
+  const todayScheduledPatientIds = new Set()
+  const duplicateNames = new Set()
 
-  const missingPatients = inpatientList.value.filter((p) => {
-    // 為每一位住院病人打印詳細資訊
-    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
-    const isAlreadyScheduled = scheduledPatientIds.value.has(p.id)
-
-    console.log(
-      `[檢查中...] 病人: ${p.name}, ` +
-        `Firebase中的頻率(freq): "${p.freq}" (型別: ${typeof p.freq}), ` +
-        `今天應該排班嗎?: ${shouldBeScheduled}, ` +
-        `已經排班了嗎?: ${isAlreadyScheduled}`,
-    )
-
-    return shouldBeScheduled && !isAlreadyScheduled
+  Object.values(currentRecord.schedule).forEach((slot) => {
+    if (slot && slot.patientId) {
+      if (todayScheduledPatientIds.has(slot.patientId)) {
+        const patientName = patientMap.value.get(slot.patientId)?.name
+        if (patientName) duplicateNames.add(patientName)
+      }
+      todayScheduledPatientIds.add(slot.patientId)
+    }
   })
 
-  console.log('--- 檢查完畢 ---')
-  console.log(
-    `找到 ${missingPatients.length} 位遺漏的病人:`,
-    missingPatients.map((p) => p.name),
-  )
-  // --- 結束偵錯日誌 ---
-
-  if (missingPatients.length > 0) {
-    const patientNames = missingPatients.map((p) => p.name).join('\n')
-    const message = `警告：下列病人今日應排班但尚未排入：\n\n${patientNames}\n\n您確定要離開目前頁面嗎？`
-    if (!confirm(message)) {
-      return false
-    }
+  if (duplicateNames.size > 0) {
+    warnings.push(
+      `【重複排班】:\n- 病人 ${Array.from(duplicateNames).join(', ')} 在本日出現超過一次。`,
+    )
   }
 
-  return true
+  const allPatientsToCheck = allPatients.value.filter(
+    (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
+  )
+  const missingPatients = allPatientsToCheck.filter((p) => {
+    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
+    return shouldBeScheduled && !todayScheduledPatientIds.has(p.id)
+  })
+
+  if (missingPatients.length > 0) {
+    const missingPatientNames = missingPatients
+      .map((p) => `${p.name} (${p.status === 'ipd' ? '住院' : '門診'})`)
+      .join('\n- ')
+    warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
+  }
+
+  if (warnings.length > 0) {
+    alertDialogTitle.value = '排班檢視警告'
+    alertDialogMessage.value = warnings.join('\n\n')
+  } else {
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '未發現明顯的排班或遺漏問題。'
+  }
+  isAlertDialogVisible.value = true
 }
 
 async function loadAllPatients() {
   try {
-    const patientsData = await patientsApi.fetchAll()
-    allPatients.value = patientsData
+    allPatients.value = await patientsApi.fetchAll()
   } catch (error) {
     console.error('獲取病人資料失敗:', error)
   }
-}
-
-function setChange() {
-  hasUnsavedChanges.value = true
-  statusIndicator.value = '有未儲存的變更'
 }
 
 async function loadDataForDay(date) {
@@ -212,18 +218,19 @@ async function loadDataForDay(date) {
     for (const shiftId in loadedSchedule) {
       const dbSlotData = loadedSchedule[shiftId]
       if (dbSlotData && dbSlotData.patientId) {
-        const standardSlot = createEmptySlotData(shiftId)
         const patient = patientMap.value.get(dbSlotData.patientId)
-        const mergedSlot = { ...standardSlot, ...dbSlotData }
+        const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
         if (patient) {
           mergedSlot.autoNote = generateAutoNote(patient)
         }
         finalSchedule[shiftId] = mergedSlot
       }
     }
-    currentRecord.id = record.id || null
-    currentRecord.date = record.date
-    currentRecord.schedule = finalSchedule
+    Object.assign(currentRecord, {
+      id: record.id || null,
+      date: record.date,
+      schedule: finalSchedule,
+    })
     statusIndicator.value = '資料已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
@@ -232,7 +239,6 @@ async function loadDataForDay(date) {
 }
 
 function changeDate(days) {
-  if (!checkForUnsavedChangesAndMissingPatients()) return
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
@@ -240,58 +246,11 @@ function changeDate(days) {
 }
 
 function goToToday() {
-  if (!checkForUnsavedChangesAndMissingPatients()) return
   currentDate.value = new Date()
   loadDataForDay(currentDate.value)
 }
 
-function getPatientName(bedIdentifier, shift) {
-  const shiftId = `${bedIdentifier}-${shift}班`
-  const patientId = currentRecord.schedule[shiftId]?.patientId
-  if (!patientId) return ''
-  const patient = patientMap.value.get(patientId)
-  return patient ? patient.name : ''
-}
-
-function getCombinedNote(slotData) {
-  if (!slotData) return ''
-  const autoNotes = (slotData.autoNote || '').split(' ').filter(Boolean)
-  const manualNotes = (slotData.manualNote || '').split(' ').filter(Boolean)
-  const allNotes = new Set([...autoNotes, ...manualNotes])
-  return Array.from(allNotes).join(' ')
-}
-
-function getPatientCellStyle(shiftId) {
-  const slotData = currentRecord.schedule[shiftId]
-  if (!slotData || !slotData.patientId) return {}
-  const combinedNote = getCombinedNote(slotData)
-  for (const key in STYLE_PRIORITY) {
-    if (combinedNote.includes(key)) {
-      return { [STYLE_PRIORITY[key].class]: true }
-    }
-  }
-  const patient = patientMap.value.get(slotData.patientId)
-  if (patient && inpatientList.value.some((p) => p.id === patient.id)) {
-    return { [STYLE_PRIORITY['住'].class]: true }
-  }
-  return {}
-}
-
 async function saveDataToCloud() {
-  const dayOfWeek = currentDate.value.getDay()
-  const missingPatients = inpatientList.value.filter(
-    (p) => shouldPatientBeScheduled(p, dayOfWeek) && !scheduledPatientIds.value.has(p.id),
-  )
-
-  if (missingPatients.length > 0) {
-    const patientNames = missingPatients.map((p) => p.name).join('\n')
-    const message = `警告：下列病人今日應排班但尚未排入：\n\n${patientNames}\n\n您確定要繼續儲存嗎？`
-    if (!confirm(message)) {
-      statusIndicator.value = '操作已取消'
-      return
-    }
-  }
-
   statusIndicator.value = '儲存中...'
   try {
     const cleanSchedule = {}
@@ -318,37 +277,36 @@ async function saveDataToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
-    alert('排程已成功儲存！')
+
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '排程已成功儲存！'
+    isAlertDialogVisible.value = true
   } catch (error) {
     console.error('儲存失敗:', error)
     statusIndicator.value = '儲存失敗'
-    alert(`儲存失敗: ${error.message}`)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `儲存失敗: ${error.message}`
+    isAlertDialogVisible.value = true
   }
 }
 
 function clearBoard() {
   if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
-    Object.keys(currentRecord.schedule).forEach((key) => {
-      delete currentRecord.schedule[key]
-    })
+    currentRecord.schedule = {}
     setChange()
   }
 }
 
 async function copySchedule() {
-  if (!checkForUnsavedChangesAndMissingPatients()) return
-  if (!copySourceDate.value) {
-    alert('請選擇一個來源日期！')
-    return
-  }
-  if (copySourceDate.value === formatDate(currentDate.value)) {
-    alert('來源日期與目前日期相同，無需複製。')
+  if (!copySourceDate.value || copySourceDate.value === formatDate(currentDate.value)) {
+    alert('請選擇一個與當前不同的來源日期！')
     return
   }
   if (
     !confirm(`確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`)
   )
     return
+
   statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
   try {
     const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
@@ -356,19 +314,11 @@ async function copySchedule() {
       const sourceSchedule = sourceRecords[0].schedule || {}
       const processedSchedule = {}
       for (const shiftId in sourceSchedule) {
-        const dbSlotData = sourceSchedule[shiftId]
-        if (dbSlotData && dbSlotData.patientId) {
-          const patient = patientMap.value.get(dbSlotData.patientId)
-          const standardSlot = createEmptySlotData(shiftId)
-          const mergedSlot = { ...standardSlot, ...dbSlotData }
-          if (patient) {
-            mergedSlot.autoNote = generateAutoNote(patient)
-          }
-          processedSchedule[shiftId] = mergedSlot
+        if (sourceSchedule[shiftId]?.patientId) {
+          processedSchedule[shiftId] = { ...sourceSchedule[shiftId] }
         }
       }
-      Object.keys(currentRecord.schedule).forEach((key) => delete currentRecord.schedule[key])
-      Object.assign(currentRecord.schedule, processedSchedule)
+      currentRecord.schedule = processedSchedule
       setChange()
       statusIndicator.value = '複製成功，請記得儲存'
     } else {
@@ -384,10 +334,9 @@ async function copySchedule() {
 function onDragStart(event, source) {
   let patientId
   let sourceShiftId = null
-  if (
-    typeof source === 'string' &&
-    (source.startsWith('bed-') || source.startsWith('peripheral-'))
-  ) {
+  if (typeof source === 'object' && source.id) {
+    patientId = source.id
+  } else if (typeof source === 'string') {
     const slotData = currentRecord.schedule[source]
     if (!slotData || !slotData.patientId) {
       event.preventDefault()
@@ -396,32 +345,25 @@ function onDragStart(event, source) {
     patientId = slotData.patientId
     sourceShiftId = source
   } else {
-    patientId = source
-  }
-  if (!patientId) {
     event.preventDefault()
     return
   }
   event.dataTransfer.setData('patientId', patientId)
   if (sourceShiftId) {
     event.dataTransfer.setData('sourceShiftId', sourceShiftId)
-    event.dataTransfer.effectAllowed = 'move'
-  } else {
-    event.dataTransfer.effectAllowed = 'copy'
   }
 }
 
 function onDrop(event, targetShiftId) {
   event.preventDefault()
-  event.target.closest('.patient-name, .patient-tag, .schedule-slot')?.classList.remove('drag-over')
+  event.target.closest('.patient-name')?.classList.remove('drag-over')
   const patientId = event.dataTransfer.getData('patientId')
   if (!patientId) return
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
   const patient = patientMap.value.get(patientId)
   if (!patient) return
 
-  const isFromSidebar = !sourceShiftId
-  if (isFromSidebar && scheduledPatientIds.value.has(patientId)) {
+  if (!sourceShiftId && scheduledPatientIds.value.has(patientId)) {
     if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
       return
     }
@@ -430,36 +372,30 @@ function onDrop(event, targetShiftId) {
   const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
   const targetSlotData = currentRecord.schedule[targetShiftId]
 
-  const manualNoteToSet = sourceSlotData?.manualNote || ''
-  const autoNoteToSet = generateAutoNote(patient)
-
   const newSlotData = {
     ...createEmptySlotData(targetShiftId),
-    ...targetSlotData,
-    ...sourceSlotData,
+    ...(targetSlotData || {}),
+    ...(sourceSlotData || {}),
     patientId: patientId,
-    autoNote: autoNoteToSet,
-    manualNote: manualNoteToSet,
+    autoNote: generateAutoNote(patient),
+    manualNote: sourceSlotData?.manualNote || '',
     shiftId: targetShiftId,
   }
 
   currentRecord.schedule[targetShiftId] = newSlotData
 
   if (sourceShiftId && sourceShiftId !== targetShiftId) {
-    if (targetSlotData && targetSlotData.patientId) {
+    if (targetSlotData?.patientId) {
       const swappedPatient = patientMap.value.get(targetSlotData.patientId)
-      const swappedAutoNote = generateAutoNote(swappedPatient)
-      const swappedManualNote = targetSlotData.manualNote || ''
-      const swappedSlotData = {
+      currentRecord.schedule[sourceShiftId] = {
         ...createEmptySlotData(sourceShiftId),
         patientId: targetSlotData.patientId,
-        autoNote: swappedAutoNote,
-        manualNote: swappedManualNote,
+        autoNote: generateAutoNote(swappedPatient),
+        manualNote: targetSlotData.manualNote || '',
         shiftId: sourceShiftId,
       }
-      currentRecord.schedule[sourceShiftId] = swappedSlotData
     } else {
-      currentRecord.schedule[sourceShiftId] = createEmptySlotData(sourceShiftId)
+      delete currentRecord.schedule[sourceShiftId]
     }
   }
   setChange()
@@ -481,8 +417,7 @@ function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (slotData && slotData.patientId) {
     const patient = patientMap.value.get(slotData.patientId)
-    const patientName = patient ? patient.name : ''
-    if (confirm(`確定要將「${patientName}」從此班次中移除嗎？`)) {
+    if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
       handleSlotUpdate(shiftId, null)
     }
   } else {
@@ -507,10 +442,12 @@ function handlePatientSelectedFromDialog(patientId) {
 function handleSlotUpdate(shiftId, patientId) {
   if (patientId) {
     const patient = patientMap.value.get(patientId)
-    const newSlotData = createEmptySlotData(shiftId)
-    newSlotData.patientId = patientId
-    newSlotData.autoNote = generateAutoNote(patient)
-    currentRecord.schedule[shiftId] = newSlotData
+    currentRecord.schedule[shiftId] = {
+      ...createEmptySlotData(shiftId),
+      patientId: patientId,
+      autoNote: generateAutoNote(patient),
+      manualNote: '',
+    }
   } else {
     delete currentRecord.schedule[shiftId]
   }
@@ -524,9 +461,8 @@ function openPatientDialog(shiftId) {
 
 function updateNurseTeam(event, shiftId, type) {
   const value = event.target.value
-  if (!currentRecord.schedule[shiftId]) {
+  if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
-  }
   const slot = currentRecord.schedule[shiftId]
   if (type === 'single') slot.nurseTeam = value || null
   else if (type === 'in') slot.nurseTeamIn = value || null
@@ -536,16 +472,52 @@ function updateNurseTeam(event, shiftId, type) {
 
 function updateNote(event, shiftId) {
   const value = event.target.textContent
-  if (!currentRecord.schedule[shiftId]) {
+  if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
-  }
   currentRecord.schedule[shiftId].manualNote = value
   setChange()
 }
 
+function getPatientName(bedIdentifier, shift) {
+  const shiftId = `${bedIdentifier}-${shift}班`
+  const patientId = currentRecord.schedule[shiftId]?.patientId
+  return patientMap.value.get(patientId)?.name || ''
+}
+
+function getCombinedNote(slotData) {
+  if (!slotData) return ''
+  const autoNotes = (slotData.autoNote || '').split(' ').filter(Boolean)
+  const manualNotes = (slotData.manualNote || '').split(' ').filter(Boolean)
+  const allNotes = new Set([...autoNotes, ...manualNotes])
+  return Array.from(allNotes).join(' ')
+}
+
+// 【補回】缺失的 getPatientCellStyle 函數
+function getPatientCellStyle(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  if (!slotData || !slotData.patientId) return {}
+  const combinedNote = getCombinedNote(slotData)
+  for (const key in STYLE_PRIORITY) {
+    if (combinedNote.includes(key)) {
+      return { [STYLE_PRIORITY[key].class]: true }
+    }
+  }
+  const patient = patientMap.value.get(slotData.patientId)
+  if (patient && inpatientList.value.some((p) => p.id === patient.id)) {
+    return { [STYLE_PRIORITY['住'].class]: true }
+  }
+  return {}
+}
+
+// 【新增】一個專門用來觸發列印的函數
+function triggerPrint() {
+  // 在這個 script 作用域中，'window' 是可識別的全域物件
+  window.print()
+}
 // --- 生命週期鉤子 ---
 onMounted(async () => {
-  await Promise.all([loadAllPatients(), loadDataForDay(currentDate.value)])
+  await loadAllPatients()
+  await loadDataForDay(currentDate.value)
 })
 </script>
 
@@ -572,7 +544,8 @@ onMounted(async () => {
           <button id="save-btn" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
             儲存資料至雲端
           </button>
-          <button id="print-btn" @click="window.print()">列印排程</button>
+          <button @click="runScheduleCheck">排班檢視</button>
+          <button id="print-btn" @click="triggerPrint">列印排程</button>
           <button id="clear-all-btn" @click="clearBoard">清除本日畫面</button>
           <input type="date" v-model="copySourceDate" />
           <button id="copy-schedule-btn" @click="copySchedule">從他日複製排程</button>
@@ -590,9 +563,6 @@ onMounted(async () => {
     <main class="page-main-content">
       <div class="schedule-content">
         <div class="dialysis-unit">
-          <!-- ====================================================== -->
-          <!-- ==           動態生成左右翼床位區 (最終版)           == -->
-          <!-- ====================================================== -->
           <template
             v-for="(wing, wingName) in {
               left: layoutData.leftWingRows,
@@ -628,8 +598,6 @@ onMounted(async () => {
                       ]"
                     >
                       <div class="shift-label">{{ shift }}</div>
-
-                      <!-- 護理師組別欄位 -->
                       <div v-if="shift === '午'" class="nurse-split-column">
                         <select
                           class="nurse-team-select nurse-in"
@@ -669,8 +637,6 @@ onMounted(async () => {
                           {{ team }}組
                         </option>
                       </select>
-
-                      <!-- 病人姓名欄位 -->
                       <div
                         class="patient-name"
                         draggable="true"
@@ -682,8 +648,6 @@ onMounted(async () => {
                       >
                         {{ getPatientName(`bed-${bedNum}`, shift) }}
                       </div>
-
-                      <!-- 備註欄位 -->
                       <div
                         class="patient-tag"
                         contenteditable="true"
@@ -692,7 +656,6 @@ onMounted(async () => {
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
                       >
-                        <!-- **關鍵修正**: 顯示組合後的完整備註 -->
                         {{ getCombinedNote(currentRecord.schedule[`bed-${bedNum}-${shift}班`]) }}
                       </div>
                     </div>
@@ -706,8 +669,6 @@ onMounted(async () => {
             <div v-if="wingName === 'left'" class="aisle">中 央 走 道</div>
           </template>
         </div>
-
-        <!-- 外圍床位區 -->
         <div class="extra-sections">
           <div class="peripheral-section">
             <div class="peripheral-bed-container">
@@ -758,7 +719,6 @@ onMounted(async () => {
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
                   >
-                    <!-- **關鍵修正**: 顯示組合後的完整備註 -->
                     {{ getCombinedNote(currentRecord.schedule[`peripheral-${i}-${shift}班`]) }}
                   </div>
                 </div>
@@ -781,6 +741,12 @@ onMounted(async () => {
     :show-fill-options="false"
     @confirm="handlePatientSelectedFromDialog"
     @cancel="isDialogVisible = false"
+  />
+  <AlertDialog
+    :is-visible="isAlertDialogVisible"
+    :title="alertDialogTitle"
+    :message="alertDialogMessage"
+    @confirm="isAlertDialogVisible = false"
   />
 </template>
 

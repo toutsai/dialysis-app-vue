@@ -11,6 +11,7 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import { createEmptySlotData } from '@/utils/scheduleUtils.js'
 import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- 輔助函式 ---
 function getStartOfWeek(date) {
@@ -94,6 +95,11 @@ const clearingSlotId = ref(null)
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
+const isConfirmDialogVisible = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+// 用一個 ref 來儲存「確定」後要執行的回呼函數
+const confirmAction = ref(null)
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -308,7 +314,9 @@ function handleClearSelect(selectedValue) {
   isClearDialogVisible.value = false
   clearingSlotId.value = null
 }
+
 function handlePatientSelect({ patientId, fillType }) {
+  // 1. 基本資料獲取與驗證
   const slotId = currentSlotId.value
   if (!patientId || !slotId) return
 
@@ -317,17 +325,84 @@ function handlePatientSelect({ patientId, fillType }) {
 
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
 
-  const daysToFill =
-    fillType === 'frequency' && patient.freq && FREQ_MAP_TO_DAY_INDEX[patient.freq]
-      ? FREQ_MAP_TO_DAY_INDEX[patient.freq]
-      : [parseInt(dayIndex)]
+  // 2. 【核心修正】計算預期排班日，並確保 daysToFill 永遠是陣列
+  const expectedDays = (patient.freq && FREQ_MAP_TO_DAY_INDEX[patient.freq]) || []
 
-  daysToFill.forEach((d_idx) => {
-    const newSlotId = `${bed}-${shiftIndex}-${d_idx}`
-    handleSlotUpdate(newSlotId, patientId)
+  const daysToFill =
+    fillType === 'frequency' && expectedDays.length > 0 ? expectedDays : [parseInt(dayIndex)]
+
+  // 現在 daysToFill 絕對是一個陣列，可以安全地使用 .map
+  const targetSlots = daysToFill.map((d_idx) => `${bed}-${shiftIndex}-${d_idx}`)
+
+  // 3. 檢測衝突
+  const emptySlots = []
+  const conflictedSlots = []
+
+  targetSlots.forEach((targetSlotId) => {
+    if (weekScheduleMap.value[targetSlotId]?.patientId) {
+      conflictedSlots.push(targetSlotId)
+    } else {
+      emptySlots.push(targetSlotId)
+    }
   })
 
+  // 4. 根據是否有衝突，執行不同流程
+  if (conflictedSlots.length > 0) {
+    // 【流程A：有衝突】彈出決策對話框
+    const conflictMessages = conflictedSlots
+      .map((csId) => {
+        const [_b, _s, _d] = csId.split('-')
+        const day = WEEKDAYS[parseInt(_d, 10)]
+        const shift = SHIFTS[parseInt(_s, 10)] // 注意：WeeklyView 的 SHIFTS 是 '早班', '午班', '晚班'
+        const existingPatientName =
+          patientMap.value.get(weekScheduleMap.value[csId].patientId)?.name || '未知病人'
+        return `${day}${shift}已被 ${existingPatientName} 佔用`
+      })
+      .join('\n- ')
+
+    // 設置 ConfirmDialog 的內容
+    confirmDialogTitle.value = '排班衝突提醒'
+    confirmDialogMessage.value = `部分班次因床位已被佔用而未排入：\n\n- ${conflictMessages}\n\n您是否要繼續排入【未被佔用】的床位？`
+
+    // 定義「確定」後要執行的操作
+    confirmAction.value = () => {
+      if (emptySlots.length > 0) {
+        emptySlots.forEach((newSlotId) => {
+          handleSlotUpdate(newSlotId, patientId)
+        })
+      } else {
+        // 如果連一個空格子都沒有，也用 AlertDialog 提示
+        alertDialogTitle.value = '提示'
+        alertDialogMessage.value = '沒有可排入的空床位。'
+        isAlertDialogVisible.value = true
+      }
+    }
+
+    // 顯示確認對話框
+    isConfirmDialogVisible.value = true
+  } else {
+    // 【流程B：無衝突】直接排入所有目標格子
+    targetSlots.forEach((newSlotId) => {
+      handleSlotUpdate(newSlotId, patientId)
+    })
+  }
+
+  // 5. 關閉病人選擇對話框
   isDialogVisible.value = false
+}
+
+// 【第4步】新增處理 ConfirmDialog 結果的函數
+function handleConflictConfirm() {
+  if (typeof confirmAction.value === 'function') {
+    confirmAction.value() // 執行我們之前儲存的操作
+  }
+  isConfirmDialogVisible.value = false // 關閉對話框
+  confirmAction.value = null // 清理
+}
+
+function handleConflictCancel() {
+  isConfirmDialogVisible.value = false // 關閉對話框
+  confirmAction.value = null // 清理
 }
 
 async function saveChangesToCloud() {
@@ -696,6 +771,13 @@ onMounted(loadAllData)
       :options="CLEAR_OPTIONS"
       @select="handleClearSelect"
       @cancel="isClearDialogVisible = false"
+    />
+    <ConfirmDialog
+      :is-visible="isConfirmDialogVisible"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      @confirm="handleConflictConfirm"
+      @cancel="handleConflictCancel"
     />
   </div>
 </template>
