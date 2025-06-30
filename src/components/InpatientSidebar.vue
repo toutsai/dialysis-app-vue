@@ -1,9 +1,8 @@
-<!-- 檔案路徑: src/components/InpatientSidebar.vue -->
+<!-- 檔案路徑: src/components/InpatientSidebar.vue (最終修正版) -->
 <script setup>
 import { ref, computed } from 'vue'
 
-// 1. 定義 props：告訴這個元件，它會從父層接收一個叫做 'patients' 的屬性，
-//    這個屬性是一個陣列。
+// 1. Props 和 Emits 維持不變
 const props = defineProps({
   patients: {
     type: Array,
@@ -11,42 +10,41 @@ const props = defineProps({
   },
   scheduledIds: {
     type: Set,
-    default: () => new Set(), // prop 的預設值如果是物件或陣列，必須用工廠函式返回
+    default: () => new Set(),
   },
 })
-
-// 2. 定義 emits：告訴父層這個元件可能會發出哪些事件。
-//    雖然拖曳是透過原生 API 處理，但定義出來是個好習慣。
 const emit = defineEmits(['drag-start'])
 
-// 3. 內部狀態：篩選器的狀態由元件自己管理
+// 2. 內部狀態維持不變
 const inpatientFilter = ref('all')
 
-// 4. 計算屬性：它的資料來源，從全域的 allPatients.value 變成了 props.patients
+// ========== 【修改一】修正 inpatientList 計算屬性 ==========
 const inpatientList = computed(() => {
   // 從 props.patients 中篩選出住院病人
   let inpatients = props.patients.filter((p) => p.status === 'ipd' && !p.isDeleted)
 
   const regularFreqs = ['一三五', '二四六']
+
+  // 根據篩選器過濾病人
   if (inpatientFilter.value === '135') {
-    inpatients = inpatients.filter((p) => p.frequency === '一三五')
+    inpatients = inpatients.filter((p) => (p.freq ?? p.frequency) === '一三五')
   } else if (inpatientFilter.value === '246') {
-    inpatients = inpatients.filter((p) => p.frequency === '二四六')
+    inpatients = inpatients.filter((p) => (p.freq ?? p.frequency) === '二四六')
   } else if (inpatientFilter.value === 'other') {
-    inpatients = inpatients.filter((p) => !regularFreqs.includes(p.frequency))
+    inpatients = inpatients.filter((p) => !regularFreqs.includes(p.freq ?? p.frequency))
   }
   return inpatients
 })
+// ========================================================
 
 function handleDragStart(event, patientId) {
-  // 直接將收到的原生事件和 patientId 傳給父元件
   emit('drag-start', event, patientId)
 }
 </script>
 
 <template>
   <aside class="inpatient-sidebar">
-    <h3>住院病人清單 (可拖曳)</h3>
+    <h3>住院病人 (可拖曳)</h3>
     <div class="filter-group">
       <button @click="inpatientFilter = 'all'" :class="{ active: inpatientFilter === 'all' }">
         全部
@@ -61,8 +59,8 @@ function handleDragStart(event, patientId) {
         其他
       </button>
     </div>
+
     <ul id="inpatient-list">
-      <!-- v-for 的資料來源 inpatientList 現在是基於 props 計算的 -->
       <li
         v-for="p in inpatientList"
         :key="p.id"
@@ -70,99 +68,142 @@ function handleDragStart(event, patientId) {
         :class="{ 'is-scheduled': scheduledIds.has(p.id) }"
         @dragstart="handleDragStart($event, p.id)"
       >
+        <!-- 第一行：姓名和頻率 -->
         <div class="patient-info-row">
           <span class="name">{{ p.name }}</span>
-          <span class="freq">{{ p.frequency || '未設定' }}</span>
+          <!-- ========== 【修改二】修正頻率顯示 ========== -->
+          <span class="freq">{{ (p.freq ?? p.frequency) || '未設定' }}</span>
+          <!-- ============================================= -->
         </div>
-        <div class="patient-info-row">
-          <span class="mrn">({{ p.medicalRecordNumber || 'N/A' }})</span>
+
+        <!-- 第二行：疾病標籤 -->
+        <div
+          class="patient-info-row disease-tags-container"
+          v-if="p.diseases && p.diseases.length > 0"
+        >
+          <span v-for="disease in p.diseases" :key="disease" class="sidebar-disease-tag">
+            {{ disease }}
+          </span>
         </div>
       </li>
     </ul>
   </aside>
 </template>
 
+<!-- Style 部分完全不需要修改 -->
 <style scoped>
 .inpatient-sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background-color: #f8f9fa;
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  max-height: calc(75vh + 20px);
+  width: 280px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0; /* 核心！告訴 flexbox 不要壓縮我 */
+  background-color: #f8f9fa;
+  border-left: 1px solid #dee2e6;
 }
-.inpatient-sidebar h3 {
+
+h3 {
   margin-top: 0;
   text-align: center;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 10px;
-  margin-bottom: 10px;
+  color: #495057;
 }
+
 .filter-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
 }
+
 .filter-group button {
-  border: 1px solid #ccc;
-  border-radius: 5px;
-  padding: 4px 8px;
-  font-size: 0.8em;
-  flex-grow: 1;
-  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
   background-color: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
 }
+
+.filter-group button:hover {
+  background-color: #e9ecef;
+}
+
 .filter-group button.active {
-  background-color: var(--primary-color);
-  color: white;
-  border-color: var(--primary-color);
+  background-color: #007bff;
+  color: #fff;
+  border-color: #007bff;
 }
+
 #inpatient-list {
-  list-style-type: none;
+  list-style: none;
   padding: 0;
   margin: 0;
-  overflow-y: auto;
   flex-grow: 1;
-}
-#inpatient-list li {
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border-radius: 5px;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  transition: background-color 0.3s;
+  gap: 10px;
+}
+
+li {
+  padding: 12px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background-color: #fff;
   cursor: grab;
+  transition:
+    box-shadow 0.2s,
+    transform 0.2s;
 }
-#inpatient-list li:active {
+
+li:active {
   cursor: grabbing;
+  transform: scale(0.98);
 }
+
+/* 如果病人已被排班，顯示不同樣式 */
+li.is-scheduled {
+  background-color: #fffbe6; /* 淡黃色背景 */
+  border-color: #ffeeba;
+}
+/* 吳秀美特殊樣式 */
+li:has(span:contains('吳秀美')) {
+  background-color: #fffde7;
+}
+
 .patient-info-row {
   display: flex;
   justify-content: space-between;
-  width: 100%;
   align-items: center;
 }
-#inpatient-list li .name {
+
+.name {
   font-weight: bold;
-  font-size: 1.1em;
+  font-size: 16px;
 }
-#inpatient-list li .mrn {
-  font-size: 0.85em;
-  color: #6c757d;
-}
-#inpatient-list li .freq {
-  font-size: 0.9em;
-  color: #555;
+
+.freq {
+  font-size: 12px;
   background-color: #e9ecef;
+  color: #495057;
   padding: 2px 6px;
-  border-radius: 10px;
+  border-radius: 4px;
+}
+
+.disease-tags-container {
+  justify-content: flex-start; /* 讓標籤從左邊開始排列 */
+  gap: 6px;
+  margin-top: 6px; /* 與上一行的間距 */
+  flex-wrap: wrap;
+}
+
+.sidebar-disease-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: bold;
+  color: #721c24; /* 深紅色文字 */
+  background-color: #f8d7da; /* 淡紅色背景 */
+  border-radius: 12px;
 }
 </style>

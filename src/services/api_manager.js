@@ -1,15 +1,25 @@
-// 檔案路徑: src/services/api_manager.js (使用 Composable 版本)
+// src/services/api_manager.js (完整修正版)
 
-// 1. 從我們新建的中央工具庫 useFirebase.js 中，引入 db 實例
+// 1. 從 Firebase SDK 中，引入所有我們需要用到的函式 (已清理重複)
+import {
+  collection,
+  getDocs,
+  doc,
+  addDoc,
+  setDoc, // <-- 確保引入了 setDoc
+  updateDoc,
+  deleteDoc,
+  query,
+  getDoc, // <-- 在這裡加上 getDoc
+} from 'firebase/firestore'
+
+// 假設您從 './firebase' 導入 db 實例
 import { db } from '@/composables/useFirebase.js'
-
-// 2. 從 Firebase SDK 中，引入所有我們需要用到的函式
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query } from 'firebase/firestore'
 
 const ApiManager = (resourceType) => {
   // 檢查 db 是否成功引入
   if (!db) {
-    throw new Error("Firestore 'db' instance is not available! Check composables/useFirebase.js.")
+    throw new Error("Firestore 'db' instance is not available! Check your firebase configuration.")
   }
 
   const collectionRef = collection(db, resourceType)
@@ -30,10 +40,37 @@ const ApiManager = (resourceType) => {
     }
   }
 
-  const save = async (data) => {
+  /**
+   * 保存文件。
+   * - 如果只傳入 data 物件，則使用 addDoc 新增文件並由 Firebase 自動生成 ID。
+   * - 如果傳入 id 和 data，則使用 setDoc 創建或完全覆蓋指定 ID 的文件。
+   * @param {string|object} idOrData - 文件的 ID 或要保存的資料物件。
+   * @param {object} [data] - (可選) 如果第一個參數是 ID，則這是要保存的資料。
+   * @returns {Promise<object>} 返回包含 id 和已保存資料的物件。
+   */
+  const save = async (idOrData, data) => {
     try {
-      const docRef = await addDoc(collectionRef, data)
-      return { id: docRef.id, ...data }
+      // 情況一：只傳入一個參數 save(data) -> 使用 addDoc
+      if (typeof idOrData === 'object' && data === undefined) {
+        const dataToSave = idOrData
+        const docRef = await addDoc(collectionRef, dataToSave)
+        console.log(`[ApiManager] Added new document to ${resourceType} with ID: ${docRef.id}`)
+        return { id: docRef.id, ...dataToSave }
+      }
+      // 情況二：傳入兩個參數 save(id, data) -> 使用 setDoc
+      else if (typeof idOrData === 'string' && typeof data === 'object') {
+        const id = idOrData
+        const dataToSave = data
+        const docRef = doc(db, resourceType, id)
+        // 使用 setDoc 來創建或完全覆蓋文件
+        await setDoc(docRef, dataToSave)
+        console.log(`[ApiManager] Set document with ID ${id} in ${resourceType}`)
+        return { id, ...dataToSave }
+      }
+      // 情況三：參數錯誤
+      else {
+        throw new Error('Invalid arguments for save function. Use save(data) or save(id, data).')
+      }
     } catch (error) {
       console.error(`[ApiManager] Error saving ${resourceType}:`, error)
       throw error
@@ -47,6 +84,27 @@ const ApiManager = (resourceType) => {
       return { id, ...data }
     } catch (error) {
       console.error(`[ApiManager] Error updating ${resourceType} with id ${id}:`, error)
+      throw error
+    }
+  }
+
+  // **新增 fetchById 函式**
+  const fetchById = async (id) => {
+    try {
+      if (!id) throw new Error('Document ID is required.')
+
+      const docRef = doc(db, resourceType, id)
+      const docSnap = await getDoc(docRef) // <-- 使用 getDoc 來獲取單一文件
+
+      if (docSnap.exists()) {
+        console.log(`[ApiManager] Fetched document with ID ${id} from ${resourceType}`)
+        return { id: docSnap.id, ...docSnap.data() }
+      } else {
+        console.warn(`[ApiManager] No document found with ID ${id} in ${resourceType}`)
+        return null // 如果文件不存在，返回 null
+      }
+    } catch (error) {
+      console.error(`[ApiManager] Error fetching document with id ${id}:`, error)
       throw error
     }
   }
@@ -67,6 +125,7 @@ const ApiManager = (resourceType) => {
     save,
     update,
     delete: deleteDocument,
+    fetchById, // <-- **將新函式加入到返回的物件中**
   }
 }
 

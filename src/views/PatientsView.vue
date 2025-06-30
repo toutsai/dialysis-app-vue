@@ -1,6 +1,7 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (最終完整版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (最終完整、無省略版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
+import { deleteField } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
@@ -37,8 +38,15 @@ const displayedPatients = computed(() => {
   }
 
   return [...patients].sort((a, b) => {
-    let valA = a[currentSort.value.column]
-    let valB = b[currentSort.value.column]
+    let valA, valB
+    if (currentSort.value.column === 'freq') {
+      valA = a.freq ?? a.frequency
+      valB = b.freq ?? b.frequency
+    } else {
+      valA = a[currentSort.value.column]
+      valB = b[currentSort.value.column]
+    }
+
     if (valA && typeof valA.toDate === 'function') valA = valA.toDate()
     if (valB && typeof valB.toDate === 'function') valB = valB.toDate()
     valA = valA || ''
@@ -91,18 +99,25 @@ function closeModal() {
 
 async function handleSavePatient(patientData) {
   try {
-    const dataToSave = { ...patientData }
-    const patientId = dataToSave.id
-    delete dataToSave.id
+    const patientId = patientData.id
+    const dataToUpdate = { ...patientData }
+    delete dataToUpdate.id
+
+    dataToUpdate.freq = patientData.freq ?? patientData.frequency
+
+    if (patientData.frequency) {
+      dataToUpdate.frequency = deleteField()
+    }
 
     if (patientId) {
-      await patientApi.update(patientId, dataToSave)
+      await patientApi.update(patientId, dataToUpdate)
     } else {
-      dataToSave.createdAt = new Date().toISOString()
-      dataToSave.isDeleted = false
-      dataToSave.status = modalType.value
-      await patientApi.save(dataToSave)
+      dataToUpdate.createdAt = new Date().toISOString()
+      dataToUpdate.isDeleted = false
+      dataToUpdate.status = modalType.value
+      await patientApi.save(dataToUpdate)
     }
+
     closeModal()
     await fetchAllPatients()
   } catch (error) {
@@ -132,7 +147,6 @@ function deletePatient(patientId) {
 
 async function handleDeleteReasonSelected(reason) {
   if (!patientToDeleteId.value) return
-
   try {
     const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
     if (patient) {
@@ -146,7 +160,6 @@ async function handleDeleteReasonSelected(reason) {
     }
   } catch (error) {
     alert('刪除失敗！')
-    console.error('刪除病人失敗:', error)
   } finally {
     isDeleteDialogVisible.value = false
     patientToDeleteId.value = null
@@ -191,7 +204,8 @@ function formatDate(isoString) {
 function getRowClass(p) {
   if (p.isDeleted) return 'status-deleted'
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
-  if (biweeklyFreq.includes(p.frequency)) return 'status-biweekly'
+  const freqValue = p.freq ?? p.frequency
+  if (biweeklyFreq.includes(freqValue)) return 'status-biweekly'
   if (p.status === 'ipd') return 'status-ipd'
   if (p.status === 'opd') return 'status-opd'
   return ''
@@ -199,7 +213,12 @@ function getRowClass(p) {
 
 function generateDiseaseTags(diseases) {
   if (!diseases || diseases.length === 0) return ''
-  return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
+  return diseases
+    .map(
+      (tag) =>
+        `<span class="disease-tag" style="background-color: #f8d7da; color: #721c24; padding: 2px 5px; border-radius: 3px; font-size: 0.8em; margin-left: 5px;">${tag}</span>`,
+    )
+    .join('')
 }
 
 // --- 生命週期鉤子 ---
@@ -257,8 +276,8 @@ onMounted(() => {
                 <th @click="handleSort('physician')">
                   會診醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
                 </th>
-                <th @click="handleSort('frequency')">
-                  頻率 <span class="sort-indicator">{{ getSortIndicator('frequency') }}</span>
+                <th @click="handleSort('freq')">
+                  頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
                 </th>
                 <th>模式</th>
                 <th>首透</th>
@@ -275,7 +294,7 @@ onMounted(() => {
                 <td>{{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span></td>
                 <td>{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
-                <td>{{ p.frequency }}</td>
+                <td>{{ p.freq ?? p.frequency }}</td>
                 <td>{{ p.mode }}</td>
                 <td>{{ p.isFirstDialysis ? '✓' : '' }}</td>
                 <td>{{ p.isDiscontinued ? '✓' : '' }}</td>
@@ -312,8 +331,8 @@ onMounted(() => {
                 <th @click="handleSort('physician')">
                   收案醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
                 </th>
-                <th @click="handleSort('frequency')">
-                  頻率 <span class="sort-indicator">{{ getSortIndicator('frequency') }}</span>
+                <th @click="handleSort('freq')">
+                  頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
                 </th>
                 <th>模式</th>
                 <th>血管通路</th>
@@ -329,7 +348,7 @@ onMounted(() => {
                 <td>{{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span></td>
                 <td>{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
-                <td>{{ p.frequency }}</td>
+                <td>{{ p.freq ?? p.frequency }}</td>
                 <td>{{ p.mode }}</td>
                 <td>{{ p.vascAccess }}</td>
                 <td>{{ p.remarks }}</td>

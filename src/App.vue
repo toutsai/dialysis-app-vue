@@ -2,6 +2,70 @@
 <script setup>
 import { RouterLink, RouterView } from 'vue-router'
 import '@/assets/main.css'
+
+// 為了初始化排程而新增的程式碼
+import { onMounted } from 'vue'
+import { where } from 'firebase/firestore'
+import ApiManager from '@/services/api_manager.js'
+import { createEmptyScheduleDocument } from '@/utils/scheduleUtils.js'
+
+// 輔助函式，如果 App.vue 中沒有，可以從 ScheduleView.vue 複製過來或提取成公共函式
+function formatDate(date) {
+  const year = date.getFullYear()
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// 在 onMounted 鉤子中呼叫初始化函式
+onMounted(() => {
+  // 使用 setTimeout 是為了避免阻塞首屏渲染，讓初始化在後台執行
+  setTimeout(() => {
+    initializeSchedules()
+  }, 1000) // 延遲1秒執行
+})
+
+async function initializeSchedules() {
+  console.log('正在檢查並初始化排程...')
+  const schedulesApi = ApiManager('schedules')
+  const today = new Date()
+  const datesToCheck = []
+
+  // 產生需要檢查的日期範圍 (例如，從今天往前14天，到未來14天)
+  // 您可以根據需求調整這個範圍
+  for (let i = -14; i < 14; i++) {
+    const targetDate = new Date()
+    targetDate.setDate(today.getDate() + i)
+    datesToCheck.push(formatDate(targetDate))
+  }
+
+  try {
+    // 1. 一次性查詢所有已存在的排程
+    const existingRecords = await schedulesApi.fetchAll([where('date', 'in', datesToCheck)])
+    const existingDates = new Set(existingRecords.map((rec) => rec.date))
+
+    // 2. 找出需要創建的日期
+    const datesToCreate = datesToCheck.filter((dateStr) => !existingDates.has(dateStr))
+
+    if (datesToCreate.length === 0) {
+      console.log('所有必要的排程均已存在，無需初始化。')
+      return
+    }
+
+    console.log(`發現 ${datesToCreate.length} 個缺失的排程，正在創建...`, datesToCreate)
+
+    // 3. 為所有缺失的日期批量創建空白文件
+    const createPromises = datesToCreate.map((dateStr) => {
+      const emptyDoc = createEmptyScheduleDocument(dateStr)
+      return schedulesApi.save(emptyDoc)
+    })
+
+    await Promise.all(createPromises)
+    console.log('空白排程創建完畢！')
+  } catch (error) {
+    console.error('排程初始化失敗:', error)
+  }
+}
 </script>
 
 <template>

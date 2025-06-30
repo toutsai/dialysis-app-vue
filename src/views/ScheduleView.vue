@@ -3,14 +3,21 @@
 import { ref, onMounted, computed, reactive } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
+
+// 1. 引入所有需要的子元件和工具函式
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue' // 引入 AlertDialog
+import {
+  createEmptySlotData,
+  generateStandardNote,
+  generateAutoNote,
+} from '@/utils/scheduleUtils.js'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
-const baseSchedulesApi = ApiManager('base_schedules') // 載入常規需要
 
 // --- 常量 ---
 const SHIFTS = ['早', '午', '晚']
@@ -42,7 +49,6 @@ const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外�
 const earlyTeams = baseTeams.map((t) => `早${t}`)
 const lateTeams = baseTeams.map((t) => `晚${t}`)
 const allTeams = [...earlyTeams, ...lateTeams]
-// 定義樣式優先級
 const STYLE_PRIORITY = {
   抽: { class: 'tag-chou', color: 'blue' },
   新: { class: 'tag-new', color: 'yellow' },
@@ -50,6 +56,26 @@ const STYLE_PRIORITY = {
   換: { class: 'tag-huan', color: 'lightblue' },
   兩: { class: 'tag-liang', color: 'orange' },
   B: { class: 'tag-b', color: 'ivory' },
+  隔: { class: 'tag-ip' },
+  R: { class: 'tag-ip' },
+}
+const freqToDays = {
+  // 標準頻率
+  一三五: [1, 3, 5],
+  二四六: [2, 4, 6],
+
+  // 雙週頻率
+  一四: [1, 4],
+  二五: [2, 5],
+  三六: [3, 6],
+  一五: [1, 5],
+  二六: [2, 6],
+
+  // 每週一次
+  每周一次: [0, 1, 2, 3, 4, 5, 6], // 假設每週一次可以是任一天，或者您可以定義特定的一天
+
+  // 臨時（根據您的業務邏輯，臨時可能不需要檢查，或者需要特殊處理）
+  臨時: [], // 留空陣列，表示不需要自動檢查
 }
 
 // --- 核心狀態 ---
@@ -59,16 +85,24 @@ const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const searchInput = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
+const copySourceDate = ref(formatDate(new Date()))
+
+// --- UI 狀態 ---
 const isDialogVisible = ref(false)
 const currentEditingShiftId = ref(null)
 
+// AlertDialog 的狀態
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
+
+// --- Helper Functions ---
 function formatDate(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
   const day = date.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-const copySourceDate = ref(formatDate(new Date()))
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -77,49 +111,33 @@ const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
 const shiftPatientCount = computed(() => {
-  // 1. 初始化時使用 '早班', '午班', '晚班' 作為 key，以匹配 StatsToolbar 的期望
   const counts = { 早班: 0, 午班: 0, 晚班: 0 }
-
-  // 2. 直接存取 reactive 物件，不要用 .value
   if (currentRecord.schedule) {
-    // 3. 遍歷 schedule 物件的所有值
     for (const slotData of Object.values(currentRecord.schedule)) {
-      // 確保 slotData 和 patientId 存在
       if (slotData && slotData.patientId) {
-        // 4. 從 slotData 中獲取 shiftId
         const shiftId = slotData.shiftId || ''
-
-        // 5. 根據 shiftId 判斷班別並計數
-        if (shiftId.endsWith('早班')) {
-          counts['早班']++
-        } else if (shiftId.endsWith('午班')) {
-          counts['午班']++
-        } else if (shiftId.endsWith('晚班')) {
-          counts['晚班']++
-        }
+        if (shiftId.endsWith('早班')) counts['早班']++
+        else if (shiftId.endsWith('午班')) counts['午班']++
+        else if (shiftId.endsWith('晚班')) counts['晚班']++
       }
     }
   }
-
-  // **偵錯日誌**
-  console.log('[Debug] 計算出的人數 (shiftPatientCount):', JSON.parse(JSON.stringify(counts)))
-
   return counts
 })
-
-// **用來傳遞資料的 computed，它直接依賴 shiftPatientCount**
-const statsToolbarData = computed(() => {
-  // 格式化成 StatsToolbar 期望的 [{ counts: {...} }] 結構
-  return [{ counts: shiftPatientCount.value }]
-})
+const statsToolbarData = computed(() => [{ counts: shiftPatientCount.value }])
 const statsToolbarWeekdays = computed(() => ['本日'])
 const scheduledPatientIds = computed(() => {
+  if (!currentRecord.schedule) return new Set()
   return new Set(
     Object.values(currentRecord.schedule)
-      .filter((s) => s && s.patientId)
-      .map((s) => s.patientId),
+      .filter((slot) => slot && slot.patientId)
+      .map((slot) => slot.patientId),
   )
 })
+
+const inpatientList = computed(() =>
+  allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted),
+)
 
 // --- 方法 ---
 function setChange() {
@@ -127,35 +145,93 @@ function setChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
+function shouldPatientBeScheduled(patient, dayOfWeek) {
+  if (!patient.freq) return false
+  const scheduledDays = freqToDays[patient.freq]
+  return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
+}
+
+function runScheduleCheck() {
+  const warnings = []
+  const dayOfWeek = currentDate.value.getDay()
+  const todayScheduledPatientIds = new Set()
+  const duplicateNames = new Set()
+
+  Object.values(currentRecord.schedule).forEach((slot) => {
+    if (slot && slot.patientId) {
+      if (todayScheduledPatientIds.has(slot.patientId)) {
+        const patientName = patientMap.value.get(slot.patientId)?.name
+        if (patientName) duplicateNames.add(patientName)
+      }
+      todayScheduledPatientIds.add(slot.patientId)
+    }
+  })
+
+  if (duplicateNames.size > 0) {
+    warnings.push(
+      `【重複排班】:\n- 病人 ${Array.from(duplicateNames).join(', ')} 在本日出現超過一次。`,
+    )
+  }
+
+  const allPatientsToCheck = allPatients.value.filter(
+    (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
+  )
+  const missingPatients = allPatientsToCheck.filter((p) => {
+    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
+    return shouldBeScheduled && !todayScheduledPatientIds.has(p.id)
+  })
+
+  if (missingPatients.length > 0) {
+    const missingPatientNames = missingPatients
+      .map((p) => `${p.name} (${p.status === 'ipd' ? '住院' : '門診'})`)
+      .join('\n- ')
+    warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
+  }
+
+  if (warnings.length > 0) {
+    alertDialogTitle.value = '排班檢視警告'
+    alertDialogMessage.value = warnings.join('\n\n')
+  } else {
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '未發現明顯的排班或遺漏問題。'
+  }
+  isAlertDialogVisible.value = true
+}
+
+async function loadAllPatients() {
+  try {
+    allPatients.value = await patientsApi.fetchAll()
+  } catch (error) {
+    console.error('獲取病人資料失敗:', error)
+  }
+}
+
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
-  console.clear()
-  console.log(`%c[1. 準備查詢] - 目標日期: "${dateStr}"`, 'color: blue; font-weight: bold;')
   try {
-    const [patientsData, dailyRecords] = await Promise.all([
-      patientsApi.fetchAll(),
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-    ])
-
-    console.log(
-      `%c[2. 查詢結束] - Firestore 返回了 ${dailyRecords.length} 筆排班記錄。`,
-      'color: green;',
-    )
-    console.log('返回的病人資料 (allPatients):', patientsData)
-
-    allPatients.value = patientsData
-    const record =
-      dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {}, names: {} }
-    // 更新元資料
-    currentRecord.id = record.id
-    currentRecord.date = record.date
-    currentRecord.names = record.names
-
-    // **用「替換」的方式來更新 schedule 物件，以確保響應性**
-    currentRecord.schedule = record.schedule || {}
-    statusIndicator.value = dailyRecords.length > 0 ? '資料已載入' : '本日無雲端資料'
+    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+    const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+    const loadedSchedule = record.schedule || {}
+    const finalSchedule = {}
+    for (const shiftId in loadedSchedule) {
+      const dbSlotData = loadedSchedule[shiftId]
+      if (dbSlotData && dbSlotData.patientId) {
+        const patient = patientMap.value.get(dbSlotData.patientId)
+        const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
+        if (patient) {
+          mergedSlot.autoNote = generateAutoNote(patient)
+        }
+        finalSchedule[shiftId] = mergedSlot
+      }
+    }
+    Object.assign(currentRecord, {
+      id: record.id || null,
+      date: record.date,
+      schedule: finalSchedule,
+    })
+    statusIndicator.value = '資料已載入'
   } catch (error) {
     console.error('載入資料失敗:', error)
     statusIndicator.value = '讀取失敗'
@@ -163,7 +239,6 @@ async function loadDataForDay(date) {
 }
 
 function changeDate(days) {
-  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
@@ -171,59 +246,8 @@ function changeDate(days) {
 }
 
 function goToToday() {
-  if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   currentDate.value = new Date()
   loadDataForDay(currentDate.value)
-}
-
-function getPatientName(bedIdentifier, shift) {
-  // 1. 根據傳入的參數，組合出唯一的 shiftId
-  const shiftId = `${bedIdentifier}-${shift}班`
-
-  // 2. 安全地從排程資料中獲取 patientId
-  //    如果 schedule[shiftId] 不存在，patientId 會是 undefined
-  const patientId = currentRecord.schedule[shiftId]?.patientId
-
-  // 3. 如果沒有 patientId，就沒有病人，直接返回空字串
-  if (!patientId) {
-    return ''
-  }
-
-  // 4. 使用 patientId 從 patientMap 中查找完整的病人物件
-  const patient = patientMap.value.get(patientId)
-
-  // 5. 如果找到了 patient 物件，返回它的 name 屬性；
-  //    如果沒找到 (patient 為 undefined)，也返回空字串。
-  return patient ? patient.name : ''
-}
-
-// 計算病人格樣式的函式
-function getPatientCellStyle(shiftId) {
-  const slotData = currentRecord.schedule[shiftId]
-  if (!slotData || !slotData.patientId) return {} // 沒有病人，沒有樣式
-
-  const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {}
-
-  const note = slotData.note || '' // 獲取當前格的備註
-
-  // 1. 根據備註決定樣式 (最高優先級)
-  for (const key in STYLE_PRIORITY) {
-    if (note.includes(key)) {
-      return { [STYLE_PRIORITY[key].class]: true }
-    }
-  }
-
-  // 2. 如果備註中沒有關鍵字，則根據病人狀態決定
-  if (patient.status === 'ip') {
-    return { [STYLE_PRIORITY['住'].class]: true }
-  }
-
-  // 3. 如果是新病人標記 (需要一個邏輯來判斷，例如看 creationDate)
-  // const isNew = ...
-  // if (isNew) return { [STYLE_PRIORITY['新'].class]: true };
-
-  return {} // 預設無特殊樣式
 }
 
 async function saveDataToCloud() {
@@ -232,58 +256,50 @@ async function saveDataToCloud() {
     const cleanSchedule = {}
     for (const shiftId in currentRecord.schedule) {
       const slotData = currentRecord.schedule[shiftId]
-      // **就是修改下面這幾行**
-      cleanSchedule[shiftId] = {
-        patientId: slotData.patientId,
-        note: slotData.note || '', // <--- 在這裡加上 || '' 的保護
-        shiftId: slotData.shiftId,
+      if (slotData && slotData.patientId) {
+        cleanSchedule[shiftId] = {
+          patientId: slotData.patientId,
+          shiftId: slotData.shiftId || shiftId,
+          autoNote: slotData.autoNote || '',
+          manualNote: slotData.manualNote || '',
+          nurseTeam: slotData.nurseTeam || null,
+          nurseTeamIn: slotData.nurseTeamIn || null,
+          nurseTeamOut: slotData.nurseTeamOut || null,
+        }
       }
     }
-
-    const dataToSave = {
-      date: currentRecord.date,
-      schedule: cleanSchedule,
-      names: currentRecord.names || {},
-    }
-
-    console.log('準備儲存到雲端的資料:', JSON.parse(JSON.stringify(dataToSave)))
-
+    const dataToSave = { date: currentRecord.date, schedule: cleanSchedule }
     if (currentRecord.id) {
       await schedulesApi.update(currentRecord.id, dataToSave)
     } else {
       const savedRecord = await schedulesApi.save(dataToSave)
       currentRecord.id = savedRecord.id
     }
-
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
-    alert('排程已成功儲存！')
+
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '排程已成功儲存！'
+    isAlertDialogVisible.value = true
   } catch (error) {
     console.error('儲存失敗:', error)
     statusIndicator.value = '儲存失敗'
-    alert(`儲存失敗: ${error.message}`)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `儲存失敗: ${error.message}`
+    isAlertDialogVisible.value = true
   }
 }
 
-// **實現 clearBoard (解決問題 2)**
 function clearBoard() {
   if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
-    // 清空 schedule 物件的所有屬性
-    Object.keys(currentRecord.schedule).forEach((key) => {
-      delete currentRecord.schedule[key]
-    })
+    currentRecord.schedule = {}
     setChange()
   }
 }
 
-// **實現 copySchedule (解決問題 2)**
 async function copySchedule() {
-  if (!copySourceDate.value) {
-    alert('請選擇一個來源日期！')
-    return
-  }
-  if (copySourceDate.value === formatDate(currentDate.value)) {
-    alert('來源日期與目前日期相同，無需複製。')
+  if (!copySourceDate.value || copySourceDate.value === formatDate(currentDate.value)) {
+    alert('請選擇一個與當前不同的來源日期！')
     return
   }
   if (
@@ -295,9 +311,14 @@ async function copySchedule() {
   try {
     const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
     if (sourceRecords.length > 0) {
-      // 直接用來源資料的 schedule 物件，覆蓋當前的 schedule 物件
-      Object.keys(currentRecord.schedule).forEach((key) => delete currentRecord.schedule[key])
-      Object.assign(currentRecord.schedule, sourceRecords[0].schedule || {})
+      const sourceSchedule = sourceRecords[0].schedule || {}
+      const processedSchedule = {}
+      for (const shiftId in sourceSchedule) {
+        if (sourceSchedule[shiftId]?.patientId) {
+          processedSchedule[shiftId] = { ...sourceSchedule[shiftId] }
+        }
+      }
+      currentRecord.schedule = processedSchedule
       setChange()
       statusIndicator.value = '複製成功，請記得儲存'
     } else {
@@ -313,13 +334,9 @@ async function copySchedule() {
 function onDragStart(event, source) {
   let patientId
   let sourceShiftId = null
-
-  // 1. 判斷來源
-  if (
-    typeof source === 'string' &&
-    (source.startsWith('bed-') || source.startsWith('peripheral-'))
-  ) {
-    // 來源是床位
+  if (typeof source === 'object' && source.id) {
+    patientId = source.id
+  } else if (typeof source === 'string') {
     const slotData = currentRecord.schedule[source]
     if (!slotData || !slotData.patientId) {
       event.preventDefault()
@@ -328,75 +345,59 @@ function onDragStart(event, source) {
     patientId = slotData.patientId
     sourceShiftId = source
   } else {
-    // 來源是側邊欄，source 就是 patientId
-    patientId = source
-  }
-
-  // 如果無論如何都沒拿到 patientId，則中止拖曳
-  if (!patientId) {
     event.preventDefault()
     return
   }
-
-  // 2. **在這裡統一設定 dataTransfer**
   event.dataTransfer.setData('patientId', patientId)
   if (sourceShiftId) {
     event.dataTransfer.setData('sourceShiftId', sourceShiftId)
-    event.dataTransfer.effectAllowed = 'move' // 從床位拖曳是「移動」
-  } else {
-    event.dataTransfer.effectAllowed = 'copy' // 從側邊欄拖曳是「複製」
   }
 }
 
 function onDrop(event, targetShiftId) {
   event.preventDefault()
-  event.target.closest('.patient-name, .patient-tag')?.classList.remove('drag-over')
-
+  event.target.closest('.patient-name')?.classList.remove('drag-over')
   const patientId = event.dataTransfer.getData('patientId')
   if (!patientId) return
-
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
-
-  // 獲取來源格子的資料 (如果有的話)
-  const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
-  // 獲取目標格子**已存在**的資料 (如果有的話，例如目標格子已有護理師設定)
-  const existingTargetData = currentRecord.schedule[targetShiftId] || {}
-
   const patient = patientMap.value.get(patientId)
+  if (!patient) return
 
-  // --- 準備要設定的資料 ---
-
-  // 1. 準備 note
-  let noteToSet = ''
-  if (sourceSlotData) {
-    noteToSet = sourceSlotData.note || '' // 移動時繼承 note
-  } else if (patient) {
-    noteToSet = patient.baseNote || '' // 新增時使用預設 note
+  if (!sourceShiftId && scheduledPatientIds.value.has(patientId)) {
+    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
+      return
+    }
   }
 
-  // 2. 準備護理師組別
-  // 邏輯：優先使用目標格子已有的設定，其次繼承來源格子的設定，最後才是 null
-  const nurseTeamToSet = existingTargetData.nurseTeam || sourceSlotData?.nurseTeam || null
-  const nurseTeamInToSet = existingTargetData.nurseTeamIn || sourceSlotData?.nurseTeamIn || null
-  const nurseTeamOutToSet = existingTargetData.nurseTeamOut || sourceSlotData?.nurseTeamOut || null
+  const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
+  const targetSlotData = currentRecord.schedule[targetShiftId]
 
-  // --- 更新 schedule ---
-
-  // 3. 更新目標格子
-  currentRecord.schedule[targetShiftId] = {
-    shiftId: targetShiftId,
+  const newSlotData = {
+    ...createEmptySlotData(targetShiftId),
+    ...(targetSlotData || {}),
+    ...(sourceSlotData || {}),
     patientId: patientId,
-    note: noteToSet,
-    nurseTeam: nurseTeamToSet,
-    nurseTeamIn: nurseTeamInToSet,
-    nurseTeamOut: nurseTeamOutToSet,
+    autoNote: generateAutoNote(patient),
+    manualNote: sourceSlotData?.manualNote || '',
+    shiftId: targetShiftId,
   }
 
-  // 4. 如果是移動，清空來源格子
+  currentRecord.schedule[targetShiftId] = newSlotData
+
   if (sourceShiftId && sourceShiftId !== targetShiftId) {
-    delete currentRecord.schedule[sourceShiftId]
+    if (targetSlotData?.patientId) {
+      const swappedPatient = patientMap.value.get(targetSlotData.patientId)
+      currentRecord.schedule[sourceShiftId] = {
+        ...createEmptySlotData(sourceShiftId),
+        patientId: targetSlotData.patientId,
+        autoNote: generateAutoNote(swappedPatient),
+        manualNote: targetSlotData.manualNote || '',
+        shiftId: sourceShiftId,
+      }
+    } else {
+      delete currentRecord.schedule[sourceShiftId]
+    }
   }
-
   setChange()
 }
 
@@ -407,16 +408,34 @@ function onDragOver(event) {
     targetCell.classList.add('drag-over')
   }
 }
+
 function onDragLeave(event) {
   event.target.closest('.patient-name')?.classList.remove('drag-over')
 }
 
+function handleSlotClick(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  if (slotData && slotData.patientId) {
+    const patient = patientMap.value.get(slotData.patientId)
+    if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
+      handleSlotUpdate(shiftId, null)
+    }
+  } else {
+    openPatientDialog(shiftId)
+  }
+}
+
 function handlePatientSelectedFromDialog(patientId) {
   if (currentEditingShiftId.value && patientId) {
-    // 使用我們之前重構好的 handleSlotUpdate 函式
+    if (scheduledPatientIds.value.has(patientId)) {
+      const patient = patientMap.value.get(patientId)
+      if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
+        isDialogVisible.value = false
+        return
+      }
+    }
     handleSlotUpdate(currentEditingShiftId.value, patientId)
   }
-  // 選擇後自動關閉 Dialog
   isDialogVisible.value = false
 }
 
@@ -424,12 +443,10 @@ function handleSlotUpdate(shiftId, patientId) {
   if (patientId) {
     const patient = patientMap.value.get(patientId)
     currentRecord.schedule[shiftId] = {
-      shiftId: shiftId,
+      ...createEmptySlotData(shiftId),
       patientId: patientId,
-      note: patient ? patient.baseNote || '' : '',
-      nurseTeam: null,
-      nurseTeamIn: null,
-      nurseTeamOut: null,
+      autoNote: generateAutoNote(patient),
+      manualNote: '',
     }
   } else {
     delete currentRecord.schedule[shiftId]
@@ -438,99 +455,97 @@ function handleSlotUpdate(shiftId, patientId) {
 }
 
 function openPatientDialog(shiftId) {
-  // 如果該格子已經有病人，也許您想提供一個清除選項，或者直接打開編輯
-  // 這裡我們先做簡單的：點擊就打開選擇器
   currentEditingShiftId.value = shiftId
   isDialogVisible.value = true
 }
 
 function updateNurseTeam(event, shiftId, type) {
-  // 從事件目標（<select> 元素）中獲取選中的值
   const value = event.target.value
-
-  // 為了安全起見，確保資料物件存在。
-  // 這可以處理一種邊界情況：使用者在一個完全空的格子（連病人都沒有）上選擇了護理師。
-  if (!currentRecord.schedule[shiftId]) {
-    currentRecord.schedule[shiftId] = {
-      shiftId: shiftId,
-      patientId: null,
-      note: '',
-      nurseTeam: null,
-      nurseTeamIn: null,
-      nurseTeamOut: null,
-    }
-  }
-
-  // 根據傳入的 type 參數，更新對應的欄位
+  if (!currentRecord.schedule[shiftId])
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
   const slot = currentRecord.schedule[shiftId]
-  if (type === 'single') {
-    slot.nurseTeam = value || null // 如果選擇空值，則設為 null
-  } else if (type === 'in') {
-    slot.nurseTeamIn = value || null
-  } else if (type === 'out') {
-    slot.nurseTeamOut = value || null
-  }
-
-  // **觸發未儲存狀態，啟用儲存按鈕**
+  if (type === 'single') slot.nurseTeam = value || null
+  else if (type === 'in') slot.nurseTeamIn = value || null
+  else if (type === 'out') slot.nurseTeamOut = value || null
   setChange()
 }
 
 function updateNote(event, shiftId) {
-  const value = event.target.textContent // 從 contenteditable 的 div 獲取內容
-
-  // 確保資料物件存在，以防使用者在空格子上直接輸入備註
-  if (!currentRecord.schedule[shiftId]) {
-    currentRecord.schedule[shiftId] = {
-      shiftId: shiftId,
-      patientId: null,
-      note: '',
-      nurseTeam: null,
-      nurseTeamIn: null,
-      nurseTeamOut: null,
-    }
-  }
-
-  // 更新對應的 note
-  currentRecord.schedule[shiftId].note = value
-
-  // **觸發未儲存提示**
+  const value = event.target.textContent
+  if (!currentRecord.schedule[shiftId])
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+  currentRecord.schedule[shiftId].manualNote = value
   setChange()
 }
 
+function getPatientName(bedIdentifier, shift) {
+  const shiftId = `${bedIdentifier}-${shift}班`
+  const patientId = currentRecord.schedule[shiftId]?.patientId
+  return patientMap.value.get(patientId)?.name || ''
+}
+
+function getCombinedNote(slotData) {
+  if (!slotData) return ''
+  const autoNotes = (slotData.autoNote || '').split(' ').filter(Boolean)
+  const manualNotes = (slotData.manualNote || '').split(' ').filter(Boolean)
+  const allNotes = new Set([...autoNotes, ...manualNotes])
+  return Array.from(allNotes).join(' ')
+}
+
+// 【補回】缺失的 getPatientCellStyle 函數
+function getPatientCellStyle(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  if (!slotData || !slotData.patientId) return {}
+  const combinedNote = getCombinedNote(slotData)
+  for (const key in STYLE_PRIORITY) {
+    if (combinedNote.includes(key)) {
+      return { [STYLE_PRIORITY[key].class]: true }
+    }
+  }
+  const patient = patientMap.value.get(slotData.patientId)
+  if (patient && inpatientList.value.some((p) => p.id === patient.id)) {
+    return { [STYLE_PRIORITY['住'].class]: true }
+  }
+  return {}
+}
+
+// 【新增】一個專門用來觸發列印的函數
+function triggerPrint() {
+  // 在這個 script 作用域中，'window' 是可識別的全域物件
+  window.print()
+}
 // --- 生命週期鉤子 ---
-onMounted(() => {
-  loadDataForDay(currentDate.value)
+onMounted(async () => {
+  await loadAllPatients()
+  await loadDataForDay(currentDate.value)
 })
 </script>
 
 <template>
   <div class="page-container">
     <header class="page-header">
-      <!-- 第一行：標題、日期導航、班別統計 -->
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">每日排程表</h1>
           <div class="date-navigator">
-            <button @click="changeDate(-1)"><上一天</button>
+            <button @click="changeDate(-1)">< 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>
             <span class="weekday-display">{{ weekdayDisplay }}</span>
-            <button @click="changeDate(1)">下一天></button>
+            <button @click="changeDate(1)">下一天 ></button>
             <button @click="goToToday">回到今日</button>
           </div>
         </div>
-
         <div class="toolbar-right">
           <span class="status-indicator">{{ statusIndicator }}</span>
         </div>
       </div>
-
-      <!-- 第二行：控制面板 -->
       <div class="controls-panel">
         <div class="controls-left">
           <button id="save-btn" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
             儲存資料至雲端
           </button>
-          <button id="print-btn" @click="window.print()">列印排程</button>
+          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
+          <button id="print-btn" @click="triggerPrint">列印排程</button>
           <button id="clear-all-btn" @click="clearBoard">清除本日畫面</button>
           <input type="date" v-model="copySourceDate" />
           <button id="copy-schedule-btn" @click="copySchedule">從他日複製排程</button>
@@ -548,9 +563,6 @@ onMounted(() => {
     <main class="page-main-content">
       <div class="schedule-content">
         <div class="dialysis-unit">
-          <!-- ====================================================== -->
-          <!-- ==           動態生成左右翼床位區 (已整合)           == -->
-          <!-- ====================================================== -->
           <template
             v-for="(wing, wingName) in {
               left: layoutData.leftWingRows,
@@ -580,11 +592,12 @@ onMounted(() => {
                       v-for="shift in SHIFTS"
                       :key="shift"
                       class="shift-row"
-                      :class="{ 'split-shift': shift === '午' }"
+                      :class="[
+                        getPatientCellStyle(`bed-${bedNum}-${shift}班`),
+                        { 'split-shift': shift === '午' },
+                      ]"
                     >
                       <div class="shift-label">{{ shift }}</div>
-
-                      <!-- 午班的 Selects -->
                       <div v-if="shift === '午'" class="nurse-split-column">
                         <select
                           class="nurse-team-select nurse-in"
@@ -609,8 +622,6 @@ onMounted(() => {
                           </option>
                         </select>
                       </div>
-
-                      <!-- 早班和晚班的 Select -->
                       <select
                         v-else
                         class="nurse-team-select"
@@ -626,13 +637,10 @@ onMounted(() => {
                           {{ team }}組
                         </option>
                       </select>
-
-                      <!-- 病人姓名欄位 -->
                       <div
                         class="patient-name"
                         draggable="true"
-                        :class="getPatientCellStyle(`bed-${bedNum}-${shift}班`)"
-                        @click="openPatientDialog(`bed-${bedNum}-${shift}班`)"
+                        @click="handleSlotClick(`bed-${bedNum}-${shift}班`)"
                         @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
@@ -640,8 +648,6 @@ onMounted(() => {
                       >
                         {{ getPatientName(`bed-${bedNum}`, shift) }}
                       </div>
-
-                      <!-- 備註欄位 -->
                       <div
                         class="patient-tag"
                         contenteditable="true"
@@ -650,41 +656,37 @@ onMounted(() => {
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
                       >
-                        {{ currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.note }}
+                        {{ getCombinedNote(currentRecord.schedule[`bed-${bedNum}-${shift}班`]) }}
                       </div>
                     </div>
                   </template>
                 </div>
               </div>
-              <!-- 護理站只在左翼下方顯示 -->
               <div v-if="wingName === 'left'" class="bed-row">
                 <div class="nursing-station">護理站</div>
               </div>
             </div>
-            <!-- 中央走道只在左翼右側顯示 -->
             <div v-if="wingName === 'left'" class="aisle">中 央 走 道</div>
           </template>
         </div>
-
-        <!-- ====================================================== -->
-        <!-- ==              外圍床位區 (已整合)                 == -->
-        <!-- ====================================================== -->
         <div class="extra-sections">
           <div class="peripheral-section">
             <div class="peripheral-bed-container">
               <div v-for="i in peripheralBedCount" :key="`p-bed-${i}`" class="peripheral-bed">
                 <div class="peripheral-header">外圍床位 {{ i }}</div>
-                <div v-for="shift in SHIFTS" :key="shift" class="peripheral-shift-row">
+                <div
+                  v-for="shift in SHIFTS"
+                  :key="shift"
+                  class="peripheral-shift-row"
+                  :class="getPatientCellStyle(`peripheral-${i}-${shift}班`)"
+                >
                   <div class="shift-label">{{ shift }}</div>
-
-                  <!-- 外圍床位的 Select -->
                   <select
                     class="nurse-team-select"
                     :value="currentRecord.schedule[`peripheral-${i}-${shift}班`]?.nurseTeam"
                     @change="updateNurseTeam($event, `peripheral-${i}-${shift}班`, 'single')"
                   >
                     <option value="">-</option>
-                    <!-- 注意: 午班的護理師組別選項是 allTeams -->
                     <option
                       v-for="team in shift === '早'
                         ? earlyTeams
@@ -697,15 +699,11 @@ onMounted(() => {
                       {{ team }}組
                     </option>
                   </select>
-
                   <div class="peripheral-bed-number" contenteditable="true"></div>
-
-                  <!-- 外圍床位病人姓名欄位 -->
                   <div
                     class="peripheral-patient-name"
                     draggable="true"
-                    :class="getPatientCellStyle(`peripheral-${i}-${shift}班`)"
-                    @click="openPatientDialog(`peripheral-${i}-${shift}班`)"
+                    @click="handleSlotClick(`peripheral-${i}-${shift}班`)"
                     @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
@@ -713,8 +711,6 @@ onMounted(() => {
                   >
                     {{ getPatientName(`peripheral-${i}`, shift) }}
                   </div>
-
-                  <!-- 外圍床位備註欄位 -->
                   <div
                     class="patient-tag"
                     contenteditable="true"
@@ -723,7 +719,7 @@ onMounted(() => {
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
                   >
-                    {{ currentRecord.schedule[`peripheral-${i}-${shift}班`]?.note }}
+                    {{ getCombinedNote(currentRecord.schedule[`peripheral-${i}-${shift}班`]) }}
                   </div>
                 </div>
               </div>
@@ -731,7 +727,6 @@ onMounted(() => {
           </div>
         </div>
       </div>
-
       <InpatientSidebar
         :patients="allPatients"
         :scheduled-ids="scheduledPatientIds"
@@ -740,51 +735,87 @@ onMounted(() => {
     </main>
   </div>
   <PatientSelectDialog
-    v-if="isDialogVisible"
+    :is-visible="isDialogVisible"
+    title="選擇排班病人"
     :patients="allPatients"
-    @close="isDialogVisible = false"
-    @patient-selected="handlePatientSelectedFromDialog"
+    :show-fill-options="false"
+    @confirm="handlePatientSelectedFromDialog"
+    @cancel="isDialogVisible = false"
+  />
+  <AlertDialog
+    :is-visible="isAlertDialogVisible"
+    :title="alertDialogTitle"
+    :message="alertDialogMessage"
+    @confirm="isAlertDialogVisible = false"
   />
 </template>
 
 <style scoped>
 /* ==========================================================================
-   2. 頭部工具欄 (Header & Controls) - 修正版
+   1. 頁面整體佈局 (Layout) - **此區為本次修改核心**
    ========================================================================== */
 
-/* 整個頭部區塊的容器 */
-.page-header {
-  flex-shrink: 0;
+/* 最外層容器，設定為佔滿整個視窗高度的 Flex 容器 */
+.page-container {
+  display: flex;
+  flex-direction: column; /* 讓 header 和 main-content 垂直排列 */
+  height: 100vh; /* 佔滿整個可視螢幕高度 */
+  overflow: hidden; /* 防止整個頁面出現滾動條 */
+  background-color: #f4f7f9;
 }
 
-/* 第一行：標題、日期導航、統計 */
+/* 頂部標頭區塊 */
+.page-header {
+  flex-shrink: 0; /* 防止 header 在空間不足時被壓縮 */
+  border-bottom: 1px solid #e0e0e0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  z-index: 10; /* 確保在最上層 */
+}
+
+/* 主內容區 (包含床位區和側邊欄) */
+.page-main-content {
+  flex-grow: 1; /* 讓主內容區填滿 header 下方所有剩餘的垂直空間 */
+  display: flex; /* 內部使用 flex，讓床位區和側邊欄水平排列 */
+  min-height: 0; /* 解決 flex 子項目 overflow 的問題，非常重要 */
+}
+
+/* 中間的床位內容區 (將會滾動的部分) */
+.schedule-content {
+  flex-grow: 1; /* 佔滿側邊欄以外所有剩餘的水平空間 */
+  overflow-y: auto; /* **關鍵！讓這個區塊產生自己的垂直滾動條** */
+  min-width: 0;
+}
+
+/* 右側側邊欄 (固定不動的部分) */
+.inpatient-sidebar {
+  flex-shrink: 0; /* 防止側邊欄被壓縮 */
+  width: 200px; /* 給一個固定寬度 */
+  border-left: 1px solid #e0e0e0;
+  /* 讓側邊欄內部也能滾動 (如果病人列表太長) */
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ==========================================================================
+   2. 元件樣式 (Components) - 大部分為您原有的樣式微調
+   ========================================================================== */
+
+/* -- Header 內部樣式 -- */
 .header-toolbar {
   display: flex;
-  justify-content: space-between; /* 讓 left, center, right 三部分分離 */
+  justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
-  gap: 25px; /* 在三部分之間增加一些間距 */
+  margin-bottom: 1px;
+  gap: 20px;
 }
-/* 左、中、右三個子容器的通用設定 */
-.toolbar-left,
-.toolbar-center,
-.toolbar-right {
+.toolbar-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 15px;
 }
-/* 讓中間的日期導航佔據主要空間 */
-.toolbar-center {
-  flex-grow: 1;
-  justify-content: center; /* 讓日期導航在其中間區域居中 */
-}
-/* 讓右側的統計資訊靠右 */
-.toolbar-right {
-  justify-content: flex-end;
-}
-
 .page-title {
-  font-size: 1.8em;
+  font-size: 32px;
   margin: 0;
   white-space: nowrap;
 }
@@ -797,23 +828,11 @@ onMounted(() => {
 .weekday-display {
   font-size: 1.5em;
   font-weight: bold;
-  white-space: nowrap;
 }
 .weekday-display {
   color: var(--primary-color);
 }
-
-/* 第二行：控制面板 */
-.controls-panel {
-  display: flex;
-  justify-content: space-between; /* 讓左右兩部分分離 */
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  border-radius: 8px;
-}
-.controls-left,
-.controls-right {
+.toolbar-right {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -822,26 +841,37 @@ onMounted(() => {
   font-weight: bold;
   color: #6c757d;
 }
+
+/* -- 控制面板樣式 -- */
+.controls-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.controls-left,
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .controls-panel button,
-.controls-panel input {
+.controls-panel input[type='date'],
+.controls-panel input[type='text'] {
   padding: 8px 15px;
-  font-size: 1.1em;
+  font-size: 1em;
   border: 1px solid #ccc;
   border-radius: 5px;
-  height: 45px; /* 統一高度 */
+  height: 40px;
   box-sizing: border-box;
 }
-
-/* 按鈕的通用樣式 */
-.date-navigator button,
-.toolbar-center > button {
-  /* 也應用於「回到今日」按鈕 */
-  padding: 8px 15px;
-  font-size: 1.1em;
+.date-navigator button {
+  padding: 8px 12px;
+  font-size: 1em;
   border-radius: 5px;
   border: 1px solid #ccc;
   cursor: pointer;
-  transition: background-color 0.2s;
+  background-color: #fff;
 }
 #save-btn {
   background-color: var(--success-color);
@@ -866,38 +896,19 @@ onMounted(() => {
 .search-group {
   display: flex;
   align-items: center;
-  gap: 5px;
 }
-
-.shift-patient-count {
-  margin-left: auto;
-  display: flex;
-  gap: 15px;
-  font-weight: bold;
+.search-group input {
+  border-radius: 5px 0 0 5px;
 }
-.shift-patient-count span {
-  color: #005a9c;
-}
-.status-indicator {
-  margin-left: auto;
-  font-weight: bold;
+.search-group button {
+  border-radius: 0 5px 5px 0;
+  border-left: none;
 }
 
 /* ==========================================================================
-   3. 主內容區 (Main Content Area)
+   3. 床位與排程樣式 (Bed & Schedule Styles)
    ========================================================================== */
-/* 4. 調整主內容區的上邊距 */
-.page-main-content {
-  flex-grow: 1;
-  min-height: 0;
-  display: flex;
-  gap: 20px;
-  margin-top: 15px;
-}
-.schedule-content {
-  flex-grow: 1;
-  min-width: 0;
-}
+
 .dialysis-unit {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -906,14 +917,15 @@ onMounted(() => {
 .aisle {
   writing-mode: vertical-lr;
   text-align: center;
-  padding: 20px 3px;
-  background-color: #dcdcdc;
+  padding: 20px 5px;
+  background-color: #e9ecef;
   border-radius: 8px;
   font-size: 1.5em;
   letter-spacing: 0.5em;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: #6c757d;
 }
 .left-wing,
 .right-wing {
@@ -930,14 +942,13 @@ onMounted(() => {
 .nursing-station,
 .peripheral-bed {
   border: 1px solid #ccc;
-  border-radius: 5px;
+  border-radius: 8px;
   overflow: hidden;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 .bed {
   min-height: 160px;
-}
-.bed.placeholder {
-  visibility: hidden;
 }
 .nursing-station {
   background-color: #f0f4c3;
@@ -949,30 +960,33 @@ onMounted(() => {
   font-weight: bold;
   color: #558b2f;
   grid-column: span 3;
-  padding: 60px 0; /* 上下 padding 30px，左右 padding 0 */
+  padding: 40px 0;
 }
 .bed-header,
 .peripheral-header {
   background-color: #e3f2fd;
   color: #0d47a1;
   font-weight: bold;
-  padding: 5px;
+  padding: 6px;
   text-align: center;
   font-size: 1em;
 }
+
+/* -- 排程行 & 格子樣式 -- */
 .shift-row,
 .peripheral-shift-row {
   display: grid;
-  align-items: stretch;
+  align-items: stretch; /* 讓格子填滿高度 */
   border-top: 1px solid #e0e0e0;
+  transition: background-color 0.3s;
 }
 .shift-row {
-  grid-template-columns: 28px 70px 1fr 40px;
+  grid-template-columns: 28px 60px 1fr 50px;
 }
 .peripheral-shift-row {
   grid-template-columns: 28px 70px 70px 1fr 40px;
-  border-top-color: #f8bbd0;
 }
+
 .shift-label {
   background-color: #f5f5f5;
   font-size: 0.8em;
@@ -981,6 +995,42 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-right: 1px solid #e0e0e0;
+}
+.shift-row > div,
+.shift-row > select,
+.peripheral-shift-row > div,
+.peripheral-shift-row > select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  min-height: 48px;
+  border-left: 1px solid #e0e0e0;
+  word-break: break-all;
+  text-align: center;
+}
+.patient-name,
+.peripheral-patient-name {
+  font-size: 1em; /* 從 1.1em 縮小 */
+  padding: 4px 6px; /* 微調內距 */
+}
+.patient-name:empty::before,
+.peripheral-patient-name:empty::before {
+  content: '輸入病人';
+  color: #aaa;
+  font-style: italic;
+}
+.patient-tag:empty::before {
+  content: '備註';
+  color: #aaa;
+  font-style: italic;
+}
+.patient-tag {
+  font-size: 0.9em; /* 縮小字體 */
+  white-space: nowrap; /* 強制不換行 */
+  overflow: hidden; /* 隱藏超出部分 */
+  text-overflow: ellipsis; /* 超出部分顯示省略號 */
+  padding: 4px 6px; /* 微調內距 */
 }
 .nurse-team-select {
   padding: 4px;
@@ -994,49 +1044,20 @@ onMounted(() => {
   -moz-appearance: none;
   text-align: center;
 }
-.shift-row > .nurse-team-select,
-.peripheral-shift-row > .nurse-team-select {
-  border-right: 1px solid #e0e0e0;
-}
-.patient-name,
-.peripheral-patient-name,
-.peripheral-bed-number {
-  padding: 4px;
-  border: none;
-  font-size: 0.9em;
-  text-align: center;
-  overflow-wrap: break-word;
-  min-height: 28px; /* 給一個最小高度避免空值時塌陷 */
-  transition: background-color 0.2s; /* 增加過渡效果 */
-}
-.patient-name:empty::before,
-.peripheral-patient-name:empty::before {
-  content: '輸入病人';
-  color: #aaa;
-  font-style: italic;
-}
-.peripheral-bed-number:empty::before {
-  content: '床號';
-  color: #aaa;
-  font-style: italic;
-}
 .shift-row.split-shift .nurse-split-column {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #e0e0e0;
+  padding: 0;
 }
 .nurse-split-column .nurse-team-select {
   flex-grow: 1;
+  height: 50%;
 }
 .nurse-split-column .nurse-team-select:first-child {
   border-bottom: 1px solid #e0e0e0;
 }
-.bed.aisle-side.right-wing-bed {
-  border-left: 5px solid #4caf50;
-}
-.bed.aisle-side.left-wing-bed {
-  border-right: 5px solid #4caf50;
-}
+
+/* -- 特殊床位 & 狀態顏色 -- */
 .bed.hepatitis .bed-header {
   background-color: var(--hepatitis-bg);
   color: #af8203;
@@ -1048,18 +1069,50 @@ onMounted(() => {
 .bed.unassigned .shift-row {
   display: none;
 }
+.bed.aisle-side.right-wing-bed {
+  border-left: 5px solid #4caf50;
+}
+.bed.aisle-side.left-wing-bed {
+  border-right: 5px solid #4caf50;
+}
+
+/* --- ↓↓↓ 關鍵修正處 ↓↓↓ --- */
+/* 使用群組選擇器，讓主床位和外圍床位共用顏色規則 */
+.shift-row.tag-ip,
+.peripheral-shift-row.tag-ip {
+  background-color: #ffebee; /* 住 */
+}
+.shift-row.tag-chou,
+.peripheral-shift-row.tag-chou {
+  background-color: #e3f2fd; /* 抽 */
+}
+.shift-row.tag-new,
+.peripheral-shift-row.tag-new {
+  background-color: #fffde7; /* 新 */
+}
+.shift-row.tag-huan,
+.peripheral-shift-row.tag-huan {
+  background-color: #e0f7fa; /* 換 */
+}
+.shift-row.tag-liang,
+.peripheral-shift-row.tag-liang {
+  background-color: #fff3e0; /* 兩 */
+}
+.shift-row.tag-b,
+.peripheral-shift-row.tag-b {
+  background-color: #fff9c4; /* B */
+}
+
+.patient-name.drag-over {
+  background-color: #c8e6c9 !important;
+}
+
+/* -- 外圍床位 -- */
 .extra-sections {
   margin-top: 30px;
 }
 .peripheral-section {
-  padding: 15px;
-  background-color: #fff;
-  border-radius: 8px;
   margin-bottom: 20px;
-}
-.peripheral-section h2 {
-  text-align: center;
-  margin-top: 0;
 }
 .peripheral-bed-container {
   display: grid;
@@ -1068,47 +1121,26 @@ onMounted(() => {
 }
 .peripheral-bed .peripheral-header {
   background-color: #fce4ec;
-  border-color: #f48fb1;
   color: #c2185b;
 }
-.patient-tag {
-  border-left: 1px solid #e0e0e0;
-  font-size: 0.8em;
-  min-height: 28px;
-}
-.patient-tag:empty::before {
-  content: '備註';
-  color: #aaa;
-  font-style: italic;
-}
-.patient-name.drag-over {
-  background-color: #c8e6c9; /* 拖曳到上方時的高亮效果 */
-}
+
 /* ==========================================================================
-   4. 側邊欄 (Sidebar)
+   4. 側邊欄樣式 (Sidebar Styles) - **此區有微調**
    ========================================================================== */
-.inpatient-sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background-color: var(--sidebar-bg);
-  padding: 15px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-}
 .inpatient-sidebar h3 {
   margin-top: 0;
   text-align: center;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 10px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .filter-group {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
   margin-bottom: 10px;
+  flex-shrink: 0;
 }
 .filter-group button {
   padding: 4px 8px;
@@ -1124,14 +1156,14 @@ onMounted(() => {
 .filter-group button.active {
   background-color: var(--primary-color);
   color: white;
-  border-color: var(--primary-color);
 }
+
 #inpatient-list {
   list-style-type: none;
   padding: 0;
   margin: 0;
-  overflow-y: auto;
-  flex-grow: 1;
+  flex-grow: 1; /* **關鍵：讓列表填滿側邊欄剩餘空間** */
+  overflow-y: auto; /* **關鍵：如果列表太長，讓列表自己滾動** */
 }
 #inpatient-list li {
   background-color: #fff;
@@ -1139,35 +1171,14 @@ onMounted(() => {
   padding: 8px 12px;
   margin-bottom: 8px;
   border-radius: 5px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  cursor: grab;
 }
-.patient-info-row {
-  display: flex;
-  justify-content: space-between;
-  width: 100%;
-  align-items: center;
-}
-#inpatient-list li .name {
-  font-weight: bold;
-  font-size: 1.1em;
-}
-#inpatient-list li .mrn {
-  font-size: 0.85em;
-  color: #6c757d;
-}
-#inpatient-list li .freq {
-  font-size: 0.9em;
-  color: #555;
-  background-color: #e9ecef;
-  padding: 2px 6px;
-  border-radius: 10px;
+#inpatient-list li:active {
+  cursor: grabbing;
 }
 
 /* ==========================================================================
-   5. 列印樣式 (Print Styles)
+   5. 列印樣式 (Print Styles) - 維持不變
    ========================================================================== */
 @page {
   size: A4 landscape;
@@ -1219,25 +1230,34 @@ onMounted(() => {
   .bed {
     min-height: 120px;
   }
+  /* -- 排程行 & 格子樣式 -- */
   .shift-row,
   .peripheral-shift-row {
-    font-size: 1em;
-    min-height: 25px;
-    align-items: center;
+    display: grid;
+    align-items: stretch; /* 讓格子填滿高度 */
+    border-top: 1px solid #e0e0e0;
+    transition: background-color 0.3s;
   }
   .shift-row {
-    grid-template-columns: 20px 55px 1fr 30px;
-  }
+    grid-template-columns: 28px 60px 1fr 60px;
+  } /* 微調備註欄寬度 */
   .peripheral-shift-row {
-    display: grid;
-    grid-template-columns: 20px 55px 55px 1fr 30px;
+    grid-template-columns: 28px 70px 70px 1fr 50px;
+  } /* 微調備註欄寬度 */
+
+  .shift-label {
+    background-color: #f5f5f5;
+    font-size: 0.8em;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid #e0e0e0;
   }
-  .shift-label,
   .nurse-team-select,
   .patient-name,
   .peripheral-patient-name,
   .peripheral-bed-number,
-  .patient-tag,
   .nurse-split-column {
     display: flex;
     align-items: center;
@@ -1251,11 +1271,21 @@ onMounted(() => {
     width: 100%;
     flex-grow: 1;
   }
-  .patient-name:empty::before,
-  .peripheral-bed-number:empty::before,
-  .peripheral-patient-name:empty::before,
-  .patient-tag:empty::before {
+  .peripheral-bed-number:empty::before {
     content: '';
+  }
+
+  .patient-name:empty::before,
+  .peripheral-patient-name:empty::before {
+    content: '輸入病人';
+    color: #aaa;
+    font-style: italic;
+    font-size: 0.9em; /* 也可調整提示文字大小 */
+  }
+  .patient-tag:empty::before {
+    content: '備註';
+    color: #aaa;
+    font-style: italic;
   }
   .patient-name:empty,
   .peripheral-patient-name:empty {

@@ -1,59 +1,51 @@
-<!-- 檔案路徑: src/components/PatientFormModal.vue -->
+// 檔案路徑: src/components/PatientFormModal.vue (最終修正版 SCRIPT)
 <script setup>
 import { ref, watch } from 'vue'
 
-// 1. 定義 props：接收來自父元件的資料
 const props = defineProps({
-  // 是否顯示彈出視窗
-  isModalVisible: {
-    type: Boolean,
-    required: true,
-  },
-  // 正在編輯的病人資料 (如果是新增，則為 null 或 {})
-  patientData: {
-    type: Object,
-    default: () => ({}),
-  },
-  // 病人類型 'ipd' 或 'opd'
-  patientType: {
-    type: String,
-    required: true,
-  },
+  isModalVisible: { type: Boolean, required: true },
+  patientData: { type: Object, default: () => ({}) },
+  patientType: { type: String, required: true },
 })
-
-// 2. 定義 emits：向父元件發送事件
 const emit = defineEmits(['close', 'save'])
 
-// 3. 定義元件內部狀態
 const form = ref({})
 const PHYSICIANS = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政']
-const FREQUENCIES = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六', '每周一次', '臨時']
+const FREQ_OPTIONS = [
+  '一三五',
+  '二四六',
+  '一四',
+  '二五',
+  '三六',
+  '一五',
+  '二六',
+  '每周一次',
+  '臨時',
+]
 const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP']
 const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
 const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
 
-// 4. 監聽傳入的資料變化
-// 當父元件傳入新的 patientData 時，更新表單的內容
+// watch 監聽器只負責一件事：把傳入的資料複製給 form
 watch(
   () => props.patientData,
   (newData) => {
-    form.value = { ...newData } // 使用擴展運算符複製一份，避免直接修改 props
+    form.value = { ...newData }
   },
   { immediate: true, deep: true },
 )
 
-// 5. 定義方法
 function closeModal() {
-  emit('close') // 發送 'close' 事件給父元件
+  emit('close')
 }
 
 function handleSave() {
-  // 可以在這裡做一些基礎的表單驗證
   if (!form.value.name || !form.value.medicalRecordNumber) {
     alert('姓名和病歷號為必填項！')
     return
   }
-  emit('save', form.value) // 發送 'save' 事件，並將整個表單資料作為參數傳遞
+  // 直接把 form.value 整個丟出去，不做任何處理
+  emit('save', form.value)
 }
 </script>
 
@@ -88,12 +80,16 @@ function handleSave() {
               <option v-for="p in PHYSICIANS" :key="p" :value="p">{{ p }}</option>
             </select>
           </div>
+
+          <!-- ========== 【修改三】修改模板中的綁定 ========== -->
           <div class="form-field">
-            <label for="frequency">透析頻率</label>
-            <select id="frequency" v-model="form.frequency">
-              <option v-for="f in FREQUENCIES" :key="f" :value="f">{{ f }}</option>
+            <label for="freq">透析頻率</label>
+            <select id="freq" v-model="form.freq">
+              <option v-for="f in FREQ_OPTIONS" :key="f" :value="f">{{ f }}</option>
             </select>
           </div>
+          <!-- ============================================= -->
+
           <div class="form-field">
             <label for="mode">透析模式</label>
             <select id="mode" v-model="form.mode">
@@ -158,8 +154,7 @@ function handleSave() {
 </template>
 
 <style scoped>
-/* 我們將樣式設為 scoped，這樣它們就只會影響這個元件，不會污染其他地方 */
-/* 複製貼上舊專案 patients.html 中所有與 modal 和 form 相關的 CSS */
+/* 您的樣式維持不變 */
 .modal {
   display: flex; /* 改為 flex 來居中 */
   position: fixed;

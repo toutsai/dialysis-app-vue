@@ -1,123 +1,50 @@
 <!-- src/views/MemoView.vue 的 <template> 部分修改後 -->
-<template>
-  <div class="page-container">
-    <h1 class="page-title">交班備忘錄</h1>
-    <div class="memo-form">
-      <h2>新增備忘</h2>
-      <!-- 1. 使用 v-model 綁定輸入 -->
-      <textarea v-model="contentInput" placeholder="請輸入交班事項或備註..."></textarea>
-      <div class="memo-options">
-        <label for="memo-patient-input">關聯病人(可選):</label>
-        <input
-          v-model="patientInput"
-          type="text"
-          id="memo-patient-input"
-          placeholder="輸入病人姓名"
-        />
-        <label for="memo-date-input">目標日期(可選):</label>
-        <input v-model="dateInput" type="date" id="memo-date-input" />
-      </div>
-      <!-- 2. 使用 @click 綁定事件 -->
-      <button @click="addMemo">新增備忘</button>
-    </div>
-
-    <div class="memo-section">
-      <h2>待處理事項</h2>
-      <!-- 3. 使用 v-for 渲染列表 -->
-      <ul class="memo-list">
-        <li v-for="memo in pendingList" :key="memo.id" class="memo-item">
-          <div class="memo-content">
-            <p>{{ memo.content }}</p>
-            <div class="memo-meta">
-              <span class="date">建立於: {{ new Date(memo.createdAt).toLocaleString() }}</span>
-              <span v-if="memo.patientName">
-                | 關聯病人: <strong>{{ memo.patientName }}</strong></span
-              >
-              <span v-if="memo.targetDate">
-                | 目標日期: <strong>{{ memo.targetDate }}</strong></span
-              >
-            </div>
-          </div>
-          <div class="memo-actions">
-            <button class="resolve-btn" @click="updateMemoStatus(memo.id, true)">標為已處理</button>
-            <button class="delete-btn" @click="deleteMemo(memo.id)">永久刪除</button>
-          </div>
-        </li>
-      </ul>
-    </div>
-
-    <div class="memo-section">
-      <h2>已處理事項 (最近7天)</h2>
-      <ul class="memo-list">
-        <li v-for="memo in resolvedList" :key="memo.id" class="memo-item resolved">
-          <div class="memo-content">
-            <p>{{ memo.content }}</p>
-            <div class="memo-meta">
-              <span class="date">建立於: {{ new Date(memo.createdAt).toLocaleString() }}</span>
-              <span v-if="memo.patientName">
-                | 關聯病人: <strong>{{ memo.patientName }}</strong></span
-              >
-              <span v-if="memo.targetDate">
-                | 目標日期: <strong>{{ memo.targetDate }}</strong></span
-              >
-            </div>
-          </div>
-          <div class="memo-actions">
-            <button class="delete-btn" @click="deleteMemo(memo.id)">永久刪除</button>
-          </div>
-        </li>
-      </ul>
-    </div>
-  </div>
-</template>
-
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue' // <-- 引入 computed
 import ApiManager from '@/services/api_manager.js'
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue' // <-- 導入元件
 
-// 1. 建立 API 實例
+// --- API 實例 ---
 const memosApi = ApiManager('memos')
+const patientsApi = ApiManager('patients') // <-- 新增 patients API
 
-// 2. 定義響應式狀態 (Reactivity)
-// ref() 用來建立一個「響應式」的變數。當它的值改變時，Vue 會自動更新畫面。
+// --- 核心狀態 ---
 const memos = ref([]) // 用來儲存所有備忘錄
-const pendingList = ref([]) // 待處理列表
-const resolvedList = ref([]) // 已處理列表
-
-// 用於綁定表單輸入框
+const allPatients = ref([]) // <-- 新增 allPatients 狀態
 const contentInput = ref('')
-const patientInput = ref('')
 const dateInput = ref('')
 
-// 3. 定義方法 (Methods)
+// --- UI 狀態 ---
+const isPatientDialogVisible = ref(false)
+const selectedPatient = ref(null) // <-- 用來儲存選中的整個病人物件
+const pendingList = computed(() =>
+  memos.value
+    .filter((memo) => !memo.isResolved)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+)
+const resolvedList = computed(() => {
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  return memos.value
+    .filter((memo) => memo.isResolved && new Date(memo.createdAt) > sevenDaysAgo)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+})
+
 async function fetchMemos() {
   try {
     memos.value = await memosApi.fetchAll()
-    renderMemos()
+    // **不再需要手動呼叫 renderMemos()**
   } catch (error) {
     console.error('讀取備忘錄失敗:', error)
-    alert('讀取備忘錄失敗！')
   }
 }
 
-function renderMemos() {
-  const sevenDaysAgo = new Date()
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
-  // 對 memos.value 進行排序
-  memos.value.sort((a, b) => {
-    const dateA = a.createdAt ? new Date(a.createdAt) : 0
-    const dateB = b.createdAt ? new Date(b.createdAt) : 0
-    return dateB - dateA
-  })
-
-  // 過濾出待處理和已處理的列表
-  pendingList.value = memos.value.filter((memo) => !memo.isResolved)
-  resolvedList.value = memos.value.filter((memo) => {
-    if (!memo.isResolved) return false
-    const createdAtDate = memo.createdAt ? new Date(memo.createdAt) : new Date(0)
-    return createdAtDate > sevenDaysAgo
-  })
+async function fetchAllPatients() {
+  try {
+    allPatients.value = await patientsApi.fetchAll()
+  } catch (error) {
+    console.error('獲取病人列表失敗:', error)
+  }
 }
 
 async function addMemo() {
@@ -127,23 +54,36 @@ async function addMemo() {
   }
   const newMemo = {
     content: contentInput.value.trim(),
-    patientName: patientInput.value.trim() || null,
+    // **同時儲存 id 和 name**
+    patientId: selectedPatient.value ? selectedPatient.value.id : null,
+    patientName: selectedPatient.value ? selectedPatient.value.name : null,
     targetDate: dateInput.value || null,
     isResolved: false,
     createdAt: new Date().toISOString(),
   }
   try {
     await memosApi.save(newMemo)
-    // 清空輸入框
+    // 清空輸入框和選擇
     contentInput.value = ''
-    patientInput.value = ''
     dateInput.value = ''
-    // 重新獲取資料以更新畫面
+    clearPatientSelection()
+
     await fetchMemos()
   } catch (error) {
     console.error('新增備忘失敗:', error)
     alert('新增備忘失敗！')
   }
+}
+
+// 新增處理病人選擇的函式
+function handlePatientSelected(patientId) {
+  selectedPatient.value = allPatients.value.find((p) => p.id === patientId) || null
+  isPatientDialogVisible.value = false
+}
+
+// 新增清除病人選擇的函式
+function clearPatientSelection() {
+  selectedPatient.value = null
 }
 
 async function updateMemoStatus(id, isResolved) {
@@ -167,114 +107,264 @@ async function deleteMemo(id) {
   }
 }
 
-// 4. 使用生命週期鉤子 (Lifecycle Hook)
+function openPatientDialog() {
+  console.log('「選擇病人」按鈕被點擊了！準備將 isPatientDialogVisible 設為 true。')
+  console.log('當前的 allPatients 列表:', allPatients.value) // <-- 新增這一行
+  isPatientDialogVisible.value = true
+}
+
 // onMounted() 會在元件被掛載到畫面上之後自動執行。
 onMounted(() => {
-  fetchMemos()
+  // 頁面載入時，同時獲取備忘錄和病人列表
+  Promise.all([fetchMemos(), fetchAllPatients()])
 })
 </script>
 
-<style>
-body {
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-  background-color: #f9f9f9;
-  margin: 0;
-}
+<template>
+  <div class="page-container memo-view">
+    <h1 class="page-title">交班備忘錄</h1>
 
-h1 {
-  text-align: left;
-  color: #333;
-}
-.memo-form {
+    <div class="memo-layout-grid">
+      <!-- ================================== -->
+      <!-- == Grid 區塊一 (左上): 新增備忘 == -->
+      <!-- ================================== -->
+      <div id="form-section" class="memo-form-container">
+        <div class="memo-form">
+          <h2>新增備忘</h2>
+          <textarea v-model="contentInput" placeholder="請輸入交班事項或備註..."></textarea>
+
+          <div class="form-actions">
+            <!-- 新增的 wrapper，用於水平排列選項 -->
+            <div class="options-wrapper">
+              <div class="option-item">
+                <label>關聯病人(可選):</label>
+                <div v-if="selectedPatient" class="selected-patient-display">
+                  <span>{{ selectedPatient.name }}</span>
+                  <button @click="clearPatientSelection" class="clear-btn">×</button>
+                </div>
+                <button v-else @click="isPatientDialogVisible = true" class="select-btn">
+                  選擇病人
+                </button>
+              </div>
+              <div class="option-item">
+                <label for="memo-date-input">目標日期(可選):</label>
+                <input v-model="dateInput" type="date" id="memo-date-input" />
+              </div>
+            </div>
+            <!-- 新增按鈕現在是 form-actions 的第二個子項目 -->
+            <button @click="addMemo" class="add-btn">新增備忘</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================== -->
+      <!-- ==   Grid 區塊二 (右側): 待處理   == -->
+      <!-- ================================== -->
+      <div id="pending-section" class="memo-section">
+        <h2>待處理事項</h2>
+        <ul class="memo-list">
+          <li v-for="memo in pendingList" :key="memo.id" class="memo-item">
+            <div class="memo-content">
+              <p>{{ memo.content }}</p>
+              <div class="memo-meta">
+                <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                <span v-if="memo.patientName"
+                  >| 關聯病人: <strong>{{ memo.patientName }}</strong></span
+                >
+                <span v-if="memo.targetDate"
+                  >| 目標日期: <strong>{{ memo.targetDate }}</strong></span
+                >
+              </div>
+            </div>
+            <div class="memo-actions">
+              <button class="resolve-btn" @click="updateMemoStatus(memo.id, true)">
+                標為已處理
+              </button>
+              <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li v-if="pendingList.length === 0" class="empty-state">太棒了，沒有待辦事項！</li>
+        </ul>
+      </div>
+
+      <!-- ================================== -->
+      <!-- == Grid 區塊三 (左下): 已處理   == -->
+      <!-- ================================== -->
+      <div id="resolved-section" class="memo-section">
+        <h2>已處理事項 (最近7天)</h2>
+        <ul class="memo-list">
+          <li v-for="memo in resolvedList" :key="memo.id" class="memo-item resolved">
+            <div class="memo-content">
+              <p>{{ memo.content }}</p>
+              <div class="memo-meta">
+                <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                <span v-if="memo.patientName"
+                  >| 關聯病人: <strong>{{ memo.patientName }}</strong></span
+                >
+              </div>
+            </div>
+            <div class="memo-actions">
+              <button @click="updateMemoStatus(memo.id, false)">移回待處理</button>
+              <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li v-if="resolvedList.length === 0" class="empty-state">最近7天沒有已處理事項。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dialog 元件放在根元素之外 -->
+  <PatientSelectDialog
+    :is-visible="isPatientDialogVisible"
+    title="選擇關聯病人"
+    :patients="allPatients"
+    :show-fill-options="false"
+    @confirm="handlePatientSelected"
+    @cancel="isPatientDialogVisible = false"
+  />
+</template>
+
+<style scoped>
+.memo-view {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 2px solid #eee;
-}
-.memo-form textarea {
-  padding: 10px;
-  font-size: 1.1em;
-  border-radius: 5px;
-  border: 1px solid #ccc;
-  resize: vertical;
-  min-height: 80px;
-}
-.memo-options {
-  display: flex;
   gap: 20px;
-  align-items: center;
 }
-.memo-options label {
-  font-weight: bold;
+
+.page-title {
+  margin-bottom: 0;
 }
-.memo-options input {
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 5px;
+
+.memo-layout-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr; /* 創建兩欄等寬 */
+  grid-template-rows: auto 1fr; /* 第一行高度自動，第二行填滿剩餘空間 */
+  grid-template-areas:
+    'form pending'
+    'resolved pending'; /* <-- 像這樣定義佈局 */
+  gap: 24px;
+  height: calc(100vh - 150px);
 }
-.memo-form button {
-  align-self: flex-end;
-  padding: 10px 20px;
-  font-size: 1em;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
+
+/* 將各區塊放到對應的 grid area */
+#form-section {
+  grid-area: form;
 }
-.memo-form button:hover {
-  background-color: #0056b3;
+#pending-section {
+  grid-area: pending;
 }
-.memo-section {
-  margin-top: 20px;
+#resolved-section {
+  grid-area: resolved;
 }
-.memo-section h2 {
-  border-bottom: 1px solid #ddd;
-  padding-bottom: 10px;
+
+/* 讓每個區塊都能正確處理內部滾動 */
+#form-section,
+#pending-section,
+#resolved-section {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  border: 1px solid #e9ecef;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 防止子元素溢出 */
 }
+
 .memo-list {
   list-style: none;
   padding: 0;
+  margin: 0;
+  overflow-y: auto; /* 關鍵：讓列表可以內部滾動 */
+  flex-grow: 1;
 }
+
+.memo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+.memo-form textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  font-size: 1rem;
+}
+.memo-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  align-items: center;
+}
+.option-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.add-btn {
+  align-self: flex-start;
+  padding: 10px 20px;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.memo-section h2 {
+  margin-top: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.memo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto; /* 讓列表內容過多時可以滾動 */
+  flex-grow: 1;
+}
+
 .memo-item {
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
+  background-color: #f8f9fa;
   padding: 15px;
-  margin-bottom: 10px;
-  border-radius: 5px;
+  border-radius: 6px;
+  margin-bottom: 12px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 15px;
 }
-.memo-item.resolved {
-  background-color: #f5f5f5;
+.memo-item.resolved p {
   text-decoration: line-through;
-  color: #888;
+  color: #6c757d;
 }
-.memo-content {
-  flex-grow: 1;
-}
+
 .memo-content p {
   margin: 0 0 10px 0;
-  white-space: pre-wrap;
+  white-space: pre-wrap; /* 保留換行 */
 }
 .memo-meta {
-  font-size: 0.85em;
-  color: #666;
+  font-size: 0.8rem;
+  color: #6c757d;
 }
+.memo-meta strong {
+  color: #495057;
+}
+
 .memo-actions {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex-shrink: 0;
 }
 .memo-actions button {
   padding: 5px 10px;
-  font-size: 0.9em;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  border-radius: 5px;
+  border: 1px solid transparent;
   cursor: pointer;
 }
 .resolve-btn {
@@ -284,5 +374,76 @@ h1 {
 .delete-btn {
   background-color: #dc3545;
   color: white;
+}
+.empty-state {
+  text-align: center;
+  color: #adb5bd;
+  padding: 40px 20px;
+}
+.form-actions {
+  display: flex;
+  flex-direction: column; /* 讓所有子項目垂直排列 */
+  gap: 15px; /* 項目之間的間距 */
+}
+/* 新增：用於水平排列選項的容器 */
+.options-wrapper {
+  display: flex;
+  gap: 20px; /* 選項之間的水平間距 */
+  align-items: center;
+  flex-wrap: wrap; /* 在小螢幕上可以換行 */
+}
+/* 讓每個選項項目自動分配空間 */
+.option-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-grow: 1; /* 讓兩個 option-item 均分寬度 */
+  flex-basis: 0; /* 確保 flex-grow 生效 */
+}
+
+.option-item label {
+  flex-shrink: 0;
+  /* 這裡可以不用固定寬度，讓它自適應 */
+}
+
+/* 讓輸入控制項填滿其 .option-item 的剩餘空間 */
+.option-item input[type='text'],
+.option-item input[type='date'],
+.option-item .selected-patient-display,
+.option-item .select-btn {
+  flex-grow: 1;
+  width: 100%; /* 確保在某些情況下能正確計算寬度 */
+  height: 38px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  box-sizing: border-box;
+}
+/* 按鈕樣式保持不變 */
+.add-btn {
+  width: 100%;
+  padding: 10px 20px;
+  background-color: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+  text-align: center;
+  box-sizing: border-box;
+}
+.selected-patient-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #e9ecef;
+}
+
+.clear-btn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 5px;
 }
 </style>
