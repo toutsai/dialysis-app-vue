@@ -349,7 +349,7 @@ onMounted(loadAllData)
           </button>
         </div>
       </div>
-      <!-- StatsToolbar 已被移除 -->
+      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
     </header>
     <!-- ======================= 修改結束 ======================= -->
 

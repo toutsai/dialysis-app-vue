@@ -701,12 +701,6 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
-.page-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-}
 /* 讓 header toolbar 在空間不足時可以換行 */
 .header-toolbar {
   display: flex;
