@@ -840,7 +840,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  margin-bottom: 1px;
   gap: 20px;
 }
 .toolbar-left {

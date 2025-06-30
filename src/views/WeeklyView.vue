@@ -701,16 +701,27 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
+.page-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+/* 讓 header toolbar 在空間不足時可以換行 */
 .header-toolbar {
   display: flex;
+  flex-wrap: wrap; /* 關鍵！允許換行 */
   justify-content: space-between;
   align-items: center;
+  gap: 16px; /* 行與行、項與項之間的間距 */
 }
 
+/* 確保左側和右側的容器也能靈活佈局 */
 .toolbar-left,
 .main-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap; /* 同樣允許內部換行 */
   gap: 16px;
 }
 

@@ -150,7 +150,12 @@ async function saveChangesToCloud() {
 }
 
 function runBedCheck() {
-  const warnings = []
+  // 【修改點 1】將 warnings 初始化為物件，用於分類
+  const validationResult = {
+    unscheduled: [],
+    freqMismatch: [],
+    duplicates: [],
+  }
 
   // --- 檢查 1: 頻率檢查 ---
   allOpdPatients.value.forEach((patient) => {
@@ -158,11 +163,13 @@ function runBedCheck() {
     const expectedFreq = patient.freq
     const expectedDays = FREQ_MAP_TO_DAY_INDEX[expectedFreq] || []
     const actualScheduledDays = new Set()
+
     for (const slotId in masterRecord.value.schedule) {
       if (masterRecord.value.schedule[slotId]?.patientId === patient.id) {
         actualScheduledDays.add(parseInt(slotId.split('-')[2], 10))
       }
     }
+
     if (actualScheduledDays.size > 0) {
       if (expectedDays.length > 0) {
         const actualDaysArray = Array.from(actualScheduledDays).sort()
@@ -171,14 +178,16 @@ function runBedCheck() {
           const actualDaysText = actualDaysArray
             .map((d) => WEEKDAYS[d].replace('星期', ''))
             .join('')
-          warnings.push(
+          // 【修改點 2】將警告推入對應的分類
+          validationResult.freqMismatch.push(
             `門診病人 ${patientName} (預定 ${expectedFreq})，但目前排 ${actualDaysText}。`,
           )
         }
       }
     } else {
       if (expectedFreq) {
-        warnings.push(`有門診病人 ${patientName} 未被排床。`)
+        // 【修改點 2】將警告推入對應的分類
+        validationResult.unscheduled.push(`有門診病人 ${patientName} 未被排床。`)
       }
     }
   })
@@ -192,7 +201,10 @@ function runBedCheck() {
       const patientName = patientMap.value.get(slotData.patientId)?.name
       if (patientName) {
         if (dailyPatientSets[dayIndex].has(patientName)) {
-          warnings.push(`病人 ${patientName} 在 ${WEEKDAYS[dayIndex]} 出現超過一次。`)
+          // 【修改點 2】將警告推入對應的分類
+          validationResult.duplicates.push(
+            `病人 ${patientName} 在 ${WEEKDAYS[dayIndex]} 出現超過一次。`,
+          )
         } else {
           dailyPatientSets[dayIndex].add(patientName)
         }
@@ -200,13 +212,29 @@ function runBedCheck() {
     }
   }
 
-  // --- 顯示結果 ---
-  if (warnings.length > 0) {
-    alertDialogTitle.value = '發現以下潛在問題'
-    alertDialogMessage.value = '- ' + warnings.join('\n- ')
-  } else {
+  // --- 【修改點 3】顯示分類後的結果 ---
+  let message = ''
+  let hasWarnings = false
+
+  if (validationResult.unscheduled.length > 0) {
+    message += '【未排床病人】:\n- ' + validationResult.unscheduled.join('\n- ') + '\n\n'
+    hasWarnings = true
+  }
+  if (validationResult.freqMismatch.length > 0) {
+    message += '【排班頻率不符】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
+    hasWarnings = true
+  }
+  if (validationResult.duplicates.length > 0) {
+    message += '【同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
+    hasWarnings = true
+  }
+
+  if (!hasWarnings) {
     alertDialogTitle.value = '排班檢視完畢'
     alertDialogMessage.value = '未發現明顯的排班問題。'
+  } else {
+    alertDialogTitle.value = '發現以下潛在問題'
+    alertDialogMessage.value = message.trim() // 去掉結尾多餘的換行
   }
   isAlertDialogVisible.value = true
 }
