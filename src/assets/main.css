@@ -178,9 +178,88 @@ body {
   color: #212529; /* 深色文字以確保可讀性 */
   font-weight: 500;
 }
+/*----1140701新增----*/
+/* 基礎按鈕樣式 (可選，但推薦) */
+.btn {
+  display: inline-block;
+  padding: 8px 15px; /* 控制大小 */
+  height: 40px; /* 控制高度 */
+  box-sizing: border-box; /* 確保 padding 不會撐大高度 */
+  font-size: 0.95em;
+  font-weight: 500;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid #ccc; /* 預設邊框 */
+  border-radius: 5px; /* 圓角 */
+  background-color: #fff; /* 預設背景 */
+  color: #212529; /* 預設文字顏色 */
+  transition: all 0.2s;
+}
+.btn:hover:not(:disabled) {
+  border-color: #888;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
 
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* 成功按鈕 (綠色) */
+.btn-success {
+  color: #fff;
+  background-color: #28a745;
+  border-color: #28a745;
+}
+.btn-success:hover {
+  background-color: #218838;
+  border-color: #1e7e34;
+}
+
+/* 資訊按鈕 (藍綠色) */
+.btn-info {
+  color: #fff;
+  background-color: #17a2b8;
+  border-color: #17a2b8;
+}
+.btn-info:hover {
+  background-color: #138496;
+  border-color: #117a8b;
+}
+
+/* 警告按鈕 (黃色) */
+.btn-warning {
+  background-color: #ffc107; /* 一個明亮的黃色 (Bootstrap 的 warning 顏色) */
+  border-color: #ffc107;
+  color: #212529; /* 深色文字以確保可讀性 */
+  font-weight: 500;
+}
 /* 為黃色按鈕添加 hover 效果 */
 .btn-warning:hover:not(:disabled) {
   background-color: #e0a800;
   border-color: #d39e00;
+}
+
+/* 次要按鈕 (灰色) */
+.btn-secondary {
+  color: #fff;
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+.btn-secondary:hover {
+  background-color: #5a6268;
+  border-color: #545b62;
+}
+
+.add-btn {
+  align-self: flex-start;
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
 }

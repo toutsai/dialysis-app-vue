@@ -265,13 +265,20 @@ async function saveDataToCloud() {
           nurseTeam: slotData.nurseTeam || null,
           nurseTeamIn: slotData.nurseTeamIn || null,
           nurseTeamOut: slotData.nurseTeamOut || null,
+          // 【新增】確保 wardNumber 被儲存
+          wardNumber: slotData.wardNumber || null,
         }
       }
     }
-    const dataToSave = { date: currentRecord.date, schedule: cleanSchedule }
+    const dataToSave = {
+      date: currentRecord.date,
+      schedule: cleanSchedule,
+      names: currentRecord.names,
+    }
     if (currentRecord.id) {
       await schedulesApi.update(currentRecord.id, dataToSave)
-    } else {
+    } else if (Object.keys(cleanSchedule).length > 0) {
+      // 防止儲存空的排程
       const savedRecord = await schedulesApi.save(dataToSave)
       currentRecord.id = savedRecord.id
     }
@@ -478,6 +485,16 @@ function updateNote(event, shiftId) {
   setChange()
 }
 
+// 【新增】處理外圍床位病房號更新的函式
+const updateWardNumber = (event, shiftId) => {
+  const value = event.target.textContent.trim()
+  if (!currentRecord.schedule[shiftId]) {
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+  }
+  currentRecord.schedule[shiftId].wardNumber = value
+  setChange()
+}
+
 function getPatientName(bedIdentifier, shift) {
   const shiftId = `${bedIdentifier}-${shift}班`
   const patientId = currentRecord.schedule[shiftId]?.patientId
@@ -492,7 +509,6 @@ function getCombinedNote(slotData) {
   return Array.from(allNotes).join(' ')
 }
 
-// 【補回】缺失的 getPatientCellStyle 函數
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
@@ -524,34 +540,40 @@ onMounted(async () => {
 <template>
   <div class="page-container">
     <header class="page-header">
+      <!-- ======================= 第一行：標題、日期導覽、主要操作 ======================= -->
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">每日排程表</h1>
           <div class="date-navigator">
-            <button @click="changeDate(-1)">< 上一天</button>
+            <button class="btn" @click="changeDate(-1)">< 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>
             <span class="weekday-display">{{ weekdayDisplay }}</span>
-            <button @click="changeDate(1)">下一天 ></button>
-            <button @click="goToToday">回到今日</button>
+            <button class="btn" @click="changeDate(1)">下一天 ></button>
+            <button class="btn" @click="goToToday">回到今日</button>
           </div>
+          <!-- 【修改】將「排班檢視」按鈕移到這裡 -->
+          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
         </div>
         <div class="toolbar-right">
           <span class="status-indicator">{{ statusIndicator }}</span>
-        </div>
-      </div>
-      <div class="controls-panel">
-        <div class="controls-left">
-          <button id="save-btn" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
+          <!-- 【修改】將「儲存」和「列印」按鈕移到這裡 -->
+          <button class="btn btn-success" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
             儲存資料至雲端
           </button>
-          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
-          <button id="print-btn" @click="triggerPrint">列印排程</button>
-          <button id="clear-all-btn" @click="clearBoard">清除本日畫面</button>
+          <button class="btn btn-info" @click="triggerPrint">列印排程</button>
+        </div>
+      </div>
+
+      <!-- ======================= 第二行：次要操作、統計 ======================= -->
+      <div class="controls-panel">
+        <div class="controls-left">
+          <!-- 【修改】這裡只保留次要操作 -->
+          <button class="btn btn-secondary" @click="clearBoard">清除本日畫面</button>
           <input type="date" v-model="copySourceDate" />
-          <button id="copy-schedule-btn" @click="copySchedule">從他日複製排程</button>
+          <button class="add-btn" @click="copySchedule">從他日複製排程</button>
           <div class="search-group">
             <input type="text" v-model="searchInput" placeholder="搜尋..." class="search-input" />
-            <button id="search-btn">搜尋</button>
+            <button>搜尋</button>
           </div>
         </div>
         <div class="controls-right">
@@ -816,15 +838,17 @@ onMounted(async () => {
 /* -- Header 內部樣式 -- */
 .header-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1px;
-  gap: 20px;
+  margin-bottom: 0px; /* 與第二行的間距 */
 }
-.toolbar-left {
+.toolbar-left,
+.toolbar-right {
   display: flex;
   align-items: center;
-  gap: 15px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .page-title {
   font-size: 32px;
@@ -844,27 +868,26 @@ onMounted(async () => {
 .weekday-display {
   color: var(--primary-color);
 }
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .status-indicator {
   font-weight: bold;
   color: #6c757d;
 }
 
 /* -- 控制面板樣式 -- */
+/* ======================= 第二行樣式 ======================= */
 .controls-panel {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
 }
+
 .controls-left,
 .controls-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .controls-panel button,
@@ -884,26 +907,6 @@ onMounted(async () => {
   border: 1px solid #ccc;
   cursor: pointer;
   background-color: #fff;
-}
-#save-btn {
-  background-color: var(--success-color);
-  color: white;
-  border-color: var(--success-color);
-}
-#print-btn {
-  background-color: var(--info-color);
-  color: white;
-  border-color: var(--info-color);
-}
-#clear-all-btn {
-  background-color: #6c757d;
-  color: white;
-  border-color: #6c757d;
-}
-#copy-schedule-btn {
-  background-color: var(--warning-color);
-  color: white;
-  border-color: var(--warning-color);
 }
 .search-group {
   display: flex;

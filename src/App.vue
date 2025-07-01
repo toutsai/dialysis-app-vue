@@ -77,9 +77,9 @@ async function initializeSchedules() {
         <!-- `to` 屬性對應我們將在下一步設定的路由路徑 -->
         <li><RouterLink to="/" class="nav-link">每日排程表</RouterLink></li>
         <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
-        <li><RouterLink to="/patients" class="nav-link">病人管理系統</RouterLink></li>
         <li><RouterLink to="/weekly" class="nav-link">週排班總表</RouterLink></li>
         <li><RouterLink to="/base-schedule" class="nav-link">常規門診床位</RouterLink></li>
+        <li><RouterLink to="/patients" class="nav-link">病人管理系統</RouterLink></li>
         <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
       </ul>
     </aside>
@@ -142,8 +142,8 @@ body {
   gap: 15px;
   color: #ecf0f1;
   text-decoration: none;
-  padding: 15px 20px;
-  font-size: 1.1em;
+  padding: 10px 20px;
+  font-size: 1.3em;
   transition:
     background-color 0.2s,
     padding-left 0.2s;
