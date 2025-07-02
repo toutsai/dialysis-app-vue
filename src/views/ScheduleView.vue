@@ -405,19 +405,21 @@ function onDragLeave(event) {
   event.target.closest('.patient-name')?.classList.remove('drag-over')
 }
 
-function handleSlotClick(shiftId) {
+function handleSlotClick(rawShiftId) {
+  const shiftId = sanitizeShiftId(rawShiftId) // 在入口處清理 ID
   const slotData = currentRecord.schedule[shiftId]
   if (slotData && slotData.patientId) {
     const patient = patientMap.value.get(slotData.patientId)
     if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
-      handleSlotUpdate(shiftId, null)
+      handleSlotUpdate(shiftId, null) // 傳遞乾淨的 ID
     }
   } else {
-    openPatientDialog(shiftId)
+    openPatientDialog(shiftId) // 傳遞乾淨的 ID
   }
 }
 
 function handlePatientSelectedFromDialog({ patientId }) {
+  // currentEditingShiftId.value 現在保證是乾淨的
   if (currentEditingShiftId.value && patientId) {
     if (scheduledPatientIds.value.has(patientId)) {
       const patient = patientMap.value.get(patientId)
@@ -447,11 +449,13 @@ function handleSlotUpdate(shiftId, patientId) {
 }
 
 function openPatientDialog(shiftId) {
+  // 這裡接收的 shiftId 已經是清理過的
   currentEditingShiftId.value = shiftId
   isDialogVisible.value = true
 }
 
-function updateNurseTeam(event, shiftId, type) {
+function updateNurseTeam(event, rawShiftId, type) {
+  const shiftId = sanitizeShiftId(rawShiftId) // 在入口處清理 ID
   const value = event.target.value
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
@@ -462,7 +466,8 @@ function updateNurseTeam(event, shiftId, type) {
   setChange()
 }
 
-function updateNote(event, shiftId) {
+function updateNote(event, rawShiftId) {
+  const shiftId = sanitizeShiftId(rawShiftId) // 在入口處清理 ID
   const value = event.target.textContent
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
@@ -479,28 +484,30 @@ const updateWardNumber = (event, shiftId) => {
   setChange()
 }
 
-function getPatientName(shiftId) {
+function getPatientName(rawShiftId) {
+  const shiftId = sanitizeShiftId(rawShiftId) // 在入口處清理 ID
   const patientId = currentRecord.schedule[shiftId]?.patientId
   return patientMap.value.get(patientId)?.name || ''
 }
 
-function getCombinedNote(slotData) {
-  if (!slotData) return '' // 如果沒有 slotData，直接回傳空字串
+function getCombinedNote(rawShiftId) {
+  const shiftId = sanitizeShiftId(rawShiftId)
+  const slotData = currentRecord.schedule[shiftId]
+  if (!slotData) return ''
   const autoNotes = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualNotes = (slotData.manualNote || '').split(' ').filter(Boolean)
   const allNotes = new Set([...autoNotes, ...manualNotes])
   return Array.from(allNotes).join(' ')
 }
 
-function getPatientCellStyle(shiftId) {
-  // 1. 根據 ID 獲取 slotData 物件 (這一步不變)
+function getPatientCellStyle(rawShiftId) {
+  const shiftId = sanitizeShiftId(rawShiftId)
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
 
-  // 2. 【核心修正】直接將 slotData 物件傳給 getCombinedNote
-  const combinedNote = getCombinedNote(slotData)
+  // 現在 getCombinedNote 也接收 shiftId，所以可以直接呼叫
+  const combinedNote = getCombinedNote(rawShiftId)
 
-  // 3. 後續的樣式判斷邏輯完全不變
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
       return { [STYLE_PRIORITY[key].class]: true }
@@ -509,7 +516,6 @@ function getPatientCellStyle(shiftId) {
 
   const patient = patientMap.value.get(slotData.patientId)
   if (patient && patient.status === 'ipd') {
-    // 這裡也可以稍微優化一下判斷
     return { [STYLE_PRIORITY['住'].class]: true }
   }
 
@@ -670,7 +676,7 @@ onMounted(async () => {
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
                       >
-                        {{ getCombinedNote(currentRecord.schedule[`bed-${bedNum}-${shift}`]) }}
+                        {{ getCombinedNote(`bed-${bedNum}-${shift}班`) }}
                       </div>
                     </div>
                   </template>
@@ -741,7 +747,7 @@ onMounted(async () => {
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
                   >
-                    {{ getCombinedNote(currentRecord.schedule[`peripheral-${i}-${shift}`]) }}
+                    {{ getCombinedNote(`peripheral-${i}-${shift}班`) }}
                   </div>
                 </div>
               </div>

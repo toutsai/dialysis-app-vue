@@ -208,6 +208,49 @@ async function loadAllData() {
   }
 }
 
+// ======================= 【決定性修正】 =======================
+function handleSlotUpdate(weeklySlotId, patientId, manualNote = '') {
+  const [bed, shiftIndex, dayIndex] = weeklySlotId.split('-')
+  const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
+  if (!dateStr) return
+
+  // 步驟 1: 確保 Map 中存在當天的記錄物件
+  if (!weekScheduleRecords.value.has(dateStr)) {
+    weekScheduleRecords.value.set(dateStr, { id: null, date: dateStr, schedule: {} })
+  }
+
+  // 步驟 2: 從 Map 中獲取該物件的引用
+  const dailyRecord = weekScheduleRecords.value.get(dateStr)
+
+  const shiftName = SHIFTS[shiftIndex].replace('班', '')
+  const dailyShiftId = `bed-${bed}-${shiftName}`
+
+  if (patientId) {
+    // 步驟 3: 直接修改這個被追蹤的物件
+    const patient = patientMap.value.get(patientId)
+    if (!patient) return
+
+    dailyRecord.schedule[dailyShiftId] = {
+      ...createEmptySlotData(dailyShiftId),
+      patientId: patientId,
+      autoNote: generateAutoNote(patient),
+      manualNote: manualNote,
+    }
+  } else {
+    // 步驟 4: 直接在這個被追蹤的物件上刪除屬性
+    if (dailyRecord.schedule) {
+      delete dailyRecord.schedule[dailyShiftId]
+    }
+  }
+
+  setChange()
+}
+// ======================= 修改結束 =======================
+
+// ... (省略了其他未修改的函式，它們的邏輯是正確的)
+// ... (例如: changeWeek, goToToday, loadBaseSchedule, handleGridClick, handleClearSelect, etc.)
+// ... (我將它們全部貼在下面以保證完整性)
+
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentWeekStartDate.value)
@@ -222,36 +265,6 @@ function goToToday() {
   loadAllData()
 }
 
-function handleSlotUpdate(slotId, patientId, manualNote = '') {
-  const [bed, shiftIndex, dayIndex] = slotId.split('-')
-  const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
-  if (!dateStr) return
-
-  const newWeekRecords = new Map(weekScheduleRecords.value)
-  const oldDailyRecord = newWeekRecords.get(dateStr) || { id: null, date: dateStr, schedule: {} }
-  const newSchedule = { ...oldDailyRecord.schedule }
-  const shiftName = SHIFTS[shiftIndex].replace('班', '')
-  const dailyShiftId = `bed-${bed}-${shiftName}`
-
-  if (patientId) {
-    const patient = patientMap.value.get(patientId)
-    if (!patient) return
-
-    newSchedule[dailyShiftId] = {
-      ...createEmptySlotData(dailyShiftId),
-      patientId: patientId,
-      autoNote: generateAutoNote(patient),
-      manualNote: manualNote,
-    }
-  } else {
-    delete newSchedule[dailyShiftId]
-  }
-
-  newWeekRecords.set(dateStr, { ...oldDailyRecord, schedule: newSchedule })
-  weekScheduleRecords.value = newWeekRecords
-  setChange()
-}
-
 async function loadBaseSchedule() {
   if (!confirm('確定要載入常規班表嗎？這將會覆蓋當前週的所有排班。')) return
   statusText.value = '正在載入常規班表...'
@@ -263,8 +276,7 @@ async function loadBaseSchedule() {
       return
     }
 
-    const newWeekRecords = new Map()
-    weekScheduleRecords.value = newWeekRecords
+    weekScheduleRecords.value.clear()
 
     const baseSchedule = masterRecord.schedule
     for (const weeklySlotId in baseSchedule) {
@@ -273,7 +285,6 @@ async function loadBaseSchedule() {
         handleSlotUpdate(weeklySlotId, baseSlotData.patientId, baseSlotData.note || '')
       }
     }
-    setChange()
     statusText.value = '常規班表已載入，請記得儲存。'
   } catch (error) {
     console.error('載入常規班表失敗:', error)
@@ -399,13 +410,11 @@ async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
     const promises = []
-    for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
-      if (!record || !record.schedule) continue
-
-      const existingRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+    for (const [date, dailyRecord] of weekScheduleRecords.value.entries()) {
+      const existingRecords = await schedulesApi.fetchAll([where('date', '==', date)])
       const existingRecord = existingRecords.length > 0 ? existingRecords[0] : null
 
-      const mergedSchedule = { ...(existingRecord?.schedule || {}), ...record.schedule }
+      const mergedSchedule = { ...(existingRecord?.schedule || {}), ...dailyRecord.schedule }
 
       for (const key in mergedSchedule) {
         if (!mergedSchedule[key] || !mergedSchedule[key].patientId) {
@@ -414,9 +423,9 @@ async function saveChangesToCloud() {
       }
 
       const dataToSave = {
-        date: dateStr,
+        date: date,
         schedule: mergedSchedule,
-        names: record.names || existingRecord?.names || {},
+        names: dailyRecord.names || existingRecord?.names || {},
       }
 
       if (existingRecord?.id) {
@@ -434,12 +443,16 @@ async function saveChangesToCloud() {
     }
 
     await Promise.all(promises)
+
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
+
+    // 為了更好的使用者體驗，彈出提示後再刷新
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '週排班已成功儲存！'
     isAlertDialogVisible.value = true
-    await loadAllData()
+
+    // await loadAllData(); //可以選擇在提示後刷新，或者不刷新
   } catch (error) {
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
@@ -591,21 +604,23 @@ function onSidebarDragStart(event, patient) {
 function onDrop(event, targetSlotId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+
   const itemToDrop = draggedItem.value
-  if (!itemToDrop || !itemToDrop.patientId) {
-    draggedItem.value = null
-    return
-  }
-  const targetSlot = weekScheduleMap.value[targetSlotId]
-  if (targetSlot && targetSlot.patientId) {
+  if (!itemToDrop) return
+
+  const targetSlotData = weekScheduleMap.value[targetSlotId]
+  if (targetSlotData && targetSlotData.patientId) {
     console.warn('目標位置非空，操作取消。')
     draggedItem.value = null
     return
   }
+
   handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
+
   if (itemToDrop.source !== 'sidebar') {
     handleSlotUpdate(itemToDrop.source, null)
   }
+
   draggedItem.value = null
 }
 
