@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, reactive } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
+import { watch } from 'vue' // 確保引入了 watch
 
 // 1. 引入所有需要的子元件和工具函式
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
@@ -526,10 +527,22 @@ function triggerPrint() {
   window.print()
 }
 
+// 【新增】使用 watch 來監聽 currentDate 的變化
+watch(
+  currentDate,
+  (newDate) => {
+    // 將格式化後的日期設置到 body 的 data-print-date 屬性上
+    document.body.setAttribute('data-print-date', formatDate(newDate))
+  },
+  { immediate: true },
+) // immediate: true 確保在元件掛載後立刻執行一次
+
 // --- 生命週期鉤子 ---
 onMounted(async () => {
   await loadAllPatients()
   await loadDataForDay(currentDate.value)
+  // 也可以在這裡設置一次，作為備用
+  // document.body.setAttribute('data-print-date', formatDate(currentDate.value));
 })
 </script>
 
@@ -544,8 +557,8 @@ onMounted(async () => {
             <button class="btn" @click="changeDate(-1)">< 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>
             <span class="weekday-display">{{ weekdayDisplay }}</span>
-            <button class="btn" @click="changeDate(1)">下一天 ></button>
-            <button class="btn" @click="goToToday">回到今日</button>
+            <button @click="changeDate(1)">下一天 ></button>
+            <button @click="goToToday">回到今日</button>
           </div>
           <!-- 【修改】將「排班檢視」按鈕移到這裡 -->
           <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
@@ -886,6 +899,7 @@ onMounted(async () => {
   flex-wrap: wrap;
   gap: 10px;
 }
+.btn btn-info,
 .controls-panel button,
 .controls-panel input[type='date'],
 .controls-panel input[type='text'] {
@@ -1189,145 +1203,128 @@ onMounted(async () => {
 }
 
 /* ==========================================================================
-   5. 列印樣式 (Print Styles) - 維持不變
+   列印樣式 (Print Styles) - 保持佈局、整體縮放、解決截斷
    ========================================================================== */
 @page {
-  size: A4 landscape;
-  margin: 0.5cm;
+  /* 為了容納寬版佈局，橫向是最佳選擇 */
+  size: A4 portrait;
+  margin: 0;
 }
+
 @media print {
-  body {
-    padding: 0;
-    background-color: #fff;
-    font-size: 8pt;
+  /* --- 1. 隱藏所有非列印元素 --- */
+  #app-sidebar,
+  .inpatient-sidebar,
+  .page-header .btn,
+  .page-header .btn-warning,
+  .page-header .btn-info,
+  .page-header .btn-success,
+  .page-header .search-group,
+  .page-header .status-indicator,
+  .toolbar-right {
+    display: none !important;
+  }
+
+  /* 【核心修改 1】不再隱藏外圍床位的父容器 .extra-sections */
+  /* 我們只隱藏走道和護理站，讓佈局更緊湊 */
+  .aisle,
+  .nursing-station {
+    display: none !important;
+  }
+
+  /* --- 2. 準備好列印環境 --- */
+  body,
+  html {
+    background: #fff !important;
+    overflow: hidden !important; /* 確保 body 本身不滾動 */
     -webkit-print-color-adjust: exact;
     color-adjust: exact;
   }
-  .controls-panel,
-  .aisle,
-  .status-indicator,
-  #print-btn,
-  #save-btn,
-  #clear-all-btn,
-  #copy-schedule-btn,
-  #copy-source-date,
-  .search-group,
-  #today-btn,
-  .date-nav-btn,
-  .inpatient-sidebar {
+
+  /* --- 3. 【核心技巧】先撐開內容，再整體縮放 --- */
+
+  /* 步驟 A: 將所有父容器的高度限制解除，為內容撐開做準備 */
+  .page-container,
+  .page-main-content {
+    height: auto !important;
+    overflow: visible !important; /* 允許內容溢出 */
+  }
+
+  /* 步驟 B: 強行撐開包含滾動條的那個容器的高度 */
+  .schedule-content {
+    height: 2800px !important; /* 給一個足夠大的固定高度，確保所有床位都能顯示 */
+    overflow: visible !important; /* 確保內容不會被截斷 */
+  }
+
+  /* 步驟 C: 對最外層的容器進行縮放 */
+  .page-container {
+    /* 根據您螢幕的寬高比和內容的複雜度來設置 */
+    /* 這裡的 width 和 height 應該大於您螢幕的解析度 */
+    width: 2200px;
+    height: 1800px; /* 寬高比約為 16:10 */
+
+    /* 將縮放原點設為左上角 */
+    transform-origin: top left;
+
+    /* 關鍵！縮放比例，您需要微調這個數字 */
+    /* 0.45 對於 A4 橫向是一個比較合理的起始值 */
+    transform: scale(0.4);
+  }
+  /* 主要床位區的容器 */
+  .dialysis-unit {
+    display: flex; /* 或者 display: grid; */
+    flex-wrap: wrap; /* 確保能換行 */
+    gap: 10px;
+    justify-content: flex-start;
+  }
+  /* 外圍床位區的容器 */
+  .peripheral-bed-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    justify-content: start;
+  }
+
+  .bed,
+  .peripheral-bed {
+    /* 確保每個床位卡片都有根源在於我們之前使用的 Flexbox 佈局 (`display: flex`)，它會自動分配剩餘空間。而一個基礎寬度，而不是完全依賴於 1fr */
+    /* 這樣它們在未被拉伸時， `.extra-sections` 裡的 `.peripheral-bed-container` 預設是 `grid-template-columns: 1fr 1fr;`，這導致它與主床位區的佈局不一致。
+
+   **解決也能保持一致的大小 */
+    flex-basis: 150px;
+    width: 150px; /* 對於 grid 佈局作為備用 */
+    flex-grow: 1; /* 允許它們在空間充足時稍微變大 */
+  }
+
+  /* --- 4. 重新設計頁首，只保留日期標題 --- */
+  .page-header {
+    border-bottom: 2px solid #000;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .page-header .page-title,
+  .page-header .weekday-display,
+  .page-header .date-navigator button {
     display: none !important;
   }
-  .dialysis-unit,
-  .extra-sections {
-    max-width: 100%;
-    box-shadow: none;
-    gap: 10px;
-  }
-  .dialysis-unit {
-    grid-template-columns: 1fr 1fr;
-  }
-  .bed,
-  .nursing-station,
-  .peripheral-bed {
-    border: 1px solid #000;
-    box-shadow: none;
-    page-break-inside: avoid;
-    border-radius: 3px;
-  }
-  .bed-row,
-  .peripheral-bed-container {
-    gap: 5px;
-  }
-  .bed {
-    min-height: 120px;
-  }
-  /* -- 排程行 & 格子樣式 -- */
-  .shift-row,
-  .peripheral-shift-row {
-    display: grid;
-    align-items: stretch; /* 讓格子填滿高度 */
-    border-top: 1px solid #e0e0e0;
-    transition: background-color 0.3s;
-  }
-  .shift-row {
-    grid-template-columns: 28px 60px 1fr 60px;
-  } /* 微調備註欄寬度 */
-  .peripheral-shift-row {
-    grid-template-columns: 28px 70px 70px 1fr 50px;
-  } /* 微調備註欄寬度 */
-
-  .shift-label {
-    background-color: #f5f5f5;
-    font-size: 0.8em;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-right: 1px solid #e0e0e0;
-  }
-  .nurse-team-select,
-  .patient-name,
-  .peripheral-patient-name,
-  .peripheral-bed-number,
-  .nurse-split-column {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-  }
-  .nurse-split-column {
-    flex-direction: column;
-  }
-  .nurse-split-column .nurse-team-select {
+  .toolbar-left,
+  .date-navigator {
     width: 100%;
-    flex-grow: 1;
+    justify-content: center;
+    gap: 0;
   }
-  .peripheral-bed-number:empty::before {
-    content: '';
+  .current-date-text {
+    font-size: 28pt !important; /* 放大字體以匹配縮放 */
+    font-weight: bold;
+    color: #000 !important;
   }
 
-  .patient-name:empty::before,
-  .peripheral-patient-name:empty::before {
-    content: '輸入病人';
-    color: #aaa;
-    font-style: italic;
-    font-size: 0.9em; /* 也可調整提示文字大小 */
-  }
-  .patient-tag:empty::before {
-    content: '備註';
-    color: #aaa;
-    font-style: italic;
-  }
-  .patient-name:empty,
-  .peripheral-patient-name:empty {
-    background-color: transparent !important;
-  }
-  select,
-  .nurse-team-select:has(option[value='']:checked) {
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    border: none;
-    background: transparent !important;
-  }
-  .patient-name.tag-new,
-  .peripheral-patient-name.tag-new,
-  .patient-name.hospitalized,
-  .peripheral-patient-name.hospitalized,
-  .patient-name.tag-b,
-  .peripheral-patient-name.tag-b,
-  .patient-name.tag-chou,
-  .peripheral-patient-name.tag-chou,
-  .patient-name.tag-liang,
-  .peripheral-patient-name.tag-liang,
-  .patient-name.tag-huan,
-  .peripheral-patient-name.tag-huan {
-    background-color: inherit !important;
-    border: 1px dotted #888;
-  }
-  .bed.hepatitis .bed-header {
-    border-bottom: 2px double #000;
-    background-color: #fff !important;
+  /* --- 5. 細節微調 --- */
+  /* 因為整體縮小了，邊框需要加粗才能看清 */
+  .bed,
+  .peripheral-bed {
+    border-width: 1.5px;
+    border-color: #333;
   }
 }
 </style>

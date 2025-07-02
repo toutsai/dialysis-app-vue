@@ -263,3 +263,15 @@ body {
   cursor: pointer;
   font-size: 1rem;
 }
+
+/* =======================================
+   Global Print Styles (全域列印樣式)
+   ======================================= */
+@media print {
+  /* 隱藏 ID 為 app-sidebar 或 class 為 sidebar 的主導覽列 */
+  /* 您可以使用其中一個，或者兩個都用以確保萬無一失 */
+  #app-sidebar,
+  .sidebar {
+    display: none !important;
+  }
+}

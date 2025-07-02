@@ -63,18 +63,24 @@ const editingPatientInfo = ref(null)
 
 // --- 輔助函式 ---
 const formatDate = (date) => {
-  const year = date.getFullYear()
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const day = date.getDate().toString().padStart(2, '0')
+  if (!date) return ''
+  const d = new Date(date)
+  const year = d.getFullYear()
+  const month = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
 
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
   const name = patientDetail.name
-  const note = patientDetail.note
-  let identifier = ''
 
+  // 【修正】備註來源統一為 autoNote 和 manualNote
+  const autoNotes = (patientDetail.autoNote || '').split(' ').filter(Boolean)
+  const manualNotes = (patientDetail.manualNote || '').split(' ').filter(Boolean)
+  const combinedNote = Array.from(new Set([...autoNotes, ...manualNotes])).join(' ')
+
+  let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
     identifier = patientDetail.wardNumber || '外圍'
   } else {
@@ -84,7 +90,7 @@ const getPatientDisplayString = (patientDetail) => {
     }
   }
 
-  const parts = [identifier, name, note].filter(Boolean)
+  const parts = [identifier, name, combinedNote].filter(Boolean)
   return parts.join(' - ')
 }
 
@@ -130,7 +136,8 @@ const statsData = computed(() => {
   })
 
   Object.entries(currentRecord.schedule).forEach(([shiftId, shiftDetails]) => {
-    const { patientId, note, wardNumber, nurseTeam, nurseTeamIn, nurseTeamOut } = shiftDetails
+    const { patientId, autoNote, manualNote, wardNumber, nurseTeam, nurseTeamIn, nurseTeamOut } =
+      shiftDetails
     if (!patientId) return
 
     const patient = patientMap.get(patientId)
@@ -139,25 +146,31 @@ const statsData = computed(() => {
     const hasMemo = memoMap.has(patient.name)
     let classes = 'patient-item'
     if (patient.status === 'ipd') classes += ' hospitalized'
-    if (note && note.includes('抽')) classes += ' tag-chou'
+
+    // 【修正】合併備註來決定樣式
+    const combinedNote = `${autoNote || ''} ${manualNote || ''}`
+    if (combinedNote.includes('抽')) classes += ' tag-chou'
     if (hasMemo) classes += ' has-memo'
 
     const detail = {
       id: patientId,
       shiftId: shiftId,
       name: patient.name,
-      note: note || '',
+      autoNote: autoNote || '',
+      manualNote: manualNote || '',
       classes: classes,
       wardNumber: wardNumber || '',
     }
 
-    const shiftType = shiftId.split('-')[2]
+    // ======================= 【核心修正】 =======================
+    // 使用短名稱來判斷班別
+    const shiftType = shiftId.split('-')[2] // '早', '午', '晚'
 
-    if (shiftType === '早班' && nurseTeam && earlyShiftStats[nurseTeam]) {
+    if (shiftType === '早' && nurseTeam && earlyShiftStats[nurseTeam]) {
       earlyShiftStats[nurseTeam].早班.push(detail)
-    } else if (shiftType === '晚班' && nurseTeam && lateShiftStats[nurseTeam]) {
+    } else if (shiftType === '晚' && nurseTeam && lateShiftStats[nurseTeam]) {
       lateShiftStats[nurseTeam].晚班.push(detail)
-    } else if (shiftType === '午班') {
+    } else if (shiftType === '午') {
       if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
         earlyShiftStats[nurseTeamIn].午班上針.push(detail)
       }
@@ -169,6 +182,7 @@ const statsData = computed(() => {
         }
       }
     }
+    // ======================= 修改結束 =======================
   })
   return { early: earlyShiftStats, late: lateShiftStats }
 })
@@ -250,7 +264,8 @@ function onDragStart(event, patientDetail) {
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// 【最新版本】onDrop 函式，支援拖曳換班與換組
+// ======================= 【核心修正】 =======================
+// onDrop 函式現在使用短名稱來決定新的 shiftId
 function onDrop(event, newTeam, newResponsibility) {
   event.preventDefault()
 
@@ -262,9 +277,11 @@ function onDrop(event, newTeam, newResponsibility) {
     return
   }
 
+  // 創建一個副本來操作，並先從 schedule 中移除舊記錄
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
   delete currentRecord.schedule[oldShiftId]
 
+  // 清除舊的護理組指派
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
@@ -273,33 +290,46 @@ function onDrop(event, newTeam, newResponsibility) {
   const oldShiftType = oldShiftId.split('-')[2]
   const bedPart = oldShiftId.split('-').slice(0, 2).join('-')
 
-  if (['早班', '晚班'].includes(newResponsibility)) {
-    const newShiftType = newResponsibility
+  if (newResponsibility === '早班') {
+    const newShiftType = '早' // 使用短名稱
+    if (oldShiftType !== newShiftType) {
+      targetShiftId = `${bedPart}-${newShiftType}`
+    }
+    movingSlotData.nurseTeam = newTeam
+  } else if (newResponsibility === '晚班') {
+    const newShiftType = '晚' // 使用短名稱
     if (oldShiftType !== newShiftType) {
       targetShiftId = `${bedPart}-${newShiftType}`
     }
     movingSlotData.nurseTeam = newTeam
   } else if (newResponsibility === '午班上針') {
-    if (oldShiftType !== '午班') {
-      targetShiftId = `${bedPart}-午班`
+    const newShiftType = '午' // 使用短名稱
+    if (oldShiftType !== newShiftType) {
+      targetShiftId = `${bedPart}-${newShiftType}`
     }
     movingSlotData.nurseTeamIn = newTeam
   } else if (newResponsibility === '午班收針') {
-    if (oldShiftType !== '午班') {
-      targetShiftId = `${bedPart}-午班`
+    const newShiftType = '午' // 使用短名稱
+    if (oldShiftType !== newShiftType) {
+      targetShiftId = `${bedPart}-${newShiftType}`
     }
     movingSlotData.nurseTeamOut = newTeam
   }
 
+  // 更新 shiftId
+  movingSlotData.shiftId = targetShiftId
+
+  // 檢查目標位置是否已被佔用
   if (currentRecord.schedule[targetShiftId]) {
     alert(`錯誤：目標床位 ${targetShiftId} 已被佔用！操作取消。`)
-    currentRecord.schedule[oldShiftId] = movingSlotData // 恢復原狀
+    currentRecord.schedule[oldShiftId] = JSON.parse(event.dataTransfer.getData('application/json')) // 恢復原狀
     return
   }
 
   currentRecord.schedule[targetShiftId] = movingSlotData
   setChange()
 }
+// ======================= 修改結束 =======================
 
 function onDragOver(event) {
   event.preventDefault()
@@ -334,6 +364,10 @@ function updateNurseName(teamId, event) {
   setChange()
 }
 
+function triggerPrint() {
+  window.print()
+}
+
 // --- 生命週期鉤子 ---
 onMounted(() => {
   loadData(currentDate.value)
@@ -358,7 +392,7 @@ onMounted(() => {
         <button id="save-changes-btn" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
           儲存變更
         </button>
-        <button @click="window.print()">列印報表</button>
+        <button @click="triggerPrint">列印報表</button>
       </div>
     </div>
 
@@ -707,7 +741,7 @@ onMounted(() => {
   border: 1px solid #ddd;
   padding: 8px;
   text-align: center;
-  vertical-align: middle;
+  vertical-align: top;
   font-size: 0.9em;
   word-wrap: break-word;
 }
@@ -774,7 +808,7 @@ onMounted(() => {
 }
 
 .assignment-table th.row-header {
-  width: 100px; /* 加寬一點以容納 "午班(上針)" */
+  width: 85px; /* 加寬一點以容納 "午班(上針)" */
   background-color: #f8f9fa;
   font-weight: 600;
   vertical-align: middle;
