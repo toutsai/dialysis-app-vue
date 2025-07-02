@@ -744,8 +744,6 @@ onMounted(loadAllData)
   overflow: hidden;
 }
 .page-header {
-  padding: 1rem;
-  background-color: #f8f9fa;
   border-bottom: 1px solid #dee2e6;
 }
 .header-toolbar {
@@ -761,7 +759,7 @@ onMounted(loadAllData)
 }
 .page-title {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 32px;
 }
 .date-navigator {
   display: flex;
