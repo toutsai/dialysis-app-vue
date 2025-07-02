@@ -1,26 +1,30 @@
-// src/views/WeeklyView.vue (完整修正版)
+<!-- 檔案路徑: src/views/WeeklyView.vue (重構版 - 完整無省略) -->
 <script setup>
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 
-// 1. 引入所有需要的子元件和工具函式
+// 1. 引入我們重構後的所有工具和常量
+import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants'
+import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
+
+// 2. 引入所有需要的元件
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
-import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
-// --- 輔助函式 --- (保持不變)
+// --- 輔助函式 ---
 function getStartOfWeek(date) {
   const d = new Date(date)
   const day = d.getDay()
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
   return new Date(new Date(d.setDate(diff)).setHours(0, 0, 0, 0))
 }
+
 function formatDate(date, withYear = false) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -32,6 +36,7 @@ function formatDate(date, withYear = false) {
   }
   return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
 }
+
 function formatDateForQuery(date) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -47,8 +52,7 @@ const schedulesApi = ApiManager('schedules')
 const baseSchedulesApi = ApiManager('base_schedules')
 
 // --- 常量定義 ---
-// 【核心修正 #1】將 SHIFTS 常數改為系統標準格式（不帶 "班"）
-const SHIFTS = ['早', '午', '晚']
+const SHIFTS = ORDERED_SHIFT_CODES // ['early', 'noon', 'late']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const PATIENT_STATUS = { INPATIENT: 'ipd' }
 const CLEAR_OPTIONS = [
@@ -78,7 +82,7 @@ const STYLE_PRIORITY = {
   B: { class: 'tag-b' },
 }
 
-// --- 核心狀態 --- (保持不變)
+// --- 核心狀態 ---
 const allPatients = ref([])
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
@@ -86,7 +90,7 @@ const hasUnsavedChanges = ref(false)
 const statusText = ref('資料已載入')
 const draggedItem = ref(null)
 
-// --- UI 狀態 --- (保持不變)
+// --- UI 狀態 ---
 const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const isClearDialogVisible = ref(false)
@@ -116,8 +120,11 @@ const weekDates = computed(() => {
 })
 
 const statsToolbarData = computed(() => {
-  // StatsToolbar 元件期望的 key 是帶 "班" 的，所以我們在這裡組裝
-  const baseData = WEEKDAYS.map(() => ({ counts: { 早班: 0, 午班: 0, 晚班: 0 } }))
+  // 3. 修改統計資料的 key 以匹配 StatsToolbar 的新契約
+  const baseData = WEEKDAYS.map(() => ({
+    counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 },
+  }))
+
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
@@ -125,11 +132,9 @@ const statsToolbarData = computed(() => {
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.patientId && slotData.shiftId) {
-            // 【核心修正 #2】從標準 shiftId 中提取班別，再組裝成 StatsToolbar 需要的 key
-            const shiftType = slotData.shiftId.split('-')[2] // '早', '午', '晚'
-            const shiftNameWithSuffix = `${shiftType}班` // '早班', '午班', '晚班'
-            if (baseData[dayIndex].counts[shiftNameWithSuffix] !== undefined) {
-              baseData[dayIndex].counts[shiftNameWithSuffix]++
+            const shiftCode = slotData.shiftId.split('-')[2] // 'early', 'noon', 'late'
+            if (baseData[dayIndex].counts[shiftCode] !== undefined) {
+              baseData[dayIndex].counts[shiftCode]++
             }
           }
         }
@@ -140,11 +145,6 @@ const statsToolbarData = computed(() => {
 })
 
 const weekScheduleMap = computed(() => {
-  // 【新增偵錯 Log】
-  console.log(
-    '[WeeklyView Debug] Recalculating weekScheduleMap. Raw records available:',
-    Array.from(weekScheduleRecords.value.keys()),
-  )
   const combinedSchedule = {}
   weekDates.value.forEach((day, dayIndex) => {
     const dailyRecord = weekScheduleRecords.value.get(day.queryDate)
@@ -155,9 +155,8 @@ const weekScheduleMap = computed(() => {
           const parts = dailyShiftId.split('-')
           if (parts.length === 3) {
             const bedNumber = parts[1]
-            // 【核心修正 #3】直接使用標準班別名稱
-            const shiftName = parts[2] // '早', '午', '晚'
-            const shiftIndex = SHIFTS.indexOf(shiftName)
+            const shiftCode = parts[2]
+            const shiftIndex = SHIFTS.indexOf(shiftCode)
             if (shiftIndex !== -1) {
               const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
               combinedSchedule[weeklySlotId] = slotData
@@ -167,12 +166,6 @@ const weekScheduleMap = computed(() => {
       }
     }
   })
-  // 【新增偵錯 Log】
-  console.log(
-    '[WeeklyView Debug] Generated combined schedule. Number of entries:',
-    Object.keys(combinedSchedule).length,
-  )
-  // console.log(combinedSchedule); // 如果需要，可以取消註解來看詳細內容
   return combinedSchedule
 })
 
@@ -198,7 +191,6 @@ function setChange() {
 }
 
 async function loadAllData() {
-  // ... 此函數保持不變 ...
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
@@ -211,9 +203,21 @@ async function loadAllData() {
     ])
 
     allPatients.value = patients
+    const localPatientMap = new Map(patients.map((p) => [p.id, p]))
 
     const newWeekRecords = new Map()
     weeklyRecords.forEach((record) => {
+      // 4. 標準化讀取到的 note
+      if (record.schedule) {
+        for (const shiftId in record.schedule) {
+          const slotData = record.schedule[shiftId]
+          if (slotData && slotData.patientId) {
+            const patient = localPatientMap.get(slotData.patientId)
+            slotData.autoNote = patient ? generateAutoNote(patient) : ''
+            slotData.manualNote = slotData.manualNote || '' // 確保欄位存在
+          }
+        }
+      }
       newWeekRecords.set(record.date, record)
     })
     weekScheduleRecords.value = newWeekRecords
@@ -235,9 +239,8 @@ function handleSlotUpdate(weeklySlotId, patientId, manualNote = '') {
 
   const dailyRecord = weekScheduleRecords.value.get(dateStr)
 
-  // 【核心修正 #4】直接使用標準班別名稱，不再需要 .replace('班', '')
-  const shiftName = SHIFTS[shiftIndex]
-  const dailyShiftId = `bed-${bed}-${shiftName}`
+  const shiftCode = SHIFTS[shiftIndex]
+  const dailyShiftId = `bed-${bed}-${shiftCode}`
 
   if (patientId) {
     const patient = patientMap.value.get(patientId)
@@ -245,6 +248,7 @@ function handleSlotUpdate(weeklySlotId, patientId, manualNote = '') {
 
     const existingSlotData = dailyRecord.schedule[dailyShiftId] || {}
 
+    // 5. 生成標準的 note 模型
     dailyRecord.schedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
       ...existingSlotData,
@@ -265,13 +269,32 @@ async function saveChangesToCloud() {
   try {
     const promises = []
     for (const [date, dailyRecord] of weekScheduleRecords.value.entries()) {
+      // 6. 儲存時，只保留標準欄位
+      const scheduleToSave = {}
+      if (dailyRecord.schedule) {
+        for (const shiftId in dailyRecord.schedule) {
+          const slotData = dailyRecord.schedule[shiftId]
+          if (slotData && slotData.patientId) {
+            scheduleToSave[shiftId] = {
+              patientId: slotData.patientId,
+              shiftId: slotData.shiftId,
+              autoNote: slotData.autoNote || '',
+              manualNote: slotData.manualNote || '',
+              nurseTeam: slotData.nurseTeam || null,
+              nurseTeamIn: slotData.nurseTeamIn || null,
+              nurseTeamOut: slotData.nurseTeamOut || null,
+              wardNumber: slotData.wardNumber || null,
+            }
+          }
+        }
+      }
+
       const dataToSave = {
         date: date,
-        schedule: dailyRecord.schedule || {},
+        schedule: scheduleToSave,
         names: dailyRecord.names || {},
       }
 
-      // 獲取雲端記錄的 ID，如果它之前存在的話
       const docId =
         dailyRecord.id || (await schedulesApi.fetchAll([where('date', '==', date)]))[0]?.id
 
@@ -291,7 +314,6 @@ async function saveChangesToCloud() {
 
     await Promise.all(promises)
 
-    // 廣播事件
     for (const date of weekScheduleRecords.value.keys()) {
       const updateEvent = new CustomEvent('schedule-updated', { detail: { date } })
       window.dispatchEvent(updateEvent)
@@ -351,7 +373,7 @@ function onDrop(event, targetSlotId) {
 
   draggedItem.value = null
 }
-// ... 其他所有函式保持原樣，貼在下方 ...
+
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentWeekStartDate.value)
@@ -383,7 +405,12 @@ async function loadBaseSchedule() {
     for (const weeklySlotId in baseSchedule) {
       const baseSlotData = baseSchedule[weeklySlotId]
       if (baseSlotData && baseSlotData.patientId) {
-        handleSlotUpdate(weeklySlotId, baseSlotData.patientId, baseSlotData.note || '')
+        // 載入時，只傳遞 patientId 和 manualNote
+        handleSlotUpdate(
+          weeklySlotId,
+          baseSlotData.patientId,
+          baseSlotData.manualNote || baseSlotData.note || '',
+        )
       }
     }
     statusText.value = '常規班表已載入，請記得儲存。'
@@ -453,7 +480,7 @@ function handlePatientSelect({ patientId, fillType }) {
       .map((csId) => {
         const [_b, _s, _d] = csId.split('-')
         const day = WEEKDAYS[parseInt(_d, 10)]
-        const shift = SHIFTS[parseInt(_s, 10)]
+        const shift = getShiftDisplayName(SHIFTS[parseInt(_s, 10)])
         const existingPatientName =
           patientMap.value.get(weekScheduleMap.value[csId].patientId)?.name || '未知'
         return `${day}${shift}已被 ${existingPatientName} 佔用`
@@ -599,20 +626,20 @@ function runScheduleCheck() {
 function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
-  const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {}
-  const classes = {}
-  const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`
+
+  const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
+
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
-      classes[STYLE_PRIORITY[key].class] = true
-      return classes
+      return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-  if (patient.status === PATIENT_STATUS.INPATIENT) {
-    classes['tag-ip'] = true
+
+  const patient = patientMap.value.get(slotData.patientId)
+  if (patient && patient.status === PATIENT_STATUS.INPATIENT) {
+    return { 'tag-ip': true }
   }
-  return classes
+  return {}
 }
 
 function handleDialogCancel() {
@@ -648,20 +675,14 @@ function onSidebarDragStart(event, patient) {
 
 function onDragOver(event) {
   event.preventDefault()
-  const targetCell = event.target.closest('.schedule-cell')
-  if (targetCell) {
-    const patientTag = targetCell.querySelector('.patient-tag-container')
-    if (!patientTag || patientTag.children.length === 0) {
-      targetCell.classList.add('drag-over')
-    }
+  const targetSlot = event.target.closest('.schedule-slot')
+  if (targetSlot && !targetSlot.querySelector('.patient-details')) {
+    targetSlot.classList.add('drag-over')
   }
 }
 
 function onDragLeave(event) {
-  const targetCell = event.target.closest('.schedule-cell')
-  if (targetCell) {
-    targetCell.classList.remove('drag-over')
-  }
+  event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 </script>
 
@@ -693,6 +714,7 @@ function onDragLeave(event) {
 
     <main class="page-main-content">
       <div class="schedule-area">
+        <!-- 7. 將 SHIFTS (英文代碼) 傳給子元件 -->
         <StatsToolbar
           class="stats-toolbar"
           :stats-data="statsToolbarData"
@@ -706,7 +728,7 @@ function onDragLeave(event) {
           :patient-map="patientMap"
           :shifts="SHIFTS"
           :weekdays="WEEKDAYS"
-          :week-dates="weekDates"
+          :week-dates="weekDates.map((d) => d.date)"
           :hepatitis-beds="hepatitisBeds"
           :get-style-func="getWeeklyCellStyle"
           @grid-click="handleGridClick"
@@ -755,7 +777,6 @@ function onDragLeave(event) {
 </template>
 
 <style scoped>
-/* 您的原始樣式，保持不變 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -765,6 +786,7 @@ function onDragLeave(event) {
 }
 .page-header {
   border-bottom: 1px solid #dee2e6;
+  padding: 1rem;
 }
 .header-toolbar {
   display: flex;
@@ -803,6 +825,7 @@ function onDragLeave(event) {
 }
 .stats-toolbar {
   flex-shrink: 0;
+  padding: 0 1rem;
 }
 .schedule-table-component {
   flex-grow: 1;
@@ -828,7 +851,7 @@ function onDragLeave(event) {
   background-color: #ffc107;
   color: #212529;
 }
-.schedule-cell.drag-over {
+.schedule-slot.drag-over {
   background-color: #e9ecef;
   border: 2px dashed #007bff;
 }
