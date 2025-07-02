@@ -275,6 +275,11 @@ async function saveDataToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
+    // 【新增】發出一個全域事件，通知其他元件資料已更新
+    const updateEvent = new CustomEvent('schedule-updated', {
+      detail: { date: currentRecord.date, record: { ...dataToSave, id: currentRecord.id } },
+    })
+    window.dispatchEvent(updateEvent)
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
@@ -476,7 +481,9 @@ function updateNote(event, rawShiftId) {
   setChange()
 }
 
-const updateWardNumber = (event, shiftId) => {
+const updateWardNumber = (event, rawShiftId) => {
+  // 接收 rawShiftId
+  const shiftId = sanitizeShiftId(rawShiftId) // 在入口處清理 ID
   const value = event.target.textContent.trim()
   if (!currentRecord.schedule[shiftId]) {
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
@@ -689,7 +696,7 @@ onMounted(async () => {
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
                       >
-                        {{ getCombinedNote(`bed-${bedNum}-${shift}班`) }}
+                        {{ getCombinedNote(`bed-${bedNum}-${shift}`) }}
                       </div>
                     </div>
                   </template>
@@ -760,7 +767,7 @@ onMounted(async () => {
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
                   >
-                    {{ getCombinedNote(`peripheral-${i}-${shift}班`) }}
+                    {{ getCombinedNote(`peripheral-${i}-${shift}`) }}
                   </div>
                 </div>
               </div>

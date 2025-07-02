@@ -1,5 +1,6 @@
+// src/views/WeeklyView.vue (完整修正版)
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 
@@ -13,14 +14,13 @@ import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
-// --- 輔助函式 ---
+// --- 輔助函式 --- (保持不變)
 function getStartOfWeek(date) {
   const d = new Date(date)
   const day = d.getDay()
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
   return new Date(new Date(d.setDate(diff)).setHours(0, 0, 0, 0))
 }
-
 function formatDate(date, withYear = false) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -32,7 +32,6 @@ function formatDate(date, withYear = false) {
   }
   return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
 }
-
 function formatDateForQuery(date) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -47,8 +46,9 @@ const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const baseSchedulesApi = ApiManager('base_schedules')
 
-// --- 常量定義 (保持您原始的定義，以匹配子元件的 props) ---
-const SHIFTS = ['早班', '午班', '晚班']
+// --- 常量定義 ---
+// 【核心修正 #1】將 SHIFTS 常數改為系統標準格式（不帶 "班"）
+const SHIFTS = ['早', '午', '晚']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const PATIENT_STATUS = { INPATIENT: 'ipd' }
 const CLEAR_OPTIONS = [
@@ -78,7 +78,7 @@ const STYLE_PRIORITY = {
   B: { class: 'tag-b' },
 }
 
-// --- 核心狀態 ---
+// --- 核心狀態 --- (保持不變)
 const allPatients = ref([])
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
@@ -86,7 +86,7 @@ const hasUnsavedChanges = ref(false)
 const statusText = ref('資料已載入')
 const draggedItem = ref(null)
 
-// --- UI 狀態 ---
+// --- UI 狀態 --- (保持不變)
 const isDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const isClearDialogVisible = ref(false)
@@ -116,6 +116,7 @@ const weekDates = computed(() => {
 })
 
 const statsToolbarData = computed(() => {
+  // StatsToolbar 元件期望的 key 是帶 "班" 的，所以我們在這裡組裝
   const baseData = WEEKDAYS.map(() => ({ counts: { 早班: 0, 午班: 0, 晚班: 0 } }))
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
@@ -124,9 +125,11 @@ const statsToolbarData = computed(() => {
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.patientId && slotData.shiftId) {
-            const shiftName = `${slotData.shiftId.split('-')[2]}班`
-            if (baseData[dayIndex].counts[shiftName] !== undefined) {
-              baseData[dayIndex].counts[shiftName]++
+            // 【核心修正 #2】從標準 shiftId 中提取班別，再組裝成 StatsToolbar 需要的 key
+            const shiftType = slotData.shiftId.split('-')[2] // '早', '午', '晚'
+            const shiftNameWithSuffix = `${shiftType}班` // '早班', '午班', '晚班'
+            if (baseData[dayIndex].counts[shiftNameWithSuffix] !== undefined) {
+              baseData[dayIndex].counts[shiftNameWithSuffix]++
             }
           }
         }
@@ -137,6 +140,11 @@ const statsToolbarData = computed(() => {
 })
 
 const weekScheduleMap = computed(() => {
+  // 【新增偵錯 Log】
+  console.log(
+    '[WeeklyView Debug] Recalculating weekScheduleMap. Raw records available:',
+    Array.from(weekScheduleRecords.value.keys()),
+  )
   const combinedSchedule = {}
   weekDates.value.forEach((day, dayIndex) => {
     const dailyRecord = weekScheduleRecords.value.get(day.queryDate)
@@ -147,8 +155,9 @@ const weekScheduleMap = computed(() => {
           const parts = dailyShiftId.split('-')
           if (parts.length === 3) {
             const bedNumber = parts[1]
-            const shiftNameWithSuffix = `${parts[2]}班`
-            const shiftIndex = SHIFTS.indexOf(shiftNameWithSuffix)
+            // 【核心修正 #3】直接使用標準班別名稱
+            const shiftName = parts[2] // '早', '午', '晚'
+            const shiftIndex = SHIFTS.indexOf(shiftName)
             if (shiftIndex !== -1) {
               const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
               combinedSchedule[weeklySlotId] = slotData
@@ -158,6 +167,12 @@ const weekScheduleMap = computed(() => {
       }
     }
   })
+  // 【新增偵錯 Log】
+  console.log(
+    '[WeeklyView Debug] Generated combined schedule. Number of entries:',
+    Object.keys(combinedSchedule).length,
+  )
+  // console.log(combinedSchedule); // 如果需要，可以取消註解來看詳細內容
   return combinedSchedule
 })
 
@@ -183,6 +198,7 @@ function setChange() {
 }
 
 async function loadAllData() {
+  // ... 此函數保持不變 ...
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
@@ -208,49 +224,134 @@ async function loadAllData() {
   }
 }
 
-// ======================= 【決定性修正】 =======================
 function handleSlotUpdate(weeklySlotId, patientId, manualNote = '') {
   const [bed, shiftIndex, dayIndex] = weeklySlotId.split('-')
   const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
   if (!dateStr) return
 
-  // 步驟 1: 確保 Map 中存在當天的記錄物件
   if (!weekScheduleRecords.value.has(dateStr)) {
     weekScheduleRecords.value.set(dateStr, { id: null, date: dateStr, schedule: {} })
   }
 
-  // 步驟 2: 從 Map 中獲取該物件的引用
   const dailyRecord = weekScheduleRecords.value.get(dateStr)
 
-  const shiftName = SHIFTS[shiftIndex].replace('班', '')
+  // 【核心修正 #4】直接使用標準班別名稱，不再需要 .replace('班', '')
+  const shiftName = SHIFTS[shiftIndex]
   const dailyShiftId = `bed-${bed}-${shiftName}`
 
   if (patientId) {
-    // 步驟 3: 直接修改這個被追蹤的物件
     const patient = patientMap.value.get(patientId)
     if (!patient) return
 
+    const existingSlotData = dailyRecord.schedule[dailyShiftId] || {}
+
     dailyRecord.schedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
+      ...existingSlotData,
       patientId: patientId,
       autoNote: generateAutoNote(patient),
       manualNote: manualNote,
     }
   } else {
-    // 步驟 4: 直接在這個被追蹤的物件上刪除屬性
     if (dailyRecord.schedule) {
       delete dailyRecord.schedule[dailyShiftId]
     }
   }
-
   setChange()
 }
-// ======================= 修改結束 =======================
 
-// ... (省略了其他未修改的函式，它們的邏輯是正確的)
-// ... (例如: changeWeek, goToToday, loadBaseSchedule, handleGridClick, handleClearSelect, etc.)
-// ... (我將它們全部貼在下面以保證完整性)
+async function saveChangesToCloud() {
+  statusText.value = '儲存中...'
+  try {
+    const promises = []
+    for (const [date, dailyRecord] of weekScheduleRecords.value.entries()) {
+      const dataToSave = {
+        date: date,
+        schedule: dailyRecord.schedule || {},
+        names: dailyRecord.names || {},
+      }
 
+      // 獲取雲端記錄的 ID，如果它之前存在的話
+      const docId =
+        dailyRecord.id || (await schedulesApi.fetchAll([where('date', '==', date)]))[0]?.id
+
+      if (docId) {
+        if (
+          Object.keys(dataToSave.schedule).length > 0 ||
+          Object.keys(dataToSave.names).length > 0
+        ) {
+          promises.push(schedulesApi.update(docId, dataToSave))
+        } else {
+          promises.push(schedulesApi.delete(docId))
+        }
+      } else if (Object.keys(dataToSave.schedule).length > 0) {
+        promises.push(schedulesApi.save(dataToSave))
+      }
+    }
+
+    await Promise.all(promises)
+
+    // 廣播事件
+    for (const date of weekScheduleRecords.value.keys()) {
+      const updateEvent = new CustomEvent('schedule-updated', { detail: { date } })
+      window.dispatchEvent(updateEvent)
+    }
+
+    hasUnsavedChanges.value = false
+    statusText.value = '變更已儲存！'
+
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '週排班已成功儲存！'
+    isAlertDialogVisible.value = true
+  } catch (error) {
+    console.error('儲存失敗:', error)
+    statusText.value = '儲存失敗'
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `儲存失敗：${error.message}`
+    isAlertDialogVisible.value = true
+  }
+}
+
+function handleScheduleUpdate(event) {
+  const { date } = event.detail
+  if (weekDates.value.some((d) => d.queryDate === date)) {
+    console.log(`WeeklyView 收到 ${date} 的更新通知，將重新載入整週資料以確保同步。`)
+    loadAllData()
+  }
+}
+
+onMounted(() => {
+  loadAllData()
+  window.addEventListener('schedule-updated', handleScheduleUpdate)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('schedule-updated', handleScheduleUpdate)
+})
+
+function onDrop(event, targetSlotId) {
+  event.preventDefault()
+  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+
+  const itemToDrop = draggedItem.value
+  if (!itemToDrop) return
+
+  const targetSlotData = weekScheduleMap.value[targetSlotId]
+  if (targetSlotData && targetSlotData.patientId) {
+    console.warn('目標位置非空，操作取消。')
+    draggedItem.value = null
+    return
+  }
+
+  handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
+
+  if (itemToDrop.source !== 'sidebar') {
+    handleSlotUpdate(itemToDrop.source, null)
+  }
+
+  draggedItem.value = null
+}
+// ... 其他所有函式保持原樣，貼在下方 ...
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentWeekStartDate.value)
@@ -406,62 +507,6 @@ function handleConflictCancel() {
   confirmAction.value = null
 }
 
-async function saveChangesToCloud() {
-  statusText.value = '儲存中...'
-  try {
-    const promises = []
-    for (const [date, dailyRecord] of weekScheduleRecords.value.entries()) {
-      const existingRecords = await schedulesApi.fetchAll([where('date', '==', date)])
-      const existingRecord = existingRecords.length > 0 ? existingRecords[0] : null
-
-      const mergedSchedule = { ...(existingRecord?.schedule || {}), ...dailyRecord.schedule }
-
-      for (const key in mergedSchedule) {
-        if (!mergedSchedule[key] || !mergedSchedule[key].patientId) {
-          delete mergedSchedule[key]
-        }
-      }
-
-      const dataToSave = {
-        date: date,
-        schedule: mergedSchedule,
-        names: dailyRecord.names || existingRecord?.names || {},
-      }
-
-      if (existingRecord?.id) {
-        if (
-          Object.keys(dataToSave.schedule).length > 0 ||
-          Object.keys(dataToSave.names).length > 0
-        ) {
-          promises.push(schedulesApi.update(existingRecord.id, dataToSave))
-        } else {
-          promises.push(schedulesApi.delete(existingRecord.id))
-        }
-      } else if (Object.keys(dataToSave.schedule).length > 0) {
-        promises.push(schedulesApi.save(dataToSave))
-      }
-    }
-
-    await Promise.all(promises)
-
-    hasUnsavedChanges.value = false
-    statusText.value = '變更已儲存！'
-
-    // 為了更好的使用者體驗，彈出提示後再刷新
-    alertDialogTitle.value = '操作成功'
-    alertDialogMessage.value = '週排班已成功儲存！'
-    isAlertDialogVisible.value = true
-
-    // await loadAllData(); //可以選擇在提示後刷新，或者不刷新
-  } catch (error) {
-    console.error('儲存失敗:', error)
-    statusText.value = '儲存失敗'
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = `儲存失敗：${error.message}`
-    isAlertDialogVisible.value = true
-  }
-}
-
 function runScheduleCheck() {
   const patientsToCheck = allPatients.value.filter(
     (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
@@ -601,29 +646,6 @@ function onSidebarDragStart(event, patient) {
   event.dataTransfer.effectAllowed = 'move'
 }
 
-function onDrop(event, targetSlotId) {
-  event.preventDefault()
-  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
-
-  const itemToDrop = draggedItem.value
-  if (!itemToDrop) return
-
-  const targetSlotData = weekScheduleMap.value[targetSlotId]
-  if (targetSlotData && targetSlotData.patientId) {
-    console.warn('目標位置非空，操作取消。')
-    draggedItem.value = null
-    return
-  }
-
-  handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
-
-  if (itemToDrop.source !== 'sidebar') {
-    handleSlotUpdate(itemToDrop.source, null)
-  }
-
-  draggedItem.value = null
-}
-
 function onDragOver(event) {
   event.preventDefault()
   const targetCell = event.target.closest('.schedule-cell')
@@ -641,8 +663,6 @@ function onDragLeave(event) {
     targetCell.classList.remove('drag-over')
   }
 }
-
-onMounted(loadAllData)
 </script>
 
 <template>
