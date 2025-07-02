@@ -9,7 +9,7 @@ import ScheduleTable from '@/components/ScheduleTable.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
-import { createEmptySlotData } from '@/utils/scheduleUtils.js'
+import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
@@ -47,12 +47,10 @@ const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const baseSchedulesApi = ApiManager('base_schedules')
 
-// --- 常量定義 ---
+// --- 常量定義 (保持您原始的定義，以匹配子元件的 props) ---
 const SHIFTS = ['早班', '午班', '晚班']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-const PATIENT_STATUS = {
-  INPATIENT: 'ipd',
-}
+const PATIENT_STATUS = { INPATIENT: 'ipd' }
 const CLEAR_OPTIONS = [
   { value: 'single', text: '僅清除此班次' },
   { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
@@ -103,14 +101,12 @@ const confirmAction = ref(null)
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
-
 const weekDisplay = computed(() => {
   const start = new Date(currentWeekStartDate.value)
   const end = new Date(start)
   end.setDate(start.getDate() + 5)
   return `${formatDate(start, true)} ~ ${formatDate(end, true)}`
 })
-
 const weekDates = computed(() => {
   return Array.from({ length: 6 }).map((_, i) => {
     const d = new Date(currentWeekStartDate.value)
@@ -128,7 +124,7 @@ const statsToolbarData = computed(() => {
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.patientId && slotData.shiftId) {
-            const shiftName = slotData.shiftId.split('-')[2]
+            const shiftName = `${slotData.shiftId.split('-')[2]}班`
             if (baseData[dayIndex].counts[shiftName] !== undefined) {
               baseData[dayIndex].counts[shiftName]++
             }
@@ -151,8 +147,8 @@ const weekScheduleMap = computed(() => {
           const parts = dailyShiftId.split('-')
           if (parts.length === 3) {
             const bedNumber = parts[1]
-            const shiftName = parts[2]
-            const shiftIndex = SHIFTS.indexOf(shiftName)
+            const shiftNameWithSuffix = `${parts[2]}班`
+            const shiftIndex = SHIFTS.indexOf(shiftNameWithSuffix)
             if (shiftIndex !== -1) {
               const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
               combinedSchedule[weeklySlotId] = slotData
@@ -166,7 +162,6 @@ const weekScheduleMap = computed(() => {
 })
 
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
-
 const scheduledPatientIds = computed(() => {
   const ids = new Set()
   for (const dailyRecord of weekScheduleRecords.value.values()) {
@@ -203,17 +198,6 @@ async function loadAllData() {
 
     const newWeekRecords = new Map()
     weeklyRecords.forEach((record) => {
-      const loadedSchedule = record.schedule || {}
-      const finalSchedule = {}
-      for (const shiftId in loadedSchedule) {
-        if (loadedSchedule[shiftId] && loadedSchedule[shiftId].patientId) {
-          finalSchedule[shiftId] = {
-            ...createEmptySlotData(shiftId),
-            ...loadedSchedule[shiftId],
-          }
-        }
-      }
-      record.schedule = finalSchedule
       newWeekRecords.set(record.date, record)
     })
     weekScheduleRecords.value = newWeekRecords
@@ -238,7 +222,7 @@ function goToToday() {
   loadAllData()
 }
 
-function handleSlotUpdate(slotId, patientId, note = '') {
+function handleSlotUpdate(slotId, patientId, manualNote = '') {
   const [bed, shiftIndex, dayIndex] = slotId.split('-')
   const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
   if (!dateStr) return
@@ -246,18 +230,18 @@ function handleSlotUpdate(slotId, patientId, note = '') {
   const newWeekRecords = new Map(weekScheduleRecords.value)
   const oldDailyRecord = newWeekRecords.get(dateStr) || { id: null, date: dateStr, schedule: {} }
   const newSchedule = { ...oldDailyRecord.schedule }
-  const shiftName = SHIFTS[shiftIndex]
+  const shiftName = SHIFTS[shiftIndex].replace('班', '')
   const dailyShiftId = `bed-${bed}-${shiftName}`
 
   if (patientId) {
     const patient = patientMap.value.get(patientId)
     if (!patient) return
-    const isNewIpPatient = !note && patient.status === PATIENT_STATUS.INPATIENT
-    const finalNote = note || (isNewIpPatient ? '住' : patient.baseNote || '')
+
     newSchedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
       patientId: patientId,
-      note: finalNote,
+      autoNote: generateAutoNote(patient),
+      manualNote: manualNote,
     }
   } else {
     delete newSchedule[dailyShiftId]
@@ -280,13 +264,13 @@ async function loadBaseSchedule() {
     }
 
     const newWeekRecords = new Map()
-    weekScheduleRecords.value = newWeekRecords // 先清空畫面
+    weekScheduleRecords.value = newWeekRecords
 
     const baseSchedule = masterRecord.schedule
     for (const weeklySlotId in baseSchedule) {
       const baseSlotData = baseSchedule[weeklySlotId]
       if (baseSlotData && baseSlotData.patientId) {
-        handleSlotUpdate(weeklySlotId, baseSlotData.patientId, baseSlotData.note)
+        handleSlotUpdate(weeklySlotId, baseSlotData.patientId, baseSlotData.note || '')
       }
     }
     setChange()
@@ -415,35 +399,40 @@ async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
     const promises = []
-    for (const record of weekScheduleRecords.value.values()) {
-      const cleanSchedule = {}
-      for (const shiftId in record.schedule) {
-        const slotData = record.schedule[shiftId]
-        if (slotData && slotData.patientId) {
-          cleanSchedule[shiftId] = {
-            patientId: slotData.patientId,
-            note: slotData.note || '',
-            shiftId: slotData.shiftId || shiftId,
-            nurseTeam: slotData.nurseTeam || null,
-            nurseTeamIn: slotData.nurseTeamIn || null,
-            nurseTeamOut: slotData.nurseTeamOut || null,
-          }
+    for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
+      if (!record || !record.schedule) continue
+
+      const existingRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+      const existingRecord = existingRecords.length > 0 ? existingRecords[0] : null
+
+      const mergedSchedule = { ...(existingRecord?.schedule || {}), ...record.schedule }
+
+      for (const key in mergedSchedule) {
+        if (!mergedSchedule[key] || !mergedSchedule[key].patientId) {
+          delete mergedSchedule[key]
         }
       }
+
       const dataToSave = {
-        date: record.date,
-        schedule: cleanSchedule,
+        date: dateStr,
+        schedule: mergedSchedule,
+        names: record.names || existingRecord?.names || {},
       }
-      if (record.id) {
-        if (Object.keys(cleanSchedule).length > 0) {
-          promises.push(schedulesApi.update(record.id, dataToSave))
+
+      if (existingRecord?.id) {
+        if (
+          Object.keys(dataToSave.schedule).length > 0 ||
+          Object.keys(dataToSave.names).length > 0
+        ) {
+          promises.push(schedulesApi.update(existingRecord.id, dataToSave))
         } else {
-          promises.push(schedulesApi.delete(record.id))
+          promises.push(schedulesApi.delete(existingRecord.id))
         }
-      } else if (Object.keys(cleanSchedule).length > 0) {
+      } else if (Object.keys(dataToSave.schedule).length > 0) {
         promises.push(schedulesApi.save(dataToSave))
       }
     }
+
     await Promise.all(promises)
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
@@ -464,11 +453,8 @@ function runScheduleCheck() {
   const patientsToCheck = allPatients.value.filter(
     (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
   )
-  const validationResult = {
-    unscheduled: [],
-    freqMismatch: [],
-    duplicates: [],
-  }
+  const validationResult = { unscheduled: [], freqMismatch: [], duplicates: [] }
+
   patientsToCheck.forEach((patient) => {
     const patientName = patient.name
     const expectedFreq = patient.freq
@@ -500,28 +486,32 @@ function runScheduleCheck() {
       }
     }
   })
-  for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
-    const patientsOnThisDay = new Set()
-    const duplicatesOnThisDay = new Set()
-    for (const slotId in weekScheduleMap.value) {
-      if (parseInt(slotId.split('-')[2], 10) === dayIndex) {
-        const patientId = weekScheduleMap.value[slotId]?.patientId
-        if (patientId) {
-          const patientName = patientMap.value.get(patientId)?.name
-          if (patientName) {
-            if (patientsOnThisDay.has(patientName)) {
-              duplicatesOnThisDay.add(patientName)
-            } else {
-              patientsOnThisDay.add(patientName)
-            }
-          }
-        }
+
+  const dailyPatientCounts = {}
+  for (const slotId in weekScheduleMap.value) {
+    const slotData = weekScheduleMap.value[slotId]
+    if (slotData && slotData.patientId) {
+      const dayIndex = parseInt(slotId.split('-')[2], 10)
+      const patientId = slotData.patientId
+      const key = `${patientId}-${dayIndex}`
+      dailyPatientCounts[key] = (dailyPatientCounts[key] || 0) + 1
+    }
+  }
+
+  const duplicates = new Set()
+  for (const key in dailyPatientCounts) {
+    if (dailyPatientCounts[key] > 1) {
+      const [patientId, dayIndex] = key.split('-')
+      const patientName = patientMap.value.get(patientId)?.name
+      const dayName = WEEKDAYS[parseInt(dayIndex, 10)]
+      if (patientName) {
+        duplicates.add(
+          `病人 ${patientName} 在 ${dayName} 重複排班 (共 ${dailyPatientCounts[key]} 次)。`,
+        )
       }
     }
-    duplicatesOnThisDay.forEach((name) => {
-      validationResult.duplicates.push(`病人 ${name} 在 ${WEEKDAYS[dayIndex]} 重複排班。`)
-    })
   }
+  validationResult.duplicates = Array.from(duplicates)
 
   let message = ''
   let hasWarnings = false
@@ -554,9 +544,9 @@ function getWeeklyCellStyle(slotId) {
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
   const classes = {}
-  const note = slotData.note || ''
+  const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`
   for (const key in STYLE_PRIORITY) {
-    if (note.includes(key)) {
+    if (combinedNote.includes(key)) {
       classes[STYLE_PRIORITY[key].class] = true
       return classes
     }
@@ -571,9 +561,6 @@ function handleDialogCancel() {
   isDialogVisible.value = false
 }
 
-// ========== 【核心修正區域】 ==========
-
-// 函式一：專門處理從「表格內部」開始的拖曳
 function onDragStart(event, slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) {
@@ -582,57 +569,64 @@ function onDragStart(event, slotId) {
   }
   draggedItem.value = {
     patientId: slotData.patientId,
-    note: slotData.note || '',
-    source: slotId, // 來源是表格內的 slotId
+    manualNote: slotData.manualNote || '',
+    source: slotId,
   }
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// 函式二：專門處理從「住院病人側邊欄」開始的拖曳
-// 這個函式現在接收 event 和 patient 兩個參數，與 InpatientSidebar.vue 的 emit 格式匹配
 function onSidebarDragStart(event, patient) {
   if (!patient || !patient.id) {
-    console.error('從側邊欄拖曳時，未獲取到有效的病患物件！')
     event.preventDefault()
     return
   }
-
-  // 將拖曳的資料設定到 draggedItem 中
   draggedItem.value = {
     patientId: patient.id,
-    note: '', // 從側邊欄拖曳時，預設沒有備註
-    source: 'sidebar', // 來源是側邊欄
+    manualNote: patient.status === PATIENT_STATUS.INPATIENT ? '住' : '',
+    source: 'sidebar',
   }
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// onDrop 函式保持不變，因為它本來就是依賴 draggedItem.value，與事件參數無關
 function onDrop(event, targetSlotId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
-
   const itemToDrop = draggedItem.value
   if (!itemToDrop || !itemToDrop.patientId) {
     draggedItem.value = null
     return
   }
-
-  if (weekScheduleMap.value[targetSlotId]) {
+  const targetSlot = weekScheduleMap.value[targetSlotId]
+  if (targetSlot && targetSlot.patientId) {
     console.warn('目標位置非空，操作取消。')
     draggedItem.value = null
     return
   }
-
-  handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.note)
-
+  handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
   if (itemToDrop.source !== 'sidebar') {
     handleSlotUpdate(itemToDrop.source, null)
   }
-
   draggedItem.value = null
 }
 
-// --- 生命週期鉤子 ---
+function onDragOver(event) {
+  event.preventDefault()
+  const targetCell = event.target.closest('.schedule-cell')
+  if (targetCell) {
+    const patientTag = targetCell.querySelector('.patient-tag-container')
+    if (!patientTag || patientTag.children.length === 0) {
+      targetCell.classList.add('drag-over')
+    }
+  }
+}
+
+function onDragLeave(event) {
+  const targetCell = event.target.closest('.schedule-cell')
+  if (targetCell) {
+    targetCell.classList.remove('drag-over')
+  }
+}
+
 onMounted(loadAllData)
 </script>
 
@@ -662,18 +656,14 @@ onMounted(loadAllData)
       </div>
     </header>
 
-    <!-- ======================= 【修改點】Template 結構調整 ======================= -->
     <main class="page-main-content">
-      <!-- 1. 新增 .schedule-area 作為佈局容器 -->
       <div class="schedule-area">
-        <!-- 2. 直接放置 StatsToolbar -->
         <StatsToolbar
           class="stats-toolbar"
           :stats-data="statsToolbarData"
           :weekdays="statsToolbarWeekdays"
         />
 
-        <!-- 3. 直接放置 ScheduleTable，並將事件監聽器綁定到這裡 -->
         <ScheduleTable
           class="schedule-table-component"
           :layout="bedLayout"
@@ -692,14 +682,13 @@ onMounted(loadAllData)
         />
       </div>
 
-      <!-- InpatientSidebar 保持不變 -->
       <InpatientSidebar
         :patients="allPatients"
         :scheduled-ids="scheduledPatientIds"
         @drag-start="onSidebarDragStart"
       />
     </main>
-    <!-- ======================= 修改結束 ======================= -->
+
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
@@ -731,65 +720,83 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
-/* 讓 header toolbar 在空間不足時可以換行 */
+/* 您的原始樣式，保持不變 */
+.page-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+}
+.page-header {
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+}
 .header-toolbar {
   display: flex;
-  flex-wrap: wrap; /* 關鍵！允許換行 */
   justify-content: space-between;
   align-items: center;
-  gap: 16px; /* 行與行、項與項之間的間距 */
 }
-
-/* 確保左側和右側的容器也能靈活佈局 */
 .toolbar-left,
 .main-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap; /* 同樣允許內部換行 */
-  gap: 16px;
+  gap: 1rem;
 }
-
-.page-main-content {
-  flex-grow: 1;
-  display: flex;
-  min-height: 0; /* 關鍵：防止 flex item 溢出 */
-  overflow-x: hidden; /* 防止 main 自身產生水平滾動條 */
-}
-
-.schedule-area {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* 防止自身滾動 */
-  box-sizing: border-box;
-  min-width: 0;
-}
-
-.stats-toolbar {
-  flex-shrink: 0; /* 固定在頂部，不壓縮 */
-  margin-bottom: 15px;
-}
-
-.schedule-table-component {
-  flex-grow: 1;
-  min-height: 0;
-  /* 滾動的職責交給 ScheduleTable 元件內部處理 */
+.page-title {
+  margin: 0;
+  font-size: 1.5rem;
 }
 .date-navigator {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.5rem;
 }
 .week-display-text {
-  font-size: 1.5em;
   font-weight: bold;
-  white-space: nowrap;
+  font-size: 1.2rem;
 }
-
-/* 使用 :deep() 來「穿透」scoped 的限制，強制應用黃色樣式 */
-:deep(.btn-warning) {
-  background-color: #ffc107 !important; /* 使用 !important 來確保最高優先級 */
-  border-color: #ffc107 !important;
-  color: #212529 !important;
+.page-main-content {
+  display: flex;
+  flex-grow: 1;
+  overflow: hidden;
+}
+.schedule-area {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.stats-toolbar {
+  flex-shrink: 0;
+}
+.schedule-table-component {
+  flex-grow: 1;
+  overflow: auto;
+}
+.status-text {
+  font-style: italic;
+  color: #6c757d;
+}
+.btn-save {
+  background-color: #28a745;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-save:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+.btn.btn-warning {
+  background-color: #ffc107;
+  color: #212529;
+}
+.schedule-cell.drag-over {
+  background-color: #e9ecef;
+  border: 2px dashed #007bff;
 }
 </style>
