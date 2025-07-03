@@ -492,12 +492,32 @@ function getCombinedNote(shiftId) {
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
+
+  const patient = patientMap.value.get(slotData.patientId)
   const combinedNote = getCombinedNote(shiftId)
+
+  // 1. 特殊標籤優先
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
+      // 在每日排程中，'住' 和 '隔' 等標籤通常表示住院，
+      // 我們可以讓它直接套用住院顏色，而不是 tag-ip 自己的顏色
+      if (key === '住' || key === '隔' || key === 'R') {
+        return { 'status-ipd': true }
+      }
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
+
+  // 2. 根據病人狀態設定背景色
+  if (patient) {
+    if (patient.status === 'ipd') {
+      return { 'status-ipd': true }
+    }
+    if (patient.status === 'opd') {
+      return { 'status-opd': true }
+    }
+  }
+
   return {}
 }
 
@@ -1075,18 +1095,31 @@ watch(currentDate, (newDate, oldDate) => {
 }
 
 /* --- ↓↓↓ 關鍵修正處 ↓↓↓ --- */
+/* --- ↓↓↓ 顏色規則核心 (新增) ↓↓↓ --- */
+/* 優先級 1: 病人狀態 (門診/住院) */
+.shift-row.status-opd,
+.peripheral-shift-row.status-opd {
+  background-color: var(--green-bg, #e8f5e9); /* 門診綠 */
+}
+.shift-row.status-ipd,
+.peripheral-shift-row.status-ipd {
+  background-color: var(--red-bg, #ffebee); /* 住院紅 */
+}
+
+/* 優先級 2: 特殊標籤 (會覆蓋上面的狀態顏色) */
 /* 使用群組選擇器，讓主床位和外圍床位共用顏色規則 */
 .shift-row.tag-ip,
 .peripheral-shift-row.tag-ip {
+  /* 這個規則現在可以被 status-ipd 取代，但保留也無妨 */
   background-color: #ffebee; /* 住 */
 }
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou {
-  background-color: #e3f2fd; /* 抽 */
+  background-color: #86a0fc; /* 抽 */
 }
 .shift-row.tag-new,
 .peripheral-shift-row.tag-new {
-  background-color: #fffde7; /* 新 */
+  background-color: #f5ec8e; /* 新 */
 }
 .shift-row.tag-huan,
 .peripheral-shift-row.tag-huan {

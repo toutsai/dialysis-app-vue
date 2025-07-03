@@ -641,18 +641,30 @@ function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
 
+  const patient = patientMap.value.get(slotData.patientId)
   const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
 
+  // 優先級 1: 特殊標籤
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
+      // 如果是代表住院的標籤，直接套用住院顏色，體驗更統一
+      if (key === '住' || key === '隔' || key === 'R') {
+        return { 'status-ipd': true }
+      }
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
 
-  const patient = patientMap.value.get(slotData.patientId)
-  if (patient && patient.status === PATIENT_STATUS.INPATIENT) {
-    return { 'tag-ip': true }
+  // 優先級 2: 病人狀態 (住院/門診)
+  if (patient) {
+    if (patient.status === 'ipd') {
+      return { 'status-ipd': true } // 住院紅
+    }
+    if (patient.status === 'opd') {
+      return { 'status-opd': true } // 門診綠
+    }
   }
+
   return {}
 }
 
@@ -800,7 +812,6 @@ function onDragLeave(event) {
 }
 .page-header {
   border-bottom: 1px solid #dee2e6;
-  padding: 1rem;
 }
 .header-toolbar {
   display: flex;
@@ -839,7 +850,6 @@ function onDragLeave(event) {
 }
 .stats-toolbar {
   flex-shrink: 0;
-  padding: 0 1rem;
 }
 .schedule-table-component {
   flex-grow: 1;
@@ -865,6 +875,38 @@ function onDragLeave(event) {
   background-color: #ffc107;
   color: #212529;
 }
+/* --- ↓↓↓ 顏色規則核心 (同步自 ScheduleView) ↓↓↓ --- */
+/* 使用 :deep() 選擇器確保樣式能作用於 ScheduleTable 子元件內的 .schedule-slot */
+
+/* 優先級 1: 病人狀態 (門診/住院) */
+:deep(.schedule-slot.status-opd) {
+  background-color: var(--green-bg, #e8f5e9); /* 門診綠 */
+}
+:deep(.schedule-slot.status-ipd) {
+  background-color: var(--red-bg, #ffebee); /* 住院紅 */
+}
+
+/* 優先級 2: 特殊標籤 (會覆蓋上面的狀態顏色) */
+:deep(.schedule-slot.tag-ip) {
+  background-color: #ffebee; /* 住 */
+}
+:deep(.schedule-slot.tag-chou) {
+  background-color: #86a0fc; /* 抽 */
+}
+:deep(.schedule-slot.tag-new) {
+  background-color: #f5ec8e; /* 新 */
+}
+:deep(.schedule-slot.tag-huan) {
+  background-color: #e0f7fa; /* 換 */
+}
+:deep(.schedule-slot.tag-liang) {
+  background-color: #fff3e0; /* 兩 */
+}
+:deep(.schedule-slot.tag-b) {
+  background-color: #fff9c4; /* B */
+}
+
+/* 拖曳時的目標格子樣式 */
 .schedule-slot.drag-over {
   background-color: #e9ecef;
   border: 2px dashed #007bff;

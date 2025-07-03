@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (Ref: feature/global-bed-finder 最終整合版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (Ref: feature/global-bed-finder 最終修正版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -9,13 +9,12 @@ import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleCo
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 
 // 2. 引入所有需要的元件
-// import PatientSelectDialog from '@/components/PatientSelectDialog.vue' // 【移除】舊的Dialog不再需要
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue' // 新的智慧排班 Dialog
+import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
@@ -58,8 +57,6 @@ const statusText = ref('')
 const draggedItem = ref(null)
 
 // --- UI 狀態 ---
-// const isDialogVisible = ref(false) // 【移除】
-// const currentSlotId = ref(null) // 【移除】
 const isClearDialogVisible = ref(false)
 const clearingSlotId = ref(null)
 const CLEAR_OPTIONS = [
@@ -115,13 +112,17 @@ async function loadAllData() {
       baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
     ])
     allOpdPatients.value = patients
+    // 建立一個臨時的 patientMap 以提高後續查找效率
+    const tempPatientMap = new Map(patients.map((p) => [p.id, p]))
+
     if (baseScheduleDoc) {
       const loadedSchedule = baseScheduleDoc.schedule || {}
       const finalSchedule = {}
       for (const slotId in loadedSchedule) {
         const dbSlotData = loadedSchedule[slotId]
-        if (dbSlotData && dbSlotData.patientId) {
-          const patient = patientMap.value.get(dbSlotData.patientId)
+        // 增加檢查，確保排程中的病人ID存在於當前的門診病人列表中
+        if (dbSlotData && dbSlotData.patientId && tempPatientMap.has(dbSlotData.patientId)) {
+          const patient = tempPatientMap.get(dbSlotData.patientId)
           const standardSlot = createEmptySlotData(slotId)
           if (patient) {
             standardSlot.autoNote = generateAutoNote(patient)
@@ -285,20 +286,15 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   setChange()
 }
 
-// 【修改】handleGridClick 現在只處理兩種情況
 function handleGridClick(slotId) {
   const patientId = masterRecord.value.schedule[slotId]?.patientId
   if (patientId) {
-    // 點擊有人的格子 -> 跳出清除選項
     clearingSlotId.value = slotId
     isClearDialogVisible.value = true
   } else {
-    // 點擊空格子 -> 直接打開智慧排班助理
     isAssignmentDialogVisible.value = true
   }
 }
-
-// 【移除】handlePatientSelect不再需要，其功能已被handleAssignBed取代
 
 function handleClearSelect(selectedValue) {
   if (!clearingSlotId.value) return
@@ -321,9 +317,6 @@ function handleClearSelect(selectedValue) {
   clearingSlotId.value = null
 }
 
-// 【移除】handleDialogCancel不再需要
-// function handleDialogCancel() { isDialogVisible.value = false }
-
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -335,24 +328,39 @@ function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
+
 function getBaseCellStyle(slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
+
+  const patient = patientMap.value.get(slotData.patientId)
   const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
+
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
+
+  if (patient) {
+    if (patient.status === 'ipd') {
+      return { 'status-ipd': true }
+    }
+    if (patient.status === 'opd') {
+      return { 'status-opd': true }
+    }
+  }
+
   return {}
 }
+
 function onDragStart(event, slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
-  draggedItem.value = slotData
+  draggedItem.value = { ...slotData, sourceSlotId: slotId }
   event.dataTransfer.effectAllowed = 'move'
 }
 function onDrop(event, targetSlotId) {
@@ -366,13 +374,9 @@ function onDrop(event, targetSlotId) {
     return
   }
   const newSchedule = { ...masterRecord.value.schedule }
-  newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId }
-  const sourceSlotId = Object.keys(newSchedule).find(
-    (key) => newSchedule[key].patientId === itemToDrop.patientId && key !== targetSlotId,
-  )
-  if (sourceSlotId) {
-    delete newSchedule[sourceSlotId]
-  }
+  newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId, sourceSlotId: undefined }
+  delete newSchedule[itemToDrop.sourceSlotId]
+
   masterRecord.value.schedule = newSchedule
   setChange()
   draggedItem.value = null
@@ -429,7 +433,7 @@ onMounted(loadAllData)
 
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
-      :all-opd-patients="allOpdPatients"
+      :all-patients="allOpdPatients"
       :bed-layout="bedLayout"
       :schedule-data="masterRecord.schedule"
       :shifts="SHIFTS"
@@ -437,17 +441,6 @@ onMounted(loadAllData)
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
-
-    <!-- 【移除】PatientSelectDialog 不再被此視圖直接使用 -->
-    <!--
-    <PatientSelectDialog
-      :is-visible="isDialogVisible"
-      title="選擇門診病人"
-      :patients="allOpdPatients"
-      @confirm="handlePatientSelect"
-      @cancel="handleDialogCancel"
-    />
-    -->
 
     <SelectionDialog
       :is-visible="isClearDialogVisible"
@@ -568,5 +561,31 @@ onMounted(loadAllData)
 .schedule-table-component {
   flex-grow: 1;
   min-height: 0;
+}
+
+/* 顏色樣式 */
+:deep(.schedule-slot.status-opd) {
+  background-color: var(--green-bg, #e8f5e9);
+}
+:deep(.schedule-slot.status-ipd) {
+  background-color: var(--red-bg, #ffebee);
+}
+:deep(.schedule-slot.status-biweekly) {
+  background-color: var(--orange-bg, #fff3e0);
+}
+:deep(.schedule-slot.tag-chou) {
+  background-color: #e3f2fd;
+}
+:deep(.schedule-slot.tag-new) {
+  background-color: #fffde7;
+}
+:deep(.schedule-slot.tag-huan) {
+  background-color: #e0f7fa;
+}
+:deep(.schedule-slot.tag-liang) {
+  background-color: #fff3e0;
+}
+:deep(.schedule-slot.tag-b) {
+  background-color: #fff9c4;
 }
 </style>
