@@ -1,7 +1,7 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (重構版 - 完整無省略) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (Ref: feature/patient-data-lifecycle) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { deleteField } from 'firebase/firestore'
+import { deleteField, where } from 'firebase/firestore' // 【新增】引入 where
 import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
@@ -76,19 +76,21 @@ async function fetchAllPatients() {
   }
 }
 
-// 3. 【新增】清理臨時排班資料的函式
-async function clearPatientTemporaryScheduleData(patientId) {
+// 3. 【修改】清理或刪除臨時排班資料的函式
+async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
+  // 新增 mode 參數，預設為 'clear'
   if (!patientId) return
 
   try {
-    console.log(`開始為病人 ${patientId} 清理臨時排班資料...`)
-    // 為了安全和效能，我們只清理從今天開始的排班資料
+    const actionText = mode === 'delete' ? '刪除' : '清理'
+    console.log(`開始為病人 ${patientId} ${actionText} 未來排班資料...`)
+
+    // 為了安全和效能，我們只處理從今天開始的排班資料
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const todayStr = today.toISOString().split('T')[0]
 
-    // Firestore `where` 查詢需要索引，如果沒有，這裡可能會報錯或很慢。
-    // 在 production 環境，請確保 `schedules` 集合的 `date` 欄位有建立索引。
+    // Firestore `where` 查詢需要索引。
     const futureScheduleDocs = await schedulesApi.fetchAll([where('date', '>=', todayStr)])
 
     const updatePromises = []
@@ -97,32 +99,43 @@ async function clearPatientTemporaryScheduleData(patientId) {
       let isModified = false
       const newSchedule = { ...doc.schedule }
 
-      for (const shiftId in newSchedule) {
+      // 使用 Object.keys 迭代以安全地刪除屬性
+      const shiftIds = Object.keys(newSchedule)
+      for (const shiftId of shiftIds) {
         if (newSchedule[shiftId]?.patientId === patientId) {
           isModified = true
-          // 清空臨時資料
-          newSchedule[shiftId].manualNote = ''
-          newSchedule[shiftId].nurseTeam = null
-          newSchedule[shiftId].nurseTeamIn = null
-          newSchedule[shiftId].nurseTeamOut = null
+          if (mode === 'delete') {
+            // 【刪除模式】: 直接從 schedule map 中移除整個排程格子
+            delete newSchedule[shiftId]
+            console.log(`在 ${doc.date} 的排程中，準備刪除病人 ${patientId} 的班次 ${shiftId}`)
+          } else {
+            // 【清理模式】: 清空臨時資料，但保留 patientId
+            newSchedule[shiftId].manualNote = ''
+            newSchedule[shiftId].nurseTeam = null
+            newSchedule[shiftId].nurseTeamIn = null
+            newSchedule[shiftId].nurseTeamOut = null
+            console.log(`在 ${doc.date} 的排程中，準備清理病人 ${patientId} 的班次 ${shiftId}`)
+          }
         }
       }
 
       if (isModified) {
-        console.log(`在日期 ${doc.date} 的排程中找到病人 ${patientId}，準備更新...`)
         updatePromises.push(schedulesApi.update(doc.id, { schedule: newSchedule }))
       }
     }
 
     if (updatePromises.length > 0) {
       await Promise.all(updatePromises)
-      console.log(`成功為病人 ${patientId} 清理了 ${updatePromises.length} 天的未來臨時排班資料。`)
+      console.log(
+        `成功為病人 ${patientId} ${actionText}了 ${updatePromises.length} 天的未來排班資料。`,
+      )
     } else {
-      console.log(`未在未來排程中找到病人 ${patientId} 的臨時資料可供清理。`)
+      console.log(`未在未來排程中找到病人 ${patientId} 的資料可供${actionText}。`)
     }
   } catch (error) {
-    console.error(`為病人 ${patientId} 清理臨時排班資料時發生錯誤:`, error)
-    alert(`為病人清理排班資料時發生錯誤，請手動檢查排班表！`)
+    const actionText = mode === 'delete' ? '刪除' : '清理'
+    console.error(`為病人 ${patientId} ${actionText}排班資料時發生錯誤:`, error)
+    alert(`為病人${actionText}排班資料時發生錯誤，請手動檢查排班表！`)
   }
 }
 
@@ -168,8 +181,8 @@ async function transferPatient(patientId, newStatus) {
     try {
       await patientApi.update(patientId, { status: newStatus })
 
-      // 5. 調用清理函式
-      await clearPatientTemporaryScheduleData(patientId)
+      // 5. 調用清理函式 (使用預設的 'clear' 模式)
+      await clearPatientTemporaryScheduleData(patientId, 'clear')
 
       await fetchAllPatients()
     } catch (error) {
@@ -190,8 +203,8 @@ async function handleDeleteReasonSelected(reason) {
         deletedAt: new Date().toISOString(),
       })
 
-      // 6. 調用清理函式
-      await clearPatientTemporaryScheduleData(patientToDeleteId.value)
+      // 6. 調用清理函式，並傳入 'delete' 模式，徹底移除未來排程
+      await clearPatientTemporaryScheduleData(patientToDeleteId.value, 'delete')
 
       await fetchAllPatients()
     }
