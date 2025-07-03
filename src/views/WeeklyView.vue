@@ -229,34 +229,48 @@ async function loadAllData() {
 }
 
 function handleSlotUpdate(weeklySlotId, patientId, manualNote = '') {
-  const [bed, shiftIndex, dayIndex] = weeklySlotId.split('-')
-  const dateStr = weekDates.value[parseInt(dayIndex, 10)]?.queryDate
-  if (!dateStr) return
+  const [bed, shiftIndexStr, dayIndexStr] = weeklySlotId.split('-')
+  const shiftIndex = parseInt(shiftIndexStr, 10)
+  const dayIndex = parseInt(dayIndexStr, 10)
 
+  const dateStr = weekDates.value[dayIndex]?.queryDate
+  if (!dateStr) {
+    console.error(`無法找到索引 ${dayIndex} 對應的日期`)
+    return
+  }
+
+  // 確保我們操作的是當天的 record
   if (!weekScheduleRecords.value.has(dateStr)) {
     weekScheduleRecords.value.set(dateStr, { id: null, date: dateStr, schedule: {} })
   }
-
   const dailyRecord = weekScheduleRecords.value.get(dateStr)
 
   const shiftCode = SHIFTS[shiftIndex]
+  if (!shiftCode) {
+    console.error(`無法找到索引 ${shiftIndex} 對應的班別代碼`)
+    return
+  }
+
+  // 【核心修正】這裡定義出每日排程中正確的 key
   const dailyShiftId = `bed-${bed}-${shiftCode}`
 
   if (patientId) {
     const patient = patientMap.value.get(patientId)
     if (!patient) return
 
+    // 我們從 dailyRecord 中取得已有的資料，如果不存在則為空物件
     const existingSlotData = dailyRecord.schedule[dailyShiftId] || {}
 
-    // 5. 生成標準的 note 模型
+    // 建立新的 slot data，並確保內部的 shiftId 是正確的 dailyShiftId
     dailyRecord.schedule[dailyShiftId] = {
-      ...createEmptySlotData(dailyShiftId),
-      ...existingSlotData,
+      ...createEmptySlotData(dailyShiftId), // 用正確的 dailyShiftId 初始化
+      ...existingSlotData, // 覆蓋上舊資料 (如果有)
       patientId: patientId,
       autoNote: generateAutoNote(patient),
       manualNote: manualNote,
     }
   } else {
+    // 如果是清除操作，也使用正確的 key
     if (dailyRecord.schedule) {
       delete dailyRecord.schedule[dailyShiftId]
     }
