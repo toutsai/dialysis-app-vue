@@ -512,17 +512,6 @@ watch(currentDate, (newDate, oldDate) => {
     loadDataForDay(newDate)
   }
 })
-
-watch(
-  () => allPatients.value,
-  () => {
-    // 當病人列表更新後，重新整理當日排班資料以更新 autoNote
-    if (currentDate.value) {
-      loadDataForDay(currentDate.value)
-    }
-  },
-  { deep: true },
-)
 </script>
 
 <template>

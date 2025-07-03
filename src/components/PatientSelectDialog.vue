@@ -61,14 +61,15 @@ function handleConfirm() {
     alert('請先選擇一位病人！')
     return
   }
-  if (props.showFillOptions) {
-    emit('confirm', {
-      patientId: selectedPatientId.value,
-      fillType: fillType.value,
-    })
-  } else {
-    emit('confirm', selectedPatientId.value)
-  }
+
+  // 不再使用 if/else，統一 emit 一個包含 patientId 的物件
+  // 如果 showFillOptions 為 true，物件中會額外包含 fillType
+  // 如果為 false，物件中就只有 patientId，但它依然是一個物件！
+  emit('confirm', {
+    patientId: selectedPatientId.value,
+    // 只有在 showFillOptions 為 true 時，才添加 fillType 屬性
+    ...(props.showFillOptions && { fillType: fillType.value }),
+  })
 }
 
 function handleCancel() {

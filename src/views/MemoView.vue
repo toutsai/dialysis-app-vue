@@ -75,8 +75,8 @@ async function addMemo() {
   }
 }
 
-// 新增處理病人選擇的函式
-function handlePatientSelected(patientId) {
+function handlePatientSelected({ patientId }) {
+  // 【修正】使用解構賦值
   selectedPatient.value = allPatients.value.find((p) => p.id === patientId) || null
   isPatientDialogVisible.value = false
 }
