@@ -138,4 +138,8 @@ dist
 # Firebase cache files
 .firebase/
 
+# 忽略所有本地環境變數檔案
+*.local
+
+# Firebase service account key
 /serviceAccountKey.json
