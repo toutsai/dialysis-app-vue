@@ -1,4 +1,3 @@
-// 檔案路徑: src/views/ScheduleView.vue (重構版 - 完整無省略的)
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -14,10 +13,13 @@ import {
   allTeams,
 } from '@/constants/scheduleConstants.js'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
+
+// 2. 引入元件
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
-import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
+// 【新增】引入智慧排班助理
+import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 
 // --- 常量 ---
 const layoutData = {
@@ -41,6 +43,7 @@ const layoutData = {
     [1, 2, 3],
   ],
 }
+const allBedNumbers = [...layoutData.leftWingRows.flat(), ...layoutData.rightWingRows.flat()]
 const hepatitisBeds = ['空', 31, 32, 33, 35, 36]
 const aisleSideBeds = [1, 7, 8, 15, 16, 22, 23, 29, 31, 36, 37, 53, 55, 61, 62, 65]
 const peripheralBedCount = 6
@@ -75,16 +78,14 @@ const currentDate = ref(new Date())
 const allPatients = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
-const searchInput = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 const copySourceDate = ref(formatDate(new Date()))
 
 // --- UI 狀態 ---
-const isDialogVisible = ref(false)
-const currentEditingShiftId = ref(null)
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
+const isAssignmentDialogVisible = ref(false) // 【新增】控制智慧排班助理
 
 // --- Helper Functions ---
 function formatDate(date) {
@@ -100,6 +101,11 @@ const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
+// 【新增】計算星期幾 (1-7)
+const dayOfWeek = computed(() => {
+  const day = currentDate.value.getDay()
+  return day === 0 ? 7 : day
+})
 
 const statsToolbarData = computed(() => {
   const counts = { [SHIFT_CODES.EARLY]: 0, [SHIFT_CODES.NOON]: 0, [SHIFT_CODES.LATE]: 0 }
@@ -136,22 +142,25 @@ function setChange() {
 function shouldPatientBeScheduled(patient, dayOfWeek) {
   if (!patient.freq) return false
   const scheduledDays = freqToDays[patient.freq]
-  return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
+  // 星期日 (dayOfWeek=0) 特殊處理，對應到 freqToDays 的 7
+  const checkDay = dayOfWeek === 0 ? 7 : dayOfWeek
+  return scheduledDays ? scheduledDays.includes(checkDay) : false
 }
 
 function runScheduleCheck() {
   const warnings = []
   const dayOfWeek = currentDate.value.getDay()
-  const todayScheduledPatientIds = new Set()
+  const todayScheduledPatientIds = new Set(scheduledPatientIds.value)
   const duplicateNames = new Set()
 
+  let tempScheduled = {}
   Object.values(currentRecord.schedule).forEach((slot) => {
     if (slot && slot.patientId) {
-      if (todayScheduledPatientIds.has(slot.patientId)) {
+      if (tempScheduled[slot.patientId]) {
         const patientName = patientMap.value.get(slot.patientId)?.name
         if (patientName) duplicateNames.add(patientName)
       }
-      todayScheduledPatientIds.add(slot.patientId)
+      tempScheduled[slot.patientId] = true
     }
   })
 
@@ -161,9 +170,7 @@ function runScheduleCheck() {
     )
   }
 
-  const allPatientsToCheck = allPatients.value.filter(
-    (p) => !p.isDeleted && (p.status === 'opd' || p.status === 'ipd'),
-  )
+  const allPatientsToCheck = allPatients.value.filter((p) => !p.isDeleted)
   const missingPatients = allPatientsToCheck.filter((p) => {
     const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
     return shouldBeScheduled && !todayScheduledPatientIds.has(p.id)
@@ -186,7 +193,6 @@ function runScheduleCheck() {
   isAlertDialogVisible.value = true
 }
 
-// 【新增】補上缺少的 loadAllPatients 函式
 async function loadAllPatients() {
   try {
     allPatients.value = await patientsApi.fetchAll()
@@ -225,7 +231,7 @@ async function loadDataForDay(date) {
       schedule: finalSchedule,
       names: record.names || {},
     })
-    statusIndicator.value = '資料已載入'
+    statusIndicator.value = record.id ? '資料已載入' : '本日無排程'
   } catch (error) {
     console.error('載入資料失敗:', error)
     statusIndicator.value = '讀取失敗'
@@ -236,12 +242,10 @@ function changeDate(days) {
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
-  // watch 會自動觸發 loadDataForDay
 }
 
 function goToToday() {
   currentDate.value = new Date()
-  // watch 會自動觸發 loadDataForDay
 }
 
 async function saveDataToCloud() {
@@ -400,6 +404,7 @@ function onDragLeave(event) {
   event.target.closest('.patient-name')?.classList.remove('drag-over')
 }
 
+// 【修改】統一操作入口
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (slotData && slotData.patientId) {
@@ -408,22 +413,27 @@ function handleSlotClick(shiftId) {
       handleSlotUpdate(shiftId, null)
     }
   } else {
-    openPatientDialog(shiftId)
+    isAssignmentDialogVisible.value = true
   }
 }
 
-function handlePatientSelectedFromDialog({ patientId }) {
-  if (currentEditingShiftId.value && patientId) {
-    if (scheduledPatientIds.value.has(patientId)) {
-      const patient = patientMap.value.get(patientId)
-      if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
-        isDialogVisible.value = false
-        return
-      }
+// 【新增】處理來自 BedAssignmentDialog 的事件
+function handleAssignBed({ patientId, shiftId }) {
+  if (!patientId || !shiftId) return
+
+  if (scheduledPatientIds.value.has(patientId)) {
+    const patient = patientMap.value.get(patientId)
+    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
+      return
     }
-    handleSlotUpdate(currentEditingShiftId.value, patientId)
   }
-  isDialogVisible.value = false
+
+  if (currentRecord.schedule[shiftId]?.patientId) {
+    alert('錯誤：目標床位已被佔用！')
+    return
+  }
+
+  handleSlotUpdate(shiftId, patientId)
 }
 
 function handleSlotUpdate(shiftId, patientId) {
@@ -433,17 +443,12 @@ function handleSlotUpdate(shiftId, patientId) {
       ...createEmptySlotData(shiftId),
       patientId: patientId,
       autoNote: generateAutoNote(patient),
-      manualNote: '',
+      manualNote: patient.status === 'ipd' ? '住' : '',
     }
   } else {
     delete currentRecord.schedule[shiftId]
   }
   setChange()
-}
-
-function openPatientDialog(shiftId) {
-  currentEditingShiftId.value = shiftId
-  isDialogVisible.value = true
 }
 
 function updateNurseTeam(event, shiftId, type) {
@@ -507,7 +512,6 @@ onMounted(async () => {
 })
 
 watch(currentDate, (newDate, oldDate) => {
-  // 只有在日期確實改變時才重新載入
   if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
     loadDataForDay(newDate)
   }
@@ -529,6 +533,7 @@ watch(currentDate, (newDate, oldDate) => {
             <button @click="goToToday">回到今日</button>
           </div>
           <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
+          <button class="btn btn-info" @click="isAssignmentDialogVisible = true">智慧排班</button>
         </div>
         <div class="toolbar-right">
           <span class="status-indicator">{{ statusIndicator }}</span>
@@ -738,15 +743,21 @@ watch(currentDate, (newDate, oldDate) => {
       />
     </main>
   </div>
+
   <!-- Dialogs -->
-  <PatientSelectDialog
-    :is-visible="isDialogVisible"
-    title="選擇排班病人"
-    :patients="allPatients"
-    :show-fill-options="false"
-    @confirm="handlePatientSelectedFromDialog"
-    @cancel="isDialogVisible = false"
+  <BedAssignmentDialog
+    :is-visible="isAssignmentDialogVisible"
+    :all-patients="allPatients"
+    :bed-layout="allBedNumbers"
+    :schedule-data="currentRecord.schedule"
+    :shifts="ORDERED_SHIFT_CODES"
+    :freq-map="freqToDays"
+    assignment-mode="singleDay"
+    :day-of-week="dayOfWeek"
+    @close="isAssignmentDialogVisible = false"
+    @assign-bed="handleAssignBed"
   />
+
   <AlertDialog
     :is-visible="isAlertDialogVisible"
     :title="alertDialogTitle"

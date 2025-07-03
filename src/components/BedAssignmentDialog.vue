@@ -3,50 +3,89 @@ import { ref, computed, watch } from 'vue'
 
 const props = defineProps({
   isVisible: Boolean,
-  allOpdPatients: { type: Array, required: true },
+  allPatients: { type: Array, required: true },
   bedLayout: { type: Array, required: true },
   scheduleData: { type: Object, required: true },
   shifts: { type: Array, required: true },
   freqMap: { type: Object, required: true },
+  assignmentMode: {
+    type: String,
+    default: 'frequency', // 'frequency' 或 'singleDay'
+  },
+  dayOfWeek: { type: Number, default: 1 }, // 1=週一, ..., 7=週日
 })
 
 const emit = defineEmits(['close', 'assign-bed'])
 
 // --- 狀態管理 ---
 const selectedFreq = ref('一三五')
-const selectedShiftFilter = ref('all') // all, early, noon, late
+const selectedShiftFilter = ref('all')
 const selectedPatientId = ref(null)
 
-// --- 計算屬性 ---
+// --- 輔助函式 ---
+function shouldPatientBeScheduled(patient, dayOfWeek) {
+  if (!patient.freq || !props.freqMap) return false
+  const scheduledDays = props.freqMap[patient.freq]
+  return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
+}
 
-// 1. 計算已排床的病人ID集合
+// --- 計算屬性 ---
 const assignedPatientIds = computed(() => {
   const ids = new Set()
-  for (const slotId in props.scheduleData) {
-    if (props.scheduleData[slotId]?.patientId) {
-      ids.add(props.scheduleData[slotId].patientId)
+  if (!props.scheduleData) return ids
+  for (const slotData of Object.values(props.scheduleData)) {
+    if (slotData?.patientId) {
+      ids.add(slotData.patientId)
     }
   }
   return ids
 })
 
-// 2. 根據選擇的頻率，篩選出未排床的病人
-const unassignedPatients = computed(() => {
-  if (!props.allOpdPatients) return []
-  return props.allOpdPatients.filter(
-    (p) => p.freq === selectedFreq.value && !assignedPatientIds.value.has(p.id),
-  )
+const patientGroups = computed(() => {
+  if (props.assignmentMode === 'frequency') {
+    const unassigned = props.allPatients.filter(
+      (p) =>
+        !p.isDeleted &&
+        p.status === 'opd' &&
+        p.freq === selectedFreq.value &&
+        !assignedPatientIds.value.has(p.id),
+    )
+    return { 未排床門診: unassigned }
+  }
+
+  // 單日模式的四分組邏輯
+  const groups = {
+    '今日應排 - 住院': [],
+    '今日應排 - 門診': [],
+    '今日非排 (臨洗) - 住院': [],
+    '今日非排 (臨洗) - 門診': [],
+  }
+
+  if (!props.allPatients) return groups
+
+  props.allPatients.forEach((p) => {
+    if (p.isDeleted || assignedPatientIds.value.has(p.id)) {
+      return
+    }
+
+    const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
+
+    if (shouldSchedule) {
+      if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
+      else if (p.status === 'opd') groups['今日應排 - 門診'].push(p)
+    } else {
+      if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p)
+      else if (p.status === 'opd') groups['今日非排 (臨洗) - 門診'].push(p)
+    }
+  })
+
+  return groups
 })
 
-// 3. 核心：計算符合條件的空床
 const availableBeds = computed(() => {
   if (!selectedPatientId.value) return {}
-
-  const patient = props.allOpdPatients.find((p) => p.id === selectedPatientId.value)
+  const patient = props.allPatients.find((p) => p.id === selectedPatientId.value)
   if (!patient) return {}
-
-  const dayIndices = props.freqMap[patient.freq]
-  if (!dayIndices || dayIndices.length === 0) return {}
 
   const results = {}
   props.shifts.forEach((shiftCode) => {
@@ -57,20 +96,11 @@ const availableBeds = computed(() => {
 
   props.bedLayout.forEach((bedNum) => {
     if (typeof bedNum !== 'number') return
-
-    props.shifts.forEach((shiftCode, shiftIndex) => {
+    props.shifts.forEach((shiftCode) => {
       if (!results[shiftCode]) return
 
-      let isAvailable = true
-      for (const dayIndex of dayIndices) {
-        const slotId = `${bedNum}-${shiftIndex}-${dayIndex}`
-        if (props.scheduleData[slotId]?.patientId) {
-          isAvailable = false
-          break
-        }
-      }
-
-      if (isAvailable) {
+      const slotId = `bed-${bedNum}-${shiftCode}`
+      if (!props.scheduleData[slotId]?.patientId) {
         results[shiftCode].push(bedNum)
       }
     })
@@ -78,10 +108,23 @@ const availableBeds = computed(() => {
   return results
 })
 
-// 當選擇的頻率改變時，清空已選擇的病人
+// 當選擇的頻率改變時 (僅在 frequency 模式下)，清空已選擇的病人
 watch(selectedFreq, () => {
-  selectedPatientId.value = null
+  if (props.assignmentMode === 'frequency') {
+    selectedPatientId.value = null
+  }
 })
+
+// 當 dialog 變得不可見時，重置內部狀態
+watch(
+  () => props.isVisible,
+  (newValue) => {
+    if (!newValue) {
+      selectedPatientId.value = null
+      selectedShiftFilter.value = 'all'
+    }
+  },
+)
 
 function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
@@ -92,12 +135,20 @@ function handleBedClick(bedNum, shiftCode) {
     alert('請先在左側選擇一位病人！')
     return
   }
-  emit('assign-bed', {
-    patientId: selectedPatientId.value,
-    bedNum: bedNum,
-    shiftCode: shiftCode,
-  })
-  // 分配後，清空選擇，準備下一次操作
+
+  if (props.assignmentMode === 'singleDay') {
+    emit('assign-bed', {
+      patientId: selectedPatientId.value,
+      shiftId: `bed-${bedNum}-${shiftCode}`,
+    })
+  } else {
+    emit('assign-bed', {
+      patientId: selectedPatientId.value,
+      bedNum: bedNum,
+      shiftCode: shiftCode,
+    })
+  }
+
   selectedPatientId.value = null
 }
 
@@ -117,35 +168,54 @@ const shiftDisplayNames = {
       </div>
       <div class="dialog-body">
         <div class="assignment-grid">
-          <!-- 左欄：未排床病人 -->
+          <!-- 左欄：病人列表 -->
           <div class="column patient-column">
             <div class="column-header">
-              <h4>未排床病人</h4>
-              <select v-model="selectedFreq">
+              <h4>{{ assignmentMode === 'frequency' ? '未排床門診' : '選擇病人' }}</h4>
+              <select v-if="assignmentMode === 'frequency'" v-model="selectedFreq">
                 <option v-for="(days, freq) in freqMap" :key="freq" :value="freq">
                   {{ freq }}
                 </option>
               </select>
             </div>
-            <ul class="item-list patient-list">
-              <li
-                v-for="patient in unassignedPatients"
-                :key="patient.id"
-                :class="{ selected: patient.id === selectedPatientId }"
-                @click="handlePatientClick(patient.id)"
+
+            <div class="patient-groups-container">
+              <div
+                v-for="(patients, groupName) in patientGroups"
+                :key="groupName"
+                class="patient-group"
               >
-                {{ patient.name }} ({{ patient.medicalRecordNumber }})
-              </li>
-              <li v-if="unassignedPatients.length === 0" class="empty-state">
-                該頻率下無未排床病人
-              </li>
-            </ul>
+                <h5 v-if="patients.length > 0" class="group-title">{{ groupName }}</h5>
+                <ul v-if="patients.length > 0" class="item-list patient-list">
+                  <li
+                    v-for="patient in patients"
+                    :key="patient.id"
+                    :class="{ selected: patient.id === selectedPatientId }"
+                    @click="handlePatientClick(patient.id)"
+                  >
+                    {{ patient.name }} ({{
+                      patient.status === 'ipd' ? '住院' : patient.freq || 'N/A'
+                    }})
+                  </li>
+                </ul>
+              </div>
+
+              <div
+                v-if="Object.values(patientGroups).every((p) => p.length === 0)"
+                class="empty-state"
+              >
+                無符合條件的病人
+              </div>
+            </div>
           </div>
 
           <!-- 右欄：可用空床 -->
           <div class="column bed-column">
             <div class="column-header">
-              <h4>可用空床 ({{ selectedFreq }})</h4>
+              <h4>
+                可用空床
+                <span v-if="assignmentMode === 'frequency'">({{ selectedFreq }})</span>
+              </h4>
               <select v-model="selectedShiftFilter">
                 <option value="all">所有班別</option>
                 <option v-for="shift in shifts" :key="shift" :value="shift">
@@ -165,6 +235,12 @@ const shiftDisplayNames = {
                   </li>
                 </ul>
                 <p v-else class="empty-state-small">無可用空床</p>
+              </div>
+              <div
+                v-if="Object.keys(availableBeds).length === 0 && selectedPatientId"
+                class="empty-state-full"
+              >
+                該班別無可用空床
               </div>
             </div>
           </div>
@@ -239,13 +315,15 @@ const shiftDisplayNames = {
 }
 
 .dialog-body {
-  overflow-y: auto;
+  overflow: hidden; /* 防止 grid 溢出 */
+  display: flex;
 }
 
 .assignment-grid {
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 2rem;
+  width: 100%;
 }
 
 .column {
@@ -255,8 +333,8 @@ const shiftDisplayNames = {
   border: 1px solid #e9ecef;
   border-radius: 8px;
   padding: 1rem;
-  /* 確保 column 本身高度一致 */
   min-height: 50vh;
+  max-height: calc(90vh - 120px); /* 預留 header 和 padding 的高度 */
 }
 
 .column-header {
@@ -282,11 +360,32 @@ const shiftDisplayNames = {
   list-style: none;
   padding: 0;
   margin: 0;
-  flex-grow: 1;
-  overflow-y: auto;
 }
 
 /* 病人列表 */
+.patient-groups-container {
+  overflow-y: auto;
+  flex-grow: 1;
+}
+.patient-group {
+  margin-bottom: 1.5rem;
+}
+.patient-group:last-child {
+  margin-bottom: 0;
+}
+
+.group-title {
+  margin: 0 0 0.8rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--primary-color);
+  color: var(--primary-color);
+  font-size: 1.1rem;
+  position: sticky;
+  top: 0;
+  background-color: #f8f9fa; /* 與背景色相同以遮蓋下方內容 */
+  z-index: 1;
+}
+
 .patient-list li {
   padding: 10px 12px;
   margin-bottom: 8px;
@@ -327,7 +426,6 @@ const shiftDisplayNames = {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  min-height: auto;
 }
 .bed-list li {
   background-color: #e3f2fd;
@@ -337,6 +435,7 @@ const shiftDisplayNames = {
   color: #0d47a1;
   padding: 8px;
   border: 1px solid #b3e5fc;
+  border-radius: 4px;
 }
 .bed-list li:hover {
   background-color: #bbdefb;
@@ -350,6 +449,7 @@ const shiftDisplayNames = {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-height: 200px;
   height: 100%;
   color: #6c757d;
   font-size: 1.2rem;
