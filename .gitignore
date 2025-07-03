@@ -137,3 +137,5 @@ dist
 
 # Firebase cache files
 .firebase/
+
+/serviceAccountKey.json

@@ -75,8 +75,8 @@ async function addMemo() {
   }
 }
 
-// 新增處理病人選擇的函式
-function handlePatientSelected(patientId) {
+function handlePatientSelected({ patientId }) {
+  // 【修正】使用解構賦值
   selectedPatient.value = allPatients.value.find((p) => p.id === patientId) || null
   isPatientDialogVisible.value = false
 }
@@ -264,7 +264,7 @@ onMounted(() => {
 #resolved-section {
   background-color: #fff;
   border-radius: 8px;
-  padding: 20px;
+  padding: 10px;
   border: 1px solid #e9ecef;
   display: flex;
   flex-direction: column;
@@ -290,7 +290,7 @@ onMounted(() => {
   padding: 10px;
   border-radius: 6px;
   border: 1px solid #ced4da;
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 .memo-options {
   display: flex;
@@ -311,7 +311,7 @@ onMounted(() => {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 
 .memo-section h2 {
@@ -348,7 +348,7 @@ onMounted(() => {
   white-space: pre-wrap; /* 保留換行 */
 }
 .memo-meta {
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   color: #6c757d;
 }
 .memo-meta strong {
@@ -366,6 +366,7 @@ onMounted(() => {
   border-radius: 5px;
   border: 1px solid transparent;
   cursor: pointer;
+  height: 35px;
 }
 .resolve-btn {
   background-color: #28a745;
@@ -413,7 +414,7 @@ onMounted(() => {
 .option-item .select-btn {
   flex-grow: 1;
   width: 100%; /* 確保在某些情況下能正確計算寬度 */
-  height: 38px;
+  height: 45px;
   padding: 6px 12px;
   border-radius: 6px;
   border: 1px solid #ced4da;
@@ -428,7 +429,7 @@ onMounted(() => {
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 1.1rem;
   text-align: center;
   box-sizing: border-box;
 }

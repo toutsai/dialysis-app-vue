@@ -1,26 +1,25 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (最終完整重構版) -->
+// 檔案路徑: src/views/ScheduleView.vue (重構版 - 完整無省略的)
 <script setup>
-import { ref, onMounted, computed, reactive } from 'vue'
+import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 
-// 1. 引入所有需要的子元件和工具函式
+// 1. 引入我們重構後的所有工具和常量
+import {
+  SHIFT_CODES,
+  ORDERED_SHIFT_CODES,
+  getShiftDisplayName,
+  earlyTeams,
+  lateTeams,
+  allTeams,
+} from '@/constants/scheduleConstants.js'
+import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue' // 引入 AlertDialog
-import {
-  createEmptySlotData,
-  generateStandardNote,
-  generateAutoNote,
-} from '@/utils/scheduleUtils.js'
-
-// --- API 實例 ---
-const patientsApi = ApiManager('patients')
-const schedulesApi = ApiManager('schedules')
+import AlertDialog from '@/components/AlertDialog.vue'
 
 // --- 常量 ---
-const SHIFTS = ['早', '午', '晚']
 const layoutData = {
   leftWingRows: [
     ['空', 32, 31],
@@ -45,38 +44,31 @@ const layoutData = {
 const hepatitisBeds = ['空', 31, 32, 33, 35, 36]
 const aisleSideBeds = [1, 7, 8, 15, 16, 22, 23, 29, 31, 36, 37, 53, 55, 61, 62, 65]
 const peripheralBedCount = 6
-const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
-const earlyTeams = baseTeams.map((t) => `早${t}`)
-const lateTeams = baseTeams.map((t) => `晚${t}`)
-const allTeams = [...earlyTeams, ...lateTeams]
 const STYLE_PRIORITY = {
-  抽: { class: 'tag-chou', color: 'blue' },
-  新: { class: 'tag-new', color: 'yellow' },
-  住: { class: 'tag-ip', color: 'red' },
-  換: { class: 'tag-huan', color: 'lightblue' },
-  兩: { class: 'tag-liang', color: 'orange' },
-  B: { class: 'tag-b', color: 'ivory' },
+  抽: { class: 'tag-chou' },
+  新: { class: 'tag-new' },
+  住: { class: 'tag-ip' },
+  換: { class: 'tag-huan' },
+  兩: { class: 'tag-liang' },
+  B: { class: 'tag-b' },
   隔: { class: 'tag-ip' },
   R: { class: 'tag-ip' },
 }
 const freqToDays = {
-  // 標準頻率
   一三五: [1, 3, 5],
   二四六: [2, 4, 6],
-
-  // 雙週頻率
   一四: [1, 4],
   二五: [2, 5],
   三六: [3, 6],
   一五: [1, 5],
   二六: [2, 6],
-
-  // 每週一次
-  每周一次: [0, 1, 2, 3, 4, 5, 6], // 假設每週一次可以是任一天，或者您可以定義特定的一天
-
-  // 臨時（根據您的業務邏輯，臨時可能不需要檢查，或者需要特殊處理）
-  臨時: [], // 留空陣列，表示不需要自動檢查
+  每周一次: [0, 1, 2, 3, 4, 5, 6],
+  臨時: [],
 }
+
+// --- API 實例 ---
+const patientsApi = ApiManager('patients')
+const schedulesApi = ApiManager('schedules')
 
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
@@ -90,8 +82,6 @@ const copySourceDate = ref(formatDate(new Date()))
 // --- UI 狀態 ---
 const isDialogVisible = ref(false)
 const currentEditingShiftId = ref(null)
-
-// AlertDialog 的狀態
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
@@ -110,22 +100,23 @@ const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
-const shiftPatientCount = computed(() => {
-  const counts = { 早班: 0, 午班: 0, 晚班: 0 }
+
+const statsToolbarData = computed(() => {
+  const counts = { [SHIFT_CODES.EARLY]: 0, [SHIFT_CODES.NOON]: 0, [SHIFT_CODES.LATE]: 0 }
   if (currentRecord.schedule) {
     for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData && slotData.patientId) {
-        const shiftId = slotData.shiftId || ''
-        if (shiftId.endsWith('早班')) counts['早班']++
-        else if (shiftId.endsWith('午班')) counts['午班']++
-        else if (shiftId.endsWith('晚班')) counts['晚班']++
+        const shiftCode = slotData.shiftId.split('-')[2]
+        if (counts[shiftCode] !== undefined) {
+          counts[shiftCode]++
+        }
       }
     }
   }
-  return counts
+  return [{ counts }]
 })
-const statsToolbarData = computed(() => [{ counts: shiftPatientCount.value }])
 const statsToolbarWeekdays = computed(() => ['本日'])
+
 const scheduledPatientIds = computed(() => {
   if (!currentRecord.schedule) return new Set()
   return new Set(
@@ -135,11 +126,8 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
-const inpatientList = computed(() =>
-  allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted),
-)
-
 // --- 方法 ---
+
 function setChange() {
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
@@ -198,11 +186,13 @@ function runScheduleCheck() {
   isAlertDialogVisible.value = true
 }
 
+// 【新增】補上缺少的 loadAllPatients 函式
 async function loadAllPatients() {
   try {
     allPatients.value = await patientsApi.fetchAll()
   } catch (error) {
     console.error('獲取病人資料失敗:', error)
+    statusIndicator.value = '讀取病人資料失敗'
   }
 }
 
@@ -213,23 +203,27 @@ async function loadDataForDay(date) {
   try {
     const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
     const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
-    const loadedSchedule = record.schedule || {}
+
     const finalSchedule = {}
-    for (const shiftId in loadedSchedule) {
-      const dbSlotData = loadedSchedule[shiftId]
-      if (dbSlotData && dbSlotData.patientId) {
-        const patient = patientMap.value.get(dbSlotData.patientId)
-        const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
-        if (patient) {
-          mergedSlot.autoNote = generateAutoNote(patient)
+    if (record.schedule) {
+      for (const shiftId in record.schedule) {
+        const dbSlotData = record.schedule[shiftId]
+        if (dbSlotData && dbSlotData.patientId) {
+          const patient = patientMap.value.get(dbSlotData.patientId)
+          const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
+          if (patient) {
+            mergedSlot.autoNote = generateAutoNote(patient)
+          }
+          finalSchedule[shiftId] = mergedSlot
         }
-        finalSchedule[shiftId] = mergedSlot
       }
     }
+
     Object.assign(currentRecord, {
       id: record.id || null,
       date: record.date,
       schedule: finalSchedule,
+      names: record.names || {},
     })
     statusIndicator.value = '資料已載入'
   } catch (error) {
@@ -242,12 +236,12 @@ function changeDate(days) {
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
-  loadDataForDay(newDate)
+  // watch 會自動觸發 loadDataForDay
 }
 
 function goToToday() {
   currentDate.value = new Date()
-  loadDataForDay(currentDate.value)
+  // watch 會自動觸發 loadDataForDay
 }
 
 async function saveDataToCloud() {
@@ -257,27 +251,32 @@ async function saveDataToCloud() {
     for (const shiftId in currentRecord.schedule) {
       const slotData = currentRecord.schedule[shiftId]
       if (slotData && slotData.patientId) {
-        cleanSchedule[shiftId] = {
-          patientId: slotData.patientId,
-          shiftId: slotData.shiftId || shiftId,
-          autoNote: slotData.autoNote || '',
-          manualNote: slotData.manualNote || '',
-          nurseTeam: slotData.nurseTeam || null,
-          nurseTeamIn: slotData.nurseTeamIn || null,
-          nurseTeamOut: slotData.nurseTeamOut || null,
-        }
+        const standardSlot = createEmptySlotData(shiftId)
+        Object.keys(standardSlot).forEach((key) => {
+          if (slotData[key] !== null && slotData[key] !== undefined) {
+            standardSlot[key] = slotData[key]
+          }
+        })
+        cleanSchedule[shiftId] = standardSlot
       }
     }
-    const dataToSave = { date: currentRecord.date, schedule: cleanSchedule }
+    const dataToSave = {
+      date: currentRecord.date,
+      schedule: cleanSchedule,
+      names: currentRecord.names,
+    }
     if (currentRecord.id) {
       await schedulesApi.update(currentRecord.id, dataToSave)
-    } else {
+    } else if (Object.keys(cleanSchedule).length > 0) {
       const savedRecord = await schedulesApi.save(dataToSave)
       currentRecord.id = savedRecord.id
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
-
+    const updateEvent = new CustomEvent('schedule-updated', {
+      detail: { date: currentRecord.date },
+    })
+    window.dispatchEvent(updateEvent)
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
@@ -331,70 +330,58 @@ async function copySchedule() {
   }
 }
 
-function onDragStart(event, source) {
-  let patientId
-  let sourceShiftId = null
-  if (typeof source === 'object' && source.id) {
-    patientId = source.id
-  } else if (typeof source === 'string') {
-    const slotData = currentRecord.schedule[source]
-    if (!slotData || !slotData.patientId) {
-      event.preventDefault()
-      return
-    }
-    patientId = slotData.patientId
-    sourceShiftId = source
-  } else {
+function onBedDragStart(event, sourceShiftId) {
+  const slotData = currentRecord.schedule[sourceShiftId]
+  if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
-  event.dataTransfer.setData('patientId', patientId)
-  if (sourceShiftId) {
-    event.dataTransfer.setData('sourceShiftId', sourceShiftId)
+  event.dataTransfer.setData('sourceShiftId', sourceShiftId)
+  event.dataTransfer.setData('application/json', JSON.stringify(slotData))
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+function onSidebarDragStart(event, patient) {
+  const slotData = {
+    ...createEmptySlotData('sidebar-source'),
+    patientId: patient.id,
+    autoNote: generateAutoNote(patient),
+    manualNote: patient.status === 'ipd' ? '住' : '',
   }
+  event.dataTransfer.setData('application/json', JSON.stringify(slotData))
+  event.dataTransfer.effectAllowed = 'move'
 }
 
 function onDrop(event, targetShiftId) {
   event.preventDefault()
+  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
   event.target.closest('.patient-name')?.classList.remove('drag-over')
-  const patientId = event.dataTransfer.getData('patientId')
-  if (!patientId) return
+
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
-  const patient = patientMap.value.get(patientId)
+  const droppedSlotData = JSON.parse(event.dataTransfer.getData('application/json'))
+  if (!droppedSlotData || !droppedSlotData.patientId) return
+
+  const patient = patientMap.value.get(droppedSlotData.patientId)
   if (!patient) return
 
-  if (!sourceShiftId && scheduledPatientIds.value.has(patientId)) {
+  if (!sourceShiftId && scheduledPatientIds.value.has(patient.id)) {
     if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
       return
     }
   }
 
-  const sourceSlotData = sourceShiftId ? currentRecord.schedule[sourceShiftId] : null
   const targetSlotData = currentRecord.schedule[targetShiftId]
 
-  const newSlotData = {
-    ...createEmptySlotData(targetShiftId),
-    ...(targetSlotData || {}),
-    ...(sourceSlotData || {}),
-    patientId: patientId,
-    autoNote: generateAutoNote(patient),
-    manualNote: sourceSlotData?.manualNote || '',
-    shiftId: targetShiftId,
-  }
-
-  currentRecord.schedule[targetShiftId] = newSlotData
-
-  if (sourceShiftId && sourceShiftId !== targetShiftId) {
-    if (targetSlotData?.patientId) {
-      const swappedPatient = patientMap.value.get(targetSlotData.patientId)
-      currentRecord.schedule[sourceShiftId] = {
-        ...createEmptySlotData(sourceShiftId),
-        patientId: targetSlotData.patientId,
-        autoNote: generateAutoNote(swappedPatient),
-        manualNote: targetSlotData.manualNote || '',
-        shiftId: sourceShiftId,
-      }
-    } else {
+  if (targetSlotData && targetSlotData.patientId) {
+    if (!sourceShiftId) {
+      alert('目標床位已被佔用，無法放置！')
+      return
+    }
+    currentRecord.schedule[targetShiftId] = { ...droppedSlotData, shiftId: targetShiftId }
+    currentRecord.schedule[sourceShiftId] = { ...targetSlotData, shiftId: sourceShiftId }
+  } else {
+    currentRecord.schedule[targetShiftId] = { ...droppedSlotData, shiftId: targetShiftId }
+    if (sourceShiftId) {
       delete currentRecord.schedule[sourceShiftId]
     }
   }
@@ -404,7 +391,7 @@ function onDrop(event, targetShiftId) {
 function onDragOver(event) {
   event.preventDefault()
   const targetCell = event.target.closest('.patient-name')
-  if (targetCell && !targetCell.textContent.trim()) {
+  if (targetCell) {
     targetCell.classList.add('drag-over')
   }
 }
@@ -425,7 +412,7 @@ function handleSlotClick(shiftId) {
   }
 }
 
-function handlePatientSelectedFromDialog(patientId) {
+function handlePatientSelectedFromDialog({ patientId }) {
   if (currentEditingShiftId.value && patientId) {
     if (scheduledPatientIds.value.has(patientId)) {
       const patient = patientMap.value.get(patientId)
@@ -478,81 +465,85 @@ function updateNote(event, shiftId) {
   setChange()
 }
 
-function getPatientName(bedIdentifier, shift) {
-  const shiftId = `${bedIdentifier}-${shift}班`
+const updateWardNumber = (event, shiftId) => {
+  const value = event.target.textContent.trim()
+  if (!currentRecord.schedule[shiftId])
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+  currentRecord.schedule[shiftId].wardNumber = value
+  setChange()
+}
+
+function getPatientName(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   return patientMap.value.get(patientId)?.name || ''
 }
 
-function getCombinedNote(slotData) {
+function getCombinedNote(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return ''
-  const autoNotes = (slotData.autoNote || '').split(' ').filter(Boolean)
-  const manualNotes = (slotData.manualNote || '').split(' ').filter(Boolean)
-  const allNotes = new Set([...autoNotes, ...manualNotes])
-  return Array.from(allNotes).join(' ')
+  return `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
 }
 
-// 【補回】缺失的 getPatientCellStyle 函數
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
-  const combinedNote = getCombinedNote(slotData)
+  const combinedNote = getCombinedNote(shiftId)
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-  const patient = patientMap.value.get(slotData.patientId)
-  if (patient && inpatientList.value.some((p) => p.id === patient.id)) {
-    return { [STYLE_PRIORITY['住'].class]: true }
-  }
   return {}
 }
 
-// 【新增】一個專門用來觸發列印的函數
 function triggerPrint() {
-  // 在這個 script 作用域中，'window' 是可識別的全域物件
   window.print()
 }
-// --- 生命週期鉤子 ---
+
+// --- 生命週期 & 監聽 ---
 onMounted(async () => {
   await loadAllPatients()
   await loadDataForDay(currentDate.value)
+})
+
+watch(currentDate, (newDate, oldDate) => {
+  // 只有在日期確實改變時才重新載入
+  if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
+    loadDataForDay(newDate)
+  }
 })
 </script>
 
 <template>
   <div class="page-container">
     <header class="page-header">
+      <!-- Header Toolbar -->
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">每日排程表</h1>
           <div class="date-navigator">
-            <button @click="changeDate(-1)">< 上一天</button>
+            <button class="btn" @click="changeDate(-1)">< 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>
             <span class="weekday-display">{{ weekdayDisplay }}</span>
             <button @click="changeDate(1)">下一天 ></button>
             <button @click="goToToday">回到今日</button>
           </div>
+          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
         </div>
         <div class="toolbar-right">
           <span class="status-indicator">{{ statusIndicator }}</span>
+          <button class="btn btn-success" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
+            儲存
+          </button>
+          <button class="btn btn-info" @click="triggerPrint">列印</button>
         </div>
       </div>
+      <!-- Controls Panel -->
       <div class="controls-panel">
         <div class="controls-left">
-          <button id="save-btn" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
-            儲存資料至雲端
-          </button>
-          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
-          <button id="print-btn" @click="triggerPrint">列印排程</button>
-          <button id="clear-all-btn" @click="clearBoard">清除本日畫面</button>
+          <button class="btn btn-secondary" @click="clearBoard">清除畫面</button>
           <input type="date" v-model="copySourceDate" />
-          <button id="copy-schedule-btn" @click="copySchedule">從他日複製排程</button>
-          <div class="search-group">
-            <input type="text" v-model="searchInput" placeholder="搜尋..." class="search-input" />
-            <button id="search-btn">搜尋</button>
-          </div>
+          <button class="add-btn" @click="copySchedule">從他日複製</button>
         </div>
         <div class="controls-right">
           <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
@@ -588,22 +579,25 @@ onMounted(async () => {
                     <span v-if="hepatitisBeds.includes(bedNum) && bedNum !== '空'">(BC肝炎)</span>
                   </div>
                   <template v-if="bedNum !== '空'">
+                    <!-- 4. 模板迴圈使用 ORDERED_SHIFT_CODES -->
                     <div
-                      v-for="shift in SHIFTS"
-                      :key="shift"
+                      v-for="shiftCode in ORDERED_SHIFT_CODES"
+                      :key="shiftCode"
                       class="shift-row"
                       :class="[
-                        getPatientCellStyle(`bed-${bedNum}-${shift}班`),
-                        { 'split-shift': shift === '午' },
+                        getPatientCellStyle(`bed-${bedNum}-${shiftCode}`),
+                        { 'split-shift': shiftCode === SHIFT_CODES.NOON },
                       ]"
                     >
-                      <div class="shift-label">{{ shift }}</div>
-                      <div v-if="shift === '午'" class="nurse-split-column">
+                      <!-- 5. 顯示時使用 getShiftDisplayName 轉換 -->
+                      <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
+
+                      <!-- 午班的特殊處理 -->
+                      <div v-if="shiftCode === SHIFT_CODES.NOON" class="nurse-split-column">
                         <select
                           class="nurse-team-select nurse-in"
-                          title="上針"
-                          :value="currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.nurseTeamIn"
-                          @change="updateNurseTeam($event, `bed-${bedNum}-${shift}班`, 'in')"
+                          :value="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.nurseTeamIn"
+                          @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'in')"
                         >
                           <option value="">上針</option>
                           <option v-for="team in earlyTeams" :key="team" :value="team">
@@ -612,9 +606,10 @@ onMounted(async () => {
                         </select>
                         <select
                           class="nurse-team-select nurse-out"
-                          title="收針"
-                          :value="currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.nurseTeamOut"
-                          @change="updateNurseTeam($event, `bed-${bedNum}-${shift}班`, 'out')"
+                          :value="
+                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.nurseTeamOut
+                          "
+                          @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'out')"
                         >
                           <option value="">收針</option>
                           <option v-for="team in allTeams" :key="team" :value="team">
@@ -622,41 +617,44 @@ onMounted(async () => {
                           </option>
                         </select>
                       </div>
+                      <!-- 早班/晚班的處理 -->
                       <select
                         v-else
                         class="nurse-team-select"
-                        :value="currentRecord.schedule[`bed-${bedNum}-${shift}班`]?.nurseTeam"
-                        @change="updateNurseTeam($event, `bed-${bedNum}-${shift}班`, 'single')"
+                        :value="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.nurseTeam"
+                        @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'single')"
                       >
                         <option value="">-</option>
                         <option
-                          v-for="team in shift === '早' ? earlyTeams : lateTeams"
+                          v-for="team in shiftCode === SHIFT_CODES.EARLY ? earlyTeams : lateTeams"
                           :key="team"
                           :value="team"
                         >
                           {{ team }}組
                         </option>
                       </select>
+
+                      <!-- 6. 所有事件和顯示函式都傳遞標準的英文代碼 ID -->
                       <div
                         class="patient-name"
                         draggable="true"
-                        @click="handleSlotClick(`bed-${bedNum}-${shift}班`)"
-                        @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
+                        @click="handleSlotClick(`bed-${bedNum}-${shiftCode}`)"
+                        @drop="onDrop($event, `bed-${bedNum}-${shiftCode}`)"
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
-                        @dragstart="onDragStart($event, `bed-${bedNum}-${shift}班`)"
+                        @dragstart="onBedDragStart($event, `bed-${bedNum}-${shiftCode}`)"
                       >
-                        {{ getPatientName(`bed-${bedNum}`, shift) }}
+                        {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
                       </div>
                       <div
                         class="patient-tag"
                         contenteditable="true"
-                        @blur="updateNote($event, `bed-${bedNum}-${shift}班`)"
-                        @drop="onDrop($event, `bed-${bedNum}-${shift}班`)"
+                        @blur="updateNote($event, `bed-${bedNum}-${shiftCode}`)"
+                        @drop="onDrop($event, `bed-${bedNum}-${shiftCode}`)"
                         @dragover="onDragOver"
                         @dragleave="onDragLeave"
                       >
-                        {{ getCombinedNote(currentRecord.schedule[`bed-${bedNum}-${shift}班`]) }}
+                        {{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}
                       </div>
                     </div>
                   </template>
@@ -675,22 +673,22 @@ onMounted(async () => {
               <div v-for="i in peripheralBedCount" :key="`p-bed-${i}`" class="peripheral-bed">
                 <div class="peripheral-header">外圍床位 {{ i }}</div>
                 <div
-                  v-for="shift in SHIFTS"
-                  :key="shift"
+                  v-for="shiftCode in ORDERED_SHIFT_CODES"
+                  :key="shiftCode"
                   class="peripheral-shift-row"
-                  :class="getPatientCellStyle(`peripheral-${i}-${shift}班`)"
+                  :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
                 >
-                  <div class="shift-label">{{ shift }}</div>
+                  <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
                   <select
                     class="nurse-team-select"
-                    :value="currentRecord.schedule[`peripheral-${i}-${shift}班`]?.nurseTeam"
-                    @change="updateNurseTeam($event, `peripheral-${i}-${shift}班`, 'single')"
+                    :value="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeam"
+                    @change="updateNurseTeam($event, `peripheral-${i}-${shiftCode}`, 'single')"
                   >
                     <option value="">-</option>
                     <option
-                      v-for="team in shift === '早'
+                      v-for="team in shiftCode === SHIFT_CODES.EARLY
                         ? earlyTeams
-                        : shift === '晚'
+                        : shiftCode === SHIFT_CODES.LATE
                           ? lateTeams
                           : allTeams"
                       :key="team"
@@ -699,27 +697,33 @@ onMounted(async () => {
                       {{ team }}組
                     </option>
                   </select>
-                  <div class="peripheral-bed-number" contenteditable="true"></div>
+                  <div
+                    class="peripheral-bed-number"
+                    contenteditable="true"
+                    @blur="updateWardNumber($event, `peripheral-${i}-${shiftCode}`)"
+                  >
+                    {{ currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber }}
+                  </div>
                   <div
                     class="peripheral-patient-name"
                     draggable="true"
-                    @click="handleSlotClick(`peripheral-${i}-${shift}班`)"
-                    @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
+                    @click="handleSlotClick(`peripheral-${i}-${shiftCode}`)"
+                    @drop="onDrop($event, `peripheral-${i}-${shiftCode}`)"
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
-                    @dragstart="onDragStart($event, `peripheral-${i}-${shift}班`)"
+                    @dragstart="onBedDragStart($event, `peripheral-${i}-${shiftCode}`)"
                   >
-                    {{ getPatientName(`peripheral-${i}`, shift) }}
+                    {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
                   </div>
                   <div
                     class="patient-tag"
                     contenteditable="true"
-                    @blur="updateNote($event, `peripheral-${i}-${shift}班`)"
-                    @drop="onDrop($event, `peripheral-${i}-${shift}班`)"
+                    @blur="updateNote($event, `peripheral-${i}-${shiftCode}`)"
+                    @drop="onDrop($event, `peripheral-${i}-${shiftCode}`)"
                     @dragover="onDragOver"
                     @dragleave="onDragLeave"
                   >
-                    {{ getCombinedNote(currentRecord.schedule[`peripheral-${i}-${shift}班`]) }}
+                    {{ getCombinedNote(`peripheral-${i}-${shiftCode}`) }}
                   </div>
                 </div>
               </div>
@@ -730,10 +734,11 @@ onMounted(async () => {
       <InpatientSidebar
         :patients="allPatients"
         :scheduled-ids="scheduledPatientIds"
-        @drag-start="onDragStart"
+        @drag-start="onSidebarDragStart"
       />
     </main>
   </div>
+  <!-- Dialogs -->
   <PatientSelectDialog
     :is-visible="isDialogVisible"
     title="選擇排班病人"
@@ -804,15 +809,17 @@ onMounted(async () => {
 /* -- Header 內部樣式 -- */
 .header-toolbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1px;
-  gap: 20px;
+  margin-bottom: 0px; /* 與第二行的間距 */
 }
-.toolbar-left {
+.toolbar-left,
+.toolbar-right {
   display: flex;
   align-items: center;
-  gap: 15px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .page-title {
   font-size: 32px;
@@ -832,29 +839,29 @@ onMounted(async () => {
 .weekday-display {
   color: var(--primary-color);
 }
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .status-indicator {
   font-weight: bold;
   color: #6c757d;
 }
 
 /* -- 控制面板樣式 -- */
+/* ======================= 第二行樣式 ======================= */
 .controls-panel {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
 }
+
 .controls-left,
 .controls-right {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
+.btn btn-info,
 .controls-panel button,
 .controls-panel input[type='date'],
 .controls-panel input[type='text'] {
@@ -872,26 +879,6 @@ onMounted(async () => {
   border: 1px solid #ccc;
   cursor: pointer;
   background-color: #fff;
-}
-#save-btn {
-  background-color: var(--success-color);
-  color: white;
-  border-color: var(--success-color);
-}
-#print-btn {
-  background-color: var(--info-color);
-  color: white;
-  border-color: var(--info-color);
-}
-#clear-all-btn {
-  background-color: #6c757d;
-  color: white;
-  border-color: #6c757d;
-}
-#copy-schedule-btn {
-  background-color: var(--warning-color);
-  color: white;
-  border-color: var(--warning-color);
 }
 .search-group {
   display: flex;
@@ -1178,145 +1165,128 @@ onMounted(async () => {
 }
 
 /* ==========================================================================
-   5. 列印樣式 (Print Styles) - 維持不變
+   列印樣式 (Print Styles) - 保持佈局、整體縮放、解決截斷
    ========================================================================== */
 @page {
-  size: A4 landscape;
-  margin: 0.5cm;
+  /* 為了容納寬版佈局，橫向是最佳選擇 */
+  size: A4 portrait;
+  margin: 0;
 }
+
 @media print {
-  body {
-    padding: 0;
-    background-color: #fff;
-    font-size: 8pt;
+  /* --- 1. 隱藏所有非列印元素 --- */
+  #app-sidebar,
+  .inpatient-sidebar,
+  .page-header .btn,
+  .page-header .btn-warning,
+  .page-header .btn-info,
+  .page-header .btn-success,
+  .page-header .search-group,
+  .page-header .status-indicator,
+  .toolbar-right {
+    display: none !important;
+  }
+
+  /* 【核心修改 1】不再隱藏外圍床位的父容器 .extra-sections */
+  /* 我們只隱藏走道和護理站，讓佈局更緊湊 */
+  .aisle,
+  .nursing-station {
+    display: none !important;
+  }
+
+  /* --- 2. 準備好列印環境 --- */
+  body,
+  html {
+    background: #fff !important;
+    overflow: hidden !important; /* 確保 body 本身不滾動 */
     -webkit-print-color-adjust: exact;
     color-adjust: exact;
   }
-  .controls-panel,
-  .aisle,
-  .status-indicator,
-  #print-btn,
-  #save-btn,
-  #clear-all-btn,
-  #copy-schedule-btn,
-  #copy-source-date,
-  .search-group,
-  #today-btn,
-  .date-nav-btn,
-  .inpatient-sidebar {
+
+  /* --- 3. 【核心技巧】先撐開內容，再整體縮放 --- */
+
+  /* 步驟 A: 將所有父容器的高度限制解除，為內容撐開做準備 */
+  .page-container,
+  .page-main-content {
+    height: auto !important;
+    overflow: visible !important; /* 允許內容溢出 */
+  }
+
+  /* 步驟 B: 強行撐開包含滾動條的那個容器的高度 */
+  .schedule-content {
+    height: 2800px !important; /* 給一個足夠大的固定高度，確保所有床位都能顯示 */
+    overflow: visible !important; /* 確保內容不會被截斷 */
+  }
+
+  /* 步驟 C: 對最外層的容器進行縮放 */
+  .page-container {
+    /* 根據您螢幕的寬高比和內容的複雜度來設置 */
+    /* 這裡的 width 和 height 應該大於您螢幕的解析度 */
+    width: 2200px;
+    height: 1800px; /* 寬高比約為 16:10 */
+
+    /* 將縮放原點設為左上角 */
+    transform-origin: top left;
+
+    /* 關鍵！縮放比例，您需要微調這個數字 */
+    /* 0.45 對於 A4 橫向是一個比較合理的起始值 */
+    transform: scale(0.4);
+  }
+  /* 主要床位區的容器 */
+  .dialysis-unit {
+    display: flex; /* 或者 display: grid; */
+    flex-wrap: wrap; /* 確保能換行 */
+    gap: 10px;
+    justify-content: flex-start;
+  }
+  /* 外圍床位區的容器 */
+  .peripheral-bed-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    justify-content: start;
+  }
+
+  .bed,
+  .peripheral-bed {
+    /* 確保每個床位卡片都有根源在於我們之前使用的 Flexbox 佈局 (`display: flex`)，它會自動分配剩餘空間。而一個基礎寬度，而不是完全依賴於 1fr */
+    /* 這樣它們在未被拉伸時， `.extra-sections` 裡的 `.peripheral-bed-container` 預設是 `grid-template-columns: 1fr 1fr;`，這導致它與主床位區的佈局不一致。
+
+   **解決也能保持一致的大小 */
+    flex-basis: 150px;
+    width: 150px; /* 對於 grid 佈局作為備用 */
+    flex-grow: 1; /* 允許它們在空間充足時稍微變大 */
+  }
+
+  /* --- 4. 重新設計頁首，只保留日期標題 --- */
+  .page-header {
+    border-bottom: 2px solid #000;
+    padding-bottom: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .page-header .page-title,
+  .page-header .weekday-display,
+  .page-header .date-navigator button {
     display: none !important;
   }
-  .dialysis-unit,
-  .extra-sections {
-    max-width: 100%;
-    box-shadow: none;
-    gap: 10px;
-  }
-  .dialysis-unit {
-    grid-template-columns: 1fr 1fr;
-  }
-  .bed,
-  .nursing-station,
-  .peripheral-bed {
-    border: 1px solid #000;
-    box-shadow: none;
-    page-break-inside: avoid;
-    border-radius: 3px;
-  }
-  .bed-row,
-  .peripheral-bed-container {
-    gap: 5px;
-  }
-  .bed {
-    min-height: 120px;
-  }
-  /* -- 排程行 & 格子樣式 -- */
-  .shift-row,
-  .peripheral-shift-row {
-    display: grid;
-    align-items: stretch; /* 讓格子填滿高度 */
-    border-top: 1px solid #e0e0e0;
-    transition: background-color 0.3s;
-  }
-  .shift-row {
-    grid-template-columns: 28px 60px 1fr 60px;
-  } /* 微調備註欄寬度 */
-  .peripheral-shift-row {
-    grid-template-columns: 28px 70px 70px 1fr 50px;
-  } /* 微調備註欄寬度 */
-
-  .shift-label {
-    background-color: #f5f5f5;
-    font-size: 0.8em;
-    font-weight: bold;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-right: 1px solid #e0e0e0;
-  }
-  .nurse-team-select,
-  .patient-name,
-  .peripheral-patient-name,
-  .peripheral-bed-number,
-  .nurse-split-column {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-  }
-  .nurse-split-column {
-    flex-direction: column;
-  }
-  .nurse-split-column .nurse-team-select {
+  .toolbar-left,
+  .date-navigator {
     width: 100%;
-    flex-grow: 1;
+    justify-content: center;
+    gap: 0;
   }
-  .peripheral-bed-number:empty::before {
-    content: '';
+  .current-date-text {
+    font-size: 28pt !important; /* 放大字體以匹配縮放 */
+    font-weight: bold;
+    color: #000 !important;
   }
 
-  .patient-name:empty::before,
-  .peripheral-patient-name:empty::before {
-    content: '輸入病人';
-    color: #aaa;
-    font-style: italic;
-    font-size: 0.9em; /* 也可調整提示文字大小 */
-  }
-  .patient-tag:empty::before {
-    content: '備註';
-    color: #aaa;
-    font-style: italic;
-  }
-  .patient-name:empty,
-  .peripheral-patient-name:empty {
-    background-color: transparent !important;
-  }
-  select,
-  .nurse-team-select:has(option[value='']:checked) {
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    appearance: none;
-    border: none;
-    background: transparent !important;
-  }
-  .patient-name.tag-new,
-  .peripheral-patient-name.tag-new,
-  .patient-name.hospitalized,
-  .peripheral-patient-name.hospitalized,
-  .patient-name.tag-b,
-  .peripheral-patient-name.tag-b,
-  .patient-name.tag-chou,
-  .peripheral-patient-name.tag-chou,
-  .patient-name.tag-liang,
-  .peripheral-patient-name.tag-liang,
-  .patient-name.tag-huan,
-  .peripheral-patient-name.tag-huan {
-    background-color: inherit !important;
-    border: 1px dotted #888;
-  }
-  .bed.hepatitis .bed-header {
-    border-bottom: 2px double #000;
-    background-color: #fff !important;
+  /* --- 5. 細節微調 --- */
+  /* 因為整體縮小了，邊框需要加粗才能看清 */
+  .bed,
+  .peripheral-bed {
+    border-width: 1.5px;
+    border-color: #333;
   }
 }
 </style>

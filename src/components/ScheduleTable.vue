@@ -1,12 +1,14 @@
+<!-- 檔案路徑: src/components/ScheduleTable.vue (重構版) -->
 <script setup>
-import { defineProps, defineEmits } from 'vue'
+// 1. 引入我們需要的常量和輔助函式
+import { SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants'
 
-// Props 和 Emits 的定義保持不變
+// Props 的定義保持不變，因為父元件傳遞的 props 名稱不變
 const props = defineProps({
   layout: Array,
   scheduleData: Object,
   patientMap: Map,
-  shifts: Array,
+  shifts: Array, // 這個 prop 現在會接收 ['early', 'noon', 'late']
   weekdays: Array,
   weekDates: Array,
   hepatitisBeds: Array,
@@ -15,24 +17,20 @@ const props = defineProps({
 
 const emit = defineEmits(['grid-click', 'drop', 'drag-start', 'drag-over', 'drag-leave'])
 
-// 輔助函式保持不變
+// getPatient 輔助函式保持不變，它不依賴班別名稱
 const getPatient = (slotId) => {
   const slotData = props.scheduleData[slotId]
   if (!slotData) {
-    // 如果這個 slotId 根本沒有排班，直接返回 null
     return null
   }
-
   if (slotData && slotData.patientId) {
     const patient = props.patientMap.get(slotData.patientId)
     if (!patient) {
-      // 找到了排班記錄，但 patientId 在 patientMap 中找不到對應的病人
       console.warn(`Patient not found for ID: ${slotData.patientId} in slot ${slotId}`)
       return null
     }
-    return patient // 成功找到
+    return patient
   }
-
   return null
 }
 </script>
@@ -46,26 +44,30 @@ const getPatient = (slotId) => {
           <th>班次</th>
           <th v-for="(day, index) in weekdays" :key="day">
             <div class="weekday">{{ day }}</div>
-            <div class="date" v-if="weekDates[index]">{{ weekDates[index].date }}</div>
+            <div class="date" v-if="weekDates[index]">{{ weekDates[index] }}</div>
+            <!-- 修正：之前是.date -->
           </th>
         </tr>
       </thead>
       <tbody>
         <template v-for="bedNumber in layout" :key="bedNumber">
+          <!-- 2. v-for 迴圈現在迭代的是英文代碼 ['early', 'noon', 'late'] -->
           <tr
-            v-for="(shift, shiftIndex) in shifts"
-            :key="shift"
+            v-for="(shiftCode, shiftIndex) in shifts"
+            :key="shiftCode"
             :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNumber) }"
           >
             <td v-if="shiftIndex === 0" :rowspan="shifts.length" class="bed-number-cell">
               {{ bedNumber }}號床
             </td>
-            <td class="shift-cell">{{ shift }}</td>
+            <!-- 3. 顯示時，使用 getShiftDisplayName 轉換為中文。HTML 和 CSS class 不變 -->
+            <td class="shift-cell">{{ getShiftDisplayName(shiftCode) }}</td>
             <td
               v-for="(day, dayIndex) in weekdays"
               :key="day"
-              :class="{ 'afternoon-shift': shift === '午班' }"
+              :class="{ 'afternoon-shift': shiftCode === SHIFT_CODES.NOON }"
             >
+              <!-- 下方的所有邏輯都基於 shiftIndex 和 dayIndex，所以完全不需要修改 -->
               <div
                 class="schedule-slot"
                 :class="[
@@ -84,15 +86,12 @@ const getPatient = (slotId) => {
                   :key="patient?.id"
                 >
                   <div v-if="patient" class="patient-details">
-                    <!-- 第一行：姓名和標籤的容器 -->
                     <div class="patient-primary-info">
                       <span class="patient-name">{{ patient.name }}</span>
                       <span v-for="disease in patient.diseases" :key="disease" class="disease-tag">
                         {{ disease }}
                       </span>
                     </div>
-
-                    <!-- 第二行：病歷號 -->
                     <div class="patient-secondary-info">
                       <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
                     </div>
@@ -107,13 +106,8 @@ const getPatient = (slotId) => {
   </div>
 </template>
 
+<!-- Style 部分完全不需要修改，因為我們沒有改變任何 class 名稱 -->
 <style scoped>
-/*
-  ======================= 【修改點】Style 調整 =======================
-  主要修改 .table-wrapper，讓它能夠填滿父容器並產生滾動條。
-  其他樣式是我們之前確認的最終卡片式設計。
-  ===================================================================
-*/
 :root {
   --border-color: #dee2e6;
   --hepatitis-bg: #fff3cd;
@@ -121,11 +115,10 @@ const getPatient = (slotId) => {
   --patient-card-border: #e0e0e0;
 }
 
-/* 核心修改：讓這個 wrapper 具備滾動能力 */
 .table-wrapper {
   width: 100%;
   height: 100%;
-  overflow: auto; /* 當內容超出時，顯示滾動條 */
+  overflow: auto;
   border: 0;
   border-radius: 8px;
 }
@@ -134,10 +127,9 @@ const getPatient = (slotId) => {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  min-width: 1200px; /* 確保在窄螢幕下表格內容不會擠壓 */
+  min-width: 1200px;
 }
 
-/* sticky header 確保在垂直滾動時，表頭固定 */
 .weekly-schedule-table thead th {
   position: sticky;
   top: 0;
@@ -146,20 +138,19 @@ const getPatient = (slotId) => {
   padding: 8px 4px;
 }
 
-/* sticky first column 確保在水平滾動時，床位和班次欄位固定 */
 .weekly-schedule-table .bed-number-cell,
 .weekly-schedule-table .shift-cell {
   position: sticky;
-  font-weight: normal; /* 可以將字重調回正常，看起來更清爽 */
+  font-weight: normal;
   color: #495057;
   background-color: #e9ecef;
   z-index: 5;
 }
 .weekly-schedule-table .bed-number-cell {
-  left: 0; /* 固定在最左側 */
+  left: 0;
 }
 .weekly-schedule-table .shift-cell {
-  left: 60px; /* 固定在床位欄旁邊 (假設床位欄寬度約80px) */
+  left: 60px;
 }
 
 .weekly-schedule-table th,
@@ -219,24 +210,23 @@ td.afternoon-shift {
 
 .patient-details {
   display: flex;
-  flex-direction: column; /* 確保兩行是垂直排列 */
-  align-items: center; /* 讓兩行內容水平居中 */
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 4px; /* 第一行和第二行之間的間距 */
+  gap: 4px;
   width: 100%;
 }
 
-/* 第一行：姓名和標籤的容器 */
 .patient-primary-info {
   display: flex;
-  align-items: center; /* 垂直對齊姓名和標籤 */
-  justify-content: center; /* 將姓名和標籤作為一個整體水平居中 */
-  gap: 8px; /* 姓名和標籤之間的間距 */
-  flex-wrap: wrap; /* 如果標籤太多，允許換行 */
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .patient-name {
-  font-size: 18px; /* 稍微加大姓名，使其更突出 */
+  font-size: 18px;
   font-weight: 500;
   color: #212529;
 }
@@ -248,24 +238,20 @@ td.afternoon-shift {
   font-weight: bold;
   color: var(--red-text);
   border: 1px solid var(--red-text);
-  border-radius: 6px; /* 使用稍方的圓角 */
+  border-radius: 6px;
   line-height: 1.4;
   background-color: #fff;
   white-space: nowrap;
 }
 
-/* 第二行：病歷號容器 */
 .patient-secondary-info {
-  /* 這裡不需要特別的樣式，它會自然地在第二行 */
 }
 
 .patient-mrn {
-  font-size: 14px; /* 調整病歷號大小 */
+  font-size: 14px;
   color: #6c757d;
-  /* 根據您的圖片，病歷號沒有括號 */
 }
 
-/* 背景色標籤 */
 .schedule-slot.tag-chou {
   background-color: #e3f2fd;
 }

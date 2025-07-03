@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (最終完整、無省略版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (重構版 - 完整無省略) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { deleteField } from 'firebase/firestore'
@@ -6,7 +6,9 @@ import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 
+// 1. 引入 schedule 的 ApiManager，因為我們需要操作 schedules 集合
 const patientApi = ApiManager('patients')
+const schedulesApi = ApiManager('schedules') // 【新增】
 
 // --- 狀態定義 ---
 const allPatients = ref([])
@@ -18,7 +20,14 @@ const editingPatient = ref(null)
 const modalType = ref('ipd')
 const isDeleteDialogVisible = ref(false)
 const patientToDeleteId = ref(null)
-const DELETE_REASONS = ['出院', '死亡', '轉外院透析', '轉PD', '腎臟移植', '作廢']
+const DELETE_REASONS = [
+  { value: '出院', text: '出院' },
+  { value: '死亡', text: '死亡' },
+  { value: '轉外院透析', text: '轉外院透析' },
+  { value: '轉PD', text: '轉PD' },
+  { value: '腎臟移植', text: '腎臟移植' },
+  { value: '作廢', text: '作廢' },
+]
 
 // --- 計算屬性 ---
 const displayedPatients = computed(() => {
@@ -39,9 +48,10 @@ const displayedPatients = computed(() => {
 
   return [...patients].sort((a, b) => {
     let valA, valB
+    // 2. 統一頻率欄位的排序
     if (currentSort.value.column === 'freq') {
-      valA = a.freq ?? a.frequency
-      valB = b.freq ?? b.frequency
+      valA = a.freq
+      valB = b.freq
     } else {
       valA = a[currentSort.value.column]
       valB = b[currentSort.value.column]
@@ -66,47 +76,67 @@ async function fetchAllPatients() {
   }
 }
 
-function changeTab(tabName) {
-  activeTab.value = tabName
-}
+// 3. 【新增】清理臨時排班資料的函式
+async function clearPatientTemporaryScheduleData(patientId) {
+  if (!patientId) return
 
-function handleSort(key) {
-  if (currentSort.value.column === key) {
-    currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
-  } else {
-    currentSort.value.column = key
-    currentSort.value.order = 'asc'
+  try {
+    console.log(`開始為病人 ${patientId} 清理臨時排班資料...`)
+    // 為了安全和效能，我們只清理從今天開始的排班資料
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayStr = today.toISOString().split('T')[0]
+
+    // Firestore `where` 查詢需要索引，如果沒有，這裡可能會報錯或很慢。
+    // 在 production 環境，請確保 `schedules` 集合的 `date` 欄位有建立索引。
+    const futureScheduleDocs = await schedulesApi.fetchAll([where('date', '>=', todayStr)])
+
+    const updatePromises = []
+
+    for (const doc of futureScheduleDocs) {
+      let isModified = false
+      const newSchedule = { ...doc.schedule }
+
+      for (const shiftId in newSchedule) {
+        if (newSchedule[shiftId]?.patientId === patientId) {
+          isModified = true
+          // 清空臨時資料
+          newSchedule[shiftId].manualNote = ''
+          newSchedule[shiftId].nurseTeam = null
+          newSchedule[shiftId].nurseTeamIn = null
+          newSchedule[shiftId].nurseTeamOut = null
+        }
+      }
+
+      if (isModified) {
+        console.log(`在日期 ${doc.date} 的排程中找到病人 ${patientId}，準備更新...`)
+        updatePromises.push(schedulesApi.update(doc.id, { schedule: newSchedule }))
+      }
+    }
+
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises)
+      console.log(`成功為病人 ${patientId} 清理了 ${updatePromises.length} 天的未來臨時排班資料。`)
+    } else {
+      console.log(`未在未來排程中找到病人 ${patientId} 的臨時資料可供清理。`)
+    }
+  } catch (error) {
+    console.error(`為病人 ${patientId} 清理臨時排班資料時發生錯誤:`, error)
+    alert(`為病人清理排班資料時發生錯誤，請手動檢查排班表！`)
   }
 }
 
 // --- Modal 相關方法 ---
-function openAddPatientModal(type) {
-  editingPatient.value = { diseases: [] }
-  modalType.value = type
-  isModalVisible.value = true
-}
-
-function openEditPatientModal(patient) {
-  editingPatient.value = patient
-  modalType.value = patient.status
-  isModalVisible.value = true
-}
-
-function closeModal() {
-  isModalVisible.value = false
-  editingPatient.value = null
-}
-
 async function handleSavePatient(patientData) {
   try {
     const patientId = patientData.id
     const dataToUpdate = { ...patientData }
     delete dataToUpdate.id
 
-    dataToUpdate.freq = patientData.freq ?? patientData.frequency
-
-    if (patientData.frequency) {
-      dataToUpdate.frequency = deleteField()
+    // 4. 統一頻率欄位為 `freq`，並移除舊的 `frequency` 欄位
+    dataToUpdate.freq = patientData.freq
+    if ('frequency' in dataToUpdate) {
+      dataToUpdate.frequency = deleteField() // 從 Firestore 中刪除舊欄位
     }
 
     if (patientId) {
@@ -130,19 +160,22 @@ async function handleSavePatient(patientData) {
 async function transferPatient(patientId, newStatus) {
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
   const targetStatus = newStatus === 'ipd' ? '住院' : '門診'
-  if (confirm(`確定要將 ${patientName} 轉為${targetStatus}嗎？`)) {
+  if (
+    confirm(
+      `確定要將 ${patientName} 轉為${targetStatus}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配。`,
+    )
+  ) {
     try {
       await patientApi.update(patientId, { status: newStatus })
+
+      // 5. 調用清理函式
+      await clearPatientTemporaryScheduleData(patientId)
+
       await fetchAllPatients()
     } catch (error) {
       alert('轉床失敗！')
     }
   }
-}
-
-function deletePatient(patientId) {
-  patientToDeleteId.value = patientId
-  isDeleteDialogVisible.value = true
 }
 
 async function handleDeleteReasonSelected(reason) {
@@ -156,6 +189,10 @@ async function handleDeleteReasonSelected(reason) {
         deleteReason: reason,
         deletedAt: new Date().toISOString(),
       })
+
+      // 6. 調用清理函式
+      await clearPatientTemporaryScheduleData(patientToDeleteId.value)
+
       await fetchAllPatients()
     }
   } catch (error) {
@@ -166,11 +203,40 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
+// --- 其他無變動的函式 ---
+function changeTab(tabName) {
+  activeTab.value = tabName
+}
+function handleSort(key) {
+  if (currentSort.value.column === key) {
+    currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
+  } else {
+    currentSort.value.column = key
+    currentSort.value.order = 'asc'
+  }
+}
+function openAddPatientModal(type) {
+  editingPatient.value = { diseases: [] }
+  modalType.value = type
+  isModalVisible.value = true
+}
+function openEditPatientModal(patient) {
+  editingPatient.value = patient
+  modalType.value = patient.status
+  isModalVisible.value = true
+}
+function closeModal() {
+  isModalVisible.value = false
+  editingPatient.value = null
+}
+function deletePatient(patientId) {
+  patientToDeleteId.value = patientId
+  isDeleteDialogVisible.value = true
+}
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
 }
-
 async function restorePatient(patientId) {
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
@@ -185,32 +251,27 @@ async function restorePatient(patientId) {
     alert('復原失敗！')
   }
 }
-
-// --- 輔助函式 ---
 function getSortIndicator(key) {
   if (currentSort.value.column === key) {
     return currentSort.value.order === 'asc' ? '▲' : '▼'
   }
   return ''
 }
-
 function formatDate(isoString) {
   if (!isoString) return ''
   const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
   if (isNaN(date.getTime())) return ''
   return date.toLocaleDateString()
 }
-
 function getRowClass(p) {
   if (p.isDeleted) return 'status-deleted'
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
-  const freqValue = p.freq ?? p.frequency
+  const freqValue = p.freq
   if (biweeklyFreq.includes(freqValue)) return 'status-biweekly'
   if (p.status === 'ipd') return 'status-ipd'
   if (p.status === 'opd') return 'status-opd'
   return ''
 }
-
 function generateDiseaseTags(diseases) {
   if (!diseases || diseases.length === 0) return ''
   return diseases
@@ -220,8 +281,6 @@ function generateDiseaseTags(diseases) {
     )
     .join('')
 }
-
-// --- 生命週期鉤子 ---
 onMounted(() => {
   fetchAllPatients()
 })
@@ -294,7 +353,7 @@ onMounted(() => {
                 <td>{{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span></td>
                 <td>{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
-                <td>{{ p.freq ?? p.frequency }}</td>
+                <td>{{ p.freq }}</td>
                 <td>{{ p.mode }}</td>
                 <td>{{ p.isFirstDialysis ? '✓' : '' }}</td>
                 <td>{{ p.isDiscontinued ? '✓' : '' }}</td>
@@ -348,7 +407,7 @@ onMounted(() => {
                 <td>{{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span></td>
                 <td>{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
-                <td>{{ p.freq ?? p.frequency }}</td>
+                <td>{{ p.freq }}</td>
                 <td>{{ p.mode }}</td>
                 <td>{{ p.vascAccess }}</td>
                 <td>{{ p.remarks }}</td>

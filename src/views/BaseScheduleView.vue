@@ -1,24 +1,28 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (重構版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (重構版 - 完整無省略) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 
-// 1. 引入所有需要的元件
+// 1. 引入我們重構後的所有工具和常量
+import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
+import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
+
+// 2. 引入所有需要的元件
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue' // 【新增】引入 ConfirmDialog
-import { createEmptySlotData } from '@/utils/scheduleUtils.js'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
 
 // --- 常量定義 ---
-const SHIFTS = ['早班', '午班', '晚班']
+// 【核心修改】使用從 constants 引入的有序代碼陣列
+const SHIFTS = ORDERED_SHIFT_CODES // ['early', 'noon', 'late']
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const bedLayout = [
   1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 28, 29, 31, 32,
@@ -51,7 +55,7 @@ const masterRecord = ref({
 })
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
-const draggedItem = ref(null) // 【新增】拖曳狀態
+const draggedItem = ref(null) // 【保持】用於拖曳狀態
 
 // --- UI 狀態 ---
 const isDialogVisible = ref(false)
@@ -62,7 +66,6 @@ const CLEAR_OPTIONS = [
   { value: 'single', text: '僅清除此班次' },
   { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
 ]
-// Dialog 狀態
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
@@ -73,22 +76,29 @@ const confirmAction = ref(null)
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
+
 const statsToolbarData = computed(() => {
-  const dailyCounts = Array.from({ length: 6 }).map(() => ({ 早班: 0, 午班: 0, 晚班: 0 }))
+  // 3. 修改統計資料的 key 以匹配 StatsToolbar 的新契約
+  const dailyCounts = Array.from({ length: 6 }).map(() => ({
+    counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 }, // e.g., { early: 0, noon: 0, late: 0 }
+  }))
+
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData && slotData.patientId) {
       const [_bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
       if (dayIndex >= 0 && dayIndex < 6) {
-        const shiftName = SHIFTS[shiftIndex]
-        if (dailyCounts[dayIndex] && dailyCounts[dayIndex][shiftName] !== undefined) {
-          dailyCounts[dayIndex][shiftName]++
+        // 使用索引找到對應的英文代碼
+        const shiftCode = SHIFTS[shiftIndex]
+        if (dailyCounts[dayIndex] && dailyCounts[dayIndex].counts[shiftCode] !== undefined) {
+          dailyCounts[dayIndex].counts[shiftCode]++
         }
       }
     }
   }
-  return dailyCounts.map((counts) => ({ counts }))
+  return dailyCounts
 })
+
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
 // --- 方法 ---
@@ -110,9 +120,21 @@ async function loadAllData() {
       const loadedSchedule = baseScheduleDoc.schedule || {}
       const finalSchedule = {}
       for (const slotId in loadedSchedule) {
-        finalSchedule[slotId] = {
-          ...createEmptySlotData(slotId),
-          ...loadedSchedule[slotId],
+        // 4. 標準化讀取到的 note 欄位
+        const dbSlotData = loadedSchedule[slotId]
+        if (dbSlotData && dbSlotData.patientId) {
+          const patient = patientMap.value.get(dbSlotData.patientId)
+          // 使用 createEmptySlotData 確保所有欄位都存在
+          const standardSlot = createEmptySlotData(slotId)
+
+          if (patient) {
+            standardSlot.autoNote = generateAutoNote(patient)
+          }
+          // 將舊的 note 或新的 manualNote 都視為 manualNote
+          standardSlot.manualNote = dbSlotData.manualNote || dbSlotData.note || ''
+          standardSlot.patientId = dbSlotData.patientId
+
+          finalSchedule[slotId] = standardSlot
         }
       }
       masterRecord.value = {
@@ -132,9 +154,22 @@ async function loadAllData() {
 async function saveChangesToCloud() {
   statusText.value = '儲存中...'
   try {
+    // 5. 確保儲存的是標準的 note 模型
+    const scheduleToSave = {}
+    for (const slotId in masterRecord.value.schedule) {
+      const slotData = masterRecord.value.schedule[slotId]
+      if (slotData && slotData.patientId) {
+        scheduleToSave[slotId] = {
+          patientId: slotData.patientId,
+          autoNote: slotData.autoNote || '',
+          manualNote: slotData.manualNote || '',
+        }
+      }
+    }
+
     const dataToSave = {
       id: masterRecord.value.id,
-      schedule: masterRecord.value.schedule,
+      schedule: scheduleToSave,
       updatedAt: new Date(),
     }
     await baseSchedulesApi.save(masterRecord.value.id, dataToSave)
@@ -235,8 +270,8 @@ function handleGridClick(slotId) {
   }
 }
 
+// 6. 修改排班邏輯以生成標準 note 模型
 function handlePatientSelect({ patientId, fillType }) {
-  // 1. 基本資料獲取與驗證
   const slotId = currentSlotId.value
   if (!patientId || !slotId) return
 
@@ -249,7 +284,6 @@ function handlePatientSelect({ patientId, fillType }) {
     fillType === 'frequency' && expectedDays.length > 0 ? expectedDays : [parseInt(dayIndex)]
   const targetSlots = daysToFill.map((d_idx) => `${bed}-${shiftIndex}-${d_idx}`)
 
-  // 2. 檢測衝突
   const emptySlots = []
   const conflictedSlots = []
   targetSlots.forEach((targetSlotId) => {
@@ -260,35 +294,32 @@ function handlePatientSelect({ patientId, fillType }) {
     }
   })
 
-  // 3. 【核心】定義一個局部的、可複用的排班執行函數
   const performScheduling = (slotsToSchedule) => {
     if (slotsToSchedule.length > 0) {
-      // 創建一個新的 schedule 物件來進行修改，以觸發響應式
       const newSchedule = { ...masterRecord.value.schedule }
       slotsToSchedule.forEach((newSlotId) => {
+        // 生成標準的 slot data
         newSchedule[newSlotId] = {
           ...createEmptySlotData(newSlotId),
           patientId: patientId,
-          note: patient.baseNote || '',
+          autoNote: generateAutoNote(patient),
+          manualNote: patient.baseNote || '', // 將 baseNote 視為手動備註
         }
       })
-      // 一次性地更新 ref，效率最高
       masterRecord.value.schedule = newSchedule
       setChange()
     }
   }
 
-  // 4. 根據是否有衝突，執行不同流程
   if (conflictedSlots.length > 0) {
-    // 【流程A：有衝突】
     const conflictMessages = conflictedSlots
       .map((csId) => {
         const [_b, _s, _d] = csId.split('-')
         const day = WEEKDAYS[parseInt(_d, 10)]
-        const shift = SHIFTS[parseInt(_s, 10)]
+        const shiftName = getShiftDisplayName(SHIFTS[parseInt(_s, 10)]) // 使用轉換函式
         const existingPatientName =
           patientMap.value.get(masterRecord.value.schedule[csId].patientId)?.name || '未知'
-        return `${day}${shift}已被 ${existingPatientName} 佔用`
+        return `${day}${shiftName}已被 ${existingPatientName} 佔用`
       })
       .join('\n- ')
 
@@ -306,17 +337,12 @@ function handlePatientSelect({ patientId, fillType }) {
 
     confirmDialogTitle.value = '排班衝突提醒'
     confirmDialogMessage.value = confirmMessage
-
-    // 將我們局部的 performScheduling 函數存起來
     confirmAction.value = () => performScheduling(emptySlots)
-
     isConfirmDialogVisible.value = true
   } else {
-    // 【流程B：無衝突】直接調用局部的排班函數
     performScheduling(emptySlots)
   }
 
-  // 5. 關閉病人選擇對話框
   isDialogVisible.value = false
 }
 
@@ -349,7 +375,6 @@ function handleDialogCancel() {
   isDialogVisible.value = false
 }
 
-// 【新增】ConfirmDialog 的處理函數
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -357,45 +382,43 @@ function handleConflictConfirm() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
+
 function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
 
+// 8. 修改樣式函式以處理標準 note 模型
 function getBaseCellStyle(slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
-  const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {}
-  const classes = {}
-  const note = slotData.note || ''
+
+  const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
+
   for (const key in STYLE_PRIORITY) {
-    if (note.includes(key)) {
-      classes[STYLE_PRIORITY[key].class] = true
-      return classes
+    if (combinedNote.includes(key)) {
+      return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-  return classes
+  return {}
 }
 
-// 【新增】完整的拖曳功能函數
+// 7. 修改拖曳邏輯以處理標準 note 模型
 function onDragStart(event, slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
-  draggedItem.value = {
-    patientId: slotData.patientId,
-    note: slotData.note || '',
-    source: slotId,
-  }
+  // 拖曳時攜帶整個 slotData
+  draggedItem.value = slotData // 使用內部狀態
   event.dataTransfer.effectAllowed = 'move'
 }
 
 function onDrop(event, targetSlotId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+
   const itemToDrop = draggedItem.value
   if (!itemToDrop || !itemToDrop.patientId) return
 
@@ -406,14 +429,17 @@ function onDrop(event, targetSlotId) {
   }
 
   const newSchedule = { ...masterRecord.value.schedule }
-  newSchedule[targetSlotId] = {
-    ...createEmptySlotData(targetSlotId),
-    patientId: itemToDrop.patientId,
-    note: itemToDrop.note,
+  // 放置時，更新 shiftId
+  newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId }
+
+  // 尋找並刪除來源
+  const sourceSlotId = Object.keys(newSchedule).find(
+    (key) => newSchedule[key].patientId === itemToDrop.patientId && key !== targetSlotId,
+  )
+  if (sourceSlotId) {
+    delete newSchedule[sourceSlotId]
   }
-  if (itemToDrop.source !== 'sidebar') {
-    delete newSchedule[itemToDrop.source]
-  }
+
   masterRecord.value.schedule = newSchedule
   setChange()
 
@@ -432,7 +458,6 @@ function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 
-// --- 生命週期鉤子 ---
 onMounted(loadAllData)
 </script>
 
@@ -451,10 +476,12 @@ onMounted(loadAllData)
           </button>
         </div>
       </div>
+      <!-- 9. 將 SHIFTS (英文代碼) 傳給 StatsToolbar -->
       <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
     </header>
 
     <main class="page-main-content">
+      <!-- 10. 將 SHIFTS (英文代碼) 傳給 ScheduleTable -->
       <ScheduleTable
         class="schedule-table-component"
         :layout="bedLayout"
@@ -493,7 +520,6 @@ onMounted(loadAllData)
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
-    <!-- 【新增】ConfirmDialog 元件 -->
     <ConfirmDialog
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"

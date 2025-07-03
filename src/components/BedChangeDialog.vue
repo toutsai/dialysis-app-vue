@@ -1,10 +1,13 @@
-<!-- src/components/BedChangeDialog.vue -->
+<!-- src/components/BedChangeDialog.vue (重構版) -->
 <script setup>
 import { ref, computed, watch } from 'vue'
 
+// 1. 引入我們需要的常量
+import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
+
 const props = defineProps({
   isVisible: Boolean,
-  patientInfo: Object, // { id, shiftId, name, ... }
+  patientInfo: Object, // { id, shiftId, name, ... } e.g., shiftId: 'bed-29-early'
   currentSchedule: Object, // 完整的當日 schedule 物件
 })
 
@@ -14,13 +17,18 @@ const selectedNewBed = ref(null)
 
 // 【核心邏輯】計算可用的空床位
 const availableBeds = computed(() => {
-  if (!props.isVisible || !props.patientInfo) return []
+  if (!props.isVisible || !props.patientInfo || !props.patientInfo.shiftId) return []
 
-  // 1. 從 shiftId 判斷是哪個班次 (早/午/晚)
-  const shiftType = props.patientInfo.shiftId.split('-')[2] // '早班', '午班', '晚班'
-  if (!shiftType) return []
+  // 2. 從 patientInfo.shiftId 中解析出班別代碼
+  const shiftCode = props.patientInfo.shiftId.split('-')[2] // 'early', 'noon', 'late'
 
-  // 2. 定義所有可能的床號 (可以從一個共用的 utils 或 constants 檔案引入)
+  // 檢查是否是有效的班別代碼
+  if (!Object.values(SHIFT_CODES).includes(shiftCode)) {
+    console.error(`無效的班別代碼: ${shiftCode}`)
+    return []
+  }
+
+  // 3. 定義所有可能的床號
   const allBedNumbers = [
     1,
     2,
@@ -74,18 +82,13 @@ const availableBeds = computed(() => {
     'peripheral-6',
   ]
 
-  // 3. 找出所有已佔用的床位
-  const occupiedBeds = new Set()
-  for (const shiftId in props.currentSchedule) {
-    if (shiftId.endsWith(shiftType)) {
-      occupiedBeds.add(shiftId)
-    }
-  }
+  // 4. 找出所有已佔用的床位
+  const occupiedBedShiftIds = new Set(Object.keys(props.currentSchedule))
 
-  // 4. 過濾出空床位
+  // 5. 過濾出同班次的空床位
   return allBedNumbers
-    .map((bedNum) => `bed-${bedNum}-${shiftType}`)
-    .filter((shiftId) => !occupiedBeds.has(shiftId))
+    .map((bedNum) => `bed-${bedNum}-${shiftCode}`) // 組裝成標準 ID
+    .filter((shiftId) => !occupiedBedShiftIds.has(shiftId)) // 檢查該 ID 是否未被佔用
 })
 
 // 當 Dialog 打開時，清空上一次的選擇
@@ -138,8 +141,8 @@ function confirmChange() {
   </div>
 </template>
 
+<!-- Style 部分保持不變 -->
 <style scoped>
-/* 這裡可以加入 Dialog 的樣式，例如彈出視窗、遮罩層等 */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -192,6 +195,7 @@ function confirmChange() {
 .btn-cancel {
   background-color: #ccc;
 }
+/* 這些樣式似乎不屬於這個 Dialog，但暫時保留以防萬一 */
 .patient-item.has-memo {
   outline: 2px solid #dc3545;
 }
@@ -202,7 +206,6 @@ function confirmChange() {
   cursor: grabbing;
 }
 .patient-list-cell {
-  /* 添加一點樣式來提示這裡是可放置區域 */
   border: 2px dashed transparent;
   transition: border-color 0.2s;
 }
