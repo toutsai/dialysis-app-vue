@@ -1,21 +1,16 @@
-<!-- 檔案路徑: src/views/StatsView.vue (重構版 - 完整無省略) -->
+<!-- 檔案路徑: src/views/StatsView.vue (總計人數最終修正版) -->
 <script setup>
 import { ref, onMounted, computed, reactive } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
-
-// 1. 引入我們重構後的所有工具和常量
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
-import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
+import { generateAutoNote } from '@/utils/scheduleUtils.js'
 
-// --- API 實例 ---
+// --- Script 的前半部分保持不變 ---
 const schedulesApi = ApiManager('schedules')
 const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
-
-// --- 常量 ---
-// (可以考慮將這些也移到 constants.js 中)
 const nurseNameList = [
   '陳素秋',
   '古孟麗',
@@ -49,25 +44,14 @@ const nurseNameList = [
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const earlyTeams = baseTeams.map((t) => `早${t}`)
 const lateTeams = baseTeams.map((t) => `晚${t}`)
-
-// --- 核心狀態 ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
 const allMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
-const currentRecord = reactive({
-  id: null,
-  date: '',
-  schedule: {},
-  names: {},
-})
-
-// --- UI 狀態 ---
+const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
-
-// --- 輔助函式 ---
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
@@ -76,21 +60,14 @@ const formatDate = (date) => {
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
   const name = patientDetail.name
-
   const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
-
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
-
-  // 在組合後，過濾掉 '住' 這個標籤
   const finalTags = combinedTags.filter((tag) => tag !== '住')
-
   const noteString = finalTags.join(' ')
-
   let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
     identifier = patientDetail.wardNumber || '外圍'
@@ -100,12 +77,9 @@ const getPatientDisplayString = (patientDetail) => {
       identifier = parts[1]
     }
   }
-
   const parts = [identifier, name, noteString].filter(Boolean)
   return parts.join(' - ')
 }
-
-// --- 計算屬性 ---
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
@@ -117,28 +91,27 @@ const statsData = computed(() => {
   if (!currentRecord.schedule) {
     return { early: {}, late: {} }
   }
-
-  // 1. 初始化空的組別統計物件
   const earlyShiftStats = {}
   const lateShiftStats = {}
-
   earlyTeams.forEach((team) => {
     earlyShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
-      earlyShift: [],
-      noonShiftOn: [],
-      noonShiftOff: [],
+      earlyShift: { patients: [], opdCount: 0, ipdCount: 0 },
+      noonShiftOn: { patients: [], opdCount: 0, ipdCount: 0 },
+      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0 },
+      totalOpdCount: 0,
+      totalIpdCount: 0,
     }
   })
   lateTeams.forEach((team) => {
     lateShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
-      noonShiftOff: [],
-      lateShift: [],
+      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0 },
+      lateShift: { patients: [], opdCount: 0, ipdCount: 0 },
+      totalOpdCount: 0,
+      totalIpdCount: 0,
     }
   })
-
-  // 2. 準備輔助資料
   const patientMap = new Map(allPatients.value.map((p) => [p.id, p]))
   const memoMap = new Map()
   allMemos.value.forEach((memo) => {
@@ -147,8 +120,6 @@ const statsData = computed(() => {
       memoMap.get(memo.patientName).push(memo.content)
     }
   })
-
-  // 3. 遍歷當日排程，將病人分配到對應組別
   Object.values(currentRecord.schedule).forEach((shiftDetails) => {
     const {
       patientId,
@@ -161,91 +132,93 @@ const statsData = computed(() => {
       shiftId,
     } = shiftDetails
     if (!patientId) return
-
     const patient = patientMap.get(patientId)
     if (!patient) return
-
-    const hasMemo = memoMap.has(patient.name)
-    let classes = 'patient-item'
-    if (patient.status === 'ipd') classes += ' status-ipd'
-    else classes += ' status-opd'
-
-    // ======================= 【核心修改區域 1: Script 邏輯】 =======================
-    // 組合備註並檢查是否有手動輸入的內容
-    const autoTags = (autoNote || '').split(' ').filter(Boolean)
-    const manualTags = (manualNote || '').split(' ').filter(Boolean)
-    const combinedNote = [...new Set([...autoTags, ...manualTags])].join(' ')
-
-    // 只要有任何備註 (無論是自動還是手動)，就加上高亮 class
-    if (combinedNote) {
-      classes += ' has-note-highlight'
-    }
-    // ============================= 【修改結束】 ==============================
-    if (combinedNote.includes('抽')) classes += ' tag-chou'
-    if (combinedNote.includes('新')) classes += ' tag-new'
-    if (combinedNote.includes('兩')) classes += ' tag-liang'
-    if (combinedNote.includes('換')) classes += ' tag-huan'
-    if (combinedNote.includes('B')) classes += ' tag-b'
-
-    if (hasMemo) classes += ' has-memo'
-
     const detail = {
       id: patientId,
       shiftId: shiftId,
       name: patient.name,
+      status: patient.status,
       autoNote: autoNote || '',
       manualNote: manualNote || '',
       wardNumber: wardNumber || '',
-      classes: classes,
+      classes: 'patient-item',
     }
-
+    if (patient.status === 'ipd') detail.classes += ' status-ipd'
+    else detail.classes += ' status-opd'
+    const combinedNote = [
+      ...new Set([
+        ...(autoNote || '').split(' ').filter(Boolean),
+        ...(manualNote || '').split(' ').filter(Boolean),
+      ]),
+    ].join(' ')
+    if (combinedNote) detail.classes += ' has-note-highlight'
+    if (combinedNote.includes('抽')) detail.classes += ' tag-chou'
+    if (combinedNote.includes('新')) detail.classes += ' tag-new'
+    if (combinedNote.includes('兩')) detail.classes += ' tag-liang'
+    if (combinedNote.includes('換')) detail.classes += ' tag-huan'
+    if (combinedNote.includes('B')) detail.classes += ' tag-b'
+    if (memoMap.has(patient.name)) detail.classes += ' has-memo'
+    const assignAndCount = (group, patientDetail) => {
+      group.patients.push(patientDetail)
+      if (patientDetail.status === 'ipd') {
+        group.ipdCount++
+      } else {
+        group.opdCount++
+      }
+    }
     const shiftCode = shiftId.split('-')[2]
     if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
-      earlyShiftStats[nurseTeam].earlyShift.push(detail)
+      assignAndCount(earlyShiftStats[nurseTeam].earlyShift, detail)
     } else if (shiftCode === SHIFT_CODES.LATE && nurseTeam && lateShiftStats[nurseTeam]) {
-      // 【核心修正】將 team 改為 nurseTeam
-      lateShiftStats[nurseTeam].lateShift.push(detail)
+      assignAndCount(lateShiftStats[nurseTeam].lateShift, detail)
     } else if (shiftCode === SHIFT_CODES.NOON) {
       if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
-        earlyShiftStats[nurseTeamIn].noonShiftOn.push(detail)
+        assignAndCount(earlyShiftStats[nurseTeamIn].noonShiftOn, detail)
       }
       if (nurseTeamOut) {
         if (earlyShiftStats[nurseTeamOut]) {
-          earlyShiftStats[nurseTeamOut].noonShiftOff.push(detail)
+          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
         } else if (lateShiftStats[nurseTeamOut]) {
-          lateShiftStats[nurseTeamOut].noonShiftOff.push(detail)
+          assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
         }
       }
     }
   })
-
-  // 4. 對每個組的陣列進行排序
   const sortPatientsByBed = (a, b) => {
     const getSortKey = (shiftId) => {
       if (!shiftId || typeof shiftId !== 'string') return 999
       const parts = shiftId.split('-')
+      if (parts[0] === 'peripheral') return 100 + parseInt(parts[1], 10)
       const num = parseInt(parts[1], 10)
       return isNaN(num) ? 999 : num
     }
     return getSortKey(a.shiftId) - getSortKey(b.shiftId)
   }
+  for (const team in earlyShiftStats) {
+    Object.values(earlyShiftStats[team]).forEach((group) => {
+      if (group.patients) group.patients.sort(sortPatientsByBed)
+    })
+  }
+  for (const team in lateShiftStats) {
+    Object.values(lateShiftStats[team]).forEach((group) => {
+      if (group.patients) group.patients.sort(sortPatientsByBed)
+    })
+  }
 
   for (const team in earlyShiftStats) {
-    earlyShiftStats[team].earlyShift.sort(sortPatientsByBed)
-    earlyShiftStats[team].noonShiftOn.sort(sortPatientsByBed)
-    earlyShiftStats[team].noonShiftOff.sort(sortPatientsByBed)
+    const teamData = earlyShiftStats[team]
+    teamData.totalOpdCount = teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount
+    teamData.totalIpdCount = teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount
   }
-
   for (const team in lateShiftStats) {
-    lateShiftStats[team].noonShiftOff.sort(sortPatientsByBed)
-    lateShiftStats[team].lateShift.sort(sortPatientsByBed)
+    const teamData = lateShiftStats[team]
+    teamData.totalOpdCount = teamData.lateShift.opdCount
+    teamData.totalIpdCount = teamData.lateShift.ipdCount
   }
 
-  // 5. 返回最終結果
   return { early: earlyShiftStats, late: lateShiftStats }
 })
-
-// --- 方法 ---
 async function loadData(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
@@ -260,7 +233,6 @@ async function loadData(date) {
     allMemos.value = memosData
     if (dailyRecords.length > 0) {
       const record = dailyRecords[0]
-      // 標準化 note
       if (record.schedule) {
         const localPatientMap = new Map(patientsData.map((p) => [p.id, p]))
         for (const shiftId in record.schedule) {
@@ -283,7 +255,6 @@ async function loadData(date) {
     statusIndicator.value = '讀取失敗'
   }
 }
-
 async function saveChangesToCloud() {
   if (!currentRecord.id && Object.keys(currentRecord.schedule).length === 0) {
     alert('沒有資料可以儲存。')
@@ -291,7 +262,6 @@ async function saveChangesToCloud() {
   }
   statusIndicator.value = '儲存中...'
   try {
-    // 儲存前清理，只保留必要欄位
     const cleanSchedule = {}
     for (const shiftId in currentRecord.schedule) {
       const slot = currentRecord.schedule[shiftId]
@@ -308,7 +278,6 @@ async function saveChangesToCloud() {
         }
       }
     }
-
     const dataToSave = {
       date: currentRecord.date,
       schedule: cleanSchedule,
@@ -330,117 +299,87 @@ async function saveChangesToCloud() {
     alert(`儲存失敗: ${error.message}`)
   }
 }
-
-// 4. onDrop 邏輯重構
 function onDrop(event, newTeam, newResponsibility) {
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
-
   if (!currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
-
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
-
-  // 清除所有舊的護理組指派
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
-
-  // 根據新的放置位置，賦予新的主要負責組別
-  if (newResponsibility === 'earlyShift') {
-    movingSlotData.nurseTeam = newTeam
-  } else if (newResponsibility === 'lateShift') {
+  if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     movingSlotData.nurseTeam = newTeam
   } else if (newResponsibility === 'noonShiftOn' || newResponsibility === 'noonShiftOff') {
     movingSlotData.nurseTeamIn = newTeam
-    // 如果是從午班拖到另一個午班組，保留原有的收針組別
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
       movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
     }
   }
-
-  // 決定新的 shiftId
   const bedPart = oldShiftId.split('-').slice(0, 2).join('-')
   let newShiftCode = ''
   if (newResponsibility === 'earlyShift') newShiftCode = SHIFT_CODES.EARLY
   else if (newResponsibility === 'lateShift') newShiftCode = SHIFT_CODES.LATE
   else newShiftCode = SHIFT_CODES.NOON
-
   const newShiftId = `${bedPart}-${newShiftCode}`
-
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
     alert(`錯誤：目標床位 ${newShiftId} 已被佔用！操作取消。`)
     return
   }
-
   delete currentRecord.schedule[oldShiftId]
   movingSlotData.shiftId = newShiftId
   currentRecord.schedule[newShiftId] = movingSlotData
-
   setChange()
 }
-
 function onDragStart(event, patientDetail, responsibility) {
   event.dataTransfer.setData('application/json', JSON.stringify(patientDetail))
-  event.dataTransfer.setData('text/plain', responsibility) // 記錄來源區域
+  event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function onDragOver(event) {
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
-
 function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
-
-// 其他函式...
 function changeDate(days) {
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
   loadData(newDate)
 }
-
 function goToToday() {
   currentDate.value = new Date()
   loadData(currentDate.value)
 }
-
 function setChange() {
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
-
 function openBedChangeDialog(patientDetail) {
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
-
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error('換床失敗，參數無效或找不到舊床位資料。')
     return
   }
-  // 換床時，需要更新 slotData 內部的 shiftId
   const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = patientData
   setChange()
   isBedChangeDialogVisible.value = false
 }
-
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
 }
-
 function updateNurseName(teamId, event) {
   if (!currentRecord.names) {
     currentRecord.names = {}
@@ -448,11 +387,9 @@ function updateNurseName(teamId, event) {
   currentRecord.names[teamId] = event.target.value
   setChange()
 }
-
 function triggerPrint() {
   window.print()
 }
-
 onMounted(() => {
   loadData(currentDate.value)
 })
@@ -480,202 +417,205 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 早班組別 -->
     <div class="stats-section">
       <h2>早班組別</h2>
-      <div class="table-container">
-        <table class="stats-table assignment-table">
-          <thead>
-            <tr>
-              <th class="row-header sticky-header"></th>
-              <th
-                v-for="(_, teamName) in statsData.early"
-                :key="teamName"
-                class="team-header-cell sticky-header"
+      <div class="grid-container">
+        <div class="grid-header">
+          <div class="row-header"></div>
+          <div v-for="(_, teamName) in statsData.early" :key="teamName" class="team-header-cell">
+            {{ teamName }}組
+          </div>
+        </div>
+        <div class="grid-body">
+          <div class="grid-row">
+            <div class="row-header">姓名</div>
+            <div
+              v-for="(teamData, teamName) in statsData.early"
+              :key="teamName"
+              class="grid-cell name-cell"
+            >
+              <select
+                :value="teamData.nurseName"
+                @change="updateNurseName(teamName, $event)"
+                class="name-select"
               >
-                {{ teamName }}組
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th class="row-header">姓名</th>
-              <td
-                v-for="(teamData, teamName) in statsData.early"
-                :key="teamName"
-                class="team-name-cell"
-              >
-                <select
-                  :value="teamData.nurseName"
-                  @change="updateNurseName(teamName, $event)"
-                  class="name-select"
-                >
-                  <option value="">-- 未指派 --</option>
-                  <option v-for="name in nurseNameList" :key="name" :value="name">
-                    {{ name }}
-                  </option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <th class="row-header">早班</th>
-              <td
-                v-for="(teamData, teamName) in statsData.early"
-                :key="teamName"
-                class="patient-list-cell"
-                @drop="onDrop($event, teamName, 'earlyShift')"
-                @dragover.prevent="onDragOver"
-                @dragleave="onDragLeave"
-              >
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid-row">
+            <div class="row-header">早班</div>
+            <div
+              v-for="(teamData, teamName) in statsData.early"
+              :key="teamName"
+              class="grid-cell patient-list-cell"
+              @drop="onDrop($event, teamName, 'earlyShift')"
+              @dragover="onDragOver"
+              @dragleave="onDragLeave"
+            >
+              <div class="patient-wrapper">
                 <span
-                  v-for="patient in teamData.earlyShift"
+                  v-for="patient in teamData.earlyShift.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
                   draggable="true"
                   @dragstart="onDragStart($event, patient, 'earlyShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
+                  >{{ getPatientDisplayString(patient) }}</span
                 >
-                  {{ getPatientDisplayString(patient) }}
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <th class="row-header">午班(上針)</th>
-              <td
-                v-for="(teamData, teamName) in statsData.early"
-                :key="teamName"
-                class="patient-list-cell"
-                @drop="onDrop($event, teamName, 'noonShiftOn')"
-                @dragover.prevent="onDragOver"
-                @dragleave="onDragLeave"
-              >
+              </div>
+            </div>
+          </div>
+          <div class="grid-row">
+            <div class="row-header">午班(上針)</div>
+            <div
+              v-for="(teamData, teamName) in statsData.early"
+              :key="teamName"
+              class="grid-cell patient-list-cell"
+              @drop="onDrop($event, teamName, 'noonShiftOn')"
+              @dragover="onDragOver"
+              @dragleave="onDragLeave"
+            >
+              <div class="patient-wrapper">
                 <span
-                  v-for="patient in teamData.noonShiftOn"
+                  v-for="patient in teamData.noonShiftOn.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
                   draggable="true"
                   @dragstart="onDragStart($event, patient, 'noonShiftOn')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
+                  >{{ getPatientDisplayString(patient) }}</span
                 >
-                  {{ getPatientDisplayString(patient) }}
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <th class="row-header">午班(收針)</th>
-              <td
-                v-for="(teamData, teamName) in statsData.early"
-                :key="teamName"
-                class="patient-list-cell"
-                @drop="onDrop($event, teamName, 'noonShiftOff')"
-                @dragover.prevent="onDragOver"
-                @dragleave="onDragLeave"
-              >
+              </div>
+            </div>
+          </div>
+          <div class="grid-row">
+            <div class="row-header">午班(收針)</div>
+            <div
+              v-for="(teamData, teamName) in statsData.early"
+              :key="teamName"
+              class="grid-cell patient-list-cell"
+              @drop="onDrop($event, teamName, 'noonShiftOff')"
+              @dragover="onDragOver"
+              @dragleave="onDragLeave"
+            >
+              <div class="patient-wrapper">
                 <span
-                  v-for="patient in teamData.noonShiftOff"
+                  v-for="patient in teamData.noonShiftOff.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
                   draggable="true"
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
+                  >{{ getPatientDisplayString(patient) }}</span
                 >
-                  {{ getPatientDisplayString(patient) }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="grid-footer">
+          <div class="row-header">照護人數</div>
+          <div
+            v-for="teamData in statsData.early"
+            :key="teamData.nurseName"
+            class="total-count-summary"
+          >
+            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 晚班組別 -->
     <div class="stats-section">
       <h2>晚班組別</h2>
-      <div class="table-container">
-        <table class="stats-table assignment-table">
-          <thead>
-            <tr>
-              <th class="row-header sticky-header"></th>
-              <th
-                v-for="(_, teamName) in statsData.late"
-                :key="teamName"
-                class="team-header-cell sticky-header"
+      <div class="grid-container">
+        <div class="grid-header">
+          <div class="row-header"></div>
+          <div v-for="(_, teamName) in statsData.late" :key="teamName" class="team-header-cell">
+            {{ teamName }}組
+          </div>
+        </div>
+        <div class="grid-body">
+          <div class="grid-row">
+            <div class="row-header">姓名</div>
+            <div
+              v-for="(teamData, teamName) in statsData.late"
+              :key="teamName"
+              class="grid-cell name-cell"
+            >
+              <select
+                :value="teamData.nurseName"
+                @change="updateNurseName(teamName, $event)"
+                class="name-select"
               >
-                {{ teamName }}組
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th class="row-header">姓名</th>
-              <td
-                v-for="(teamData, teamName) in statsData.late"
-                :key="teamName"
-                class="team-name-cell"
-              >
-                <select
-                  :value="teamData.nurseName"
-                  @change="updateNurseName(teamName, $event)"
-                  class="name-select"
-                >
-                  <option value="">-- 未指派 --</option>
-                  <option v-for="name in nurseNameList" :key="name" :value="name">
-                    {{ name }}
-                  </option>
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <th class="row-header">午班(收針)</th>
-              <td
-                v-for="(teamData, teamName) in statsData.late"
-                :key="teamName"
-                class="patient-list-cell"
-                @drop="onDrop($event, teamName, 'noonShiftOff')"
-                @dragover.prevent="onDragOver"
-                @dragleave="onDragLeave"
-              >
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid-row">
+            <div class="row-header">午班(收針)</div>
+            <div
+              v-for="(teamData, teamName) in statsData.late"
+              :key="teamName"
+              class="grid-cell patient-list-cell"
+              @drop="onDrop($event, teamName, 'noonShiftOff')"
+              @dragover="onDragOver"
+              @dragleave="onDragLeave"
+            >
+              <div class="patient-wrapper">
                 <span
-                  v-for="patient in teamData.noonShiftOff"
+                  v-for="patient in teamData.noonShiftOff.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
                   draggable="true"
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
+                  >{{ getPatientDisplayString(patient) }}</span
                 >
-                  {{ getPatientDisplayString(patient) }}
-                </span>
-              </td>
-            </tr>
-            <tr>
-              <th class="row-header">晚班</th>
-              <td
-                v-for="(teamData, teamName) in statsData.late"
-                :key="teamName"
-                class="patient-list-cell"
-                @drop="onDrop($event, teamName, 'lateShift')"
-                @dragover.prevent="onDragOver"
-                @dragleave="onDragLeave"
-              >
+              </div>
+            </div>
+          </div>
+          <div class="grid-row">
+            <div class="row-header">晚班</div>
+            <div
+              v-for="(teamData, teamName) in statsData.late"
+              :key="teamName"
+              class="grid-cell patient-list-cell"
+              @drop="onDrop($event, teamName, 'lateShift')"
+              @dragover="onDragOver"
+              @dragleave="onDragLeave"
+            >
+              <div class="patient-wrapper">
                 <span
-                  v-for="patient in teamData.lateShift"
+                  v-for="patient in teamData.lateShift.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
                   draggable="true"
                   @dragstart="onDragStart($event, patient, 'lateShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
+                  >{{ getPatientDisplayString(patient) }}</span
                 >
-                  {{ getPatientDisplayString(patient) }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="grid-footer">
+          <div class="row-header">照護人數</div>
+          <div
+            v-for="teamData in statsData.late"
+            :key="teamData.nurseName"
+            class="total-count-summary"
+          >
+            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -720,13 +660,13 @@ onMounted(() => {
   gap: 10px;
 }
 .current-date-text {
-  font-size: 28px;
+  font-size: 1.5em;
   font-weight: bold;
   color: #333;
   padding: 0 10px;
 }
 .weekday-display {
-  font-size: 28px;
+  font-size: 1.5em;
   font-weight: bold;
   color: var(--primary-color);
   margin-left: -5px;
@@ -751,30 +691,10 @@ onMounted(() => {
     border-color 0.2s;
   white-space: nowrap;
 }
-.toolbar-left button:hover,
-.toolbar-right button:not(:disabled):hover {
-  background-color: #f0f0f0;
-}
 #save-changes-btn {
   background-color: #4caf50;
   color: white;
   border-color: #4caf50;
-}
-#save-changes-btn:hover {
-  background-color: #43a047;
-}
-#save-changes-btn:disabled {
-  background-color: #ccc;
-  border-color: #ccc;
-  cursor: not-allowed;
-  opacity: 0.7;
-}
-.table-container {
-  background-color: #fff;
-  padding: 10px;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  overflow-x: auto;
 }
 .stats-section {
   margin-bottom: 30px;
@@ -786,34 +706,55 @@ onMounted(() => {
   padding-bottom: 10px;
   margin-bottom: 15px;
 }
-.stats-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  min-width: 1200px;
-}
-.stats-table th,
-.stats-table td {
+.grid-container {
+  display: grid;
+  grid-template-columns: 90px repeat(12, 1fr);
   border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.grid-header,
+.grid-body,
+.grid-footer {
+  display: contents;
+}
+.grid-row {
+  display: contents;
+}
+.row-header,
+.team-header-cell,
+.grid-cell,
+.total-count-summary {
+  border-right: 1px solid #ddd;
+  border-bottom: 1px solid #ddd;
   padding: 8px;
-  text-align: center;
-  vertical-align: top;
-  font-size: 0.9em;
   word-wrap: break-word;
 }
-.stats-table th.row-header {
+.grid-container div:nth-child(13n) {
+  border-right: none;
+}
+.grid-footer > div {
+  border-bottom: none;
+}
+.row-header {
   background-color: #f2f2f2;
   font-weight: bold;
-  width: 90px;
+  text-align: center;
   position: sticky;
   left: 0;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .team-header-cell {
   background-color: #e3f2fd;
   font-weight: bold;
+  text-align: center;
 }
-.team-name-cell {
+.name-cell {
   padding: 0 !important;
 }
 .name-select {
@@ -832,36 +773,27 @@ onMounted(() => {
   outline: 2px solid #fbc02d;
 }
 .patient-list-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
   text-align: left;
   vertical-align: top;
-  min-height: 100px;
-  padding: 8px;
-  transition:
-    background-color 0.2s ease-in-out,
-    border-color 0.2s ease-in-out;
+  min-height: 120px;
+  transition: background-color 0.2s;
 }
 .patient-list-cell.drag-over-active {
   background-color: #e8f5e9;
   border: 2px dashed #4caf50;
 }
-.assignment-table th.row-header {
-  width: 85px;
+.patient-wrapper {
+  flex-grow: 1;
+}
+.total-count-summary {
   background-color: #f8f9fa;
-  font-weight: 600;
-  vertical-align: middle;
-}
-.assignment-table .team-header-cell {
-  background-color: #e3f2fd;
-  font-weight: 600;
-}
-.assignment-table .sticky-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.assignment-table th.row-header.sticky-header {
-  left: 0;
-  z-index: 3;
+  font-weight: bold;
+  text-align: center;
+  color: #333;
+  padding: 10px 8px;
 }
 .patient-item {
   display: block;
@@ -869,7 +801,7 @@ onMounted(() => {
   margin-bottom: 5px;
   border-radius: 4px;
   border: 1px solid #b0bec5;
-  background-color: #f5f5f5; /* 基礎背景色 */
+  background-color: #f5f5f5;
   font-size: 0.95em;
   line-height: 1.4;
   cursor: pointer;
@@ -884,9 +816,9 @@ onMounted(() => {
   opacity: 0.8;
   transform: scale(1.02);
 }
-
-/* --- ↓↓↓ 顏色規則核心 (調整順序) ↓↓↓ --- */
-/* 優先級最低: 基礎狀態背景色 */
+.patient-item.has-memo {
+  box-shadow: 0 0 0 2px #ef5350;
+}
 .patient-item.status-opd {
   background-color: var(--green-bg, #e8f5e9);
   border-color: #a5d6a7;
@@ -895,8 +827,6 @@ onMounted(() => {
   background-color: var(--red-bg, #ffebee);
   border-color: #ef9a9a;
 }
-
-/* 優先級中: 特殊標籤背景色 (會覆蓋 status 顏色) */
 .patient-item.tag-b {
   background-color: #fff9c4;
   border-color: #fff59d;
@@ -913,21 +843,12 @@ onMounted(() => {
   background-color: #f5ec8e;
   border-color: #e0d567;
 }
-/* 優先級最高: '抽' 的顏色 (會覆蓋所有其他背景色) */
 .patient-item.tag-chou {
   background-color: #658ee0;
   border-color: #42a5f5;
 }
-
-/* 額外提示 (不影響背景色) */
-.patient-item.has-memo {
-  box-shadow: 0 0 0 2px #ef5350; /* 紅色光暈 */
-}
-/* ======================= 【核心修改區域 2: Style 樣式】 ======================= */
-/* 只要 patient-item 帶有這個 class，就將其文字變為紅色粗體 */
 .patient-item.has-note-highlight {
-  color: #c62828; /* 深紅色 */
+  color: #c62828;
   font-weight: bold;
 }
-/* ============================= 【修改結束】 ============================== */
 </style>
