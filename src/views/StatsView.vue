@@ -159,10 +159,8 @@ const statsData = computed(() => {
     if (!patient) return
 
     const hasMemo = memoMap.has(patient.name)
-    // --- class 生成邏輯 (保持您原有的版本) ---
     let classes = 'patient-item'
-    if (patient.status === 'ipd')
-      classes += ' status-ipd' // 使用 status-ipd 替代 hospitalized
+    if (patient.status === 'ipd') classes += ' status-ipd'
     else classes += ' status-opd'
 
     const combinedNote = `${autoNote || ''} ${manualNote || ''}`
@@ -184,12 +182,12 @@ const statsData = computed(() => {
       classes: classes,
     }
 
-    // --- 將病人放入對應組別的邏輯 (不變) ---
     const shiftCode = shiftId.split('-')[2]
     if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
       earlyShiftStats[nurseTeam].earlyShift.push(detail)
     } else if (shiftCode === SHIFT_CODES.LATE && nurseTeam && lateShiftStats[nurseTeam]) {
-      lateShiftStats[team].lateShift.push(detail)
+      // 【核心修正】將 team 改為 nurseTeam
+      lateShiftStats[nurseTeam].lateShift.push(detail)
     } else if (shiftCode === SHIFT_CODES.NOON) {
       if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
         earlyShiftStats[nurseTeamIn].noonShiftOn.push(detail)
@@ -204,15 +202,13 @@ const statsData = computed(() => {
     }
   })
 
-  // 4. 【新增】在所有病人都分好組之後，對每個組的陣列進行排序
+  // 4. 對每個組的陣列進行排序
   const sortPatientsByBed = (a, b) => {
-    // 從 shiftId 中提取床號或外圍編號
     const getSortKey = (shiftId) => {
       if (!shiftId || typeof shiftId !== 'string') return 999
       const parts = shiftId.split('-')
-      // 處理 'bed-29-early' 和 'peripheral-1-early' 兩種格式
       const num = parseInt(parts[1], 10)
-      return isNaN(num) ? 999 : num // 如果不是數字(例如 'sidebar-source')，排在最後
+      return isNaN(num) ? 999 : num
     }
     return getSortKey(a.shiftId) - getSortKey(b.shiftId)
   }
