@@ -81,8 +81,15 @@ const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
   const name = patientDetail.name
 
-  // 2. 使用標準的 note 模型
-  const combinedNote = `${patientDetail.autoNote || ''} ${patientDetail.manualNote || ''}`.trim()
+  const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
+  const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
+
+  const combinedTags = [...new Set([...autoTags, ...manualTags])]
+
+  // 在組合後，過濾掉 '住' 這個標籤
+  const finalTags = combinedTags.filter((tag) => tag !== '住')
+
+  const noteString = finalTags.join(' ')
 
   let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
@@ -94,7 +101,7 @@ const getPatientDisplayString = (patientDetail) => {
     }
   }
 
-  const parts = [identifier, name, combinedNote].filter(Boolean)
+  const parts = [identifier, name, noteString].filter(Boolean)
   return parts.join(' - ')
 }
 
@@ -163,7 +170,17 @@ const statsData = computed(() => {
     if (patient.status === 'ipd') classes += ' status-ipd'
     else classes += ' status-opd'
 
-    const combinedNote = `${autoNote || ''} ${manualNote || ''}`
+    // ======================= 【核心修改區域 1: Script 邏輯】 =======================
+    // 組合備註並檢查是否有手動輸入的內容
+    const autoTags = (autoNote || '').split(' ').filter(Boolean)
+    const manualTags = (manualNote || '').split(' ').filter(Boolean)
+    const combinedNote = [...new Set([...autoTags, ...manualTags])].join(' ')
+
+    // 只要有任何備註 (無論是自動還是手動)，就加上高亮 class
+    if (combinedNote) {
+      classes += ' has-note-highlight'
+    }
+    // ============================= 【修改結束】 ==============================
     if (combinedNote.includes('抽')) classes += ' tag-chou'
     if (combinedNote.includes('新')) classes += ' tag-new'
     if (combinedNote.includes('兩')) classes += ' tag-liang'
@@ -703,13 +720,13 @@ onMounted(() => {
   gap: 10px;
 }
 .current-date-text {
-  font-size: 1.5em;
+  font-size: 28px;
   font-weight: bold;
   color: #333;
   padding: 0 10px;
 }
 .weekday-display {
-  font-size: 1.5em;
+  font-size: 28px;
   font-weight: bold;
   color: var(--primary-color);
   margin-left: -5px;
@@ -906,4 +923,11 @@ onMounted(() => {
 .patient-item.has-memo {
   box-shadow: 0 0 0 2px #ef5350; /* 紅色光暈 */
 }
+/* ======================= 【核心修改區域 2: Style 樣式】 ======================= */
+/* 只要 patient-item 帶有這個 class，就將其文字變為紅色粗體 */
+.patient-item.has-note-highlight {
+  color: #c62828; /* 深紅色 */
+  font-weight: bold;
+}
+/* ============================= 【修改結束】 ============================== */
 </style>

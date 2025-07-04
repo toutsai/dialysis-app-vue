@@ -49,7 +49,6 @@ const shiftOrder = computed(() => {
 }
 .stat-item {
   display: flex;
-  align-items: center;
   gap: 10px;
   padding: 8px;
   border-radius: 5px;
