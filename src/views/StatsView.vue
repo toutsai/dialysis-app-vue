@@ -111,6 +111,7 @@ const statsData = computed(() => {
     return { early: {}, late: {} }
   }
 
+  // 1. 初始化空的組別統計物件
   const earlyShiftStats = {}
   const lateShiftStats = {}
 
@@ -130,6 +131,7 @@ const statsData = computed(() => {
     }
   })
 
+  // 2. 準備輔助資料
   const patientMap = new Map(allPatients.value.map((p) => [p.id, p]))
   const memoMap = new Map()
   allMemos.value.forEach((memo) => {
@@ -139,6 +141,7 @@ const statsData = computed(() => {
     }
   })
 
+  // 3. 遍歷當日排程，將病人分配到對應組別
   Object.values(currentRecord.schedule).forEach((shiftDetails) => {
     const {
       patientId,
@@ -157,10 +160,16 @@ const statsData = computed(() => {
 
     const hasMemo = memoMap.has(patient.name)
     let classes = 'patient-item'
-    if (patient.status === 'ipd') classes += ' hospitalized'
+    if (patient.status === 'ipd') classes += ' status-ipd'
+    else classes += ' status-opd'
 
     const combinedNote = `${autoNote || ''} ${manualNote || ''}`
     if (combinedNote.includes('抽')) classes += ' tag-chou'
+    if (combinedNote.includes('新')) classes += ' tag-new'
+    if (combinedNote.includes('兩')) classes += ' tag-liang'
+    if (combinedNote.includes('換')) classes += ' tag-huan'
+    if (combinedNote.includes('B')) classes += ' tag-b'
+
     if (hasMemo) classes += ' has-memo'
 
     const detail = {
@@ -173,12 +182,11 @@ const statsData = computed(() => {
       classes: classes,
     }
 
-    // 3. 使用英文代碼來判斷班別
     const shiftCode = shiftId.split('-')[2]
-
     if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
       earlyShiftStats[nurseTeam].earlyShift.push(detail)
     } else if (shiftCode === SHIFT_CODES.LATE && nurseTeam && lateShiftStats[nurseTeam]) {
+      // 【核心修正】將 team 改為 nurseTeam
       lateShiftStats[nurseTeam].lateShift.push(detail)
     } else if (shiftCode === SHIFT_CODES.NOON) {
       if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
@@ -193,6 +201,30 @@ const statsData = computed(() => {
       }
     }
   })
+
+  // 4. 對每個組的陣列進行排序
+  const sortPatientsByBed = (a, b) => {
+    const getSortKey = (shiftId) => {
+      if (!shiftId || typeof shiftId !== 'string') return 999
+      const parts = shiftId.split('-')
+      const num = parseInt(parts[1], 10)
+      return isNaN(num) ? 999 : num
+    }
+    return getSortKey(a.shiftId) - getSortKey(b.shiftId)
+  }
+
+  for (const team in earlyShiftStats) {
+    earlyShiftStats[team].earlyShift.sort(sortPatientsByBed)
+    earlyShiftStats[team].noonShiftOn.sort(sortPatientsByBed)
+    earlyShiftStats[team].noonShiftOff.sort(sortPatientsByBed)
+  }
+
+  for (const team in lateShiftStats) {
+    lateShiftStats[team].noonShiftOff.sort(sortPatientsByBed)
+    lateShiftStats[team].lateShift.sort(sortPatientsByBed)
+  }
+
+  // 5. 返回最終結果
   return { early: earlyShiftStats, late: lateShiftStats }
 })
 
@@ -641,7 +673,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Style 部分保持不變，但新增一個 drag-over-active class */
 .page-container {
   padding: 20px;
 }
@@ -821,7 +852,7 @@ onMounted(() => {
   margin-bottom: 5px;
   border-radius: 4px;
   border: 1px solid #b0bec5;
-  background-color: #f5f5f5;
+  background-color: #f5f5f5; /* 基礎背景色 */
   font-size: 0.95em;
   line-height: 1.4;
   cursor: pointer;
@@ -836,14 +867,43 @@ onMounted(() => {
   opacity: 0.8;
   transform: scale(1.02);
 }
-.patient-item.hospitalized {
-  background-color: #ffcdd2 !important;
-  border-color: #e57373;
+
+/* --- ↓↓↓ 顏色規則核心 (調整順序) ↓↓↓ --- */
+/* 優先級最低: 基礎狀態背景色 */
+.patient-item.status-opd {
+  background-color: var(--green-bg, #e8f5e9);
+  border-color: #a5d6a7;
 }
-.patient-item.has-memo {
-  box-shadow: 0 0 0 2px #ef5350;
+.patient-item.status-ipd {
+  background-color: var(--red-bg, #ffebee);
+  border-color: #ef9a9a;
 }
+
+/* 優先級中: 特殊標籤背景色 (會覆蓋 status 顏色) */
+.patient-item.tag-b {
+  background-color: #fff9c4;
+  border-color: #fff59d;
+}
+.patient-item.tag-liang {
+  background-color: #fff3e0;
+  border-color: #ffe0b2;
+}
+.patient-item.tag-huan {
+  background-color: #e0f7fa;
+  border-color: #b2ebf2;
+}
+.patient-item.tag-new {
+  background-color: #f5ec8e;
+  border-color: #e0d567;
+}
+/* 優先級最高: '抽' 的顏色 (會覆蓋所有其他背景色) */
 .patient-item.tag-chou {
-  border-left: 4px solid #42a5f5;
+  background-color: #658ee0;
+  border-color: #42a5f5;
+}
+
+/* 額外提示 (不影響背景色) */
+.patient-item.has-memo {
+  box-shadow: 0 0 0 2px #ef5350; /* 紅色光暈 */
 }
 </style>

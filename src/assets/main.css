@@ -9,9 +9,9 @@
   --border-color: #dee2e6;
   --sidebar-bg: #f8f9fa;
   --green-bg: #e8f5e9;
-  --blue-bg: #e3f2fd;
+  --blue-bg: #d4ebfc;
   --red-bg: #ffcdd2;
-  --orange-bg: #fff3e0;
+  --orange-bg: #fccc7e;
   --hepatitis-bg: #fffde7;
   --red-text: #c62828;
 }
@@ -183,7 +183,7 @@ body {
 .btn {
   display: inline-block;
   padding: 8px 15px; /* 控制大小 */
-  height: 40px; /* 控制高度 */
+  height: 45px; /* 控制高度 */
   box-sizing: border-box; /* 確保 padding 不會撐大高度 */
   font-size: 0.95em;
   font-weight: 500;
