@@ -43,7 +43,13 @@ const layoutData = {
     [1, 2, 3],
   ],
 }
-const allBedNumbers = [...layoutData.leftWingRows.flat(), ...layoutData.rightWingRows.flat()]
+
+const allBedNumbers = [
+  ...layoutData.leftWingRows.flat(),
+  ...layoutData.rightWingRows.flat(),
+  ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
+].filter((b) => b !== '空')
+
 const hepatitisBeds = ['空', 31, 32, 33, 35, 36]
 const aisleSideBeds = [1, 7, 8, 15, 16, 22, 23, 29, 31, 36, 37, 53, 55, 61, 62, 65]
 const peripheralBedCount = 6
@@ -359,7 +365,7 @@ function onSidebarDragStart(event, patient) {
 function onDrop(event, targetShiftId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
-  event.target.closest('.patient-name')?.classList.remove('drag-over')
+  event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
 
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
   const droppedSlotData = JSON.parse(event.dataTransfer.getData('application/json'))
@@ -394,14 +400,14 @@ function onDrop(event, targetShiftId) {
 
 function onDragOver(event) {
   event.preventDefault()
-  const targetCell = event.target.closest('.patient-name')
+  const targetCell = event.target.closest('.patient-name, .peripheral-patient-name')
   if (targetCell) {
     targetCell.classList.add('drag-over')
   }
 }
 
 function onDragLeave(event) {
-  event.target.closest('.patient-name')?.classList.remove('drag-over')
+  event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
 }
 
 // 【修改】統一操作入口
@@ -486,7 +492,16 @@ function getPatientName(shiftId) {
 function getCombinedNote(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return ''
-  return `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
+
+  const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
+  const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
+
+  const combinedTags = [...new Set([...autoTags, ...manualTags])]
+
+  // 在組合後，過濾掉 '住' 這個標籤
+  const finalTags = combinedTags.filter((tag) => tag !== '住')
+
+  return finalTags.join(' ')
 }
 
 function getPatientCellStyle(shiftId) {
@@ -541,7 +556,6 @@ watch(currentDate, (newDate, oldDate) => {
 <template>
   <div class="page-container">
     <header class="page-header">
-      <!-- Header Toolbar -->
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">每日排程表</h1>
@@ -563,7 +577,6 @@ watch(currentDate, (newDate, oldDate) => {
           <button class="btn btn-info" @click="triggerPrint">列印</button>
         </div>
       </div>
-      <!-- Controls Panel -->
       <div class="controls-panel">
         <div class="controls-left">
           <button class="btn btn-secondary" @click="clearBoard">清除畫面</button>
@@ -604,7 +617,6 @@ watch(currentDate, (newDate, oldDate) => {
                     <span v-if="hepatitisBeds.includes(bedNum) && bedNum !== '空'">(BC肝炎)</span>
                   </div>
                   <template v-if="bedNum !== '空'">
-                    <!-- 4. 模板迴圈使用 ORDERED_SHIFT_CODES -->
                     <div
                       v-for="shiftCode in ORDERED_SHIFT_CODES"
                       :key="shiftCode"
@@ -614,10 +626,8 @@ watch(currentDate, (newDate, oldDate) => {
                         { 'split-shift': shiftCode === SHIFT_CODES.NOON },
                       ]"
                     >
-                      <!-- 5. 顯示時使用 getShiftDisplayName 轉換 -->
                       <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
 
-                      <!-- 午班的特殊處理 -->
                       <div v-if="shiftCode === SHIFT_CODES.NOON" class="nurse-split-column">
                         <select
                           class="nurse-team-select nurse-in"
@@ -642,7 +652,6 @@ watch(currentDate, (newDate, oldDate) => {
                           </option>
                         </select>
                       </div>
-                      <!-- 早班/晚班的處理 -->
                       <select
                         v-else
                         class="nurse-team-select"
@@ -659,7 +668,7 @@ watch(currentDate, (newDate, oldDate) => {
                         </option>
                       </select>
 
-                      <!-- 6. 所有事件和顯示函式都傳遞標準的英文代碼 ID -->
+                      <!-- ======================= 【核心修改區域 1: 模板邏輯】 ======================= -->
                       <div
                         class="patient-name"
                         draggable="true"
@@ -669,8 +678,13 @@ watch(currentDate, (newDate, oldDate) => {
                         @dragleave="onDragLeave"
                         @dragstart="onBedDragStart($event, `bed-${bedNum}-${shiftCode}`)"
                       >
-                        {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
+                        <span v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)">{{
+                          getPatientName(`bed-${bedNum}-${shiftCode}`)
+                        }}</span>
+                        <span v-else class="empty-slot-placeholder">+</span>
                       </div>
+                      <!-- ============================= 【修改結束】 ============================== -->
+
                       <div
                         class="patient-tag"
                         contenteditable="true"
@@ -729,6 +743,7 @@ watch(currentDate, (newDate, oldDate) => {
                   >
                     {{ currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber }}
                   </div>
+                  <!-- ======================= 【核心修改區域 2: 模板邏輯】 ======================= -->
                   <div
                     class="peripheral-patient-name"
                     draggable="true"
@@ -738,8 +753,12 @@ watch(currentDate, (newDate, oldDate) => {
                     @dragleave="onDragLeave"
                     @dragstart="onBedDragStart($event, `peripheral-${i}-${shiftCode}`)"
                   >
-                    {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
+                    <span v-if="getPatientName(`peripheral-${i}-${shiftCode}`)">{{
+                      getPatientName(`peripheral-${i}-${shiftCode}`)
+                    }}</span>
+                    <span v-else class="empty-slot-placeholder">+</span>
                   </div>
+                  <!-- ============================= 【修改結束】 ============================== -->
                   <div
                     class="patient-tag"
                     contenteditable="true"
@@ -777,7 +796,6 @@ watch(currentDate, (newDate, oldDate) => {
     @close="isAssignmentDialogVisible = false"
     @assign-bed="handleAssignBed"
   />
-
   <AlertDialog
     :is-visible="isAlertDialogVisible"
     :title="alertDialogTitle"
@@ -788,62 +806,47 @@ watch(currentDate, (newDate, oldDate) => {
 
 <style scoped>
 /* ==========================================================================
-   1. 頁面整體佈局 (Layout) - **此區為本次修改核心**
+   1. 頁面整體佈局 (Layout)
    ========================================================================== */
-
-/* 最外層容器，設定為佔滿整個視窗高度的 Flex 容器 */
 .page-container {
   display: flex;
-  flex-direction: column; /* 讓 header 和 main-content 垂直排列 */
-  height: 100vh; /* 佔滿整個可視螢幕高度 */
-  overflow: hidden; /* 防止整個頁面出現滾動條 */
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
   background-color: #f4f7f9;
 }
-
-/* 頂部標頭區塊 */
 .page-header {
-  flex-shrink: 0; /* 防止 header 在空間不足時被壓縮 */
+  flex-shrink: 0;
   border-bottom: 1px solid #e0e0e0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  z-index: 10; /* 確保在最上層 */
+  z-index: 10;
 }
-
-/* 主內容區 (包含床位區和側邊欄) */
 .page-main-content {
-  flex-grow: 1; /* 讓主內容區填滿 header 下方所有剩餘的垂直空間 */
-  display: flex; /* 內部使用 flex，讓床位區和側邊欄水平排列 */
-  min-height: 0; /* 解決 flex 子項目 overflow 的問題，非常重要 */
+  flex-grow: 1;
+  display: flex;
+  min-height: 0;
 }
-
-/* 中間的床位內容區 (將會滾動的部分) */
 .schedule-content {
-  flex-grow: 1; /* 佔滿側邊欄以外所有剩餘的水平空間 */
-  overflow-y: auto; /* **關鍵！讓這個區塊產生自己的垂直滾動條** */
+  flex-grow: 1;
+  overflow-y: auto;
   min-width: 0;
 }
-
-/* 右側側邊欄 (固定不動的部分) */
 .inpatient-sidebar {
-  flex-shrink: 0; /* 防止側邊欄被壓縮 */
-  width: 200px; /* 給一個固定寬度 */
+  flex-shrink: 0;
+  width: 240px; /* 根據 InpatientSidebar.vue 的寬度調整 */
   border-left: 1px solid #e0e0e0;
-  /* 讓側邊欄內部也能滾動 (如果病人列表太長) */
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
 /* ==========================================================================
-   2. 元件樣式 (Components) - 大部分為您原有的樣式微調
+   2. 元件樣式 (Components)
    ========================================================================== */
-
-/* -- Header 內部樣式 -- */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 0px; /* 與第二行的間距 */
 }
 .toolbar-left,
 .toolbar-right {
@@ -874,59 +877,68 @@ watch(currentDate, (newDate, oldDate) => {
   font-weight: bold;
   color: #6c757d;
 }
-
-/* -- 控制面板樣式 -- */
-/* ======================= 第二行樣式 ======================= */
 .controls-panel {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  align-items: center;
-  gap: 10px;
 }
-
 .controls-left,
 .controls-right {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 10px;
 }
-.btn btn-info,
-.controls-panel button,
-.controls-panel input[type='date'],
-.controls-panel input[type='text'] {
+.btn,
+button {
   padding: 8px 15px;
   font-size: 1em;
   border: 1px solid #ccc;
   border-radius: 5px;
-  height: 40px;
-  box-sizing: border-box;
-}
-.date-navigator button {
-  padding: 8px 12px;
-  font-size: 1em;
-  border-radius: 5px;
-  border: 1px solid #ccc;
   cursor: pointer;
   background-color: #fff;
 }
-.search-group {
-  display: flex;
-  align-items: center;
+.btn-success {
+  background-color: #28a745;
+  color: white;
+  border-color: #28a745;
 }
-.search-group input {
-  border-radius: 5px 0 0 5px;
+.btn-info {
+  background-color: #17a2b8;
+  color: white;
+  border-color: #17a2b8;
 }
-.search-group button {
-  border-radius: 0 5px 5px 0;
-  border-left: none;
+.btn-warning {
+  background-color: #ffc107;
+  color: #212529;
+  border-color: #ffc107;
+}
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+  border-color: #6c757d;
+}
+.add-btn {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.controls-panel input[type='date'] {
+  padding: 8px 15px;
+  font-size: 0.95em;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  height: 45px;
+  box-sizing: border-box;
+  background-color: #fff;
+  transition: all 0.2s;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
    3. 床位與排程樣式 (Bed & Schedule Styles)
    ========================================================================== */
-
 .dialysis-unit {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -989,22 +1001,19 @@ watch(currentDate, (newDate, oldDate) => {
   text-align: center;
   font-size: 1em;
 }
-
-/* -- 排程行 & 格子樣式 -- */
 .shift-row,
 .peripheral-shift-row {
   display: grid;
-  align-items: stretch; /* 讓格子填滿高度 */
+  align-items: stretch;
   border-top: 1px solid #e0e0e0;
   transition: background-color 0.3s;
 }
 .shift-row {
-  grid-template-columns: 28px 60px 1fr 50px;
+  grid-template-columns: 28px 50px 1fr 40px;
 }
 .peripheral-shift-row {
-  grid-template-columns: 28px 70px 70px 1fr 40px;
+  grid-template-columns: 28px 70px 80px 1fr 50px;
 }
-
 .shift-label {
   background-color: #f5f5f5;
   font-size: 0.8em;
@@ -1027,28 +1036,16 @@ watch(currentDate, (newDate, oldDate) => {
   word-break: break-all;
   text-align: center;
 }
-.patient-name,
-.peripheral-patient-name {
-  font-size: 1em; /* 從 1.1em 縮小 */
-  padding: 4px 6px; /* 微調內距 */
-}
-.patient-name:empty::before,
-.peripheral-patient-name:empty::before {
-  content: '輸入病人';
-  color: #aaa;
-  font-style: italic;
-}
-.patient-tag:empty::before {
-  content: '備註';
-  color: #aaa;
-  font-style: italic;
-}
 .patient-tag {
-  font-size: 0.9em; /* 縮小字體 */
-  white-space: nowrap; /* 強制不換行 */
-  overflow: hidden; /* 隱藏超出部分 */
-  text-overflow: ellipsis; /* 超出部分顯示省略號 */
-  padding: 4px 6px; /* 微調內距 */
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px 6px;
+
+  /* 新增樣式 */
+  color: #dc3545; /* 紅色字體 */
+  font-weight: bold; /* 粗體 */
 }
 .nurse-team-select {
   padding: 4px;
@@ -1058,8 +1055,6 @@ watch(currentDate, (newDate, oldDate) => {
   background: transparent;
   border-radius: 0;
   appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
   text-align: center;
 }
 .shift-row.split-shift .nurse-split-column {
@@ -1074,8 +1069,6 @@ watch(currentDate, (newDate, oldDate) => {
 .nurse-split-column .nurse-team-select:first-child {
   border-bottom: 1px solid #e0e0e0;
 }
-
-/* -- 特殊床位 & 狀態顏色 -- */
 .bed.hepatitis .bed-header {
   background-color: var(--hepatitis-bg);
   color: #af8203;
@@ -1093,52 +1086,39 @@ watch(currentDate, (newDate, oldDate) => {
 .bed.aisle-side.left-wing-bed {
   border-right: 5px solid #4caf50;
 }
-
-/* --- ↓↓↓ 關鍵修正處 ↓↓↓ --- */
-/* --- ↓↓↓ 顏色規則核心 (新增) ↓↓↓ --- */
-/* 優先級 1: 病人狀態 (門診/住院) */
 .shift-row.status-opd,
 .peripheral-shift-row.status-opd {
-  background-color: var(--green-bg, #e8f5e9); /* 門診綠 */
+  background-color: var(--green-bg, #e8f5e9);
 }
 .shift-row.status-ipd,
 .peripheral-shift-row.status-ipd {
-  background-color: var(--red-bg, #ffebee); /* 住院紅 */
-}
-
-/* 優先級 2: 特殊標籤 (會覆蓋上面的狀態顏色) */
-/* 使用群組選擇器，讓主床位和外圍床位共用顏色規則 */
-.shift-row.tag-ip,
-.peripheral-shift-row.tag-ip {
-  /* 這個規則現在可以被 status-ipd 取代，但保留也無妨 */
-  background-color: #ffebee; /* 住 */
+  background-color: var(--red-bg, #ffebee);
 }
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou {
-  background-color: #86a0fc; /* 抽 */
+  background-color: #86a0fc;
 }
 .shift-row.tag-new,
 .peripheral-shift-row.tag-new {
-  background-color: #f5ec8e; /* 新 */
+  background-color: #f5ec8e;
 }
 .shift-row.tag-huan,
 .peripheral-shift-row.tag-huan {
-  background-color: #e0f7fa; /* 換 */
+  background-color: #e0f7fa;
 }
 .shift-row.tag-liang,
 .peripheral-shift-row.tag-liang {
-  background-color: #fff3e0; /* 兩 */
+  background-color: #fff3e0;
 }
 .shift-row.tag-b,
 .peripheral-shift-row.tag-b {
-  background-color: #fff9c4; /* B */
+  background-color: #fff9c4;
 }
-
-.patient-name.drag-over {
+.patient-name.drag-over,
+.peripheral-patient-name.drag-over {
   background-color: #c8e6c9 !important;
+  border: 2px dashed #4caf50;
 }
-
-/* -- 外圍床位 -- */
 .extra-sections {
   margin-top: 30px;
 }
@@ -1155,182 +1135,55 @@ watch(currentDate, (newDate, oldDate) => {
   color: #c2185b;
 }
 
-/* ==========================================================================
-   4. 側邊欄樣式 (Sidebar Styles) - **此區有微調**
-   ========================================================================== */
-.inpatient-sidebar h3 {
-  margin-top: 0;
-  text-align: center;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 10px;
-  margin-bottom: 10px;
-  flex-shrink: 0;
-}
-.filter-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  margin-bottom: 10px;
-  flex-shrink: 0;
-}
-.filter-group button {
-  padding: 4px 8px;
-  font-size: 0.8em;
-  flex-grow: 1;
-  border: 1px solid #ccc;
-  background-color: #fff;
-  cursor: pointer;
-}
-.filter-group button:hover {
-  background-color: #f0f0f0;
-}
-.filter-group button.active {
-  background-color: var(--primary-color);
-  color: white;
+/* ======================= 【核心修改區域 3: CSS樣式】 ======================= */
+.patient-name,
+.peripheral-patient-name {
+  font-size: 1.1em;
+  padding: 4px 6px;
+  /* 讓格子填滿，這樣 hover 和 drop 區域才夠大 */
+  width: 100%;
+  height: 100%;
 }
 
-#inpatient-list {
-  list-style-type: none;
-  padding: 0;
-  margin: 0;
-  flex-grow: 1; /* **關鍵：讓列表填滿側邊欄剩餘空間** */
-  overflow-y: auto; /* **關鍵：如果列表太長，讓列表自己滾動** */
-}
-#inpatient-list li {
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border-radius: 5px;
-  cursor: grab;
-}
-#inpatient-list li:active {
-  cursor: grabbing;
+.empty-slot-placeholder {
+  color: #adb5bd;
+  font-size: 1.5rem;
+  user-select: none;
+  transition: color 0.2s;
 }
 
-/* ==========================================================================
-   列印樣式 (Print Styles) - 保持佈局、整體縮放、解決截斷
-   ========================================================================== */
-@page {
-  /* 為了容納寬版佈局，橫向是最佳選擇 */
-  size: A4 portrait;
-  margin: 0;
+/* 讓 hover 效果作用在整個 patient-name 格子上 */
+.patient-name:hover .empty-slot-placeholder,
+.peripheral-patient-name:hover .empty-slot-placeholder {
+  color: #007bff;
 }
+/* ============================= 【修改結束】 ============================== */
 
 @media print {
-  /* --- 1. 隱藏所有非列印元素 --- */
-  #app-sidebar,
-  .inpatient-sidebar,
-  .page-header .btn,
-  .page-header .btn-warning,
-  .page-header .btn-info,
-  .page-header .btn-success,
-  .page-header .search-group,
-  .page-header .status-indicator,
-  .toolbar-right {
-    display: none !important;
-  }
-
-  /* 【核心修改 1】不再隱藏外圍床位的父容器 .extra-sections */
-  /* 我們只隱藏走道和護理站，讓佈局更緊湊 */
-  .aisle,
-  .nursing-station {
-    display: none !important;
-  }
-
-  /* --- 2. 準備好列印環境 --- */
+  /* 列印樣式 */
   body,
   html {
-    background: #fff !important;
-    overflow: hidden !important; /* 確保 body 本身不滾動 */
     -webkit-print-color-adjust: exact;
     color-adjust: exact;
   }
-
-  /* --- 3. 【核心技巧】先撐開內容，再整體縮放 --- */
-
-  /* 步驟 A: 將所有父容器的高度限制解除，為內容撐開做準備 */
-  .page-container,
-  .page-main-content {
-    height: auto !important;
-    overflow: visible !important; /* 允許內容溢出 */
-  }
-
-  /* 步驟 B: 強行撐開包含滾動條的那個容器的高度 */
-  .schedule-content {
-    height: 2800px !important; /* 給一個足夠大的固定高度，確保所有床位都能顯示 */
-    overflow: visible !important; /* 確保內容不會被截斷 */
-  }
-
-  /* 步驟 C: 對最外層的容器進行縮放 */
   .page-container {
-    /* 根據您螢幕的寬高比和內容的複雜度來設置 */
-    /* 這裡的 width 和 height 應該大於您螢幕的解析度 */
-    width: 2200px;
-    height: 1800px; /* 寬高比約為 16:10 */
-
-    /* 將縮放原點設為左上角 */
+    height: auto !important;
+    overflow: visible !important;
+    transform: scale(0.8);
     transform-origin: top left;
-
-    /* 關鍵！縮放比例，您需要微調這個數字 */
-    /* 0.45 對於 A4 橫向是一個比較合理的起始值 */
-    transform: scale(0.4);
+    width: 125%;
   }
-  /* 主要床位區的容器 */
-  .dialysis-unit {
-    display: flex; /* 或者 display: grid; */
-    flex-wrap: wrap; /* 確保能換行 */
-    gap: 10px;
-    justify-content: flex-start;
-  }
-  /* 外圍床位區的容器 */
-  .peripheral-bed-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 10px;
-    justify-content: start;
-  }
-
-  .bed,
-  .peripheral-bed {
-    /* 確保每個床位卡片都有根源在於我們之前使用的 Flexbox 佈局 (`display: flex`)，它會自動分配剩餘空間。而一個基礎寬度，而不是完全依賴於 1fr */
-    /* 這樣它們在未被拉伸時， `.extra-sections` 裡的 `.peripheral-bed-container` 預設是 `grid-template-columns: 1fr 1fr;`，這導致它與主床位區的佈局不一致。
-
-   **解決也能保持一致的大小 */
-    flex-basis: 150px;
-    width: 150px; /* 對於 grid 佈局作為備用 */
-    flex-grow: 1; /* 允許它們在空間充足時稍微變大 */
-  }
-
-  /* --- 4. 重新設計頁首，只保留日期標題 --- */
-  .page-header {
-    border-bottom: 2px solid #000;
-    padding-bottom: 1rem;
-    margin-bottom: 1.5rem;
-  }
-  .page-header .page-title,
-  .page-header .weekday-display,
-  .page-header .date-navigator button {
+  .page-header,
+  .inpatient-sidebar,
+  .aisle,
+  .nursing-station,
+  .btn,
+  button,
+  input {
     display: none !important;
   }
-  .toolbar-left,
-  .date-navigator {
-    width: 100%;
-    justify-content: center;
-    gap: 0;
-  }
-  .current-date-text {
-    font-size: 28pt !important; /* 放大字體以匹配縮放 */
-    font-weight: bold;
-    color: #000 !important;
-  }
-
-  /* --- 5. 細節微調 --- */
-  /* 因為整體縮小了，邊框需要加粗才能看清 */
-  .bed,
-  .peripheral-bed {
-    border-width: 1.5px;
-    border-color: #333;
+  .schedule-content {
+    overflow: visible !important;
   }
 }
 </style>

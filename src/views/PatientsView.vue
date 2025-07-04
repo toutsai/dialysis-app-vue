@@ -1,16 +1,13 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (Ref: feature/patient-data-lifecycle) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { deleteField, where } from 'firebase/firestore' // 【新增】引入 where
+import { deleteField, where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 
-// 1. 引入 schedule 的 ApiManager，因為我們需要操作 schedules 集合
 const patientApi = ApiManager('patients')
-const schedulesApi = ApiManager('schedules') // 【新增】
+const schedulesApi = ApiManager('schedules')
 
-// --- 狀態定義 ---
 const allPatients = ref([])
 const activeTab = ref('ipd')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
@@ -29,7 +26,6 @@ const DELETE_REASONS = [
   { value: '作廢', text: '作廢' },
 ]
 
-// --- 計算屬性 ---
 const displayedPatients = computed(() => {
   let patients
   if (activeTab.value === 'deleted') {
@@ -48,7 +44,6 @@ const displayedPatients = computed(() => {
 
   return [...patients].sort((a, b) => {
     let valA, valB
-    // 2. 統一頻率欄位的排序
     if (currentSort.value.column === 'freq') {
       valA = a.freq
       valB = b.freq
@@ -66,7 +61,6 @@ const displayedPatients = computed(() => {
   })
 })
 
-// --- 主要方法 ---
 async function fetchAllPatients() {
   try {
     allPatients.value = await patientApi.fetchAll()
@@ -76,40 +70,28 @@ async function fetchAllPatients() {
   }
 }
 
-// 3. 【修改】清理或刪除臨時排班資料的函式
 async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
-  // 新增 mode 參數，預設為 'clear'
   if (!patientId) return
-
   try {
     const actionText = mode === 'delete' ? '刪除' : '清理'
     console.log(`開始為病人 ${patientId} ${actionText} 未來排班資料...`)
-
-    // 為了安全和效能，我們只處理從今天開始的排班資料
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const todayStr = today.toISOString().split('T')[0]
-
-    // Firestore `where` 查詢需要索引。
     const futureScheduleDocs = await schedulesApi.fetchAll([where('date', '>=', todayStr)])
-
     const updatePromises = []
 
     for (const doc of futureScheduleDocs) {
       let isModified = false
       const newSchedule = { ...doc.schedule }
-
-      // 使用 Object.keys 迭代以安全地刪除屬性
       const shiftIds = Object.keys(newSchedule)
       for (const shiftId of shiftIds) {
         if (newSchedule[shiftId]?.patientId === patientId) {
           isModified = true
           if (mode === 'delete') {
-            // 【刪除模式】: 直接從 schedule map 中移除整個排程格子
             delete newSchedule[shiftId]
             console.log(`在 ${doc.date} 的排程中，準備刪除病人 ${patientId} 的班次 ${shiftId}`)
           } else {
-            // 【清理模式】: 清空臨時資料，但保留 patientId
             newSchedule[shiftId].manualNote = ''
             newSchedule[shiftId].nurseTeam = null
             newSchedule[shiftId].nurseTeamIn = null
@@ -118,7 +100,6 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
           }
         }
       }
-
       if (isModified) {
         updatePromises.push(schedulesApi.update(doc.id, { schedule: newSchedule }))
       }
@@ -139,17 +120,15 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
   }
 }
 
-// --- Modal 相關方法 ---
 async function handleSavePatient(patientData) {
   try {
     const patientId = patientData.id
     const dataToUpdate = { ...patientData }
     delete dataToUpdate.id
 
-    // 4. 統一頻率欄位為 `freq`，並移除舊的 `frequency` 欄位
     dataToUpdate.freq = patientData.freq
     if ('frequency' in dataToUpdate) {
-      dataToUpdate.frequency = deleteField() // 從 Firestore 中刪除舊欄位
+      dataToUpdate.frequency = deleteField()
     }
 
     if (patientId) {
@@ -169,7 +148,6 @@ async function handleSavePatient(patientData) {
   }
 }
 
-// --- 病人操作方法 ---
 async function transferPatient(patientId, newStatus) {
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
   const targetStatus = newStatus === 'ipd' ? '住院' : '門診'
@@ -180,10 +158,7 @@ async function transferPatient(patientId, newStatus) {
   ) {
     try {
       await patientApi.update(patientId, { status: newStatus })
-
-      // 5. 調用清理函式 (使用預設的 'clear' 模式)
       await clearPatientTemporaryScheduleData(patientId, 'clear')
-
       await fetchAllPatients()
     } catch (error) {
       alert('轉床失敗！')
@@ -202,10 +177,7 @@ async function handleDeleteReasonSelected(reason) {
         deleteReason: reason,
         deletedAt: new Date().toISOString(),
       })
-
-      // 6. 調用清理函式，並傳入 'delete' 模式，徹底移除未來排程
       await clearPatientTemporaryScheduleData(patientToDeleteId.value, 'delete')
-
       await fetchAllPatients()
     }
   } catch (error) {
@@ -216,10 +188,10 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
-// --- 其他無變動的函式 ---
 function changeTab(tabName) {
   activeTab.value = tabName
 }
+
 function handleSort(key) {
   if (currentSort.value.column === key) {
     currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
@@ -228,28 +200,34 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
+
 function openAddPatientModal(type) {
   editingPatient.value = { diseases: [] }
   modalType.value = type
   isModalVisible.value = true
 }
+
 function openEditPatientModal(patient) {
   editingPatient.value = patient
   modalType.value = patient.status
   isModalVisible.value = true
 }
+
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
 }
+
 function deletePatient(patientId) {
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
+
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
 }
+
 async function restorePatient(patientId) {
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
@@ -264,18 +242,21 @@ async function restorePatient(patientId) {
     alert('復原失敗！')
   }
 }
+
 function getSortIndicator(key) {
   if (currentSort.value.column === key) {
     return currentSort.value.order === 'asc' ? '▲' : '▼'
   }
   return ''
 }
+
 function formatDate(isoString) {
   if (!isoString) return ''
   const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
   if (isNaN(date.getTime())) return ''
   return date.toLocaleDateString()
 }
+
 function getRowClass(p) {
   if (p.isDeleted) return 'status-deleted'
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
@@ -285,15 +266,12 @@ function getRowClass(p) {
   if (p.status === 'opd') return 'status-opd'
   return ''
 }
+
 function generateDiseaseTags(diseases) {
   if (!diseases || diseases.length === 0) return ''
-  return diseases
-    .map(
-      (tag) =>
-        `<span class="disease-tag" style="background-color: #f8d7da; color: #721c24; padding: 2px 5px; border-radius: 3px; font-size: 0.8em; margin-left: 5px;">${tag}</span>`,
-    )
-    .join('')
+  return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
 }
+
 onMounted(() => {
   fetchAllPatients()
 })
@@ -303,7 +281,6 @@ onMounted(() => {
   <div>
     <div class="page-container">
       <h1 class="page-title">透析病人管理系統</h1>
-
       <div class="tabs">
         <button
           class="tab-button"
@@ -328,20 +305,16 @@ onMounted(() => {
         </button>
       </div>
 
-      <!-- 住院病人 (IPD) -->
       <div v-if="activeTab === 'ipd'" class="tab-content active">
-        <div class="toolbar">
-          <button @click="openAddPatientModal('ipd')">新增住院病人</button>
-          <div class="stats-area"></div>
-        </div>
+        <div class="toolbar"><button @click="openAddPatientModal('ipd')">新增住院病人</button></div>
         <div class="table-wrapper">
           <table class="patient-table">
             <thead>
               <tr>
-                <th @click="handleSort('name')">
+                <th @click="handleSort('name')" class="col-name">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
-                <th @click="handleSort('medicalRecordNumber')">
+                <th @click="handleSort('medicalRecordNumber')" class="col-mrn">
                   病歷號
                   <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
                 </th>
@@ -358,13 +331,15 @@ onMounted(() => {
                 <th @click="handleSort('createdAt')">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th>操作</th>
+                <th class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td>{{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span></td>
-                <td>{{ p.medicalRecordNumber }}</td>
+                <td class="col-name">
+                  {{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span>
+                </td>
+                <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
                 <td>{{ p.freq }}</td>
                 <td>{{ p.mode }}</td>
@@ -372,7 +347,7 @@ onMounted(() => {
                 <td>{{ p.isDiscontinued ? '✓' : '' }}</td>
                 <td>{{ p.remarks }}</td>
                 <td>{{ formatDate(p.createdAt) }}</td>
-                <td class="action-buttons">
+                <td class="col-actions action-buttons">
                   <button class="btn-edit" @click="openEditPatientModal(p)">編輯</button>
                   <button class="btn-transfer" @click="transferPatient(p.id, 'opd')">轉門診</button>
                   <button class="btn-delete" @click="deletePatient(p.id)">刪除</button>
@@ -382,21 +357,16 @@ onMounted(() => {
           </table>
         </div>
       </div>
-
-      <!-- 門診病人 (OPD) -->
       <div v-if="activeTab === 'opd'" class="tab-content active">
-        <div class="toolbar">
-          <button @click="openAddPatientModal('opd')">新增門診病人</button>
-          <div class="stats-area"></div>
-        </div>
+        <div class="toolbar"><button @click="openAddPatientModal('opd')">新增門診病人</button></div>
         <div class="table-wrapper">
           <table class="patient-table">
             <thead>
               <tr>
-                <th @click="handleSort('name')">
+                <th @click="handleSort('name')" class="col-name">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
-                <th @click="handleSort('medicalRecordNumber')">
+                <th @click="handleSort('medicalRecordNumber')" class="col-mrn">
                   病歷號
                   <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
                 </th>
@@ -412,20 +382,22 @@ onMounted(() => {
                 <th @click="handleSort('createdAt')">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th>操作</th>
+                <th class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td>{{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span></td>
-                <td>{{ p.medicalRecordNumber }}</td>
+                <td class="col-name">
+                  {{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span>
+                </td>
+                <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
                 <td>{{ p.freq }}</td>
                 <td>{{ p.mode }}</td>
                 <td>{{ p.vascAccess }}</td>
                 <td>{{ p.remarks }}</td>
                 <td>{{ formatDate(p.createdAt) }}</td>
-                <td class="action-buttons">
+                <td class="col-actions action-buttons">
                   <button class="btn-edit" @click="openEditPatientModal(p)">編輯</button>
                   <button class="btn-transfer" @click="transferPatient(p.id, 'ipd')">轉住院</button>
                   <button class="btn-delete" @click="deletePatient(p.id)">刪除</button>
@@ -435,8 +407,6 @@ onMounted(() => {
           </table>
         </div>
       </div>
-
-      <!-- 已刪除病人 (Deleted) -->
       <div v-if="activeTab === 'deleted'" class="tab-content active">
         <div class="toolbar">
           <div class="search-group">
@@ -448,10 +418,10 @@ onMounted(() => {
           <table class="patient-table">
             <thead>
               <tr>
-                <th @click="handleSort('name')">
+                <th @click="handleSort('name')" class="col-name">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
-                <th @click="handleSort('medicalRecordNumber')">
+                <th @click="handleSort('medicalRecordNumber')" class="col-mrn">
                   病歷號
                   <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
                 </th>
@@ -461,18 +431,18 @@ onMounted(() => {
                 <th @click="handleSort('deletedAt')">
                   刪除日期 <span class="sort-indicator">{{ getSortIndicator('deletedAt') }}</span>
                 </th>
-                <th>操作</th>
+                <th class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td>{{ p.name }}</td>
-                <td>{{ p.medicalRecordNumber }}</td>
+                <td class="col-name">{{ p.name }}</td>
+                <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.originalStatus === 'ipd' ? '住院' : '門診' }}</td>
                 <td>{{ p.deleteReason }}</td>
                 <td>{{ p.remarks }}</td>
                 <td>{{ formatDate(p.deletedAt) }}</td>
-                <td class="action-buttons">
+                <td class="col-actions action-buttons">
                   <button class="btn-restore" @click="restorePatient(p.id)">復原</button>
                 </td>
               </tr>
@@ -481,8 +451,6 @@ onMounted(() => {
         </div>
       </div>
     </div>
-
-    <!-- 彈出視窗元件 -->
     <PatientFormModal
       :is-modal-visible="isModalVisible"
       :patient-data="editingPatient"
@@ -560,45 +528,25 @@ onMounted(() => {
   border: 1px solid #ccc;
   border-radius: 5px;
 }
-.stats-area {
-  display: flex;
-  gap: 15px;
-  font-size: 0.9em;
-  align-items: center;
-}
-.stat-item {
-  padding: 4px 8px;
-  border-radius: 12px;
-  color: white;
-  font-weight: bold;
-}
-.stat-item.total {
-  background-color: #6c757d;
-}
-.stat-item.freq-135 {
-  background-color: #28a745;
-}
-.stat-item.freq-246 {
-  background-color: #17a2b8;
-}
-.stat-item.freq-other {
-  background-color: #ffc107;
-  color: #333;
-}
 .patient-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed; /* 關鍵！改為 fixed 佈局 */
 }
 .patient-table th,
 .patient-table td {
   border: 1px solid #ddd;
-  padding: 8px;
+  padding: 10px 12px;
   text-align: left;
-  white-space: nowrap;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .patient-table td:first-child {
-  white-space: normal;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 .patient-table th {
   background-color: #f2f2f2;
@@ -607,6 +555,7 @@ onMounted(() => {
   position: sticky;
   top: 0;
   z-index: 5;
+  white-space: nowrap;
 }
 .patient-table th:hover {
   background-color: #e8e8e8;
@@ -651,7 +600,19 @@ onMounted(() => {
   background-color: var(--success-color);
 }
 .table-wrapper {
-  max-height: 60vh;
+  max-height: 70vh;
   overflow-y: auto;
+}
+
+/* 為關鍵欄位定義固定寬度 */
+.col-name {
+  width: 180px;
+}
+.col-mrn {
+  width: 120px;
+}
+.col-actions {
+  width: 220px;
+  text-align: center;
 }
 </style>

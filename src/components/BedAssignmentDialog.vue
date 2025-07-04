@@ -8,7 +8,6 @@ const props = defineProps({
   scheduleData: { type: Object, required: true },
   shifts: { type: Array, required: true },
   freqMap: { type: Object, required: true },
-  // 【新增】可以從外部直接傳入要顯示的病人列表
   predefinedPatientGroups: { type: Object, default: null },
   assignmentMode: {
     type: String,
@@ -19,19 +18,17 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'assign-bed'])
 
-// --- 狀態管理 ---
+// --- 狀態、計算屬性等保持不變 ---
 const selectedFreq = ref('一三五')
 const selectedShiftFilter = ref('all')
 const selectedPatientId = ref(null)
 
-// --- 輔助函式 ---
 function shouldPatientBeScheduled(patient, dayOfWeek) {
   if (!patient.freq || !props.freqMap) return false
   const scheduledDays = props.freqMap[patient.freq]
   return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
 }
 
-// --- 計算屬性 ---
 const assignedPatientIds = computed(() => {
   const ids = new Set()
   if (!props.scheduleData) return ids
@@ -44,12 +41,9 @@ const assignedPatientIds = computed(() => {
 })
 
 const patientGroups = computed(() => {
-  // 優先使用外部傳入的預設問題列表
   if (props.predefinedPatientGroups) {
     return props.predefinedPatientGroups
   }
-
-  // 如果沒有預設列表，則根據模式執行原有邏輯
   if (props.assignmentMode === 'frequency') {
     const unassigned = props.allPatients.filter(
       (p) =>
@@ -60,7 +54,6 @@ const patientGroups = computed(() => {
     )
     return { 未排床門診: unassigned }
   }
-
   if (props.assignmentMode === 'singleDay') {
     const groups = {
       '今日應排 - 住院': [],
@@ -69,7 +62,6 @@ const patientGroups = computed(() => {
       '今日非排 (臨洗) - 門診': [],
     }
     if (!props.allPatients) return groups
-
     props.allPatients.forEach((p) => {
       if (p.isDeleted || assignedPatientIds.value.has(p.id)) {
         return
@@ -85,12 +77,14 @@ const patientGroups = computed(() => {
     })
     return groups
   }
-
-  // 預設情況，返回空物件
   return {}
 })
 
 const availableBeds = computed(() => {
+  const allBedNumbers = props.bedLayout.filter(
+    (bed) => typeof bed === 'number' || typeof bed === 'string' || bed.startsWith('peripheral-'),
+  )
+
   if (!selectedPatientId.value) return {}
   const patient = props.allPatients.find((p) => p.id === selectedPatientId.value)
   if (!patient) return {}
@@ -102,33 +96,39 @@ const availableBeds = computed(() => {
     }
   })
 
-  // 根據不同模式決定如何檢查空床
-  const dayIndices =
-    props.assignmentMode === 'frequency' && patient.freq
-      ? props.freqMap[patient.freq]
-      : [props.dayOfWeek - 1] // dayOfWeek (1-7) to dayIndex (0-6)
-
-  if (!dayIndices) return results
-
-  props.bedLayout.forEach((bedNum) => {
-    if (typeof bedNum !== 'number') return
-    props.shifts.forEach((shiftCode, shiftIndex) => {
-      if (!results[shiftCode]) return
-
-      let isAvailable = true
-      for (const dayIndex of dayIndices) {
-        // 在週排班/常規排班中，slotId 不包含 "bed-" 前綴
-        const weeklySlotId = `${bedNum}-${shiftIndex}-${dayIndex}`
-        if (props.scheduleData[weeklySlotId]?.patientId) {
-          isAvailable = false
-          break
+  if (props.assignmentMode === 'singleDay') {
+    allBedNumbers.forEach((bedNum) => {
+      props.shifts.forEach((shiftCode) => {
+        if (!results[shiftCode]) return
+        const dailySlotId = `bed-${bedNum}-${shiftCode}`
+        if (!props.scheduleData[dailySlotId]?.patientId) {
+          results[shiftCode].push(bedNum)
         }
-      }
-      if (isAvailable) {
-        results[shiftCode].push(bedNum)
-      }
+      })
     })
-  })
+  } else {
+    // 'frequency' mode
+    const dayIndices = props.freqMap[patient.freq] || []
+    if (!dayIndices) return results
+
+    allBedNumbers.forEach((bedNum) => {
+      if (typeof bedNum !== 'number') return
+      props.shifts.forEach((shiftCode, shiftIndex) => {
+        if (!results[shiftCode]) return
+        let isAvailable = true
+        for (const dayIndex of dayIndices) {
+          const weeklySlotId = `${bedNum}-${shiftIndex}-${dayIndex}`
+          if (props.scheduleData[weeklySlotId]?.patientId) {
+            isAvailable = false
+            break
+          }
+        }
+        if (isAvailable) {
+          results[shiftCode].push(bedNum)
+        }
+      })
+    })
+  }
   return results
 })
 
@@ -152,20 +152,25 @@ function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
 }
 
+// ======================= 【最終安全修正區域】 =======================
 function handleBedClick(bedNum, shiftCode) {
   if (!selectedPatientId.value) {
     alert('請先在左側選擇一位病人！')
     return
   }
 
+  // emit 'assign-bed' 事件，並傳遞一個包含所有父元件可能需要資訊的 payload
   emit('assign-bed', {
     patientId: selectedPatientId.value,
     bedNum: bedNum,
     shiftCode: shiftCode,
+    shiftId: `bed-${bedNum}-${shiftCode}`, // 【新增】同時提供組合好的 ID
   })
 
   selectedPatientId.value = null
+  emit('close')
 }
+// ======================= 【修正區域結束】 =======================
 
 const shiftDisplayNames = {
   early: '早班',
@@ -266,9 +271,7 @@ const shiftDisplayNames = {
 </template>
 
 <style scoped>
-/* ================================== */
-/* == 核心彈窗樣式 (Key Dialog Styles) == */
-/* ================================== */
+/* Style 部分完全不變，因此省略以保持簡潔 */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -296,9 +299,6 @@ const shiftDisplayNames = {
   overflow: hidden;
 }
 
-/* ================================== */
-/* == 內部佈局與元件樣式 (Internal Layout & Components) == */
-/* ================================== */
 .dialog-header {
   display: flex;
   justify-content: space-between;
@@ -330,7 +330,7 @@ const shiftDisplayNames = {
 }
 
 .dialog-body {
-  overflow: hidden; /* 防止 grid 溢出 */
+  overflow: hidden;
   display: flex;
 }
 
@@ -349,7 +349,7 @@ const shiftDisplayNames = {
   border-radius: 8px;
   padding: 1rem;
   min-height: 50vh;
-  max-height: calc(90vh - 120px); /* 預留 header 和 padding 的高度 */
+  max-height: calc(90vh - 120px);
 }
 
 .column-header {
@@ -377,7 +377,6 @@ const shiftDisplayNames = {
   margin: 0;
 }
 
-/* 病人列表 */
 .patient-groups-container {
   overflow-y: auto;
   flex-grow: 1;
@@ -397,7 +396,7 @@ const shiftDisplayNames = {
   font-size: 1.1rem;
   position: sticky;
   top: 0;
-  background-color: #f8f9fa; /* 與背景色相同以遮蓋下方內容 */
+  background-color: #f8f9fa;
   z-index: 1;
 }
 
@@ -423,7 +422,6 @@ const shiftDisplayNames = {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* 床位列表 */
 .bed-results-grid {
   display: flex;
   flex-direction: column;
@@ -458,7 +456,6 @@ const shiftDisplayNames = {
   border-color: #81d4fa;
 }
 
-/* 空狀態提示 */
 .empty-state,
 .empty-state-full {
   display: flex;

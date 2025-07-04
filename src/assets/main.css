@@ -155,14 +155,23 @@ body {
   color: #6c757d;
 }
 .disease-tag {
+  /* 佈局與定位 */
   display: inline-block;
-  padding: 1px 5px;
-  font-size: 0.75em;
-  font-weight: bold;
-  color: #c62828; /* 紅色文字 */
-  border: 1px solid #c62828; /* 紅色邊框 */
-  border-radius: 4px;
+  vertical-align: middle;
+
+  /* 尺寸與邊距 */
+  padding: 1px 6px;
   line-height: 1.2;
+
+  /* 顏色與外觀 (新的描邊樣式) */
+  background-color: transparent;
+  border: 1.5px solid #dc3545;
+  color: #dc3545;
+  border-radius: 5px;
+
+  /* 字體 */
+  font-size: 0.8em;
+  font-weight: bold;
 }
 
 .slot-patient-name {

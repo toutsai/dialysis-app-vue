@@ -93,7 +93,7 @@ function handleDragStart(event, patient) {
 <!-- Style 部分完全不需要修改 -->
 <style scoped>
 .inpatient-sidebar {
-  width: 280px;
+  width: 240px;
   padding: 20px;
   display: flex;
   flex-direction: column;
@@ -198,12 +198,21 @@ li:has(span:contains('吳秀美')) {
 }
 
 .sidebar-disease-tag {
+  /* 佈局與定位 */
   display: inline-block;
-  padding: 2px 8px;
+
+  /* 尺寸與邊距 */
+  padding: 1px 6px; /* 微調 padding 使其更精緻 */
+  line-height: 1.2;
+
+  /* 顏色與外觀 (套用新的描邊樣式) */
+  background-color: transparent;
+  border: 1.5px solid #dc3545; /* 邊框可以稍細一點以適應側邊欄 */
+  color: #dc3545;
+  border-radius: 5px;
+
+  /* 字體 */
   font-size: 11px;
   font-weight: bold;
-  color: #721c24; /* 深紅色文字 */
-  background-color: #f8d7da; /* 淡紅色背景 */
-  border-radius: 12px;
 }
 </style>
