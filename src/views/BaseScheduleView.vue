@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終完整無省略版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (排班檢視與智慧排床功能拆分版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -139,29 +139,39 @@ async function saveChangesToCloud() {
   }
 }
 
-function handleReviewAndAssign() {
-  if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
-    return
-  }
+// 【修改 1】: 將 handleReviewAndAssign 拆分為兩個獨立的函式
+
+// 新的「排班檢視」函式
+function handleScheduleCheck() {
+  if (isPageLocked.value) return
+
   const results = runBedCheck()
   let issueMessage = ''
-  let hasCriticalIssues = false
+
   if (results.freqMismatch.length > 0) {
     issueMessage += '【排班頻率不符】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
-    hasCriticalIssues = true
   }
   if (results.duplicates.length > 0) {
     issueMessage += '【同日重複排班】:\n- ' + results.duplicates.join('\n- ') + '\n\n'
-    hasCriticalIssues = true
   }
-  if (hasCriticalIssues) {
-    alertDialogTitle.value = '發現嚴重排班問題'
-    alertDialogMessage.value = '請手動修正上述問題後，再使用智慧排班工具處理【未排床】的病人。'
-    isAlertDialogVisible.value = true
+
+  if (issueMessage) {
+    alertDialogTitle.value = '排班問題檢查結果'
+    alertDialogMessage.value = issueMessage
   } else {
-    isAssignmentDialogVisible.value = true
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '太棒了！未發現重複排班或頻率不符的問題。'
   }
+  isAlertDialogVisible.value = true
+}
+
+// 新的「智慧排床」函式
+function openBedAssignmentDialog() {
+  if (isPageLocked.value) return
+
+  // 這個函式現在只做一件事：打開分配對話框
+  // BedAssignmentDialog 元件內部會自己計算未排床的病人
+  isAssignmentDialogVisible.value = true
 }
 
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
@@ -192,6 +202,7 @@ function handleGridClick(slotId) {
     clearingSlotId.value = slotId
     isClearDialogVisible.value = true
   } else {
+    // 點擊空格子時，也打開智慧排床對話框
     isAssignmentDialogVisible.value = true
   }
 }
@@ -299,19 +310,11 @@ async function loadAllData() {
   }
 }
 
+// 【修改 2】: runBedCheck 函式現在只返回原始數據，不再處理 UI 邏輯
 function runBedCheck() {
-  const validationResult = { unscheduled: [], freqMismatch: [], duplicates: [] }
-  const scheduledPatientIds = new Set(
-    Object.values(masterRecord.value.schedule)
-      .filter((slot) => slot && slot.patientId)
-      .map((slot) => slot.patientId),
-  )
-  allOpdPatients.value.forEach((patient) => {
-    if (patient.freq && !scheduledPatientIds.has(patient.id)) {
-      validationResult.unscheduled.push(`病人 ${patient.name} (頻率: ${patient.freq}) 未被排床。`)
-    }
-  })
+  const validationResult = { freqMismatch: [], duplicates: [] }
   const patientSchedules = {}
+
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData?.patientId) {
@@ -321,15 +324,18 @@ function runBedCheck() {
       patientSchedules[slotData.patientId].push(slotId)
     }
   }
+
   for (const patientId in patientSchedules) {
     const patient = patientMap.value.get(patientId)
     if (!patient || !patient.freq) continue
+
     const scheduledDays = new Set(
       patientSchedules[patientId].map((slotId) => parseInt(slotId.split('-')[2], 10)),
     )
     const expectedDays = new Set(FREQ_MAP_TO_DAY_INDEX[patient.freq] || [])
     const actualDaysArray = Array.from(scheduledDays).sort()
     const expectedDaysArray = Array.from(expectedDays).sort()
+
     if (JSON.stringify(actualDaysArray) !== JSON.stringify(expectedDaysArray)) {
       const actualDaysText = actualDaysArray.map((d) => WEEKDAYS[d].replace('星期', '')).join('')
       validationResult.freqMismatch.push(
@@ -337,6 +343,7 @@ function runBedCheck() {
       )
     }
   }
+
   const dailyPatientSets = Array.from({ length: 6 }).map(() => new Set())
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
@@ -354,6 +361,8 @@ function runBedCheck() {
       }
     }
   }
+
+  // 只返回原始數據
   return validationResult
 }
 
@@ -409,8 +418,12 @@ onMounted(loadAllData)
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <button class="btn btn-warning" @click="handleReviewAndAssign" :disabled="isPageLocked">
-            排班總檢視與分配
+          <!-- 【修改 3】: 將一個按鈕替換為兩個 -->
+          <button class="btn btn-info" @click="handleScheduleCheck" :disabled="isPageLocked">
+            排班檢視
+          </button>
+          <button class="btn btn-warning" @click="openBedAssignmentDialog" :disabled="isPageLocked">
+            智慧排床
           </button>
         </div>
         <div class="toolbar-right">
@@ -480,9 +493,6 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
-/* ==========================================================================
-   1. 頁面佈局 - 您的原始樣式，完整保留
-   ========================================================================== */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -497,9 +507,6 @@ onMounted(loadAllData)
   box-sizing: border-box;
 }
 
-/* ==========================================================================
-   2. Header 工具欄 - 您的原始樣式，完整保留
-   ========================================================================== */
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -537,6 +544,16 @@ onMounted(loadAllData)
   border-color: #adb5bd;
   background-color: #f8f9fa;
 }
+/* 【修改 4】: 為新按鈕添加樣式 */
+.btn.btn-info {
+  background-color: #17a2b8;
+  color: white;
+  border-color: #17a2b8;
+}
+.btn.btn-info:hover {
+  background-color: #138496;
+  border-color: #117a8b;
+}
 .btn.btn-warning {
   background-color: #ffc107;
   border-color: #ffc107;
@@ -566,9 +583,6 @@ onMounted(loadAllData)
   font-size: 0.9rem;
 }
 
-/* ==========================================================================
-   3. 主內容區 - 您的原始樣式，完整保留
-   ========================================================================== */
 .page-main-content {
   flex-grow: 1;
   display: flex;
@@ -580,9 +594,6 @@ onMounted(loadAllData)
   min-height: 0;
 }
 
-/* ==========================================================================
-   4. 顏色樣式 - 您的原始樣式，完整保留
-   ========================================================================== */
 :deep(.schedule-slot.status-opd) {
   background-color: var(--green-bg, #e8f5e9);
 }
@@ -608,29 +619,20 @@ onMounted(loadAllData)
   background-color: #fff9c4;
 }
 
-/* ==========================================================================
-   5. 【修正後】的靜默鎖定樣式 (Silent Lock)
-   ========================================================================== */
-
-/* 鎖定時，僅讓按鈕看起來被禁用，不改變滑鼠指標 */
 .is-locked .page-header button:not(:disabled) {
   opacity: 0.65;
   pointer-events: none;
-  cursor: default; /* 將滑鼠指標恢復為預設，而不是 not-allowed */
+  cursor: default;
 }
 
-/* 僅將背景變為淺灰色，以提供細微的視覺區分 */
 .is-locked .page-main-content {
-  background-color: #fafafa; /* 使用一個更淺的灰色 */
+  background-color: #fafafa;
 }
 
-/* 透過 :deep() 穿透到子元件，僅禁用格子的滑鼠事件，不改變外觀 */
 .is-locked :deep(.schedule-slot) {
   pointer-events: none;
-  /* 移除 opacity，保持文字清晰 */
 }
 
-/* 鎖定時，表格內的拖曳指標恢復為預設 */
 .is-locked :deep(.schedule-slot[draggable='true']) {
   cursor: default;
 }

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (修正載入常規班表邏輯) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (排班檢視與智慧排床功能拆分版) -->
 <script setup>
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -185,6 +185,7 @@ const scheduledPatientIds = computed(() => {
 })
 
 // --- 方法 ---
+
 function isDateInPast(dayIndex) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -449,7 +450,6 @@ function onSidebarDragStart(event, patient) {
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// 【關鍵修改】: 重寫 loadBaseSchedule 函式，確保清除每日特定資訊
 async function loadBaseSchedule() {
   if (isReadOnly.value) {
     alert('操作被鎖定：權限不足。')
@@ -469,7 +469,6 @@ async function loadBaseSchedule() {
     const baseSchedule = masterRecord.schedule
     const newWeekRecords = new Map(weekScheduleRecords.value)
 
-    // 1. 先重置所有未來日期的排程
     weekDates.value.forEach((day, dayIndex) => {
       if (!isDateInPast(dayIndex)) {
         const existingRecord = newWeekRecords.get(day.queryDate) || {
@@ -478,12 +477,11 @@ async function loadBaseSchedule() {
         }
         newWeekRecords.set(day.queryDate, {
           ...existingRecord,
-          schedule: {}, // 清空排程物件
+          schedule: {},
         })
       }
     })
 
-    // 2. 遍歷常規班表，將病人填入重置後的排程中
     for (const weeklySlotId in baseSchedule) {
       const baseSlotData = baseSchedule[weeklySlotId]
       if (baseSlotData && baseSlotData.patientId) {
@@ -500,7 +498,6 @@ async function loadBaseSchedule() {
               const dailyShiftId = `bed-${bed}-${shiftCode}`
               const patient = patientMap.value.get(baseSlotData.patientId)
               if (patient) {
-                // 建立一個全新的、乾淨的 slot 物件，不包含任何舊的護理師資訊
                 dailyRecord.schedule[dailyShiftId] = {
                   ...createEmptySlotData(dailyShiftId),
                   patientId: baseSlotData.patientId,
@@ -514,7 +511,6 @@ async function loadBaseSchedule() {
       }
     }
 
-    // 3. 用全新的排程記錄更新本地狀態
     weekScheduleRecords.value = newWeekRecords
 
     statusText.value = '常規班表已載入至未來排程，請記得儲存。'
@@ -591,44 +587,6 @@ function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-function runScheduleCheck(returnRawData = false) {
-  const patientsToCheck = allPatients.value.filter((p) => !p.isDeleted)
-  const validationResult = { unscheduled: { ipd: [], opd: [] }, freqMismatch: [], duplicates: [] }
-  patientsToCheck.forEach((patient) => {
-    const isScheduledThisWeek = scheduledPatientIds.value.has(patient.id)
-    if (!isScheduledThisWeek) {
-      if (patient.status === 'ipd') {
-        validationResult.unscheduled.ipd.push(patient)
-      } else if (patient.status === 'opd' && patient.freq) {
-        validationResult.unscheduled.opd.push(patient)
-      }
-    }
-  })
-  if (returnRawData) {
-    return validationResult
-  }
-  const unscheduledText = [
-    ...validationResult.unscheduled.ipd.map((p) => `住院病人 ${p.name}`),
-    ...validationResult.unscheduled.opd.map((p) => `門診病人 ${p.name} (${p.freq})`),
-  ]
-  if (unscheduledText.length > 0) {
-    alertDialogTitle.value = '發現未排床病人'
-    alertDialogMessage.value = '【未排床病人】:\n- ' + unscheduledText.join('\n- ')
-    isAlertDialogVisible.value = true
-  } else {
-    alertDialogTitle.value = '排班檢視完畢'
-    alertDialogMessage.value = '未發現本週有未排床的病人。'
-    isAlertDialogVisible.value = true
-  }
-}
-function handleReviewAndAssign() {
-  const results = runScheduleCheck(true)
-  problemsToSolve.value = {
-    '住院 - 未排床': results.unscheduled.ipd,
-    '門診 - 未排床': results.unscheduled.opd,
-  }
-  isProblemSolverDialogVisible.value = true
-}
 function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
@@ -664,6 +622,115 @@ function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 
+// 【修改 1】: runScheduleCheck 函式現在只專注於檢查「已排班」的問題
+function runScheduleCheck() {
+  const validationResult = { freqMismatch: [], duplicates: [] }
+  const patientSchedules = {}
+
+  for (const slotId in weekScheduleMap.value) {
+    const slotData = weekScheduleMap.value[slotId]
+    if (slotData?.patientId) {
+      if (!patientSchedules[slotData.patientId]) {
+        patientSchedules[slotData.patientId] = []
+      }
+      patientSchedules[slotData.patientId].push(slotId)
+    }
+  }
+
+  for (const patientId in patientSchedules) {
+    const patient = patientMap.value.get(patientId)
+    if (!patient || !patient.freq || patient.status !== 'opd') continue
+
+    const scheduledDays = new Set(
+      patientSchedules[patientId].map((slotId) => parseInt(slotId.split('-')[2], 10)),
+    )
+    const expectedDays = new Set(FREQ_MAP_TO_DAY_INDEX[patient.freq] || [])
+
+    if (
+      scheduledDays.size !== expectedDays.size ||
+      ![...scheduledDays].every((day) => expectedDays.has(day))
+    ) {
+      const actualDaysText = [...scheduledDays]
+        .sort()
+        .map((d) => WEEKDAYS[d].replace('星期', ''))
+        .join('')
+      validationResult.freqMismatch.push(
+        `病人 ${patient.name} (應排 ${patient.freq})，卻排在週 ${actualDaysText}。`,
+      )
+    }
+  }
+
+  for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
+    const dailyPatientSet = new Set()
+    const dailyDuplicates = new Set()
+
+    for (const slotId in weekScheduleMap.value) {
+      const slotDayIndex = parseInt(slotId.split('-')[2], 10)
+      if (slotDayIndex === dayIndex) {
+        const slotData = weekScheduleMap.value[slotId]
+        if (slotData?.patientId) {
+          const patientName = patientMap.value.get(slotData.patientId)?.name
+          if (patientName) {
+            if (dailyPatientSet.has(patientName)) {
+              dailyDuplicates.add(patientName)
+            } else {
+              dailyPatientSet.add(patientName)
+            }
+          }
+        }
+      }
+    }
+    if (dailyDuplicates.size > 0) {
+      validationResult.duplicates.push(
+        `${WEEKDAYS[dayIndex]}: ${[...dailyDuplicates].join(', ')} 重複排班。`,
+      )
+    }
+  }
+
+  let issueMessage = ''
+  if (validationResult.freqMismatch.length > 0) {
+    issueMessage += '【排班頻率不符】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
+  }
+  if (validationResult.duplicates.length > 0) {
+    issueMessage += '【同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
+  }
+
+  if (issueMessage) {
+    alertDialogTitle.value = '排班問題檢查結果'
+    alertDialogMessage.value = issueMessage
+  } else {
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '太棒了！未發現重複排班或頻率不符的問題。'
+  }
+  isAlertDialogVisible.value = true
+}
+
+// 【修改 2】: 新增一個專門處理「智慧排床」的函式
+function openBedAssignmentDialog() {
+  if (isPageLocked.value) return
+
+  const unscheduledIpd = []
+  const unscheduledOpd = []
+
+  allPatients.value.forEach((patient) => {
+    if (patient.isDeleted || scheduledPatientIds.value.has(patient.id)) {
+      return
+    }
+    if (patient.status === 'ipd') {
+      unscheduledIpd.push(patient)
+    } else if (patient.status === 'opd' && patient.freq) {
+      unscheduledOpd.push(patient)
+    }
+  })
+
+  problemsToSolve.value = {
+    '住院 - 未排床': unscheduledIpd,
+    '門診 - 未排床': unscheduledOpd,
+  }
+
+  isProblemSolverDialogVisible.value = true
+}
+
 onMounted(() => {
   loadAllData()
   window.addEventListener('schedule-updated', handleScheduleUpdate)
@@ -688,12 +755,14 @@ onUnmounted(() => {
             <div class="main-actions">
               <button @click="goToToday">回到本週</button>
               <button @click="loadBaseSchedule" :disabled="isPageLocked">載入常規班表</button>
+              <!-- 【修改 3】: 將一個按鈕拆分為兩個 -->
+              <button class="btn btn-info" @click="runScheduleCheck">排班檢視</button>
               <button
                 class="btn btn-warning"
-                @click="handleReviewAndAssign"
+                @click="openBedAssignmentDialog"
                 :disabled="isPageLocked"
               >
-                排班檢視與分配
+                智慧排床
               </button>
             </div>
           </div>
@@ -808,7 +877,7 @@ onUnmounted(() => {
 .main-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 1rem;
 }
 .page-title {
   margin: 0;
