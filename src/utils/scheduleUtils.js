@@ -59,8 +59,29 @@ export function generateAutoNote(patient) {
   return Array.from(autoNotes).join(' ')
 }
 
-// 【移除】generateStandardNote 函式。
-// 理由：它的功能（合併 auto 和 manual note）應該由前端的計算屬性或顯示函式來完成，
-// 而不是在資料生成層。這可以讓資料模型更純粹。我們會在需要顯示的地方
-// 直接使用 `${slotData.autoNote} ${slotData.manualNote}`。
-// 這避免了在每次更新手動備註時都需要重新呼叫此函式，簡化了邏輯。
+// 【新增】頻率與星期的對應關係
+const FREQ_TO_DAYS_MAP = {
+  一三五: [1, 3, 5],
+  二四六: [2, 4, 6],
+  一四: [1, 4],
+  二五: [2, 5],
+  三六: [2, 6],
+  一五: [1, 5],
+  二六: [2, 6],
+  // 根據您的系統需求，可以添加更多頻率
+  // '每日': [1, 2, 3, 4, 5, 6, 7],
+}
+
+/**
+ * 檢查病人在給定的星期幾是否應該排班
+ * @param {Object} patient - 病人物件，需要包含 freq 屬性
+ * @param {number} dayOfWeek - 星期幾 (1=週一, 2=週二, ..., 7=週日)
+ * @returns {boolean} - 如果應該排班則返回 true
+ */
+export function shouldPatientBeScheduled(patient, dayOfWeek) {
+  if (!patient || !patient.freq || !dayOfWeek) {
+    return false
+  }
+  const scheduledDays = FREQ_TO_DAYS_MAP[patient.freq]
+  return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
+}

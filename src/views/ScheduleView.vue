@@ -873,6 +873,8 @@ watch(currentDate, (newDate, oldDate) => {
         :scheduled-ids="scheduledPatientIds"
         @drag-start="onSidebarDragStart"
         :class="{ 'sidebar-locked': isPageLocked }"
+        :use-daily-filter="true"
+        :day-of-week="dayOfWeek"
       />
     </main>
   </div>
