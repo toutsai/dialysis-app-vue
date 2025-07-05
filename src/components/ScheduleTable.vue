@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/ScheduleTable.vue (修正後完整版) -->
+<!-- 檔案路徑: src/components/ScheduleTable.vue (修改後完整版) -->
 <script setup>
 import { computed } from 'vue'
 import { getShiftDisplayName } from '@/constants/scheduleConstants'
@@ -13,12 +13,24 @@ const props = defineProps({
   hepatitisBeds: { type: Array, default: () => [] },
   getStyleFunc: { type: Function, default: () => ({}) },
   isDateInPast: { type: Function, default: () => false },
+  // 【新增】接收 patientWithMemoIds 用於判斷是否顯示圖示
+  patientWithMemoIds: {
+    type: Set,
+    default: () => new Set(),
+  },
 })
 
-const emit = defineEmits(['grid-click', 'drop', 'drag-start', 'drag-over', 'drag-leave'])
+// 【修改】新增 show-memos 事件
+const emit = defineEmits([
+  'grid-click',
+  'drop',
+  'drag-start',
+  'drag-over',
+  'drag-leave',
+  'show-memos',
+])
 
-// 【關鍵修改 1】: 修改 getPatientDetails 函式，使其回傳完整的 patient 物件
-// 這樣模板就可以方便地存取 patient.mode 等任何屬性，且不影響現有功能。
+// 【保留您的修改】: getPatientDetails 函式，使其回傳完整的 patient 物件
 const getPatientDetails = (slotId) => {
   const slotData = props.scheduleData[slotId]
   if (!slotData || !slotData.patientId) return null
@@ -30,7 +42,7 @@ const getPatientDetails = (slotId) => {
     name: patient.name,
     medicalRecordNumber: patient.medicalRecordNumber,
     diseases: patient.diseases || [],
-    patient: patient, // <-- 新增此行，回傳完整的病人物件
+    patient: patient, // <-- 保留此行
   }
 }
 </script>
@@ -90,6 +102,21 @@ const getPatientDetails = (slotId) => {
                   <template v-if="!props.isDateInPast(dayIndex)">
                     <div class="patient-name">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
+                      <!-- 【修改】點擊圖示時發出事件 -->
+                      <span
+                        v-if="
+                          props.patientWithMemoIds.has(
+                            scheduleData[`${bedNum}-0-${dayIndex}`]?.patientId,
+                          )
+                        "
+                        class="memo-icon"
+                        title="有交班事項"
+                        @click.stop="
+                          emit('show-memos', scheduleData[`${bedNum}-0-${dayIndex}`]?.patientId)
+                        "
+                      >
+                        📝
+                      </span>
                       <span
                         v-for="disease in getPatientDetails(`${bedNum}-0-${dayIndex}`).diseases"
                         :key="disease"
@@ -98,7 +125,6 @@ const getPatientDetails = (slotId) => {
                         {{ disease }}
                       </span>
                     </div>
-                    <!-- 【關鍵修改 2】: 在病歷號旁邊顯示特殊透析模式 -->
                     <div class="patient-mrn">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).medicalRecordNumber }}
                       <span
@@ -116,7 +142,6 @@ const getPatientDetails = (slotId) => {
                   <template v-else>
                     <div class="patient-name-past">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
-                      <!-- 過去的資料也可能需要顯示模式，可根據需求決定是否保留 -->
                       <span
                         v-if="
                           getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
@@ -129,7 +154,6 @@ const getPatientDetails = (slotId) => {
                     </div>
                   </template>
                 </div>
-                <!-- 只有在今天及未來，且格子為空時，才顯示 '+' -->
                 <div v-else-if="!props.isDateInPast(dayIndex)" class="empty-slot-placeholder">
                   +
                 </div>
@@ -177,6 +201,24 @@ const getPatientDetails = (slotId) => {
                   <template v-if="!props.isDateInPast(dayIndex)">
                     <div class="patient-name">
                       {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
+                      <!-- 【修改】點擊圖示時發出事件 -->
+                      <span
+                        v-if="
+                          props.patientWithMemoIds.has(
+                            scheduleData[`${bedNum}-${shiftIndex}-${dayIndex}`]?.patientId,
+                          )
+                        "
+                        class="memo-icon"
+                        title="有交班事項"
+                        @click.stop="
+                          emit(
+                            'show-memos',
+                            scheduleData[`${bedNum}-${shiftIndex}-${dayIndex}`]?.patientId,
+                          )
+                        "
+                      >
+                        📝
+                      </span>
                       <span
                         v-for="disease in getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`)
                           .diseases"
@@ -186,7 +228,6 @@ const getPatientDetails = (slotId) => {
                         {{ disease }}
                       </span>
                     </div>
-                    <!-- 【關鍵修改 3】: 同樣的修改也應用於此處 -->
                     <div class="patient-mrn">
                       {{
                         getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).medicalRecordNumber
@@ -236,6 +277,7 @@ const getPatientDetails = (slotId) => {
 </template>
 
 <style scoped>
+/* 樣式部分保持您提供的版本不變，只在末尾增加 memo-icon 的樣式 */
 .schedule-table-container {
   width: 100%;
   height: 100%;
@@ -287,7 +329,6 @@ const getPatientDetails = (slotId) => {
   font-size: 0.9em;
 }
 
-/* --- Schedule Slot 內部樣式 --- */
 .schedule-slot {
   width: 100%;
   height: 100%;
@@ -296,7 +337,7 @@ const getPatientDetails = (slotId) => {
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  transition: all 0.2s; /* 統一 transition */
+  transition: all 0.2s;
   overflow: hidden;
 }
 .patient-details {
@@ -309,7 +350,6 @@ const getPatientDetails = (slotId) => {
   gap: 2px;
 }
 
-/* -- 今天及未來日期的樣式 -- */
 .patient-name {
   display: flex;
   justify-content: center;
@@ -324,7 +364,6 @@ const getPatientDetails = (slotId) => {
   font-size: 0.8em;
   color: #555;
   white-space: nowrap;
-  /* 【新增樣式】讓內部元素垂直居中對齊 */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -351,14 +390,12 @@ const getPatientDetails = (slotId) => {
   color: #007bff;
 }
 
-/* 【關鍵修改 4】: 新增特殊透析模式標籤的樣式 */
 .special-dialysis-label {
   font-weight: bold;
-  color: #c53929; /* 一個醒目的深紅色 */
-  font-size: 1em; /* 與病歷號字體大小保持一致 */
+  color: #c53929;
+  font-size: 1em;
 }
 
-/* --- 歷史資料視覺呈現的核心 CSS --- */
 .schedule-slot.is-past {
   cursor: not-allowed;
   opacity: 0.85;
@@ -371,14 +408,12 @@ const getPatientDetails = (slotId) => {
   font-weight: normal;
   color: #333;
   font-size: 0.9em;
-  /* 【新增樣式】讓內部元素垂直居中對齊 */
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 4px;
 }
 
-/* --- 拖曳相關樣式 --- */
 .schedule-slot.drag-over {
   background-color: #c8e6c9 !important;
   border: 2px dashed #4caf50;
@@ -393,6 +428,20 @@ const getPatientDetails = (slotId) => {
   cursor: grabbing;
   transform: scale(0.98);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-  z-index: 20; /* 確保拖曳時元素在最上層 */
+  z-index: 20;
+}
+
+/* 【新增】Memo 圖示樣式 */
+.memo-icon {
+  display: inline-block;
+  vertical-align: middle;
+  cursor: pointer;
+  margin: 0 2px;
+  font-size: 1.1em;
+  transition: transform 0.2s;
+  order: -1; /* 將 memo 圖示放在最前面 */
+}
+.memo-icon:hover {
+  transform: scale(1.3);
 }
 </style>

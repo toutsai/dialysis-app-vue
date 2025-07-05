@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (已加入精準高亮功能) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (Memo彈窗整合最終版) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -18,8 +18,9 @@ import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】
 
-// --- 常量 ---
+// --- 常量 (保持不變) ---
 const layoutData = {
   leftWingRows: [
     ['空', 32, 31],
@@ -75,10 +76,12 @@ const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
+const memosApi = ApiManager('memos') // <-- 【新增】
 
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
+const activeMemos = ref([]) // <-- 【新增】
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
@@ -91,6 +94,10 @@ const alertDialogMessage = ref('')
 const isAssignmentDialogVisible = ref(false)
 const highlightedEarlyTeam = ref(null)
 const highlightedLateTeam = ref(null)
+// 【新增】Memo Dialog 相關狀態
+const isMemoDialogVisible = ref(false)
+const memosForDialog = ref([])
+const patientNameForDialog = ref('')
 
 // --- 權限與鎖定 ---
 const { isReadOnly } = useAuth()
@@ -111,6 +118,10 @@ function formatDate(date) {
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+// 【新增】
+const patientWithMemoIds = computed(() => {
+  return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
+})
 const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
@@ -142,6 +153,21 @@ const scheduledPatientIds = computed(() => {
 })
 
 // --- 方法 ---
+
+// 【新增】處理顯示備忘錄對話框的函式
+function showPatientMemos(patientId) {
+  if (!patientId) return
+  const patient = patientMap.value.get(patientId)
+  if (!patient) return
+
+  memosForDialog.value = activeMemos.value.filter(
+    (memo) => memo.patientId === patientId && !memo.isResolved,
+  )
+  patientNameForDialog.value = patient.name
+  isMemoDialogVisible.value = true
+}
+
+// (其他方法保持您提供的版本不變)
 function toggleHighlightTeam(team, shiftType) {
   if (shiftType === 'early') {
     if (highlightedEarlyTeam.value === team) {
@@ -157,19 +183,13 @@ function toggleHighlightTeam(team, shiftType) {
     }
   }
 }
-
-// 【修改 1】: 修改高亮判斷函式，使其判斷單一班次格
 function isSlotHighlighted(shiftId) {
   if (!highlightedEarlyTeam.value && !highlightedLateTeam.value) {
     return false
   }
-
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return false
-
   const shiftCode = shiftId.split('-')[2]
-
-  // 檢查早班組別
   if (highlightedEarlyTeam.value) {
     if (
       shiftCode === SHIFT_CODES.EARLY &&
@@ -184,13 +204,10 @@ function isSlotHighlighted(shiftId) {
       return true
     }
   }
-
-  // 檢查晚班組別
   if (highlightedLateTeam.value) {
     if (shiftCode === SHIFT_CODES.LATE && slotData.nurseTeam === `晚${highlightedLateTeam.value}`) {
       return true
     }
-    // 午班收針可能由早班或晚班負責，所以要檢查兩種可能
     if (
       shiftCode === SHIFT_CODES.NOON &&
       slotData.nurseTeamOut === `晚${highlightedLateTeam.value}`
@@ -198,16 +215,13 @@ function isSlotHighlighted(shiftId) {
       return true
     }
   }
-
   return false
 }
-
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
-
 async function saveDataToCloud() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法儲存或權限不足。')
@@ -256,7 +270,6 @@ async function saveDataToCloud() {
     isAlertDialogVisible.value = true
   }
 }
-
 function clearBoard() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法清除。')
@@ -267,7 +280,6 @@ function clearBoard() {
     setChange()
   }
 }
-
 async function copySchedule() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法複製排程。')
@@ -304,7 +316,6 @@ async function copySchedule() {
     statusIndicator.value = '複製失敗'
   }
 }
-
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -332,7 +343,6 @@ function onDrop(event, targetShiftId) {
   }
   setChange()
 }
-
 function handleSlotUpdate(shiftId, patientId) {
   if (isPageLocked.value) return
   if (patientId) {
@@ -348,7 +358,6 @@ function handleSlotUpdate(shiftId, patientId) {
   }
   setChange()
 }
-
 function handleSlotClick(shiftId) {
   if (isPageLocked.value) return
   const slotData = currentRecord.schedule[shiftId]
@@ -361,7 +370,6 @@ function handleSlotClick(shiftId) {
     isAssignmentDialogVisible.value = true
   }
 }
-
 function updateNurseTeam(event, shiftId, type) {
   if (isPageLocked.value) {
     event.target.value =
@@ -379,7 +387,6 @@ function updateNurseTeam(event, shiftId, type) {
   else if (type === 'out') slot.nurseTeamOut = value || null
   setChange()
 }
-
 function updateNote(event, shiftId) {
   if (isPageLocked.value) {
     event.target.textContent = getCombinedNote(shiftId)
@@ -391,7 +398,6 @@ function updateNote(event, shiftId) {
   currentRecord.schedule[shiftId].manualNote = value
   setChange()
 }
-
 const updateWardNumber = (event, shiftId) => {
   if (isPageLocked.value) {
     event.target.textContent = currentRecord.schedule[shiftId]?.wardNumber || ''
@@ -403,7 +409,6 @@ const updateWardNumber = (event, shiftId) => {
   currentRecord.schedule[shiftId].wardNumber = value
   setChange()
 }
-
 function onBedDragStart(event, sourceShiftId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -418,7 +423,6 @@ function onBedDragStart(event, sourceShiftId) {
   event.dataTransfer.setData('application/json', JSON.stringify(slotData))
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function onSidebarDragStart(event, patient) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -433,7 +437,6 @@ function onSidebarDragStart(event, patient) {
   event.dataTransfer.setData('application/json', JSON.stringify(slotData))
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function changeDate(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
@@ -442,20 +445,23 @@ function changeDate(days) {
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
 }
-
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
   }
   currentDate.value = new Date()
 }
-
-async function loadAllPatients() {
+async function loadAllData() {
   try {
-    allPatients.value = await patientsApi.fetchAll()
+    const [patientsData, memosData] = await Promise.all([
+      patientsApi.fetchAll(),
+      memosApi.fetchAll([where('isResolved', '==', false)]),
+    ])
+    allPatients.value = patientsData
+    activeMemos.value = memosData
   } catch (error) {
-    console.error('獲取病人資料失敗:', error)
-    statusIndicator.value = '讀取病人資料失敗'
+    console.error('獲取病人或備忘資料失敗:', error)
+    statusIndicator.value = '讀取病人或備忘資料失敗'
   }
 }
 async function loadDataForDay(date) {
@@ -596,7 +602,7 @@ function triggerPrint() {
 }
 
 onMounted(async () => {
-  await loadAllPatients()
+  await loadAllData()
   await loadDataForDay(currentDate.value)
 })
 watch(currentDate, (newDate, oldDate) => {
@@ -715,7 +721,6 @@ watch(currentDate, (newDate, oldDate) => {
                       :class="[
                         getPatientCellStyle(`bed-${bedNum}-${shiftCode}`),
                         { 'split-shift': shiftCode === SHIFT_CODES.NOON },
-                        // 【修改 2】: 將高亮 class 綁定到此處
                         { 'highlighted-slot': isSlotHighlighted(`bed-${bedNum}-${shiftCode}`) },
                       ]"
                     >
@@ -771,9 +776,25 @@ watch(currentDate, (newDate, oldDate) => {
                         @dragleave="onDragLeave"
                         @dragstart="onBedDragStart($event, `bed-${bedNum}-${shiftCode}`)"
                       >
-                        <span v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)">{{
-                          getPatientName(`bed-${bedNum}-${shiftCode}`)
-                        }}</span>
+                        <span v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)">
+                          {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
+                          <!-- 【修改】添加圖示 -->
+                          <span
+                            v-if="
+                              patientWithMemoIds.has(
+                                currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                              )
+                            "
+                            class="memo-icon-inline"
+                            title="有交班事項"
+                            @click.stop="
+                              showPatientMemos(
+                                currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                              )
+                            "
+                            >📝</span
+                          >
+                        </span>
                         <span v-else class="empty-slot-placeholder">+</span>
                       </div>
                       <div
@@ -847,9 +868,25 @@ watch(currentDate, (newDate, oldDate) => {
                     @dragleave="onDragLeave"
                     @dragstart="onBedDragStart($event, `peripheral-${i}-${shiftCode}`)"
                   >
-                    <span v-if="getPatientName(`peripheral-${i}-${shiftCode}`)">{{
-                      getPatientName(`peripheral-${i}-${shiftCode}`)
-                    }}</span>
+                    <span v-if="getPatientName(`peripheral-${i}-${shiftCode}`)">
+                      {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
+                      <!-- 【修改】添加圖示 -->
+                      <span
+                        v-if="
+                          patientWithMemoIds.has(
+                            currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                          )
+                        "
+                        class="memo-icon-inline"
+                        title="有交班事項"
+                        @click.stop="
+                          showPatientMemos(
+                            currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                          )
+                        "
+                        >📝</span
+                      >
+                    </span>
                     <span v-else class="empty-slot-placeholder">+</span>
                   </div>
                   <div
@@ -879,6 +916,14 @@ watch(currentDate, (newDate, oldDate) => {
     </main>
   </div>
 
+  <!-- 【新增】Memo 對話框 -->
+  <MemoDisplayDialog
+    :is-visible="isMemoDialogVisible"
+    :patient-name="patientNameForDialog"
+    :memos="memosForDialog"
+    @close="isMemoDialogVisible = false"
+  />
+
   <BedAssignmentDialog
     :is-visible="isAssignmentDialogVisible"
     :all-patients="allPatients"
@@ -900,6 +945,7 @@ watch(currentDate, (newDate, oldDate) => {
 </template>
 
 <style scoped>
+/* 樣式部分保持您提供的版本不變，只在末尾增加 memo-icon-inline 的樣式 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1090,7 +1136,7 @@ button {
 }
 .shift-row,
 .peripheral-shift-row {
-  position: relative; /* 為了 outline 定位 */
+  position: relative;
   display: grid;
   align-items: stretch;
   border-top: 1px solid #e0e0e0;
@@ -1207,6 +1253,9 @@ button {
   padding: 4px 6px;
   width: 100%;
   height: 100%;
+  display: flex; /* 【新增】使內部元素可以對齊 */
+  align-items: center; /* 垂直居中 */
+  justify-content: center; /* 水平居中 */
 }
 .empty-slot-placeholder {
   color: #adb5bd;
@@ -1265,8 +1314,6 @@ button {
 .is-locked .peripheral-patient-name:hover .empty-slot-placeholder {
   color: #adb5bd;
 }
-
-/* 【修改 4】: 新增高亮功能相關的 CSS */
 .team-highlight-container {
   display: flex;
   flex-direction: column;
@@ -1300,13 +1347,21 @@ button {
   color: white;
   border-color: #c82333;
 }
-
-/* 【修改 5】: 修改高亮樣式，使其作用於班次格 */
 .shift-row.highlighted-slot,
 .peripheral-shift-row.highlighted-slot {
-  /* 使用 outline 而不是 border，這樣不會影響佈局 */
   outline: 3px solid #dc3545;
-  outline-offset: -3px; /* 將外框線畫在內部，避免溢出 */
-  z-index: 1; /* 確保外框線在最上層 */
+  outline-offset: -3px;
+  z-index: 1;
+}
+
+/* 【新增】內聯圖示樣式 */
+.memo-icon-inline {
+  cursor: pointer;
+  margin-left: 8px;
+  font-size: 1.1em;
+  transition: transform 0.2s;
+}
+.memo-icon-inline:hover {
+  transform: scale(1.3);
 }
 </style>

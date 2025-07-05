@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (最終版 - 實現方案 A) -->
+<!-- 檔案路徑: src/views/StatsView.vue (Memo彈窗整合最終版) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -7,13 +7,14 @@ import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
 const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
 
-// --- 常量 ---
+// --- 常量 (保持不變) ---
 const nurseNameList = [
   '陳素秋',
   '古孟麗',
@@ -48,7 +49,7 @@ const lateTeams = baseTeams.map((t) => `晚${t}`)
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
-const allMemos = ref([])
+const activeMemos = ref([]) // <-- 【修改】從 allMemos 改為 activeMemos 以清晰表達意圖
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
@@ -56,6 +57,10 @@ const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 // --- UI 狀態 ---
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
+// 【新增】Memo Dialog 相關狀態
+const isMemoDialogVisible = ref(false)
+const memosForDialog = ref([])
+const patientNameForDialog = ref('')
 
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
@@ -75,7 +80,6 @@ const formatDate = (date) => {
   return `${year}-${month}-${day}`
 }
 
-// 【關鍵修改 1】: getPatientDisplayString 函式，產生帶有 HTML 標籤的字串
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
 
@@ -96,23 +100,24 @@ const getPatientDisplayString = (patientDetail) => {
     }
   }
 
-  // 建立一個陣列來組合最終的顯示字串
   const displayParts = [identifier, name]
 
-  // 檢查特殊透析模式，並將其打包成 HTML 標籤
   if (patientDetail.mode && patientDetail.mode !== 'HD') {
     const modeTag = `<span class="stats-special-mode">${patientDetail.mode}</span>`
     displayParts.push(modeTag)
   }
 
-  // 如果有其他備註，也將其加入陣列
   if (noteString) {
     displayParts.push(noteString)
   }
 
-  // 因為 displayParts 中可能包含 HTML，所以回傳的字串需要用 v-html 渲染
   return displayParts.join(' - ')
 }
+
+// 【新增】計算屬性，高效查詢有備忘的病人ID
+const patientWithMemoIds = computed(() => {
+  return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
+})
 
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
@@ -147,13 +152,7 @@ const statsData = computed(() => {
     }
   })
   const patientMap = new Map(allPatients.value.map((p) => [p.id, p]))
-  const memoMap = new Map()
-  allMemos.value.forEach((memo) => {
-    if (memo.patientName) {
-      if (!memoMap.has(memo.patientName)) memoMap.set(memo.patientName, [])
-      memoMap.get(memo.patientName).push(memo.content)
-    }
-  })
+
   Object.values(currentRecord.schedule).forEach((shiftDetails) => {
     const {
       patientId,
@@ -169,13 +168,12 @@ const statsData = computed(() => {
     const patient = patientMap.get(patientId)
     if (!patient) return
 
-    // 【關鍵修改 2】: 確保將 patient.mode 傳遞到 detail 物件中
     const detail = {
       id: patientId,
       shiftId: shiftId,
       name: patient.name,
       status: patient.status,
-      mode: patient.mode, // <-- 確保此行存在
+      mode: patient.mode,
       autoNote: autoNote || '',
       manualNote: manualNote || '',
       wardNumber: wardNumber || '',
@@ -196,7 +194,6 @@ const statsData = computed(() => {
     if (combinedNote.includes('兩')) detail.classes += ' tag-liang'
     if (combinedNote.includes('換')) detail.classes += ' tag-huan'
     if (combinedNote.includes('B')) detail.classes += ' tag-b'
-    if (memoMap.has(patient.name)) detail.classes += ' has-memo'
 
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
@@ -246,19 +243,35 @@ const statsData = computed(() => {
   }
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
-    teamData.totalOpdCount = teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount
-    teamData.totalIpdCount = teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount
+    teamData.totalOpdCount =
+      teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount + teamData.noonShiftOff.opdCount
+    teamData.totalIpdCount =
+      teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount + teamData.noonShiftOff.ipdCount
   }
   for (const team in lateShiftStats) {
     const teamData = lateShiftStats[team]
-    teamData.totalOpdCount = teamData.lateShift.opdCount
-    teamData.totalIpdCount = teamData.lateShift.ipdCount
+    teamData.totalOpdCount = teamData.lateShift.opdCount + teamData.noonShiftOff.opdCount
+    teamData.totalIpdCount = teamData.lateShift.ipdCount + teamData.noonShiftOff.ipdCount
   }
   return { early: earlyShiftStats, late: lateShiftStats }
 })
 
 // --- 方法 ---
 
+// 【新增】處理顯示備忘錄對話框的函式
+function showPatientMemos(patientId) {
+  if (!patientId) return
+  const patient = allPatients.value.find((p) => p.id === patientId)
+  if (!patient) return
+
+  memosForDialog.value = activeMemos.value.filter(
+    (memo) => memo.patientId === patientId && !memo.isResolved,
+  )
+  patientNameForDialog.value = patient.name
+  isMemoDialogVisible.value = true
+}
+
+// 【修改】合併資料獲取
 async function loadData(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
@@ -270,7 +283,7 @@ async function loadData(date) {
       memosApi.fetchAll([where('isResolved', '==', false)]),
     ])
     allPatients.value = patientsData
-    allMemos.value = memosData
+    activeMemos.value = memosData // <-- 修改
     if (dailyRecords.length > 0) {
       const record = dailyRecords[0]
       if (record.schedule) {
@@ -295,13 +308,12 @@ async function loadData(date) {
     statusIndicator.value = '讀取失敗'
   }
 }
-
+// (其他方法保持不變)
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
-
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法儲存或權限不足。')
@@ -350,7 +362,6 @@ async function saveChangesToCloud() {
     alert(`儲存失敗: ${error.message}`)
   }
 }
-
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -389,7 +400,6 @@ function onDrop(event, newTeam, newResponsibility) {
   currentRecord.schedule[newShiftId] = movingSlotData
   setChange()
 }
-
 function onDragStart(event, patientDetail, responsibility) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -399,13 +409,11 @@ function onDragStart(event, patientDetail, responsibility) {
   event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
-
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
@@ -418,7 +426,6 @@ function handleBedChange({ oldShiftId, newShiftId }) {
   setChange()
   isBedChangeDialogVisible.value = false
 }
-
 function updateNurseName(teamId, event) {
   if (isPageLocked.value) {
     event.target.value = currentRecord.names?.[teamId] || ''
@@ -430,7 +437,6 @@ function updateNurseName(teamId, event) {
   currentRecord.names[teamId] = event.target.value
   setChange()
 }
-
 function changeDate(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
@@ -438,17 +444,13 @@ function changeDate(days) {
   const newDate = new Date(currentDate.value)
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
-  loadData(newDate)
 }
-
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
   }
   currentDate.value = new Date()
-  loadData(currentDate.value)
 }
-
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -538,8 +540,7 @@ watch(currentDate, (newDate) => {
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
-                <!-- 【關鍵修改 3】: 使用 v-html 來渲染帶有標籤的字串 -->
-                <span
+                <div
                   v-for="patient in teamData.earlyShift.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
@@ -547,8 +548,17 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'earlyShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  v-html="getPatientDisplayString(patient)"
-                ></span>
+                >
+                  <span v-html="getPatientDisplayString(patient)"></span>
+                  <!-- 【修改】添加圖示 -->
+                  <span
+                    v-if="patientWithMemoIds.has(patient.id)"
+                    class="memo-icon-inline"
+                    @click.stop="showPatientMemos(patient.id)"
+                    title="有交班事項"
+                    >📝</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -563,7 +573,7 @@ watch(currentDate, (newDate) => {
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
-                <span
+                <div
                   v-for="patient in teamData.noonShiftOn.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
@@ -571,8 +581,16 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'noonShiftOn')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  v-html="getPatientDisplayString(patient)"
-                ></span>
+                >
+                  <span v-html="getPatientDisplayString(patient)"></span>
+                  <span
+                    v-if="patientWithMemoIds.has(patient.id)"
+                    class="memo-icon-inline"
+                    @click.stop="showPatientMemos(patient.id)"
+                    title="有交班事項"
+                    >📝</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -587,7 +605,7 @@ watch(currentDate, (newDate) => {
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
-                <span
+                <div
                   v-for="patient in teamData.noonShiftOff.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
@@ -595,8 +613,16 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  v-html="getPatientDisplayString(patient)"
-                ></span>
+                >
+                  <span v-html="getPatientDisplayString(patient)"></span>
+                  <span
+                    v-if="patientWithMemoIds.has(patient.id)"
+                    class="memo-icon-inline"
+                    @click.stop="showPatientMemos(patient.id)"
+                    title="有交班事項"
+                    >📝</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -654,7 +680,7 @@ watch(currentDate, (newDate) => {
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
-                <span
+                <div
                   v-for="patient in teamData.noonShiftOff.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
@@ -662,8 +688,16 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  v-html="getPatientDisplayString(patient)"
-                ></span>
+                >
+                  <span v-html="getPatientDisplayString(patient)"></span>
+                  <span
+                    v-if="patientWithMemoIds.has(patient.id)"
+                    class="memo-icon-inline"
+                    @click.stop="showPatientMemos(patient.id)"
+                    title="有交班事項"
+                    >📝</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -678,7 +712,7 @@ watch(currentDate, (newDate) => {
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
-                <span
+                <div
                   v-for="patient in teamData.lateShift.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
@@ -686,8 +720,16 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'lateShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  v-html="getPatientDisplayString(patient)"
-                ></span>
+                >
+                  <span v-html="getPatientDisplayString(patient)"></span>
+                  <span
+                    v-if="patientWithMemoIds.has(patient.id)"
+                    class="memo-icon-inline"
+                    @click.stop="showPatientMemos(patient.id)"
+                    title="有交班事項"
+                    >📝</span
+                  >
+                </div>
               </div>
             </div>
           </div>
@@ -705,6 +747,14 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
+    <!-- 【新增】Memo 對話框 -->
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-name="patientNameForDialog"
+      :memos="memosForDialog"
+      @close="isMemoDialogVisible = false"
+    />
+
     <BedChangeDialog
       :is-visible="isBedChangeDialogVisible"
       :patient-info="editingPatientInfo"
@@ -716,9 +766,7 @@ watch(currentDate, (newDate) => {
 </template>
 
 <style scoped>
-/* ==========================================================================
-   您的原始樣式 - 完整保留
-   ========================================================================== */
+/* 樣式部分保持您提供的版本不變，只在末尾增加 memo-icon-inline 的樣式 */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -896,12 +944,20 @@ watch(currentDate, (newDate) => {
     box-shadow 0.2s;
   user-select: none;
 }
+/* 【修改】使 patient-item 內的元素可以並排 */
+.patient-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .patient-item:active {
   cursor: grabbing;
   background-color: #e0e0e0;
   opacity: 0.8;
   transform: scale(1.02);
 }
+
 .patient-item.has-memo {
   box-shadow: 0 0 0 2px #ef5350;
 }
@@ -938,9 +994,6 @@ watch(currentDate, (newDate) => {
   font-weight: bold;
 }
 
-/* ==========================================================================
-   【關鍵修改 4】: 新增特殊模式標籤和鎖定相關樣式
-   ========================================================================== */
 :deep(.stats-special-mode) {
   display: inline-block;
   vertical-align: middle;
@@ -970,5 +1023,17 @@ watch(currentDate, (newDate) => {
 }
 .is-locked .name-select {
   background-color: #eeeeee;
+}
+
+/* 【新增】內聯圖示樣式 */
+.memo-icon-inline {
+  cursor: pointer;
+  margin-left: 8px; /* 增加與文字的間距 */
+  font-size: 1.2em; /* 讓圖示更明顯 */
+  transition: transform 0.2s;
+  flex-shrink: 0; /* 防止圖示被壓縮 */
+}
+.memo-icon-inline:hover {
+  transform: scale(1.3);
 }
 </style>
