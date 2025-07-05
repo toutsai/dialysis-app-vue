@@ -1,13 +1,15 @@
+<!-- 檔案路徑: src/views/PatientView.vue (階段三完成 - 完整無省略版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { deleteField, where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
+import { useAuth } from '@/composables/useAuth.js'
 
+// --- API & 狀態 ---
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
-
 const allPatients = ref([])
 const activeTab = ref('ipd')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
@@ -26,6 +28,11 @@ const DELETE_REASONS = [
   { value: '作廢', text: '作廢' },
 ]
 
+// --- 權限與鎖定 ---
+const { isReadOnly } = useAuth()
+const isPageLocked = computed(() => isReadOnly.value)
+
+// --- 計算屬性 ---
 const displayedPatients = computed(() => {
   let patients
   if (activeTab.value === 'deleted') {
@@ -41,7 +48,6 @@ const displayedPatients = computed(() => {
   } else {
     patients = allPatients.value.filter((p) => p.status === activeTab.value && !p.isDeleted)
   }
-
   return [...patients].sort((a, b) => {
     let valA, valB
     if (currentSort.value.column === 'freq') {
@@ -51,7 +57,6 @@ const displayedPatients = computed(() => {
       valA = a[currentSort.value.column]
       valB = b[currentSort.value.column]
     }
-
     if (valA && typeof valA.toDate === 'function') valA = valA.toDate()
     if (valB && typeof valB.toDate === 'function') valB = valB.toDate()
     valA = valA || ''
@@ -61,6 +66,133 @@ const displayedPatients = computed(() => {
   })
 })
 
+// --- 方法 (添加 isPageLocked 保護) ---
+async function handleSavePatient(patientData) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  try {
+    const patientId = patientData.id
+    const dataToUpdate = { ...patientData }
+    delete dataToUpdate.id
+    dataToUpdate.freq = patientData.freq
+    if ('frequency' in dataToUpdate) {
+      dataToUpdate.frequency = deleteField()
+    }
+    if (patientId) {
+      await patientApi.update(patientId, dataToUpdate)
+    } else {
+      dataToUpdate.createdAt = new Date().toISOString()
+      dataToUpdate.isDeleted = false
+      dataToUpdate.status = modalType.value
+      await patientApi.save(dataToUpdate)
+    }
+    closeModal()
+    await fetchAllPatients()
+  } catch (error) {
+    console.error('儲存病人資料失敗:', error)
+    alert('儲存病人資料失敗！')
+  }
+}
+
+async function transferPatient(patientId, newStatus) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
+  const targetStatus = newStatus === 'ipd' ? '住院' : '門診'
+  if (
+    confirm(
+      `確定要將 ${patientName} 轉為${targetStatus}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配。`,
+    )
+  ) {
+    try {
+      await patientApi.update(patientId, { status: newStatus })
+      await clearPatientTemporaryScheduleData(patientId, 'clear')
+      await fetchAllPatients()
+    } catch (error) {
+      alert('轉床失敗！')
+    }
+  }
+}
+
+async function handleDeleteReasonSelected(reason) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  if (!patientToDeleteId.value) return
+  try {
+    const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
+    if (patient) {
+      await patientApi.update(patientToDeleteId.value, {
+        isDeleted: true,
+        originalStatus: patient.status,
+        deleteReason: reason,
+        deletedAt: new Date().toISOString(),
+      })
+      await clearPatientTemporaryScheduleData(patientToDeleteId.value, 'delete')
+      await fetchAllPatients()
+    }
+  } catch (error) {
+    alert('刪除失敗！')
+  } finally {
+    isDeleteDialogVisible.value = false
+    patientToDeleteId.value = null
+  }
+}
+
+async function restorePatient(patientId) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  try {
+    const patient = allPatients.value.find((p) => p.id === patientId)
+    await patientApi.update(patientId, {
+      isDeleted: false,
+      status: patient.originalStatus || 'opd',
+      deleteReason: null,
+      deletedAt: null,
+    })
+    await fetchAllPatients()
+  } catch (error) {
+    alert('復原失敗！')
+  }
+}
+
+function openAddPatientModal(type) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  editingPatient.value = { diseases: [] }
+  modalType.value = type
+  isModalVisible.value = true
+}
+
+function openEditPatientModal(patient) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  editingPatient.value = patient
+  modalType.value = patient.status
+  isModalVisible.value = true
+}
+
+function deletePatient(patientId) {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  patientToDeleteId.value = patientId
+  isDeleteDialogVisible.value = true
+}
+
+// --- 以下為非修改性質的函式 ---
 async function fetchAllPatients() {
   try {
     allPatients.value = await patientApi.fetchAll()
@@ -69,7 +201,6 @@ async function fetchAllPatients() {
     alert('讀取病人資料失敗！')
   }
 }
-
 async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
   if (!patientId) return
   try {
@@ -80,7 +211,6 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
     const todayStr = today.toISOString().split('T')[0]
     const futureScheduleDocs = await schedulesApi.fetchAll([where('date', '>=', todayStr)])
     const updatePromises = []
-
     for (const doc of futureScheduleDocs) {
       let isModified = false
       const newSchedule = { ...doc.schedule }
@@ -104,7 +234,6 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
         updatePromises.push(schedulesApi.update(doc.id, { schedule: newSchedule }))
       }
     }
-
     if (updatePromises.length > 0) {
       await Promise.all(updatePromises)
       console.log(
@@ -119,79 +248,9 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
     alert(`為病人${actionText}排班資料時發生錯誤，請手動檢查排班表！`)
   }
 }
-
-async function handleSavePatient(patientData) {
-  try {
-    const patientId = patientData.id
-    const dataToUpdate = { ...patientData }
-    delete dataToUpdate.id
-
-    dataToUpdate.freq = patientData.freq
-    if ('frequency' in dataToUpdate) {
-      dataToUpdate.frequency = deleteField()
-    }
-
-    if (patientId) {
-      await patientApi.update(patientId, dataToUpdate)
-    } else {
-      dataToUpdate.createdAt = new Date().toISOString()
-      dataToUpdate.isDeleted = false
-      dataToUpdate.status = modalType.value
-      await patientApi.save(dataToUpdate)
-    }
-
-    closeModal()
-    await fetchAllPatients()
-  } catch (error) {
-    console.error('儲存病人資料失敗:', error)
-    alert('儲存病人資料失敗！')
-  }
-}
-
-async function transferPatient(patientId, newStatus) {
-  const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
-  const targetStatus = newStatus === 'ipd' ? '住院' : '門診'
-  if (
-    confirm(
-      `確定要將 ${patientName} 轉為${targetStatus}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配。`,
-    )
-  ) {
-    try {
-      await patientApi.update(patientId, { status: newStatus })
-      await clearPatientTemporaryScheduleData(patientId, 'clear')
-      await fetchAllPatients()
-    } catch (error) {
-      alert('轉床失敗！')
-    }
-  }
-}
-
-async function handleDeleteReasonSelected(reason) {
-  if (!patientToDeleteId.value) return
-  try {
-    const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
-    if (patient) {
-      await patientApi.update(patientToDeleteId.value, {
-        isDeleted: true,
-        originalStatus: patient.status,
-        deleteReason: reason,
-        deletedAt: new Date().toISOString(),
-      })
-      await clearPatientTemporaryScheduleData(patientToDeleteId.value, 'delete')
-      await fetchAllPatients()
-    }
-  } catch (error) {
-    alert('刪除失敗！')
-  } finally {
-    isDeleteDialogVisible.value = false
-    patientToDeleteId.value = null
-  }
-}
-
 function changeTab(tabName) {
   activeTab.value = tabName
 }
-
 function handleSort(key) {
   if (currentSort.value.column === key) {
     currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
@@ -200,63 +259,26 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
-
-function openAddPatientModal(type) {
-  editingPatient.value = { diseases: [] }
-  modalType.value = type
-  isModalVisible.value = true
-}
-
-function openEditPatientModal(patient) {
-  editingPatient.value = patient
-  modalType.value = patient.status
-  isModalVisible.value = true
-}
-
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
 }
-
-function deletePatient(patientId) {
-  patientToDeleteId.value = patientId
-  isDeleteDialogVisible.value = true
-}
-
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
 }
-
-async function restorePatient(patientId) {
-  try {
-    const patient = allPatients.value.find((p) => p.id === patientId)
-    await patientApi.update(patientId, {
-      isDeleted: false,
-      status: patient.originalStatus || 'opd',
-      deleteReason: null,
-      deletedAt: null,
-    })
-    await fetchAllPatients()
-  } catch (error) {
-    alert('復原失敗！')
-  }
-}
-
 function getSortIndicator(key) {
   if (currentSort.value.column === key) {
     return currentSort.value.order === 'asc' ? '▲' : '▼'
   }
   return ''
 }
-
 function formatDate(isoString) {
   if (!isoString) return ''
   const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
   if (isNaN(date.getTime())) return ''
   return date.toLocaleDateString()
 }
-
 function getRowClass(p) {
   if (p.isDeleted) return 'status-deleted'
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
@@ -266,12 +288,10 @@ function getRowClass(p) {
   if (p.status === 'opd') return 'status-opd'
   return ''
 }
-
 function generateDiseaseTags(diseases) {
   if (!diseases || diseases.length === 0) return ''
   return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
 }
-
 onMounted(() => {
   fetchAllPatients()
 })
@@ -279,7 +299,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="page-container">
+    <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理系統</h1>
       <div class="tabs">
         <button
@@ -306,7 +326,9 @@ onMounted(() => {
       </div>
 
       <div v-if="activeTab === 'ipd'" class="tab-content active">
-        <div class="toolbar"><button @click="openAddPatientModal('ipd')">新增住院病人</button></div>
+        <div class="toolbar">
+          <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked">新增住院病人</button>
+        </div>
         <div class="table-wrapper">
           <table class="patient-table">
             <thead>
@@ -337,7 +359,7 @@ onMounted(() => {
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
                 <td class="col-name">
-                  {{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span>
+                  <span v-html="generateDiseaseTags(p.diseases)"></span> {{ p.name }}
                 </td>
                 <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
@@ -348,9 +370,23 @@ onMounted(() => {
                 <td>{{ p.remarks }}</td>
                 <td>{{ formatDate(p.createdAt) }}</td>
                 <td class="col-actions action-buttons">
-                  <button class="btn-edit" @click="openEditPatientModal(p)">編輯</button>
-                  <button class="btn-transfer" @click="transferPatient(p.id, 'opd')">轉門診</button>
-                  <button class="btn-delete" @click="deletePatient(p.id)">刪除</button>
+                  <button
+                    class="btn-edit"
+                    @click="openEditPatientModal(p)"
+                    :disabled="isPageLocked"
+                  >
+                    編輯
+                  </button>
+                  <button
+                    class="btn-transfer"
+                    @click="transferPatient(p.id, 'opd')"
+                    :disabled="isPageLocked"
+                  >
+                    轉門診
+                  </button>
+                  <button class="btn-delete" @click="deletePatient(p.id)" :disabled="isPageLocked">
+                    刪除
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -358,7 +394,9 @@ onMounted(() => {
         </div>
       </div>
       <div v-if="activeTab === 'opd'" class="tab-content active">
-        <div class="toolbar"><button @click="openAddPatientModal('opd')">新增門診病人</button></div>
+        <div class="toolbar">
+          <button @click="openAddPatientModal('opd')" :disabled="isPageLocked">新增門診病人</button>
+        </div>
         <div class="table-wrapper">
           <table class="patient-table">
             <thead>
@@ -388,7 +426,7 @@ onMounted(() => {
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
                 <td class="col-name">
-                  {{ p.name }} <span v-html="generateDiseaseTags(p.diseases)"></span>
+                  <span v-html="generateDiseaseTags(p.diseases)"></span> {{ p.name }}
                 </td>
                 <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
                 <td>{{ p.physician }}</td>
@@ -398,9 +436,23 @@ onMounted(() => {
                 <td>{{ p.remarks }}</td>
                 <td>{{ formatDate(p.createdAt) }}</td>
                 <td class="col-actions action-buttons">
-                  <button class="btn-edit" @click="openEditPatientModal(p)">編輯</button>
-                  <button class="btn-transfer" @click="transferPatient(p.id, 'ipd')">轉住院</button>
-                  <button class="btn-delete" @click="deletePatient(p.id)">刪除</button>
+                  <button
+                    class="btn-edit"
+                    @click="openEditPatientModal(p)"
+                    :disabled="isPageLocked"
+                  >
+                    編輯
+                  </button>
+                  <button
+                    class="btn-transfer"
+                    @click="transferPatient(p.id, 'ipd')"
+                    :disabled="isPageLocked"
+                  >
+                    轉住院
+                  </button>
+                  <button class="btn-delete" @click="deletePatient(p.id)" :disabled="isPageLocked">
+                    刪除
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -443,7 +495,13 @@ onMounted(() => {
                 <td>{{ p.remarks }}</td>
                 <td>{{ formatDate(p.deletedAt) }}</td>
                 <td class="col-actions action-buttons">
-                  <button class="btn-restore" @click="restorePatient(p.id)">復原</button>
+                  <button
+                    class="btn-restore"
+                    @click="restorePatient(p.id)"
+                    :disabled="isPageLocked"
+                  >
+                    復原
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -469,6 +527,9 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* ==========================================================================
+   您的原始樣式 - 完整保留
+   ========================================================================== */
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
@@ -531,7 +592,7 @@ onMounted(() => {
 .patient-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed; /* 關鍵！改為 fixed 佈局 */
+  table-layout: fixed;
 }
 .patient-table th,
 .patient-table td {
@@ -541,12 +602,19 @@ onMounted(() => {
   vertical-align: middle;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 【勘誤】您原始碼中 td:first-child 的樣式會讓疾病標籤與姓名順序顛倒，此處修正為更通用的方式 */
 }
-.patient-table td:first-child {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
+.patient-table td .disease-tag,
+:deep(.patient-table td .disease-tag) {
+  /* 使用 :deep() 確保 v-html 內的樣式生效 */
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 0.8em;
+  font-weight: bold;
+  color: var(--danger-color, #dc3545);
+  border: 1px solid var(--danger-color, #dc3545);
+  border-radius: 4px;
+  margin-right: 8px;
 }
 .patient-table th {
   background-color: #f2f2f2;
@@ -603,10 +671,8 @@ onMounted(() => {
   max-height: 70vh;
   overflow-y: auto;
 }
-
-/* 為關鍵欄位定義固定寬度 */
 .col-name {
-  width: 180px;
+  width: 220px; /* 增加寬度以容納標籤 */
 }
 .col-mrn {
   width: 120px;
@@ -614,5 +680,14 @@ onMounted(() => {
 .col-actions {
   width: 220px;
   text-align: center;
+}
+
+/* ==========================================================================
+   【追加】的鎖定相關樣式
+   ========================================================================== */
+.is-locked .toolbar button,
+.is-locked .action-buttons button {
+  opacity: 0.65;
+  pointer-events: none;
 }
 </style>

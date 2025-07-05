@@ -1,14 +1,13 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (Ref: feature/global-bed-finder 最終修正版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終完整無省略版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
+import { useAuth } from '@/composables/useAuth.js'
 
-// 1. 引入我們重構後的所有工具和常量
-import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants'
+// 引入所有工具、常量和元件
+import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
-
-// 2. 引入所有需要的元件
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
@@ -45,13 +44,14 @@ const STYLE_PRIORITY = {
   兩: { class: 'tag-liang' },
   B: { class: 'tag-b' },
 }
+const CLEAR_OPTIONS = [
+  { value: 'single', text: '僅清除此班次' },
+  { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
+]
 
 // --- 核心狀態 ---
 const allOpdPatients = ref([])
-const masterRecord = ref({
-  id: 'MASTER_SCHEDULE',
-  schedule: {},
-})
+const masterRecord = ref({ id: 'MASTER_SCHEDULE', schedule: {} })
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
 const draggedItem = ref(null)
@@ -59,10 +59,6 @@ const draggedItem = ref(null)
 // --- UI 狀態 ---
 const isClearDialogVisible = ref(false)
 const clearingSlotId = ref(null)
-const CLEAR_OPTIONS = [
-  { value: 'single', text: '僅清除此班次' },
-  { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
-]
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
@@ -72,14 +68,16 @@ const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const isAssignmentDialogVisible = ref(false)
 
+// --- 權限與鎖定 ---
+const { isReadOnly } = useAuth()
+const isPageLocked = computed(() => isReadOnly.value)
+
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
-
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
     counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 },
   }))
-
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData && slotData.patientId) {
@@ -94,59 +92,20 @@ const statsToolbarData = computed(() => {
   }
   return dailyCounts
 })
-
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
-// --- 方法 ---
+// --- 方法 (添加 isPageLocked 保護) ---
 function setChange() {
+  if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
 
-async function loadAllData() {
-  hasUnsavedChanges.value = false
-  statusText.value = '讀取中...'
-  try {
-    const [patients, baseScheduleDoc] = await Promise.all([
-      patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
-      baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
-    ])
-    allOpdPatients.value = patients
-    // 建立一個臨時的 patientMap 以提高後續查找效率
-    const tempPatientMap = new Map(patients.map((p) => [p.id, p]))
-
-    if (baseScheduleDoc) {
-      const loadedSchedule = baseScheduleDoc.schedule || {}
-      const finalSchedule = {}
-      for (const slotId in loadedSchedule) {
-        const dbSlotData = loadedSchedule[slotId]
-        // 增加檢查，確保排程中的病人ID存在於當前的門診病人列表中
-        if (dbSlotData && dbSlotData.patientId && tempPatientMap.has(dbSlotData.patientId)) {
-          const patient = tempPatientMap.get(dbSlotData.patientId)
-          const standardSlot = createEmptySlotData(slotId)
-          if (patient) {
-            standardSlot.autoNote = generateAutoNote(patient)
-          }
-          standardSlot.manualNote = dbSlotData.manualNote || dbSlotData.note || ''
-          standardSlot.patientId = dbSlotData.patientId
-          finalSchedule[slotId] = standardSlot
-        }
-      }
-      masterRecord.value = {
-        id: baseScheduleDoc.id,
-        schedule: finalSchedule,
-      }
-    } else {
-      masterRecord.value.schedule = {}
-    }
-    statusText.value = '常規床位已載入'
-  } catch (error) {
-    console.error('載入資料失敗:', error)
-    statusText.value = '讀取失敗'
-  }
-}
-
 async function saveChangesToCloud() {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
   statusText.value = '儲存中...'
   try {
     const scheduleToSave = {}
@@ -177,6 +136,166 @@ async function saveChangesToCloud() {
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = '儲存失敗，請檢查網路連線或聯繫管理員。'
     isAlertDialogVisible.value = true
+  }
+}
+
+function handleReviewAndAssign() {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：權限不足。')
+    return
+  }
+  const results = runBedCheck()
+  let issueMessage = ''
+  let hasCriticalIssues = false
+  if (results.freqMismatch.length > 0) {
+    issueMessage += '【排班頻率不符】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
+    hasCriticalIssues = true
+  }
+  if (results.duplicates.length > 0) {
+    issueMessage += '【同日重複排班】:\n- ' + results.duplicates.join('\n- ') + '\n\n'
+    hasCriticalIssues = true
+  }
+  if (hasCriticalIssues) {
+    alertDialogTitle.value = '發現嚴重排班問題'
+    alertDialogMessage.value = '請手動修正上述問題後，再使用智慧排班工具處理【未排床】的病人。'
+    isAlertDialogVisible.value = true
+  } else {
+    isAssignmentDialogVisible.value = true
+  }
+}
+
+function handleAssignBed({ patientId, bedNum, shiftCode }) {
+  if (isPageLocked.value) return
+  const patient = allOpdPatients.value.find((p) => p.id === patientId)
+  if (!patient) return
+  const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
+  const shiftIndex = SHIFTS.indexOf(shiftCode)
+  if (shiftIndex === -1 || dayIndices.length === 0) return
+  const newSchedule = { ...masterRecord.value.schedule }
+  dayIndices.forEach((dayIndex) => {
+    const slotId = `${bedNum}-${shiftIndex}-${dayIndex}`
+    newSchedule[slotId] = {
+      ...createEmptySlotData(slotId),
+      patientId: patientId,
+      autoNote: generateAutoNote(patient),
+      manualNote: patient.baseNote || '',
+    }
+  })
+  masterRecord.value.schedule = newSchedule
+  setChange()
+}
+
+function handleGridClick(slotId) {
+  if (isPageLocked.value) return
+  const patientId = masterRecord.value.schedule[slotId]?.patientId
+  if (patientId) {
+    clearingSlotId.value = slotId
+    isClearDialogVisible.value = true
+  } else {
+    isAssignmentDialogVisible.value = true
+  }
+}
+
+function handleClearSelect(selectedValue) {
+  if (isPageLocked.value) return
+  if (!clearingSlotId.value) return
+  const newSchedule = { ...masterRecord.value.schedule }
+  if (selectedValue === 'single') {
+    delete newSchedule[clearingSlotId.value]
+  } else if (selectedValue === 'all_for_patient') {
+    const patientIdToClear = newSchedule[clearingSlotId.value]?.patientId
+    if (patientIdToClear) {
+      Object.keys(newSchedule).forEach((slotId) => {
+        if (newSchedule[slotId]?.patientId === patientIdToClear) {
+          delete newSchedule[slotId]
+        }
+      })
+    }
+  }
+  masterRecord.value.schedule = newSchedule
+  setChange()
+  isClearDialogVisible.value = false
+  clearingSlotId.value = null
+}
+
+function onDrop(event, targetSlotId) {
+  if (isPageLocked.value) return
+  event.preventDefault()
+  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+  const itemToDrop = draggedItem.value
+  if (!itemToDrop || !itemToDrop.patientId) return
+  const newSchedule = { ...masterRecord.value.schedule }
+  const sourceSlotId = itemToDrop.sourceSlotId
+  const targetSlotData = newSchedule[targetSlotId]
+  if (targetSlotData && targetSlotData.patientId) {
+    const sourceSlotData = { ...newSchedule[sourceSlotId] }
+    newSchedule[targetSlotId] = {
+      ...sourceSlotData,
+      shiftId: targetSlotId,
+      sourceSlotId: undefined,
+    }
+    newSchedule[sourceSlotId] = {
+      ...targetSlotData,
+      shiftId: sourceSlotId,
+      sourceSlotId: undefined,
+    }
+  } else {
+    newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId, sourceSlotId: undefined }
+    delete newSchedule[sourceSlotId]
+  }
+  masterRecord.value.schedule = newSchedule
+  setChange()
+  draggedItem.value = null
+}
+
+function onDragStart(event, slotId) {
+  if (isPageLocked.value) {
+    event.preventDefault()
+    return
+  }
+  const slotData = masterRecord.value.schedule[slotId]
+  if (!slotData || !slotData.patientId) {
+    event.preventDefault()
+    return
+  }
+  draggedItem.value = { ...slotData, sourceSlotId: slotId }
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+async function loadAllData() {
+  hasUnsavedChanges.value = false
+  statusText.value = '讀取中...'
+  try {
+    const [patients, baseScheduleDoc] = await Promise.all([
+      patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
+      baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
+    ])
+    allOpdPatients.value = patients
+    const tempPatientMap = new Map(patients.map((p) => [p.id, p]))
+    if (baseScheduleDoc) {
+      const loadedSchedule = baseScheduleDoc.schedule || {}
+      const finalSchedule = {}
+      for (const slotId in loadedSchedule) {
+        const dbSlotData = loadedSchedule[slotId]
+        if (dbSlotData && dbSlotData.patientId && tempPatientMap.has(dbSlotData.patientId)) {
+          const patient = tempPatientMap.get(dbSlotData.patientId)
+          const standardSlot = createEmptySlotData(slotId)
+          if (patient) {
+            standardSlot.autoNote = generateAutoNote(patient)
+          }
+          standardSlot.manualNote = dbSlotData.manualNote || dbSlotData.note || ''
+          standardSlot.patientId = dbSlotData.patientId
+          finalSchedule[slotId] = standardSlot
+        }
+      }
+      masterRecord.value = { id: baseScheduleDoc.id, schedule: finalSchedule }
+    } else {
+      masterRecord.value.schedule = {}
+    }
+    statusText.value = '常規床位已載入'
+  } catch (error) {
+    console.error('載入資料失敗:', error)
+    statusText.value = '讀取失敗'
   }
 }
 
@@ -238,85 +357,6 @@ function runBedCheck() {
   return validationResult
 }
 
-function handleReviewAndAssign() {
-  const results = runBedCheck()
-  let issueMessage = ''
-  let hasCriticalIssues = false
-
-  if (results.freqMismatch.length > 0) {
-    issueMessage += '【排班頻率不符】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
-    hasCriticalIssues = true
-  }
-  if (results.duplicates.length > 0) {
-    issueMessage += '【同日重複排班】:\n- ' + results.duplicates.join('\n- ') + '\n\n'
-    hasCriticalIssues = true
-  }
-
-  if (hasCriticalIssues) {
-    alertDialogTitle.value = '發現嚴重排班問題'
-    alertDialogMessage.value =
-      issueMessage + '請手動修正上述問題後，再使用智慧排班工具處理【未排床】的病人。'
-    isAlertDialogVisible.value = true
-  } else {
-    isAssignmentDialogVisible.value = true
-  }
-}
-
-function handleAssignBed({ patientId, bedNum, shiftCode }) {
-  const patient = allOpdPatients.value.find((p) => p.id === patientId)
-  if (!patient) return
-
-  const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
-  const shiftIndex = SHIFTS.indexOf(shiftCode)
-
-  if (shiftIndex === -1 || dayIndices.length === 0) return
-
-  const newSchedule = { ...masterRecord.value.schedule }
-  dayIndices.forEach((dayIndex) => {
-    const slotId = `${bedNum}-${shiftIndex}-${dayIndex}`
-    newSchedule[slotId] = {
-      ...createEmptySlotData(slotId),
-      patientId: patientId,
-      autoNote: generateAutoNote(patient),
-      manualNote: patient.baseNote || '',
-    }
-  })
-
-  masterRecord.value.schedule = newSchedule
-  setChange()
-}
-
-function handleGridClick(slotId) {
-  const patientId = masterRecord.value.schedule[slotId]?.patientId
-  if (patientId) {
-    clearingSlotId.value = slotId
-    isClearDialogVisible.value = true
-  } else {
-    isAssignmentDialogVisible.value = true
-  }
-}
-
-function handleClearSelect(selectedValue) {
-  if (!clearingSlotId.value) return
-  const newSchedule = { ...masterRecord.value.schedule }
-  if (selectedValue === 'single') {
-    delete newSchedule[clearingSlotId.value]
-  } else if (selectedValue === 'all_for_patient') {
-    const patientIdToClear = newSchedule[clearingSlotId.value]?.patientId
-    if (patientIdToClear) {
-      Object.keys(newSchedule).forEach((slotId) => {
-        if (newSchedule[slotId]?.patientId === patientIdToClear) {
-          delete newSchedule[slotId]
-        }
-      })
-    }
-  }
-  masterRecord.value.schedule = newSchedule
-  setChange()
-  isClearDialogVisible.value = false
-  clearingSlotId.value = null
-}
-
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -328,20 +368,16 @@ function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
 function getBaseCellStyle(slotId) {
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
-
   const patient = patientMap.value.get(slotData.patientId)
   const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
-
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-
   if (patient) {
     if (patient.status === 'ipd') {
       return { 'status-ipd': true }
@@ -350,84 +386,40 @@ function getBaseCellStyle(slotId) {
       return { 'status-opd': true }
     }
   }
-
   return {}
 }
-
-function onDragStart(event, slotId) {
-  const slotData = masterRecord.value.schedule[slotId]
-  if (!slotData || !slotData.patientId) {
-    event.preventDefault()
-    return
-  }
-  draggedItem.value = { ...slotData, sourceSlotId: slotId }
-  event.dataTransfer.effectAllowed = 'move'
-}
-
-function onDrop(event, targetSlotId) {
-  event.preventDefault()
-  document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
-
-  const itemToDrop = draggedItem.value
-  if (!itemToDrop || !itemToDrop.patientId) return
-
-  const newSchedule = { ...masterRecord.value.schedule }
-  const sourceSlotId = itemToDrop.sourceSlotId
-  const targetSlotData = newSchedule[targetSlotId]
-
-  // 情況一：目標格子已被佔用，執行「交換」操作
-  if (targetSlotData && targetSlotData.patientId) {
-    const sourceSlotData = { ...newSchedule[sourceSlotId] }
-
-    // 執行交換：更新兩個格子的資料
-    newSchedule[targetSlotId] = {
-      ...sourceSlotData,
-      shiftId: targetSlotId,
-      sourceSlotId: undefined,
-    }
-    newSchedule[sourceSlotId] = {
-      ...targetSlotData,
-      shiftId: sourceSlotId,
-      sourceSlotId: undefined,
-    }
-  } else {
-    // 情況二：目標格子是空的，執行「移動」操作
-    // 將拖曳的項目放入新格子
-    newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId, sourceSlotId: undefined }
-    // 刪除來源格子的資料
-    delete newSchedule[sourceSlotId]
-  }
-
-  // 一次性更新整個 schedule 物件以觸發響應式更新
-  masterRecord.value.schedule = newSchedule
-  setChange()
-  draggedItem.value = null
-}
-
 function onDragOver(event) {
+  if (isPageLocked.value) return
   event.preventDefault()
   const targetSlot = event.target.closest('.schedule-slot')
-  if (targetSlot && !targetSlot.querySelector('.patient-details')) {
+  if (targetSlot) {
     targetSlot.classList.add('drag-over')
   }
 }
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
+
 onMounted(loadAllData)
 </script>
 
 <template>
-  <div class="page-container">
+  <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <button class="btn btn-warning" @click="handleReviewAndAssign">排班總檢視與分配</button>
+          <button class="btn btn-warning" @click="handleReviewAndAssign" :disabled="isPageLocked">
+            排班總檢視與分配
+          </button>
         </div>
         <div class="toolbar-right">
           <span class="status-text">{{ statusText }}</span>
-          <button class="btn-save" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
+          <button
+            class="btn-save"
+            :disabled="!hasUnsavedChanges || isPageLocked"
+            @click="saveChangesToCloud"
+          >
             儲存床位
           </button>
         </div>
@@ -450,7 +442,7 @@ onMounted(loadAllData)
         @drop="onDrop"
         @drag-start="onDragStart"
         @drag-over="onDragOver"
-        @drag-leave="onDragLeave"
+        @dragleave="onDragLeave"
       />
     </main>
 
@@ -464,7 +456,6 @@ onMounted(loadAllData)
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
-
     <SelectionDialog
       :is-visible="isClearDialogVisible"
       title="清除排班選項"
@@ -489,7 +480,9 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
-/* 頁面佈局 */
+/* ==========================================================================
+   1. 頁面佈局 - 您的原始樣式，完整保留
+   ========================================================================== */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -504,7 +497,9 @@ onMounted(loadAllData)
   box-sizing: border-box;
 }
 
-/* Header 工具欄 */
+/* ==========================================================================
+   2. Header 工具欄 - 您的原始樣式，完整保留
+   ========================================================================== */
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -523,10 +518,10 @@ onMounted(loadAllData)
   margin: 0;
   color: #343a40;
 }
-
-/* 按鈕樣式 */
 .toolbar-left .btn,
-.toolbar-right .btn-save {
+.toolbar-right .btn-save,
+.toolbar-left button,
+.toolbar-right button {
   padding: 8px 16px;
   font-size: 1rem;
   line-height: 1.5;
@@ -550,14 +545,12 @@ onMounted(loadAllData)
   background-color: #e0a800;
   border-color: #d39e00;
 }
-
-/* 儲存按鈕的特殊樣式 */
 .btn-save {
   background-color: #007bff;
   border-color: #007bff;
   color: white;
 }
-.btn-save:hover {
+.btn-save:hover:not(:disabled) {
   background-color: #0069d9;
   border-color: #0062cc;
 }
@@ -567,14 +560,15 @@ onMounted(loadAllData)
   cursor: not-allowed;
   opacity: 0.65;
 }
-
 .status-text {
   color: #6c757d;
   font-style: italic;
   font-size: 0.9rem;
 }
 
-/* 主內容區 */
+/* ==========================================================================
+   3. 主內容區 - 您的原始樣式，完整保留
+   ========================================================================== */
 .page-main-content {
   flex-grow: 1;
   display: flex;
@@ -586,7 +580,9 @@ onMounted(loadAllData)
   min-height: 0;
 }
 
-/* 顏色樣式 */
+/* ==========================================================================
+   4. 顏色樣式 - 您的原始樣式，完整保留
+   ========================================================================== */
 :deep(.schedule-slot.status-opd) {
   background-color: var(--green-bg, #e8f5e9);
 }
@@ -610,5 +606,32 @@ onMounted(loadAllData)
 }
 :deep(.schedule-slot.tag-b) {
   background-color: #fff9c4;
+}
+
+/* ==========================================================================
+   5. 【修正後】的靜默鎖定樣式 (Silent Lock)
+   ========================================================================== */
+
+/* 鎖定時，僅讓按鈕看起來被禁用，不改變滑鼠指標 */
+.is-locked .page-header button:not(:disabled) {
+  opacity: 0.65;
+  pointer-events: none;
+  cursor: default; /* 將滑鼠指標恢復為預設，而不是 not-allowed */
+}
+
+/* 僅將背景變為淺灰色，以提供細微的視覺區分 */
+.is-locked .page-main-content {
+  background-color: #fafafa; /* 使用一個更淺的灰色 */
+}
+
+/* 透過 :deep() 穿透到子元件，僅禁用格子的滑鼠事件，不改變外觀 */
+.is-locked :deep(.schedule-slot) {
+  pointer-events: none;
+  /* 移除 opacity，保持文字清晰 */
+}
+
+/* 鎖定時，表格內的拖曳指標恢復為預設 */
+.is-locked :deep(.schedule-slot[draggable='true']) {
+  cursor: default;
 }
 </style>
