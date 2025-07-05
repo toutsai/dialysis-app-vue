@@ -463,34 +463,66 @@ function handleScheduleUpdate(event) {
     loadAllData()
   }
 }
+
 function onDrop(event, targetSlotId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
 
   const itemToDrop = draggedItem.value
-  if (!itemToDrop) return
+  if (!itemToDrop) return // 沒有正在拖曳的項目
 
   const targetDayIndex = parseInt(targetSlotId.split('-')[2], 10)
+  // 安全檢查：再次確認目標不是在過去
   if (isDateInPast(targetDayIndex)) {
     console.warn('無法拖曳到已過去的日期。')
+    draggedItem.value = null // 重置狀態
     return
   }
 
   const targetSlotData = weekScheduleMap.value[targetSlotId]
+  const isSourceFromTable = itemToDrop.source !== 'sidebar'
+
+  // --- 核心邏輯修改 ---
+
+  // 情況一：目標格子已被佔用，執行「交換」操作
   if (targetSlotData && targetSlotData.patientId) {
-    console.warn('目標位置非空，操作取消。')
-    draggedItem.value = null
-    return
+    // 限制：不能從側邊欄拖曳來交換，只能是表格內部交換
+    if (!isSourceFromTable) {
+      alert('目標床位已被佔用，無法從側邊欄拖曳至此。')
+      draggedItem.value = null
+      return
+    }
+
+    // 限制：被交換的兩個格子都必須是可編輯的
+    const sourceSlotId = itemToDrop.source
+    const sourceSlotData = weekScheduleMap.value[sourceSlotId]
+    const sourceDayIndex = parseInt(sourceSlotId.split('-')[2], 10)
+    if (isDateInPast(sourceDayIndex)) {
+      console.warn('無法從過去的日期拖曳項目進行交換。')
+      draggedItem.value = null
+      return
+    }
+
+    // 執行交換
+    // 1. 將來源病人(itemToDrop)放到目標格子
+    handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
+    // 2. 將目標病人(targetSlotData)放到來源格子
+    handleSlotUpdate(sourceSlotId, targetSlotData.patientId, targetSlotData.manualNote)
+  } else {
+    // 情況二：目標格子是空的，執行「移動」操作
+    // 1. 將拖曳的項目放到新的空格子
+    handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
+
+    // 2. 如果來源是表格內部，則清空來源格子
+    if (isSourceFromTable) {
+      handleSlotUpdate(itemToDrop.source, null)
+    }
   }
 
-  handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
-
-  if (itemToDrop.source !== 'sidebar') {
-    handleSlotUpdate(itemToDrop.source, null)
-  }
-
+  // --- 清理 ---
   draggedItem.value = null
 }
+
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !confirm('您有未儲存的變更，確定要切換日期嗎？')) return
   const newDate = new Date(currentWeekStartDate.value)
@@ -905,10 +937,5 @@ onUnmounted(() => {
 }
 :deep(.schedule-slot.tag-b) {
   background-color: #fff9c4;
-}
-
-.schedule-slot.drag-over {
-  background-color: #e9ecef;
-  border: 2px dashed #007bff;
 }
 </style>

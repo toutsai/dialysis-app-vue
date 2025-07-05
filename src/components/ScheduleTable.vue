@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/ScheduleTable.vue (最終修正版 - 包含疾病標籤樣式) -->
+<!-- 檔案路徑: src/components/ScheduleTable.vue (修改後完整版) -->
 <script setup>
 import { computed } from 'vue'
 import { getShiftDisplayName } from '@/constants/scheduleConstants'
@@ -65,6 +65,11 @@ const getPatientDetails = (slotId) => {
                   getStyleFunc(`${bedNum}-0-${dayIndex}`),
                   { 'is-past': props.isDateInPast(dayIndex) },
                 ]"
+                :draggable="
+                  getPatientDetails(`${bedNum}-0-${dayIndex}`) && !props.isDateInPast(dayIndex)
+                    ? 'true'
+                    : 'false'
+                "
                 @click="
                   !props.isDateInPast(dayIndex) && emit('grid-click', `${bedNum}-0-${dayIndex}`)
                 "
@@ -122,6 +127,12 @@ const getPatientDetails = (slotId) => {
                   getStyleFunc(`${bedNum}-${shiftIndex}-${dayIndex}`),
                   { 'is-past': props.isDateInPast(dayIndex) },
                 ]"
+                :draggable="
+                  getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`) &&
+                  !props.isDateInPast(dayIndex)
+                    ? 'true'
+                    : 'false'
+                "
                 @click="
                   !props.isDateInPast(dayIndex) &&
                   emit('grid-click', `${bedNum}-${shiftIndex}-${dayIndex}`)
@@ -238,7 +249,7 @@ const getPatientDetails = (slotId) => {
   justify-content: center;
   align-items: center;
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: all 0.2s; /* 統一 transition */
   overflow: hidden;
 }
 .patient-details {
@@ -251,19 +262,15 @@ const getPatientDetails = (slotId) => {
   gap: 2px;
 }
 
-/* ======================= 【核心修改區域】 ======================= */
-
 /* -- 今天及未來日期的樣式 -- */
 .patient-name {
-  /* 將此容器改為 flex 佈局 */
   display: flex;
-  justify-content: center; /* 水平置中 */
-  align-items: center; /* 垂直置中 */
-  gap: 6px; /* 姓名和標籤之間的間距 */
-
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
   font-weight: bold;
   font-size: 0.95em;
-  white-space: nowrap; /* 保持 nowrap 以防止意外換行 */
+  white-space: nowrap;
 }
 
 .patient-mrn {
@@ -272,21 +279,14 @@ const getPatientDetails = (slotId) => {
   white-space: nowrap;
 }
 .disease-tag-in-table {
-  /* 佈局與定位 */
   display: inline-block;
   vertical-align: middle;
-
-  /* 尺寸與邊距 */
   padding: 2px 6px;
-  line-height: 1; /* 確保文字垂直居中 */
-
-  /* 顏色與外觀 */
-  background-color: transparent; /* 關鍵：透明背景 */
-  border: 2px solid #dc3545; /* 關鍵：2px 紅色描邊 */
-  color: #dc3545; /* 關鍵：紅色文字 */
-  border-radius: 6px; /* 圓角 */
-
-  /* 字體 */
+  line-height: 1;
+  background-color: transparent;
+  border: 2px solid #dc3545;
+  color: #dc3545;
+  border-radius: 6px;
   font-size: 0.85em;
   font-weight: bold;
 }
@@ -299,7 +299,7 @@ const getPatientDetails = (slotId) => {
   color: #007bff;
 }
 
-/* --- 歷史資料視覺呈現的核心 CSS (保持不變) --- */
+/* --- 歷史資料視覺呈現的核心 CSS --- */
 .schedule-slot.is-past {
   cursor: not-allowed;
   opacity: 0.85;
@@ -312,5 +312,23 @@ const getPatientDetails = (slotId) => {
   font-weight: normal;
   color: #333;
   font-size: 0.9em;
+}
+
+/* --- 【新增】拖曳相關樣式 --- */
+.schedule-slot.drag-over {
+  background-color: #c8e6c9 !important;
+  border: 2px dashed #4caf50;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.schedule-slot[draggable='true'] {
+  cursor: grab;
+}
+
+.schedule-slot[draggable='true']:active {
+  cursor: grabbing;
+  transform: scale(0.98);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  z-index: 20; /* 確保拖曳時元素在最上層 */
 }
 </style>

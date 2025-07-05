@@ -363,24 +363,47 @@ function onDragStart(event, slotId) {
   draggedItem.value = { ...slotData, sourceSlotId: slotId }
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function onDrop(event, targetSlotId) {
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
+
   const itemToDrop = draggedItem.value
   if (!itemToDrop || !itemToDrop.patientId) return
-  if (masterRecord.value.schedule[targetSlotId]) {
-    console.warn('目標位置非空，操作取消。')
-    draggedItem.value = null
-    return
-  }
-  const newSchedule = { ...masterRecord.value.schedule }
-  newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId, sourceSlotId: undefined }
-  delete newSchedule[itemToDrop.sourceSlotId]
 
+  const newSchedule = { ...masterRecord.value.schedule }
+  const sourceSlotId = itemToDrop.sourceSlotId
+  const targetSlotData = newSchedule[targetSlotId]
+
+  // 情況一：目標格子已被佔用，執行「交換」操作
+  if (targetSlotData && targetSlotData.patientId) {
+    const sourceSlotData = { ...newSchedule[sourceSlotId] }
+
+    // 執行交換：更新兩個格子的資料
+    newSchedule[targetSlotId] = {
+      ...sourceSlotData,
+      shiftId: targetSlotId,
+      sourceSlotId: undefined,
+    }
+    newSchedule[sourceSlotId] = {
+      ...targetSlotData,
+      shiftId: sourceSlotId,
+      sourceSlotId: undefined,
+    }
+  } else {
+    // 情況二：目標格子是空的，執行「移動」操作
+    // 將拖曳的項目放入新格子
+    newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId, sourceSlotId: undefined }
+    // 刪除來源格子的資料
+    delete newSchedule[sourceSlotId]
+  }
+
+  // 一次性更新整個 schedule 物件以觸發響應式更新
   masterRecord.value.schedule = newSchedule
   setChange()
   draggedItem.value = null
 }
+
 function onDragOver(event) {
   event.preventDefault()
   const targetSlot = event.target.closest('.schedule-slot')
