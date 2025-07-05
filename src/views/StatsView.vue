@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (階段三完成 - 完整無省略版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (最終版 - 實現方案 A) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -6,7 +6,7 @@ import { where } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
-import { useAuth } from '@/composables/useAuth.js' // 1. 引入 useAuth
+import { useAuth } from '@/composables/useAuth.js'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
@@ -57,13 +57,12 @@ const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
 
-// 2. 使用 useAuth 和建立 isPageLocked
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
-  if (isReadOnly.value) return true // 權限鎖定
+  if (isReadOnly.value) return true
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  return currentDate.value < today // 日期鎖定
+  return currentDate.value < today
 })
 
 // --- Helper Functions & 計算屬性 ---
@@ -75,14 +74,18 @@ const formatDate = (date) => {
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
+// 【關鍵修改 1】: getPatientDisplayString 函式，產生帶有 HTML 標籤的字串
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
+
   const name = patientDetail.name
   const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
   const finalTags = combinedTags.filter((tag) => tag !== '住')
   const noteString = finalTags.join(' ')
+
   let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
     identifier = patientDetail.wardNumber || '外圍'
@@ -92,15 +95,32 @@ const getPatientDisplayString = (patientDetail) => {
       identifier = parts[1]
     }
   }
-  const parts = [identifier, name, noteString].filter(Boolean)
-  return parts.join(' - ')
+
+  // 建立一個陣列來組合最終的顯示字串
+  const displayParts = [identifier, name]
+
+  // 檢查特殊透析模式，並將其打包成 HTML 標籤
+  if (patientDetail.mode && patientDetail.mode !== 'HD') {
+    const modeTag = `<span class="stats-special-mode">${patientDetail.mode}</span>`
+    displayParts.push(modeTag)
+  }
+
+  // 如果有其他備註，也將其加入陣列
+  if (noteString) {
+    displayParts.push(noteString)
+  }
+
+  // 因為 displayParts 中可能包含 HTML，所以回傳的字串需要用 v-html 渲染
+  return displayParts.join(' - ')
 }
+
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   const dayIndex = new Date(currentDate.value).getDay()
   return weekdays[dayIndex]
 })
+
 const statsData = computed(() => {
   if (!currentRecord.schedule) {
     return { early: {}, late: {} }
@@ -148,16 +168,20 @@ const statsData = computed(() => {
     if (!patientId) return
     const patient = patientMap.get(patientId)
     if (!patient) return
+
+    // 【關鍵修改 2】: 確保將 patient.mode 傳遞到 detail 物件中
     const detail = {
       id: patientId,
       shiftId: shiftId,
       name: patient.name,
       status: patient.status,
+      mode: patient.mode, // <-- 確保此行存在
       autoNote: autoNote || '',
       manualNote: manualNote || '',
       wardNumber: wardNumber || '',
       classes: 'patient-item',
     }
+
     if (patient.status === 'ipd') detail.classes += ' status-ipd'
     else detail.classes += ' status-opd'
     const combinedNote = [
@@ -173,6 +197,7 @@ const statsData = computed(() => {
     if (combinedNote.includes('換')) detail.classes += ' tag-huan'
     if (combinedNote.includes('B')) detail.classes += ' tag-b'
     if (memoMap.has(patient.name)) detail.classes += ' has-memo'
+
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
       if (patientDetail.status === 'ipd') {
@@ -271,7 +296,6 @@ async function loadData(date) {
   }
 }
 
-// 3. 為所有修改函式添加 isPageLocked 保護
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -514,6 +538,7 @@ watch(currentDate, (newDate) => {
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
+                <!-- 【關鍵修改 3】: 使用 v-html 來渲染帶有標籤的字串 -->
                 <span
                   v-for="patient in teamData.earlyShift.patients"
                   :key="patient.shiftId"
@@ -522,8 +547,8 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'earlyShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  >{{ getPatientDisplayString(patient) }}</span
-                >
+                  v-html="getPatientDisplayString(patient)"
+                ></span>
               </div>
             </div>
           </div>
@@ -546,8 +571,8 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'noonShiftOn')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  >{{ getPatientDisplayString(patient) }}</span
-                >
+                  v-html="getPatientDisplayString(patient)"
+                ></span>
               </div>
             </div>
           </div>
@@ -570,8 +595,8 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  >{{ getPatientDisplayString(patient) }}</span
-                >
+                  v-html="getPatientDisplayString(patient)"
+                ></span>
               </div>
             </div>
           </div>
@@ -637,8 +662,8 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  >{{ getPatientDisplayString(patient) }}</span
-                >
+                  v-html="getPatientDisplayString(patient)"
+                ></span>
               </div>
             </div>
           </div>
@@ -661,8 +686,8 @@ watch(currentDate, (newDate) => {
                   @dragstart="onDragStart($event, patient, 'lateShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
-                  >{{ getPatientDisplayString(patient) }}</span
-                >
+                  v-html="getPatientDisplayString(patient)"
+                ></span>
               </div>
             </div>
           </div>
@@ -690,7 +715,6 @@ watch(currentDate, (newDate) => {
   </div>
 </template>
 
-/* 檔案路徑: src/views/StatsView.vue */
 <style scoped>
 /* ==========================================================================
    您的原始樣式 - 完整保留
@@ -701,7 +725,6 @@ watch(currentDate, (newDate) => {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  /* 【注意】您原始碼中缺少 margin-bottom，這裡為您補上以保持佈局 */
   margin-bottom: 20px;
 }
 .toolbar-left,
@@ -916,8 +939,21 @@ watch(currentDate, (newDate) => {
 }
 
 /* ==========================================================================
-   【追加】的鎖定相關樣式 - 不影響文字清晰度
+   【關鍵修改 4】: 新增特殊模式標籤和鎖定相關樣式
    ========================================================================== */
+:deep(.stats-special-mode) {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 1px 5px;
+  background-color: var(--red-bg, #ffebee);
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 0.8em;
+  line-height: 1.2;
+}
+
 .is-locked button:not([@click='triggerPrint']) {
   opacity: 0.65;
   pointer-events: none;
@@ -926,14 +962,13 @@ watch(currentDate, (newDate) => {
   cursor: not-allowed;
 }
 .is-locked .patient-list-cell {
-  background-color: #f5f5f5; /* 將背景變灰，提示不可操作 */
+  background-color: #f5f5f5;
 }
 .is-locked .patient-item,
 .is-locked .name-select {
-  pointer-events: none; /* 禁用滑鼠事件 */
-  /* 不設定 opacity，保持文字清晰 */
+  pointer-events: none;
 }
 .is-locked .name-select {
-  background-color: #eeeeee; /* 給禁用的下拉選單一個不同的背景色 */
+  background-color: #eeeeee;
 }
 </style>

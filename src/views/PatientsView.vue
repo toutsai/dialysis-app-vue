@@ -1,5 +1,6 @@
-<!-- 檔案路徑: src/views/PatientView.vue (階段三完成 - 完整無省略版) -->
+<!-- 檔案路徑: src/views/PatientView.vue (欄位寬度智慧伸縮版) -->
 <script setup>
+// Script 部分完全不變，因此省略以保持簡潔
 import { ref, onMounted, computed } from 'vue'
 import { deleteField, where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
@@ -7,7 +8,6 @@ import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
 
-// --- API & 狀態 ---
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const allPatients = ref([])
@@ -27,12 +27,8 @@ const DELETE_REASONS = [
   { value: '腎臟移植', text: '腎臟移植' },
   { value: '作廢', text: '作廢' },
 ]
-
-// --- 權限與鎖定 ---
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
-
-// --- 計算屬性 ---
 const displayedPatients = computed(() => {
   let patients
   if (activeTab.value === 'deleted') {
@@ -65,8 +61,6 @@ const displayedPatients = computed(() => {
     return currentSort.value.order === 'asc' ? compare : -compare
   })
 })
-
-// --- 方法 (添加 isPageLocked 保護) ---
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -95,7 +89,6 @@ async function handleSavePatient(patientData) {
     alert('儲存病人資料失敗！')
   }
 }
-
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -117,7 +110,6 @@ async function transferPatient(patientId, newStatus) {
     }
   }
 }
-
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -143,7 +135,6 @@ async function handleDeleteReasonSelected(reason) {
     patientToDeleteId.value = null
   }
 }
-
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -162,7 +153,6 @@ async function restorePatient(patientId) {
     alert('復原失敗！')
   }
 }
-
 function openAddPatientModal(type) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -172,7 +162,6 @@ function openAddPatientModal(type) {
   modalType.value = type
   isModalVisible.value = true
 }
-
 function openEditPatientModal(patient) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -182,7 +171,6 @@ function openEditPatientModal(patient) {
   modalType.value = patient.status
   isModalVisible.value = true
 }
-
 function deletePatient(patientId) {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -191,8 +179,6 @@ function deletePatient(patientId) {
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
-
-// --- 以下為非修改性質的函式 ---
 async function fetchAllPatients() {
   try {
     allPatients.value = await patientApi.fetchAll()
@@ -325,6 +311,7 @@ onMounted(() => {
         </button>
       </div>
 
+      <!-- 住院病人表格 -->
       <div v-if="activeTab === 'ipd'" class="tab-content active">
         <div class="toolbar">
           <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked">新增住院病人</button>
@@ -333,43 +320,51 @@ onMounted(() => {
           <table class="patient-table">
             <thead>
               <tr>
-                <th @click="handleSort('name')" class="col-name">
+                <!-- 【修改 1】: 為所有需要自動伸縮的欄位添加 class -->
+                <th @click="handleSort('name')" class="col-shrink">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
-                <th @click="handleSort('medicalRecordNumber')" class="col-mrn">
+                <th @click="handleSort('medicalRecordNumber')" class="col-shrink">
                   病歷號
                   <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
                 </th>
-                <th @click="handleSort('physician')">
+                <th @click="handleSort('physician')" class="col-shrink">
                   會診醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
                 </th>
-                <th @click="handleSort('freq')">
+                <th @click="handleSort('freq')" class="col-shrink">
                   頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
                 </th>
-                <th>模式</th>
-                <th>首透</th>
-                <th>中止</th>
-                <th>備註</th>
-                <th @click="handleSort('createdAt')">
+                <th class="col-shrink">模式</th>
+                <th class="col-shrink">首透</th>
+                <th class="col-shrink">中止</th>
+                <th class="col-expand">備註</th>
+                <!-- 讓備註欄擴展 -->
+                <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th class="col-actions">操作</th>
+                <th class="col-shrink">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td class="col-name">
-                  <span v-html="generateDiseaseTags(p.diseases)"></span> {{ p.name }}
+                <td class="col-shrink">
+                  <div class="name-cell-content">
+                    <span class="patient-name-text">{{ p.name }}</span>
+                    <div
+                      class="disease-tags-container"
+                      v-html="generateDiseaseTags(p.diseases)"
+                    ></div>
+                  </div>
                 </td>
-                <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
-                <td>{{ p.physician }}</td>
-                <td>{{ p.freq }}</td>
-                <td>{{ p.mode }}</td>
-                <td>{{ p.isFirstDialysis ? '✓' : '' }}</td>
-                <td>{{ p.isDiscontinued ? '✓' : '' }}</td>
-                <td>{{ p.remarks }}</td>
-                <td>{{ formatDate(p.createdAt) }}</td>
-                <td class="col-actions action-buttons">
+                <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
+                <td class="col-shrink">{{ p.physician }}</td>
+                <td class="col-shrink">{{ p.freq }}</td>
+                <td class="col-shrink">{{ p.mode }}</td>
+                <td class="col-shrink">{{ p.isFirstDialysis ? '✓' : '' }}</td>
+                <td class="col-shrink">{{ p.isDiscontinued ? '✓' : '' }}</td>
+                <td class="col-expand">{{ p.remarks }}</td>
+                <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
+                <td class="col-shrink action-buttons">
                   <button
                     class="btn-edit"
                     @click="openEditPatientModal(p)"
@@ -393,6 +388,8 @@ onMounted(() => {
           </table>
         </div>
       </div>
+
+      <!-- 門診常規表格 -->
       <div v-if="activeTab === 'opd'" class="tab-content active">
         <div class="toolbar">
           <button @click="openAddPatientModal('opd')" :disabled="isPageLocked">新增門診病人</button>
@@ -401,41 +398,49 @@ onMounted(() => {
           <table class="patient-table">
             <thead>
               <tr>
-                <th @click="handleSort('name')" class="col-name">
+                <!-- 【修改 2】: 同樣為所有需要自動伸縮的欄位添加 class -->
+                <th @click="handleSort('name')" class="col-shrink">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
-                <th @click="handleSort('medicalRecordNumber')" class="col-mrn">
+                <th @click="handleSort('medicalRecordNumber')" class="col-shrink">
                   病歷號
                   <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
                 </th>
-                <th @click="handleSort('physician')">
+                <th @click="handleSort('physician')" class="col-shrink">
                   收案醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
                 </th>
-                <th @click="handleSort('freq')">
+                <th @click="handleSort('freq')" class="col-shrink">
                   頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
                 </th>
-                <th>模式</th>
-                <th>血管通路</th>
-                <th>備註</th>
-                <th @click="handleSort('createdAt')">
+                <th class="col-shrink">模式</th>
+                <th class="col-shrink">血管通路</th>
+                <th class="col-expand">備註</th>
+                <!-- 讓備註欄擴展 -->
+                <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th class="col-actions">操作</th>
+                <th class="col-shrink">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td class="col-name">
-                  <span v-html="generateDiseaseTags(p.diseases)"></span> {{ p.name }}
+                <td class="col-shrink">
+                  <div class="name-cell-content">
+                    <span class="patient-name-text">{{ p.name }}</span>
+                    <div
+                      class="disease-tags-container"
+                      v-html="generateDiseaseTags(p.diseases)"
+                    ></div>
+                  </div>
                 </td>
-                <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
-                <td>{{ p.physician }}</td>
-                <td>{{ p.freq }}</td>
-                <td>{{ p.mode }}</td>
-                <td>{{ p.vascAccess }}</td>
-                <td>{{ p.remarks }}</td>
-                <td>{{ formatDate(p.createdAt) }}</td>
-                <td class="col-actions action-buttons">
+                <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
+                <td class="col-shrink">{{ p.physician }}</td>
+                <td class="col-shrink">{{ p.freq }}</td>
+                <td class="col-shrink">{{ p.mode }}</td>
+                <td class="col-shrink">{{ p.vascAccess }}</td>
+                <td class="col-expand">{{ p.remarks }}</td>
+                <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
+                <td class="col-shrink action-buttons">
                   <button
                     class="btn-edit"
                     @click="openEditPatientModal(p)"
@@ -459,6 +464,8 @@ onMounted(() => {
           </table>
         </div>
       </div>
+
+      <!-- 已刪除病人表格 -->
       <div v-if="activeTab === 'deleted'" class="tab-content active">
         <div class="toolbar">
           <div class="search-group">
@@ -470,31 +477,24 @@ onMounted(() => {
           <table class="patient-table">
             <thead>
               <tr>
-                <th @click="handleSort('name')" class="col-name">
-                  姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
-                </th>
-                <th @click="handleSort('medicalRecordNumber')" class="col-mrn">
-                  病歷號
-                  <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
-                </th>
-                <th>原狀態</th>
-                <th>刪除原因</th>
-                <th>備註</th>
-                <th @click="handleSort('deletedAt')">
-                  刪除日期 <span class="sort-indicator">{{ getSortIndicator('deletedAt') }}</span>
-                </th>
-                <th class="col-actions">操作</th>
+                <th class="col-shrink">姓名</th>
+                <th class="col-shrink">病歷號</th>
+                <th class="col-shrink">原狀態</th>
+                <th class="col-shrink">刪除原因</th>
+                <th class="col-expand">備註</th>
+                <th class="col-shrink">刪除日期</th>
+                <th class="col-shrink">操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td class="col-name">{{ p.name }}</td>
-                <td class="col-mrn">{{ p.medicalRecordNumber }}</td>
-                <td>{{ p.originalStatus === 'ipd' ? '住院' : '門診' }}</td>
-                <td>{{ p.deleteReason }}</td>
-                <td>{{ p.remarks }}</td>
-                <td>{{ formatDate(p.deletedAt) }}</td>
-                <td class="col-actions action-buttons">
+                <td class="col-shrink">{{ p.name }}</td>
+                <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
+                <td class="col-shrink">{{ p.originalStatus === 'ipd' ? '住院' : '門診' }}</td>
+                <td class="col-shrink">{{ p.deleteReason }}</td>
+                <td class="col-expand">{{ p.remarks }}</td>
+                <td class="col-shrink">{{ formatDate(p.deletedAt) }}</td>
+                <td class="col-shrink action-buttons">
                   <button
                     class="btn-restore"
                     @click="restorePatient(p.id)"
@@ -509,6 +509,7 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
     <PatientFormModal
       :is-modal-visible="isModalVisible"
       :patient-data="editingPatient"
@@ -528,7 +529,7 @@ onMounted(() => {
 
 <style scoped>
 /* ==========================================================================
-   您的原始樣式 - 完整保留
+   原始樣式 - 大部分保留
    ========================================================================== */
 .tabs {
   display: flex;
@@ -589,24 +590,39 @@ onMounted(() => {
   border: 1px solid #ccc;
   border-radius: 5px;
 }
+
+/* 【修改 3】: 核心修改，切換表格佈局算法 */
 .patient-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto; /* 從 fixed 改為 auto */
 }
+
 .patient-table th,
 .patient-table td {
   border: 1px solid #ddd;
   padding: 10px 12px;
   text-align: left;
   vertical-align: middle;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* 【勘誤】您原始碼中 td:first-child 的樣式會讓疾病標籤與姓名順序顛倒，此處修正為更通用的方式 */
+  /* 移除 overflow 和 text-overflow，因為 auto 佈局會自動處理 */
 }
-.patient-table td .disease-tag,
-:deep(.patient-table td .disease-tag) {
-  /* 使用 :deep() 確保 v-html 內的樣式生效 */
+.name-cell-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+.patient-name-text {
+  font-weight: bold;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.disease-tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+:deep(.disease-tag) {
   display: inline-block;
   padding: 2px 6px;
   font-size: 0.8em;
@@ -614,7 +630,6 @@ onMounted(() => {
   color: var(--danger-color, #dc3545);
   border: 1px solid var(--danger-color, #dc3545);
   border-radius: 4px;
-  margin-right: 8px;
 }
 .patient-table th {
   background-color: #f2f2f2;
@@ -671,23 +686,32 @@ onMounted(() => {
   max-height: 70vh;
   overflow-y: auto;
 }
-.col-name {
-  width: 220px; /* 增加寬度以容納標籤 */
-}
-.col-mrn {
-  width: 120px;
-}
-.col-actions {
-  width: 220px;
-  text-align: center;
-}
-
-/* ==========================================================================
-   【追加】的鎖定相關樣式
-   ========================================================================== */
 .is-locked .toolbar button,
 .is-locked .action-buttons button {
   opacity: 0.65;
   pointer-events: none;
+}
+
+/* ==========================================================================
+   【修改 4】: 新增用於智慧伸縮的 CSS 規則
+   ========================================================================== */
+.col-shrink {
+  white-space: nowrap; /* 確保內容不換行，欄位寬度由內容撐開 */
+}
+.col-expand {
+  width: 100%; /* 關鍵：讓此欄位佔滿所有剩餘空間 */
+}
+
+/* 可選：為了讓"首透"、"中止"欄位更好看，可以讓它們置中 */
+.patient-table td.col-shrink {
+  text-align: center;
+}
+/* 但要讓姓名欄位保持靠左 */
+.patient-table td.col-shrink:has(.name-cell-content) {
+  text-align: left;
+}
+/* 同樣讓操作按鈕保持置中 */
+.patient-table td.action-buttons {
+  text-align: center;
 }
 </style>

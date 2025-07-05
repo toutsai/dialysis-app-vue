@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/ScheduleTable.vue (修改後完整版) -->
+<!-- 檔案路徑: src/components/ScheduleTable.vue (修正後完整版) -->
 <script setup>
 import { computed } from 'vue'
 import { getShiftDisplayName } from '@/constants/scheduleConstants'
@@ -17,7 +17,8 @@ const props = defineProps({
 
 const emit = defineEmits(['grid-click', 'drop', 'drag-start', 'drag-over', 'drag-leave'])
 
-// getPatientDetails 函式保持不變，它已經正確地提供了 diseases 陣列
+// 【關鍵修改 1】: 修改 getPatientDetails 函式，使其回傳完整的 patient 物件
+// 這樣模板就可以方便地存取 patient.mode 等任何屬性，且不影響現有功能。
 const getPatientDetails = (slotId) => {
   const slotData = props.scheduleData[slotId]
   if (!slotData || !slotData.patientId) return null
@@ -29,6 +30,7 @@ const getPatientDetails = (slotId) => {
     name: patient.name,
     medicalRecordNumber: patient.medicalRecordNumber,
     diseases: patient.diseases || [],
+    patient: patient, // <-- 新增此行，回傳完整的病人物件
   }
 }
 </script>
@@ -96,14 +98,34 @@ const getPatientDetails = (slotId) => {
                         {{ disease }}
                       </span>
                     </div>
+                    <!-- 【關鍵修改 2】: 在病歷號旁邊顯示特殊透析模式 -->
                     <div class="patient-mrn">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).medicalRecordNumber }}
+                      <span
+                        v-if="
+                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
+                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode !== 'HD'
+                        "
+                        class="special-dialysis-label"
+                      >
+                        ({{ getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode }})
+                      </span>
                     </div>
                   </template>
                   <!-- 已過去的顯示方式 -->
                   <template v-else>
                     <div class="patient-name-past">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
+                      <!-- 過去的資料也可能需要顯示模式，可根據需求決定是否保留 -->
+                      <span
+                        v-if="
+                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
+                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode !== 'HD'
+                        "
+                        class="special-dialysis-label"
+                      >
+                        ({{ getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode }})
+                      </span>
                     </div>
                   </template>
                 </div>
@@ -164,15 +186,40 @@ const getPatientDetails = (slotId) => {
                         {{ disease }}
                       </span>
                     </div>
+                    <!-- 【關鍵修改 3】: 同樣的修改也應用於此處 -->
                     <div class="patient-mrn">
                       {{
                         getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).medicalRecordNumber
                       }}
+                      <span
+                        v-if="
+                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode &&
+                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode !==
+                            'HD'
+                        "
+                        class="special-dialysis-label"
+                      >
+                        ({{
+                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode
+                        }})
+                      </span>
                     </div>
                   </template>
                   <template v-else>
                     <div class="patient-name-past">
                       {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
+                      <span
+                        v-if="
+                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode &&
+                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode !==
+                            'HD'
+                        "
+                        class="special-dialysis-label"
+                      >
+                        ({{
+                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode
+                        }})
+                      </span>
                     </div>
                   </template>
                 </div>
@@ -277,6 +324,11 @@ const getPatientDetails = (slotId) => {
   font-size: 0.8em;
   color: #555;
   white-space: nowrap;
+  /* 【新增樣式】讓內部元素垂直居中對齊 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 .disease-tag-in-table {
   display: inline-block;
@@ -299,6 +351,13 @@ const getPatientDetails = (slotId) => {
   color: #007bff;
 }
 
+/* 【關鍵修改 4】: 新增特殊透析模式標籤的樣式 */
+.special-dialysis-label {
+  font-weight: bold;
+  color: #c53929; /* 一個醒目的深紅色 */
+  font-size: 1em; /* 與病歷號字體大小保持一致 */
+}
+
 /* --- 歷史資料視覺呈現的核心 CSS --- */
 .schedule-slot.is-past {
   cursor: not-allowed;
@@ -312,9 +371,14 @@ const getPatientDetails = (slotId) => {
   font-weight: normal;
   color: #333;
   font-size: 0.9em;
+  /* 【新增樣式】讓內部元素垂直居中對齊 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
-/* --- 【新增】拖曳相關樣式 --- */
+/* --- 拖曳相關樣式 --- */
 .schedule-slot.drag-over {
   background-color: #c8e6c9 !important;
   border: 2px dashed #4caf50;

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (樣式修正最終版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (樣式修正最終版 - 已加入特殊模式顯示) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -151,7 +151,6 @@ async function saveDataToCloud() {
     alert('操作被鎖定：無法儲存或權限不足。')
     return
   }
-  // ... (省略內部實現，與之前版本相同)
   statusIndicator.value = '儲存中...'
   try {
     const cleanSchedule = {}
@@ -220,7 +219,6 @@ async function copySchedule() {
     !confirm(`確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`)
   )
     return
-  // ... (省略內部實現，與之前版本相同)
   statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
   try {
     const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
@@ -328,7 +326,14 @@ function updateNote(event, shiftId) {
   const value = event.target.textContent
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
-  currentRecord.schedule[shiftId].manualNote = value
+  // 我們只儲存手動輸入的部分，特殊模式會在 getCombinedNote 動態加入
+  const patient = patientMap.value.get(currentRecord.schedule[shiftId].patientId)
+  let manualNoteToSave = value
+  if (patient && patient.mode && patient.mode !== 'HD') {
+    // 從輸入的字串中移除模式標籤，以免重複儲存
+    manualNoteToSave = value.replace(new RegExp(`^${patient.mode}\\s*`), '').trim()
+  }
+  currentRecord.schedule[shiftId].manualNote = manualNoteToSave
   setChange()
 }
 
@@ -506,32 +511,62 @@ function getPatientName(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   return patientMap.value.get(patientId)?.name || ''
 }
+
+// 【關鍵修改】: 修改 getCombinedNote 函式
 function getCombinedNote(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return ''
+
+  // 1. 取得原始的自動與手動備註
   const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
+
+  // 2. 組合備註並移除重複項
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
   const finalTags = combinedTags.filter((tag) => tag !== '住')
-  return finalTags.join(' ')
+  let noteString = finalTags.join(' ')
+
+  // 3. 檢查病人是否有特殊模式，並將其加到最前面
+  const patient = slotData.patientId ? patientMap.value.get(slotData.patientId) : null
+  if (patient && patient.mode && patient.mode !== 'HD') {
+    // 將模式加在字串最前方
+    noteString = `${patient.mode} ${noteString}`
+  }
+
+  return noteString.trim()
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
+
   const patient = patientMap.value.get(slotData.patientId)
+  // 【重要】: 呼叫我們修改過的新函式來取得包含特殊模式的完整備註
   const combinedNote = getCombinedNote(shiftId)
+
+  // 1. 特殊標籤優先
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
-      if (key === '住' || key === '隔' || key === 'R') return { 'status-ipd': true }
+      if (key === '住' || key === '隔' || key === 'R') {
+        return { 'status-ipd': true }
+      }
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
+
+  // 2. 根據病人狀態設定背景色
   if (patient) {
-    if (patient.status === 'ipd') return { 'status-ipd': true }
-    if (patient.status === 'opd') return { 'status-opd': true }
+    if (patient.status === 'ipd') {
+      return { 'status-ipd': true }
+    }
+    if (patient.status === 'opd') {
+      return { 'status-opd': true }
+    }
   }
+
   return {}
 }
+
 function triggerPrint() {
   window.print()
 }
@@ -1118,7 +1153,7 @@ button {
 .patient-name,
 .peripheral-patient-name {
   font-size: 1.1em;
-  font-weight: bold; /* <--- 新增此行 */
+  font-weight: bold;
   padding: 4px 6px;
   width: 100%;
   height: 100%;
