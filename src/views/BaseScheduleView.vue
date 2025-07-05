@@ -85,18 +85,39 @@ const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id,
 const patientWithMemoIds = computed(() => {
   return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
 })
+// 【修改】這個計算屬性，使其產生詳細數據
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
-    counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 },
+    counts: {
+      early: { total: 0, opd: 0, ipd: 0 },
+      noon: { total: 0, opd: 0, ipd: 0 },
+      late: { total: 0, opd: 0, ipd: 0 },
+    },
+    total: 0,
   }))
+
+  if (!masterRecord.value.schedule) {
+    return dailyCounts
+  }
+
+  const localPatientMap = new Map(allOpdPatients.value.map((p) => [p.id, p]))
+
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData && slotData.patientId) {
+      const patient = localPatientMap.get(slotData.patientId)
+      // 因為這個頁面只處理 OPD，所以可以直接判斷
+      if (!patient) continue
+
       const [_bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
       if (dayIndex >= 0 && dayIndex < 6) {
         const shiftCode = SHIFTS[shiftIndex]
-        if (dailyCounts[dayIndex] && dailyCounts[dayIndex].counts[shiftCode] !== undefined) {
-          dailyCounts[dayIndex].counts[shiftCode]++
+        const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
+
+        if (shiftStats) {
+          shiftStats.total++
+          shiftStats.opd++ // 常規班表都是門診
+          dailyCounts[dayIndex].total++
         }
       }
     }
@@ -445,11 +466,13 @@ onMounted(loadAllData)
           </button>
         </div>
       </div>
-      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+      <!-- 【核心修改】: 將 StatsToolbar 用一個新的 div 包裹起來 -->
+      <div class="stats-toolbar-wrapper">
+        <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+      </div>
     </header>
 
     <main class="page-main-content">
-      <!-- 【修改】監聽事件，傳遞 props -->
       <ScheduleTable
         class="schedule-table-component"
         :layout="bedLayout"
@@ -470,14 +493,12 @@ onMounted(loadAllData)
       />
     </main>
 
-    <!-- 【新增】Memo 對話框 -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
       :memos="memosForDialog"
       @close="isMemoDialogVisible = false"
     />
-
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
       :all-patients="allOpdPatients"
@@ -526,7 +547,11 @@ onMounted(loadAllData)
   border-bottom: 1px solid #dee2e6;
   box-sizing: border-box;
 }
-
+.stats-toolbar-wrapper {
+  display: flex;
+  justify-content: flex-end; /* 靠右對齊 */
+  margin-top: 15px; /* 與上方工具欄的間距 */
+}
 .header-toolbar {
   display: flex;
   justify-content: space-between;

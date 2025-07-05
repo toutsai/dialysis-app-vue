@@ -134,19 +134,42 @@ const weekDates = computed(() => {
   })
 })
 const statsToolbarData = computed(() => {
+  // 【修改1】: 基礎資料結構現在包含 opd 和 ipd 計數
   const baseData = WEEKDAYS.map(() => ({
-    counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 },
+    counts: {
+      early: { total: 0, opd: 0, ipd: 0 },
+      noon: { total: 0, opd: 0, ipd: 0 },
+      late: { total: 0, opd: 0, ipd: 0 },
+    },
+    total: 0, // 【新增】: 用於儲存當日總人數
   }))
+
+  // 這個 patientMap 必須能從 allPatients 獲取，確保它已經被載入
+  const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
+
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.patientId && slotData.shiftId) {
+            const patient = localPatientMap.get(slotData.patientId)
+            if (!patient) continue // 如果找不到病人資料，則跳過
+
             const shiftCode = slotData.shiftId.split('-')[2]
-            if (baseData[dayIndex].counts[shiftCode] !== undefined) {
-              baseData[dayIndex].counts[shiftCode]++
+            const shiftStats = baseData[dayIndex].counts[shiftCode]
+
+            if (shiftStats) {
+              // 【修改2】: 同時更新 total, opd, ipd 計數
+              shiftStats.total++
+              baseData[dayIndex].total++ // 更新當日總人數
+              if (patient.status === 'opd') {
+                shiftStats.opd++
+              } else if (patient.status === 'ipd') {
+                shiftStats.ipd++
+              }
             }
           }
         }
@@ -905,6 +928,8 @@ onUnmounted(() => {
 }
 .page-header {
   border-bottom: 1px solid #dee2e6;
+  background-color: #fff;
+  flex-shrink: 0;
 }
 .header-toolbar {
   display: flex;

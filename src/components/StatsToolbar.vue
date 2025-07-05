@@ -1,86 +1,166 @@
-<!-- 檔案路徑: src/components/StatsToolbar.vue (重構版) -->
+<!-- 檔案路徑: src/components/StatsToolbar.vue (緊湊佈局最終版) -->
 <script setup>
 import { computed } from 'vue'
-// 1. 引入我們新建的 scheduleConstants
 import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleConstants'
 
 const props = defineProps({
-  statsData: Array, // e.g., [{ counts: { early: 5, noon: 6, late: 4 } }]
-  weekdays: Array, // e.g., ['一', '二', '三'] or ['本日']
+  statsData: Array,
+  weekdays: Array,
 })
 
-// 2. 創建一個計算屬性來處理班次，這樣模板更乾淨
 const shiftOrder = computed(() => {
-  // 將我們的代碼轉換成模板需要渲染的物件陣列
   return ORDERED_SHIFT_CODES.map((code) => ({
-    code: code, // 'early', 'noon', 'late'
-    display: SHIFT_DISPLAY_NAMES[code].replace('班', ''), // '早', '午', '晚'
-    // 增加一個對應的 css class，方便設定顏色
-    cssClass: `shift-${code}`, // 'shift-early', 'shift-noon', 'shift-late'
+    code: code,
+    display: SHIFT_DISPLAY_NAMES[code].replace('班', ''),
   }))
 })
+
+const getBarStyles = (shiftCount) => {
+  if (!shiftCount || shiftCount.total === 0) {
+    return { opdStyle: { width: '0%' }, ipdStyle: { width: '0%' } }
+  }
+  const opdPercent = (shiftCount.opd / shiftCount.total) * 100
+  const ipdPercent = (shiftCount.ipd / shiftCount.total) * 100
+  return {
+    opdStyle: { width: `${opdPercent}%` },
+    ipdStyle: { width: `${ipdPercent}%` },
+  }
+}
 </script>
 
 <template>
   <div class="stats-toolbar">
     <div v-for="(dayData, index) in statsData" :key="index" class="stat-item">
-      <!-- 從 props 獲取星期，保持不變 -->
-      <strong>{{ weekdays[index] }}</strong>
+      <div class="day-summary">
+        <strong>{{ weekdays[index] }}</strong>
+        <span class="day-total-count">{{ dayData.total }}</span>
+      </div>
+
       <div class="stat-shift-group">
-        <!-- 3. 使用新的 shiftOrder 計算屬性來動態生成班次統計 -->
-        <span v-for="shift in shiftOrder" :key="shift.code" :class="shift.cssClass">
-          <!-- 顯示 '早 5', '午 6', '晚 4' -->
-          {{ shift.display }} {{ dayData.counts[shift.code] || 0 }}
-        </span>
+        <div v-for="shift in shiftOrder" :key="shift.code" class="shift-tag">
+          <div class="shift-info">
+            {{ shift.display }} {{ dayData.counts[shift.code]?.total || 0 }}
+          </div>
+          <div class="ratio-bar">
+            <div
+              class="bar-segment opd-bar"
+              :style="getBarStyles(dayData.counts[shift.code]).opdStyle"
+              :title="`門診: ${dayData.counts[shift.code]?.opd || 0}`"
+            ></div>
+            <div
+              class="bar-segment ipd-bar"
+              :style="getBarStyles(dayData.counts[shift.code]).ipdStyle"
+              :title="`住院: ${dayData.counts[shift.code]?.ipd || 0}`"
+            ></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* ==========================================================================
+   【緊湊佈局樣式 - 顏色修正】
+   ========================================================================== */
 .stats-toolbar {
   display: flex;
-  gap: 15px;
-  padding: 5px;
-  border-radius: 5px;
-  margin-bottom: 10px;
-  overflow-x: auto;
-  white-space: nowrap;
-}
-.stat-item {
-  display: flex;
-  gap: 10px;
-  padding: 8px;
-  border-radius: 5px;
-  background-color: #fff;
-  border: 1px solid #e0e0e0;
-}
-.stat-item strong {
-  font-size: 1.1em;
-}
-.stat-shift-group {
-  display: flex;
+  justify-content: space-around;
+  align-items: center;
   gap: 8px;
-}
-.stat-shift-group span {
-  padding: 4px 10px;
-  border-radius: 15px;
-  font-weight: bold;
-  color: #fff;
-  font-size: 0.9em;
-  min-width: 40px; /* 給一個最小寬度，避免數字變化時跳動 */
-  text-align: center;
+  padding: 5px;
+  width: 100%;
 }
 
-/* 4. 修改 css class 來匹配新的動態 class */
-.stat-shift-group .shift-early {
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  flex-shrink: 0;
+}
+
+.day-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-right: 8px;
+  border-right: 1px solid #dee2e6;
+}
+
+.day-summary strong {
+  font-size: 1em;
+  color: #343a40;
+}
+
+.day-total-count {
+  font-size: 1em;
+  font-weight: bold;
+  color: var(--primary-color, #007bff);
+}
+
+.stat-shift-group {
+  display: flex;
+  gap: 6px;
+}
+
+.shift-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 45px;
+}
+
+.shift-info {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-weight: bold;
+  color: #fff;
+  font-size: 0.85em;
+  background-color: #6c757d;
+  width: 100%;
+  text-align: center;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.shift-tag:nth-child(1) .shift-info {
   background-color: var(--success-color);
 }
-.stat-shift-group .shift-noon {
+.shift-tag:nth-child(2) .shift-info {
   background-color: var(--warning-color);
   color: #212529;
 }
-.stat-shift-group .shift-late {
+.shift-tag:nth-child(3) .shift-info {
   background-color: var(--info-color);
+}
+
+.ratio-bar {
+  display: flex;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 3px;
+  background-color: #e9ecef;
+}
+
+.bar-segment {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* 【核心修改】: 使用更鮮豔的主題色 */
+.opd-bar {
+  /* 使用與「成功」按鈕一致的綠色 */
+  background-color: var(--success-color, #28a745);
+}
+
+.ipd-bar {
+  /* 使用與「危險/刪除」按鈕一致的紅色 */
+  background-color: var(--danger-color, #dc3545);
 }
 </style>

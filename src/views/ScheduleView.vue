@@ -130,17 +130,43 @@ const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
+// 【修改】這個計算屬性，使其產生詳細數據
 const statsToolbarData = computed(() => {
-  const counts = { [SHIFT_CODES.EARLY]: 0, [SHIFT_CODES.NOON]: 0, [SHIFT_CODES.LATE]: 0 }
+  // 每日排程只有一天的數據
+  const dailyData = {
+    counts: {
+      early: { total: 0, opd: 0, ipd: 0 },
+      noon: { total: 0, opd: 0, ipd: 0 },
+      late: { total: 0, opd: 0, ipd: 0 },
+    },
+    total: 0,
+  }
+
   if (currentRecord.schedule) {
+    const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+
     for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData && slotData.patientId) {
+        const patient = localPatientMap.get(slotData.patientId)
+        if (!patient) continue
+
         const shiftCode = slotData.shiftId.split('-')[2]
-        if (counts[shiftCode] !== undefined) counts[shiftCode]++
+        const shiftStats = dailyData.counts[shiftCode]
+
+        if (shiftStats) {
+          shiftStats.total++
+          dailyData.total++
+          if (patient.status === 'opd') {
+            shiftStats.opd++
+          } else if (patient.status === 'ipd') {
+            shiftStats.ipd++
+          }
+        }
       }
     }
   }
-  return [{ counts }]
+  // 因為 StatsToolbar 接收的是一個陣列，所以我們把單日數據包在陣列裡
+  return [dailyData]
 })
 const statsToolbarWeekdays = computed(() => ['本日'])
 const scheduledPatientIds = computed(() => {
@@ -1021,7 +1047,6 @@ watch(currentDate, (newDate, oldDate) => {
 .controls-left,
 .controls-right {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
