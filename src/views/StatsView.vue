@@ -25,20 +25,17 @@ const nurseNameList = [
   '黃羿寧',
   '高佩鳳',
   '林沛儀',
-  '李汶娟',
   '陳芃諭',
   '葛孟萍',
   '蘇愛玲',
   '郭芳君',
   '林馨如',
-  '賴秋妏',
   '胡國暄',
   '施艾利',
   '陳淑玲',
   '謝慶諭',
   '林佩佳',
   '吳思婷',
-  '曾佩君',
   '吳幸美',
 ]
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
@@ -417,6 +414,7 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- 早班組別 -->
     <div class="stats-section">
       <h2>早班組別</h2>
       <div class="grid-container">
@@ -451,7 +449,7 @@ onMounted(() => {
               :key="teamName"
               class="grid-cell patient-list-cell"
               @drop="onDrop($event, teamName, 'earlyShift')"
-              @dragover="onDragOver"
+              @dragover.prevent="onDragOver"
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
@@ -475,7 +473,7 @@ onMounted(() => {
               :key="teamName"
               class="grid-cell patient-list-cell"
               @drop="onDrop($event, teamName, 'noonShiftOn')"
-              @dragover="onDragOver"
+              @dragover.prevent="onDragOver"
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
@@ -499,7 +497,7 @@ onMounted(() => {
               :key="teamName"
               class="grid-cell patient-list-cell"
               @drop="onDrop($event, teamName, 'noonShiftOff')"
-              @dragover="onDragOver"
+              @dragover.prevent="onDragOver"
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
@@ -517,19 +515,23 @@ onMounted(() => {
             </div>
           </div>
         </div>
+        <!-- ======================= 【核心修正】 ======================= -->
         <div class="grid-footer">
           <div class="row-header">照護人數</div>
+          <!-- 使用 (值, 鍵) 的方式遍歷，並用唯一的 `teamName` 作為 key -->
           <div
-            v-for="teamData in statsData.early"
-            :key="teamData.nurseName"
+            v-for="(teamData, teamName) in statsData.early"
+            :key="teamName"
             class="total-count-summary"
           >
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
           </div>
         </div>
+        <!-- ===================== 【修正結束】 ===================== -->
       </div>
     </div>
 
+    <!-- 晚班組別 -->
     <div class="stats-section">
       <h2>晚班組別</h2>
       <div class="grid-container">
@@ -564,7 +566,7 @@ onMounted(() => {
               :key="teamName"
               class="grid-cell patient-list-cell"
               @drop="onDrop($event, teamName, 'noonShiftOff')"
-              @dragover="onDragOver"
+              @dragover.prevent="onDragOver"
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
@@ -588,7 +590,7 @@ onMounted(() => {
               :key="teamName"
               class="grid-cell patient-list-cell"
               @drop="onDrop($event, teamName, 'lateShift')"
-              @dragover="onDragOver"
+              @dragover.prevent="onDragOver"
               @dragleave="onDragLeave"
             >
               <div class="patient-wrapper">
@@ -606,16 +608,19 @@ onMounted(() => {
             </div>
           </div>
         </div>
+        <!-- ======================= 【核心修正】 ======================= -->
         <div class="grid-footer">
           <div class="row-header">照護人數</div>
+          <!-- 使用 (值, 鍵) 的方式遍歷，並用唯一的 `teamName` 作為 key -->
           <div
-            v-for="teamData in statsData.late"
-            :key="teamData.nurseName"
+            v-for="(teamData, teamName) in statsData.late"
+            :key="teamName"
             class="total-count-summary"
           >
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
           </div>
         </div>
+        <!-- ===================== 【修正結束】 ===================== -->
       </div>
     </div>
 
@@ -639,7 +644,6 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  margin-bottom: 25px;
 }
 .toolbar-left,
 .toolbar-right {
@@ -657,7 +661,7 @@ onMounted(() => {
 .date-navigator {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 5px;
 }
 .current-date-text {
   font-size: 1.5em;
