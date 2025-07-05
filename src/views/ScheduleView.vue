@@ -1,11 +1,10 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (樣式修正最終版 - 已加入特殊模式顯示) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (已加入精準高亮功能) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 
-// 引入所有工具、常量和元件
 import {
   SHIFT_CODES,
   ORDERED_SHIFT_CODES,
@@ -71,6 +70,7 @@ const freqToDays = {
   每周一次: [0, 1, 2, 3, 4, 5, 6],
   臨時: [],
 }
+const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
@@ -89,14 +89,16 @@ const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 const isAssignmentDialogVisible = ref(false)
+const highlightedEarlyTeam = ref(null)
+const highlightedLateTeam = ref(null)
 
-// 使用 useAuth 和建立 isPageLocked
+// --- 權限與鎖定 ---
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
-  if (isReadOnly.value) return true // 權限鎖定
+  if (isReadOnly.value) return true
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  return currentDate.value < today // 日期鎖定
+  return currentDate.value < today
 })
 
 // --- Helper Functions ---
@@ -139,7 +141,67 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
-// --- 方法 --- (包含權限鎖定邏輯)
+// --- 方法 ---
+function toggleHighlightTeam(team, shiftType) {
+  if (shiftType === 'early') {
+    if (highlightedEarlyTeam.value === team) {
+      highlightedEarlyTeam.value = null
+    } else {
+      highlightedEarlyTeam.value = team
+    }
+  } else if (shiftType === 'late') {
+    if (highlightedLateTeam.value === team) {
+      highlightedLateTeam.value = null
+    } else {
+      highlightedLateTeam.value = team
+    }
+  }
+}
+
+// 【修改 1】: 修改高亮判斷函式，使其判斷單一班次格
+function isSlotHighlighted(shiftId) {
+  if (!highlightedEarlyTeam.value && !highlightedLateTeam.value) {
+    return false
+  }
+
+  const slotData = currentRecord.schedule[shiftId]
+  if (!slotData) return false
+
+  const shiftCode = shiftId.split('-')[2]
+
+  // 檢查早班組別
+  if (highlightedEarlyTeam.value) {
+    if (
+      shiftCode === SHIFT_CODES.EARLY &&
+      slotData.nurseTeam === `早${highlightedEarlyTeam.value}`
+    ) {
+      return true
+    }
+    if (
+      shiftCode === SHIFT_CODES.NOON &&
+      slotData.nurseTeamIn === `早${highlightedEarlyTeam.value}`
+    ) {
+      return true
+    }
+  }
+
+  // 檢查晚班組別
+  if (highlightedLateTeam.value) {
+    if (shiftCode === SHIFT_CODES.LATE && slotData.nurseTeam === `晚${highlightedLateTeam.value}`) {
+      return true
+    }
+    // 午班收針可能由早班或晚班負責，所以要檢查兩種可能
+    if (
+      shiftCode === SHIFT_CODES.NOON &&
+      slotData.nurseTeamOut === `晚${highlightedLateTeam.value}`
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -326,14 +388,7 @@ function updateNote(event, shiftId) {
   const value = event.target.textContent
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
-  // 我們只儲存手動輸入的部分，特殊模式會在 getCombinedNote 動態加入
-  const patient = patientMap.value.get(currentRecord.schedule[shiftId].patientId)
-  let manualNoteToSave = value
-  if (patient && patient.mode && patient.mode !== 'HD') {
-    // 從輸入的字串中移除模式標籤，以免重複儲存
-    manualNoteToSave = value.replace(new RegExp(`^${patient.mode}\\s*`), '').trim()
-  }
-  currentRecord.schedule[shiftId].manualNote = manualNoteToSave
+  currentRecord.schedule[shiftId].manualNote = value
   setChange()
 }
 
@@ -395,7 +450,6 @@ function goToToday() {
   currentDate.value = new Date()
 }
 
-// --- 以下為非修改性質的函式 ---
 async function loadAllPatients() {
   try {
     allPatients.value = await patientsApi.fetchAll()
@@ -511,62 +565,32 @@ function getPatientName(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   return patientMap.value.get(patientId)?.name || ''
 }
-
-// 【關鍵修改】: 修改 getCombinedNote 函式
 function getCombinedNote(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return ''
-
-  // 1. 取得原始的自動與手動備註
   const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
-
-  // 2. 組合備註並移除重複項
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
   const finalTags = combinedTags.filter((tag) => tag !== '住')
-  let noteString = finalTags.join(' ')
-
-  // 3. 檢查病人是否有特殊模式，並將其加到最前面
-  const patient = slotData.patientId ? patientMap.value.get(slotData.patientId) : null
-  if (patient && patient.mode && patient.mode !== 'HD') {
-    // 將模式加在字串最前方
-    noteString = `${patient.mode} ${noteString}`
-  }
-
-  return noteString.trim()
+  return finalTags.join(' ')
 }
-
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
-
   const patient = patientMap.value.get(slotData.patientId)
-  // 【重要】: 呼叫我們修改過的新函式來取得包含特殊模式的完整備註
   const combinedNote = getCombinedNote(shiftId)
-
-  // 1. 特殊標籤優先
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
-      if (key === '住' || key === '隔' || key === 'R') {
-        return { 'status-ipd': true }
-      }
+      if (key === '住' || key === '隔' || key === 'R') return { 'status-ipd': true }
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-
-  // 2. 根據病人狀態設定背景色
   if (patient) {
-    if (patient.status === 'ipd') {
-      return { 'status-ipd': true }
-    }
-    if (patient.status === 'opd') {
-      return { 'status-opd': true }
-    }
+    if (patient.status === 'ipd') return { 'status-ipd': true }
+    if (patient.status === 'opd') return { 'status-opd': true }
   }
-
   return {}
 }
-
 function triggerPrint() {
   window.print()
 }
@@ -625,6 +649,32 @@ watch(currentDate, (newDate, oldDate) => {
           <button class="add-btn" @click="copySchedule" :disabled="isPageLocked">從他日複製</button>
         </div>
         <div class="controls-right">
+          <div class="team-highlight-container">
+            <div class="team-highlight-controls">
+              <span>早班:</span>
+              <button
+                v-for="team in baseTeams"
+                :key="`early-${team}`"
+                class="team-btn"
+                :class="{ active: highlightedEarlyTeam === team }"
+                @click="toggleHighlightTeam(team, 'early')"
+              >
+                {{ team }}
+              </button>
+            </div>
+            <div class="team-highlight-controls">
+              <span>晚班:</span>
+              <button
+                v-for="team in baseTeams"
+                :key="`late-${team}`"
+                class="team-btn"
+                :class="{ active: highlightedLateTeam === team }"
+                @click="toggleHighlightTeam(team, 'late')"
+              >
+                {{ team }}
+              </button>
+            </div>
+          </div>
           <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
         </div>
       </div>
@@ -665,6 +715,8 @@ watch(currentDate, (newDate, oldDate) => {
                       :class="[
                         getPatientCellStyle(`bed-${bedNum}-${shiftCode}`),
                         { 'split-shift': shiftCode === SHIFT_CODES.NOON },
+                        // 【修改 2】: 將高亮 class 綁定到此處
+                        { 'highlighted-slot': isSlotHighlighted(`bed-${bedNum}-${shiftCode}`) },
                       ]"
                     >
                       <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
@@ -754,7 +806,10 @@ watch(currentDate, (newDate, oldDate) => {
                   v-for="shiftCode in ORDERED_SHIFT_CODES"
                   :key="shiftCode"
                   class="peripheral-shift-row"
-                  :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
+                  :class="[
+                    getPatientCellStyle(`peripheral-${i}-${shiftCode}`),
+                    { 'highlighted-slot': isSlotHighlighted(`peripheral-${i}-${shiftCode}`) },
+                  ]"
                 >
                   <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
                   <select
@@ -843,9 +898,6 @@ watch(currentDate, (newDate, oldDate) => {
 </template>
 
 <style scoped>
-/* ==========================================================================
-   1. 頁面整體佈局 (Layout) - 保持不變
-   ========================================================================== */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -876,10 +928,6 @@ watch(currentDate, (newDate, oldDate) => {
   flex-direction: column;
   height: 100%;
 }
-
-/* ==========================================================================
-   2. 元件樣式 (Components) - 保持不變
-   ========================================================================== */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -919,12 +967,14 @@ watch(currentDate, (newDate, oldDate) => {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+  align-items: center;
   margin-top: 1rem;
 }
 .controls-left,
 .controls-right {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
 }
 .btn,
@@ -973,10 +1023,6 @@ button {
   cursor: pointer;
   white-space: nowrap;
 }
-
-/* ==========================================================================
-   3. 床位與排程樣式 (Bed & Schedule Styles) - 保持不變
-   ========================================================================== */
 .dialysis-unit {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -1014,6 +1060,7 @@ button {
   overflow: hidden;
   background-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease-in-out;
 }
 .bed {
   min-height: 160px;
@@ -1041,6 +1088,7 @@ button {
 }
 .shift-row,
 .peripheral-shift-row {
+  position: relative; /* 為了 outline 定位 */
   display: grid;
   align-items: stretch;
   border-top: 1px solid #e0e0e0;
@@ -1188,62 +1236,20 @@ button {
   background-color: #fce4ec;
   color: #c2185b;
 }
-
-/* ==========================================================================
-   4. 列印樣式 (Print Styles) - 保持不變
-   ========================================================================== */
-@media print {
-  body,
-  html {
-    -webkit-print-color-adjust: exact;
-    color-adjust: exact;
-  }
-  .page-container {
-    height: auto !important;
-    overflow: visible !important;
-    transform: scale(0.8);
-    transform-origin: top left;
-    width: 125%;
-  }
-  .page-header,
-  .inpatient-sidebar,
-  .aisle,
-  .nursing-station,
-  .btn,
-  button,
-  input {
-    display: none !important;
-  }
-  .schedule-content {
-    overflow: visible !important;
-  }
-}
-
-/* ==========================================================================
-   5. 【修正後】的鎖定相關樣式 - 不影響字體清晰度
-   ========================================================================== */
-
-/* 鎖定時，禁用按鈕的外觀 */
 .is-locked .btn,
 .is-locked button,
 .is-locked input {
   opacity: 0.65;
 }
-
-/* 鎖定時，整個主內容區塊的滑鼠指標變為「不允許」 */
 .is-locked .page-main-content {
   cursor: not-allowed;
 }
-
-/* 僅將背景變灰，不使用 opacity 以免影響子元素文字清晰度 */
 .is-locked .schedule-content {
   background-color: #f5f5f5;
 }
 .is-locked .sidebar-locked {
   background-color: #f5f5f5;
 }
-
-/* 鎖定時，側邊欄和可編輯/可拖曳的元素禁用滑鼠事件，並降低透明度 */
 .sidebar-locked,
 .is-locked [contenteditable='true'],
 .is-locked [draggable='true'],
@@ -1251,12 +1257,54 @@ button {
 .is-locked .patient-name,
 .is-locked .peripheral-patient-name {
   pointer-events: none;
-  opacity: 0.8; /* 將透明度應用在這些可操作元素上，而不是整個容器 */
+  opacity: 0.8;
 }
-
-/* 禁用 hover 效果 */
 .is-locked .patient-name:hover .empty-slot-placeholder,
 .is-locked .peripheral-patient-name:hover .empty-slot-placeholder {
   color: #adb5bd;
+}
+
+/* 【修改 4】: 新增高亮功能相關的 CSS */
+.team-highlight-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  background-color: #e9ecef;
+  border-radius: 6px;
+}
+.team-highlight-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.team-highlight-controls span {
+  font-weight: bold;
+  font-size: 0.9em;
+  color: #495057;
+  width: 40px;
+}
+.team-btn {
+  padding: 4px 10px;
+  font-size: 0.9em;
+  min-width: 40px;
+  border-radius: 4px;
+  border: 1px solid #ced4da;
+  background-color: #fff;
+  transition: all 0.2s;
+}
+.team-btn.active {
+  background-color: #dc3545;
+  color: white;
+  border-color: #c82333;
+}
+
+/* 【修改 5】: 修改高亮樣式，使其作用於班次格 */
+.shift-row.highlighted-slot,
+.peripheral-shift-row.highlighted-slot {
+  /* 使用 outline 而不是 border，這樣不會影響佈局 */
+  outline: 3px solid #dc3545;
+  outline-offset: -3px; /* 將外框線畫在內部，避免溢出 */
+  z-index: 1; /* 確保外框線在最上層 */
 }
 </style>

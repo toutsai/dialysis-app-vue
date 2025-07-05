@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (階段三完成 - 樣式修正最終版) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (修正載入常規班表邏輯) -->
 <script setup>
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -448,12 +448,15 @@ function onSidebarDragStart(event, patient) {
   }
   event.dataTransfer.effectAllowed = 'move'
 }
+
+// 【關鍵修改】: 重寫 loadBaseSchedule 函式，確保清除每日特定資訊
 async function loadBaseSchedule() {
   if (isReadOnly.value) {
     alert('操作被鎖定：權限不足。')
     return
   }
   if (!confirm('確定要載入常規班表嗎？這將會覆蓋【今天及未來】的所有排班。')) return
+
   statusText.value = '正在載入常規班表...'
   try {
     const masterRecord = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
@@ -462,25 +465,58 @@ async function loadBaseSchedule() {
       statusText.value = '常規班表為空'
       return
     }
+
+    const baseSchedule = masterRecord.schedule
+    const newWeekRecords = new Map(weekScheduleRecords.value)
+
+    // 1. 先重置所有未來日期的排程
     weekDates.value.forEach((day, dayIndex) => {
-      if (!isDateInPast(dayIndex) && weekScheduleRecords.value.has(day.queryDate)) {
-        weekScheduleRecords.value.get(day.queryDate).schedule = {}
+      if (!isDateInPast(dayIndex)) {
+        const existingRecord = newWeekRecords.get(day.queryDate) || {
+          id: null,
+          date: day.queryDate,
+        }
+        newWeekRecords.set(day.queryDate, {
+          ...existingRecord,
+          schedule: {}, // 清空排程物件
+        })
       }
     })
-    const baseSchedule = masterRecord.schedule
+
+    // 2. 遍歷常規班表，將病人填入重置後的排程中
     for (const weeklySlotId in baseSchedule) {
       const baseSlotData = baseSchedule[weeklySlotId]
       if (baseSlotData && baseSlotData.patientId) {
-        const dayIndex = parseInt(weeklySlotId.split('-')[2], 10)
+        const [bed, shiftIndexStr, dayIndexStr] = weeklySlotId.split('-')
+        const dayIndex = parseInt(dayIndexStr, 10)
+        const shiftIndex = parseInt(shiftIndexStr, 10)
+
         if (!isDateInPast(dayIndex)) {
-          handleSlotUpdate(
-            weeklySlotId,
-            baseSlotData.patientId,
-            baseSlotData.manualNote || baseSlotData.note || '',
-          )
+          const dateStr = weekDates.value[dayIndex]?.queryDate
+          if (dateStr) {
+            const dailyRecord = newWeekRecords.get(dateStr)
+            const shiftCode = SHIFTS[shiftIndex]
+            if (dailyRecord && shiftCode) {
+              const dailyShiftId = `bed-${bed}-${shiftCode}`
+              const patient = patientMap.value.get(baseSlotData.patientId)
+              if (patient) {
+                // 建立一個全新的、乾淨的 slot 物件，不包含任何舊的護理師資訊
+                dailyRecord.schedule[dailyShiftId] = {
+                  ...createEmptySlotData(dailyShiftId),
+                  patientId: baseSlotData.patientId,
+                  autoNote: generateAutoNote(patient),
+                  manualNote: baseSlotData.manualNote || baseSlotData.note || '',
+                }
+              }
+            }
+          }
         }
       }
     }
+
+    // 3. 用全新的排程記錄更新本地狀態
+    weekScheduleRecords.value = newWeekRecords
+
     statusText.value = '常規班表已載入至未來排程，請記得儲存。'
     setChange()
   } catch (error) {
@@ -488,6 +524,7 @@ async function loadBaseSchedule() {
     statusText.value = '載入失敗'
   }
 }
+
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !isReadOnly.value) {
     if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
@@ -752,7 +789,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* --- 您的原始樣式，完整保留 --- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -772,7 +808,7 @@ onUnmounted(() => {
 .main-actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 .page-title {
   margin: 0;
@@ -871,7 +907,6 @@ button {
   background-color: #fff9c4;
 }
 
-/* --- 僅在末尾追加新的鎖定樣式 --- */
 .main-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
