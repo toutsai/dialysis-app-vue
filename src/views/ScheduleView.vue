@@ -1,9 +1,11 @@
+<!-- 檔案路徑: src/views/ScheduleView.vue (樣式修正最終版) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
+import { useAuth } from '@/composables/useAuth.js'
 
-// 1. 引入我們重構後的所有工具和常量
+// 引入所有工具、常量和元件
 import {
   SHIFT_CODES,
   ORDERED_SHIFT_CODES,
@@ -13,12 +15,9 @@ import {
   allTeams,
 } from '@/constants/scheduleConstants.js'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
-
-// 2. 引入元件
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
-// 【新增】引入智慧排班助理
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 
 // --- 常量 ---
@@ -43,13 +42,11 @@ const layoutData = {
     [1, 2, 3],
   ],
 }
-
 const allBedNumbers = [
   ...layoutData.leftWingRows.flat(),
   ...layoutData.rightWingRows.flat(),
   ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
 ].filter((b) => b !== '空')
-
 const hepatitisBeds = ['空', 31, 32, 33, 35, 36]
 const aisleSideBeds = [1, 7, 8, 15, 16, 22, 23, 29, 31, 36, 37, 53, 55, 61, 62, 65]
 const peripheralBedCount = 6
@@ -91,7 +88,16 @@ const copySourceDate = ref(formatDate(new Date()))
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
-const isAssignmentDialogVisible = ref(false) // 【新增】控制智慧排班助理
+const isAssignmentDialogVisible = ref(false)
+
+// 使用 useAuth 和建立 isPageLocked
+const { isReadOnly } = useAuth()
+const isPageLocked = computed(() => {
+  if (isReadOnly.value) return true // 權限鎖定
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return currentDate.value < today // 日期鎖定
+})
 
 // --- Helper Functions ---
 function formatDate(date) {
@@ -107,28 +113,23 @@ const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
-// 【新增】計算星期幾 (1-7)
 const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
-
 const statsToolbarData = computed(() => {
   const counts = { [SHIFT_CODES.EARLY]: 0, [SHIFT_CODES.NOON]: 0, [SHIFT_CODES.LATE]: 0 }
   if (currentRecord.schedule) {
     for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData && slotData.patientId) {
         const shiftCode = slotData.shiftId.split('-')[2]
-        if (counts[shiftCode] !== undefined) {
-          counts[shiftCode]++
-        }
+        if (counts[shiftCode] !== undefined) counts[shiftCode]++
       }
     }
   }
   return [{ counts }]
 })
 const statsToolbarWeekdays = computed(() => ['本日'])
-
 const scheduledPatientIds = computed(() => {
   if (!currentRecord.schedule) return new Set()
   return new Set(
@@ -138,123 +139,19 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
-// --- 方法 ---
-
+// --- 方法 --- (包含權限鎖定邏輯)
 function setChange() {
+  if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
 
-function shouldPatientBeScheduled(patient, dayOfWeek) {
-  if (!patient.freq) return false
-  const scheduledDays = freqToDays[patient.freq]
-  // 星期日 (dayOfWeek=0) 特殊處理，對應到 freqToDays 的 7
-  const checkDay = dayOfWeek === 0 ? 7 : dayOfWeek
-  return scheduledDays ? scheduledDays.includes(checkDay) : false
-}
-
-function runScheduleCheck() {
-  const warnings = []
-  const dayOfWeek = currentDate.value.getDay()
-  const todayScheduledPatientIds = new Set(scheduledPatientIds.value)
-  const duplicateNames = new Set()
-
-  let tempScheduled = {}
-  Object.values(currentRecord.schedule).forEach((slot) => {
-    if (slot && slot.patientId) {
-      if (tempScheduled[slot.patientId]) {
-        const patientName = patientMap.value.get(slot.patientId)?.name
-        if (patientName) duplicateNames.add(patientName)
-      }
-      tempScheduled[slot.patientId] = true
-    }
-  })
-
-  if (duplicateNames.size > 0) {
-    warnings.push(
-      `【重複排班】:\n- 病人 ${Array.from(duplicateNames).join(', ')} 在本日出現超過一次。`,
-    )
-  }
-
-  const allPatientsToCheck = allPatients.value.filter((p) => !p.isDeleted)
-  const missingPatients = allPatientsToCheck.filter((p) => {
-    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
-    return shouldBeScheduled && !todayScheduledPatientIds.has(p.id)
-  })
-
-  if (missingPatients.length > 0) {
-    const missingPatientNames = missingPatients
-      .map((p) => `${p.name} (${p.status === 'ipd' ? '住院' : '門診'})`)
-      .join('\n- ')
-    warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
-  }
-
-  if (warnings.length > 0) {
-    alertDialogTitle.value = '排班檢視警告'
-    alertDialogMessage.value = warnings.join('\n\n')
-  } else {
-    alertDialogTitle.value = '排班檢視完畢'
-    alertDialogMessage.value = '未發現明顯的排班或遺漏問題。'
-  }
-  isAlertDialogVisible.value = true
-}
-
-async function loadAllPatients() {
-  try {
-    allPatients.value = await patientsApi.fetchAll()
-  } catch (error) {
-    console.error('獲取病人資料失敗:', error)
-    statusIndicator.value = '讀取病人資料失敗'
-  }
-}
-
-async function loadDataForDay(date) {
-  hasUnsavedChanges.value = false
-  statusIndicator.value = '讀取中...'
-  const dateStr = formatDate(date)
-  try {
-    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
-    const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
-
-    const finalSchedule = {}
-    if (record.schedule) {
-      for (const shiftId in record.schedule) {
-        const dbSlotData = record.schedule[shiftId]
-        if (dbSlotData && dbSlotData.patientId) {
-          const patient = patientMap.value.get(dbSlotData.patientId)
-          const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
-          if (patient) {
-            mergedSlot.autoNote = generateAutoNote(patient)
-          }
-          finalSchedule[shiftId] = mergedSlot
-        }
-      }
-    }
-
-    Object.assign(currentRecord, {
-      id: record.id || null,
-      date: record.date,
-      schedule: finalSchedule,
-      names: record.names || {},
-    })
-    statusIndicator.value = record.id ? '資料已載入' : '本日無排程'
-  } catch (error) {
-    console.error('載入資料失敗:', error)
-    statusIndicator.value = '讀取失敗'
-  }
-}
-
-function changeDate(days) {
-  const newDate = new Date(currentDate.value)
-  newDate.setDate(newDate.getDate() + days)
-  currentDate.value = newDate
-}
-
-function goToToday() {
-  currentDate.value = new Date()
-}
-
 async function saveDataToCloud() {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：無法儲存或權限不足。')
+    return
+  }
+  // ... (省略內部實現，與之前版本相同)
   statusIndicator.value = '儲存中...'
   try {
     const cleanSchedule = {}
@@ -300,6 +197,10 @@ async function saveDataToCloud() {
 }
 
 function clearBoard() {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：無法清除。')
+    return
+  }
   if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
     currentRecord.schedule = {}
     setChange()
@@ -307,6 +208,10 @@ function clearBoard() {
 }
 
 async function copySchedule() {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：無法複製排程。')
+    return
+  }
   if (!copySourceDate.value || copySourceDate.value === formatDate(currentDate.value)) {
     alert('請選擇一個與當前不同的來源日期！')
     return
@@ -315,7 +220,7 @@ async function copySchedule() {
     !confirm(`確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`)
   )
     return
-
+  // ... (省略內部實現，與之前版本相同)
   statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
   try {
     const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
@@ -340,48 +245,20 @@ async function copySchedule() {
   }
 }
 
-function onBedDragStart(event, sourceShiftId) {
-  const slotData = currentRecord.schedule[sourceShiftId]
-  if (!slotData || !slotData.patientId) {
-    event.preventDefault()
-    return
-  }
-  event.dataTransfer.setData('sourceShiftId', sourceShiftId)
-  event.dataTransfer.setData('application/json', JSON.stringify(slotData))
-  event.dataTransfer.effectAllowed = 'move'
-}
-
-function onSidebarDragStart(event, patient) {
-  const slotData = {
-    ...createEmptySlotData('sidebar-source'),
-    patientId: patient.id,
-    autoNote: generateAutoNote(patient),
-    manualNote: patient.status === 'ipd' ? '住' : '',
-  }
-  event.dataTransfer.setData('application/json', JSON.stringify(slotData))
-  event.dataTransfer.effectAllowed = 'move'
-}
-
 function onDrop(event, targetShiftId) {
+  if (isPageLocked.value) return
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
   event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
-
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
   const droppedSlotData = JSON.parse(event.dataTransfer.getData('application/json'))
   if (!droppedSlotData || !droppedSlotData.patientId) return
-
   const patient = patientMap.value.get(droppedSlotData.patientId)
   if (!patient) return
-
   if (!sourceShiftId && scheduledPatientIds.value.has(patient.id)) {
-    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
-      return
-    }
+    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) return
   }
-
   const targetSlotData = currentRecord.schedule[targetShiftId]
-
   if (targetSlotData && targetSlotData.patientId) {
     if (!sourceShiftId) {
       alert('目標床位已被佔用，無法放置！')
@@ -391,58 +268,13 @@ function onDrop(event, targetShiftId) {
     currentRecord.schedule[sourceShiftId] = { ...targetSlotData, shiftId: sourceShiftId }
   } else {
     currentRecord.schedule[targetShiftId] = { ...droppedSlotData, shiftId: targetShiftId }
-    if (sourceShiftId) {
-      delete currentRecord.schedule[sourceShiftId]
-    }
+    if (sourceShiftId) delete currentRecord.schedule[sourceShiftId]
   }
   setChange()
 }
 
-function onDragOver(event) {
-  event.preventDefault()
-  const targetCell = event.target.closest('.patient-name, .peripheral-patient-name')
-  if (targetCell) {
-    targetCell.classList.add('drag-over')
-  }
-}
-
-function onDragLeave(event) {
-  event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
-}
-
-// 【修改】統一操作入口
-function handleSlotClick(shiftId) {
-  const slotData = currentRecord.schedule[shiftId]
-  if (slotData && slotData.patientId) {
-    const patient = patientMap.value.get(slotData.patientId)
-    if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
-      handleSlotUpdate(shiftId, null)
-    }
-  } else {
-    isAssignmentDialogVisible.value = true
-  }
-}
-
-// 【新增】處理來自 BedAssignmentDialog 的事件
-function handleAssignBed({ patientId, shiftId }) {
-  if (!patientId || !shiftId) return
-
-  if (scheduledPatientIds.value.has(patientId)) {
-    const patient = patientMap.value.get(patientId)
-    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) {
-      return
-    }
-  }
-
-  if (currentRecord.schedule[shiftId]?.patientId) {
-    alert('錯誤：目標床位已被佔用！')
-    return
-  }
-
-  handleSlotUpdate(shiftId, patientId)
-}
-
 function handleSlotUpdate(shiftId, patientId) {
+  if (isPageLocked.value) return
   if (patientId) {
     const patient = patientMap.value.get(patientId)
     currentRecord.schedule[shiftId] = {
@@ -457,7 +289,27 @@ function handleSlotUpdate(shiftId, patientId) {
   setChange()
 }
 
+function handleSlotClick(shiftId) {
+  if (isPageLocked.value) return
+  const slotData = currentRecord.schedule[shiftId]
+  if (slotData && slotData.patientId) {
+    const patient = patientMap.value.get(slotData.patientId)
+    if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
+      handleSlotUpdate(shiftId, null)
+    }
+  } else {
+    isAssignmentDialogVisible.value = true
+  }
+}
+
 function updateNurseTeam(event, shiftId, type) {
+  if (isPageLocked.value) {
+    event.target.value =
+      currentRecord.schedule[shiftId]?.[
+        type === 'single' ? 'nurseTeam' : type === 'in' ? 'nurseTeamIn' : 'nurseTeamOut'
+      ] || ''
+    return
+  }
   const value = event.target.value
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
@@ -469,6 +321,10 @@ function updateNurseTeam(event, shiftId, type) {
 }
 
 function updateNote(event, shiftId) {
+  if (isPageLocked.value) {
+    event.target.textContent = getCombinedNote(shiftId)
+    return
+  }
   const value = event.target.textContent
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
@@ -477,6 +333,10 @@ function updateNote(event, shiftId) {
 }
 
 const updateWardNumber = (event, shiftId) => {
+  if (isPageLocked.value) {
+    event.target.textContent = currentRecord.schedule[shiftId]?.wardNumber || ''
+    return
+  }
   const value = event.target.textContent.trim()
   if (!currentRecord.schedule[shiftId])
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
@@ -484,68 +344,202 @@ const updateWardNumber = (event, shiftId) => {
   setChange()
 }
 
+function onBedDragStart(event, sourceShiftId) {
+  if (isPageLocked.value) {
+    event.preventDefault()
+    return
+  }
+  const slotData = currentRecord.schedule[sourceShiftId]
+  if (!slotData || !slotData.patientId) {
+    event.preventDefault()
+    return
+  }
+  event.dataTransfer.setData('sourceShiftId', sourceShiftId)
+  event.dataTransfer.setData('application/json', JSON.stringify(slotData))
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+function onSidebarDragStart(event, patient) {
+  if (isPageLocked.value) {
+    event.preventDefault()
+    return
+  }
+  const slotData = {
+    ...createEmptySlotData('sidebar-source'),
+    patientId: patient.id,
+    autoNote: generateAutoNote(patient),
+    manualNote: patient.status === 'ipd' ? '住' : '',
+  }
+  event.dataTransfer.setData('application/json', JSON.stringify(slotData))
+  event.dataTransfer.effectAllowed = 'move'
+}
+
+function changeDate(days) {
+  if (hasUnsavedChanges.value && !isPageLocked.value) {
+    if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+  }
+  const newDate = new Date(currentDate.value)
+  newDate.setDate(newDate.getDate() + days)
+  currentDate.value = newDate
+}
+
+function goToToday() {
+  if (hasUnsavedChanges.value && !isPageLocked.value) {
+    if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
+  }
+  currentDate.value = new Date()
+}
+
+// --- 以下為非修改性質的函式 ---
+async function loadAllPatients() {
+  try {
+    allPatients.value = await patientsApi.fetchAll()
+  } catch (error) {
+    console.error('獲取病人資料失敗:', error)
+    statusIndicator.value = '讀取病人資料失敗'
+  }
+}
+async function loadDataForDay(date) {
+  hasUnsavedChanges.value = false
+  statusIndicator.value = '讀取中...'
+  const dateStr = formatDate(date)
+  try {
+    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+    const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+    const finalSchedule = {}
+    if (record.schedule) {
+      for (const shiftId in record.schedule) {
+        const dbSlotData = record.schedule[shiftId]
+        if (dbSlotData && dbSlotData.patientId) {
+          const patient = patientMap.value.get(dbSlotData.patientId)
+          const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
+          if (patient) {
+            mergedSlot.autoNote = generateAutoNote(patient)
+          }
+          finalSchedule[shiftId] = mergedSlot
+        }
+      }
+    }
+    Object.assign(currentRecord, {
+      id: record.id || null,
+      date: record.date,
+      schedule: finalSchedule,
+      names: record.names || {},
+    })
+    statusIndicator.value = record.id ? '資料已載入' : '本日無排程'
+  } catch (error) {
+    console.error('載入資料失敗:', error)
+    statusIndicator.value = '讀取失敗'
+  }
+}
+function shouldPatientBeScheduled(patient, dayOfWeek) {
+  if (!patient.freq) return false
+  const scheduledDays = freqToDays[patient.freq]
+  const checkDay = dayOfWeek === 0 ? 7 : dayOfWeek
+  return scheduledDays ? scheduledDays.includes(checkDay) : false
+}
+function runScheduleCheck() {
+  const warnings = []
+  const dayOfWeek = currentDate.value.getDay()
+  const todayScheduledPatientIds = new Set(scheduledPatientIds.value)
+  const duplicateNames = new Set()
+  let tempScheduled = {}
+  Object.values(currentRecord.schedule).forEach((slot) => {
+    if (slot && slot.patientId) {
+      if (tempScheduled[slot.patientId]) {
+        const patientName = patientMap.value.get(slot.patientId)?.name
+        if (patientName) duplicateNames.add(patientName)
+      }
+      tempScheduled[slot.patientId] = true
+    }
+  })
+  if (duplicateNames.size > 0) {
+    warnings.push(
+      `【重複排班】:\n- 病人 ${Array.from(duplicateNames).join(', ')} 在本日出現超過一次。`,
+    )
+  }
+  const allPatientsToCheck = allPatients.value.filter((p) => !p.isDeleted)
+  const missingPatients = allPatientsToCheck.filter((p) => {
+    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
+    return shouldBeScheduled && !todayScheduledPatientIds.has(p.id)
+  })
+  if (missingPatients.length > 0) {
+    const missingPatientNames = missingPatients
+      .map((p) => `${p.name} (${p.status === 'ipd' ? '住院' : '門診'})`)
+      .join('\n- ')
+    warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
+  }
+  if (warnings.length > 0) {
+    alertDialogTitle.value = '排班檢視警告'
+    alertDialogMessage.value = warnings.join('\n\n')
+  } else {
+    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogMessage.value = '未發現明顯的排班或遺漏問題。'
+  }
+  isAlertDialogVisible.value = true
+}
+function onDragOver(event) {
+  if (isPageLocked.value) return
+  event.preventDefault()
+  const targetCell = event.target.closest('.patient-name, .peripheral-patient-name')
+  if (targetCell) {
+    targetCell.classList.add('drag-over')
+  }
+}
+function onDragLeave(event) {
+  event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
+}
+function handleAssignBed({ patientId, shiftId }) {
+  if (!patientId || !shiftId) return
+  if (isPageLocked.value) return
+  if (scheduledPatientIds.value.has(patientId)) {
+    const patient = patientMap.value.get(patientId)
+    if (!confirm(`警告：病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`)) return
+  }
+  if (currentRecord.schedule[shiftId]?.patientId) {
+    alert('錯誤：目標床位已被佔用！')
+    return
+  }
+  handleSlotUpdate(shiftId, patientId)
+}
 function getPatientName(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   return patientMap.value.get(patientId)?.name || ''
 }
-
 function getCombinedNote(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return ''
-
   const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
-
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
-
-  // 在組合後，過濾掉 '住' 這個標籤
   const finalTags = combinedTags.filter((tag) => tag !== '住')
-
   return finalTags.join(' ')
 }
-
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
-
   const patient = patientMap.value.get(slotData.patientId)
   const combinedNote = getCombinedNote(shiftId)
-
-  // 1. 特殊標籤優先
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
-      // 在每日排程中，'住' 和 '隔' 等標籤通常表示住院，
-      // 我們可以讓它直接套用住院顏色，而不是 tag-ip 自己的顏色
-      if (key === '住' || key === '隔' || key === 'R') {
-        return { 'status-ipd': true }
-      }
+      if (key === '住' || key === '隔' || key === 'R') return { 'status-ipd': true }
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-
-  // 2. 根據病人狀態設定背景色
   if (patient) {
-    if (patient.status === 'ipd') {
-      return { 'status-ipd': true }
-    }
-    if (patient.status === 'opd') {
-      return { 'status-opd': true }
-    }
+    if (patient.status === 'ipd') return { 'status-ipd': true }
+    if (patient.status === 'opd') return { 'status-opd': true }
   }
-
   return {}
 }
-
 function triggerPrint() {
   window.print()
 }
 
-// --- 生命週期 & 監聽 ---
 onMounted(async () => {
   await loadAllPatients()
   await loadDataForDay(currentDate.value)
 })
-
 watch(currentDate, (newDate, oldDate) => {
   if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
     loadDataForDay(newDate)
@@ -567,11 +561,21 @@ watch(currentDate, (newDate, oldDate) => {
             <button @click="goToToday">回到今日</button>
           </div>
           <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
-          <button class="btn btn-info" @click="isAssignmentDialogVisible = true">智慧排班</button>
+          <button
+            class="btn btn-info"
+            @click="isAssignmentDialogVisible = true"
+            :disabled="isPageLocked"
+          >
+            智慧排班
+          </button>
         </div>
         <div class="toolbar-right">
           <span class="status-indicator">{{ statusIndicator }}</span>
-          <button class="btn btn-success" @click="saveDataToCloud" :disabled="!hasUnsavedChanges">
+          <button
+            class="btn btn-success"
+            @click="saveDataToCloud"
+            :disabled="!hasUnsavedChanges || isPageLocked"
+          >
             儲存
           </button>
           <button class="btn btn-info" @click="triggerPrint">列印</button>
@@ -579,9 +583,11 @@ watch(currentDate, (newDate, oldDate) => {
       </div>
       <div class="controls-panel">
         <div class="controls-left">
-          <button class="btn btn-secondary" @click="clearBoard">清除畫面</button>
-          <input type="date" v-model="copySourceDate" />
-          <button class="add-btn" @click="copySchedule">從他日複製</button>
+          <button class="btn btn-secondary" @click="clearBoard" :disabled="isPageLocked">
+            清除畫面
+          </button>
+          <input type="date" v-model="copySourceDate" :disabled="isPageLocked" />
+          <button class="add-btn" @click="copySchedule" :disabled="isPageLocked">從他日複製</button>
         </div>
         <div class="controls-right">
           <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
@@ -589,7 +595,7 @@ watch(currentDate, (newDate, oldDate) => {
       </div>
     </header>
 
-    <main class="page-main-content">
+    <main class="page-main-content" :class="{ 'is-locked': isPageLocked }">
       <div class="schedule-content">
         <div class="dialysis-unit">
           <template
@@ -627,12 +633,12 @@ watch(currentDate, (newDate, oldDate) => {
                       ]"
                     >
                       <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
-
                       <div v-if="shiftCode === SHIFT_CODES.NOON" class="nurse-split-column">
                         <select
                           class="nurse-team-select nurse-in"
                           :value="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.nurseTeamIn"
                           @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'in')"
+                          :disabled="isPageLocked"
                         >
                           <option value="">上針</option>
                           <option v-for="team in earlyTeams" :key="team" :value="team">
@@ -645,6 +651,7 @@ watch(currentDate, (newDate, oldDate) => {
                             currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.nurseTeamOut
                           "
                           @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'out')"
+                          :disabled="isPageLocked"
                         >
                           <option value="">收針</option>
                           <option v-for="team in allTeams" :key="team" :value="team">
@@ -657,6 +664,7 @@ watch(currentDate, (newDate, oldDate) => {
                         class="nurse-team-select"
                         :value="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.nurseTeam"
                         @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'single')"
+                        :disabled="isPageLocked"
                       >
                         <option value="">-</option>
                         <option
@@ -667,11 +675,9 @@ watch(currentDate, (newDate, oldDate) => {
                           {{ team }}組
                         </option>
                       </select>
-
-                      <!-- ======================= 【核心修改區域 1: 模板邏輯】 ======================= -->
                       <div
                         class="patient-name"
-                        draggable="true"
+                        :draggable="!isPageLocked && !!getPatientName(`bed-${bedNum}-${shiftCode}`)"
                         @click="handleSlotClick(`bed-${bedNum}-${shiftCode}`)"
                         @drop="onDrop($event, `bed-${bedNum}-${shiftCode}`)"
                         @dragover="onDragOver"
@@ -683,11 +689,9 @@ watch(currentDate, (newDate, oldDate) => {
                         }}</span>
                         <span v-else class="empty-slot-placeholder">+</span>
                       </div>
-                      <!-- ============================= 【修改結束】 ============================== -->
-
                       <div
                         class="patient-tag"
-                        contenteditable="true"
+                        :contenteditable="!isPageLocked"
                         @blur="updateNote($event, `bed-${bedNum}-${shiftCode}`)"
                         @drop="onDrop($event, `bed-${bedNum}-${shiftCode}`)"
                         @dragover="onDragOver"
@@ -722,6 +726,7 @@ watch(currentDate, (newDate, oldDate) => {
                     class="nurse-team-select"
                     :value="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeam"
                     @change="updateNurseTeam($event, `peripheral-${i}-${shiftCode}`, 'single')"
+                    :disabled="isPageLocked"
                   >
                     <option value="">-</option>
                     <option
@@ -738,15 +743,14 @@ watch(currentDate, (newDate, oldDate) => {
                   </select>
                   <div
                     class="peripheral-bed-number"
-                    contenteditable="true"
+                    :contenteditable="!isPageLocked"
                     @blur="updateWardNumber($event, `peripheral-${i}-${shiftCode}`)"
                   >
                     {{ currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber }}
                   </div>
-                  <!-- ======================= 【核心修改區域 2: 模板邏輯】 ======================= -->
                   <div
                     class="peripheral-patient-name"
-                    draggable="true"
+                    :draggable="!isPageLocked && !!getPatientName(`peripheral-${i}-${shiftCode}`)"
                     @click="handleSlotClick(`peripheral-${i}-${shiftCode}`)"
                     @drop="onDrop($event, `peripheral-${i}-${shiftCode}`)"
                     @dragover="onDragOver"
@@ -758,10 +762,9 @@ watch(currentDate, (newDate, oldDate) => {
                     }}</span>
                     <span v-else class="empty-slot-placeholder">+</span>
                   </div>
-                  <!-- ============================= 【修改結束】 ============================== -->
                   <div
                     class="patient-tag"
-                    contenteditable="true"
+                    :contenteditable="!isPageLocked"
                     @blur="updateNote($event, `peripheral-${i}-${shiftCode}`)"
                     @drop="onDrop($event, `peripheral-${i}-${shiftCode}`)"
                     @dragover="onDragOver"
@@ -779,11 +782,11 @@ watch(currentDate, (newDate, oldDate) => {
         :patients="allPatients"
         :scheduled-ids="scheduledPatientIds"
         @drag-start="onSidebarDragStart"
+        :class="{ 'sidebar-locked': isPageLocked }"
       />
     </main>
   </div>
 
-  <!-- Dialogs -->
   <BedAssignmentDialog
     :is-visible="isAssignmentDialogVisible"
     :all-patients="allPatients"
@@ -806,7 +809,7 @@ watch(currentDate, (newDate, oldDate) => {
 
 <style scoped>
 /* ==========================================================================
-   1. 頁面整體佈局 (Layout)
+   1. 頁面整體佈局 (Layout) - 保持不變
    ========================================================================== */
 .page-container {
   display: flex;
@@ -832,7 +835,7 @@ watch(currentDate, (newDate, oldDate) => {
 }
 .inpatient-sidebar {
   flex-shrink: 0;
-  width: 240px; /* 根據 InpatientSidebar.vue 的寬度調整 */
+  width: 240px;
   border-left: 1px solid #e0e0e0;
   display: flex;
   flex-direction: column;
@@ -840,7 +843,7 @@ watch(currentDate, (newDate, oldDate) => {
 }
 
 /* ==========================================================================
-   2. 元件樣式 (Components)
+   2. 元件樣式 (Components) - 保持不變
    ========================================================================== */
 .header-toolbar {
   display: flex;
@@ -881,6 +884,7 @@ watch(currentDate, (newDate, oldDate) => {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
+  margin-top: 1rem;
 }
 .controls-left,
 .controls-right {
@@ -922,7 +926,6 @@ button {
   color: white;
   border-color: #007bff;
 }
-
 .controls-panel input[type='date'] {
   padding: 8px 15px;
   font-size: 0.95em;
@@ -937,7 +940,7 @@ button {
 }
 
 /* ==========================================================================
-   3. 床位與排程樣式 (Bed & Schedule Styles)
+   3. 床位與排程樣式 (Bed & Schedule Styles) - 保持不變
    ========================================================================== */
 .dialysis-unit {
   display: grid;
@@ -1042,10 +1045,8 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 4px 6px;
-
-  /* 新增樣式 */
-  color: #dc3545; /* 紅色字體 */
-  font-weight: bold; /* 粗體 */
+  color: #dc3545;
+  font-weight: bold;
 }
 .nurse-team-select {
   padding: 4px;
@@ -1114,6 +1115,24 @@ button {
 .peripheral-shift-row.tag-b {
   background-color: #fff9c4;
 }
+.patient-name,
+.peripheral-patient-name {
+  font-size: 1.1em;
+  font-weight: bold; /* <--- 新增此行 */
+  padding: 4px 6px;
+  width: 100%;
+  height: 100%;
+}
+.empty-slot-placeholder {
+  color: #adb5bd;
+  font-size: 1.5rem;
+  user-select: none;
+  transition: color 0.2s;
+}
+.patient-name:hover .empty-slot-placeholder,
+.peripheral-patient-name:hover .empty-slot-placeholder {
+  color: #007bff;
+}
 .patient-name.drag-over,
 .peripheral-patient-name.drag-over {
   background-color: #c8e6c9 !important;
@@ -1135,32 +1154,10 @@ button {
   color: #c2185b;
 }
 
-/* ======================= 【核心修改區域 3: CSS樣式】 ======================= */
-.patient-name,
-.peripheral-patient-name {
-  font-size: 1.1em;
-  padding: 4px 6px;
-  /* 讓格子填滿，這樣 hover 和 drop 區域才夠大 */
-  width: 100%;
-  height: 100%;
-}
-
-.empty-slot-placeholder {
-  color: #adb5bd;
-  font-size: 1.5rem;
-  user-select: none;
-  transition: color 0.2s;
-}
-
-/* 讓 hover 效果作用在整個 patient-name 格子上 */
-.patient-name:hover .empty-slot-placeholder,
-.peripheral-patient-name:hover .empty-slot-placeholder {
-  color: #007bff;
-}
-/* ============================= 【修改結束】 ============================== */
-
+/* ==========================================================================
+   4. 列印樣式 (Print Styles) - 保持不變
+   ========================================================================== */
 @media print {
-  /* 列印樣式 */
   body,
   html {
     -webkit-print-color-adjust: exact;
@@ -1185,5 +1182,46 @@ button {
   .schedule-content {
     overflow: visible !important;
   }
+}
+
+/* ==========================================================================
+   5. 【修正後】的鎖定相關樣式 - 不影響字體清晰度
+   ========================================================================== */
+
+/* 鎖定時，禁用按鈕的外觀 */
+.is-locked .btn,
+.is-locked button,
+.is-locked input {
+  opacity: 0.65;
+}
+
+/* 鎖定時，整個主內容區塊的滑鼠指標變為「不允許」 */
+.is-locked .page-main-content {
+  cursor: not-allowed;
+}
+
+/* 僅將背景變灰，不使用 opacity 以免影響子元素文字清晰度 */
+.is-locked .schedule-content {
+  background-color: #f5f5f5;
+}
+.is-locked .sidebar-locked {
+  background-color: #f5f5f5;
+}
+
+/* 鎖定時，側邊欄和可編輯/可拖曳的元素禁用滑鼠事件，並降低透明度 */
+.sidebar-locked,
+.is-locked [contenteditable='true'],
+.is-locked [draggable='true'],
+.is-locked .nurse-team-select,
+.is-locked .patient-name,
+.is-locked .peripheral-patient-name {
+  pointer-events: none;
+  opacity: 0.8; /* 將透明度應用在這些可操作元素上，而不是整個容器 */
+}
+
+/* 禁用 hover 效果 */
+.is-locked .patient-name:hover .empty-slot-placeholder,
+.is-locked .peripheral-patient-name:hover .empty-slot-placeholder {
+  color: #adb5bd;
 }
 </style>

@@ -1,16 +1,19 @@
-<!-- 檔案路徑: src/views/StatsView.vue (總計人數最終修正版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (階段三完成 - 完整無省略版) -->
 <script setup>
-import { ref, onMounted, computed, reactive } from 'vue'
+import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
+import { useAuth } from '@/composables/useAuth.js' // 1. 引入 useAuth
 
-// --- Script 的前半部分保持不變 ---
+// --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
 const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
+
+// --- 常量 ---
 const nurseNameList = [
   '陳素秋',
   '古孟麗',
@@ -41,14 +44,29 @@ const nurseNameList = [
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const earlyTeams = baseTeams.map((t) => `早${t}`)
 const lateTeams = baseTeams.map((t) => `晚${t}`)
+
+// --- 核心狀態 ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
 const allMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
+
+// --- UI 狀態 ---
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
+
+// 2. 使用 useAuth 和建立 isPageLocked
+const { isReadOnly } = useAuth()
+const isPageLocked = computed(() => {
+  if (isReadOnly.value) return true // 權限鎖定
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return currentDate.value < today // 日期鎖定
+})
+
+// --- Helper Functions & 計算屬性 ---
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
@@ -83,7 +101,6 @@ const weekdayDisplay = computed(() => {
   const dayIndex = new Date(currentDate.value).getDay()
   return weekdays[dayIndex]
 })
-
 const statsData = computed(() => {
   if (!currentRecord.schedule) {
     return { early: {}, late: {} }
@@ -202,7 +219,6 @@ const statsData = computed(() => {
       if (group.patients) group.patients.sort(sortPatientsByBed)
     })
   }
-
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
     teamData.totalOpdCount = teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount
@@ -213,9 +229,11 @@ const statsData = computed(() => {
     teamData.totalOpdCount = teamData.lateShift.opdCount
     teamData.totalIpdCount = teamData.lateShift.ipdCount
   }
-
   return { early: earlyShiftStats, late: lateShiftStats }
 })
+
+// --- 方法 ---
+
 async function loadData(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
@@ -252,7 +270,19 @@ async function loadData(date) {
     statusIndicator.value = '讀取失敗'
   }
 }
+
+// 3. 為所有修改函式添加 isPageLocked 保護
+function setChange() {
+  if (isPageLocked.value) return
+  hasUnsavedChanges.value = true
+  statusIndicator.value = '有未儲存的變更'
+}
+
 async function saveChangesToCloud() {
+  if (isPageLocked.value) {
+    alert('操作被鎖定：無法儲存或權限不足。')
+    return
+  }
   if (!currentRecord.id && Object.keys(currentRecord.schedule).length === 0) {
     alert('沒有資料可以儲存。')
     return
@@ -296,7 +326,9 @@ async function saveChangesToCloud() {
     alert(`儲存失敗: ${error.message}`)
   }
 }
+
 function onDrop(event, newTeam, newResponsibility) {
+  if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
@@ -333,37 +365,25 @@ function onDrop(event, newTeam, newResponsibility) {
   currentRecord.schedule[newShiftId] = movingSlotData
   setChange()
 }
+
 function onDragStart(event, patientDetail, responsibility) {
+  if (isPageLocked.value) {
+    event.preventDefault()
+    return
+  }
   event.dataTransfer.setData('application/json', JSON.stringify(patientDetail))
   event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
-function onDragOver(event) {
-  event.preventDefault()
-  event.currentTarget.classList.add('drag-over-active')
-}
-function onDragLeave(event) {
-  event.currentTarget.classList.remove('drag-over-active')
-}
-function changeDate(days) {
-  const newDate = new Date(currentDate.value)
-  newDate.setDate(newDate.getDate() + days)
-  currentDate.value = newDate
-  loadData(newDate)
-}
-function goToToday() {
-  currentDate.value = new Date()
-  loadData(currentDate.value)
-}
-function setChange() {
-  hasUnsavedChanges.value = true
-  statusIndicator.value = '有未儲存的變更'
-}
+
 function openBedChangeDialog(patientDetail) {
+  if (isPageLocked.value) return
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
+
 function handleBedChange({ oldShiftId, newShiftId }) {
+  if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error('換床失敗，參數無效或找不到舊床位資料。')
     return
@@ -374,21 +394,57 @@ function handleBedChange({ oldShiftId, newShiftId }) {
   setChange()
   isBedChangeDialogVisible.value = false
 }
-function handleDialogCancel() {
-  isBedChangeDialogVisible.value = false
-}
+
 function updateNurseName(teamId, event) {
+  if (isPageLocked.value) {
+    event.target.value = currentRecord.names?.[teamId] || ''
+    return
+  }
   if (!currentRecord.names) {
     currentRecord.names = {}
   }
   currentRecord.names[teamId] = event.target.value
   setChange()
 }
+
+function changeDate(days) {
+  if (hasUnsavedChanges.value && !isPageLocked.value) {
+    if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+  }
+  const newDate = new Date(currentDate.value)
+  newDate.setDate(newDate.getDate() + days)
+  currentDate.value = newDate
+  loadData(newDate)
+}
+
+function goToToday() {
+  if (hasUnsavedChanges.value && !isPageLocked.value) {
+    if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
+  }
+  currentDate.value = new Date()
+  loadData(currentDate.value)
+}
+
+function onDragOver(event) {
+  if (isPageLocked.value) return
+  event.preventDefault()
+  event.currentTarget.classList.add('drag-over-active')
+}
+function onDragLeave(event) {
+  event.currentTarget.classList.remove('drag-over-active')
+}
+function handleDialogCancel() {
+  isBedChangeDialogVisible.value = false
+}
 function triggerPrint() {
   window.print()
 }
+
 onMounted(() => {
   loadData(currentDate.value)
+})
+watch(currentDate, (newDate) => {
+  loadData(newDate)
 })
 </script>
 
@@ -407,7 +463,11 @@ onMounted(() => {
       </div>
       <div class="toolbar-right">
         <span class="status-indicator">{{ statusIndicator }}</span>
-        <button id="save-changes-btn" :disabled="!hasUnsavedChanges" @click="saveChangesToCloud">
+        <button
+          id="save-changes-btn"
+          :disabled="!hasUnsavedChanges || isPageLocked"
+          @click="saveChangesToCloud"
+        >
           儲存變更
         </button>
         <button @click="triggerPrint">列印報表</button>
@@ -415,7 +475,7 @@ onMounted(() => {
     </div>
 
     <!-- 早班組別 -->
-    <div class="stats-section">
+    <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>早班組別</h2>
       <div class="grid-container">
         <div class="grid-header">
@@ -436,6 +496,7 @@ onMounted(() => {
                 :value="teamData.nurseName"
                 @change="updateNurseName(teamName, $event)"
                 class="name-select"
+                :disabled="isPageLocked"
               >
                 <option value="">-- 未指派 --</option>
                 <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
@@ -457,7 +518,7 @@ onMounted(() => {
                   v-for="patient in teamData.earlyShift.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
-                  draggable="true"
+                  :draggable="!isPageLocked"
                   @dragstart="onDragStart($event, patient, 'earlyShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
@@ -481,7 +542,7 @@ onMounted(() => {
                   v-for="patient in teamData.noonShiftOn.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
-                  draggable="true"
+                  :draggable="!isPageLocked"
                   @dragstart="onDragStart($event, patient, 'noonShiftOn')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
@@ -505,7 +566,7 @@ onMounted(() => {
                   v-for="patient in teamData.noonShiftOff.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
-                  draggable="true"
+                  :draggable="!isPageLocked"
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
@@ -515,10 +576,8 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <!-- ======================= 【核心修正】 ======================= -->
         <div class="grid-footer">
           <div class="row-header">照護人數</div>
-          <!-- 使用 (值, 鍵) 的方式遍歷，並用唯一的 `teamName` 作為 key -->
           <div
             v-for="(teamData, teamName) in statsData.early"
             :key="teamName"
@@ -527,12 +586,11 @@ onMounted(() => {
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
           </div>
         </div>
-        <!-- ===================== 【修正結束】 ===================== -->
       </div>
     </div>
 
     <!-- 晚班組別 -->
-    <div class="stats-section">
+    <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>晚班組別</h2>
       <div class="grid-container">
         <div class="grid-header">
@@ -553,6 +611,7 @@ onMounted(() => {
                 :value="teamData.nurseName"
                 @change="updateNurseName(teamName, $event)"
                 class="name-select"
+                :disabled="isPageLocked"
               >
                 <option value="">-- 未指派 --</option>
                 <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
@@ -574,7 +633,7 @@ onMounted(() => {
                   v-for="patient in teamData.noonShiftOff.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
-                  draggable="true"
+                  :draggable="!isPageLocked"
                   @dragstart="onDragStart($event, patient, 'noonShiftOff')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
@@ -598,7 +657,7 @@ onMounted(() => {
                   v-for="patient in teamData.lateShift.patients"
                   :key="patient.shiftId"
                   :class="patient.classes"
-                  draggable="true"
+                  :draggable="!isPageLocked"
                   @dragstart="onDragStart($event, patient, 'lateShift')"
                   @click="openBedChangeDialog(patient)"
                   title="拖曳換組/班，點擊換床"
@@ -608,10 +667,8 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <!-- ======================= 【核心修正】 ======================= -->
         <div class="grid-footer">
           <div class="row-header">照護人數</div>
-          <!-- 使用 (值, 鍵) 的方式遍歷，並用唯一的 `teamName` 作為 key -->
           <div
             v-for="(teamData, teamName) in statsData.late"
             :key="teamName"
@@ -620,7 +677,6 @@ onMounted(() => {
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
           </div>
         </div>
-        <!-- ===================== 【修正結束】 ===================== -->
       </div>
     </div>
 
@@ -634,16 +690,19 @@ onMounted(() => {
   </div>
 </template>
 
+/* 檔案路徑: src/views/StatsView.vue */
 <style scoped>
-.page-container {
-  padding: 20px;
-}
+/* ==========================================================================
+   您的原始樣式 - 完整保留
+   ========================================================================== */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 20px;
+  /* 【注意】您原始碼中缺少 margin-bottom，這裡為您補上以保持佈局 */
+  margin-bottom: 20px;
 }
 .toolbar-left,
 .toolbar-right {
@@ -854,5 +913,27 @@ onMounted(() => {
 .patient-item.has-note-highlight {
   color: #c62828;
   font-weight: bold;
+}
+
+/* ==========================================================================
+   【追加】的鎖定相關樣式 - 不影響文字清晰度
+   ========================================================================== */
+.is-locked button:not([@click='triggerPrint']) {
+  opacity: 0.65;
+  pointer-events: none;
+}
+.is-locked .stats-section {
+  cursor: not-allowed;
+}
+.is-locked .patient-list-cell {
+  background-color: #f5f5f5; /* 將背景變灰，提示不可操作 */
+}
+.is-locked .patient-item,
+.is-locked .name-select {
+  pointer-events: none; /* 禁用滑鼠事件 */
+  /* 不設定 opacity，保持文字清晰 */
+}
+.is-locked .name-select {
+  background-color: #eeeeee; /* 給禁用的下拉選單一個不同的背景色 */
 }
 </style>
