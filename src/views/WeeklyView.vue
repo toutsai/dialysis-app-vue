@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (排班檢視與智慧排床功能拆分版) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (Memo彈窗整合最終版) -->
 <script setup>
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -16,8 +16,9 @@ import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】引入新元件
 
-// --- 輔助函式 ---
+// --- 輔助函式 (保持不變) ---
 function getStartOfWeek(date) {
   const d = new Date(date)
   const day = d.getDay()
@@ -44,12 +45,13 @@ function formatDateForQuery(date) {
   return `${year}-${month}-${day}`
 }
 
-// --- API 實例 ---
+// --- API 實例 (保持不變) ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const baseSchedulesApi = ApiManager('base_schedules')
+const memosApi = ApiManager('memos')
 
-// --- 常量定義 ---
+// --- 常量定義 (保持不變) ---
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const PATIENT_STATUS = { INPATIENT: 'ipd' }
@@ -81,10 +83,11 @@ const STYLE_PRIORITY = {
   B: { class: 'tag-b' },
 }
 
-// --- 核心狀態 ---
+// --- 核心狀態 (保持不變) ---
 const allPatients = ref([])
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
+const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusText = ref('資料已載入')
 const draggedItem = ref(null)
@@ -103,13 +106,20 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const problemsToSolve = ref(null)
+// 【新增】Memo Dialog 相關狀態
+const isMemoDialogVisible = ref(false)
+const memosForDialog = ref([])
+const patientNameForDialog = ref('')
 
-// --- 權限與鎖定 ---
+// --- 權限與鎖定 (保持不變) ---
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
-// --- 計算屬性 ---
+// --- 計算屬性 (保持不變) ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+const patientWithMemoIds = computed(() => {
+  return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
+})
 const weekDisplay = computed(() => {
   const start = new Date(currentWeekStartDate.value)
   const end = new Date(start)
@@ -124,19 +134,42 @@ const weekDates = computed(() => {
   })
 })
 const statsToolbarData = computed(() => {
+  // 【修改1】: 基礎資料結構現在包含 opd 和 ipd 計數
   const baseData = WEEKDAYS.map(() => ({
-    counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 },
+    counts: {
+      early: { total: 0, opd: 0, ipd: 0 },
+      noon: { total: 0, opd: 0, ipd: 0 },
+      late: { total: 0, opd: 0, ipd: 0 },
+    },
+    total: 0, // 【新增】: 用於儲存當日總人數
   }))
+
+  // 這個 patientMap 必須能從 allPatients 獲取，確保它已經被載入
+  const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
+
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.patientId && slotData.shiftId) {
+            const patient = localPatientMap.get(slotData.patientId)
+            if (!patient) continue // 如果找不到病人資料，則跳過
+
             const shiftCode = slotData.shiftId.split('-')[2]
-            if (baseData[dayIndex].counts[shiftCode] !== undefined) {
-              baseData[dayIndex].counts[shiftCode]++
+            const shiftStats = baseData[dayIndex].counts[shiftCode]
+
+            if (shiftStats) {
+              // 【修改2】: 同時更新 total, opd, ipd 計數
+              shiftStats.total++
+              baseData[dayIndex].total++ // 更新當日總人數
+              if (patient.status === 'opd') {
+                shiftStats.opd++
+              } else if (patient.status === 'ipd') {
+                shiftStats.ipd++
+              }
             }
           }
         }
@@ -186,6 +219,23 @@ const scheduledPatientIds = computed(() => {
 
 // --- 方法 ---
 
+// 【新增】處理顯示備忘錄對話框的函式
+function showPatientMemos(patientId) {
+  if (!patientId) return
+
+  const patient = patientMap.value.get(patientId)
+  if (!patient) return
+
+  // 從 activeMemos 中篩選出該病人的未處理備忘
+  memosForDialog.value = activeMemos.value.filter(
+    (memo) => memo.patientId === patientId && !memo.isResolved,
+  )
+
+  patientNameForDialog.value = patient.name
+  isMemoDialogVisible.value = true
+}
+
+// (其他方法保持不變)
 function isDateInPast(dayIndex) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -449,7 +499,6 @@ function onSidebarDragStart(event, patient) {
   }
   event.dataTransfer.effectAllowed = 'move'
 }
-
 async function loadBaseSchedule() {
   if (isReadOnly.value) {
     alert('操作被鎖定：權限不足。')
@@ -520,7 +569,6 @@ async function loadBaseSchedule() {
     statusText.value = '載入失敗'
   }
 }
-
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !isReadOnly.value) {
     if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
@@ -543,11 +591,16 @@ async function loadAllData() {
   try {
     const datesForQuery = weekDates.value.map((d) => d.queryDate)
     if (datesForQuery.length === 0) return
-    const [patients, weeklyRecords] = await Promise.all([
+
+    const [patients, weeklyRecords, memos] = await Promise.all([
       patientsApi.fetchAll(),
       schedulesApi.fetchAll([where('date', 'in', datesForQuery)]),
+      memosApi.fetchAll([where('isResolved', '==', false)]),
     ])
+
     allPatients.value = patients
+    activeMemos.value = memos
+
     const localPatientMap = new Map(patients.map((p) => [p.id, p]))
     const newWeekRecords = new Map()
     weeklyRecords.forEach((record) => {
@@ -621,8 +674,6 @@ function onDragOver(event) {
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
-
-// 【修改 1】: runScheduleCheck 函式現在只專注於檢查「已排班」的問題
 function runScheduleCheck() {
   const validationResult = { freqMismatch: [], duplicates: [] }
   const patientSchedules = {}
@@ -704,8 +755,6 @@ function runScheduleCheck() {
   }
   isAlertDialogVisible.value = true
 }
-
-// 【修改 2】: 新增一個專門處理「智慧排床」的函式
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
 
@@ -755,7 +804,6 @@ onUnmounted(() => {
             <div class="main-actions">
               <button @click="goToToday">回到本週</button>
               <button @click="loadBaseSchedule" :disabled="isPageLocked">載入常規班表</button>
-              <!-- 【修改 3】: 將一個按鈕拆分為兩個 -->
               <button class="btn btn-info" @click="runScheduleCheck">排班檢視</button>
               <button
                 class="btn btn-warning"
@@ -786,6 +834,7 @@ onUnmounted(() => {
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
           />
+          <!-- 【修改】監聽 show-memos 事件 -->
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -797,11 +846,13 @@ onUnmounted(() => {
             :hepatitis-beds="hepatitisBeds"
             :get-style-func="getWeeklyCellStyle"
             :is-date-in-past="isDateInPast"
+            :patient-with-memo-ids="patientWithMemoIds"
             @grid-click="handleGridClick"
             @drop="onDrop"
             @drag-start="onDragStart"
             @drag-over="onDragOver"
             @dragleave="onDragLeave"
+            @show-memos="showPatientMemos"
           />
         </div>
         <InpatientSidebar
@@ -814,6 +865,15 @@ onUnmounted(() => {
     </div>
 
     <!-- Dialogs -->
+
+    <!-- 【新增】Memo 顯示對話框 -->
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-name="patientNameForDialog"
+      :memos="memosForDialog"
+      @close="isMemoDialogVisible = false"
+    />
+
     <BedAssignmentDialog
       :is-visible="isProblemSolverDialogVisible"
       :all-patients="allPatients"
@@ -858,6 +918,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Style 部分完全不變 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -867,6 +928,8 @@ onUnmounted(() => {
 }
 .page-header {
   border-bottom: 1px solid #dee2e6;
+  background-color: #fff;
+  flex-shrink: 0;
 }
 .header-toolbar {
   display: flex;

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (排班檢視與智慧排床功能拆分版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (Memo彈窗整合最終版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -14,12 +14,14 @@ import ScheduleTable from '@/components/ScheduleTable.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】
 
 // --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
+const memosApi = ApiManager('memos') // <-- 【新增】
 
-// --- 常量定義 ---
+// --- 常量定義 (保持不變) ---
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const bedLayout = [
@@ -52,6 +54,7 @@ const CLEAR_OPTIONS = [
 // --- 核心狀態 ---
 const allOpdPatients = ref([])
 const masterRecord = ref({ id: 'MASTER_SCHEDULE', schedule: {} })
+const activeMemos = ref([]) // <-- 【新增】
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
 const draggedItem = ref(null)
@@ -67,6 +70,10 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const isAssignmentDialogVisible = ref(false)
+// 【新增】Memo Dialog 相關狀態
+const isMemoDialogVisible = ref(false)
+const memosForDialog = ref([])
+const patientNameForDialog = ref('')
 
 // --- 權限與鎖定 ---
 const { isReadOnly } = useAuth()
@@ -74,18 +81,43 @@ const isPageLocked = computed(() => isReadOnly.value)
 
 // --- 計算屬性 ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
+// 【新增】
+const patientWithMemoIds = computed(() => {
+  return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
+})
+// 【修改】這個計算屬性，使其產生詳細數據
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
-    counts: { [SHIFTS[0]]: 0, [SHIFTS[1]]: 0, [SHIFTS[2]]: 0 },
+    counts: {
+      early: { total: 0, opd: 0, ipd: 0 },
+      noon: { total: 0, opd: 0, ipd: 0 },
+      late: { total: 0, opd: 0, ipd: 0 },
+    },
+    total: 0,
   }))
+
+  if (!masterRecord.value.schedule) {
+    return dailyCounts
+  }
+
+  const localPatientMap = new Map(allOpdPatients.value.map((p) => [p.id, p]))
+
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData && slotData.patientId) {
+      const patient = localPatientMap.get(slotData.patientId)
+      // 因為這個頁面只處理 OPD，所以可以直接判斷
+      if (!patient) continue
+
       const [_bed, shiftIndex, dayIndex] = slotId.split('-').map(Number)
       if (dayIndex >= 0 && dayIndex < 6) {
         const shiftCode = SHIFTS[shiftIndex]
-        if (dailyCounts[dayIndex] && dailyCounts[dayIndex].counts[shiftCode] !== undefined) {
-          dailyCounts[dayIndex].counts[shiftCode]++
+        const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
+
+        if (shiftStats) {
+          shiftStats.total++
+          shiftStats.opd++ // 常規班表都是門診
+          dailyCounts[dayIndex].total++
         }
       }
     }
@@ -94,13 +126,26 @@ const statsToolbarData = computed(() => {
 })
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
-// --- 方法 (添加 isPageLocked 保護) ---
+// --- 方法 ---
+
+// 【新增】處理顯示備忘錄對話框的函式
+function showPatientMemos(patientId) {
+  if (!patientId) return
+  const patient = patientMap.value.get(patientId)
+  if (!patient) return
+  memosForDialog.value = activeMemos.value.filter(
+    (memo) => memo.patientId === patientId && !memo.isResolved,
+  )
+  patientNameForDialog.value = patient.name
+  isMemoDialogVisible.value = true
+}
+
+// (其他方法保持您提供的版本不變)
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
-
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alert('操作被鎖定：權限不足。')
@@ -138,10 +183,6 @@ async function saveChangesToCloud() {
     isAlertDialogVisible.value = true
   }
 }
-
-// 【修改 1】: 將 handleReviewAndAssign 拆分為兩個獨立的函式
-
-// 新的「排班檢視」函式
 function handleScheduleCheck() {
   if (isPageLocked.value) return
 
@@ -164,16 +205,10 @@ function handleScheduleCheck() {
   }
   isAlertDialogVisible.value = true
 }
-
-// 新的「智慧排床」函式
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
-
-  // 這個函式現在只做一件事：打開分配對話框
-  // BedAssignmentDialog 元件內部會自己計算未排床的病人
   isAssignmentDialogVisible.value = true
 }
-
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
   if (isPageLocked.value) return
   const patient = allOpdPatients.value.find((p) => p.id === patientId)
@@ -194,7 +229,6 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   masterRecord.value.schedule = newSchedule
   setChange()
 }
-
 function handleGridClick(slotId) {
   if (isPageLocked.value) return
   const patientId = masterRecord.value.schedule[slotId]?.patientId
@@ -202,11 +236,9 @@ function handleGridClick(slotId) {
     clearingSlotId.value = slotId
     isClearDialogVisible.value = true
   } else {
-    // 點擊空格子時，也打開智慧排床對話框
     isAssignmentDialogVisible.value = true
   }
 }
-
 function handleClearSelect(selectedValue) {
   if (isPageLocked.value) return
   if (!clearingSlotId.value) return
@@ -228,7 +260,6 @@ function handleClearSelect(selectedValue) {
   isClearDialogVisible.value = false
   clearingSlotId.value = null
 }
-
 function onDrop(event, targetSlotId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -258,7 +289,6 @@ function onDrop(event, targetSlotId) {
   setChange()
   draggedItem.value = null
 }
-
 function onDragStart(event, slotId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -273,15 +303,19 @@ function onDragStart(event, slotId) {
   event.dataTransfer.effectAllowed = 'move'
 }
 
+// 【修改】合併資料獲取
 async function loadAllData() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
-    const [patients, baseScheduleDoc] = await Promise.all([
+    const [patients, baseScheduleDoc, memos] = await Promise.all([
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
       baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
+      memosApi.fetchAll([where('isResolved', '==', false)]),
     ])
     allOpdPatients.value = patients
+    activeMemos.value = memos // <-- 【修改】儲存備忘
+
     const tempPatientMap = new Map(patients.map((p) => [p.id, p]))
     if (baseScheduleDoc) {
       const loadedSchedule = baseScheduleDoc.schedule || {}
@@ -309,8 +343,6 @@ async function loadAllData() {
     statusText.value = '讀取失敗'
   }
 }
-
-// 【修改 2】: runBedCheck 函式現在只返回原始數據，不再處理 UI 邏輯
 function runBedCheck() {
   const validationResult = { freqMismatch: [], duplicates: [] }
   const patientSchedules = {}
@@ -362,10 +394,8 @@ function runBedCheck() {
     }
   }
 
-  // 只返回原始數據
   return validationResult
 }
-
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -418,7 +448,6 @@ onMounted(loadAllData)
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <!-- 【修改 3】: 將一個按鈕替換為兩個 -->
           <button class="btn btn-info" @click="handleScheduleCheck" :disabled="isPageLocked">
             排班檢視
           </button>
@@ -437,7 +466,10 @@ onMounted(loadAllData)
           </button>
         </div>
       </div>
-      <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+      <!-- 【核心修改】: 將 StatsToolbar 用一個新的 div 包裹起來 -->
+      <div class="stats-toolbar-wrapper">
+        <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+      </div>
     </header>
 
     <main class="page-main-content">
@@ -451,14 +483,22 @@ onMounted(loadAllData)
         :week-dates="[]"
         :hepatitis-beds="hepatitisBeds"
         :get-style-func="getBaseCellStyle"
+        :patient-with-memo-ids="patientWithMemoIds"
         @grid-click="handleGridClick"
         @drop="onDrop"
         @drag-start="onDragStart"
         @drag-over="onDragOver"
         @dragleave="onDragLeave"
+        @show-memos="showPatientMemos"
       />
     </main>
 
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-name="patientNameForDialog"
+      :memos="memosForDialog"
+      @close="isMemoDialogVisible = false"
+    />
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
       :all-patients="allOpdPatients"
@@ -493,6 +533,7 @@ onMounted(loadAllData)
 </template>
 
 <style scoped>
+/* 樣式部分保持您提供的版本不變 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -506,7 +547,11 @@ onMounted(loadAllData)
   border-bottom: 1px solid #dee2e6;
   box-sizing: border-box;
 }
-
+.stats-toolbar-wrapper {
+  display: flex;
+  justify-content: flex-end; /* 靠右對齊 */
+  margin-top: 15px; /* 與上方工具欄的間距 */
+}
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -544,7 +589,6 @@ onMounted(loadAllData)
   border-color: #adb5bd;
   background-color: #f8f9fa;
 }
-/* 【修改 4】: 為新按鈕添加樣式 */
 .btn.btn-info {
   background-color: #17a2b8;
   color: white;
