@@ -1,6 +1,4 @@
-# 這是您需要的最終版本
 # .github/workflows/deploy-to-main.yml
-
 name: Deploy to Production on Main Branch Push
 
 # 觸發條件：只在 main 分支有 push 事件時觸發
@@ -13,12 +11,17 @@ jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 # 使用最新的 checkout action
+      # 步驟一：拉取你的程式碼
+      - uses: actions/checkout@v4
+
+      # 步驟二：安裝依賴並打包專案
       - run: npm install && npm run build
+
+      # 步驟三：部署到 Firebase Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          # 這裡的 Secret 名稱，就是您之前記下來的那個
+          # 這裡的 Secret 名稱，就是您剛剛在終端機看到的那個
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
           # channelId: live 表示部署到正式線上環境
           channelId: live
