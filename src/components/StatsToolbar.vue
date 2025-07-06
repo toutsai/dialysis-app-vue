@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/components/StatsToolbar.vue (緊湊佈局最終版) -->
 <script setup>
 import { computed } from 'vue'
 import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleConstants'
@@ -6,6 +5,15 @@ import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleCo
 const props = defineProps({
   statsData: Array,
   weekdays: Array,
+  // columnWidths 和 size 的 props 保持不變，它們是正確的
+  columnWidths: {
+    type: Array,
+    default: () => [],
+  },
+  size: {
+    type: String,
+    default: 'normal',
+  },
 })
 
 const shiftOrder = computed(() => {
@@ -26,10 +34,31 @@ const getBarStyles = (shiftCount) => {
     ipdStyle: { width: `${ipdPercent}%` },
   }
 }
+
+// 【核心修改】: 不再計算每個 item 的 style，而是計算整個 toolbar 的總寬度
+const toolbarStyle = computed(() => {
+  if (props.columnWidths.length === 0) {
+    return {}
+  }
+  // 將所有欄位寬度加總，得到 toolbar 應該佔據的總寬度
+  const totalWidth = props.columnWidths.reduce((sum, width) => sum + width, 0)
+
+  // 加上 gap 的寬度 (項目數 - 1) * gap
+  const totalGap = (props.columnWidths.length - 1) * 8 // 假設 gap 是 8px
+
+  // 返回一個 style 物件，設定 toolbar 的總寬度
+  return {
+    width: `${totalWidth + totalGap}px`,
+  }
+})
 </script>
 
 <template>
-  <div class="stats-toolbar">
+  <!-- 【核心修改】:
+    1. 在 stats-toolbar 容器上綁定新的 toolbarStyle，來設定總寬度。
+    2. 移除 stat-item 上的動態 :style 綁定。
+  -->
+  <div class="stats-toolbar" :class="`size-${size}`" :style="toolbarStyle">
     <div v-for="(dayData, index) in statsData" :key="index" class="stat-item">
       <div class="day-summary">
         <strong>{{ weekdays[index] }}</strong>
@@ -60,16 +89,14 @@ const getBarStyles = (shiftCount) => {
 </template>
 
 <style scoped>
-/* ==========================================================================
-   【緊湊佈局樣式 - 顏色修正】
-   ========================================================================== */
 .stats-toolbar {
   display: flex;
+  /* 【核心修改】: 換回 space-around，讓 flexbox 自動分配空間 */
   justify-content: space-around;
   align-items: center;
   gap: 8px;
-  padding: 5px;
-  width: 100%;
+  /* 移除 width: 100%，因為寬度由 :style 動態設定 */
+  transition: width 0.2s ease-in-out; /* 讓總寬度變化更平滑 */
 }
 
 .stat-item {
@@ -80,8 +107,14 @@ const getBarStyles = (shiftCount) => {
   border-radius: 6px;
   background-color: #f8f9fa;
   border: 1px solid #e9ecef;
-  flex-shrink: 0;
+
+  /* 【核心修改】: 讓每個 item 平均分配容器寬度，這是對齊的關鍵！ */
+  flex: 1 1 0;
+
+  /* 移除動態寬度，因為現在由 flexbox 控制 */
 }
+
+/* ... day-summary, day-total-count, stat-shift-group 等樣式不變 ... */
 
 .day-summary {
   display: flex;
@@ -97,7 +130,7 @@ const getBarStyles = (shiftCount) => {
 }
 
 .day-total-count {
-  font-size: 1em;
+  font-size: 50px;
   font-weight: bold;
   color: var(--primary-color, #007bff);
 }
@@ -113,7 +146,6 @@ const getBarStyles = (shiftCount) => {
   align-items: center;
   min-width: 45px;
 }
-
 .shift-info {
   padding: 3px 8px;
   border-radius: 12px;
@@ -126,7 +158,6 @@ const getBarStyles = (shiftCount) => {
   box-sizing: border-box;
   white-space: nowrap;
 }
-
 .shift-tag:nth-child(1) .shift-info {
   background-color: var(--success-color);
 }
@@ -153,14 +184,43 @@ const getBarStyles = (shiftCount) => {
   transition: width 0.3s ease;
 }
 
-/* 【核心修改】: 使用更鮮豔的主題色 */
 .opd-bar {
-  /* 使用與「成功」按鈕一致的綠色 */
   background-color: var(--success-color, #28a745);
 }
 
 .ipd-bar {
-  /* 使用與「危險/刪除」按鈕一致的紅色 */
   background-color: var(--danger-color, #dc3545);
+}
+
+/* 尺寸變體樣式 (保持不變) */
+.stats-toolbar.size-normal .day-summary strong,
+.stats-toolbar.size-normal .day-total-count {
+  font-size: 1.1em;
+}
+.stats-toolbar.size-normal .shift-info {
+  font-size: 0.9em;
+  padding: 4px 10px;
+}
+
+.stats-toolbar.size-compact .stat-item {
+  padding: 4px 6px;
+  gap: 6px;
+}
+.stats-toolbar.size-compact .day-summary {
+  padding-right: 6px;
+}
+.stats-toolbar.size-compact .day-summary strong,
+.stats-toolbar.size-compact .day-total-count {
+  font-size: 0.9em;
+}
+.stats-toolbar.size-compact .shift-info {
+  font-size: 0.75em;
+  padding: 2px 6px;
+}
+.stats-toolbar.size-compact .shift-tag {
+  min-width: 40px;
+}
+.stats-toolbar.size-compact .ratio-bar {
+  height: 3px;
 }
 </style>
