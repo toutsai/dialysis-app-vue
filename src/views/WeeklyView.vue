@@ -737,7 +737,7 @@ function runScheduleCheck() {
     alertDialogTitle.value = '排班問題檢查結果'
     alertDialogMessage.value = issueMessage
   } else {
-    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogTitle.value = '排程檢視完畢'
     alertDialogMessage.value = '太棒了！未發現重複排班或頻率不符的問題。'
   }
   isAlertDialogVisible.value = true
@@ -791,9 +791,9 @@ onUnmounted(() => {
             <div class="main-actions">
               <button @click="goToToday">回到本週</button>
               <button @click="loadBaseSchedule" :disabled="isPageLocked">載入常規班表</button>
-              <button class="btn btn-info" @click="runScheduleCheck">排班檢視</button>
+              <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
               <button
-                class="btn btn-warning"
+                class="btn btn-info"
                 @click="openBedAssignmentDialog"
                 :disabled="isPageLocked"
               >

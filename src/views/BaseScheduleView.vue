@@ -193,7 +193,7 @@ function handleScheduleCheck() {
     alertDialogTitle.value = '排班問題檢查結果'
     alertDialogMessage.value = issueMessage
   } else {
-    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogTitle.value = '排程檢視完畢'
     alertDialogMessage.value = '太棒了！未發現重複排班或頻率不符的問題。'
   }
   isAlertDialogVisible.value = true
@@ -439,10 +439,10 @@ onMounted(loadAllData)
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <button class="btn btn-info" @click="handleScheduleCheck" :disabled="isPageLocked">
-            排班檢視
+          <button class="btn btn-warning" @click="handleScheduleCheck" :disabled="isPageLocked">
+            排程檢視
           </button>
-          <button class="btn btn-warning" @click="openBedAssignmentDialog" :disabled="isPageLocked">
+          <button class="btn btn-info" @click="openBedAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
         </div>
