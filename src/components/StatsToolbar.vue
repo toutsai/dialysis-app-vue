@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/components/StatsToolbar.vue (緊湊佈局最終版) -->
 <script setup>
 import { computed } from 'vue'
 import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleConstants'
@@ -6,6 +5,15 @@ import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleCo
 const props = defineProps({
   statsData: Array,
   weekdays: Array,
+  // columnWidths prop 現在是對齊的關鍵
+  columnWidths: {
+    type: Array,
+    default: () => [],
+  },
+  size: {
+    type: String,
+    default: 'normal',
+  },
 })
 
 const shiftOrder = computed(() => {
@@ -29,8 +37,13 @@ const getBarStyles = (shiftCount) => {
 </script>
 
 <template>
-  <div class="stats-toolbar">
-    <div v-for="(dayData, index) in statsData" :key="index" class="stat-item">
+  <div class="stats-toolbar" :class="`size-${size}`">
+    <div
+      v-for="(dayData, index) in statsData"
+      :key="index"
+      class="stat-item"
+      :style="{ width: columnWidths[index] ? `${columnWidths[index]}px` : 'auto' }"
+    >
       <div class="day-summary">
         <strong>{{ weekdays[index] }}</strong>
         <span class="day-total-count">{{ dayData.total }}</span>
@@ -60,16 +73,10 @@ const getBarStyles = (shiftCount) => {
 </template>
 
 <style scoped>
-/* ==========================================================================
-   【緊湊佈局樣式 - 顏色修正】
-   ========================================================================== */
 .stats-toolbar {
   display: flex;
-  justify-content: space-around;
   align-items: center;
-  gap: 8px;
-  padding: 5px;
-  width: 100%;
+  gap: 8px; /* 這裡的 gap 會對應表格欄位間的 border 寬度 */
 }
 
 .stat-item {
@@ -80,7 +87,8 @@ const getBarStyles = (shiftCount) => {
   border-radius: 6px;
   background-color: #f8f9fa;
   border: 1px solid #e9ecef;
-  flex-shrink: 0;
+  transition: width 0.2s ease-in-out; /* 讓寬度變化更平滑 */
+  box-sizing: border-box;
 }
 
 .day-summary {
@@ -113,7 +121,6 @@ const getBarStyles = (shiftCount) => {
   align-items: center;
   min-width: 45px;
 }
-
 .shift-info {
   padding: 3px 8px;
   border-radius: 12px;
@@ -126,7 +133,6 @@ const getBarStyles = (shiftCount) => {
   box-sizing: border-box;
   white-space: nowrap;
 }
-
 .shift-tag:nth-child(1) .shift-info {
   background-color: var(--success-color);
 }
@@ -153,14 +159,42 @@ const getBarStyles = (shiftCount) => {
   transition: width 0.3s ease;
 }
 
-/* 【核心修改】: 使用更鮮豔的主題色 */
 .opd-bar {
-  /* 使用與「成功」按鈕一致的綠色 */
   background-color: var(--success-color, #28a745);
 }
 
 .ipd-bar {
-  /* 使用與「危險/刪除」按鈕一致的紅色 */
   background-color: var(--danger-color, #dc3545);
+}
+
+.stats-toolbar.size-normal .day-summary strong,
+.stats-toolbar.size-normal .day-total-count {
+  font-size: 1.1em;
+}
+.stats-toolbar.size-normal .shift-info {
+  font-size: 0.9em;
+  padding: 4px 10px;
+}
+
+.stats-toolbar.size-compact .stat-item {
+  padding: 4px 6px;
+  gap: 6px;
+}
+.stats-toolbar.size-compact .day-summary {
+  padding-right: 6px;
+}
+.stats-toolbar.size-compact .day-summary strong,
+.stats-toolbar.size-compact .day-total-count {
+  font-size: 0.9em;
+}
+.stats-toolbar.size-compact .shift-info {
+  font-size: 0.75em;
+  padding: 2px 6px;
+}
+.stats-toolbar.size-compact .shift-tag {
+  min-width: 40px;
+}
+.stats-toolbar.size-compact .ratio-bar {
+  height: 3px;
 }
 </style>

@@ -561,10 +561,10 @@ function runScheduleCheck() {
     warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
   }
   if (warnings.length > 0) {
-    alertDialogTitle.value = '排班檢視警告'
+    alertDialogTitle.value = '排程檢視警告'
     alertDialogMessage.value = warnings.join('\n\n')
   } else {
-    alertDialogTitle.value = '排班檢視完畢'
+    alertDialogTitle.value = '排程檢視完畢'
     alertDialogMessage.value = '未發現明顯的排班或遺漏問題。'
   }
   isAlertDialogVisible.value = true
@@ -651,7 +651,7 @@ watch(currentDate, (newDate, oldDate) => {
             <button @click="changeDate(1)">下一天 ></button>
             <button @click="goToToday">回到今日</button>
           </div>
-          <button class="btn btn-warning" @click="runScheduleCheck">排班檢視</button>
+          <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
           <button
             class="btn btn-info"
             @click="isAssignmentDialogVisible = true"
@@ -1027,7 +1027,7 @@ watch(currentDate, (newDate, oldDate) => {
 }
 .current-date-text,
 .weekday-display {
-  font-size: 1.5em;
+  font-size: 26px;
   font-weight: bold;
 }
 .weekday-display {
