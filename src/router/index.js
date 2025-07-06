@@ -1,5 +1,3 @@
-// 檔案路徑: src/router/index.js (修正後完整版)
-
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js' // 引入 useAuth 以便在守衛中使用
 import MainLayout from '@/layouts/MainLayout.vue' // 引入主佈局
@@ -8,7 +6,7 @@ const routes = [
   // 公共路由，不需要佈局
   {
     path: '/login',
-    name: 'Login', // 已是 PascalCase，保持不變
+    name: 'Login',
     component: () => import('../views/LoginView.vue'),
   },
 
@@ -20,40 +18,50 @@ const routes = [
     children: [
       {
         path: '', // 預設子路由 (訪問 '/' 時)
-        name: 'Home', // 已是 PascalCase，保持不變
+        name: 'Home',
         redirect: '/schedule',
       },
       {
-        path: 'schedule', // 注意：這裡沒有開頭的 '/'
-        name: 'Schedule', // 【修改】'schedule' -> 'Schedule'
+        path: 'schedule',
+        name: 'Schedule',
         component: () => import('../views/ScheduleView.vue'),
       },
       {
         path: 'weekly',
-        name: 'Weekly', // 【修改】'weekly' -> 'Weekly'
+        name: 'Weekly',
         component: () => import('../views/WeeklyView.vue'),
       },
       {
         path: 'base-schedule',
-        name: 'BaseSchedule', // 【修改】'base-schedule' -> 'BaseSchedule'
+        name: 'BaseSchedule',
         component: () => import('../views/BaseScheduleView.vue'),
       },
       {
         path: 'patients',
         // 【注意】您的原始碼是 PatientsView.vue，如果檔名確實是這樣，請保持。如果是 PatientView.vue，請修改 component 路徑
-        name: 'Patients', // 【修改】'patients' -> 'Patients'
+        name: 'Patients',
+        // 假設您的病人管理檔案是 PatientView.vue，如果是 PatientsView.vue 請改回
         component: () => import('../views/PatientsView.vue'),
       },
       {
         path: 'stats',
-        name: 'Stats', // 【修改】'stats' -> 'Stats'
+        name: 'Stats',
         component: () => import('../views/StatsView.vue'),
       },
       {
         path: 'memo',
-        name: 'Memo', // <-- 【核心修正】將 'memo' 改為 'Memo'
+        name: 'Memo',
         component: () => import('../views/MemoView.vue'),
       },
+      // =======================================================
+      // == 【新增】將新的統計報表路由放在這裡 ==
+      // =======================================================
+      {
+        path: 'reporting', // 路徑是 /reporting
+        name: 'Reporting', // 路由名稱
+        component: () => import('../views/ReportingView.vue'), // 指向我們新建立的元件
+      },
+      // =======================================================
     ],
   },
   // 如果有其他路由匹配不到，可以加一個 404 頁面
