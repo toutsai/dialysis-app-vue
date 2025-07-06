@@ -143,3 +143,8 @@ dist
 
 # Firebase service account key
 /serviceAccountKey.json
+
+# Local environment variables
+.env.local
+.env.development
+.env.production

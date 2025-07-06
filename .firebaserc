@@ -1,7 +1,5 @@
 {
   "projects": {
-    "development": "my-dialysis-app-develop",  // <--- 您的開發專案 ID
-    "production": "dialysis-schedule-cd36c", // <--- 您的生產專案 ID
-    "default": "my-dialysis-app-develop"
+    "default": "dialysis-schedule-cd36c"
   }
 }
