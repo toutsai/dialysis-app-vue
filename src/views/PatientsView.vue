@@ -1,12 +1,13 @@
-<!-- 檔案路徑: src/views/PatientView.vue (欄位寬度智慧伸縮版) -->
+<!-- 檔案路徑: src/views/PatientView.vue -->
 <script setup>
-// Script 部分完全不變，因此省略以保持簡潔
 import { ref, onMounted, computed } from 'vue'
 import { deleteField, where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue' // 【新增】1. 引入元件
 import { useAuth } from '@/composables/useAuth.js'
+import { generateAutoNote } from '@/utils/scheduleUtils.js' // 【新增】引入 autoNote 生成工具
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
@@ -19,6 +20,13 @@ const editingPatient = ref(null)
 const modalType = ref('ipd')
 const isDeleteDialogVisible = ref(false)
 const patientToDeleteId = ref(null)
+
+// --- 【新增】2. 定義 AlertDialog 所需的狀態 ---
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
+// ------------------------------------------
+
 const DELETE_REASONS = [
   { value: '出院', text: '出院' },
   { value: '死亡', text: '死亡' },
@@ -61,9 +69,12 @@ const displayedPatients = computed(() => {
     return currentSort.value.order === 'asc' ? compare : -compare
   })
 })
+
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   try {
@@ -84,35 +95,50 @@ async function handleSavePatient(patientData) {
     }
     closeModal()
     await fetchAllPatients()
-  } catch (error) {
-    console.error('儲存病人資料失敗:', error)
-    alert('儲存病人資料失敗！')
+  } catch (err) {
+    console.error('儲存病人資料失敗:', err)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '儲存病人資料失敗！'
+    isAlertDialogVisible.value = true
   }
 }
+
+// 【修正】轉床邏輯
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
   const targetStatus = newStatus === 'ipd' ? '住院' : '門診'
   if (
     confirm(
-      `確定要將 ${patientName} 轉為${targetStatus}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配。`,
+      `確定要將 ${patientName} 轉為${targetStatus}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`,
     )
   ) {
     try {
       await patientApi.update(patientId, { status: newStatus })
-      await clearPatientTemporaryScheduleData(patientId, 'clear')
+      const originalPatientData = allPatients.value.find((p) => p.id === patientId)
+      const updatedPatient = { ...originalPatientData, status: newStatus }
+      await clearPatientTemporaryScheduleData(patientId, 'clear', updatedPatient)
       await fetchAllPatients()
-    } catch (error) {
-      alert('轉床失敗！')
+    } catch (err) {
+      console.error('轉床失敗:', err)
+      alertDialogTitle.value = '操作失敗'
+      alertDialogMessage.value = '轉床失敗！'
+      isAlertDialogVisible.value = true
     }
   }
 }
+
+// 【修正】刪除邏輯
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   if (!patientToDeleteId.value) return
@@ -128,8 +154,11 @@ async function handleDeleteReasonSelected(reason) {
       await clearPatientTemporaryScheduleData(patientToDeleteId.value, 'delete')
       await fetchAllPatients()
     }
-  } catch (error) {
-    alert('刪除失敗！')
+  } catch (err) {
+    console.error('刪除失敗:', err)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '刪除失敗！'
+    isAlertDialogVisible.value = true
   } finally {
     isDeleteDialogVisible.value = false
     patientToDeleteId.value = null
@@ -137,7 +166,9 @@ async function handleDeleteReasonSelected(reason) {
 }
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   try {
@@ -149,13 +180,18 @@ async function restorePatient(patientId) {
       deletedAt: null,
     })
     await fetchAllPatients()
-  } catch (error) {
-    alert('復原失敗！')
+  } catch (err) {
+    console.error('復原失敗:', err)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '復原失敗！'
+    isAlertDialogVisible.value = true
   }
 }
 function openAddPatientModal(type) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   editingPatient.value = { diseases: [] }
@@ -164,7 +200,9 @@ function openAddPatientModal(type) {
 }
 function openEditPatientModal(patient) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   editingPatient.value = patient
@@ -173,7 +211,9 @@ function openEditPatientModal(patient) {
 }
 function deletePatient(patientId) {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   patientToDeleteId.value = patientId
@@ -182,12 +222,20 @@ function deletePatient(patientId) {
 async function fetchAllPatients() {
   try {
     allPatients.value = await patientApi.fetchAll()
-  } catch (error) {
-    console.error('讀取病人資料失敗:', error)
-    alert('讀取病人資料失敗！')
+  } catch (err) {
+    console.error('讀取病人資料失敗:', err)
+    alertDialogTitle.value = '讀取失敗'
+    alertDialogMessage.value = '讀取病人資料失敗！'
+    isAlertDialogVisible.value = true
   }
 }
-async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
+
+// 【核心修正】
+async function clearPatientTemporaryScheduleData(
+  patientId,
+  mode = 'clear',
+  updatedPatientData = null,
+) {
   if (!patientId) return
   try {
     const actionText = mode === 'delete' ? '刪除' : '清理'
@@ -197,22 +245,28 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
     const todayStr = today.toISOString().split('T')[0]
     const futureScheduleDocs = await schedulesApi.fetchAll([where('date', '>=', todayStr)])
     const updatePromises = []
+
     for (const doc of futureScheduleDocs) {
       let isModified = false
       const newSchedule = { ...doc.schedule }
-      const shiftIds = Object.keys(newSchedule)
-      for (const shiftId of shiftIds) {
+
+      for (const shiftId in newSchedule) {
         if (newSchedule[shiftId]?.patientId === patientId) {
           isModified = true
           if (mode === 'delete') {
             delete newSchedule[shiftId]
-            console.log(`在 ${doc.date} 的排程中，準備刪除病人 ${patientId} 的班次 ${shiftId}`)
+            console.log(`在 ${doc.date} 的排程中，刪除病人 ${patientId} 的班次 ${shiftId}`)
           } else {
-            newSchedule[shiftId].manualNote = ''
-            newSchedule[shiftId].nurseTeam = null
-            newSchedule[shiftId].nurseTeamIn = null
-            newSchedule[shiftId].nurseTeamOut = null
-            console.log(`在 ${doc.date} 的排程中，準備清理病人 ${patientId} 的班次 ${shiftId}`)
+            const slot = newSchedule[shiftId]
+            slot.manualNote = ''
+            slot.nurseTeam = null
+            slot.nurseTeamIn = null
+            slot.nurseTeamOut = null
+            // 如果有傳入更新後的病人資料，則重新生成 autoNote
+            if (updatedPatientData) {
+              slot.autoNote = generateAutoNote(updatedPatientData)
+            }
+            console.log(`在 ${doc.date} 的排程中，清理病人 ${patientId} 的班次 ${shiftId}`)
           }
         }
       }
@@ -228,10 +282,12 @@ async function clearPatientTemporaryScheduleData(patientId, mode = 'clear') {
     } else {
       console.log(`未在未來排程中找到病人 ${patientId} 的資料可供${actionText}。`)
     }
-  } catch (error) {
+  } catch (err) {
     const actionText = mode === 'delete' ? '刪除' : '清理'
-    console.error(`為病人 ${patientId} ${actionText}排班資料時發生錯誤:`, error)
-    alert(`為病人${actionText}排班資料時發生錯誤，請手動檢查排班表！`)
+    console.error(`為病人 ${patientId} ${actionText}排班資料時發生錯誤:`, err)
+    alertDialogTitle.value = `操作失敗`
+    alertDialogMessage.value = `為病人${actionText}排班資料時發生錯誤，請手動檢查排班表！`
+    isAlertDialogVisible.value = true
   }
 }
 function changeTab(tabName) {
@@ -320,7 +376,6 @@ onMounted(() => {
           <table class="patient-table">
             <thead>
               <tr>
-                <!-- 【修改 1】: 為所有需要自動伸縮的欄位添加 class -->
                 <th @click="handleSort('name')" class="col-shrink">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
@@ -338,7 +393,6 @@ onMounted(() => {
                 <th class="col-shrink">首透</th>
                 <th class="col-shrink">中止</th>
                 <th class="col-expand">備註</th>
-                <!-- 讓備註欄擴展 -->
                 <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
@@ -398,7 +452,6 @@ onMounted(() => {
           <table class="patient-table">
             <thead>
               <tr>
-                <!-- 【修改 2】: 同樣為所有需要自動伸縮的欄位添加 class -->
                 <th @click="handleSort('name')" class="col-shrink">
                   姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
                 </th>
@@ -415,7 +468,6 @@ onMounted(() => {
                 <th class="col-shrink">模式</th>
                 <th class="col-shrink">血管通路</th>
                 <th class="col-expand">備註</th>
-                <!-- 讓備註欄擴展 -->
                 <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
@@ -524,13 +576,17 @@ onMounted(() => {
       @select="handleDeleteReasonSelected"
       @cancel="cancelDelete"
     />
+    <!-- 【新增】3. 在模板中放置元件 -->
+    <AlertDialog
+      :is-visible="isAlertDialogVisible"
+      :title="alertDialogTitle"
+      :message="alertDialogMessage"
+      @confirm="isAlertDialogVisible = false"
+    />
   </div>
 </template>
 
 <style scoped>
-/* ==========================================================================
-   原始樣式 - 大部分保留
-   ========================================================================== */
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
@@ -591,11 +647,10 @@ onMounted(() => {
   border-radius: 5px;
 }
 
-/* 【修改 3】: 核心修改，切換表格佈局算法 */
 .patient-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto; /* 從 fixed 改為 auto */
+  table-layout: auto;
 }
 
 .patient-table th,
@@ -604,7 +659,6 @@ onMounted(() => {
   padding: 10px 12px;
   text-align: left;
   vertical-align: middle;
-  /* 移除 overflow 和 text-overflow，因為 auto 佈局會自動處理 */
 }
 .name-cell-content {
   display: flex;
@@ -692,25 +746,19 @@ onMounted(() => {
   pointer-events: none;
 }
 
-/* ==========================================================================
-   【修改 4】: 新增用於智慧伸縮的 CSS 規則
-   ========================================================================== */
 .col-shrink {
-  white-space: nowrap; /* 確保內容不換行，欄位寬度由內容撐開 */
+  white-space: nowrap;
 }
 .col-expand {
-  width: 100%; /* 關鍵：讓此欄位佔滿所有剩餘空間 */
+  width: 100%;
 }
 
-/* 可選：為了讓"首透"、"中止"欄位更好看，可以讓它們置中 */
 .patient-table td.col-shrink {
   text-align: center;
 }
-/* 但要讓姓名欄位保持靠左 */
 .patient-table td.col-shrink:has(.name-cell-content) {
   text-align: left;
 }
-/* 同樣讓操作按鈕保持置中 */
 .patient-table td.action-buttons {
   text-align: center;
 }

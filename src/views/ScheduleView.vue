@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (Memo彈窗整合最終版) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -18,9 +17,8 @@ import InpatientSidebar from '@/components/InpatientSidebar.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
-import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 
-// --- 常量 (保持不變) ---
 const layoutData = {
   leftWingRows: [
     ['空', 32, 31],
@@ -73,33 +71,29 @@ const freqToDays = {
 }
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
 
-// --- API 實例 ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
-const memosApi = ApiManager('memos') // <-- 【新增】
+const memosApi = ApiManager('memos')
 
-// --- 核心狀態 ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
-const activeMemos = ref([]) // <-- 【新增】
+const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 const copySourceDate = ref(formatDate(new Date()))
 
-// --- UI 狀態 ---
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 const isAssignmentDialogVisible = ref(false)
-const highlightedEarlyTeam = ref(null)
-const highlightedLateTeam = ref(null)
-// 【新增】Memo Dialog 相關狀態
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
-// --- 權限與鎖定 ---
+// 【修改】使用單一 ref 來管理高亮狀態
+const highlightedTeam = ref(null) // e.g., { type: 'early', team: 'A' }
+
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
   if (isReadOnly.value) return true
@@ -108,7 +102,6 @@ const isPageLocked = computed(() => {
   return currentDate.value < today
 })
 
-// --- Helper Functions ---
 function formatDate(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -116,9 +109,7 @@ function formatDate(date) {
   return `${year}-${month}-${day}`
 }
 
-// --- 計算屬性 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
-// 【新增】
 const patientWithMemoIds = computed(() => {
   return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
 })
@@ -130,9 +121,7 @@ const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
-// 【修改】這個計算屬性，使其產生詳細數據
 const statsToolbarData = computed(() => {
-  // 每日排程只有一天的數據
   const dailyData = {
     counts: {
       early: { total: 0, opd: 0, ipd: 0 },
@@ -165,7 +154,6 @@ const statsToolbarData = computed(() => {
       }
     }
   }
-  // 因為 StatsToolbar 接收的是一個陣列，所以我們把單日數據包在陣列裡
   return [dailyData]
 })
 const statsToolbarWeekdays = computed(() => ['本日'])
@@ -178,9 +166,6 @@ const scheduledPatientIds = computed(() => {
   )
 })
 
-// --- 方法 ---
-
-// 【新增】處理顯示備忘錄對話框的函式
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
@@ -193,56 +178,48 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
-// (其他方法保持您提供的版本不變)
-function toggleHighlightTeam(team, shiftType) {
-  if (shiftType === 'early') {
-    if (highlightedEarlyTeam.value === team) {
-      highlightedEarlyTeam.value = null
-    } else {
-      highlightedEarlyTeam.value = team
-    }
-  } else if (shiftType === 'late') {
-    if (highlightedLateTeam.value === team) {
-      highlightedLateTeam.value = null
-    } else {
-      highlightedLateTeam.value = team
-    }
+// 【修改】新的高亮切換邏輯
+function toggleHighlight(type, team) {
+  const currentHighlight = highlightedTeam.value
+  if (currentHighlight && currentHighlight.type === type && currentHighlight.team === team) {
+    // 如果點擊的是當前已高亮的按鈕，則取消高亮
+    highlightedTeam.value = null
+  } else {
+    // 否則，設置新的高亮
+    highlightedTeam.value = { type, team }
   }
 }
+
+// 【修改】新的高亮判斷邏輯
 function isSlotHighlighted(shiftId) {
-  if (!highlightedEarlyTeam.value && !highlightedLateTeam.value) {
+  if (!highlightedTeam.value) {
     return false
   }
+
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return false
+
+  const { type, team } = highlightedTeam.value
   const shiftCode = shiftId.split('-')[2]
-  if (highlightedEarlyTeam.value) {
-    if (
-      shiftCode === SHIFT_CODES.EARLY &&
-      slotData.nurseTeam === `早${highlightedEarlyTeam.value}`
-    ) {
+
+  if (type === 'early') {
+    if (shiftCode === SHIFT_CODES.EARLY && slotData.nurseTeam === `早${team}`) {
       return true
     }
-    if (
-      shiftCode === SHIFT_CODES.NOON &&
-      slotData.nurseTeamIn === `早${highlightedEarlyTeam.value}`
-    ) {
+    if (shiftCode === SHIFT_CODES.NOON && slotData.nurseTeamIn === `早${team}`) {
       return true
     }
-  }
-  if (highlightedLateTeam.value) {
-    if (shiftCode === SHIFT_CODES.LATE && slotData.nurseTeam === `晚${highlightedLateTeam.value}`) {
+  } else if (type === 'late') {
+    if (shiftCode === SHIFT_CODES.LATE && slotData.nurseTeam === `晚${team}`) {
       return true
     }
-    if (
-      shiftCode === SHIFT_CODES.NOON &&
-      slotData.nurseTeamOut === `晚${highlightedLateTeam.value}`
-    ) {
+    if (shiftCode === SHIFT_CODES.NOON && slotData.nurseTeamOut === `晚${team}`) {
       return true
     }
   }
   return false
 }
+
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -250,7 +227,9 @@ function setChange() {
 }
 async function saveDataToCloud() {
   if (isPageLocked.value) {
-    alert('操作被鎖定：無法儲存或權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   statusIndicator.value = '儲存中...'
@@ -298,7 +277,9 @@ async function saveDataToCloud() {
 }
 function clearBoard() {
   if (isPageLocked.value) {
-    alert('操作被鎖定：無法清除。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：無法清除。'
+    isAlertDialogVisible.value = true
     return
   }
   if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
@@ -561,10 +542,10 @@ function runScheduleCheck() {
     warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
   }
   if (warnings.length > 0) {
-    alertDialogTitle.value = '排程檢視警告'
+    alertDialogTitle.value = '排班檢視警告'
     alertDialogMessage.value = warnings.join('\n\n')
   } else {
-    alertDialogTitle.value = '排程檢視完畢'
+    alertDialogTitle.value = '排班檢視完畢'
     alertDialogMessage.value = '未發現明顯的排班或遺漏問題。'
   }
   isAlertDialogVisible.value = true
@@ -651,6 +632,7 @@ watch(currentDate, (newDate, oldDate) => {
             <button @click="changeDate(1)">下一天 ></button>
             <button @click="goToToday">回到今日</button>
           </div>
+          <!-- 【修改】交換 class -->
           <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
           <button
             class="btn btn-info"
@@ -681,30 +663,39 @@ watch(currentDate, (newDate, oldDate) => {
           <button class="add-btn" @click="copySchedule" :disabled="isPageLocked">從他日複製</button>
         </div>
         <div class="controls-right">
+          <!-- 【修改】新的團隊高亮組件結構 -->
           <div class="team-highlight-container">
-            <div class="team-highlight-controls">
-              <span>早班:</span>
-              <button
-                v-for="team in baseTeams"
-                :key="`early-${team}`"
-                class="team-btn"
-                :class="{ active: highlightedEarlyTeam === team }"
-                @click="toggleHighlightTeam(team, 'early')"
-              >
-                {{ team }}
-              </button>
+            <div class="team-group">
+              <span class="team-group-label">早</span>
+              <div class="team-buttons">
+                <button
+                  v-for="team in baseTeams"
+                  :key="`early-${team}`"
+                  class="team-btn"
+                  :class="{
+                    active: highlightedTeam?.type === 'early' && highlightedTeam?.team === team,
+                  }"
+                  @click="toggleHighlight('early', team)"
+                >
+                  {{ team }}
+                </button>
+              </div>
             </div>
-            <div class="team-highlight-controls">
-              <span>晚班:</span>
-              <button
-                v-for="team in baseTeams"
-                :key="`late-${team}`"
-                class="team-btn"
-                :class="{ active: highlightedLateTeam === team }"
-                @click="toggleHighlightTeam(team, 'late')"
-              >
-                {{ team }}
-              </button>
+            <div class="team-group">
+              <span class="team-group-label">晚</span>
+              <div class="team-buttons">
+                <button
+                  v-for="team in baseTeams"
+                  :key="`late-${team}`"
+                  class="team-btn"
+                  :class="{
+                    active: highlightedTeam?.type === 'late' && highlightedTeam?.team === team,
+                  }"
+                  @click="toggleHighlight('late', team)"
+                >
+                  {{ team }}
+                </button>
+              </div>
             </div>
           </div>
           <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
@@ -804,7 +795,6 @@ watch(currentDate, (newDate, oldDate) => {
                       >
                         <span v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)">
                           {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
-                          <!-- 【修改】添加圖示 -->
                           <span
                             v-if="
                               patientWithMemoIds.has(
@@ -896,7 +886,6 @@ watch(currentDate, (newDate, oldDate) => {
                   >
                     <span v-if="getPatientName(`peripheral-${i}-${shiftCode}`)">
                       {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
-                      <!-- 【修改】添加圖示 -->
                       <span
                         v-if="
                           patientWithMemoIds.has(
@@ -942,7 +931,6 @@ watch(currentDate, (newDate, oldDate) => {
     </main>
   </div>
 
-  <!-- 【新增】Memo 對話框 -->
   <MemoDisplayDialog
     :is-visible="isMemoDialogVisible"
     :patient-name="patientNameForDialog"
@@ -971,7 +959,6 @@ watch(currentDate, (newDate, oldDate) => {
 </template>
 
 <style scoped>
-/* 樣式部分保持您提供的版本不變，只在末尾增加 memo-icon-inline 的樣式 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1007,6 +994,7 @@ watch(currentDate, (newDate, oldDate) => {
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
 }
 .toolbar-left,
 .toolbar-right {
@@ -1278,9 +1266,9 @@ button {
   padding: 4px 6px;
   width: 100%;
   height: 100%;
-  display: flex; /* 【新增】使內部元素可以對齊 */
-  align-items: center; /* 垂直居中 */
-  justify-content: center; /* 水平居中 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .empty-slot-placeholder {
   color: #adb5bd;
@@ -1339,39 +1327,62 @@ button {
 .is-locked .peripheral-patient-name:hover .empty-slot-placeholder {
   color: #adb5bd;
 }
+
+/* 【修改】新的團隊高亮樣式 */
 .team-highlight-container {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  gap: 1rem;
   padding: 8px;
   background-color: #e9ecef;
-  border-radius: 6px;
+  border-radius: 8px;
 }
-.team-highlight-controls {
+.team-group {
   display: flex;
   align-items: center;
-  gap: 5px;
 }
-.team-highlight-controls span {
+.team-group-label {
   font-weight: bold;
-  font-size: 0.9em;
+  font-size: 1.2rem;
   color: #495057;
-  width: 40px;
+  margin-right: 8px;
+  writing-mode: vertical-rl;
+  background-color: #ced4da;
+  padding: 8px 4px;
+  border-radius: 4px;
+}
+.team-group:first-of-type .team-group-label {
+  background-color: #ffe082;
+  color: #333;
+}
+.team-group:last-of-type .team-group-label {
+  background-color: #90caf9;
+  color: #333;
+}
+.team-buttons {
+  display: flex;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  overflow: hidden;
 }
 .team-btn {
-  padding: 4px 10px;
+  padding: 6px 12px;
   font-size: 0.9em;
   min-width: 40px;
-  border-radius: 4px;
-  border: 1px solid #ced4da;
+  border: none;
+  border-left: 1px solid #ced4da;
   background-color: #fff;
   transition: all 0.2s;
+}
+.team-buttons .team-btn:first-child {
+  border-left: none;
 }
 .team-btn.active {
   background-color: #dc3545;
   color: white;
   border-color: #c82333;
 }
+/* -- */
+
 .shift-row.highlighted-slot,
 .peripheral-shift-row.highlighted-slot {
   outline: 3px solid #dc3545;
@@ -1379,7 +1390,6 @@ button {
   z-index: 1;
 }
 
-/* 【新增】內聯圖示樣式 */
 .memo-icon-inline {
   cursor: pointer;
   margin-left: 8px;

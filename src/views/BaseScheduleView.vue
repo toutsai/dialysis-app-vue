@@ -72,7 +72,7 @@ const patientNameForDialog = ref('')
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
-// 【新增】明確的事件處理函數
+// 【新增】明確的事件處理函數，這是最穩定的寫法
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
@@ -141,7 +141,9 @@ function setChange() {
 }
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   statusText.value = '儲存中...'
@@ -542,9 +544,8 @@ onMounted(loadAllData)
 .page-header {
   flex-shrink: 0;
   background-color: #fff;
-  border-radius: 8px;
   box-sizing: border-box;
-  margin-bottom: 1rem;
+  border-bottom: 1px solid #dee2e6;
 }
 .header-toolbar {
   display: flex;
@@ -593,6 +594,7 @@ onMounted(loadAllData)
 }
 .btn.btn-warning {
   background-color: #ffc107;
+  color: #212529; /* 修正：讓黃色按鈕文字為深色 */
   border-color: #ffc107;
 }
 .btn.btn-warning:hover {
@@ -620,36 +622,40 @@ onMounted(loadAllData)
   font-size: 0.9rem;
 }
 
+/* 【佈局修正】 */
 .page-main-content {
   flex-grow: 1;
-  display: flex;
-  flex-direction: column;
+  display: flex; /* 確保 main 是 flex 容器 */
+  flex-direction: column; /* 讓內部元素垂直排列 */
   min-height: 0;
   box-sizing: border-box;
-  border: 1px solid #dee2e6;
   background-color: #fff;
   border-radius: 8px;
   overflow: hidden;
+  border: 1px solid #dee2e6;
+  margin-top: 1rem;
 }
 
 .schedule-area {
-  flex-grow: 1;
+  flex-grow: 1; /* 讓 schedule-area 填滿 main 的剩餘空間 */
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden; /* 確保內部滾動生效 */
 }
 
 .stats-toolbar-wrapper {
-  flex-shrink: 0;
+  flex-shrink: 0; /* 不讓工具列被壓縮 */
+  padding: 8px 1rem; /* 給予上下和左右的內邊距 */
   box-sizing: border-box;
   transition: padding-left 0.2s ease-in-out;
 }
 
 .schedule-table-component {
-  flex-grow: 1;
-  overflow: auto;
+  flex-grow: 1; /* 讓表格填滿 schedule-area 的剩餘空間 */
+  overflow: auto; /* 表格自身可以滾動 */
 }
 
+/* ... :deep 樣式保持不變 ... */
 :deep(.schedule-slot.status-opd) {
   background-color: var(--green-bg, #e8f5e9);
 }

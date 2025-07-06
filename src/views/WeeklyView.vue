@@ -107,7 +107,6 @@ const patientNameForDialog = ref('')
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
-// 【新增】明確的事件處理函數
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
@@ -228,48 +227,57 @@ function isDateInPast(dayIndex) {
   today.setHours(0, 0, 0, 0)
   const scheduleDate = new Date(currentWeekStartDate.value)
   scheduleDate.setDate(scheduleDate.getDate() + dayIndex)
-  return scheduleDate < today
+  return scheduleDate.getTime() < today.getTime()
 }
 function setChange() {
   if (isReadOnly.value) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
-function handleSlotUpdate(weeklySlotId, patientId, manualNote = '') {
-  if (isReadOnly.value) return
+
+function getDailyShiftIdFromWeekly(weeklySlotId) {
+  if (!weeklySlotId) return null
   const [bed, shiftIndexStr, dayIndexStr] = weeklySlotId.split('-')
   const dayIndex = parseInt(dayIndexStr, 10)
-  if (isDateInPast(dayIndex)) {
-    alert('無法修改已過去的排程。')
+  const dateStr = weekDates.value[dayIndex]?.queryDate
+  const shiftCode = SHIFTS[parseInt(shiftIndexStr, 10)]
+  if (!dateStr || !shiftCode) return null
+  return { dateStr, dailyShiftId: `bed-${bed}-${shiftCode}` }
+}
+
+function handleSlotUpdate(weeklySlotId, slotData) {
+  if (isReadOnly.value) return
+
+  const targetInfo = getDailyShiftIdFromWeekly(weeklySlotId)
+  if (!targetInfo) return
+
+  const { dateStr, dailyShiftId } = targetInfo
+
+  if (isDateInPast(weekDates.value.findIndex((d) => d.queryDate === dateStr))) {
+    alertDialogTitle.value = '操作禁止'
+    alertDialogMessage.value = '無法修改已過去的排程。'
+    isAlertDialogVisible.value = true
     return
   }
-  const dateStr = weekDates.value[dayIndex]?.queryDate
-  if (!dateStr) return
+
   if (!weekScheduleRecords.value.has(dateStr)) {
     weekScheduleRecords.value.set(dateStr, { id: null, date: dateStr, schedule: {} })
   }
   const dailyRecord = weekScheduleRecords.value.get(dateStr)
-  const shiftCode = SHIFTS[parseInt(shiftIndexStr, 10)]
-  if (!shiftCode) return
-  const dailyShiftId = `bed-${bed}-${shiftCode}`
-  if (patientId) {
-    const patient = patientMap.value.get(patientId)
-    if (!patient) return
-    const existingSlotData = dailyRecord.schedule[dailyShiftId] || {}
+
+  if (slotData) {
+    const patient = patientMap.value.get(slotData.patientId)
     dailyRecord.schedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
-      ...existingSlotData,
-      patientId: patientId,
-      autoNote: generateAutoNote(patient),
-      manualNote: manualNote,
+      ...slotData,
+      autoNote: patient ? generateAutoNote(patient) : '',
     }
   } else {
-    if (dailyRecord.schedule) {
-      delete dailyRecord.schedule[dailyShiftId]
-    }
+    delete dailyRecord.schedule[dailyShiftId]
   }
   setChange()
 }
+
 function handleGridClick(slotId) {
   if (isReadOnly.value) return
   const dayIndex = parseInt(slotId.split('-')[2], 10)
@@ -289,8 +297,12 @@ function handlePatientSelect({ patientId }) {
   if (!patientId || !currentSlotId.value) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-  const manualNote = patient.baseNote || (patient.status === 'ipd' ? '住' : '')
-  handleSlotUpdate(currentSlotId.value, patientId, manualNote)
+
+  const newPatientData = {
+    patientId: patientId,
+    manualNote: patient.baseNote || (patient.status === 'ipd' ? '住' : ''),
+  }
+  handleSlotUpdate(currentSlotId.value, newPatientData)
   isPatientSelectDialogVisible.value = false
   currentSlotId.value = null
 }
@@ -301,18 +313,19 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
   const shiftIndex = SHIFTS.indexOf(shiftCode)
   if (shiftIndex === -1 || dayIndices.length === 0) return
-  const assignableSlots = []
+
+  const newPatientData = {
+    patientId: patientId,
+    manualNote: patient.baseNote || (patient.status === 'ipd' ? '住' : ''),
+  }
+
   dayIndices.forEach((dayIndex) => {
     if (!isDateInPast(dayIndex)) {
       const weeklySlotId = `${bedNum}-${shiftIndex}-${dayIndex}`
       if (!weekScheduleMap.value[weeklySlotId]?.patientId) {
-        assignableSlots.push(weeklySlotId)
+        handleSlotUpdate(weeklySlotId, newPatientData)
       }
     }
-  })
-  assignableSlots.forEach((weeklySlotId) => {
-    const manualNote = patient.baseNote || (patient.status === 'ipd' ? '住' : '')
-    handleSlotUpdate(weeklySlotId, patientId, manualNote)
   })
 }
 function handleClearSelect(selectedValue) {
@@ -321,7 +334,9 @@ function handleClearSelect(selectedValue) {
   const patientIdToClear = weekScheduleMap.value[clearingSlotId.value]?.patientId
   const [bed, shiftIndex, startDayIndex] = clearingSlotId.value.split('-').map(Number)
   if (isDateInPast(startDayIndex) && selectedValue !== 'this_week_for_patient') {
-    alert('無法修改已過去的排程。')
+    alertDialogTitle.value = '操作禁止'
+    alertDialogMessage.value = '無法修改已過去的排程。'
+    isAlertDialogVisible.value = true
     isClearDialogVisible.value = false
     return
   }
@@ -354,7 +369,9 @@ function handleClearSelect(selectedValue) {
 }
 async function saveChangesToCloud() {
   if (isReadOnly.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   statusText.value = '儲存中...'
@@ -413,39 +430,51 @@ async function saveChangesToCloud() {
     isAlertDialogVisible.value = true
   }
 }
-function onDrop(event, targetSlotId) {
+
+function onDrop(event, targetWeeklySlotId) {
   if (isReadOnly.value) return
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
-  const itemToDrop = draggedItem.value
-  if (!itemToDrop) return
-  const targetDayIndex = parseInt(targetSlotId.split('-')[2], 10)
+
+  const dragged = draggedItem.value
+  if (!dragged) return
+
+  const targetDayIndex = parseInt(targetWeeklySlotId.split('-')[2], 10)
   if (isDateInPast(targetDayIndex)) {
     console.warn('無法拖曳到已過去的日期。')
     draggedItem.value = null
     return
   }
-  const targetSlotData = weekScheduleMap.value[targetSlotId]
+
+  const sourceWeeklySlotId = dragged.source
+  const sourceSlotData = { ...dragged.data }
+  const targetSlotData = { ...weekScheduleMap.value[targetWeeklySlotId] }
+
   if (targetSlotData && targetSlotData.patientId) {
-    if (itemToDrop.source === 'sidebar') {
-      alert('目標床位已被佔用，無法從側邊欄拖曳至此。')
+    if (sourceWeeklySlotId === 'sidebar') {
+      alertDialogTitle.value = '操作失敗'
+      alertDialogMessage.value = '目標床位已被佔用，無法從側邊欄拖曳至此。'
+      isAlertDialogVisible.value = true
       draggedItem.value = null
       return
     }
-    const sourceSlotId = itemToDrop.source
-    if (isDateInPast(parseInt(sourceSlotId.split('-')[2], 10))) {
+
+    const sourceDayIndex = parseInt(sourceWeeklySlotId.split('-')[2], 10)
+    if (isDateInPast(sourceDayIndex)) {
       console.warn('無法從過去的日期拖曳項目進行交換。')
       draggedItem.value = null
       return
     }
-    handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
-    handleSlotUpdate(sourceSlotId, targetSlotData.patientId, targetSlotData.manualNote)
+
+    handleSlotUpdate(targetWeeklySlotId, sourceSlotData)
+    handleSlotUpdate(sourceWeeklySlotId, targetSlotData)
   } else {
-    handleSlotUpdate(targetSlotId, itemToDrop.patientId, itemToDrop.manualNote)
-    if (itemToDrop.source !== 'sidebar') {
-      handleSlotUpdate(itemToDrop.source, null)
+    handleSlotUpdate(targetWeeklySlotId, sourceSlotData)
+    if (sourceWeeklySlotId !== 'sidebar') {
+      handleSlotUpdate(sourceWeeklySlotId, null)
     }
   }
+
   draggedItem.value = null
 }
 function onDragStart(event, slotId) {
@@ -463,10 +492,10 @@ function onDragStart(event, slotId) {
     event.preventDefault()
     return
   }
+
   draggedItem.value = {
-    patientId: slotData.patientId,
-    manualNote: slotData.manualNote || '',
     source: slotId,
+    data: { ...slotData },
   }
   event.dataTransfer.effectAllowed = 'move'
 }
@@ -480,60 +509,70 @@ function onSidebarDragStart(event, patient) {
     return
   }
   draggedItem.value = {
-    patientId: patient.id,
-    manualNote: patient.status === PATIENT_STATUS.INPATIENT ? '住' : '',
     source: 'sidebar',
+    data: {
+      patientId: patient.id,
+      manualNote: patient.status === PATIENT_STATUS.INPATIENT ? '住' : '',
+    },
   }
   event.dataTransfer.effectAllowed = 'move'
 }
+
+function showConfirmDialog(title, message, onConfirm) {
+  confirmDialogTitle.value = title
+  confirmDialogMessage.value = message
+  confirmAction.value = onConfirm
+  isConfirmDialogVisible.value = true
+}
+
 async function loadBaseSchedule() {
   if (isReadOnly.value) {
-    alert('操作被鎖定：權限不足。')
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
-  if (!confirm('確定要載入常規班表嗎？這將會覆蓋【今天及未來】的所有排班。')) return
 
-  statusText.value = '正在載入常規班表...'
-  try {
-    const masterRecord = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
-    if (!masterRecord || !masterRecord.schedule) {
-      alert('找不到常規班表範本 (MASTER_SCHEDULE)，沒有資料可以載入。')
-      statusText.value = '常規班表為空'
-      return
-    }
-
-    const baseSchedule = masterRecord.schedule
-    const newWeekRecords = new Map(weekScheduleRecords.value)
-
-    weekDates.value.forEach((day, dayIndex) => {
-      if (!isDateInPast(dayIndex)) {
-        const existingRecord = newWeekRecords.get(day.queryDate) || {
-          id: null,
-          date: day.queryDate,
+  showConfirmDialog(
+    '載入常規班表',
+    '確定要載入常規班表嗎？\n這將會覆蓋【今天及未來】的所有排班。',
+    async () => {
+      statusText.value = '正在載入常規班表...'
+      try {
+        const masterRecord = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+        if (!masterRecord || !masterRecord.schedule) {
+          alertDialogTitle.value = '載入失敗'
+          alertDialogMessage.value = '找不到常規班表範本 (MASTER_SCHEDULE)，沒有資料可以載入。'
+          isAlertDialogVisible.value = true
+          statusText.value = '常規班表為空'
+          return
         }
-        newWeekRecords.set(day.queryDate, {
-          ...existingRecord,
-          schedule: {},
-        })
-      }
-    })
 
-    for (const weeklySlotId in baseSchedule) {
-      const baseSlotData = baseSchedule[weeklySlotId]
-      if (baseSlotData && baseSlotData.patientId) {
-        const [bed, shiftIndexStr, dayIndexStr] = weeklySlotId.split('-')
-        const dayIndex = parseInt(dayIndexStr, 10)
-        const shiftIndex = parseInt(shiftIndexStr, 10)
+        const baseSchedule = masterRecord.schedule
 
-        if (!isDateInPast(dayIndex)) {
-          const dateStr = weekDates.value[dayIndex]?.queryDate
-          if (dateStr) {
-            const dailyRecord = newWeekRecords.get(dateStr)
-            const shiftCode = SHIFTS[shiftIndex]
-            if (dailyRecord && shiftCode) {
-              const dailyShiftId = `bed-${bed}-${shiftCode}`
+        // 【修正】確保操作的是當前週的數據副本
+        const newWeekRecords = new Map(weekScheduleRecords.value)
+
+        // 遍歷常規班表
+        for (const baseWeeklyId in baseSchedule) {
+          const baseSlotData = baseSchedule[baseWeeklyId]
+          if (baseSlotData && baseSlotData.patientId) {
+            const targetInfo = getDailyShiftIdFromWeekly(baseWeeklyId)
+            if (!targetInfo) continue
+
+            const { dateStr, dailyShiftId } = targetInfo
+            const dayIndex = weekDates.value.findIndex((d) => d.queryDate === dateStr)
+
+            // 只處理今天及未來的排程
+            if (dayIndex !== -1 && !isDateInPast(dayIndex)) {
+              // 確保日記錄存在
+              if (!newWeekRecords.has(dateStr)) {
+                newWeekRecords.set(dateStr, { id: null, date: dateStr, schedule: {} })
+              }
+              const dailyRecord = newWeekRecords.get(dateStr)
               const patient = patientMap.value.get(baseSlotData.patientId)
-              if (patient) {
+
+              if (dailyRecord && patient) {
                 dailyRecord.schedule[dailyShiftId] = {
                   ...createEmptySlotData(dailyShiftId),
                   patientId: baseSlotData.patientId,
@@ -544,33 +583,45 @@ async function loadBaseSchedule() {
             }
           }
         }
+
+        weekScheduleRecords.value = newWeekRecords
+        statusText.value = '常規班表已載入至未來排程，請記得儲存。'
+        setChange()
+      } catch (error) {
+        console.error('載入常規班表失敗:', error)
+        statusText.value = '載入失敗'
+        alertDialogTitle.value = '錯誤'
+        alertDialogMessage.value = '載入常規班表時發生錯誤。'
+        isAlertDialogVisible.value = true
       }
-    }
-
-    weekScheduleRecords.value = newWeekRecords
-
-    statusText.value = '常規班表已載入至未來排程，請記得儲存。'
-    setChange()
-  } catch (error) {
-    console.error('載入常規班表失敗:', error)
-    statusText.value = '載入失敗'
-  }
+    },
+  )
 }
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !isReadOnly.value) {
-    if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+    showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換日期嗎？', () => {
+      const newDate = new Date(currentWeekStartDate.value)
+      newDate.setDate(newDate.getDate() + days)
+      currentWeekStartDate.value = newDate
+      loadAllData()
+    })
+  } else {
+    const newDate = new Date(currentWeekStartDate.value)
+    newDate.setDate(newDate.getDate() + days)
+    currentWeekStartDate.value = newDate
+    loadAllData()
   }
-  const newDate = new Date(currentWeekStartDate.value)
-  newDate.setDate(newDate.getDate() + days)
-  currentWeekStartDate.value = newDate
-  loadAllData()
 }
 function goToToday() {
   if (hasUnsavedChanges.value && !isReadOnly.value) {
-    if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+    showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換到本週嗎？', () => {
+      currentWeekStartDate.value = getStartOfWeek(new Date())
+      loadAllData()
+    })
+  } else {
+    currentWeekStartDate.value = getStartOfWeek(new Date())
+    loadAllData()
   }
-  currentWeekStartDate.value = getStartOfWeek(new Date())
-  loadAllData()
 }
 async function loadAllData() {
   hasUnsavedChanges.value = false
