@@ -11,6 +11,7 @@
         <li><RouterLink to="/base-schedule" class="nav-link">常規門診床位</RouterLink></li>
         <li><RouterLink to="/patients" class="nav-link">病人管理系統</RouterLink></li>
         <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
+        <li><router-link to="/reporting" class="nav-link">統計報表</router-link></li>
       </ul>
 
       <!-- 新增的用戶資訊與登出區塊 -->

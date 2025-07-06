@@ -4,8 +4,8 @@ import { ref, computed } from 'vue'
 
 // 模擬的用戶資料庫。在真實專案中，這裡會是 API 呼叫。
 const USER_DATABASE = {
-  editor: { password: '1234', role: 'editor', name: '廖醫師' },
-  viewer: { password: '1234', role: 'viewer', name: '訪客護理師' },
+  editor: { password: '1234', role: 'editor', name: '醫師/組長' },
+  viewer: { password: '1234', role: 'viewer', name: '訪客/護理師' },
   // 可以在這裡新增更多測試帳號
   // 'testuser': { password: 'password', role: 'editor', name: '測試人員' },
 }
