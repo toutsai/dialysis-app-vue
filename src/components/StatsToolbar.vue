@@ -5,7 +5,7 @@ import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleCo
 const props = defineProps({
   statsData: Array,
   weekdays: Array,
-  // columnWidths 和 size 的 props 保持不變，它們是正確的
+  // columnWidths prop 現在是對齊的關鍵
   columnWidths: {
     type: Array,
     default: () => [],
@@ -34,32 +34,16 @@ const getBarStyles = (shiftCount) => {
     ipdStyle: { width: `${ipdPercent}%` },
   }
 }
-
-// 【核心修改】: 不再計算每個 item 的 style，而是計算整個 toolbar 的總寬度
-const toolbarStyle = computed(() => {
-  if (props.columnWidths.length === 0) {
-    return {}
-  }
-  // 將所有欄位寬度加總，得到 toolbar 應該佔據的總寬度
-  const totalWidth = props.columnWidths.reduce((sum, width) => sum + width, 0)
-
-  // 加上 gap 的寬度 (項目數 - 1) * gap
-  const totalGap = (props.columnWidths.length - 1) * 8 // 假設 gap 是 8px
-
-  // 返回一個 style 物件，設定 toolbar 的總寬度
-  return {
-    width: `${totalWidth + totalGap}px`,
-  }
-})
 </script>
 
 <template>
-  <!-- 【核心修改】:
-    1. 在 stats-toolbar 容器上綁定新的 toolbarStyle，來設定總寬度。
-    2. 移除 stat-item 上的動態 :style 綁定。
-  -->
-  <div class="stats-toolbar" :class="`size-${size}`" :style="toolbarStyle">
-    <div v-for="(dayData, index) in statsData" :key="index" class="stat-item">
+  <div class="stats-toolbar" :class="`size-${size}`">
+    <div
+      v-for="(dayData, index) in statsData"
+      :key="index"
+      class="stat-item"
+      :style="{ width: columnWidths[index] ? `${columnWidths[index]}px` : 'auto' }"
+    >
       <div class="day-summary">
         <strong>{{ weekdays[index] }}</strong>
         <span class="day-total-count">{{ dayData.total }}</span>
@@ -91,12 +75,8 @@ const toolbarStyle = computed(() => {
 <style scoped>
 .stats-toolbar {
   display: flex;
-  /* 【核心修改】: 換回 space-around，讓 flexbox 自動分配空間 */
-  justify-content: space-around;
   align-items: center;
-  gap: 8px;
-  /* 移除 width: 100%，因為寬度由 :style 動態設定 */
-  transition: width 0.2s ease-in-out; /* 讓總寬度變化更平滑 */
+  gap: 8px; /* 這裡的 gap 會對應表格欄位間的 border 寬度 */
 }
 
 .stat-item {
@@ -107,14 +87,9 @@ const toolbarStyle = computed(() => {
   border-radius: 6px;
   background-color: #f8f9fa;
   border: 1px solid #e9ecef;
-
-  /* 【核心修改】: 讓每個 item 平均分配容器寬度，這是對齊的關鍵！ */
-  flex: 1 1 0;
-
-  /* 移除動態寬度，因為現在由 flexbox 控制 */
+  transition: width 0.2s ease-in-out; /* 讓寬度變化更平滑 */
+  box-sizing: border-box;
 }
-
-/* ... day-summary, day-total-count, stat-shift-group 等樣式不變 ... */
 
 .day-summary {
   display: flex;
@@ -130,7 +105,7 @@ const toolbarStyle = computed(() => {
 }
 
 .day-total-count {
-  font-size: 50px;
+  font-size: 1em;
   font-weight: bold;
   color: var(--primary-color, #007bff);
 }
@@ -192,7 +167,6 @@ const toolbarStyle = computed(() => {
   background-color: var(--danger-color, #dc3545);
 }
 
-/* 尺寸變體樣式 (保持不變) */
 .stats-toolbar.size-normal .day-summary strong,
 .stats-toolbar.size-normal .day-total-count {
   font-size: 1.1em;

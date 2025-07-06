@@ -1,11 +1,8 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (Memo彈窗整合最終版) -->
 <script setup>
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
-
-// 引入所有需要的工具、常量和元件
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 import StatsToolbar from '@/components/StatsToolbar.vue'
@@ -16,9 +13,8 @@ import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
-import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】引入新元件
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 
-// --- 輔助函式 (保持不變) ---
 function getStartOfWeek(date) {
   const d = new Date(date)
   const day = d.getDay()
@@ -45,13 +41,11 @@ function formatDateForQuery(date) {
   return `${year}-${month}-${day}`
 }
 
-// --- API 實例 (保持不變) ---
 const patientsApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const baseSchedulesApi = ApiManager('base_schedules')
 const memosApi = ApiManager('memos')
 
-// --- 常量定義 (保持不變) ---
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const PATIENT_STATUS = { INPATIENT: 'ipd' }
@@ -83,7 +77,6 @@ const STYLE_PRIORITY = {
   B: { class: 'tag-b' },
 }
 
-// --- 核心狀態 (保持不變) ---
 const allPatients = ref([])
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
@@ -92,7 +85,8 @@ const hasUnsavedChanges = ref(false)
 const statusText = ref('資料已載入')
 const draggedItem = ref(null)
 
-// --- UI 狀態 ---
+const columnWidths = ref([])
+const leftOffset = ref(0)
 const isPatientSelectDialogVisible = ref(false)
 const isProblemSolverDialogVisible = ref(false)
 const currentSlotId = ref(null)
@@ -106,16 +100,21 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const problemsToSolve = ref(null)
-// 【新增】Memo Dialog 相關狀態
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
-// --- 權限與鎖定 (保持不變) ---
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
-// --- 計算屬性 (保持不變) ---
+// 【新增】明確的事件處理函數
+function updateLeftOffset(newOffset) {
+  leftOffset.value = newOffset
+}
+function updateColumnWidths(newWidths) {
+  columnWidths.value = newWidths
+}
+
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(() => {
   return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
@@ -134,17 +133,15 @@ const weekDates = computed(() => {
   })
 })
 const statsToolbarData = computed(() => {
-  // 【修改1】: 基礎資料結構現在包含 opd 和 ipd 計數
   const baseData = WEEKDAYS.map(() => ({
     counts: {
       early: { total: 0, opd: 0, ipd: 0 },
       noon: { total: 0, opd: 0, ipd: 0 },
       late: { total: 0, opd: 0, ipd: 0 },
     },
-    total: 0, // 【新增】: 用於儲存當日總人數
+    total: 0,
   }))
 
-  // 這個 patientMap 必須能從 allPatients 獲取，確保它已經被載入
   const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
 
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
@@ -156,15 +153,14 @@ const statsToolbarData = computed(() => {
         for (const slotData of Object.values(record.schedule)) {
           if (slotData && slotData.patientId && slotData.shiftId) {
             const patient = localPatientMap.get(slotData.patientId)
-            if (!patient) continue // 如果找不到病人資料，則跳過
+            if (!patient) continue
 
             const shiftCode = slotData.shiftId.split('-')[2]
             const shiftStats = baseData[dayIndex].counts[shiftCode]
 
             if (shiftStats) {
-              // 【修改2】: 同時更新 total, opd, ipd 計數
               shiftStats.total++
-              baseData[dayIndex].total++ // 更新當日總人數
+              baseData[dayIndex].total++
               if (patient.status === 'opd') {
                 shiftStats.opd++
               } else if (patient.status === 'ipd') {
@@ -217,25 +213,16 @@ const scheduledPatientIds = computed(() => {
   return ids
 })
 
-// --- 方法 ---
-
-// 【新增】處理顯示備忘錄對話框的函式
 function showPatientMemos(patientId) {
   if (!patientId) return
-
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-
-  // 從 activeMemos 中篩選出該病人的未處理備忘
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && !memo.isResolved,
   )
-
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
-
-// (其他方法保持不變)
 function isDateInPast(dayIndex) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -829,12 +816,14 @@ onUnmounted(() => {
 
       <main class="page-main-content">
         <div class="schedule-area">
-          <StatsToolbar
-            class="stats-toolbar"
-            :stats-data="statsToolbarData"
-            :weekdays="statsToolbarWeekdays"
-          />
-          <!-- 【修改】監聽 show-memos 事件 -->
+          <div class="stats-toolbar-wrapper" :style="{ paddingLeft: `${leftOffset}px` }">
+            <StatsToolbar
+              :stats-data="statsToolbarData"
+              :weekdays="statsToolbarWeekdays"
+              :column-widths="columnWidths"
+              size="compact"
+            />
+          </div>
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -853,6 +842,8 @@ onUnmounted(() => {
             @drag-over="onDragOver"
             @dragleave="onDragLeave"
             @show-memos="showPatientMemos"
+            @update:column-widths="updateColumnWidths"
+            @update:left-offset="updateLeftOffset"
           />
         </div>
         <InpatientSidebar
@@ -864,16 +855,12 @@ onUnmounted(() => {
       </main>
     </div>
 
-    <!-- Dialogs -->
-
-    <!-- 【新增】Memo 顯示對話框 -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
       :memos="memosForDialog"
       @close="isMemoDialogVisible = false"
     />
-
     <BedAssignmentDialog
       :is-visible="isProblemSolverDialogVisible"
       :all-patients="allPatients"
@@ -918,7 +905,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Style 部分完全不變 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -935,12 +921,15 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 .toolbar-left,
 .main-actions {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 .page-title {
   margin: 0;
@@ -954,6 +943,7 @@ onUnmounted(() => {
 .week-display-text {
   font-weight: bold;
   font-size: 26px;
+  white-space: nowrap;
 }
 .page-main-content {
   display: flex;
@@ -966,8 +956,12 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
 }
-.stats-toolbar {
+
+.stats-toolbar-wrapper {
   flex-shrink: 0;
+  padding: 8px 8px 8px 0;
+  box-sizing: border-box;
+  transition: padding-left 0.2s ease-in-out;
 }
 .schedule-table-component {
   flex-grow: 1;
@@ -986,6 +980,7 @@ button {
   cursor: pointer;
   background-color: #f8f9fa;
   transition: all 0.2s;
+  white-space: nowrap;
 }
 .btn:hover,
 .btn-save:not(:disabled):hover {

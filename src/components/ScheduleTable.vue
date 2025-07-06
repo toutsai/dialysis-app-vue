@@ -1,10 +1,8 @@
 <script setup>
-// 【修改】從 vue 引入 ref, onMounted, onUnmounted, nextTick
 import { computed, ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { getShiftDisplayName } from '@/constants/scheduleConstants'
 
 const props = defineProps({
-  // ... 其他 props 維持不變
   layout: { type: Array, required: true },
   scheduleData: { type: Object, required: true },
   patientMap: { type: Map, required: true },
@@ -20,7 +18,6 @@ const props = defineProps({
   },
 })
 
-// 【修改】新增 update:column-widths 和 update:left-offset 事件
 const emit = defineEmits([
   'grid-click',
   'drop',
@@ -32,49 +29,57 @@ const emit = defineEmits([
   'update:left-offset',
 ])
 
-// 【新增】建立 a ref 來引用 thead 元素
 const theadRef = ref(null)
+const isMounted = ref(false)
 
-// 【新增】測量並發送寬度的函數
 const measureAndEmitWidths = () => {
+  if (!isMounted.value) return
+
   nextTick(() => {
-    if (!theadRef.value) return
+    if (!theadRef.value || !theadRef.value.isConnected) {
+      return
+    }
 
     const ths = Array.from(theadRef.value.querySelectorAll('th'))
-    if (ths.length < 3) return // 至少要有床位、班次、和一個星期
+    if (ths.length < 3) return
 
-    const bedHeaderWidth = ths[0].getBoundingClientRect().width
-    const shiftHeaderWidth = ths[1].getBoundingClientRect().width
-    const leftOffset = bedHeaderWidth + shiftHeaderWidth
+    try {
+      const bedHeaderWidth = ths[0].getBoundingClientRect().width
+      const shiftHeaderWidth = ths[1].getBoundingClientRect().width
+      const leftOffset = bedHeaderWidth + shiftHeaderWidth
+      const dayColumnWidths = ths.slice(2).map((th) => th.getBoundingClientRect().width)
 
-    const dayColumnWidths = ths.slice(2).map((th) => th.getBoundingClientRect().width)
-
-    emit('update:left-offset', leftOffset)
-    emit('update:column-widths', dayColumnWidths)
+      emit('update:left-offset', leftOffset)
+      emit('update:column-widths', dayColumnWidths)
+    } catch (e) {
+      console.warn('Could not measure table widths, element might be detached.', e)
+    }
   })
 }
 
-// 【新增】使用 ResizeObserver 監聽表格寬度變化
 let resizeObserver = null
 onMounted(() => {
-  measureAndEmitWidths() // 初始測量
+  isMounted.value = true
+
+  setTimeout(measureAndEmitWidths, 100)
 
   const tableContainer = theadRef.value?.closest('.schedule-table-container')
   if (tableContainer) {
     resizeObserver = new ResizeObserver(measureAndEmitWidths)
     resizeObserver.observe(tableContainer)
   }
-  window.addEventListener('resize', measureAndEmitWidths) // 也監聽視窗變化
+  window.addEventListener('resize', measureAndEmitWidths)
 })
 
 onUnmounted(() => {
+  isMounted.value = false
+
   if (resizeObserver) {
     resizeObserver.disconnect()
   }
   window.removeEventListener('resize', measureAndEmitWidths)
 })
 
-// ... getPatientDetails 函數維持不變
 const getPatientDetails = (slotId) => {
   const slotData = props.scheduleData[slotId]
   if (!slotData || !slotData.patientId) return null
@@ -94,7 +99,6 @@ const getPatientDetails = (slotId) => {
 <template>
   <div class="schedule-table-container">
     <table class="schedule-table">
-      <!-- 【修改】在 thead 上加上 ref -->
       <thead ref="theadRef">
         <tr>
           <th class="bed-header-cell">床位</th>
@@ -105,11 +109,8 @@ const getPatientDetails = (slotId) => {
           </th>
         </tr>
       </thead>
-      <!-- ... tbody 部分維持不變 ... -->
       <tbody>
         <template v-for="bedNum in layout" :key="`bed-${bedNum}`">
-          <!-- ... 內容 ... -->
-          <!-- 第一個班次，帶 rowspan -->
           <tr class="bed-row">
             <td
               class="bed-number-cell"
@@ -145,11 +146,9 @@ const getPatientDetails = (slotId) => {
                 @dragleave="emit('drag-leave', $event)"
               >
                 <div v-if="getPatientDetails(`${bedNum}-0-${dayIndex}`)" class="patient-details">
-                  <!-- 今天及未來的顯示方式 -->
                   <template v-if="!props.isDateInPast(dayIndex)">
                     <div class="patient-name">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
-                      <!-- 【修改】點擊圖示時發出事件 -->
                       <span
                         v-if="
                           props.patientWithMemoIds.has(
@@ -185,7 +184,6 @@ const getPatientDetails = (slotId) => {
                       </span>
                     </div>
                   </template>
-                  <!-- 已過去的顯示方式 -->
                   <template v-else>
                     <div class="patient-name-past">
                       {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
@@ -207,7 +205,6 @@ const getPatientDetails = (slotId) => {
               </div>
             </td>
           </tr>
-          <!-- 其他班次 -->
           <tr v-for="shiftIndex in shifts.length - 1" :key="`shift-row-${bedNum}-${shiftIndex}`">
             <td class="shift-name-cell">{{ getShiftDisplayName(shifts[shiftIndex]) }}</td>
             <td
@@ -248,7 +245,6 @@ const getPatientDetails = (slotId) => {
                   <template v-if="!props.isDateInPast(dayIndex)">
                     <div class="patient-name">
                       {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
-                      <!-- 【修改】點擊圖示時發出事件 -->
                       <span
                         v-if="
                           props.patientWithMemoIds.has(
@@ -323,9 +319,7 @@ const getPatientDetails = (slotId) => {
   </div>
 </template>
 
-<!-- Style 部分維持不變 -->
 <style scoped>
-/* 樣式部分完全保持不變 */
 .schedule-table-container {
   width: 100%;
   height: 100%;
@@ -479,7 +473,6 @@ const getPatientDetails = (slotId) => {
   z-index: 20;
 }
 
-/* 【新增】Memo 圖示樣式 */
 .memo-icon {
   display: inline-block;
   vertical-align: middle;
@@ -487,7 +480,7 @@ const getPatientDetails = (slotId) => {
   margin: 0 2px;
   font-size: 1.1em;
   transition: transform 0.2s;
-  order: -1; /* 將 memo 圖示放在最前面 */
+  order: -1;
 }
 .memo-icon:hover {
   transform: scale(1.3);
