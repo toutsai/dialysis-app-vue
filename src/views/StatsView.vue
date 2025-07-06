@@ -794,13 +794,13 @@ watch(currentDate, (newDate) => {
   gap: 5px;
 }
 .current-date-text {
-  font-size: 1.5em;
+  font-size: 26px;
   font-weight: bold;
   color: #333;
   padding: 0 10px;
 }
 .weekday-display {
-  font-size: 1.5em;
+  font-size: 26px;
   font-weight: bold;
   color: var(--primary-color);
   margin-left: -5px;

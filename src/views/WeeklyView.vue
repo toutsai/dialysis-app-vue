@@ -953,7 +953,7 @@ onUnmounted(() => {
 }
 .week-display-text {
   font-weight: bold;
-  font-size: 28px;
+  font-size: 26px;
 }
 .page-main-content {
   display: flex;

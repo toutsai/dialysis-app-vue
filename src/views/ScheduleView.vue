@@ -1027,7 +1027,7 @@ watch(currentDate, (newDate, oldDate) => {
 }
 .current-date-text,
 .weekday-display {
-  font-size: 1.5em;
+  font-size: 26px;
   font-weight: bold;
 }
 .weekday-display {
