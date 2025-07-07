@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (Memo彈窗整合最終版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (最終修正版) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -7,7 +7,7 @@ import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
-import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue' // <-- 【新增】
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
@@ -49,7 +49,7 @@ const lateTeams = baseTeams.map((t) => `晚${t}`)
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
-const activeMemos = ref([]) // <-- 【修改】從 allMemos 改為 activeMemos 以清晰表達意圖
+const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
@@ -57,7 +57,6 @@ const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 // --- UI 狀態 ---
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
-// 【新增】Memo Dialog 相關狀態
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
@@ -87,7 +86,8 @@ const getPatientDisplayString = (patientDetail) => {
   const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
-  const finalTags = combinedTags.filter((tag) => tag !== '住')
+  // 移除 '住' 和 '急'，因為它們已經通過顏色表示了
+  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   const noteString = finalTags.join(' ')
 
   let identifier = ''
@@ -114,7 +114,6 @@ const getPatientDisplayString = (patientDetail) => {
   return displayParts.join(' - ')
 }
 
-// 【新增】計算屬性，高效查詢有備忘的病人ID
 const patientWithMemoIds = computed(() => {
   return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
 })
@@ -132,23 +131,27 @@ const statsData = computed(() => {
   }
   const earlyShiftStats = {}
   const lateShiftStats = {}
+
+  // 【修改 1/4】: 初始化統計物件，加入 erCount 和 totalErCount
   earlyTeams.forEach((team) => {
     earlyShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
-      earlyShift: { patients: [], opdCount: 0, ipdCount: 0 },
-      noonShiftOn: { patients: [], opdCount: 0, ipdCount: 0 },
-      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0 },
+      earlyShift: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
+      noonShiftOn: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
+      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
       totalOpdCount: 0,
       totalIpdCount: 0,
+      totalErCount: 0,
     }
   })
   lateTeams.forEach((team) => {
     lateShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
-      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0 },
-      lateShift: { patients: [], opdCount: 0, ipdCount: 0 },
+      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
+      lateShift: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
       totalOpdCount: 0,
       totalIpdCount: 0,
+      totalErCount: 0,
     }
   })
   const patientMap = new Map(allPatients.value.map((p) => [p.id, p]))
@@ -180,7 +183,8 @@ const statsData = computed(() => {
       classes: 'patient-item',
     }
 
-    if (patient.status === 'ipd') detail.classes += ' status-ipd'
+    if (patient.status === 'er') detail.classes += ' status-er'
+    else if (patient.status === 'ipd') detail.classes += ' status-ipd'
     else detail.classes += ' status-opd'
     const combinedNote = [
       ...new Set([
@@ -195,10 +199,13 @@ const statsData = computed(() => {
     if (combinedNote.includes('換')) detail.classes += ' tag-huan'
     if (combinedNote.includes('B')) detail.classes += ' tag-b'
 
+    // 【修改 2/4】: 在計數函式中增加對 'er' 的處理
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
       if (patientDetail.status === 'ipd') {
         group.ipdCount++
+      } else if (patientDetail.status === 'er') {
+        group.erCount++
       } else {
         group.opdCount++
       }
@@ -241,24 +248,28 @@ const statsData = computed(() => {
       if (group.patients) group.patients.sort(sortPatientsByBed)
     })
   }
+
+  // 【修改 3/4】: 更新總數計算，加入 totalErCount
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
     teamData.totalOpdCount =
       teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount + teamData.noonShiftOff.opdCount
     teamData.totalIpdCount =
       teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount + teamData.noonShiftOff.ipdCount
+    teamData.totalErCount =
+      teamData.earlyShift.erCount + teamData.noonShiftOn.erCount + teamData.noonShiftOff.erCount
   }
   for (const team in lateShiftStats) {
     const teamData = lateShiftStats[team]
     teamData.totalOpdCount = teamData.lateShift.opdCount + teamData.noonShiftOff.opdCount
     teamData.totalIpdCount = teamData.lateShift.ipdCount + teamData.noonShiftOff.ipdCount
+    teamData.totalErCount = teamData.lateShift.erCount + teamData.noonShiftOff.erCount
   }
   return { early: earlyShiftStats, late: lateShiftStats }
 })
 
 // --- 方法 ---
 
-// 【新增】處理顯示備忘錄對話框的函式
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = allPatients.value.find((p) => p.id === patientId)
@@ -271,7 +282,6 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
-// 【修改】合併資料獲取
 async function loadData(date) {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
@@ -283,7 +293,7 @@ async function loadData(date) {
       memosApi.fetchAll([where('isResolved', '==', false)]),
     ])
     allPatients.value = patientsData
-    activeMemos.value = memosData // <-- 修改
+    activeMemos.value = memosData
     if (dailyRecords.length > 0) {
       const record = dailyRecords[0]
       if (record.schedule) {
@@ -308,7 +318,6 @@ async function loadData(date) {
     statusIndicator.value = '讀取失敗'
   }
 }
-// (其他方法保持不變)
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -550,7 +559,6 @@ watch(currentDate, (newDate) => {
                   title="拖曳換組/班，點擊換床"
                 >
                   <span v-html="getPatientDisplayString(patient)"></span>
-                  <!-- 【修改】添加圖示 -->
                   <span
                     v-if="patientWithMemoIds.has(patient.id)"
                     class="memo-icon-inline"
@@ -634,7 +642,10 @@ watch(currentDate, (newDate) => {
             :key="teamName"
             class="total-count-summary"
           >
-            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
+            <!-- 【修改 4/4】: 在模板中顯示急診人數 -->
+            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+              teamData.totalErCount
+            }}
           </div>
         </div>
       </div>
@@ -741,13 +752,15 @@ watch(currentDate, (newDate) => {
             :key="teamName"
             class="total-count-summary"
           >
-            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }}
+            <!-- 【修改 4/4】: 在模板中顯示急診人數 -->
+            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+              teamData.totalErCount
+            }}
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 【新增】Memo 對話框 -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
@@ -766,7 +779,7 @@ watch(currentDate, (newDate) => {
 </template>
 
 <style scoped>
-/* 樣式部分保持您提供的版本不變，只在末尾增加 memo-icon-inline 的樣式 */
+/* 樣式部分保持不變 */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -944,7 +957,6 @@ watch(currentDate, (newDate) => {
     box-shadow 0.2s;
   user-select: none;
 }
-/* 【修改】使 patient-item 內的元素可以並排 */
 .patient-item {
   display: flex;
   justify-content: space-between;
@@ -969,6 +981,10 @@ watch(currentDate, (newDate) => {
   background-color: var(--red-bg, #ffebee);
   border-color: #ef9a9a;
 }
+.patient-item.status-er {
+  background-color: var(--purple-bg, #f3e5f5);
+  border-color: #ce93d8;
+}
 .patient-item.tag-b {
   background-color: #fff9c4;
   border-color: #fff59d;
@@ -986,7 +1002,7 @@ watch(currentDate, (newDate) => {
   border-color: #e0d567;
 }
 .patient-item.tag-chou {
-  background-color: #658ee0;
+  background-color: #8cbdf6;
   border-color: #42a5f5;
 }
 .patient-item.has-note-highlight {
@@ -1025,13 +1041,12 @@ watch(currentDate, (newDate) => {
   background-color: #eeeeee;
 }
 
-/* 【新增】內聯圖示樣式 */
 .memo-icon-inline {
   cursor: pointer;
-  margin-left: 8px; /* 增加與文字的間距 */
-  font-size: 1.2em; /* 讓圖示更明顯 */
+  margin-left: 8px;
+  font-size: 1.2em;
   transition: transform 0.2s;
-  flex-shrink: 0; /* 防止圖示被壓縮 */
+  flex-shrink: 0;
 }
 .memo-icon-inline:hover {
   transform: scale(1.3);

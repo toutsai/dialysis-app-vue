@@ -1,8 +1,7 @@
-<!-- 檔案路徑: src/components/PatientSelectDialog.vue (z-index 修正版) -->
+<!-- 檔案路徑: src/components/PatientSelectDialog.vue (支援急診病人最終版) -->
 <script setup>
 import { ref, computed, watch } from 'vue'
 
-// props 和 emits 的定義保持不變
 const props = defineProps({
   isVisible: Boolean,
   title: String,
@@ -14,7 +13,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['confirm', 'cancel'])
 
-// 內部狀態
 const searchTerm = ref('')
 const freqFilter = ref('')
 const diseaseFilter = ref('')
@@ -22,26 +20,24 @@ const selectedPatientId = ref(null)
 const patientStatusFilter = ref('')
 const fillType = ref('frequency')
 
-// 常量
 const FREQUENCIES = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六', '每周一次', '臨時']
 const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
 
-// 計算屬性
 const filteredPatients = computed(() => {
   if (!props.patients || props.patients.length === 0) {
     return []
   }
   return props.patients.filter((p) => {
+    // 確保 isDeleted 不為 true 的病人才會被顯示
+    if (p.isDeleted) return false
+
     const term = searchTerm.value.toLowerCase()
     const matchesSearch =
       !term ||
       (p.name && p.name.toLowerCase().includes(term)) ||
       (p.medicalRecordNumber && p.medicalRecordNumber.includes(term))
 
-    // ======================= 【核心修改點】 =======================
-    // 將所有 p.frequency 的引用，全部改為 p.freq
     const matchesFreq = !freqFilter.value || p.freq === freqFilter.value
-    // ==========================================================
 
     const matchesDisease =
       !diseaseFilter.value || (p.diseases && p.diseases.includes(diseaseFilter.value))
@@ -51,7 +47,6 @@ const filteredPatients = computed(() => {
   })
 })
 
-// 方法
 function selectPatient(patientId) {
   selectedPatientId.value = patientId
 }
@@ -61,13 +56,8 @@ function handleConfirm() {
     alert('請先選擇一位病人！')
     return
   }
-
-  // 不再使用 if/else，統一 emit 一個包含 patientId 的物件
-  // 如果 showFillOptions 為 true，物件中會額外包含 fillType
-  // 如果為 false，物件中就只有 patientId，但它依然是一個物件！
   emit('confirm', {
     patientId: selectedPatientId.value,
-    // 只有在 showFillOptions 為 true 時，才添加 fillType 屬性
     ...(props.showFillOptions && { fillType: fillType.value }),
   })
 }
@@ -76,8 +66,6 @@ function handleCancel() {
   emit('cancel')
 }
 
-// 監聽 isVisible 的變化，在 dialog 關閉時重置內部狀態
-// 這樣可以避免上次的選擇殘留
 watch(
   () => props.isVisible,
   (newValue) => {
@@ -98,11 +86,9 @@ function resetDialog() {
 </script>
 
 <template>
-  <!-- 使用 isVisible prop 來控制 dialog 的 open 屬性 -->
   <dialog :open="isVisible" @cancel.prevent="handleCancel">
     <h3>{{ title }}</h3>
 
-    <!-- 篩選器區塊 -->
     <div class="dialog-filters">
       <div class="filter-group">
         <label for="patient-search">姓名/病歷號</label>
@@ -128,11 +114,12 @@ function resetDialog() {
           <button :class="{ active: patientStatusFilter === '' }" @click="patientStatusFilter = ''">
             全部
           </button>
+          <!-- 【核心修改點】: 新增一個「急診」的篩選按鈕 -->
           <button
-            :class="{ active: patientStatusFilter === 'opd' }"
-            @click="patientStatusFilter = 'opd'"
+            :class="{ active: patientStatusFilter === 'er' }"
+            @click="patientStatusFilter = 'er'"
           >
-            門診
+            急診
           </button>
           <button
             :class="{ active: patientStatusFilter === 'ipd' }"
@@ -140,11 +127,16 @@ function resetDialog() {
           >
             住院
           </button>
+          <button
+            :class="{ active: patientStatusFilter === 'opd' }"
+            @click="patientStatusFilter = 'opd'"
+          >
+            門診
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- 病人列表容器 -->
     <div id="patient-list-container">
       <div
         v-if="filteredPatients.length === 0"
@@ -167,14 +159,15 @@ function resetDialog() {
           <span v-if="p.diseases && p.diseases.length" class="disease-tag-small">{{
             p.diseases.join(', ')
           }}</span>
-          <!-- ======================= 【核心修改點】 ======================= -->
+          <!-- 新增病人狀態的顯示，讓使用者更清楚 -->
+          <span class="status-tag-small" :class="`status-${p.status}`">{{
+            p.status === 'er' ? '急' : p.status === 'ipd' ? '住' : '門'
+          }}</span>
           <span>{{ p.freq || '未設定' }}</span>
-          <!-- ========================================================== -->
         </div>
       </div>
     </div>
 
-    <!-- 「填入方式」區塊 -->
     <div v-if="showFillOptions" class="form-field" style="margin-top: 15px">
       <label>填入方式：</label>
       <div class="radio-group">
@@ -187,7 +180,6 @@ function resetDialog() {
       </div>
     </div>
 
-    <!-- 底部按鈕區塊 -->
     <div class="modal-footer">
       <button class="btn-primary" @click="handleConfirm" :disabled="!selectedPatientId">
         確認
@@ -198,7 +190,6 @@ function resetDialog() {
 </template>
 
 <style>
-/* 關鍵修正：為 dialog 新增 z-index */
 dialog {
   z-index: 1000;
   border: 1px solid #ccc;
@@ -207,16 +198,14 @@ dialog {
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
   width: 90%;
   max-width: 600px;
-  position: fixed; /* <-- 新增這一行 */
-  top: 50%; /* <-- 新增這一行，讓它從垂直中心開始定位 */
-  left: 50%; /* <-- 新增這一行，讓它從水平中心開始定位 */
-  transform: translate(-50%, -50%); /* <-- 新增這一行，將它精確地置中 */
-  z-index: 1000;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 dialog::backdrop {
   background-color: rgba(0, 0, 0, 0.5);
 }
-/* 其他所有 dialog, filter, patient-list-item 等樣式保持不變 */
 dialog h3 {
   margin-top: 0;
 }
@@ -314,7 +303,7 @@ dialog h3 {
   display: flex;
   border: 1px solid #ccc;
   border-radius: 5px;
-  overflow: hidden; /* 讓內部按鈕的圓角生效 */
+  overflow: hidden;
 }
 .button-tabs button {
   flex-grow: 1;
@@ -339,7 +328,6 @@ dialog h3 {
   gap: 10px;
 }
 
-/* 1. 所有按鈕的基礎樣式 (通用) */
 .modal-footer button {
   border: 1px solid #ccc;
   border-radius: 5px;
@@ -353,27 +341,37 @@ dialog h3 {
     border-color 0.2s;
 }
 
-/* 2. 主按鈕的樣式 (啟用狀態) */
-/* 關鍵修正：我們同時指定了 class 和 :not(:disabled) 偽類 */
-/* 這使得它的特殊性高於通用的 button 規則 */
 .modal-footer button.btn-primary:not(:disabled) {
   background-color: var(--primary-color);
   color: white;
   border-color: var(--primary-color);
 }
 
-/* 3. 主按鈕的滑鼠懸停效果 (啟用狀態) */
 .modal-footer button.btn-primary:not(:disabled):hover {
   background-color: #0056b3;
   border-color: #0056b3;
 }
 
-/* 4. 所有按鈕的禁用樣式 (最高優先級) */
-/* 這條規則會覆蓋上面所有的顏色設定，當按鈕被禁用時 */
 .modal-footer button:disabled {
-  background-color: #e0e0e0; /* 稍微深一點的灰色，更易讀 */
-  border-color: #e0e0e0;
+  background-color: #e0e0e0;
   color: #9e9e9e;
   cursor: not-allowed;
+}
+/* 新增 status tag 的樣式 */
+.status-tag-small {
+  font-size: 0.8em;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 8px;
+  color: white;
+}
+.status-tag-small.status-opd {
+  background-color: #28a745;
+}
+.status-tag-small.status-ipd {
+  background-color: #1e88e5;
+}
+.status-tag-small.status-er {
+  background-color: #8e24aa;
 }
 </style>

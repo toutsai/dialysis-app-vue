@@ -72,7 +72,6 @@ const patientNameForDialog = ref('')
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
-// 【新增】明確的事件處理函數，這是最穩定的寫法
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
@@ -106,7 +105,6 @@ const statsToolbarData = computed(() => {
       const patient = localPatientMap.get(slotData.patientId)
       if (!patient) continue
 
-      // 【修正】修復 ESLint 警告，忽略未使用的變數
       const [, shiftIndex, dayIndex] = slotId.split('-').map(Number)
       if (dayIndex >= 0 && dayIndex < 6) {
         const shiftCode = SHIFTS[shiftIndex]
@@ -400,17 +398,29 @@ function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
+
+// 【核心修正】: 修正 getBaseCellStyle 函式
 function getBaseCellStyle(slotId) {
+  // 錯誤點：這裡應該使用 masterRecord.value.schedule
+  // 而不是 weekScheduleMap，因為後者在這個檔案中未定義。
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
+
   const patient = patientMap.value.get(slotData.patientId)
   const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
+
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
+      if (key === '住' || key === '隔' || key === 'R') {
+        return { 'status-ipd': true }
+      }
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
+
   if (patient) {
+    // 增加對 'er' 狀態的判斷 (雖然常規班表通常不會有急診，但為了邏輯完整性加上)
+    if (patient.status === 'er') return { 'status-er': true }
     if (patient.status === 'ipd') {
       return { 'status-ipd': true }
     }
@@ -594,7 +604,7 @@ onMounted(loadAllData)
 }
 .btn.btn-warning {
   background-color: #ffc107;
-  color: #212529; /* 修正：讓黃色按鈕文字為深色 */
+  color: #212529;
   border-color: #ffc107;
 }
 .btn.btn-warning:hover {
@@ -622,11 +632,10 @@ onMounted(loadAllData)
   font-size: 0.9rem;
 }
 
-/* 【佈局修正】 */
 .page-main-content {
   flex-grow: 1;
-  display: flex; /* 確保 main 是 flex 容器 */
-  flex-direction: column; /* 讓內部元素垂直排列 */
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   box-sizing: border-box;
   background-color: #fff;
@@ -637,30 +646,33 @@ onMounted(loadAllData)
 }
 
 .schedule-area {
-  flex-grow: 1; /* 讓 schedule-area 填滿 main 的剩餘空間 */
+  flex-grow: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* 確保內部滾動生效 */
+  overflow: hidden;
 }
 
 .stats-toolbar-wrapper {
-  flex-shrink: 0; /* 不讓工具列被壓縮 */
-  padding: 8px 1rem; /* 給予上下和左右的內邊距 */
+  flex-shrink: 0;
+  padding: 8px 1rem;
   box-sizing: border-box;
   transition: padding-left 0.2s ease-in-out;
 }
 
 .schedule-table-component {
-  flex-grow: 1; /* 讓表格填滿 schedule-area 的剩餘空間 */
-  overflow: auto; /* 表格自身可以滾動 */
+  flex-grow: 1;
+  overflow: auto;
 }
 
-/* ... :deep 樣式保持不變 ... */
 :deep(.schedule-slot.status-opd) {
   background-color: var(--green-bg, #e8f5e9);
 }
 :deep(.schedule-slot.status-ipd) {
   background-color: var(--red-bg, #ffebee);
+}
+/* 【新增】: 為急診病人定義新的格子背景色 */
+:deep(.schedule-slot.status-er) {
+  background-color: var(--purple-bg, #f3e5f5);
 }
 :deep(.schedule-slot.status-biweekly) {
   background-color: var(--orange-bg, #fff3e0);

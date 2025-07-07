@@ -91,8 +91,7 @@ const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
-// 【修改】使用單一 ref 來管理高亮狀態
-const highlightedTeam = ref(null) // e.g., { type: 'early', team: 'A' }
+const highlightedTeam = ref(null)
 
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
@@ -121,12 +120,15 @@ const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
+
+// 【核心修改】: statsToolbarData 現在會計算急診人數
 const statsToolbarData = computed(() => {
+  // 1. 初始化統計物件，為每個班次增加 er: 0
   const dailyData = {
     counts: {
-      early: { total: 0, opd: 0, ipd: 0 },
-      noon: { total: 0, opd: 0, ipd: 0 },
-      late: { total: 0, opd: 0, ipd: 0 },
+      early: { total: 0, opd: 0, ipd: 0, er: 0 },
+      noon: { total: 0, opd: 0, ipd: 0, er: 0 },
+      late: { total: 0, opd: 0, ipd: 0, er: 0 },
     },
     total: 0,
   }
@@ -145,17 +147,21 @@ const statsToolbarData = computed(() => {
         if (shiftStats) {
           shiftStats.total++
           dailyData.total++
+          // 2. 增加對 er 狀態的計數邏輯
           if (patient.status === 'opd') {
             shiftStats.opd++
           } else if (patient.status === 'ipd') {
             shiftStats.ipd++
+          } else if (patient.status === 'er') {
+            shiftStats.er++
           }
         }
       }
     }
   }
-  return [dailyData]
+  return [dailyData] // 保持陣列結構，因為 StatsToolbar 是為多日設計的
 })
+
 const statsToolbarWeekdays = computed(() => ['本日'])
 const scheduledPatientIds = computed(() => {
   if (!currentRecord.schedule) return new Set()
@@ -178,19 +184,15 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
-// 【修改】新的高亮切換邏輯
 function toggleHighlight(type, team) {
   const currentHighlight = highlightedTeam.value
   if (currentHighlight && currentHighlight.type === type && currentHighlight.team === team) {
-    // 如果點擊的是當前已高亮的按鈕，則取消高亮
     highlightedTeam.value = null
   } else {
-    // 否則，設置新的高亮
     highlightedTeam.value = { type, team }
   }
 }
 
-// 【修改】新的高亮判斷邏輯
 function isSlotHighlighted(shiftId) {
   if (!highlightedTeam.value) {
     return false
@@ -584,9 +586,10 @@ function getCombinedNote(shiftId) {
   const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
-  const finalTags = combinedTags.filter((tag) => tag !== '住')
+  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   return finalTags.join(' ')
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
@@ -599,6 +602,7 @@ function getPatientCellStyle(shiftId) {
     }
   }
   if (patient) {
+    if (patient.status === 'er') return { 'status-er': true }
     if (patient.status === 'ipd') return { 'status-ipd': true }
     if (patient.status === 'opd') return { 'status-opd': true }
   }
@@ -632,14 +636,13 @@ watch(currentDate, (newDate, oldDate) => {
             <button @click="changeDate(1)">下一天 ></button>
             <button @click="goToToday">回到今日</button>
           </div>
-          <!-- 【修改】交換 class -->
           <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
           <button
             class="btn btn-info"
             @click="isAssignmentDialogVisible = true"
             :disabled="isPageLocked"
           >
-            智慧排班
+            智慧排床
           </button>
         </div>
         <div class="toolbar-right">
@@ -663,7 +666,6 @@ watch(currentDate, (newDate, oldDate) => {
           <button class="add-btn" @click="copySchedule" :disabled="isPageLocked">從他日複製</button>
         </div>
         <div class="controls-right">
-          <!-- 【修改】新的團隊高亮組件結構 -->
           <div class="team-highlight-container">
             <div class="team-group">
               <span class="team-group-label">早</span>
@@ -1239,9 +1241,13 @@ button {
 .peripheral-shift-row.status-ipd {
   background-color: var(--red-bg, #ffebee);
 }
+.shift-row.status-er,
+.peripheral-shift-row.status-er {
+  background-color: var(--purple-bg, #e9d5ff);
+}
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou {
-  background-color: #86a0fc;
+  background-color: #8cbdf6;
 }
 .shift-row.tag-new,
 .peripheral-shift-row.tag-new {
@@ -1328,7 +1334,6 @@ button {
   color: #adb5bd;
 }
 
-/* 【修改】新的團隊高亮樣式 */
 .team-highlight-container {
   display: flex;
   gap: 1rem;
@@ -1381,7 +1386,6 @@ button {
   color: white;
   border-color: #c82333;
 }
-/* -- */
 
 .shift-row.highlighted-slot,
 .peripheral-shift-row.highlighted-slot {
