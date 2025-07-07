@@ -182,9 +182,7 @@ const weekDates = computed(() => {
   })
 })
 
-// 【核心修改】: statsToolbarData 現在會計算急診人數
 const statsToolbarData = computed(() => {
-  // 1. 初始化統計物件，為每個班次增加 er: 0
   const baseData = WEEKDAYS.map(() => ({
     counts: {
       early: { total: 0, opd: 0, ipd: 0, er: 0 },
@@ -213,7 +211,6 @@ const statsToolbarData = computed(() => {
             if (shiftStats) {
               shiftStats.total++
               baseData[dayIndex].total++
-              // 2. 增加對 er 狀態的計數邏輯
               if (patient.status === 'opd') {
                 shiftStats.opd++
               } else if (patient.status === 'ipd') {
@@ -347,7 +344,7 @@ function handleSlotUpdate(weeklySlotId, slotData) {
     schedule: { ...oldRecord.schedule },
   }
 
-  if (slotData) {
+  if (slotData && slotData.patientId) {
     const patient = patientMap.value.get(slotData.patientId)
     newRecord.schedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
@@ -363,6 +360,7 @@ function handleSlotUpdate(weeklySlotId, slotData) {
   setChange()
 }
 
+// 【核心修改 1/4】: handleGridClick 現在只會打開病人選擇對話框
 function handleGridClick(slotId) {
   if (isReadOnly.value) return
   const dayIndex = parseInt(slotId.split('-').pop(), 10)
@@ -378,19 +376,65 @@ function handleGridClick(slotId) {
     isPatientSelectDialogVisible.value = true
   }
 }
-function handlePatientSelect({ patientId }) {
+
+// 【核心修改 2/4】: 新增 handlePatientSelect 函式來處理排班邏輯
+function handlePatientSelect({ patientId, fillType }) {
   if (!patientId || !currentSlotId.value) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
+
+  isPatientSelectDialogVisible.value = false // 先關閉對話框
 
   const newPatientData = {
     patientId: patientId,
     manualNote: patient.baseNote || (patient.status === 'ipd' ? '住' : ''),
   }
-  handleSlotUpdate(currentSlotId.value, newPatientData)
-  isPatientSelectDialogVisible.value = false
+
+  if (fillType === 'single') {
+    handleSlotUpdate(currentSlotId.value, newPatientData)
+  } else if (fillType === 'frequency') {
+    const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
+    if (dayIndices.length === 0) {
+      alertDialogTitle.value = '排班提示'
+      alertDialogMessage.value = `病人 ${patient.name} 未設定有效頻率，僅單次排入。`
+      isAlertDialogVisible.value = true
+      handleSlotUpdate(currentSlotId.value, newPatientData)
+      currentSlotId.value = null
+      return
+    }
+
+    const conflicts = []
+    const parts = currentSlotId.value.split('-')
+    const bed = parts.slice(0, -2).join('-')
+    const shiftIndex = parts[parts.length - 2]
+
+    dayIndices.forEach((dayIndex) => {
+      // 依頻率排班時，只檢查未來的日期
+      if (!isDateInPast(dayIndex)) {
+        const weeklySlotId = `${bed}-${shiftIndex}-${dayIndex}`
+        if (weekScheduleMap.value[weeklySlotId]?.patientId) {
+          conflicts.push(`${WEEKDAYS[dayIndex]}`)
+        }
+      }
+    })
+
+    if (conflicts.length > 0) {
+      alertDialogTitle.value = '排班衝突'
+      alertDialogMessage.value = `無法依頻率排入，以下日期的床位已被佔用：\n${conflicts.join(', ')}`
+      isAlertDialogVisible.value = true
+    } else {
+      dayIndices.forEach((dayIndex) => {
+        if (!isDateInPast(dayIndex)) {
+          const weeklySlotId = `${bed}-${shiftIndex}-${dayIndex}`
+          handleSlotUpdate(weeklySlotId, newPatientData)
+        }
+      })
+    }
+  }
+
   currentSlotId.value = null
 }
+
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
   if (isReadOnly.value) return
   const patient = patientMap.value.get(patientId)
@@ -615,6 +659,7 @@ function showConfirmDialog(title, message, onConfirm) {
   isConfirmDialogVisible.value = true
 }
 
+// 【核心修改 3/4】: loadBaseSchedule 函式增加清空未來排班的邏輯
 async function loadBaseSchedule() {
   if (isReadOnly.value) {
     alertDialogTitle.value = '操作失敗'
@@ -625,10 +670,19 @@ async function loadBaseSchedule() {
 
   showConfirmDialog(
     '載入常規班表',
-    '確定要載入常規班表嗎？\n這將會覆蓋【今天及未來】的所有排班。',
+    '確定要載入常規班表嗎？\n這將會【清空並覆蓋】今天及未來的所有排班資料。',
     async () => {
       statusText.value = '正在載入常規班表...'
       try {
+        // 步驟 1: 清空所有未來的排班
+        for (const slotId in weekScheduleMap.value) {
+          const dayIndex = parseInt(slotId.split('-').pop(), 10)
+          if (!isDateInPast(dayIndex)) {
+            handleSlotUpdate(slotId, null)
+          }
+        }
+
+        // 步驟 2: 載入常規班表範本
         const masterRecord = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
         if (!masterRecord || !masterRecord.schedule) {
           alertDialogTitle.value = '載入失敗'
@@ -640,6 +694,7 @@ async function loadBaseSchedule() {
 
         const baseSchedule = masterRecord.schedule
 
+        // 步驟 3: 將常規班表填入未來排程
         for (const baseWeeklyId in baseSchedule) {
           const baseSlotData = baseSchedule[baseWeeklyId]
           if (baseSlotData && baseSlotData.patientId) {
@@ -996,11 +1051,12 @@ onUnmounted(() => {
       @close="isProblemSolverDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
+    <!-- 【核心修改 4/4】: 修改 PatientSelectDialog 的調用，啟用 show-fill-options -->
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
-      title="選擇病人 (單次排班)"
+      title="選擇病人排班"
       :patients="allPatients"
-      :show-fill-options="false"
+      :show-fill-options="true"
       @confirm="handlePatientSelect"
       @cancel="isPatientSelectDialogVisible = false"
     />

@@ -60,6 +60,7 @@ const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
+const activeTab = ref('early')
 
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
@@ -132,7 +133,6 @@ const statsData = computed(() => {
   const earlyShiftStats = {}
   const lateShiftStats = {}
 
-  // 【修改 1/4】: 初始化統計物件，加入 erCount 和 totalErCount
   earlyTeams.forEach((team) => {
     earlyShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
@@ -199,7 +199,6 @@ const statsData = computed(() => {
     if (combinedNote.includes('換')) detail.classes += ' tag-huan'
     if (combinedNote.includes('B')) detail.classes += ' tag-b'
 
-    // 【修改 2/4】: 在計數函式中增加對 'er' 的處理
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
       if (patientDetail.status === 'ipd') {
@@ -249,7 +248,6 @@ const statsData = computed(() => {
     })
   }
 
-  // 【修改 3/4】: 更新總數計算，加入 totalErCount
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
     teamData.totalOpdCount =
@@ -371,44 +369,80 @@ async function saveChangesToCloud() {
     alert(`儲存失敗: ${error.message}`)
   }
 }
+
+// 【核心修正】: 重寫 onDrop 函式以正確處理班次和組別的變更
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
+
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
-  if (!currentRecord.schedule[oldShiftId]) {
+  if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
+
+  // 1. 解析舊 ID，保留床位資訊
+  const oldShiftIdParts = oldShiftId.split('-')
+  const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 結果如 'bed-1' 或 'peripheral-1'
+
+  // 2. 根據放下的位置決定新的班次碼
+  let newShiftCode
+  if (newResponsibility === 'earlyShift') {
+    newShiftCode = SHIFT_CODES.EARLY
+  } else if (newResponsibility === 'lateShift') {
+    newShiftCode = SHIFT_CODES.LATE
+  } else {
+    // noonShiftOn 或 noonShiftOff
+    newShiftCode = SHIFT_CODES.NOON
+  }
+
+  // 3. 組成新的 shiftId
+  const newShiftId = `${bedPart}-${newShiftCode}`
+
+  // 4. 檢查目標位置是否已被佔用 (僅在班次改變時)
+  if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
+    alert(`錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`)
+    return
+  }
+
+  // 5. 準備要更新的資料
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+  // 更新 shiftId
+  movingSlotData.shiftId = newShiftId
+
+  // 清除舊的護理組資訊
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
+
+  // 根據新位置設定新的護理組
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     movingSlotData.nurseTeam = newTeam
-  } else if (newResponsibility === 'noonShiftOn' || newResponsibility === 'noonShiftOff') {
+  } else if (newResponsibility === 'noonShiftOn') {
     movingSlotData.nurseTeamIn = newTeam
+    // 如果病人原本就有收針護理師，保留它
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
       movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
     }
+  } else if (newResponsibility === 'noonShiftOff') {
+    movingSlotData.nurseTeamOut = newTeam
+    // 如果病人原本就有上針護理師，保留它
+    const oldResponsibility = event.dataTransfer.getData('text/plain')
+    if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamIn) {
+      movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
+    }
   }
-  const bedPart = oldShiftId.split('-').slice(0, 2).join('-')
-  let newShiftCode = ''
-  if (newResponsibility === 'earlyShift') newShiftCode = SHIFT_CODES.EARLY
-  else if (newResponsibility === 'lateShift') newShiftCode = SHIFT_CODES.LATE
-  else newShiftCode = SHIFT_CODES.NOON
-  const newShiftId = `${bedPart}-${newShiftCode}`
-  if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
-    alert(`錯誤：目標床位 ${newShiftId} 已被佔用！操作取消。`)
-    return
-  }
+
+  // 6. 執行資料更新
   delete currentRecord.schedule[oldShiftId]
-  movingSlotData.shiftId = newShiftId
   currentRecord.schedule[newShiftId] = movingSlotData
+
   setChange()
 }
+
 function onDragStart(event, patientDetail, responsibility) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -509,8 +543,24 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- 早班組別 -->
-    <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
+    <div class="tabs-container">
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'early' }"
+        @click="activeTab = 'early'"
+      >
+        早班組別
+      </button>
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'late' }"
+        @click="activeTab = 'late'"
+      >
+        晚班組別
+      </button>
+    </div>
+
+    <div v-if="activeTab === 'early'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>早班組別</h2>
       <div class="grid-container">
         <div class="grid-header">
@@ -642,7 +692,6 @@ watch(currentDate, (newDate) => {
             :key="teamName"
             class="total-count-summary"
           >
-            <!-- 【修改 4/4】: 在模板中顯示急診人數 -->
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
               teamData.totalErCount
             }}
@@ -651,8 +700,7 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- 晚班組別 -->
-    <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
+    <div v-if="activeTab === 'late'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>晚班組別</h2>
       <div class="grid-container">
         <div class="grid-header">
@@ -752,7 +800,6 @@ watch(currentDate, (newDate) => {
             :key="teamName"
             class="total-count-summary"
           >
-            <!-- 【修改 4/4】: 在模板中顯示急診人數 -->
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
               teamData.totalErCount
             }}
@@ -779,7 +826,31 @@ watch(currentDate, (newDate) => {
 </template>
 
 <style scoped>
-/* 樣式部分保持不變 */
+.tabs-container {
+  display: flex;
+  border-bottom: 2px solid #e0e0e0;
+  margin-top: 15px;
+  margin-bottom: 20px;
+}
+.tab-button {
+  padding: 10px 20px;
+  font-size: 1.1em;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background-color: transparent;
+  color: #757575;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.2s ease-in-out;
+}
+.tab-button:hover {
+  color: #333;
+}
+.tab-button.active {
+  color: var(--primary-color, #005a9c);
+  border-bottom-color: var(--primary-color, #005a9c);
+}
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
