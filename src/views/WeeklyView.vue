@@ -55,9 +55,59 @@ const CLEAR_OPTIONS = [
   { value: 'this_and_future_for_bed', text: '刪除此床此次與未來排程' },
 ]
 const bedLayout = [
-  1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 28, 29, 31, 32,
-  33, 35, 36, 37, 38, 39, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 65,
-].sort((a, b) => a - b)
+  1,
+  2,
+  3,
+  5,
+  6,
+  7,
+  8,
+  9,
+  11,
+  12,
+  13,
+  15,
+  16,
+  17,
+  18,
+  19,
+  21,
+  22,
+  23,
+  25,
+  26,
+  27,
+  28,
+  29,
+  31,
+  32,
+  33,
+  35,
+  36,
+  37,
+  38,
+  39,
+  51,
+  52,
+  53,
+  55,
+  56,
+  57,
+  58,
+  59,
+  61,
+  62,
+  63,
+  65,
+  ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
+].sort((a, b) => {
+  const numA = typeof a === 'number' ? a : Infinity
+  const numB = typeof b === 'number' ? b : Infinity
+  if (numA !== Infinity || numB !== Infinity) {
+    return numA - numB
+  }
+  return String(a).localeCompare(String(b))
+})
 const hepatitisBeds = [31, 32, 33, 35, 36]
 const FREQ_MAP_TO_DAY_INDEX = {
   一三五: [0, 2, 4],
@@ -182,9 +232,18 @@ const weekScheduleMap = computed(() => {
         const slotData = dailyRecord.schedule[dailyShiftId]
         if (slotData) {
           const parts = dailyShiftId.split('-')
-          if (parts.length === 3) {
-            const bedNumber = parts[1]
-            const shiftCode = parts[2]
+          let bedNumber
+          let shiftCode
+
+          if (parts[0] === 'bed') {
+            bedNumber = parts[1]
+            shiftCode = parts[2]
+          } else if (parts[0] === 'peripheral') {
+            bedNumber = `${parts[0]}-${parts[1]}`
+            shiftCode = parts[2]
+          }
+
+          if (bedNumber && shiftCode) {
             const shiftIndex = SHIFTS.indexOf(shiftCode)
             if (shiftIndex !== -1) {
               const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
@@ -237,12 +296,21 @@ function setChange() {
 
 function getDailyShiftIdFromWeekly(weeklySlotId) {
   if (!weeklySlotId) return null
-  const [bed, shiftIndexStr, dayIndexStr] = weeklySlotId.split('-')
+  const parts = weeklySlotId.split('-')
+  const bed = parts.slice(0, -2).join('-')
+  const shiftIndexStr = parts[parts.length - 2]
+  const dayIndexStr = parts[parts.length - 1]
+
   const dayIndex = parseInt(dayIndexStr, 10)
   const dateStr = weekDates.value[dayIndex]?.queryDate
   const shiftCode = SHIFTS[parseInt(shiftIndexStr, 10)]
   if (!dateStr || !shiftCode) return null
-  return { dateStr, dailyShiftId: `bed-${bed}-${shiftCode}` }
+
+  if (bed.startsWith('peripheral')) {
+    return { dateStr, dailyShiftId: `${bed}-${shiftCode}` }
+  } else {
+    return { dateStr, dailyShiftId: `bed-${bed}-${shiftCode}` }
+  }
 }
 
 function handleSlotUpdate(weeklySlotId, slotData) {
@@ -260,27 +328,37 @@ function handleSlotUpdate(weeklySlotId, slotData) {
     return
   }
 
-  if (!weekScheduleRecords.value.has(dateStr)) {
-    weekScheduleRecords.value.set(dateStr, { id: null, date: dateStr, schedule: {} })
+  const oldRecord = weekScheduleRecords.value.get(dateStr) || {
+    id: null,
+    date: dateStr,
+    schedule: {},
+    names: {},
   }
-  const dailyRecord = weekScheduleRecords.value.get(dateStr)
+
+  const newRecord = {
+    ...oldRecord,
+    schedule: { ...oldRecord.schedule },
+  }
 
   if (slotData) {
     const patient = patientMap.value.get(slotData.patientId)
-    dailyRecord.schedule[dailyShiftId] = {
+    newRecord.schedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
       ...slotData,
       autoNote: patient ? generateAutoNote(patient) : '',
     }
   } else {
-    delete dailyRecord.schedule[dailyShiftId]
+    delete newRecord.schedule[dailyShiftId]
   }
+
+  weekScheduleRecords.value.set(dateStr, newRecord)
+
   setChange()
 }
 
 function handleGridClick(slotId) {
   if (isReadOnly.value) return
-  const dayIndex = parseInt(slotId.split('-')[2], 10)
+  const dayIndex = parseInt(slotId.split('-').pop(), 10)
   if (isDateInPast(dayIndex)) {
     return
   }
@@ -332,7 +410,12 @@ function handleClearSelect(selectedValue) {
   if (isReadOnly.value) return
   if (!clearingSlotId.value) return
   const patientIdToClear = weekScheduleMap.value[clearingSlotId.value]?.patientId
-  const [bed, shiftIndex, startDayIndex] = clearingSlotId.value.split('-').map(Number)
+
+  const parts = clearingSlotId.value.split('-')
+  const bed = parts.slice(0, -2).join('-')
+  const shiftIndex = parseInt(parts[parts.length - 2], 10)
+  const startDayIndex = parseInt(parts[parts.length - 1], 10)
+
   if (isDateInPast(startDayIndex) && selectedValue !== 'this_week_for_patient') {
     alertDialogTitle.value = '操作禁止'
     alertDialogMessage.value = '無法修改已過去的排程。'
@@ -345,7 +428,7 @@ function handleClearSelect(selectedValue) {
   } else if (selectedValue === 'this_week_for_patient') {
     if (patientIdToClear) {
       for (const slotId in weekScheduleMap.value) {
-        const currentDayIndex = parseInt(slotId.split('-')[2], 10)
+        const currentDayIndex = parseInt(slotId.split('-').pop(), 10)
         if (
           weekScheduleMap.value[slotId]?.patientId === patientIdToClear &&
           !isDateInPast(currentDayIndex)
@@ -439,7 +522,7 @@ function onDrop(event, targetWeeklySlotId) {
   const dragged = draggedItem.value
   if (!dragged) return
 
-  const targetDayIndex = parseInt(targetWeeklySlotId.split('-')[2], 10)
+  const targetDayIndex = parseInt(targetWeeklySlotId.split('-').pop(), 10)
   if (isDateInPast(targetDayIndex)) {
     console.warn('無法拖曳到已過去的日期。')
     draggedItem.value = null
@@ -459,7 +542,7 @@ function onDrop(event, targetWeeklySlotId) {
       return
     }
 
-    const sourceDayIndex = parseInt(sourceWeeklySlotId.split('-')[2], 10)
+    const sourceDayIndex = parseInt(sourceWeeklySlotId.split('-').pop(), 10)
     if (isDateInPast(sourceDayIndex)) {
       console.warn('無法從過去的日期拖曳項目進行交換。')
       draggedItem.value = null
@@ -482,7 +565,7 @@ function onDragStart(event, slotId) {
     event.preventDefault()
     return
   }
-  const dayIndex = parseInt(slotId.split('-')[2], 10)
+  const dayIndex = parseInt(slotId.split('-').pop(), 10)
   if (isDateInPast(dayIndex)) {
     event.preventDefault()
     return
@@ -550,43 +633,24 @@ async function loadBaseSchedule() {
 
         const baseSchedule = masterRecord.schedule
 
-        // 【修正】確保操作的是當前週的數據副本
-        const newWeekRecords = new Map(weekScheduleRecords.value)
-
-        // 遍歷常規班表
         for (const baseWeeklyId in baseSchedule) {
           const baseSlotData = baseSchedule[baseWeeklyId]
           if (baseSlotData && baseSlotData.patientId) {
-            const targetInfo = getDailyShiftIdFromWeekly(baseWeeklyId)
-            if (!targetInfo) continue
+            const dayIndex = parseInt(baseWeeklyId.split('-').pop(), 10)
 
-            const { dateStr, dailyShiftId } = targetInfo
-            const dayIndex = weekDates.value.findIndex((d) => d.queryDate === dateStr)
-
-            // 只處理今天及未來的排程
             if (dayIndex !== -1 && !isDateInPast(dayIndex)) {
-              // 確保日記錄存在
-              if (!newWeekRecords.has(dateStr)) {
-                newWeekRecords.set(dateStr, { id: null, date: dateStr, schedule: {} })
-              }
-              const dailyRecord = newWeekRecords.get(dateStr)
               const patient = patientMap.value.get(baseSlotData.patientId)
-
-              if (dailyRecord && patient) {
-                dailyRecord.schedule[dailyShiftId] = {
-                  ...createEmptySlotData(dailyShiftId),
+              if (patient) {
+                handleSlotUpdate(baseWeeklyId, {
                   patientId: baseSlotData.patientId,
-                  autoNote: generateAutoNote(patient),
                   manualNote: baseSlotData.manualNote || baseSlotData.note || '',
-                }
+                })
               }
             }
           }
         }
 
-        weekScheduleRecords.value = newWeekRecords
         statusText.value = '常規班表已載入至未來排程，請記得儲存。'
-        setChange()
       } catch (error) {
         console.error('載入常規班表失敗:', error)
         statusText.value = '載入失敗'

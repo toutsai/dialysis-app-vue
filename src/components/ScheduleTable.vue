@@ -94,6 +94,15 @@ const getPatientDetails = (slotId) => {
     patient: patient,
   }
 }
+
+// 【新增】: 新增一個輔助函式來生成更易讀的床位名稱
+const getBedDisplayName = (bedNum) => {
+  if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
+    const numberPart = bedNum.split('-')[1]
+    return `外圍床位 ${numberPart}`
+  }
+  return `${bedNum}號床`
+}
 </script>
 
 <template>
@@ -117,7 +126,8 @@ const getPatientDetails = (slotId) => {
               :rowspan="shifts.length"
               :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNum) }"
             >
-              {{ bedNum }}號床
+              <!-- 【修改】: 使用新的函式來顯示床位名稱 -->
+              {{ getBedDisplayName(bedNum) }}
             </td>
             <td class="shift-name-cell">{{ getShiftDisplayName(shifts[0]) }}</td>
             <td v-for="(day, dayIndex) in weekdays" :key="`slot-${bedNum}-0-${dayIndex}`">
