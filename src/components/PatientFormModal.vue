@@ -1,6 +1,6 @@
-// 檔案路徑: src/components/PatientFormModal.vue (最終修正版 SCRIPT)
+<!-- 檔案路徑: src/components/PatientFormModal.vue (最終修正版) -->
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue' // 【修改】: 引入 computed
 
 const props = defineProps({
   isModalVisible: { type: Boolean, required: true },
@@ -26,13 +26,43 @@ const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP']
 const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
 const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
 
-// watch 監聽器只負責一件事：把傳入的資料複製給 form
+// 【新增】: 判斷當前是否為編輯模式
+const isEditing = computed(() => !!(form.value && form.value.id))
+
+// 【新增】: 根據 patientType 計算中文標題，增加 'er' 的情況
+const patientTypeText = computed(() => {
+  switch (props.patientType) {
+    case 'ipd':
+      return '住院'
+    case 'opd':
+      return '門診'
+    case 'er':
+      return '急診'
+    default:
+      return ''
+  }
+})
+
 watch(
-  () => props.patientData,
-  (newData) => {
-    form.value = { ...newData }
+  () => props.isModalVisible,
+  (isVisible) => {
+    if (isVisible) {
+      // 當彈窗打開時，進行初始化
+      // 1. 複製傳入的 patientData
+      form.value = { ...props.patientData }
+
+      // 2. 如果是新增模式，手動設定 status
+      if (!form.value.id) {
+        form.value.status = props.patientType
+      }
+
+      // 3. 確保 diseases 屬性永遠是一個陣列，避免 checkbox 出錯
+      if (!form.value.diseases) {
+        form.value.diseases = []
+      }
+    }
   },
-  { immediate: true, deep: true },
+  { immediate: true },
 )
 
 function closeModal() {
@@ -44,18 +74,16 @@ function handleSave() {
     alert('姓名和病歷號為必填項！')
     return
   }
-  // 直接把 form.value 整個丟出去，不做任何處理
   emit('save', form.value)
 }
 </script>
 
 <template>
-  <!-- v-if 控制元件的顯示與否 -->
   <div v-if="isModalVisible" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <!-- 標題根據 patientData 是否有 id 來判斷是新增還是編輯 -->
-        <h2>{{ form.id ? '編輯' : '新增' }} {{ patientType === 'ipd' ? '住院' : '門診' }}病人</h2>
+        <!-- 【修改】: 使用 computed 屬性來顯示標題 -->
+        <h2>{{ isEditing ? '編輯' : '新增' }} {{ patientTypeText }}病人</h2>
         <span class="close-button" @click="closeModal">×</span>
       </div>
 
@@ -75,25 +103,34 @@ function handleSave() {
             />
           </div>
           <div class="form-field">
-            <label>{{ patientType === 'ipd' ? '會診醫師' : '收案醫師' }}</label>
+            <!-- 【修改】: 標籤文字能根據狀態變化 -->
+            <label>{{ patientType === 'opd' ? '收案醫師' : '開單醫師' }}</label>
             <select v-model="form.physician">
               <option v-for="p in PHYSICIANS" :key="p" :value="p">{{ p }}</option>
             </select>
           </div>
 
-          <!-- ========== 【修改三】修改模板中的綁定 ========== -->
           <div class="form-field">
             <label for="freq">透析頻率</label>
             <select id="freq" v-model="form.freq">
               <option v-for="f in FREQ_OPTIONS" :key="f" :value="f">{{ f }}</option>
             </select>
           </div>
-          <!-- ============================================= -->
 
           <div class="form-field">
             <label for="mode">透析模式</label>
             <select id="mode" v-model="form.mode">
               <option v-for="m in MODES" :key="m" :value="m">{{ m }}</option>
+            </select>
+          </div>
+
+          <!-- 【新增】: 狀態選擇欄位，僅在新增時可選 -->
+          <div class="form-field">
+            <label for="status">病人狀態</label>
+            <select id="status" v-model="form.status" :disabled="isEditing">
+              <option value="er">急診</option>
+              <option value="ipd">住院</option>
+              <option value="opd">門診</option>
             </select>
           </div>
 
@@ -115,13 +152,10 @@ function handleSave() {
             </div>
           </template>
 
-          <!-- 僅在住院病人時顯示 -->
-
           <fieldset class="form-group form-field-full">
             <legend>須注意疾病</legend>
             <div class="checkbox-container">
               <div v-for="d in DISEASES" :key="d" class="checkbox-group">
-                <!-- v-model 對 checkbox 陣列的特殊用法 -->
                 <input type="checkbox" :id="`disease-${d}`" :value="d" v-model="form.diseases" />
                 <label :for="`disease-${d}`">{{ d }}</label>
               </div>
@@ -131,7 +165,12 @@ function handleSave() {
             <label for="remarks">備註</label>
             <textarea id="remarks" rows="3" v-model="form.remarks"></textarea>
           </div>
-          <fieldset v-if="patientType === 'ipd'" class="form-group form-field-full">
+
+          <!-- 【修改】: 狀態標記現在對住院和急診病人都顯示 -->
+          <fieldset
+            v-if="patientType === 'ipd' || patientType === 'er'"
+            class="form-group form-field-full"
+          >
             <legend>狀態標記</legend>
             <div class="checkbox-container">
               <div class="checkbox-group">
@@ -154,9 +193,9 @@ function handleSave() {
 </template>
 
 <style scoped>
-/* 您的樣式維持不變 */
+/* 樣式維持不變 */
 .modal {
-  display: flex; /* 改為 flex 來居中 */
+  display: flex;
   position: fixed;
   z-index: 1000;
   left: 0;

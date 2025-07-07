@@ -181,12 +181,15 @@ const weekDates = computed(() => {
     return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateForQuery(d) }
   })
 })
+
+// 【核心修改】: statsToolbarData 現在會計算急診人數
 const statsToolbarData = computed(() => {
+  // 1. 初始化統計物件，為每個班次增加 er: 0
   const baseData = WEEKDAYS.map(() => ({
     counts: {
-      early: { total: 0, opd: 0, ipd: 0 },
-      noon: { total: 0, opd: 0, ipd: 0 },
-      late: { total: 0, opd: 0, ipd: 0 },
+      early: { total: 0, opd: 0, ipd: 0, er: 0 },
+      noon: { total: 0, opd: 0, ipd: 0, er: 0 },
+      late: { total: 0, opd: 0, ipd: 0, er: 0 },
     },
     total: 0,
   }))
@@ -210,10 +213,13 @@ const statsToolbarData = computed(() => {
             if (shiftStats) {
               shiftStats.total++
               baseData[dayIndex].total++
+              // 2. 增加對 er 狀態的計數邏輯
               if (patient.status === 'opd') {
                 shiftStats.opd++
               } else if (patient.status === 'ipd') {
                 shiftStats.ipd++
+              } else if (patient.status === 'er') {
+                shiftStats.er++
               }
             }
           }
@@ -223,6 +229,7 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
+
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   weekDates.value.forEach((day, dayIndex) => {
@@ -756,6 +763,7 @@ function getWeeklyCellStyle(slotId) {
     }
   }
   if (patient) {
+    if (patient.status === 'er') return { 'status-er': true }
     if (patient.status === 'ipd') {
       return { 'status-ipd': true }
     }
@@ -1132,6 +1140,9 @@ button {
 }
 :deep(.schedule-slot.status-ipd) {
   background-color: var(--red-bg, #ffebee);
+}
+:deep(.schedule-slot.status-er) {
+  background-color: var(--purple-bg, #f3e5f5);
 }
 :deep(.schedule-slot.tag-chou) {
   background-color: #658ee0;

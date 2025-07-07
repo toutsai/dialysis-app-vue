@@ -5,7 +5,6 @@ import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleCo
 const props = defineProps({
   statsData: Array,
   weekdays: Array,
-  // columnWidths prop 現在是對齊的關鍵
   columnWidths: {
     type: Array,
     default: () => [],
@@ -23,15 +22,28 @@ const shiftOrder = computed(() => {
   }))
 })
 
+// 【修改 1/2】: getBarStyles 現在會回傳三種狀態的樣式
 const getBarStyles = (shiftCount) => {
-  if (!shiftCount || shiftCount.total === 0) {
-    return { opdStyle: { width: '0%' }, ipdStyle: { width: '0%' } }
+  // 預設回傳三種狀態都為 0%
+  const defaultStyles = {
+    opdStyle: { width: '0%' },
+    ipdStyle: { width: '0%' },
+    erStyle: { width: '0%' },
   }
-  const opdPercent = (shiftCount.opd / shiftCount.total) * 100
-  const ipdPercent = (shiftCount.ipd / shiftCount.total) * 100
+
+  if (!shiftCount || shiftCount.total === 0) {
+    return defaultStyles
+  }
+
+  // 計算門診(opd)、住院(ipd)和急診(er)的百分比
+  const opdPercent = ((shiftCount.opd || 0) / shiftCount.total) * 100
+  const ipdPercent = ((shiftCount.ipd || 0) / shiftCount.total) * 100
+  const erPercent = ((shiftCount.er || 0) / shiftCount.total) * 100 // 新增急診百分比計算
+
   return {
     opdStyle: { width: `${opdPercent}%` },
     ipdStyle: { width: `${ipdPercent}%` },
+    erStyle: { width: `${erPercent}%` }, // 回傳急診樣式
   }
 }
 </script>
@@ -55,15 +67,21 @@ const getBarStyles = (shiftCount) => {
             {{ shift.display }} {{ dayData.counts[shift.code]?.total || 0 }}
           </div>
           <div class="ratio-bar">
+            <!-- 【修改 2/2】: 在比例條中新增急診的色塊 -->
             <div
-              class="bar-segment opd-bar"
-              :style="getBarStyles(dayData.counts[shift.code]).opdStyle"
-              :title="`門診: ${dayData.counts[shift.code]?.opd || 0}`"
+              class="bar-segment er-bar"
+              :style="getBarStyles(dayData.counts[shift.code]).erStyle"
+              :title="`急診: ${dayData.counts[shift.code]?.er || 0}`"
             ></div>
             <div
               class="bar-segment ipd-bar"
               :style="getBarStyles(dayData.counts[shift.code]).ipdStyle"
               :title="`住院: ${dayData.counts[shift.code]?.ipd || 0}`"
+            ></div>
+            <div
+              class="bar-segment opd-bar"
+              :style="getBarStyles(dayData.counts[shift.code]).opdStyle"
+              :title="`門診: ${dayData.counts[shift.code]?.opd || 0}`"
             ></div>
           </div>
         </div>
@@ -165,6 +183,11 @@ const getBarStyles = (shiftCount) => {
 
 .ipd-bar {
   background-color: var(--danger-color, #dc3545);
+}
+
+/* 【新增】: 急診色塊的樣式 */
+.er-bar {
+  background-color: var(--purple-main, #9a34ff);
 }
 
 .stats-toolbar.size-normal .day-summary strong,

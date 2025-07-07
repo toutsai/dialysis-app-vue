@@ -5,27 +5,26 @@ import { deleteField, where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue' // 【新增】1. 引入元件
+import AlertDialog from '@/components/AlertDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
-import { generateAutoNote } from '@/utils/scheduleUtils.js' // 【新增】引入 autoNote 生成工具
+import { generateAutoNote } from '@/utils/scheduleUtils.js'
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const allPatients = ref([])
-const activeTab = ref('ipd')
+// 【修改】預設 activeTab 改為 'er'，方便開發時直接看到新頁籤
+const activeTab = ref('er')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
 const deletedSearchTerm = ref('')
 const isModalVisible = ref(false)
 const editingPatient = ref(null)
-const modalType = ref('ipd')
+const modalType = ref('ipd') // 這個 modalType 會在 openAddPatientModal 時被動態設定
 const isDeleteDialogVisible = ref(false)
 const patientToDeleteId = ref(null)
 
-// --- 【新增】2. 定義 AlertDialog 所需的狀態 ---
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
-// ------------------------------------------
 
 const DELETE_REASONS = [
   { value: '出院', text: '出院' },
@@ -37,6 +36,7 @@ const DELETE_REASONS = [
 ]
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
+
 const displayedPatients = computed(() => {
   let patients
   if (activeTab.value === 'deleted') {
@@ -50,6 +50,7 @@ const displayedPatients = computed(() => {
       )
     }
   } else {
+    // 【修改】這裡的篩選邏輯現在會根據 activeTab 的值 ('ipd', 'opd', 'er') 來篩選
     patients = allPatients.value.filter((p) => p.status === activeTab.value && !p.isDeleted)
   }
   return [...patients].sort((a, b) => {
@@ -90,6 +91,7 @@ async function handleSavePatient(patientData) {
     } else {
       dataToUpdate.createdAt = new Date().toISOString()
       dataToUpdate.isDeleted = false
+      // modalType 決定了新增病人的狀態
       dataToUpdate.status = modalType.value
       await patientApi.save(dataToUpdate)
     }
@@ -103,7 +105,6 @@ async function handleSavePatient(patientData) {
   }
 }
 
-// 【修正】轉床邏輯
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -112,10 +113,17 @@ async function transferPatient(patientId, newStatus) {
     return
   }
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
-  const targetStatus = newStatus === 'ipd' ? '住院' : '門診'
+  // 【修改】動態生成目標狀態的中文名稱
+  const targetStatusMap = {
+    ipd: '住院',
+    opd: '門診',
+    er: '急診',
+  }
+  const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
+
   if (
     confirm(
-      `確定要將 ${patientName} 轉為${targetStatus}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`,
+      `確定要將 ${patientName} 轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`,
     )
   ) {
     try {
@@ -133,7 +141,6 @@ async function transferPatient(patientId, newStatus) {
   }
 }
 
-// 【修正】刪除邏輯
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -173,6 +180,7 @@ async function restorePatient(patientId) {
   }
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
+    // 【修改】復原時，如果沒有 originalStatus，預設為 opd
     await patientApi.update(patientId, {
       isDeleted: false,
       status: patient.originalStatus || 'opd',
@@ -230,7 +238,6 @@ async function fetchAllPatients() {
   }
 }
 
-// 【核心修正】
 async function clearPatientTemporaryScheduleData(
   patientId,
   mode = 'clear',
@@ -262,7 +269,6 @@ async function clearPatientTemporaryScheduleData(
             slot.nurseTeam = null
             slot.nurseTeamIn = null
             slot.nurseTeamOut = null
-            // 如果有傳入更新後的病人資料，則重新生成 autoNote
             if (updatedPatientData) {
               slot.autoNote = generateAutoNote(updatedPatientData)
             }
@@ -326,6 +332,8 @@ function getRowClass(p) {
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
   const freqValue = p.freq
   if (biweeklyFreq.includes(freqValue)) return 'status-biweekly'
+  // 【新增】為急診病人增加一個 status-er class
+  if (p.status === 'er') return 'status-er'
   if (p.status === 'ipd') return 'status-ipd'
   if (p.status === 'opd') return 'status-opd'
   return ''
@@ -344,6 +352,10 @@ onMounted(() => {
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理系統</h1>
       <div class="tabs">
+        <!-- 【新增】急診病人頁籤按鈕 -->
+        <button class="tab-button" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
+          急診病人
+        </button>
         <button
           class="tab-button"
           :class="{ active: activeTab === 'ipd' }"
@@ -365,6 +377,89 @@ onMounted(() => {
         >
           已刪除病人
         </button>
+      </div>
+
+      <!-- 【新增】急診病人表格 (複製自住院病人並稍作修改) -->
+      <div v-if="activeTab === 'er'" class="tab-content active">
+        <div class="toolbar">
+          <button @click="openAddPatientModal('er')" :disabled="isPageLocked">新增急診病人</button>
+        </div>
+        <div class="table-wrapper">
+          <table class="patient-table">
+            <thead>
+              <tr>
+                <th @click="handleSort('name')" class="col-shrink">
+                  姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
+                </th>
+                <th @click="handleSort('medicalRecordNumber')" class="col-shrink">
+                  病歷號
+                  <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
+                </th>
+                <th @click="handleSort('physician')" class="col-shrink">
+                  開單醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
+                </th>
+                <th @click="handleSort('freq')" class="col-shrink">
+                  頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
+                </th>
+                <th class="col-shrink">模式</th>
+                <th class="col-shrink">首透</th>
+                <th class="col-shrink">中止</th>
+                <th class="col-expand">備註</th>
+                <th @click="handleSort('createdAt')" class="col-shrink">
+                  新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
+                </th>
+                <th class="col-shrink">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
+                <td class="col-shrink">
+                  <div class="name-cell-content">
+                    <span class="patient-name-text">{{ p.name }}</span>
+                    <div
+                      class="disease-tags-container"
+                      v-html="generateDiseaseTags(p.diseases)"
+                    ></div>
+                  </div>
+                </td>
+                <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
+                <td class="col-shrink">{{ p.physician }}</td>
+                <td class="col-shrink">{{ p.freq }}</td>
+                <td class="col-shrink">{{ p.mode }}</td>
+                <td class="col-shrink">{{ p.isFirstDialysis ? '✓' : '' }}</td>
+                <td class="col-shrink">{{ p.isDiscontinued ? '✓' : '' }}</td>
+                <td class="col-expand">{{ p.remarks }}</td>
+                <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
+                <td class="col-shrink action-buttons">
+                  <button
+                    class="btn-edit"
+                    @click="openEditPatientModal(p)"
+                    :disabled="isPageLocked"
+                  >
+                    編輯
+                  </button>
+                  <button
+                    class="btn-transfer"
+                    @click="transferPatient(p.id, 'ipd')"
+                    :disabled="isPageLocked"
+                  >
+                    轉住院
+                  </button>
+                  <button
+                    class="btn-transfer"
+                    @click="transferPatient(p.id, 'opd')"
+                    :disabled="isPageLocked"
+                  >
+                    轉門診
+                  </button>
+                  <button class="btn-delete" @click="deletePatient(p.id)" :disabled="isPageLocked">
+                    刪除
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 住院病人表格 -->
@@ -419,12 +514,20 @@ onMounted(() => {
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
                 <td class="col-shrink action-buttons">
+                  <!-- 【修改】為住院病人新增「轉急診」按鈕 -->
                   <button
                     class="btn-edit"
                     @click="openEditPatientModal(p)"
                     :disabled="isPageLocked"
                   >
                     編輯
+                  </button>
+                  <button
+                    class="btn-transfer"
+                    @click="transferPatient(p.id, 'er')"
+                    :disabled="isPageLocked"
+                  >
+                    轉急診
                   </button>
                   <button
                     class="btn-transfer"
@@ -500,6 +603,14 @@ onMounted(() => {
                   >
                     編輯
                   </button>
+                  <!-- 【修改】為門診病人新增「轉急診」按鈕 -->
+                  <button
+                    class="btn-transfer"
+                    @click="transferPatient(p.id, 'er')"
+                    :disabled="isPageLocked"
+                  >
+                    轉急診
+                  </button>
                   <button
                     class="btn-transfer"
                     @click="transferPatient(p.id, 'ipd')"
@@ -542,7 +653,16 @@ onMounted(() => {
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
                 <td class="col-shrink">{{ p.name }}</td>
                 <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
-                <td class="col-shrink">{{ p.originalStatus === 'ipd' ? '住院' : '門診' }}</td>
+                <!-- 【修改】讓原狀態也能顯示急診 -->
+                <td class="col-shrink">
+                  {{
+                    p.originalStatus === 'ipd'
+                      ? '住院'
+                      : p.originalStatus === 'er'
+                        ? '急診'
+                        : '門診'
+                  }}
+                </td>
                 <td class="col-shrink">{{ p.deleteReason }}</td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.deletedAt) }}</td>
@@ -576,7 +696,6 @@ onMounted(() => {
       @select="handleDeleteReasonSelected"
       @cancel="cancelDelete"
     />
-    <!-- 【新增】3. 在模板中放置元件 -->
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
@@ -707,6 +826,10 @@ onMounted(() => {
 }
 .patient-table tr.status-ipd {
   background-color: var(--blue-bg);
+}
+/* 【新增】急診病人的行樣式 */
+.patient-table tr.status-er {
+  background-color: var(--purple-bg, #e1bee7);
 }
 .patient-table tr.status-biweekly {
   background-color: var(--orange-bg);

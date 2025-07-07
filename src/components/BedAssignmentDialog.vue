@@ -18,7 +18,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'assign-bed'])
 
-// --- 狀態、計算屬性等保持不變 ---
 const selectedFreq = ref('一三五')
 const selectedShiftFilter = ref('all')
 const selectedPatientId = ref(null)
@@ -55,9 +54,12 @@ const patientGroups = computed(() => {
     return { 未排床門診: unassigned }
   }
   if (props.assignmentMode === 'singleDay') {
+    // 【修改 1/2】: 新增用於存放急診病人的群組
     const groups = {
+      '今日應排 - 急診': [],
       '今日應排 - 住院': [],
       '今日應排 - 門診': [],
+      '今日非排 (臨洗) - 急診': [],
       '今日非排 (臨洗) - 住院': [],
       '今日非排 (臨洗) - 門診': [],
     }
@@ -67,11 +69,15 @@ const patientGroups = computed(() => {
         return
       }
       const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
+
+      // 【修改 2/2】: 在分類邏輯中加入對 'er' 狀態的判斷
       if (shouldSchedule) {
-        if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
+        if (p.status === 'er') groups['今日應排 - 急診'].push(p)
+        else if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
         else if (p.status === 'opd') groups['今日應排 - 門診'].push(p)
       } else {
-        if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p)
+        if (p.status === 'er') groups['今日非排 (臨洗) - 急診'].push(p)
+        else if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p)
         else if (p.status === 'opd') groups['今日非排 (臨洗) - 門診'].push(p)
       }
     })
@@ -100,7 +106,13 @@ const availableBeds = computed(() => {
     allBedNumbers.forEach((bedNum) => {
       props.shifts.forEach((shiftCode) => {
         if (!results[shiftCode]) return
-        const dailySlotId = `bed-${bedNum}-${shiftCode}`
+        // 修正 ID 生成邏輯以適應外圍床位
+        const bedIdPart = typeof bedNum === 'string' ? bedNum : `bed-${bedNum}`
+        const dailySlotId = `${bedIdPart}-${shiftCode}`
+
+        // 檢查 scheduleData 中是否存在對應的鍵
+        // 這裡需要注意，父組件傳來的 scheduleData 的 key 可能是 bed-X-early 或 peripheral-X-early
+        // 因此需要一個更通用的檢查方式，但目前父層的 handleAssignBed 會處理，這裡暫時簡化
         if (!props.scheduleData[dailySlotId]?.patientId) {
           results[shiftCode].push(bedNum)
         }
@@ -112,6 +124,7 @@ const availableBeds = computed(() => {
     if (!dayIndices) return results
 
     allBedNumbers.forEach((bedNum) => {
+      // 頻率模式下，通常不處理外圍床位，所以這裡只處理數字
       if (typeof bedNum !== 'number') return
       props.shifts.forEach((shiftCode, shiftIndex) => {
         if (!results[shiftCode]) return
@@ -152,25 +165,26 @@ function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
 }
 
-// ======================= 【最終安全修正區域】 =======================
 function handleBedClick(bedNum, shiftCode) {
   if (!selectedPatientId.value) {
     alert('請先在左側選擇一位病人！')
     return
   }
 
-  // emit 'assign-bed' 事件，並傳遞一個包含所有父元件可能需要資訊的 payload
+  // 修正 shiftId 的生成以適應外圍床位
+  const bedIdPart = typeof bedNum === 'string' ? bedNum : `bed-${bedNum}`
+  const shiftId = `${bedIdPart}-${shiftCode}`
+
   emit('assign-bed', {
     patientId: selectedPatientId.value,
     bedNum: bedNum,
     shiftCode: shiftCode,
-    shiftId: `bed-${bedNum}-${shiftCode}`, // 【新增】同時提供組合好的 ID
+    shiftId: shiftId,
   })
 
   selectedPatientId.value = null
   emit('close')
 }
-// ======================= 【修正區域結束】 =======================
 
 const shiftDisplayNames = {
   early: '早班',
@@ -214,8 +228,13 @@ const shiftDisplayNames = {
                     :class="{ selected: patient.id === selectedPatientId }"
                     @click="handlePatientClick(patient.id)"
                   >
+                    <!-- 【修改】: 讓列表項顯示更豐富的狀態 -->
                     {{ patient.name }} ({{
-                      patient.status === 'ipd' ? '住院' : patient.freq || 'N/A'
+                      patient.status === 'ipd'
+                        ? '住院'
+                        : patient.status === 'er'
+                          ? '急診'
+                          : patient.freq || 'N/A'
                     }})
                   </li>
                 </ul>
@@ -251,7 +270,8 @@ const shiftDisplayNames = {
                 <h5>{{ shiftDisplayNames[shiftCode] }}</h5>
                 <ul v-if="beds.length > 0" class="item-list bed-list">
                   <li v-for="bed in beds" :key="bed" @click="handleBedClick(bed, shiftCode)">
-                    {{ bed }}
+                    <!-- 顯示外圍床位時，只顯示數字部分 -->
+                    {{ typeof bed === 'string' ? bed.split('-')[1] : bed }}
                   </li>
                 </ul>
                 <p v-else class="empty-state-small">無可用空床</p>
@@ -271,7 +291,7 @@ const shiftDisplayNames = {
 </template>
 
 <style scoped>
-/* Style 部分完全不變，因此省略以保持簡潔 */
+/* 樣式不變 */
 .dialog-overlay {
   position: fixed;
   top: 0;
