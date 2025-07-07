@@ -12,6 +12,8 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+// 【核心修改 1/5】: 引入 PatientSelectDialog
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
@@ -69,6 +71,10 @@ const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
+// 【核心修改 2/5】: 新增 PatientSelectDialog 相關的狀態
+const isPatientSelectDialogVisible = ref(false)
+const currentSlotId = ref(null)
+
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
@@ -86,9 +92,9 @@ const patientWithMemoIds = computed(() => {
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
     counts: {
-      early: { total: 0, opd: 0, ipd: 0 },
-      noon: { total: 0, opd: 0, ipd: 0 },
-      late: { total: 0, opd: 0, ipd: 0 },
+      early: { total: 0, opd: 0, ipd: 0, er: 0 },
+      noon: { total: 0, opd: 0, ipd: 0, er: 0 },
+      late: { total: 0, opd: 0, ipd: 0, er: 0 },
     },
     total: 0,
   }))
@@ -112,6 +118,7 @@ const statsToolbarData = computed(() => {
 
         if (shiftStats) {
           shiftStats.total++
+          // 在常規表中，所有病人都視為 opd
           shiftStats.opd++
           dailyCounts[dayIndex].total++
         }
@@ -209,6 +216,7 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
   const shiftIndex = SHIFTS.indexOf(shiftCode)
   if (shiftIndex === -1 || dayIndices.length === 0) return
+
   const newSchedule = { ...masterRecord.value.schedule }
   dayIndices.forEach((dayIndex) => {
     const slotId = `${bedNum}-${shiftIndex}-${dayIndex}`
@@ -222,6 +230,7 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   masterRecord.value.schedule = newSchedule
   setChange()
 }
+// 【核心修改 3/5】: 修改 handleGridClick 函式
 function handleGridClick(slotId) {
   if (isPageLocked.value) return
   const patientId = masterRecord.value.schedule[slotId]?.patientId
@@ -229,9 +238,71 @@ function handleGridClick(slotId) {
     clearingSlotId.value = slotId
     isClearDialogVisible.value = true
   } else {
-    isAssignmentDialogVisible.value = true
+    // 從打開智慧助理，改為打開病人選擇列表
+    currentSlotId.value = slotId
+    isPatientSelectDialogVisible.value = true
   }
 }
+
+// 【核心修改 4/5】: 新增 handlePatientSelect 函式
+function handlePatientSelect({ patientId, fillType }) {
+  if (!patientId || !currentSlotId.value) return
+  const patient = patientMap.value.get(patientId)
+  if (!patient) return
+
+  isPatientSelectDialogVisible.value = false
+
+  const newPatientData = {
+    patientId: patientId,
+    manualNote: patient.baseNote || '',
+    autoNote: generateAutoNote(patient),
+  }
+  const newSchedule = { ...masterRecord.value.schedule }
+
+  if (fillType === 'single') {
+    newSchedule[currentSlotId.value] = newPatientData
+  } else if (fillType === 'frequency') {
+    const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
+    if (dayIndices.length === 0) {
+      alertDialogTitle.value = '排班提示'
+      alertDialogMessage.value = `病人 ${patient.name} 未設定有效頻率，僅單次排入。`
+      isAlertDialogVisible.value = true
+      newSchedule[currentSlotId.value] = newPatientData
+      masterRecord.value.schedule = newSchedule
+      setChange()
+      currentSlotId.value = null
+      return
+    }
+
+    const conflicts = []
+    const parts = currentSlotId.value.split('-')
+    const bed = parts[0]
+    const shiftIndex = parts[1]
+
+    dayIndices.forEach((dayIndex) => {
+      const slotId = `${bed}-${shiftIndex}-${dayIndex}`
+      if (newSchedule[slotId]?.patientId) {
+        conflicts.push(`${WEEKDAYS[dayIndex]}`)
+      }
+    })
+
+    if (conflicts.length > 0) {
+      alertDialogTitle.value = '排班衝突'
+      alertDialogMessage.value = `無法依頻率排入，以下日期的床位已被佔用：\n${conflicts.join(', ')}`
+      isAlertDialogVisible.value = true
+    } else {
+      dayIndices.forEach((dayIndex) => {
+        const slotId = `${bed}-${shiftIndex}-${dayIndex}`
+        newSchedule[slotId] = newPatientData
+      })
+    }
+  }
+
+  masterRecord.value.schedule = newSchedule
+  setChange()
+  currentSlotId.value = null
+}
+
 function handleClearSelect(selectedValue) {
   if (isPageLocked.value) return
   if (!clearingSlotId.value) return
@@ -399,10 +470,7 @@ function handleConflictCancel() {
   confirmAction.value = null
 }
 
-// 【核心修正】: 修正 getBaseCellStyle 函式
 function getBaseCellStyle(slotId) {
-  // 錯誤點：這裡應該使用 masterRecord.value.schedule
-  // 而不是 weekScheduleMap，因為後者在這個檔案中未定義。
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
 
@@ -419,7 +487,6 @@ function getBaseCellStyle(slotId) {
   }
 
   if (patient) {
-    // 增加對 'er' 狀態的判斷 (雖然常規班表通常不會有急診，但為了邏輯完整性加上)
     if (patient.status === 'er') return { 'status-er': true }
     if (patient.status === 'ipd') {
       return { 'status-ipd': true }
@@ -517,8 +584,18 @@ onMounted(loadAllData)
       :schedule-data="masterRecord.schedule"
       :shifts="SHIFTS"
       :freq-map="FREQ_MAP_TO_DAY_INDEX"
+      assignment-mode="base"
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleAssignBed"
+    />
+    <!-- 【核心修改 5/5】: 新增 PatientSelectDialog 的調用 -->
+    <PatientSelectDialog
+      :is-visible="isPatientSelectDialogVisible"
+      title="選擇病人排班 (常規)"
+      :patients="allOpdPatients"
+      :show-fill-options="true"
+      @confirm="handlePatientSelect"
+      @cancel="isPatientSelectDialogVisible = false"
     />
     <SelectionDialog
       :is-visible="isClearDialogVisible"
@@ -670,7 +747,6 @@ onMounted(loadAllData)
 :deep(.schedule-slot.status-ipd) {
   background-color: var(--red-bg, #ffebee);
 }
-/* 【新增】: 為急診病人定義新的格子背景色 */
 :deep(.schedule-slot.status-er) {
   background-color: var(--purple-bg, #f3e5f5);
 }

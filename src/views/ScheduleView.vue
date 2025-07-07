@@ -18,6 +18,8 @@ import StatsToolbar from '@/components/StatsToolbar.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+// 【核心修改 1/5】: 引入 PatientSelectDialog
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
 const layoutData = {
   leftWingRows: [
@@ -90,6 +92,10 @@ const isAssignmentDialogVisible = ref(false)
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
+
+// 【核心修改 2/5】: 新增 PatientSelectDialog 相關的狀態
+const isPatientSelectDialogVisible = ref(false)
+const currentSlotId = ref(null)
 
 const highlightedTeam = ref(null)
 
@@ -364,6 +370,8 @@ function handleSlotUpdate(shiftId, patientId) {
   }
   setChange()
 }
+
+// 【核心修改 3/5】: 修改 handleSlotClick 函式
 function handleSlotClick(shiftId) {
   if (isPageLocked.value) return
   const slotData = currentRecord.schedule[shiftId]
@@ -373,11 +381,30 @@ function handleSlotClick(shiftId) {
       handleSlotUpdate(shiftId, null)
     }
   } else {
-    isAssignmentDialogVisible.value = true
+    // 從打開智慧助理，改為打開病人選擇列表
+    currentSlotId.value = shiftId
+    isPatientSelectDialogVisible.value = true
   }
 }
 
-// 【核心修正 1/2】: 修改 updateNurseTeam 函式
+// 【核心修改 4/5】: 新增 handlePatientSelect 函式
+function handlePatientSelect({ patientId }) {
+  if (!patientId || !currentSlotId.value) return
+  isPatientSelectDialogVisible.value = false
+
+  if (scheduledPatientIds.value.has(patientId)) {
+    const patient = patientMap.value.get(patientId)
+    alertDialogTitle.value = '重複排班警告'
+    alertDialogMessage.value = `病人 ${patient.name} 在本日已有排班，無法重複排入。`
+    isAlertDialogVisible.value = true
+    currentSlotId.value = null
+    return
+  }
+
+  handleSlotUpdate(currentSlotId.value, patientId)
+  currentSlotId.value = null
+}
+
 function updateNurseTeam(event, shiftId, type) {
   if (isPageLocked.value) {
     event.target.value =
@@ -392,16 +419,13 @@ function updateNurseTeam(event, shiftId, type) {
   }
   const slot = currentRecord.schedule[shiftId]
 
-  // 檢查是否為外圍床位的午班
   const isPeripheralNoon = shiftId.startsWith('peripheral') && shiftId.endsWith(SHIFT_CODES.NOON)
 
   if (type === 'single' && isPeripheralNoon) {
-    // 如果是外圍床位的午班，則將單一選擇同時應用於上針和收針
     slot.nurseTeamIn = value || null
     slot.nurseTeamOut = value || null
-    slot.nurseTeam = null // 清除舊的單一屬性，避免資料混淆
+    slot.nurseTeam = null
   } else if (type === 'single') {
-    // 對於早班和晚班，維持原有的邏輯
     slot.nurseTeam = value || null
   } else if (type === 'in') {
     slot.nurseTeamIn = value || null
@@ -866,7 +890,6 @@ watch(currentDate, (newDate, oldDate) => {
                   ]"
                 >
                   <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
-                  <!-- 【核心修正 2/2】: 修改外圍床位下拉選單的 :value 綁定 -->
                   <select
                     class="nurse-team-select"
                     :value="
@@ -971,6 +994,15 @@ watch(currentDate, (newDate, oldDate) => {
     :day-of-week="dayOfWeek"
     @close="isAssignmentDialogVisible = false"
     @assign-bed="handleAssignBed"
+  />
+  <!-- 【核心修改 5/5】: 修改 PatientSelectDialog 的調用，不啟用 show-fill-options -->
+  <PatientSelectDialog
+    :is-visible="isPatientSelectDialogVisible"
+    title="選擇病人 (單次排班)"
+    :patients="allPatients"
+    :show-fill-options="false"
+    @confirm="handlePatientSelect"
+    @cancel="isPatientSelectDialogVisible = false"
   />
   <AlertDialog
     :is-visible="isAlertDialogVisible"
