@@ -60,7 +60,6 @@ const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
-// 【新增】: 用於控制頁籤的狀態，預設顯示早班
 const activeTab = ref('early')
 
 const { isReadOnly } = useAuth()
@@ -370,44 +369,80 @@ async function saveChangesToCloud() {
     alert(`儲存失敗: ${error.message}`)
   }
 }
+
+// 【核心修正】: 重寫 onDrop 函式以正確處理班次和組別的變更
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
+
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
-  if (!currentRecord.schedule[oldShiftId]) {
+  if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
+
+  // 1. 解析舊 ID，保留床位資訊
+  const oldShiftIdParts = oldShiftId.split('-')
+  const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 結果如 'bed-1' 或 'peripheral-1'
+
+  // 2. 根據放下的位置決定新的班次碼
+  let newShiftCode
+  if (newResponsibility === 'earlyShift') {
+    newShiftCode = SHIFT_CODES.EARLY
+  } else if (newResponsibility === 'lateShift') {
+    newShiftCode = SHIFT_CODES.LATE
+  } else {
+    // noonShiftOn 或 noonShiftOff
+    newShiftCode = SHIFT_CODES.NOON
+  }
+
+  // 3. 組成新的 shiftId
+  const newShiftId = `${bedPart}-${newShiftCode}`
+
+  // 4. 檢查目標位置是否已被佔用 (僅在班次改變時)
+  if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
+    alert(`錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`)
+    return
+  }
+
+  // 5. 準備要更新的資料
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+  // 更新 shiftId
+  movingSlotData.shiftId = newShiftId
+
+  // 清除舊的護理組資訊
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
+
+  // 根據新位置設定新的護理組
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     movingSlotData.nurseTeam = newTeam
-  } else if (newResponsibility === 'noonShiftOn' || newResponsibility === 'noonShiftOff') {
+  } else if (newResponsibility === 'noonShiftOn') {
     movingSlotData.nurseTeamIn = newTeam
+    // 如果病人原本就有收針護理師，保留它
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
       movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
     }
+  } else if (newResponsibility === 'noonShiftOff') {
+    movingSlotData.nurseTeamOut = newTeam
+    // 如果病人原本就有上針護理師，保留它
+    const oldResponsibility = event.dataTransfer.getData('text/plain')
+    if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamIn) {
+      movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
+    }
   }
-  const bedPart = oldShiftId.split('-').slice(0, 2).join('-')
-  let newShiftCode = ''
-  if (newResponsibility === 'earlyShift') newShiftCode = SHIFT_CODES.EARLY
-  else if (newResponsibility === 'lateShift') newShiftCode = SHIFT_CODES.LATE
-  else newShiftCode = SHIFT_CODES.NOON
-  const newShiftId = `${bedPart}-${newShiftCode}`
-  if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
-    alert(`錯誤：目標床位 ${newShiftId} 已被佔用！操作取消。`)
-    return
-  }
+
+  // 6. 執行資料更新
   delete currentRecord.schedule[oldShiftId]
-  movingSlotData.shiftId = newShiftId
   currentRecord.schedule[newShiftId] = movingSlotData
+
   setChange()
 }
+
 function onDragStart(event, patientDetail, responsibility) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -508,7 +543,6 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- 【新增】: 頁籤容器與按鈕 -->
     <div class="tabs-container">
       <button
         class="tab-button"
@@ -526,7 +560,6 @@ watch(currentDate, (newDate) => {
       </button>
     </div>
 
-    <!-- 【修改】: 早班組別區塊加上 v-if -->
     <div v-if="activeTab === 'early'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>早班組別</h2>
       <div class="grid-container">
@@ -667,7 +700,6 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- 【修改】: 晚班組別區塊加上 v-if -->
     <div v-if="activeTab === 'late'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>晚班組別</h2>
       <div class="grid-container">
@@ -794,7 +826,6 @@ watch(currentDate, (newDate) => {
 </template>
 
 <style scoped>
-/* 【新增】: 頁籤的樣式 */
 .tabs-container {
   display: flex;
   border-bottom: 2px solid #e0e0e0;
@@ -810,7 +841,7 @@ watch(currentDate, (newDate) => {
   background-color: transparent;
   color: #757575;
   border-bottom: 3px solid transparent;
-  margin-bottom: -2px; /* 讓 active 狀態的 border 與容器的 border-bottom 重疊 */
+  margin-bottom: -2px;
   transition: all 0.2s ease-in-out;
 }
 .tab-button:hover {
@@ -820,7 +851,6 @@ watch(currentDate, (newDate) => {
   color: var(--primary-color, #005a9c);
   border-bottom-color: var(--primary-color, #005a9c);
 }
-/* 樣式部分保持不變 */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
