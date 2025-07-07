@@ -29,8 +29,9 @@ const emit = defineEmits(['drag-start'])
 const inpatientFilter = ref('all')
 
 const inpatientList = computed(() => {
-  // 基礎過濾：篩選出未被刪除的住院病人
-  let inpatients = props.patients.filter((p) => p.status === 'ipd' && !p.isDeleted)
+  // 【修改 1/2】: 基礎過濾現在包含住院(ipd)和急診(er)病人
+  const targetStatuses = ['ipd', 'er']
+  let inpatients = props.patients.filter((p) => targetStatuses.includes(p.status) && !p.isDeleted)
 
   // 模式一：如果啟用每日篩選 (在 ScheduleView 中使用)
   if (props.useDailyFilter) {
@@ -62,8 +63,8 @@ function handleDragStart(event, patient) {
 
 <template>
   <aside class="inpatient-sidebar">
-    <h3>住院病人 (可拖曳)</h3>
-    <!-- 【修改 1】: 為 filter-group 添加動態 class 綁定 -->
+    <!-- 【修改 2/2】: 更新標題和列表項的顯示邏輯 -->
+    <h3>住院/急診病人 (可拖曳)</h3>
     <div class="filter-group" :class="{ 'daily-filter-layout': useDailyFilter }">
       <!-- 每日篩選模式的按鈕 -->
       <template v-if="useDailyFilter">
@@ -108,6 +109,10 @@ function handleDragStart(event, patient) {
       >
         <div class="patient-info-row">
           <span class="name">{{ p.name }}</span>
+          <!-- 增加一個 span 來區分狀態 -->
+          <span class="status-tag" :class="`status-${p.status}`">{{
+            p.status === 'er' ? '急診' : '住院'
+          }}</span>
           <span class="freq">{{ (p.freq ?? p.frequency) || '未設定' }}</span>
         </div>
         <div
@@ -140,24 +145,18 @@ h3 {
   color: #495057;
 }
 
-/* 【修改 2】: 替換為新的、更可靠的 CSS 佈局規則 */
 .filter-group {
   display: grid;
   gap: 8px;
   margin-bottom: 16px;
-  /* 預設佈局（用於 WeeklyView）：兩兩一排 */
   grid-template-columns: 1fr 1fr;
 }
 
-/* 當啟用每日篩選時，啟用這個 class */
 .filter-group.daily-filter-layout {
-  /* 雖然這裡還是兩列，但下面的規則會改變第一個按鈕的行為 */
   grid-template-columns: 1fr 1fr;
 }
 
-/* 選中每日篩選佈局下的第一個按鈕（"全部"）*/
 .filter-group.daily-filter-layout button:first-child {
-  /* 讓它從第一條網格線跨到最後一條，即獨佔一行 */
   grid-column: 1 / -1;
 }
 
@@ -212,10 +211,15 @@ li:has(span:contains('吳秀美')) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 6px; /* 新增 gap 讓元素間有空隙 */
 }
 .name {
   font-weight: bold;
   font-size: 16px;
+  flex-grow: 1; /* 讓名字佔用多餘空間 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .freq {
   font-size: 12px;
@@ -223,7 +227,25 @@ li:has(span:contains('吳秀美')) {
   color: #495057;
   padding: 2px 6px;
   border-radius: 4px;
+  white-space: nowrap; /* 避免換行 */
 }
+
+/* 【新增】狀態標籤的樣式 */
+.status-tag {
+  font-size: 12px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: white;
+  white-space: nowrap;
+}
+.status-tag.status-ipd {
+  background-color: var(--blue-bg-dark, #1e88e5);
+}
+.status-tag.status-er {
+  background-color: var(--purple-bg-dark, #8e24aa);
+}
+
 .disease-tags-container {
   justify-content: flex-start;
   gap: 6px;

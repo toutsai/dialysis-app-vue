@@ -1,5 +1,4 @@
 <script setup>
-// ... 其他 script 內容保持不變，此處省略 ...
 import { ref, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
@@ -89,7 +88,7 @@ async function generateReport() {
     isLoading.value = false
   }
 }
-// 【核心修改】更新 exportToExcel 函數
+
 function exportToExcel() {
   if (noData.value) {
     alert('沒有可匯出的數據！')
@@ -98,7 +97,6 @@ function exportToExcel() {
 
   let headers, dataRows, filename, excelTitle
 
-  // 獲取我們在 computed property 中計算好的標題
   excelTitle = reportTitle.value
 
   if (reportType.value === 'daily') {
@@ -115,26 +113,21 @@ function exportToExcel() {
     filename = `月報表_${selectedMonth.value}.xlsx`
   }
 
-  // 準備要寫入 Excel 的最終數據陣列
-  // 第一行是標題，第二行是空行，第三行是表頭，後面是數據
   const titleRow = [excelTitle]
-  const emptyRow = [] // 用於製造間隔
+  const emptyRow = []
   const data = [titleRow, emptyRow, headers, ...dataRows]
 
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.aoa_to_sheet(data)
 
-  // --- 【新增】處理單元格合併 ---
-  // 合併標題行。它從 A1 單元格開始，合併的列數等於表頭的長度
   const merge = {
-    s: { r: 0, c: 0 }, // s = start, r = row, c = column (0-indexed)
-    e: { r: 0, c: headers.length - 1 }, // e = end
+    s: { r: 0, c: 0 },
+    e: { r: 0, c: headers.length - 1 },
   }
 
   if (!worksheet['!merges']) worksheet['!merges'] = []
   worksheet['!merges'].push(merge)
 
-  // --- 【可選】設置標題單元格的樣式 (置中) ---
   if (worksheet['A1']) {
     worksheet['A1'].s = {
       alignment: {
@@ -148,7 +141,6 @@ function exportToExcel() {
   XLSX.writeFile(workbook, filename)
 }
 
-// ... processDailyReport 和 processMonthlyReport 保持不變 ...
 function processDailyReport(schedulesData, patientMap) {
   const shiftBreakdown = {}
   const dailyRecord = schedulesData[0]
@@ -170,7 +162,8 @@ function processDailyReport(schedulesData, patientMap) {
   const shiftOrder = [SHIFT_CODES.EARLY, SHIFT_CODES.NOON, SHIFT_CODES.LATE]
   dailyTableHeaders.value = shiftOrder.map((code) => getShiftDisplayName(code))
   const reportMatrix = {}
-  const statusDisplay = { opd: '門診', ipd: '住院', unknown: '未知' }
+  // 【修改】: 在 statusDisplay 中增加 'er'
+  const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
   shiftOrder.forEach((shiftCode, shiftIndex) => {
     const shiftData = shiftBreakdown[shiftCode] || {}
     for (const comboKey in shiftData) {
@@ -178,7 +171,7 @@ function processDailyReport(schedulesData, patientMap) {
         const [mode, status] = comboKey.split('-')
         reportMatrix[comboKey] = {
           mode: mode,
-          status: statusDisplay[status],
+          status: statusDisplay[status] || status, // 加上 or status 作為後備
           shiftCounts: Array(shiftOrder.length).fill(0),
           dailyTotal: 0,
         }
@@ -228,7 +221,8 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   monthlyTableHeaders.value = Array.from({ length: daysInMonth }, (_, i) => i + 1)
   const reportMatrix = {}
-  const statusDisplay = { opd: '門診', ipd: '住院', unknown: '未知' }
+  // 【修改】: 在 statusDisplay 中增加 'er'
+  const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = formatDate(new Date(year, month, day))
     const dayData = dailyBreakdown[dateStr] || {}
@@ -237,7 +231,7 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
         const [mode, status] = comboKey.split('-')
         reportMatrix[comboKey] = {
           mode: mode,
-          status: statusDisplay[status],
+          status: statusDisplay[status] || status, // 加上 or status 作為後備
           dailyCounts: Array(daysInMonth).fill(0),
           monthlyTotal: 0,
         }
@@ -267,7 +261,6 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
 </script>
 
 <template>
-  <!-- template 部分保持不變 -->
   <div class="reporting-view-container">
     <h1 class="page-title">統計報表生成</h1>
 
@@ -293,7 +286,6 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
       <button class="generate-btn" @click="generateReport" :disabled="isLoading">
         {{ isLoading ? '生成中...' : '生成報表' }}
       </button>
-      <!-- 【新增】匯出按鈕 -->
       <button class="export-btn" @click="exportToExcel" :disabled="isLoading || noData">
         匯出 Excel
       </button>
@@ -373,7 +365,7 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
 </template>
 
 <style scoped>
-/* style 部分保持不變 */
+/* 樣式保持不變 */
 .reporting-view-container {
   padding: 1.5rem;
   background-color: #f8f9fa;

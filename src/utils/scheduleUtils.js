@@ -1,4 +1,4 @@
-// src/utils/scheduleUtils.js (最終版)
+// 檔案: src/utils/scheduleUtils.js (最終版)
 
 /**
  * 創建一個用於存入 Firestore 的、標準化的空白 Schedule 文件物件。
@@ -44,7 +44,9 @@ export function generateAutoNote(patient) {
   const autoNotes = new Set()
 
   // 核心狀態標籤
+  // 【修改】: 加入對 'er' 狀態的判斷
   if (patient.status === 'ipd') autoNotes.add('住')
+  if (patient.status === 'er') autoNotes.add('急') // 新增這一行
   if (patient.isFirstDialysis) autoNotes.add('新')
 
   // 疾病相關標籤
@@ -68,6 +70,7 @@ const FREQ_TO_DAYS_MAP = {
   三六: [2, 6],
   一五: [1, 5],
   二六: [2, 6],
+  每日: [1, 2, 3, 4, 5, 6, 7],
   // 根據您的系統需求，可以添加更多頻率
   // '每日': [1, 2, 3, 4, 5, 6, 7],
 }

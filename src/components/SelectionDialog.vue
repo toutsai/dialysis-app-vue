@@ -1,15 +1,13 @@
 <!-- 檔案路徑: src/components/SelectionDialog.vue -->
 <script setup>
-// 1. 定義 props 和 emits
+import { watch } from 'vue'
+
 const props = defineProps({
   isVisible: Boolean,
   title: String,
-  // 【修改點】明確 props 的結構，讓它接收物件陣列
-  // 每個物件應該有 { value: 'some_value', text: '顯示的文字' }
   options: {
     type: Array,
     required: true,
-    // 添加一個 validator 來確保傳入的 options 格式正確
     validator: (options) => {
       return options.every((opt) => typeof opt === 'object' && 'value' in opt && 'text' in opt)
     },
@@ -17,9 +15,23 @@ const props = defineProps({
 })
 const emit = defineEmits(['select', 'cancel'])
 
-// 2. 定義方法
+// 【核心修正】: 監聽 isVisible 屬性
+// 當對話框顯示時，為 <body> 添加 class 以鎖定滾動；隱藏時，移除該 class。
+watch(
+  () => props.isVisible,
+  (newVal) => {
+    if (typeof document !== 'undefined') {
+      // 確保在瀏覽器環境中執行
+      if (newVal) {
+        document.body.classList.add('modal-open')
+      } else {
+        document.body.classList.remove('modal-open')
+      }
+    }
+  },
+)
+
 function handleSelect(selectedValue) {
-  // 【修改點】發送 'select' 事件時，回傳的是選項的 'value'，而不是整個物件或文字
   emit('select', selectedValue)
 }
 
@@ -29,70 +41,107 @@ function handleCancel() {
 </script>
 
 <template>
-  <dialog :open="isVisible" class="selection-dialog" @close="handleCancel">
-    <h3>{{ title }}</h3>
-    <div class="button-group">
-      <!--
-        ======================= 【修改點】 =======================
-        - v-for 遍歷物件陣列，key 使用 option.value
-        - @click 傳遞 option.value
-        - 按鈕顯示的文字是 option.text
-        ==========================================================
-      -->
-      <button v-for="option in options" :key="option.value" @click="handleSelect(option.value)">
-        {{ option.text }}
-      </button>
+  <!-- 【新增】: 使用 <Transition> 包裹，實現平滑的淡入淡出效果 -->
+  <Transition name="dialog-fade">
+    <!-- 【修改】: dialog 元素現在由一個 overlay 包裹，以實現更好的居中和背景模糊效果 -->
+    <div v-if="isVisible" class="selection-dialog-overlay" @click.self="handleCancel">
+      <div class="selection-dialog-content">
+        <h3>{{ title }}</h3>
+        <div class="button-group">
+          <button v-for="option in options" :key="option.value" @click="handleSelect(option.value)">
+            {{ option.text }}
+          </button>
+        </div>
+        <div class="button-group">
+          <button @click="handleCancel" class="cancel-btn">取消</button>
+        </div>
+      </div>
     </div>
-    <div class="button-group">
-      <button @click="handleCancel" class="cancel-btn">取消</button>
-    </div>
-  </dialog>
+  </Transition>
 </template>
 
 <style scoped>
-/* 樣式保持不變，因為它只關心按鈕的渲染，不關心內容 */
-.selection-dialog {
-  border: 1px solid #ccc;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+/* 【新增】: body 鎖定時的樣式 */
+:global(body.modal-open) {
+  overflow: hidden;
+}
+
+/* 【修改】: 整個對話框的結構樣式 */
+.selection-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.selection-dialog-content {
+  background: white;
+  padding: 25px 30px;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
   width: 90%;
   max-width: 400px;
-  z-index: 100;
-}
-
-.selection-dialog::backdrop {
-  background-color: rgba(0, 0, 0, 0.5);
-}
-
-.selection-dialog h3 {
-  margin-top: 0;
   text-align: center;
+}
+
+.selection-dialog-content h3 {
+  margin-top: 0;
+  margin-bottom: 25px;
+  font-size: 1.5em;
+  color: #333;
 }
 
 .button-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   margin-top: 15px;
 }
 
 .button-group button {
   width: 100%;
-  padding: 10px;
-  font-size: 1em;
+  padding: 12px 20px;
+  font-size: 1.1em;
   cursor: pointer;
-  border-radius: 5px;
-  border: 1px solid #ccc;
-  background-color: #f0f0f0;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  background-color: #f8f9fa;
+  color: #333;
+  transition: all 0.2s ease-in-out;
 }
 
 .button-group button:hover {
-  background-color: #e0e0e0;
+  border-color: #007bff;
+  background-color: #e3f2fd;
+  color: #007bff;
 }
 
 .button-group button.cancel-btn {
   background-color: transparent;
+  color: #6c757d;
+  border-color: #ced4da;
   margin-top: 10px;
+}
+.button-group button.cancel-btn:hover {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+  color: #495057;
+}
+
+/* 【新增】: 過渡動畫樣式 */
+.dialog-fade-enter-active,
+.dialog-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.dialog-fade-enter-from,
+.dialog-fade-leave-to {
+  opacity: 0;
 }
 </style>

@@ -18,6 +18,8 @@ import StatsToolbar from '@/components/StatsToolbar.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+// 【核心修改 1/5】: 引入 PatientSelectDialog
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
 const layoutData = {
   leftWingRows: [
@@ -91,8 +93,11 @@ const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
-// 【修改】使用單一 ref 來管理高亮狀態
-const highlightedTeam = ref(null) // e.g., { type: 'early', team: 'A' }
+// 【核心修改 2/5】: 新增 PatientSelectDialog 相關的狀態
+const isPatientSelectDialogVisible = ref(false)
+const currentSlotId = ref(null)
+
+const highlightedTeam = ref(null)
 
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
@@ -121,12 +126,13 @@ const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
+
 const statsToolbarData = computed(() => {
   const dailyData = {
     counts: {
-      early: { total: 0, opd: 0, ipd: 0 },
-      noon: { total: 0, opd: 0, ipd: 0 },
-      late: { total: 0, opd: 0, ipd: 0 },
+      early: { total: 0, opd: 0, ipd: 0, er: 0 },
+      noon: { total: 0, opd: 0, ipd: 0, er: 0 },
+      late: { total: 0, opd: 0, ipd: 0, er: 0 },
     },
     total: 0,
   }
@@ -149,6 +155,8 @@ const statsToolbarData = computed(() => {
             shiftStats.opd++
           } else if (patient.status === 'ipd') {
             shiftStats.ipd++
+          } else if (patient.status === 'er') {
+            shiftStats.er++
           }
         }
       }
@@ -156,6 +164,7 @@ const statsToolbarData = computed(() => {
   }
   return [dailyData]
 })
+
 const statsToolbarWeekdays = computed(() => ['本日'])
 const scheduledPatientIds = computed(() => {
   if (!currentRecord.schedule) return new Set()
@@ -178,19 +187,15 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
-// 【修改】新的高亮切換邏輯
 function toggleHighlight(type, team) {
   const currentHighlight = highlightedTeam.value
   if (currentHighlight && currentHighlight.type === type && currentHighlight.team === team) {
-    // 如果點擊的是當前已高亮的按鈕，則取消高亮
     highlightedTeam.value = null
   } else {
-    // 否則，設置新的高亮
     highlightedTeam.value = { type, team }
   }
 }
 
-// 【修改】新的高亮判斷邏輯
 function isSlotHighlighted(shiftId) {
   if (!highlightedTeam.value) {
     return false
@@ -365,6 +370,8 @@ function handleSlotUpdate(shiftId, patientId) {
   }
   setChange()
 }
+
+// 【核心修改 3/5】: 修改 handleSlotClick 函式
 function handleSlotClick(shiftId) {
   if (isPageLocked.value) return
   const slotData = currentRecord.schedule[shiftId]
@@ -374,9 +381,30 @@ function handleSlotClick(shiftId) {
       handleSlotUpdate(shiftId, null)
     }
   } else {
-    isAssignmentDialogVisible.value = true
+    // 從打開智慧助理，改為打開病人選擇列表
+    currentSlotId.value = shiftId
+    isPatientSelectDialogVisible.value = true
   }
 }
+
+// 【核心修改 4/5】: 新增 handlePatientSelect 函式
+function handlePatientSelect({ patientId }) {
+  if (!patientId || !currentSlotId.value) return
+  isPatientSelectDialogVisible.value = false
+
+  if (scheduledPatientIds.value.has(patientId)) {
+    const patient = patientMap.value.get(patientId)
+    alertDialogTitle.value = '重複排班警告'
+    alertDialogMessage.value = `病人 ${patient.name} 在本日已有排班，無法重複排入。`
+    isAlertDialogVisible.value = true
+    currentSlotId.value = null
+    return
+  }
+
+  handleSlotUpdate(currentSlotId.value, patientId)
+  currentSlotId.value = null
+}
+
 function updateNurseTeam(event, shiftId, type) {
   if (isPageLocked.value) {
     event.target.value =
@@ -386,14 +414,27 @@ function updateNurseTeam(event, shiftId, type) {
     return
   }
   const value = event.target.value
-  if (!currentRecord.schedule[shiftId])
+  if (!currentRecord.schedule[shiftId]) {
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+  }
   const slot = currentRecord.schedule[shiftId]
-  if (type === 'single') slot.nurseTeam = value || null
-  else if (type === 'in') slot.nurseTeamIn = value || null
-  else if (type === 'out') slot.nurseTeamOut = value || null
+
+  const isPeripheralNoon = shiftId.startsWith('peripheral') && shiftId.endsWith(SHIFT_CODES.NOON)
+
+  if (type === 'single' && isPeripheralNoon) {
+    slot.nurseTeamIn = value || null
+    slot.nurseTeamOut = value || null
+    slot.nurseTeam = null
+  } else if (type === 'single') {
+    slot.nurseTeam = value || null
+  } else if (type === 'in') {
+    slot.nurseTeamIn = value || null
+  } else if (type === 'out') {
+    slot.nurseTeamOut = value || null
+  }
   setChange()
 }
+
 function updateNote(event, shiftId) {
   if (isPageLocked.value) {
     event.target.textContent = getCombinedNote(shiftId)
@@ -584,9 +625,10 @@ function getCombinedNote(shiftId) {
   const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
-  const finalTags = combinedTags.filter((tag) => tag !== '住')
+  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   return finalTags.join(' ')
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
@@ -599,6 +641,7 @@ function getPatientCellStyle(shiftId) {
     }
   }
   if (patient) {
+    if (patient.status === 'er') return { 'status-er': true }
     if (patient.status === 'ipd') return { 'status-ipd': true }
     if (patient.status === 'opd') return { 'status-opd': true }
   }
@@ -632,14 +675,13 @@ watch(currentDate, (newDate, oldDate) => {
             <button @click="changeDate(1)">下一天 ></button>
             <button @click="goToToday">回到今日</button>
           </div>
-          <!-- 【修改】交換 class -->
           <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
           <button
             class="btn btn-info"
             @click="isAssignmentDialogVisible = true"
             :disabled="isPageLocked"
           >
-            智慧排班
+            智慧排床
           </button>
         </div>
         <div class="toolbar-right">
@@ -663,7 +705,6 @@ watch(currentDate, (newDate, oldDate) => {
           <button class="add-btn" @click="copySchedule" :disabled="isPageLocked">從他日複製</button>
         </div>
         <div class="controls-right">
-          <!-- 【修改】新的團隊高亮組件結構 -->
           <div class="team-highlight-container">
             <div class="team-group">
               <span class="team-group-label">早</span>
@@ -851,7 +892,11 @@ watch(currentDate, (newDate, oldDate) => {
                   <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
                   <select
                     class="nurse-team-select"
-                    :value="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeam"
+                    :value="
+                      shiftCode === SHIFT_CODES.NOON
+                        ? currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeamIn
+                        : currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeam
+                    "
                     @change="updateNurseTeam($event, `peripheral-${i}-${shiftCode}`, 'single')"
                     :disabled="isPageLocked"
                   >
@@ -949,6 +994,15 @@ watch(currentDate, (newDate, oldDate) => {
     :day-of-week="dayOfWeek"
     @close="isAssignmentDialogVisible = false"
     @assign-bed="handleAssignBed"
+  />
+  <!-- 【核心修改 5/5】: 修改 PatientSelectDialog 的調用，不啟用 show-fill-options -->
+  <PatientSelectDialog
+    :is-visible="isPatientSelectDialogVisible"
+    title="選擇病人 (單次排班)"
+    :patients="allPatients"
+    :show-fill-options="false"
+    @confirm="handlePatientSelect"
+    @cancel="isPatientSelectDialogVisible = false"
   />
   <AlertDialog
     :is-visible="isAlertDialogVisible"
@@ -1239,9 +1293,13 @@ button {
 .peripheral-shift-row.status-ipd {
   background-color: var(--red-bg, #ffebee);
 }
+.shift-row.status-er,
+.peripheral-shift-row.status-er {
+  background-color: var(--purple-bg, #e9d5ff);
+}
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou {
-  background-color: #86a0fc;
+  background-color: #8cbdf6;
 }
 .shift-row.tag-new,
 .peripheral-shift-row.tag-new {
@@ -1328,7 +1386,6 @@ button {
   color: #adb5bd;
 }
 
-/* 【修改】新的團隊高亮樣式 */
 .team-highlight-container {
   display: flex;
   gap: 1rem;
@@ -1381,7 +1438,6 @@ button {
   color: white;
   border-color: #c82333;
 }
-/* -- */
 
 .shift-row.highlighted-slot,
 .peripheral-shift-row.highlighted-slot {
