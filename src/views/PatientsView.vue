@@ -6,25 +6,50 @@ import ApiManager from '@/services/api_manager.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue' // 1. 確保已引入
 import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
+import * as XLSX from 'xlsx'
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
 const allPatients = ref([])
-// 【修改】預設 activeTab 改為 'er'，方便開發時直接看到新頁籤
 const activeTab = ref('er')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
+
+const erSearchTerm = ref('')
+const ipdSearchTerm = ref('')
+const opdSearchTerm = ref('')
 const deletedSearchTerm = ref('')
+
 const isModalVisible = ref(false)
 const editingPatient = ref(null)
-const modalType = ref('ipd') // 這個 modalType 會在 openAddPatientModal 時被動態設定
+const modalType = ref('ipd')
 const isDeleteDialogVisible = ref(false)
 const patientToDeleteId = ref(null)
 
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
+
+// 2. 為 ConfirmDialog 定義狀態
+const isConfirmDialogVisible = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+const confirmAction = ref(null)
+
+const FREQ_COLOR_MAP = {
+  一三五: 'freq-blue',
+  二四六: 'freq-green',
+  一四: 'freq-orange',
+  二五: 'freq-orange',
+  三六: 'freq-orange',
+  一五: 'freq-orange',
+  二六: 'freq-orange',
+  每周一次: 'freq-teal',
+  臨時: 'freq-red',
+  未設定: 'freq-grey',
+}
 
 const DELETE_REASONS = [
   { value: '出院', text: '出院' },
@@ -39,20 +64,32 @@ const isPageLocked = computed(() => isReadOnly.value)
 
 const displayedPatients = computed(() => {
   let patients
-  if (activeTab.value === 'deleted') {
+  let searchTerm = ''
+
+  if (activeTab.value === 'er') {
+    patients = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
+    searchTerm = erSearchTerm.value.toLowerCase()
+  } else if (activeTab.value === 'ipd') {
+    patients = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
+    searchTerm = ipdSearchTerm.value.toLowerCase()
+  } else if (activeTab.value === 'opd') {
+    patients = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
+    searchTerm = opdSearchTerm.value.toLowerCase()
+  } else if (activeTab.value === 'deleted') {
     patients = allPatients.value.filter((p) => p.isDeleted)
-    if (deletedSearchTerm.value) {
-      const term = deletedSearchTerm.value.toLowerCase()
-      patients = patients.filter(
-        (p) =>
-          (p.name && p.name.toLowerCase().includes(term)) ||
-          (p.medicalRecordNumber && p.medicalRecordNumber.includes(term)),
-      )
-    }
+    searchTerm = deletedSearchTerm.value.toLowerCase()
   } else {
-    // 【修改】這裡的篩選邏輯現在會根據 activeTab 的值 ('ipd', 'opd', 'er') 來篩選
-    patients = allPatients.value.filter((p) => p.status === activeTab.value && !p.isDeleted)
+    patients = []
   }
+
+  if (searchTerm) {
+    patients = patients.filter(
+      (p) =>
+        (p.name && p.name.toLowerCase().includes(searchTerm)) ||
+        (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)),
+    )
+  }
+
   return [...patients].sort((a, b) => {
     let valA, valB
     if (currentSort.value.column === 'freq') {
@@ -70,6 +107,81 @@ const displayedPatients = computed(() => {
     return currentSort.value.order === 'asc' ? compare : -compare
   })
 })
+
+const patientStats = computed(() => {
+  if (activeTab.value === 'deleted') {
+    return null
+  }
+  const currentTabPatients = allPatients.value.filter(
+    (p) => p.status === activeTab.value && !p.isDeleted,
+  )
+
+  const stats = {
+    total: currentTabPatients.length,
+    byFrequency: {},
+  }
+
+  currentTabPatients.forEach((patient) => {
+    const freq = patient.freq || '未設定'
+    if (!stats.byFrequency[freq]) {
+      stats.byFrequency[freq] = 0
+    }
+    stats.byFrequency[freq]++
+  })
+
+  const sortedFrequencies = {}
+  const freqOrder = [
+    '一三五',
+    '二四六',
+    '一四',
+    '二五',
+    '三六',
+    '一五',
+    '二六',
+    '每周一次',
+    '臨時',
+    '未設定',
+  ]
+
+  freqOrder.forEach((key) => {
+    if (stats.byFrequency[key]) {
+      sortedFrequencies[key] = stats.byFrequency[key]
+    }
+  })
+  for (const key in stats.byFrequency) {
+    if (!sortedFrequencies[key]) {
+      sortedFrequencies[key] = stats.byFrequency[key]
+    }
+  }
+  stats.byFrequency = sortedFrequencies
+
+  return stats
+})
+
+function exportDeletedPatients() {
+  const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
+  if (deletedPatients.length === 0) {
+    alert('沒有已刪除的病人資料可供匯出。')
+    return
+  }
+
+  const headers = ['姓名', '病歷號', '原狀態', '刪除原因', '刪除日期', '備註']
+  const data = deletedPatients.map((p) => [
+    p.name || '',
+    p.medicalRecordNumber || '',
+    p.originalStatus === 'ipd' ? '住院' : p.originalStatus === 'er' ? '急診' : '門診',
+    p.deleteReason || '',
+    formatDate(p.deletedAt) || '',
+    p.remarks || '',
+  ])
+
+  const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data])
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, '已刪除病人')
+
+  const today = new Date().toISOString().slice(0, 10)
+  XLSX.writeFile(workbook, `已刪除病人清單_${today}.xlsx`)
+}
 
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
@@ -91,7 +203,6 @@ async function handleSavePatient(patientData) {
     } else {
       dataToUpdate.createdAt = new Date().toISOString()
       dataToUpdate.isDeleted = false
-      // modalType 決定了新增病人的狀態
       dataToUpdate.status = modalType.value
       await patientApi.save(dataToUpdate)
     }
@@ -105,6 +216,7 @@ async function handleSavePatient(patientData) {
   }
 }
 
+// 3. 【核心修改】: 重寫 transferPatient 函式，用 ConfirmDialog 取代 confirm()
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -113,7 +225,6 @@ async function transferPatient(patientId, newStatus) {
     return
   }
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
-  // 【修改】動態生成目標狀態的中文名稱
   const targetStatusMap = {
     ipd: '住院',
     opd: '門診',
@@ -121,11 +232,12 @@ async function transferPatient(patientId, newStatus) {
   }
   const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
 
-  if (
-    confirm(
-      `確定要將 ${patientName} 轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`,
-    )
-  ) {
+  // a. 設定對話框的內容
+  confirmDialogTitle.value = `確認轉為${targetStatusText}`
+  confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`
+
+  // b. 定義用戶點擊「確認」後要執行的動作
+  confirmAction.value = async () => {
     try {
       await patientApi.update(patientId, { status: newStatus })
       const originalPatientData = allPatients.value.find((p) => p.id === patientId)
@@ -139,6 +251,9 @@ async function transferPatient(patientId, newStatus) {
       isAlertDialogVisible.value = true
     }
   }
+
+  // c. 顯示我們的自訂對話框
+  isConfirmDialogVisible.value = true
 }
 
 async function handleDeleteReasonSelected(reason) {
@@ -180,7 +295,6 @@ async function restorePatient(patientId) {
   }
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
-    // 【修改】復原時，如果沒有 originalStatus，預設為 opd
     await patientApi.update(patientId, {
       isDeleted: false,
       status: patient.originalStatus || 'opd',
@@ -232,8 +346,7 @@ async function fetchAllPatients() {
     allPatients.value = await patientApi.fetchAll()
   } catch (err) {
     console.error('讀取病人資料失敗:', err)
-    alertDialogTitle.value = '讀取失敗'
-    alertDialogMessage.value = '讀取病人資料失敗！'
+    alertDialogTitle.value = '讀取病人資料失敗！'
     isAlertDialogVisible.value = true
   }
 }
@@ -332,7 +445,6 @@ function getRowClass(p) {
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
   const freqValue = p.freq
   if (biweeklyFreq.includes(freqValue)) return 'status-biweekly'
-  // 【新增】為急診病人增加一個 status-er class
   if (p.status === 'er') return 'status-er'
   if (p.status === 'ipd') return 'status-ipd'
   if (p.status === 'opd') return 'status-opd'
@@ -342,6 +454,21 @@ function generateDiseaseTags(diseases) {
   if (!diseases || diseases.length === 0) return ''
   return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
 }
+
+// 4. 新增處理 ConfirmDialog 結果的函式
+function handleConfirm() {
+  if (typeof confirmAction.value === 'function') {
+    confirmAction.value()
+  }
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+
+function handleCancel() {
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+
 onMounted(() => {
   fetchAllPatients()
 })
@@ -352,7 +479,6 @@ onMounted(() => {
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理系統</h1>
       <div class="tabs">
-        <!-- 【新增】急診病人頁籤按鈕 -->
         <button class="tab-button" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
           急診病人
         </button>
@@ -379,10 +505,30 @@ onMounted(() => {
         </button>
       </div>
 
-      <!-- 【新增】急診病人表格 (複製自住院病人並稍作修改) -->
+      <!-- 急診病人表格 -->
       <div v-if="activeTab === 'er'" class="tab-content active">
-        <div class="toolbar">
-          <button @click="openAddPatientModal('er')" :disabled="isPageLocked">新增急診病人</button>
+        <div class="view-header">
+          <div class="controls-left">
+            <button @click="openAddPatientModal('er')" :disabled="isPageLocked" class="btn-add">
+              新增急診病人
+            </button>
+            <div class="search-group">
+              <input type="text" v-model="erSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            </div>
+          </div>
+          <div v-if="patientStats" class="stats-summary">
+            <span class="total-count">總人數：{{ patientStats.total }}</span>
+            <div class="freq-counts">
+              <span
+                v-for="(count, freq) in patientStats.byFrequency"
+                :key="freq"
+                class="freq-tag"
+                :class="FREQ_COLOR_MAP[freq]"
+              >
+                {{ freq }}: {{ count }}人
+              </span>
+            </div>
+          </div>
         </div>
         <div class="table-wrapper">
           <table class="patient-table">
@@ -464,8 +610,28 @@ onMounted(() => {
 
       <!-- 住院病人表格 -->
       <div v-if="activeTab === 'ipd'" class="tab-content active">
-        <div class="toolbar">
-          <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked">新增住院病人</button>
+        <div class="view-header">
+          <div class="controls-left">
+            <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked" class="btn-add">
+              新增住院病人
+            </button>
+            <div class="search-group">
+              <input type="text" v-model="ipdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            </div>
+          </div>
+          <div v-if="patientStats" class="stats-summary">
+            <span class="total-count">總人數：{{ patientStats.total }}</span>
+            <div class="freq-counts">
+              <span
+                v-for="(count, freq) in patientStats.byFrequency"
+                :key="freq"
+                class="freq-tag"
+                :class="FREQ_COLOR_MAP[freq]"
+              >
+                {{ freq }}: {{ count }}人
+              </span>
+            </div>
+          </div>
         </div>
         <div class="table-wrapper">
           <table class="patient-table">
@@ -514,7 +680,6 @@ onMounted(() => {
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
                 <td class="col-shrink action-buttons">
-                  <!-- 【修改】為住院病人新增「轉急診」按鈕 -->
                   <button
                     class="btn-edit"
                     @click="openEditPatientModal(p)"
@@ -548,8 +713,28 @@ onMounted(() => {
 
       <!-- 門診常規表格 -->
       <div v-if="activeTab === 'opd'" class="tab-content active">
-        <div class="toolbar">
-          <button @click="openAddPatientModal('opd')" :disabled="isPageLocked">新增門診病人</button>
+        <div class="view-header">
+          <div class="controls-left">
+            <button @click="openAddPatientModal('opd')" :disabled="isPageLocked" class="btn-add">
+              新增門診病人
+            </button>
+            <div class="search-group">
+              <input type="text" v-model="opdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            </div>
+          </div>
+          <div v-if="patientStats" class="stats-summary">
+            <span class="total-count">總人數：{{ patientStats.total }}</span>
+            <div class="freq-counts">
+              <span
+                v-for="(count, freq) in patientStats.byFrequency"
+                :key="freq"
+                class="freq-tag"
+                :class="FREQ_COLOR_MAP[freq]"
+              >
+                {{ freq }}: {{ count }}人
+              </span>
+            </div>
+          </div>
         </div>
         <div class="table-wrapper">
           <table class="patient-table">
@@ -603,7 +788,6 @@ onMounted(() => {
                   >
                     編輯
                   </button>
-                  <!-- 【修改】為門診病人新增「轉急診」按鈕 -->
                   <button
                     class="btn-transfer"
                     @click="transferPatient(p.id, 'er')"
@@ -634,7 +818,7 @@ onMounted(() => {
           <div class="search-group">
             <input type="text" v-model="deletedSearchTerm" placeholder="搜尋已刪除病人..." />
           </div>
-          <button>轉出已刪除清單</button>
+          <button @click="exportDeletedPatients" class="btn-export">轉出已刪除清單</button>
         </div>
         <div class="table-wrapper">
           <table class="patient-table">
@@ -653,7 +837,6 @@ onMounted(() => {
               <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
                 <td class="col-shrink">{{ p.name }}</td>
                 <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
-                <!-- 【修改】讓原狀態也能顯示急診 -->
                 <td class="col-shrink">
                   {{
                     p.originalStatus === 'ipd'
@@ -702,6 +885,14 @@ onMounted(() => {
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
+    <!-- 5. 在模板中放置 ConfirmDialog 元件，並綁定事件 -->
+    <ConfirmDialog
+      :is-visible="isConfirmDialogVisible"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      @confirm="handleConfirm"
+      @cancel="handleCancel"
+    />
   </div>
 </template>
 
@@ -736,9 +927,95 @@ onMounted(() => {
 .tab-content {
   display: block;
 }
-.toolbar {
+.view-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+.controls-left {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+.controls-left .btn-add {
+  padding: 8px 15px;
+  font-size: 1em;
+  background-color: #16a34a;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.controls-left .btn-add:hover {
+  background-color: #15803d;
+}
+.controls-left .search-group {
+  display: flex;
+  align-items: center;
+}
+.controls-left input {
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  min-width: 250px;
+}
+
+.stats-summary {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.total-count {
+  font-size: 1.1em;
+  font-weight: bold;
+  color: var(--primary-color, #005a9c);
+  white-space: nowrap;
+}
+.freq-counts {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.freq-tag {
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.9em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.freq-tag.freq-blue {
+  background-color: #2563eb;
+}
+.freq-tag.freq-green {
+  background-color: #16a34a;
+}
+.freq-tag.freq-orange {
+  background-color: #f97316;
+}
+.freq-tag.freq-teal {
+  background-color: #0d9488;
+}
+.freq-tag.freq-red {
+  background-color: #dc2626;
+}
+.freq-tag.freq-grey {
+  background-color: #64748b;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: flex-start; /* 修改: 靠左對齊 */
   align-items: center;
   margin-bottom: 15px;
   flex-wrap: wrap;
@@ -747,14 +1024,10 @@ onMounted(() => {
 .toolbar button {
   padding: 8px 15px;
   font-size: 1em;
-  background-color: var(--primary-color);
   color: white;
   border: none;
   border-radius: 5px;
   cursor: pointer;
-}
-.toolbar button:hover {
-  background-color: #0056b3;
 }
 .toolbar .search-group {
   display: flex;
@@ -764,6 +1037,13 @@ onMounted(() => {
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 5px;
+  min-width: 250px; /* 新增: 給搜尋框一個最小寬度 */
+}
+.toolbar .btn-export {
+  background-color: #0ea5e9;
+}
+.toolbar .btn-export:hover {
+  background-color: #0284c7;
 }
 
 .patient-table {
@@ -827,9 +1107,8 @@ onMounted(() => {
 .patient-table tr.status-ipd {
   background-color: var(--blue-bg);
 }
-/* 【新增】急診病人的行樣式 */
 .patient-table tr.status-er {
-  background-color: var(--purple-bg, #e1bee7);
+  background-color: var(--purple-bg, #e9d5ff);
 }
 .patient-table tr.status-biweekly {
   background-color: var(--orange-bg);
@@ -860,9 +1139,10 @@ onMounted(() => {
   background-color: var(--success-color);
 }
 .table-wrapper {
-  max-height: 70vh;
+  max-height: calc(70vh - 50px);
   overflow-y: auto;
 }
+.is-locked .view-header button,
 .is-locked .toolbar button,
 .is-locked .action-buttons button {
   opacity: 0.65;
