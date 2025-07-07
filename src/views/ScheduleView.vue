@@ -121,9 +121,7 @@ const dayOfWeek = computed(() => {
   return day === 0 ? 7 : day
 })
 
-// 【核心修改】: statsToolbarData 現在會計算急診人數
 const statsToolbarData = computed(() => {
-  // 1. 初始化統計物件，為每個班次增加 er: 0
   const dailyData = {
     counts: {
       early: { total: 0, opd: 0, ipd: 0, er: 0 },
@@ -147,7 +145,6 @@ const statsToolbarData = computed(() => {
         if (shiftStats) {
           shiftStats.total++
           dailyData.total++
-          // 2. 增加對 er 狀態的計數邏輯
           if (patient.status === 'opd') {
             shiftStats.opd++
           } else if (patient.status === 'ipd') {
@@ -159,7 +156,7 @@ const statsToolbarData = computed(() => {
       }
     }
   }
-  return [dailyData] // 保持陣列結構，因為 StatsToolbar 是為多日設計的
+  return [dailyData]
 })
 
 const statsToolbarWeekdays = computed(() => ['本日'])
@@ -379,6 +376,8 @@ function handleSlotClick(shiftId) {
     isAssignmentDialogVisible.value = true
   }
 }
+
+// 【核心修正 1/2】: 修改 updateNurseTeam 函式
 function updateNurseTeam(event, shiftId, type) {
   if (isPageLocked.value) {
     event.target.value =
@@ -388,14 +387,30 @@ function updateNurseTeam(event, shiftId, type) {
     return
   }
   const value = event.target.value
-  if (!currentRecord.schedule[shiftId])
+  if (!currentRecord.schedule[shiftId]) {
     currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+  }
   const slot = currentRecord.schedule[shiftId]
-  if (type === 'single') slot.nurseTeam = value || null
-  else if (type === 'in') slot.nurseTeamIn = value || null
-  else if (type === 'out') slot.nurseTeamOut = value || null
+
+  // 檢查是否為外圍床位的午班
+  const isPeripheralNoon = shiftId.startsWith('peripheral') && shiftId.endsWith(SHIFT_CODES.NOON)
+
+  if (type === 'single' && isPeripheralNoon) {
+    // 如果是外圍床位的午班，則將單一選擇同時應用於上針和收針
+    slot.nurseTeamIn = value || null
+    slot.nurseTeamOut = value || null
+    slot.nurseTeam = null // 清除舊的單一屬性，避免資料混淆
+  } else if (type === 'single') {
+    // 對於早班和晚班，維持原有的邏輯
+    slot.nurseTeam = value || null
+  } else if (type === 'in') {
+    slot.nurseTeamIn = value || null
+  } else if (type === 'out') {
+    slot.nurseTeamOut = value || null
+  }
   setChange()
 }
+
 function updateNote(event, shiftId) {
   if (isPageLocked.value) {
     event.target.textContent = getCombinedNote(shiftId)
@@ -851,9 +866,14 @@ watch(currentDate, (newDate, oldDate) => {
                   ]"
                 >
                   <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
+                  <!-- 【核心修正 2/2】: 修改外圍床位下拉選單的 :value 綁定 -->
                   <select
                     class="nurse-team-select"
-                    :value="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeam"
+                    :value="
+                      shiftCode === SHIFT_CODES.NOON
+                        ? currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeamIn
+                        : currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.nurseTeam
+                    "
                     @change="updateNurseTeam($event, `peripheral-${i}-${shiftCode}`, 'single')"
                     :disabled="isPageLocked"
                   >

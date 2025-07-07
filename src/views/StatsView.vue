@@ -60,6 +60,8 @@ const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
+// 【新增】: 用於控制頁籤的狀態，預設顯示早班
+const activeTab = ref('early')
 
 const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => {
@@ -132,7 +134,6 @@ const statsData = computed(() => {
   const earlyShiftStats = {}
   const lateShiftStats = {}
 
-  // 【修改 1/4】: 初始化統計物件，加入 erCount 和 totalErCount
   earlyTeams.forEach((team) => {
     earlyShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
@@ -199,7 +200,6 @@ const statsData = computed(() => {
     if (combinedNote.includes('換')) detail.classes += ' tag-huan'
     if (combinedNote.includes('B')) detail.classes += ' tag-b'
 
-    // 【修改 2/4】: 在計數函式中增加對 'er' 的處理
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
       if (patientDetail.status === 'ipd') {
@@ -249,7 +249,6 @@ const statsData = computed(() => {
     })
   }
 
-  // 【修改 3/4】: 更新總數計算，加入 totalErCount
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
     teamData.totalOpdCount =
@@ -509,8 +508,26 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- 早班組別 -->
-    <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
+    <!-- 【新增】: 頁籤容器與按鈕 -->
+    <div class="tabs-container">
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'early' }"
+        @click="activeTab = 'early'"
+      >
+        早班組別
+      </button>
+      <button
+        class="tab-button"
+        :class="{ active: activeTab === 'late' }"
+        @click="activeTab = 'late'"
+      >
+        晚班組別
+      </button>
+    </div>
+
+    <!-- 【修改】: 早班組別區塊加上 v-if -->
+    <div v-if="activeTab === 'early'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>早班組別</h2>
       <div class="grid-container">
         <div class="grid-header">
@@ -642,7 +659,6 @@ watch(currentDate, (newDate) => {
             :key="teamName"
             class="total-count-summary"
           >
-            <!-- 【修改 4/4】: 在模板中顯示急診人數 -->
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
               teamData.totalErCount
             }}
@@ -651,8 +667,8 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- 晚班組別 -->
-    <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
+    <!-- 【修改】: 晚班組別區塊加上 v-if -->
+    <div v-if="activeTab === 'late'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>晚班組別</h2>
       <div class="grid-container">
         <div class="grid-header">
@@ -752,7 +768,6 @@ watch(currentDate, (newDate) => {
             :key="teamName"
             class="total-count-summary"
           >
-            <!-- 【修改 4/4】: 在模板中顯示急診人數 -->
             門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
               teamData.totalErCount
             }}
@@ -779,6 +794,32 @@ watch(currentDate, (newDate) => {
 </template>
 
 <style scoped>
+/* 【新增】: 頁籤的樣式 */
+.tabs-container {
+  display: flex;
+  border-bottom: 2px solid #e0e0e0;
+  margin-top: 15px;
+  margin-bottom: 20px;
+}
+.tab-button {
+  padding: 10px 20px;
+  font-size: 1.1em;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  background-color: transparent;
+  color: #757575;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px; /* 讓 active 狀態的 border 與容器的 border-bottom 重疊 */
+  transition: all 0.2s ease-in-out;
+}
+.tab-button:hover {
+  color: #333;
+}
+.tab-button.active {
+  color: var(--primary-color, #005a9c);
+  border-bottom-color: var(--primary-color, #005a9c);
+}
 /* 樣式部分保持不變 */
 .header-toolbar {
   display: flex;
