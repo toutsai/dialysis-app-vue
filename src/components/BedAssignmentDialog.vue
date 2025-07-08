@@ -68,7 +68,12 @@ const patientGroups = computed(() => {
     }
     if (!props.allPatients) return groups
     props.allPatients.forEach((p) => {
-      if (p.isDeleted || assignedPatientIds.value.has(p.id)) {
+      // 【新增條件】過濾掉所有已中止透析的病人
+      if (
+        p.isDeleted ||
+        assignedPatientIds.value.has(p.id) ||
+        p.isDiscontinued // 適用於所有病人，無論狀態
+      ) {
         return
       }
       const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
