@@ -47,8 +47,12 @@ const patientGroups = computed(() => {
   }
   if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
     const unassigned = props.allPatients.filter((p) => {
+      // 【核心修正 1/2】: 在這裡加入 !p.isDiscontinued 條件
       const baseCondition =
-        !p.isDeleted && p.status === 'opd' && !assignedPatientIds.value.has(p.id)
+        !p.isDeleted &&
+        !p.isDiscontinued && // <-- 新增此行
+        p.status === 'opd' &&
+        !assignedPatientIds.value.has(p.id)
       if (!baseCondition) return false
       if (selectedFreq.value === 'all') {
         return !!p.freq
