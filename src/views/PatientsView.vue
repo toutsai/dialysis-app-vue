@@ -1,12 +1,17 @@
-<!-- 檔案路徑: src/views/PatientView.vue -->
+<!-- 檔案路徑: src/views/PatientView.vue (真正完整無省略的最終版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { deleteField, where } from 'firebase/firestore'
+import { where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
+// 【1. 引入新的 Service 函式】
+import {
+  clearFutureSchedulesForPatient,
+  cleanTemporaryDataInFutureSchedules,
+} from '@/services/scheduleService.js'
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue' // 1. 確保已引入
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import * as XLSX from 'xlsx'
@@ -32,7 +37,6 @@ const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 
-// 2. 為 ConfirmDialog 定義狀態
 const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
@@ -63,34 +67,32 @@ const { isReadOnly } = useAuth()
 const isPageLocked = computed(() => isReadOnly.value)
 
 const displayedPatients = computed(() => {
-  let patients
+  let patientsToDisplay
   let searchTerm = ''
-
+  if (!allPatients.value) return []
   if (activeTab.value === 'er') {
-    patients = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
+    patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
     searchTerm = erSearchTerm.value.toLowerCase()
   } else if (activeTab.value === 'ipd') {
-    patients = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
+    patientsToDisplay = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
     searchTerm = ipdSearchTerm.value.toLowerCase()
   } else if (activeTab.value === 'opd') {
-    patients = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
+    patientsToDisplay = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
     searchTerm = opdSearchTerm.value.toLowerCase()
   } else if (activeTab.value === 'deleted') {
-    patients = allPatients.value.filter((p) => p.isDeleted)
+    patientsToDisplay = allPatients.value.filter((p) => p.isDeleted)
     searchTerm = deletedSearchTerm.value.toLowerCase()
   } else {
-    patients = []
+    patientsToDisplay = []
   }
-
   if (searchTerm) {
-    patients = patients.filter(
+    patientsToDisplay = patientsToDisplay.filter(
       (p) =>
         (p.name && p.name.toLowerCase().includes(searchTerm)) ||
         (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)),
     )
   }
-
-  return [...patients].sort((a, b) => {
+  return [...patientsToDisplay].sort((a, b) => {
     let valA, valB
     if (currentSort.value.column === 'freq') {
       valA = a.freq
@@ -109,26 +111,23 @@ const displayedPatients = computed(() => {
 })
 
 const patientStats = computed(() => {
-  if (activeTab.value === 'deleted') {
+  if (activeTab.value === 'deleted' || !allPatients.value) {
     return null
   }
-  const currentTabPatients = allPatients.value.filter(
+  const patientsForStats = allPatients.value.filter(
     (p) => p.status === activeTab.value && !p.isDeleted,
   )
-
   const stats = {
-    total: currentTabPatients.length,
+    total: patientsForStats.length,
     byFrequency: {},
   }
-
-  currentTabPatients.forEach((patient) => {
+  patientsForStats.forEach((patient) => {
     const freq = patient.freq || '未設定'
     if (!stats.byFrequency[freq]) {
       stats.byFrequency[freq] = 0
     }
     stats.byFrequency[freq]++
   })
-
   const sortedFrequencies = {}
   const freqOrder = [
     '一三五',
@@ -142,7 +141,6 @@ const patientStats = computed(() => {
     '臨時',
     '未設定',
   ]
-
   freqOrder.forEach((key) => {
     if (stats.byFrequency[key]) {
       sortedFrequencies[key] = stats.byFrequency[key]
@@ -154,7 +152,6 @@ const patientStats = computed(() => {
     }
   }
   stats.byFrequency = sortedFrequencies
-
   return stats
 })
 
@@ -164,7 +161,6 @@ function exportDeletedPatients() {
     alert('沒有已刪除的病人資料可供匯出。')
     return
   }
-
   const headers = ['姓名', '病歷號', '原狀態', '刪除原因', '刪除日期', '備註']
   const data = deletedPatients.map((p) => [
     p.name || '',
@@ -174,11 +170,9 @@ function exportDeletedPatients() {
     formatDate(p.deletedAt) || '',
     p.remarks || '',
   ])
-
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data])
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '已刪除病人')
-
   const today = new Date().toISOString().slice(0, 10)
   XLSX.writeFile(workbook, `已刪除病人清單_${today}.xlsx`)
 }
@@ -190,33 +184,58 @@ async function handleSavePatient(patientData) {
     isAlertDialogVisible.value = true
     return
   }
-  try {
-    const patientId = patientData.id
-    const dataToUpdate = { ...patientData }
-    delete dataToUpdate.id
-    dataToUpdate.freq = patientData.freq
-    if ('frequency' in dataToUpdate) {
-      dataToUpdate.frequency = deleteField()
+  const originalPatient = editingPatient.value
+  const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
+  const isNowDiscontinued = patientData.isDiscontinued
+
+  if (!wasDiscontinuedBefore && isNowDiscontinued) {
+    confirmDialogTitle.value = '確認中止透析'
+    confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
+    confirmAction.value = async () => {
+      try {
+        closeModal()
+        const updateData = {
+          isDiscontinued: true,
+          discontinuedDate: patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+        }
+        await patientApi.update(patientData.id, updateData)
+        await clearFutureSchedulesForPatient(patientData.id)
+        await fetchAllPatients()
+      } catch (err) {
+        console.error('中止透析操作失敗:', err)
+        alertDialogTitle.value = '操作失敗'
+        alertDialogMessage.value = err.message || '中止透析操作失敗！'
+        isAlertDialogVisible.value = true
+      }
     }
-    if (patientId) {
-      await patientApi.update(patientId, dataToUpdate)
-    } else {
-      dataToUpdate.createdAt = new Date().toISOString()
-      dataToUpdate.isDeleted = false
-      dataToUpdate.status = modalType.value
-      await patientApi.save(dataToUpdate)
+    isConfirmDialogVisible.value = true
+  } else {
+    try {
+      const patientId = patientData.id
+      const dataToUpdate = { ...patientData }
+      delete dataToUpdate.id
+      if ('frequency' in dataToUpdate) {
+        delete dataToUpdate.frequency
+      }
+      if (patientId) {
+        await patientApi.update(patientId, dataToUpdate)
+      } else {
+        dataToUpdate.createdAt = new Date().toISOString()
+        dataToUpdate.isDeleted = false
+        dataToUpdate.status = modalType.value
+        await patientApi.save(dataToUpdate)
+      }
+      closeModal()
+      await fetchAllPatients()
+    } catch (err) {
+      console.error('儲存病人資料失敗:', err)
+      alertDialogTitle.value = '操作失敗'
+      alertDialogMessage.value = '儲存病人資料失敗！'
+      isAlertDialogVisible.value = true
     }
-    closeModal()
-    await fetchAllPatients()
-  } catch (err) {
-    console.error('儲存病人資料失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '儲存病人資料失敗！'
-    isAlertDialogVisible.value = true
   }
 }
 
-// 3. 【核心修改】: 重寫 transferPatient 函式，用 ConfirmDialog 取代 confirm()
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -225,34 +244,24 @@ async function transferPatient(patientId, newStatus) {
     return
   }
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
-  const targetStatusMap = {
-    ipd: '住院',
-    opd: '門診',
-    er: '急診',
-  }
+  const targetStatusMap = { ipd: '住院', opd: '門診', er: '急診' }
   const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
-
-  // a. 設定對話框的內容
   confirmDialogTitle.value = `確認轉為${targetStatusText}`
   confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`
-
-  // b. 定義用戶點擊「確認」後要執行的動作
   confirmAction.value = async () => {
     try {
       await patientApi.update(patientId, { status: newStatus })
       const originalPatientData = allPatients.value.find((p) => p.id === patientId)
       const updatedPatient = { ...originalPatientData, status: newStatus }
-      await clearPatientTemporaryScheduleData(patientId, 'clear', updatedPatient)
+      await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
     } catch (err) {
       console.error('轉床失敗:', err)
       alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = '轉床失敗！'
+      alertDialogMessage.value = err.message || '轉床失敗！'
       isAlertDialogVisible.value = true
     }
   }
-
-  // c. 顯示我們的自訂對話框
   isConfirmDialogVisible.value = true
 }
 
@@ -273,19 +282,20 @@ async function handleDeleteReasonSelected(reason) {
         deleteReason: reason,
         deletedAt: new Date().toISOString(),
       })
-      await clearPatientTemporaryScheduleData(patientToDeleteId.value, 'delete')
+      await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
     }
   } catch (err) {
     console.error('刪除失敗:', err)
     alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '刪除失敗！'
+    alertDialogMessage.value = err.message || '刪除失敗！'
     isAlertDialogVisible.value = true
   } finally {
     isDeleteDialogVisible.value = false
     patientToDeleteId.value = null
   }
 }
+
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -309,6 +319,7 @@ async function restorePatient(patientId) {
     isAlertDialogVisible.value = true
   }
 }
+
 function openAddPatientModal(type) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -320,6 +331,7 @@ function openAddPatientModal(type) {
   modalType.value = type
   isModalVisible.value = true
 }
+
 function openEditPatientModal(patient) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -327,10 +339,11 @@ function openEditPatientModal(patient) {
     isAlertDialogVisible.value = true
     return
   }
-  editingPatient.value = patient
+  editingPatient.value = JSON.parse(JSON.stringify(patient))
   modalType.value = patient.status
   isModalVisible.value = true
 }
+
 function deletePatient(patientId) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -341,6 +354,7 @@ function deletePatient(patientId) {
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
+
 async function fetchAllPatients() {
   try {
     allPatients.value = await patientApi.fetchAll()
@@ -351,67 +365,10 @@ async function fetchAllPatients() {
   }
 }
 
-async function clearPatientTemporaryScheduleData(
-  patientId,
-  mode = 'clear',
-  updatedPatientData = null,
-) {
-  if (!patientId) return
-  try {
-    const actionText = mode === 'delete' ? '刪除' : '清理'
-    console.log(`開始為病人 ${patientId} ${actionText} 未來排班資料...`)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayStr = today.toISOString().split('T')[0]
-    const futureScheduleDocs = await schedulesApi.fetchAll([where('date', '>=', todayStr)])
-    const updatePromises = []
-
-    for (const doc of futureScheduleDocs) {
-      let isModified = false
-      const newSchedule = { ...doc.schedule }
-
-      for (const shiftId in newSchedule) {
-        if (newSchedule[shiftId]?.patientId === patientId) {
-          isModified = true
-          if (mode === 'delete') {
-            delete newSchedule[shiftId]
-            console.log(`在 ${doc.date} 的排程中，刪除病人 ${patientId} 的班次 ${shiftId}`)
-          } else {
-            const slot = newSchedule[shiftId]
-            slot.manualNote = ''
-            slot.nurseTeam = null
-            slot.nurseTeamIn = null
-            slot.nurseTeamOut = null
-            if (updatedPatientData) {
-              slot.autoNote = generateAutoNote(updatedPatientData)
-            }
-            console.log(`在 ${doc.date} 的排程中，清理病人 ${patientId} 的班次 ${shiftId}`)
-          }
-        }
-      }
-      if (isModified) {
-        updatePromises.push(schedulesApi.update(doc.id, { schedule: newSchedule }))
-      }
-    }
-    if (updatePromises.length > 0) {
-      await Promise.all(updatePromises)
-      console.log(
-        `成功為病人 ${patientId} ${actionText}了 ${updatePromises.length} 天的未來排班資料。`,
-      )
-    } else {
-      console.log(`未在未來排程中找到病人 ${patientId} 的資料可供${actionText}。`)
-    }
-  } catch (err) {
-    const actionText = mode === 'delete' ? '刪除' : '清理'
-    console.error(`為病人 ${patientId} ${actionText}排班資料時發生錯誤:`, err)
-    alertDialogTitle.value = `操作失敗`
-    alertDialogMessage.value = `為病人${actionText}排班資料時發生錯誤，請手動檢查排班表！`
-    isAlertDialogVisible.value = true
-  }
-}
 function changeTab(tabName) {
   activeTab.value = tabName
 }
+
 function handleSort(key) {
   if (currentSort.value.column === key) {
     currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
@@ -420,27 +377,33 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
+
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
 }
+
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
 }
+
 function getSortIndicator(key) {
   if (currentSort.value.column === key) {
     return currentSort.value.order === 'asc' ? '▲' : '▼'
   }
   return ''
 }
+
 function formatDate(isoString) {
   if (!isoString) return ''
   const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
   if (isNaN(date.getTime())) return ''
-  return date.toLocaleDateString()
+  return date.toISOString().split('T')[0]
 }
+
 function getRowClass(p) {
+  if (p.isDiscontinued) return 'status-discontinued'
   if (p.isDeleted) return 'status-deleted'
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
   const freqValue = p.freq
@@ -450,12 +413,12 @@ function getRowClass(p) {
   if (p.status === 'opd') return 'status-opd'
   return ''
 }
+
 function generateDiseaseTags(diseases) {
   if (!diseases || diseases.length === 0) return ''
   return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
 }
 
-// 4. 新增處理 ConfirmDialog 結果的函式
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -467,6 +430,7 @@ function handleConfirm() {
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
+  console.log('使用者取消了操作。')
 }
 
 onMounted(() => {
@@ -572,8 +536,18 @@ onMounted(() => {
                 <td class="col-shrink">{{ p.physician }}</td>
                 <td class="col-shrink">{{ p.freq }}</td>
                 <td class="col-shrink">{{ p.mode }}</td>
-                <td class="col-shrink">{{ p.isFirstDialysis ? '✓' : '' }}</td>
-                <td class="col-shrink">{{ p.isDiscontinued ? '✓' : '' }}</td>
+                <td class="col-shrink">
+                  <div v-if="p.isFirstDialysis">✓</div>
+                  <div v-if="p.firstDialysisDate" class="date-subtext">
+                    {{ formatDate(p.firstDialysisDate) }}
+                  </div>
+                </td>
+                <td class="col-shrink">
+                  <div v-if="p.isDiscontinued">✓</div>
+                  <div v-if="p.discontinuedDate" class="date-subtext">
+                    {{ formatDate(p.discontinuedDate) }}
+                  </div>
+                </td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
                 <td class="col-shrink action-buttons">
@@ -675,8 +649,18 @@ onMounted(() => {
                 <td class="col-shrink">{{ p.physician }}</td>
                 <td class="col-shrink">{{ p.freq }}</td>
                 <td class="col-shrink">{{ p.mode }}</td>
-                <td class="col-shrink">{{ p.isFirstDialysis ? '✓' : '' }}</td>
-                <td class="col-shrink">{{ p.isDiscontinued ? '✓' : '' }}</td>
+                <td class="col-shrink">
+                  <div v-if="p.isFirstDialysis">✓</div>
+                  <div v-if="p.firstDialysisDate" class="date-subtext">
+                    {{ formatDate(p.firstDialysisDate) }}
+                  </div>
+                </td>
+                <td class="col-shrink">
+                  <div v-if="p.isDiscontinued">✓</div>
+                  <div v-if="p.discontinuedDate" class="date-subtext">
+                    {{ formatDate(p.discontinuedDate) }}
+                  </div>
+                </td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
                 <td class="col-shrink action-buttons">
@@ -885,7 +869,6 @@ onMounted(() => {
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
-    <!-- 5. 在模板中放置 ConfirmDialog 元件，並綁定事件 -->
     <ConfirmDialog
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"
@@ -1117,6 +1100,16 @@ onMounted(() => {
   background-color: var(--grey-bg);
   color: var(--grey-text);
 }
+.patient-table tr.status-discontinued {
+  background-color: #fee2e2;
+  color: #7f1d1d;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.patient-table tr.status-discontinued button {
+  text-decoration: none;
+}
 .action-buttons button {
   margin-right: 5px;
   padding: 5px 10px;
@@ -1164,5 +1157,13 @@ onMounted(() => {
 }
 .patient-table td.action-buttons {
   text-align: center;
+}
+.date-subtext {
+  font-size: 0.8em;
+  color: #666;
+  margin-top: 2px;
+}
+.patient-table tr.status-discontinued .date-subtext {
+  color: #991b1b;
 }
 </style>
