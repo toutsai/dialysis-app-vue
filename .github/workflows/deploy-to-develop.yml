@@ -1,13 +1,11 @@
-# 檔案路徑: .github/workflows/deploy-to-develop.yml
+# 檔案路徑: .github/workflows/deploy-to-develop.yml (修正後)
 
-# 1. 將名稱改為更容易辨識的 "Deploy to Development"
 name: Deploy to Development Environment
 
-# 2. <--- 修正點：觸發條件改為監聽 develop 分支
 on:
   push:
     branches:
-      - develop # 原本是 main，已修正
+      - develop
 
 jobs:
   build_and_deploy_to_dev:
@@ -16,18 +14,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Dependencies and Build
-        run: npm install && npm run build
+      # 【核心修正】: 將 'npm run build' 修改為 'npm run build:dev'
+      - name: Install Dependencies and Build for Development
+        run: npm install && npm run build:dev # <-- 這裡的 build:dev 會強制 Vite 使用 .env.development
 
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-
-          # 3. <--- 修正點：使用一個新的 Secret 來存放開發環境的憑證
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}'
-
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' # 確保這個 Secret 已設定
           channelId: live
-
-          # 4. <--- 修正點：部署到您的開發專案 ID
-          projectId: my-dialysis-app-develop # 原本是 dialysis-schedule-cd36c，已修正
+          projectId: my-dialysis-app-develop
