@@ -1,0 +1,33 @@
+# 檔案路徑: .github/workflows/deploy-to-develop.yml
+
+# 1. 將名稱改為更容易辨識的 "Deploy to Development"
+name: Deploy to Development Environment
+
+# 2. <--- 修正點：觸發條件改為監聽 develop 分支
+on:
+  push:
+    branches:
+      - develop # 原本是 main，已修正
+
+jobs:
+  build_and_deploy_to_dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies and Build
+        run: npm install && npm run build
+
+      - name: Deploy to Firebase Hosting (Development)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+
+          # 3. <--- 修正點：使用一個新的 Secret 來存放開發環境的憑證
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}'
+
+          channelId: live
+
+          # 4. <--- 修正點：部署到您的開發專案 ID
+          projectId: my-dialysis-app-develop # 原本是 dialysis-schedule-cd36c，已修正
