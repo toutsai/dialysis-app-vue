@@ -15,7 +15,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # 步驟二：安裝依賴並打包專案
-      - run: npm install && npm run build
+      - name: Install Dependencies and Build for Production
+        run: npm install && npm run build:prod # <--- 使用 build:prod
 
       # 步驟三：部署到 Firebase Hosting
       - uses: FirebaseExtended/action-hosting-deploy@v0
