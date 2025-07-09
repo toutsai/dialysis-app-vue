@@ -5,15 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "//": "主要的 'build' 指令用於生產環境",
+    "build": "vite build --mode production",
     "preview": "vite preview",
     "lint": "eslint . --fix",
     "format": "prettier --write src/",
-    "//": "--- DEPLOYMENT SCRIPTS (for separating dev and prod databases) ---",
-    "build:prod": "vite build --mode production",
+    "//": "--- 專門用於開發環境的建置指令 ---",
     "build:dev": "vite build --mode development",
-    "deploy:prod": "npm run build:prod && firebase deploy --only hosting -P production",
-    "deploy:dev": "npm run build:dev && firebase deploy --only hosting -P development"
+    "//": "--- 完整的部署流程 ---",
+    "deploy:prod": "npm run build && firebase deploy --only hosting:production",
+    "deploy:dev": "npm run build:dev && firebase deploy --only hosting:develop"
   },
   "dependencies": {
     "firebase": "^11.9.1",
