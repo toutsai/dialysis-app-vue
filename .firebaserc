@@ -3,5 +3,18 @@
     "development": "my-dialysis-app-develop",
     "production": "dialysis-schedule-cd36c",
     "default": "dialysis-schedule-cd36c"
-  }
+  },
+  "targets": {
+    "my-dialysis-app-develop": {
+      "hosting": {
+        "production": [
+          "dialysis-schedule-cd36c"
+        ],
+        "develop": [
+          "my-dialysis-app-develop"
+        ]
+      }
+    }
+  },
+  "etags": {}
 }
