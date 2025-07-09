@@ -123,9 +123,9 @@ const ApiManager = (resourceType) => {
   return {
     fetchAll,
     save,
-    update,
+    update, // <-- 【修正】確保 update 被包含在返回的物件中
     delete: deleteDocument,
-    fetchById, // <-- **將新函式加入到返回的物件中**
+    fetchById,
   }
 }
 
