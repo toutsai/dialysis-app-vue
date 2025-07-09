@@ -5,7 +5,7 @@ name: Deploy to Development Environment
 on:
   push:
     branches:
-      - develop
+      - develope-branch
 
 jobs:
   build_and_deploy_to_dev:
@@ -16,7 +16,7 @@ jobs:
 
       # 【核心修正】: 將 'npm run build' 修改為 'npm run build:dev'
       - name: Install Dependencies and Build for Development
-        run: npm install && npm run build:dev # <-- 這裡的 build:dev 會強制 Vite 使用 .env.development
+        run: npm install && npm run build:dev # <--- 使用 build:dev
 
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
