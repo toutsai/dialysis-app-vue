@@ -2,6 +2,7 @@
 
 name: Deploy to Development Environment
 
+# 當有程式碼推送到 develope-branch 時觸發
 on:
   push:
     branches:
@@ -9,19 +10,52 @@ on:
 
 jobs:
   build_and_deploy_to_dev:
+    # 指定運行環境為最新的 ubuntu
     runs-on: ubuntu-latest
+
+    # 【重要】設定 Job 層級的環境變數
+    # 這些變數會被 'npm run build:dev' 指令讀取
+    env:
+      VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_DEV }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_DEV }}
+      VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID_DEV }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_DEV }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_DEV }}
+      VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_DEV }}
+
     steps:
+      # 步驟 1: 拉取最新的程式碼
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 【核心修正】: 將 'npm run build' 修改為 'npm run build:dev'
-      - name: Install Dependencies and Build for Development
-        run: npm install && npm run build:dev # <--- 使用 build:dev
+      # 步驟 2: 設定 Node.js 環境
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # 建議指定您開發時使用的 Node.js 版本
+          cache: 'npm' # 啟用 npm 依賴快取，加速後續執行
 
+      # 步驟 3: 安裝依賴並為開發環境建置專案
+      # (使用 'npm ci' 比 'npm install' 在 CI 環境中更快速且可靠)
+      - name: Install Dependencies and Build
+        run: |
+          npm ci
+          npm run build:dev
+
+      # 步驟 4: 部署到 Firebase Hosting
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
+          # GitHub Token，用於與 GitHub 互動
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' # 確保這個 Secret 已設定
-          channelId: live
+
+          # 【關鍵】使用服務帳號進行 Firebase 認證
+          # 請確保您已在 GitHub Secrets 中設定了 'FIREBASE_SERVICE_ACCOUNT_DEV'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}'
+
+          # 指定部署的 Firebase 專案 ID
           projectId: my-dialysis-app-develop
+
+          # 【關鍵修正】指定部署到 'develop' 目標
+          # 這會讓指令變成 'firebase deploy --only hosting:develop'
+          target: develop
