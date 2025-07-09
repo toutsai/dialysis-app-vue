@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
-// 【1. 引入 useAuth】
+// 【權限修正 1/4】: 引入 useAuth
 import { useAuth } from '@/composables/useAuth.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
@@ -15,7 +15,7 @@ import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
-// --- API and Constants (保持不變) ---
+// --- API and Constants ---
 const patientsApi = ApiManager('patients')
 const baseSchedulesApi = ApiManager('base_schedules')
 const memosApi = ApiManager('memos')
@@ -48,9 +48,10 @@ const CLEAR_OPTIONS = [
   { value: 'all_for_patient', text: '清除此病人在本表的所有排班' },
 ]
 
-// --- Reactive State (保持不變) ---
+// --- Reactive State ---
 const allOpdPatients = ref([])
-const masterRecord = ref({ id: 'MASTER_SCHEDULE', schedule: {} })
+// 【定時炸彈修正 1/4】: 將初始值設為 null，方便判斷加載狀態
+const masterRecord = ref(null)
 const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
@@ -73,14 +74,10 @@ const patientNameForDialog = ref('')
 const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
 
-// 【2. 從 useAuth 獲取新的權限屬性】
-const { isEditor } = useAuth()
+// 【權限修正 2/4】: 從 useAuth 獲取新的權限屬性
+const { canEditSchedules } = useAuth()
 
-// 【3. 修改 isPageLocked 的邏輯】
-// 頁面是否鎖定，現在取決於使用者是否「不是」核心編輯者 (admin/editor)
-const isPageLocked = computed(() => !isEditor.value)
-
-// --- Helper functions for state (保持不變) ---
+// --- Helper functions for state ---
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
@@ -88,11 +85,13 @@ function updateColumnWidths(newWidths) {
   columnWidths.value = newWidths
 }
 
-// --- Computed Properties (保持不變) ---
+// --- Computed Properties ---
 const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
+
+// 【定時炸彈修正 2/4】: 在 computed 中加入防禦性判斷
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
     counts: {
@@ -102,7 +101,8 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
-  if (!masterRecord.value.schedule) {
+  // 關鍵的防禦性判斷
+  if (!masterRecord.value || !masterRecord.value.schedule) {
     return dailyCounts
   }
   const localPatientMap = new Map(allOpdPatients.value.map((p) => [p.id, p]))
@@ -117,7 +117,7 @@ const statsToolbarData = computed(() => {
         const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
         if (shiftStats) {
           shiftStats.total++
-          shiftStats.opd++
+          shiftStats.opd++ // 常規班表只會有 OPD
           dailyCounts[dayIndex].total++
         }
       }
@@ -127,7 +127,7 @@ const statsToolbarData = computed(() => {
 })
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
-// --- Functions (所有函式保持不變，因為它們內部都有 isPageLocked 的檢查) ---
+// --- Functions ---
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
@@ -139,14 +139,15 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 function setChange() {
-  if (isPageLocked.value) return
+  // 【權限修正 3/4】: 使用新的權限判斷
+  if (!canEditSchedules.value) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
 async function saveChangesToCloud() {
-  if (isPageLocked.value) {
+  if (!canEditSchedules.value) {
     alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
+    alertDialogMessage.value = '權限不足，無法儲存。'
     isAlertDialogVisible.value = true
     return
   }
@@ -183,7 +184,7 @@ async function saveChangesToCloud() {
   }
 }
 function handleScheduleCheck() {
-  if (isPageLocked.value) return
+  // 這個功能不修改數據，可以不加權限判斷
   const results = runBedCheck()
   let issueMessage = ''
   if (results.freqMismatch.length > 0) {
@@ -202,11 +203,11 @@ function handleScheduleCheck() {
   isAlertDialogVisible.value = true
 }
 function openBedAssignmentDialog() {
-  if (isPageLocked.value) return
+  if (!canEditSchedules.value) return
   isAssignmentDialogVisible.value = true
 }
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
-  if (isPageLocked.value) return
+  if (!canEditSchedules.value) return
   const patient = allOpdPatients.value.find((p) => p.id === patientId)
   if (!patient) return
   const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
@@ -226,7 +227,7 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   setChange()
 }
 function handleGridClick(slotId) {
-  if (isPageLocked.value) return
+  if (!canEditSchedules.value) return
   const patientId = masterRecord.value.schedule[slotId]?.patientId
   if (patientId) {
     clearingSlotId.value = slotId
@@ -237,6 +238,7 @@ function handleGridClick(slotId) {
   }
 }
 function handlePatientSelect({ patientId, fillType }) {
+  if (!canEditSchedules.value) return
   if (!patientId || !currentSlotId.value) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -287,7 +289,7 @@ function handlePatientSelect({ patientId, fillType }) {
   currentSlotId.value = null
 }
 function handleClearSelect(selectedValue) {
-  if (isPageLocked.value) return
+  if (!canEditSchedules.value) return
   if (!clearingSlotId.value) return
   const newSchedule = { ...masterRecord.value.schedule }
   if (selectedValue === 'single') {
@@ -308,7 +310,7 @@ function handleClearSelect(selectedValue) {
   clearingSlotId.value = null
 }
 function onDrop(event, targetSlotId) {
-  if (isPageLocked.value) return
+  if (!canEditSchedules.value) return
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
   const itemToDrop = draggedItem.value
@@ -337,7 +339,7 @@ function onDrop(event, targetSlotId) {
   draggedItem.value = null
 }
 function onDragStart(event, slotId) {
-  if (isPageLocked.value) {
+  if (!canEditSchedules.value) {
     event.preventDefault()
     return
   }
@@ -350,7 +352,6 @@ function onDragStart(event, slotId) {
   event.dataTransfer.effectAllowed = 'move'
 }
 async function loadAllData() {
-  hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
     const [patients, baseScheduleDoc, memos] = await Promise.all([
@@ -379,7 +380,7 @@ async function loadAllData() {
       }
       masterRecord.value = { id: baseScheduleDoc.id, schedule: finalSchedule }
     } else {
-      masterRecord.value.schedule = {}
+      masterRecord.value = { schedule: {} } // 創建一個空的基礎結構
     }
     statusText.value = '常規床位已載入'
   } catch (error) {
@@ -445,10 +446,14 @@ function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
+// 【定時炸彈修正 4/4】: getBaseCellStyle 函數也需要防禦性判斷
 function getBaseCellStyle(slotId) {
+  if (!masterRecord.value || !masterRecord.value.schedule) return {}
   const slotData = masterRecord.value.schedule[slotId]
   if (!slotData || !slotData.patientId) return {}
   const patient = patientMap.value.get(slotData.patientId)
+  if (!patient) return {}
+
   const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
@@ -458,19 +463,13 @@ function getBaseCellStyle(slotId) {
       return { [STYLE_PRIORITY[key].class]: true }
     }
   }
-  if (patient) {
-    if (patient.status === 'er') return { 'status-er': true }
-    if (patient.status === 'ipd') {
-      return { 'status-ipd': true }
-    }
-    if (patient.status === 'opd') {
-      return { 'status-opd': true }
-    }
-  }
+  if (patient.status === 'er') return { 'status-er': true }
+  if (patient.status === 'ipd') return { 'status-ipd': true }
+  if (patient.status === 'opd') return { 'status-opd': true }
   return {}
 }
 function onDragOver(event) {
-  if (isPageLocked.value) return
+  if (!canEditSchedules.value) return
   event.preventDefault()
   const targetSlot = event.target.closest('.schedule-slot')
   if (targetSlot) {
@@ -484,15 +483,18 @@ onMounted(loadAllData)
 </script>
 
 <template>
-  <div class="page-container" :class="{ 'is-locked': isPageLocked }">
+  <!-- 【權限修正 4/4】: 使用新的權限判斷 canEditSchedules -->
+  <div class="page-container" :class="{ 'is-locked': !canEditSchedules }">
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
-          <button class="btn btn-warning" @click="handleScheduleCheck" :disabled="isPageLocked">
-            排程檢視
-          </button>
-          <button class="btn btn-info" @click="openBedAssignmentDialog" :disabled="isPageLocked">
+          <button class="btn btn-warning" @click="handleScheduleCheck">排程檢視</button>
+          <button
+            class="btn btn-info"
+            @click="openBedAssignmentDialog"
+            :disabled="!canEditSchedules"
+          >
             智慧排床
           </button>
         </div>
@@ -500,7 +502,7 @@ onMounted(loadAllData)
           <span class="status-text">{{ statusText }}</span>
           <button
             class="btn-save"
-            :disabled="!hasUnsavedChanges || isPageLocked"
+            :disabled="!hasUnsavedChanges || !canEditSchedules"
             @click="saveChangesToCloud"
           >
             儲存床位
@@ -519,7 +521,9 @@ onMounted(loadAllData)
             size="normal"
           />
         </div>
+        <!-- 【定時炸彈修正 3/4】: 只有在 masterRecord 存在時才渲染 ScheduleTable -->
         <ScheduleTable
+          v-if="masterRecord"
           class="schedule-table-component"
           :layout="bedLayout"
           :schedule-data="masterRecord.schedule"
@@ -530,6 +534,7 @@ onMounted(loadAllData)
           :hepatitis-beds="hepatitisBeds"
           :get-style-func="getBaseCellStyle"
           :patient-with-memo-ids="patientWithMemoIds"
+          :is-page-locked="!canEditSchedules"
           @grid-click="handleGridClick"
           @drop="onDrop"
           @drag-start="onDragStart"
@@ -539,6 +544,7 @@ onMounted(loadAllData)
           @update:column-widths="updateColumnWidths"
           @update:left-offset="updateLeftOffset"
         />
+        <div v-else class="loading-state">正在載入常規班表資料...</div>
       </div>
     </main>
 
@@ -552,19 +558,20 @@ onMounted(loadAllData)
       :is-visible="isAssignmentDialogVisible"
       :all-patients="allOpdPatients"
       :bed-layout="bedLayout"
-      :schedule-data="masterRecord.schedule"
+      :schedule-data="masterRecord ? masterRecord.schedule : {}"
       :shifts="SHIFTS"
       :freq-map="FREQ_MAP_TO_DAY_INDEX"
       assignment-mode="base"
+      :is-page-locked="!canEditSchedules"
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
-    <!-- 【核心修改 5/5】: 新增 PatientSelectDialog 的調用 -->
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
       title="選擇病人排班 (常規)"
       :patients="allOpdPatients"
       :show-fill-options="true"
+      :is-page-locked="!canEditSchedules"
       @confirm="handlePatientSelect"
       @cancel="isPatientSelectDialogVisible = false"
     />
@@ -604,6 +611,7 @@ onMounted(loadAllData)
   background-color: #fff;
   box-sizing: border-box;
   border-bottom: 1px solid #dee2e6;
+  padding: 1rem 1.5rem;
 }
 .header-toolbar {
   display: flex;
@@ -753,5 +761,13 @@ onMounted(loadAllData)
 }
 .is-locked :deep(.schedule-slot[draggable='true']) {
   cursor: default;
+}
+.loading-state {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  font-size: 1.5rem;
+  color: #6c757d;
 }
 </style>

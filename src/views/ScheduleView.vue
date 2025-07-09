@@ -1,3 +1,4 @@
+// --- ScheduleView.vue目前拖曳點備忘都正常------
 <script setup>
 import { ref, onMounted, computed, reactive, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
