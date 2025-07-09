@@ -6,10 +6,11 @@ import { where } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
+// 【1. 引入 useAuth】
 import { useAuth } from '@/composables/useAuth.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 
-// --- API 實例 ---
+// --- API 實例 (保持不變) ---
 const schedulesApi = ApiManager('schedules')
 const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
@@ -46,7 +47,7 @@ const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外�
 const earlyTeams = baseTeams.map((t) => `早${t}`)
 const lateTeams = baseTeams.map((t) => `晚${t}`)
 
-// --- 核心狀態 ---
+// --- 核心狀態 (保持不變) ---
 const currentDate = ref(new Date())
 const allPatients = ref([])
 const activeMemos = ref([])
@@ -54,7 +55,7 @@ const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
 
-// --- UI 狀態 ---
+// --- UI 狀態 (保持不變) ---
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
@@ -62,15 +63,21 @@ const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 const activeTab = ref('early')
 
-const { isReadOnly } = useAuth()
+// 【2. 從 useAuth 獲取新的權限屬性】
+const { isEditor } = useAuth()
+
+// 【3. 修改 isPageLocked 的邏輯】
+// 頁面是否鎖定，取決於使用者是否「不是」核心編輯者 (admin/editor)
 const isPageLocked = computed(() => {
-  if (isReadOnly.value) return true
+  if (!isEditor.value) {
+    return true
+  }
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return currentDate.value < today
 })
 
-// --- Helper Functions & 計算屬性 ---
+// --- Helper Functions & 計算屬性 (保持不變) ---
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
@@ -82,15 +89,12 @@ const formatDate = (date) => {
 
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
-
   const name = patientDetail.name
   const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
   const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
   const combinedTags = [...new Set([...autoTags, ...manualTags])]
-  // 移除 '住' 和 '急'，因為它們已經通過顏色表示了
   const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   const noteString = finalTags.join(' ')
-
   let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
     identifier = patientDetail.wardNumber || '外圍'
@@ -100,24 +104,20 @@ const getPatientDisplayString = (patientDetail) => {
       identifier = parts[1]
     }
   }
-
   const displayParts = [identifier, name]
-
   if (patientDetail.mode && patientDetail.mode !== 'HD') {
     const modeTag = `<span class="stats-special-mode">${patientDetail.mode}</span>`
     displayParts.push(modeTag)
   }
-
   if (noteString) {
     displayParts.push(noteString)
   }
-
   return displayParts.join(' - ')
 }
 
-const patientWithMemoIds = computed(() => {
-  return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
-})
+const patientWithMemoIds = computed(
+  () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
+)
 
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
@@ -132,7 +132,6 @@ const statsData = computed(() => {
   }
   const earlyShiftStats = {}
   const lateShiftStats = {}
-
   earlyTeams.forEach((team) => {
     earlyShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
@@ -170,7 +169,6 @@ const statsData = computed(() => {
     if (!patientId) return
     const patient = patientMap.get(patientId)
     if (!patient) return
-
     const detail = {
       id: patientId,
       shiftId: shiftId,
@@ -182,7 +180,6 @@ const statsData = computed(() => {
       wardNumber: wardNumber || '',
       classes: 'patient-item',
     }
-
     if (patient.status === 'er') detail.classes += ' status-er'
     else if (patient.status === 'ipd') detail.classes += ' status-ipd'
     else detail.classes += ' status-opd'
@@ -247,7 +244,6 @@ const statsData = computed(() => {
       if (group.patients) group.patients.sort(sortPatientsByBed)
     })
   }
-
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
     teamData.totalOpdCount =
@@ -266,13 +262,11 @@ const statsData = computed(() => {
   return { early: earlyShiftStats, late: lateShiftStats }
 })
 
-// --- 方法 ---
-
+// --- 方法 (所有函式保持不變，因為它們內部都有 isPageLocked 的檢查) ---
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
-
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && !memo.isResolved,
   )
@@ -316,11 +310,13 @@ async function loadData(date) {
     statusIndicator.value = '讀取失敗'
   }
 }
+
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
+
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法儲存或權限不足。')
@@ -370,76 +366,53 @@ async function saveChangesToCloud() {
   }
 }
 
-// 【核心修正】: 重寫 onDrop 函式以正確處理班次和組別的變更
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
-
-  // 1. 解析舊 ID，保留床位資訊
   const oldShiftIdParts = oldShiftId.split('-')
-  const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 結果如 'bed-1' 或 'peripheral-1'
-
-  // 2. 根據放下的位置決定新的班次碼
+  const bedPart = oldShiftIdParts.slice(0, -1).join('-')
   let newShiftCode
   if (newResponsibility === 'earlyShift') {
     newShiftCode = SHIFT_CODES.EARLY
   } else if (newResponsibility === 'lateShift') {
     newShiftCode = SHIFT_CODES.LATE
   } else {
-    // noonShiftOn 或 noonShiftOff
     newShiftCode = SHIFT_CODES.NOON
   }
-
-  // 3. 組成新的 shiftId
   const newShiftId = `${bedPart}-${newShiftCode}`
-
-  // 4. 檢查目標位置是否已被佔用 (僅在班次改變時)
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
     alert(`錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`)
     return
   }
-
-  // 5. 準備要更新的資料
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
-  // 更新 shiftId
   movingSlotData.shiftId = newShiftId
-
-  // 清除舊的護理組資訊
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
-
-  // 根據新位置設定新的護理組
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     movingSlotData.nurseTeam = newTeam
   } else if (newResponsibility === 'noonShiftOn') {
     movingSlotData.nurseTeamIn = newTeam
-    // 如果病人原本就有收針護理師，保留它
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
       movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
     }
   } else if (newResponsibility === 'noonShiftOff') {
     movingSlotData.nurseTeamOut = newTeam
-    // 如果病人原本就有上針護理師，保留它
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamIn) {
       movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
     }
   }
-
-  // 6. 執行資料更新
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
-
   setChange()
 }
 
@@ -452,11 +425,13 @@ function onDragStart(event, patientDetail, responsibility) {
   event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
+
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
@@ -469,6 +444,7 @@ function handleBedChange({ oldShiftId, newShiftId }) {
   setChange()
   isBedChangeDialogVisible.value = false
 }
+
 function updateNurseName(teamId, event) {
   if (isPageLocked.value) {
     event.target.value = currentRecord.names?.[teamId] || ''
@@ -480,6 +456,7 @@ function updateNurseName(teamId, event) {
   currentRecord.names[teamId] = event.target.value
   setChange()
 }
+
 function changeDate(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
@@ -488,17 +465,20 @@ function changeDate(days) {
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
 }
+
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
   }
   currentDate.value = new Date()
 }
+
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
+
 function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
