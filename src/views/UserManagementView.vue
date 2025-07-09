@@ -2,319 +2,349 @@
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
+import UserFormModal from '@/components/UserFormModal.vue'
 
-// 子元件 (可複用或自行建立簡化版)
-import UserFormModal from '@/components/UserFormModal.vue' // 假設您會建立這個元件
-import AlertDialog from '@/components/AlertDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-
-// API 實例
+// --- API and State ---
 const usersApi = ApiManager('users')
-const { currentUser } = useAuth() // 用於防止管理員刪除自己
-
-// 響應式狀態
-const allUsers = ref([])
+const users = ref([])
 const isLoading = ref(true)
 const searchTerm = ref('')
 
-// Dialog 相關狀態
 const isModalVisible = ref(false)
-const editingUser = ref(null) // null 表示新增，有物件表示編輯
-const isConfirmDialogVisible = ref(false)
-const confirmAction = ref(null)
-const confirmDialogTitle = ref('')
-const confirmDialogMessage = ref('')
-const isAlertDialogVisible = ref(false)
-const alertDialogTitle = ref('')
-const alertDialogMessage = ref('')
+const isEditing = ref(false)
+const userToEdit = ref(null)
 
-// 計算屬性：過濾和顯示使用者
+// --- 權限控制 ---
+const { isAdmin } = useAuth()
+
+// --- Helper Function for Date Formatting ---
+function formatDate(timestamp) {
+  if (!timestamp) return 'N/A'
+  // 處理 Firestore timestamp 物件或 ISO 字串
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
+  if (isNaN(date)) return '無效日期'
+  return date.toLocaleDateString('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
+}
+
+// --- Computed Properties ---
 const filteredUsers = computed(() => {
-  if (!allUsers.value) return []
-  let users = [...allUsers.value]
+  let result = []
 
-  if (searchTerm.value) {
-    const lowerCaseSearch = searchTerm.value.toLowerCase()
-    users = users.filter(
-      (u) =>
-        (u.name && u.name.toLowerCase().includes(lowerCaseSearch)) ||
-        (u.username && u.username.toLowerCase().includes(lowerCaseSearch)) ||
-        (u.email && u.email.toLowerCase().includes(lowerCaseSearch)),
+  if (!searchTerm.value) {
+    result = users.value
+  } else {
+    result = users.value.filter(
+      (user) =>
+        user.name.toLowerCase().includes(searchTerm.value.toLowerCase()) ||
+        user.username.toLowerCase().includes(searchTerm.value.toLowerCase()) ||
+        (user.email && user.email.toLowerCase().includes(searchTerm.value.toLowerCase())),
     )
   }
-  return users
+
+  // 排序：admin 在最前，其餘按創建時間倒序
+  return [...result].sort((a, b) => {
+    if (a.role === 'admin') return -1
+    if (b.role === 'admin') return 1
+    if (a.createdAt && b.createdAt) {
+      const dateA = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
+      const dateB = b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)
+      return dateB - dateA
+    }
+    return a.name.localeCompare(b.name, 'zh-Hant')
+  })
 })
 
-// === CRUD 函式 ===
-
-// 讀取所有使用者
+// --- Functions ---
 async function fetchUsers() {
   isLoading.value = true
   try {
-    allUsers.value = await usersApi.fetchAll()
+    users.value = await usersApi.fetchAll()
   } catch (error) {
-    console.error('讀取使用者資料失敗:', error)
-    showAlertDialog('錯誤', '讀取使用者資料失敗，請稍後再試。')
+    console.error('Failed to fetch users:', error)
   } finally {
     isLoading.value = false
   }
 }
 
-// 開啟新增使用者的彈窗
-function handleOpenAddModal() {
-  editingUser.value = null // 清空表示是新增模式
+function handleAddUser() {
+  if (!isAdmin.value) return
+  isEditing.value = false
+  userToEdit.value = null
   isModalVisible.value = true
 }
 
-// 開啟編輯使用者的彈窗
-function handleOpenEditModal(user) {
-  // 深拷貝一個物件來編輯，避免直接修改列表中的資料
-  editingUser.value = JSON.parse(JSON.stringify(user))
+function handleEditUser(user) {
+  if (!isAdmin.value) return
+  isEditing.value = true
+  userToEdit.value = JSON.parse(JSON.stringify(user))
   isModalVisible.value = true
 }
 
-// 儲存使用者 (新增或更新)
+async function handleDeleteUser(user) {
+  if (!isAdmin.value) return
+  if (confirm(`確定要刪除使用者 "${user.name}" 嗎？此操作無法復原。`)) {
+    try {
+      await usersApi.delete(user.id)
+      await fetchUsers()
+      alert('使用者已刪除。')
+    } catch (error) {
+      console.error('Failed to delete user:', error)
+      alert('刪除使用者失敗。')
+    }
+  }
+}
+
 async function handleSaveUser(userData) {
+  if (!isAdmin.value) return
   try {
-    if (userData.id) {
-      // 更新
-      const userId = userData.id
-      delete userData.id // 從資料中移除 id，避免寫入 Firestore
-      await usersApi.update(userId, userData)
+    const dataToSave = { ...userData }
+    if (isEditing.value) {
+      const { id, ...updateData } = dataToSave
+      updateData.updatedAt = new Date()
+      await usersApi.update(id, updateData)
+      alert('使用者資料已更新。')
     } else {
-      // 新增
-      await usersApi.save(userData)
+      dataToSave.createdAt = new Date()
+      dataToSave.updatedAt = new Date()
+      await usersApi.save(dataToSave)
+      alert('使用者已新增。')
     }
     isModalVisible.value = false
-    await fetchUsers() // 重新載入列表
+    await fetchUsers()
   } catch (error) {
-    console.error('儲存使用者失敗:', error)
-    showAlertDialog('儲存失敗', '儲存使用者資料時發生錯誤。')
+    console.error('Failed to save user:', error)
+    alert('儲存使用者失敗。')
   }
 }
 
-// 刪除使用者
-function handleDeleteUser(user) {
-  // 防止管理員刪除自己 (這段邏輯正確)
-  if (user.id === currentUser.value?.id) {
-    showAlertDialog('操作無效', '無法刪除您自己的帳號。')
-    return
-  }
-
-  // 設定確認對話框 (這段邏輯正確)
-  confirmDialogTitle.value = `確認刪除使用者`
-  confirmDialogMessage.value = `您確定要永久刪除使用者「${user.name} (${user.username})」嗎？\n此操作無法復原。`
-
-  // 設定確認後執行的動作
-  confirmAction.value = async () => {
-    try {
-      // 【核心操作】調用 API 刪除
-      await usersApi.delete(user.id)
-      // 成功後，重新載入列表
-      await fetchUsers()
-    } catch (error) {
-      console.error('刪除使用者失敗:', error)
-      showAlertDialog('刪除失敗', '刪除使用者時發生錯誤。')
-    }
-  }
-
-  // 顯示對話框 (這段邏輯正確)
-  isConfirmDialogVisible.value = true
-}
-
-// Helper: 顯示提示對話框
-function showAlertDialog(title, message) {
-  alertDialogTitle.value = title
-  alertDialogMessage.value = message
-  isAlertDialogVisible.value = true
-}
-
-// === 生命週期鉤子 ===
 onMounted(() => {
-  fetchUsers()
+  if (isAdmin.value) {
+    fetchUsers()
+  }
 })
 </script>
 
 <template>
-  <div class="page-container">
-    <h1 class="page-title">使用者帳號管理</h1>
-
-    <div class="toolbar">
-      <button @click="handleOpenAddModal" class="btn-add">新增使用者</button>
-      <div class="search-group">
-        <input type="text" v-model="searchTerm" placeholder="搜尋姓名/帳號/Email..." />
+  <div class="user-management-container">
+    <header class="page-header">
+      <h1>使用者帳號管理</h1>
+      <div class="header-actions">
+        <input
+          type="text"
+          v-model="searchTerm"
+          placeholder="搜尋姓名/帳號/Email..."
+          class="search-input"
+        />
+        <button v-if="isAdmin" class="btn btn-primary" @click="handleAddUser">新增使用者</button>
       </div>
-    </div>
+    </header>
 
     <div v-if="isLoading" class="loading-state">載入中...</div>
 
-    <div v-else class="table-wrapper">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>姓名</th>
-            <th>帳號 (Username)</th>
-            <!-- 密碼通常不在列表顯示，保持安全 -->
-            <th>職稱</th>
-            <th>角色 (Role)</th>
-            <th>Email</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="filteredUsers.length === 0">
-            <td colspan="6" class="empty-row">沒有符合條件的使用者</td>
-          </tr>
-          <tr v-for="user in filteredUsers" :key="user.id">
-            <!-- 1. 姓名 -->
-            <td>{{ user.name }}</td>
+    <table v-else-if="filteredUsers.length > 0" class="user-table">
+      <thead>
+        <tr>
+          <th class="col-name">姓名</th>
+          <th class="col-username">帳號</th>
+          <th class="col-title">職稱</th>
+          <th class="col-role">角色</th>
+          <th class="col-email">Email</th>
+          <th class="col-date">異動日期</th>
+          <th v-if="isAdmin" class="col-actions">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="user in filteredUsers" :key="user.id">
+          <td>{{ user.name }}</td>
+          <td>{{ user.username }}</td>
+          <td>{{ user.title }}</td>
+          <td :class="['role-cell', `role-${user.role}`]">
+            <span class="role-badge">{{ user.role }}</span>
+          </td>
+          <td>{{ user.email }}</td>
+          <td>{{ formatDate(user.updatedAt || user.createdAt) }}</td>
+          <td v-if="isAdmin">
+            <button class="btn btn-edit" @click="handleEditUser(user)">編輯</button>
+            <button class="btn btn-delete" @click="handleDeleteUser(user)">刪除</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
-            <!-- 2. 帳號 -->
-            <td>{{ user.username }}</td>
+    <div v-else class="empty-state">沒有符合條件的使用者</div>
 
-            <!-- 3. 職稱 (修正) -->
-            <td>{{ user.title }}</td>
-
-            <!-- 4. 角色 (修正) -->
-            <td>
-              <span :class="`role-tag role-${user.role}`">{{ user.role }}</span>
-            </td>
-
-            <!-- 5. Email (修正) -->
-            <td>{{ user.email }}</td>
-            <td class="action-buttons">
-              <button class="btn-edit" @click="handleOpenEditModal(user)">編輯</button>
-              <button
-                class="btn-delete"
-                @click="handleDeleteUser(user)"
-                :disabled="user.id === currentUser?.id"
-                title="無法刪除自己的帳號"
-              >
-                刪除
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Modals and Dialogs -->
     <UserFormModal
-      v-if="isModalVisible"
       :is-visible="isModalVisible"
-      :user-data="editingUser"
-      @save="handleSaveUser"
+      :is-editing="isEditing"
+      :user="userToEdit"
       @close="isModalVisible = false"
-    />
-
-    <ConfirmDialog
-      :is-visible="isConfirmDialogVisible"
-      :title="confirmDialogTitle"
-      :message="confirmDialogMessage"
-      @confirm="confirmAction"
-      @cancel="isConfirmDialogVisible = false"
-    />
-
-    <AlertDialog
-      :is-visible="isAlertDialogVisible"
-      :title="alertDialogTitle"
-      :message="alertDialogMessage"
-      @confirm="isAlertDialogVisible = false"
+      @save="handleSaveUser"
     />
   </div>
 </template>
 
 <style scoped>
-.page-title {
-  margin-bottom: 1.5rem;
+.user-management-container {
+  padding: 2rem;
 }
-.toolbar {
+
+.page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.5rem;
+  margin-bottom: 2rem;
   flex-wrap: wrap;
   gap: 1rem;
 }
-.btn-add {
-  padding: 0.6rem 1.2rem;
-  font-size: 1em;
-  background-color: #16a34a;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
+
+.page-header h1 {
+  font-size: 2.2rem;
+  color: #333;
+  margin: 0;
 }
-.btn-add:hover {
-  background-color: #15803d;
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
 }
-.search-group input {
-  padding: 0.6rem;
+
+.search-input {
+  padding: 0.7rem 1rem;
   border: 1px solid #ccc;
-  border-radius: 5px;
-  min-width: 300px;
+  border-radius: 6px;
+  font-size: 1rem;
+  width: 250px;
 }
-.table-wrapper {
-  overflow-x: auto;
-}
-.data-table {
+
+.user-table {
   width: 100%;
   border-collapse: collapse;
+  background-color: #fff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  table-layout: fixed; /* 關鍵：讓寬度設定生效 */
 }
-.data-table th,
-.data-table td {
-  border: 1px solid #ddd;
-  padding: 0.8rem 1rem;
+
+.user-table th,
+.user-table td {
+  padding: 1rem 1.5rem;
   text-align: left;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.data-table th {
-  background-color: #f8f9fa;
+
+.user-table th {
+  background-color: #f7f9fc;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
-.empty-row {
-  text-align: center;
-  color: #6c757d;
-  font-style: italic;
-  padding: 2rem;
+
+.user-table .col-name {
+  width: 12%;
 }
-.action-buttons button {
-  margin-right: 0.5rem;
-  padding: 0.4rem 0.8rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  color: white;
+.user-table .col-username {
+  width: 10%;
 }
-.btn-edit {
-  background-color: #007bff;
+.user-table .col-title {
+  width: 12%;
 }
-.btn-delete {
-  background-color: #dc3545;
+.user-table .col-role {
+  width: 12%;
 }
-.btn-delete:disabled {
-  background-color: #6c757d;
-  cursor: not-allowed;
+.user-table .col-email {
+  width: auto;
 }
-.role-tag {
-  padding: 0.2em 0.6em;
-  border-radius: 10px;
-  color: white;
-  font-size: 0.9em;
-  font-weight: bold;
+.user-table .col-date {
+  width: 12%;
 }
-.role-admin {
-  background-color: #dc3545;
+.user-table .col-actions {
+  width: 14%;
 }
-.role-editor {
-  background-color: #ffc107;
-  color: #212529;
+
+.user-table td.col-email {
+  white-space: normal;
 }
-.role-viewer {
-  background-color: #28a745;
+
+.user-table tbody tr:last-child td {
+  border-bottom: none;
 }
-.loading-state {
+
+.user-table tbody tr:hover {
+  background-color: #f5faff;
+}
+
+.loading-state,
+.empty-state {
   text-align: center;
   padding: 3rem;
   font-size: 1.2rem;
-  color: #6c757d;
+  color: #666;
+}
+
+.btn {
+  padding: 0.6rem 1.2rem;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.95rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-primary {
+  background-color: #28a745;
+  color: white;
+}
+.btn-primary:hover {
+  background-color: #218838;
+}
+
+.btn-edit {
+  background-color: #007bff;
+  color: white;
+  margin-right: 0.5rem;
+}
+.btn-edit:hover {
+  background-color: #0056b3;
+}
+
+.btn-delete {
+  background-color: #e74c3c;
+  color: white;
+}
+.btn-delete:hover {
+  background-color: #c0392b;
+}
+
+.role-badge {
+  padding: 0.3em 0.8em;
+  border-radius: 12px;
+  font-size: 0.9em;
+  font-weight: 500;
+  text-transform: capitalize;
+  color: white;
+}
+.role-admin .role-badge {
+  background-color: #c82333;
+}
+.role-editor .role-badge {
+  background-color: #007bff;
+}
+.role-contributor .role-badge {
+  background-color: #28a745;
+}
+.role-viewer .role-badge {
+  background-color: #6c757d;
 }
 </style>
