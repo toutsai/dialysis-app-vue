@@ -8,7 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint . --fix",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "//": "--- DEPLOYMENT SCRIPTS (for separating dev and prod databases) ---",
+    "build:prod": "vite build --mode production",
+    "build:dev": "vite build --mode development",
+    "deploy:prod": "npm run build:prod && firebase deploy --only hosting -P production",
+    "deploy:dev": "npm run build:dev && firebase deploy --only hosting -P development"
   },
   "dependencies": {
     "firebase": "^11.9.1",

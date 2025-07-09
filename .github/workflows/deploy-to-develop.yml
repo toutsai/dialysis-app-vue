@@ -1,0 +1,27 @@
+# 檔案路徑: .github/workflows/deploy-to-develop.yml (修正後)
+
+name: Deploy to Development Environment
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build_and_deploy_to_dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 【核心修正】: 將 'npm run build' 修改為 'npm run build:dev'
+      - name: Install Dependencies and Build for Development
+        run: npm install && npm run build:dev # <-- 這裡的 build:dev 會強制 Vite 使用 .env.development
+
+      - name: Deploy to Firebase Hosting (Development)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' # 確保這個 Secret 已設定
+          channelId: live
+          projectId: my-dialysis-app-develop

@@ -30,8 +30,11 @@ const inpatientFilter = ref('all')
 
 const inpatientList = computed(() => {
   // 【修改 1/2】: 基礎過濾現在包含住院(ipd)和急診(er)病人
+  // 【修改 1/2】: 基礎過濾現在包含住院(ipd)和急診(er)病人
   const targetStatuses = ['ipd', 'er']
-  let inpatients = props.patients.filter((p) => targetStatuses.includes(p.status) && !p.isDeleted)
+  let inpatients = props.patients.filter(
+    (p) => targetStatuses.includes(p.status) && !p.isDeleted && !p.isDiscontinued, // 【新增條件】過濾掉已中止透析的病人
+  )
 
   // 模式一：如果啟用每日篩選 (在 ScheduleView 中使用)
   if (props.useDailyFilter) {
