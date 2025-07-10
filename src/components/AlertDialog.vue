@@ -40,6 +40,13 @@ function handleConfirm() {
   max-width: 500px; /* 稍微調整寬度 */
   z-index: 1000;
   animation: fadeIn 0.3s ease-out;
+  /* ======================= 【置中的關鍵修正】 ======================= */
+  /* 將這段樣式從 ConfirmDialog 複製過來 */
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* ============================================================= */
 }
 
 @keyframes fadeIn {
