@@ -32,7 +32,6 @@
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
-            <span class="user-role">({{ currentUser.role }})</span>
           </div>
           <!-- 上下對調，並使用 RouterLink 和 button -->
           <button @click="handleLogout" class="action-button btn-logout">登出</button>
@@ -167,7 +166,7 @@ function handleLogout() {
 
 .user-info {
   margin-bottom: 15px;
-  font-size: 0.9em;
+  font-size: 1.1em;
   line-height: 1.4;
 }
 
