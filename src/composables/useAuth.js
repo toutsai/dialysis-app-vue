@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useAuth.js (最終正確版)
+// 檔案路徑: src/composables/useAuth.js (最終權限整合版)
 
 import { ref, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -90,61 +90,71 @@ export function useAuth() {
   // --- Computed Permissions ---
   // 所有權限都基於模組級別的 currentUser 和 isLoggedIn 狀態
 
-  // 1. 是否為最高管理員 (只有 admin)
-  const isAdmin = computed(() => {
+  // 1. 【使用者管理權限】: 只有 admin 能管理使用者
+  const canManageUsers = computed(() => {
     return isLoggedIn.value && currentUser.value?.role === 'admin'
   })
 
-  // 2. 是否為核心排班編輯者 (admin 或 editor)
-  const isEditor = computed(() => {
+  // 2. 【排班表編輯權限】: 只有 admin 和 editor 能編輯四個排班表
+  const canEditSchedules = computed(() => {
     if (!isLoggedIn.value) return false
     const role = currentUser.value?.role
     return role === 'admin' || role === 'editor'
   })
 
-  // 3. 是否能編輯「病人/備忘錄」 (admin, editor, 或 contributor)
-  const canEditPatientsAndMemos = computed(() => {
+  // 3. 【病人資料編輯權限】: admin, editor, contributor 能編輯病人資料
+  const canEditPatients = computed(() => {
     if (!isLoggedIn.value) return false
     const role = currentUser.value?.role
     return role === 'admin' || role === 'editor' || role === 'contributor'
   })
 
-  // 4. 是否為「僅檢視」角色
-  const isReadOnly = computed(() => {
-    return isLoggedIn.value && currentUser.value?.role === 'viewer'
-  })
-
-  // 5. 是否能編輯備忘錄 (基本上除了 guest 都可以)
+  // ====================== 【權限邏輯修正點】 ======================
+  // 4. 【備忘錄編輯權限】: 所有登入的角色都可以編輯備忘錄
   const canEditMemos = computed(() => {
-    return isLoggedIn.value && currentUser.value?.role !== 'guest'
+    // 只要登入了，就可以編輯備忘錄
+    return isLoggedIn.value
   })
 
-  // ====================== 【問題修正點】: 新增這個權限！ ======================
-  // 6. 是否能編輯「排班表」
-  //    這個權限通常比較嚴格，我們假設只有 admin 和 editor 可以。
-  const canEditSchedules = computed(() => {
-    if (!isLoggedIn.value) return false
-    const role = currentUser.value?.role
-    // 直接重用 isEditor 的邏輯也可以，但為了清晰，我們獨立定義
-    return role === 'admin' || role === 'editor'
+  // 5. 【查看備忘錄權限】: 所有登入者都可以查看備忘錄圖示 (邏輯與編輯相同)
+  const canViewMemos = computed(() => {
+    return isLoggedIn.value
   })
-  // ========================================================================
+  // =============================================================
+
+  // 6. 【報表查看權限】: 假設所有登入者都能看報表
+  const canViewReporting = computed(() => {
+    return isLoggedIn.value
+  })
 
   // --- Return all state and functions ---
-  // 將所有狀態和函式打包回傳，供元件使用
+  // 將所有狀態和語意化的權限打包回傳，供元件使用
   return {
+    // 核心狀態和方法
     isLoggedIn,
     currentUser,
     login,
     logout,
     changePassword,
-    // 返回所有權限屬性
-    isAdmin,
-    isEditor,
-    canEditPatientsAndMemos,
-    isReadOnly,
-    canEditMemos,
-    // 【問題修正點】: 記得也要在這裡返回
+
+    // 語意化的權限 (建議未來都使用這些)
+    canManageUsers,
     canEditSchedules,
+    canEditPatients,
+    canEditMemos,
+    canViewMemos,
+    canViewReporting,
+
+    // 保留舊的別名以供過渡，但建議逐步淘汰
+    isAdmin: canManageUsers,
+    isEditor: canEditSchedules,
+    canEditPatientsAndMemos: canEditPatients,
+    isReadOnly: computed(() => {
+      if (!isLoggedIn.value) return true // 未登入是只讀
+      // 根據您的表格，只有 viewer 在排班表上是嚴格的只讀
+      // 但在其他頁面不是，所以這個 isReadOnly 的語意有點模糊
+      // 建議直接使用更精確的 canEditSchedules, canEditPatients 等
+      return currentUser.value?.role === 'viewer'
+    }),
   }
 }

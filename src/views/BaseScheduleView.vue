@@ -1,8 +1,7 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, provide, watchEffect } from 'vue' // <--- 加入 watchEffect
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
-// 【權限修正 1/4】: 引入 useAuth
 import { useAuth } from '@/composables/useAuth.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
@@ -73,9 +72,16 @@ const patientNameForDialog = ref('')
 const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
 
-// ======================== 【權限修正 2/4】: 保持對整個 auth 物件的引用 ========================
+// --- 權限狀態 ---
 const auth = useAuth()
-// =======================================================================================
+
+// 【偵錯用】: 監控權限值的變化
+watchEffect(() => {
+  console.log(`[BaseScheduleView] Auth state changed:`)
+  console.log(`  - isLoggedIn: ${auth.isLoggedIn.value}`)
+  console.log(`  - currentUser.role: ${auth.currentUser.value?.role}`)
+  console.log(`  - auth.canEditSchedules: ${auth.canEditSchedules.value}`)
+})
 
 // --- Helper functions for state ---
 function updateLeftOffset(newOffset) {
@@ -136,12 +142,13 @@ function showPatientMemos(patientId) {
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
+
 function setChange() {
-  // 【權限修正 3/4】: 使用 auth.canEditSchedules 來獲取響應式的值
   if (!auth.canEditSchedules) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
+
 async function saveChangesToCloud() {
   if (!auth.canEditSchedules) {
     alertDialogTitle.value = '操作失敗'
@@ -181,6 +188,7 @@ async function saveChangesToCloud() {
     isAlertDialogVisible.value = true
   }
 }
+
 function handleScheduleCheck() {
   const results = runBedCheck()
   let issueMessage = ''
@@ -199,10 +207,12 @@ function handleScheduleCheck() {
   }
   isAlertDialogVisible.value = true
 }
+
 function openBedAssignmentDialog() {
   if (!auth.canEditSchedules) return
   isAssignmentDialogVisible.value = true
 }
+
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
   if (!auth.canEditSchedules) return
   const patient = allOpdPatients.value.find((p) => p.id === patientId)
@@ -223,8 +233,11 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
   masterRecord.value.schedule = newSchedule
   setChange()
 }
+
 function handleGridClick(slotId) {
+  // 對於常規班表，頁面鎖定時不做任何事，因為 MemoIcon 自己會處理點擊
   if (!auth.canEditSchedules) return
+
   const patientId = masterRecord.value.schedule[slotId]?.patientId
   if (patientId) {
     clearingSlotId.value = slotId
@@ -234,6 +247,7 @@ function handleGridClick(slotId) {
     isPatientSelectDialogVisible.value = true
   }
 }
+
 function handlePatientSelect({ patientId, fillType }) {
   if (!auth.canEditSchedules) return
   if (!patientId || !currentSlotId.value) return
@@ -285,6 +299,7 @@ function handlePatientSelect({ patientId, fillType }) {
   setChange()
   currentSlotId.value = null
 }
+
 function handleClearSelect(selectedValue) {
   if (!auth.canEditSchedules) return
   if (!clearingSlotId.value) return
@@ -306,6 +321,7 @@ function handleClearSelect(selectedValue) {
   isClearDialogVisible.value = false
   clearingSlotId.value = null
 }
+
 function onDrop(event, targetSlotId) {
   if (!auth.canEditSchedules) return
   event.preventDefault()
@@ -335,6 +351,7 @@ function onDrop(event, targetSlotId) {
   setChange()
   draggedItem.value = null
 }
+
 function onDragStart(event, slotId) {
   if (!auth.canEditSchedules) {
     event.preventDefault()
@@ -348,6 +365,7 @@ function onDragStart(event, slotId) {
   draggedItem.value = { ...slotData, sourceSlotId: slotId }
   event.dataTransfer.effectAllowed = 'move'
 }
+
 async function loadAllData() {
   statusText.value = '讀取中...'
   try {
@@ -385,6 +403,7 @@ async function loadAllData() {
     statusText.value = '讀取失敗'
   }
 }
+
 function runBedCheck() {
   const validationResult = { freqMismatch: [], duplicates: [] }
   const patientSchedules = {}
@@ -432,6 +451,7 @@ function runBedCheck() {
   }
   return validationResult
 }
+
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -475,11 +495,16 @@ function onDragOver(event) {
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
+
+// 【修正點 2/3】: 使用 provide 將必要的數據和方法提供給後代元件
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
+
 onMounted(loadAllData)
 </script>
 
 <template>
-  <!-- 【權限修正 4/4】: 使用 auth.canEditSchedules -->
+  <!-- 【修正點 3/3】: 將 is-locked 的判斷改為 auth.canEditSchedules -->
   <div class="page-container" :class="{ 'is-locked': !auth.canEditSchedules }">
     <header class="page-header">
       <div class="header-toolbar">
@@ -570,7 +595,6 @@ onMounted(loadAllData)
       @confirm="handlePatientSelect"
       @cancel="isPatientSelectDialogVisible = false"
     />
-    <!-- 以下元件不變 -->
     <SelectionDialog
       :is-visible="isClearDialogVisible"
       title="清除排班選項"

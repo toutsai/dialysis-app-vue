@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { getShiftDisplayName } from '@/constants/scheduleConstants'
+import MemoIcon from './MemoIcon.vue'
 
 const props = defineProps({
   layout: { type: Array, required: true },
@@ -12,9 +13,10 @@ const props = defineProps({
   hepatitisBeds: { type: Array, default: () => [] },
   getStyleFunc: { type: Function, default: () => ({}) },
   isDateInPast: { type: Function, default: () => false },
-  patientWithMemoIds: {
-    type: Set,
-    default: () => new Set(),
+  patientWithMemoIds: { type: Set, default: () => new Set() },
+  isPageLocked: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -28,6 +30,10 @@ const emit = defineEmits([
   'update:column-widths',
   'update:left-offset',
 ])
+
+const isSlotInteractive = (dayIndex) => {
+  return !props.isPageLocked && !props.isDateInPast(dayIndex)
+}
 
 const theadRef = ref(null)
 const isMounted = ref(false)
@@ -60,9 +66,7 @@ const measureAndEmitWidths = () => {
 let resizeObserver = null
 onMounted(() => {
   isMounted.value = true
-
   setTimeout(measureAndEmitWidths, 100)
-
   const tableContainer = theadRef.value?.closest('.schedule-table-container')
   if (tableContainer) {
     resizeObserver = new ResizeObserver(measureAndEmitWidths)
@@ -73,7 +77,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   isMounted.value = false
-
   if (resizeObserver) {
     resizeObserver.disconnect()
   }
@@ -83,10 +86,8 @@ onUnmounted(() => {
 const getPatientDetails = (slotId) => {
   const slotData = props.scheduleData[slotId]
   if (!slotData || !slotData.patientId) return null
-
   const patient = props.patientMap.get(slotData.patientId)
   if (!patient) return null
-
   return {
     name: patient.name,
     medicalRecordNumber: patient.medicalRecordNumber,
@@ -95,7 +96,6 @@ const getPatientDetails = (slotId) => {
   }
 }
 
-// 【新增】: 新增一個輔助函式來生成更易讀的床位名稱
 const getBedDisplayName = (bedNum) => {
   if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
     const numberPart = bedNum.split('-')[1]
@@ -126,7 +126,6 @@ const getBedDisplayName = (bedNum) => {
               :rowspan="shifts.length"
               :class="{ 'hepatitis-bed': hepatitisBeds.includes(bedNum) }"
             >
-              <!-- 【修改】: 使用新的函式來顯示床位名稱 -->
               {{ getBedDisplayName(bedNum) }}
             </td>
             <td class="shift-name-cell">{{ getShiftDisplayName(shifts[0]) }}</td>
@@ -135,83 +134,51 @@ const getBedDisplayName = (bedNum) => {
                 class="schedule-slot"
                 :class="[
                   getStyleFunc(`${bedNum}-0-${dayIndex}`),
-                  { 'is-past': props.isDateInPast(dayIndex) },
+                  { 'is-past': !isSlotInteractive(dayIndex) && props.isDateInPast(dayIndex) },
                 ]"
                 :draggable="
-                  getPatientDetails(`${bedNum}-0-${dayIndex}`) && !props.isDateInPast(dayIndex)
+                  getPatientDetails(`${bedNum}-0-${dayIndex}`) && isSlotInteractive(dayIndex)
                     ? 'true'
                     : 'false'
                 "
                 @click="
-                  !props.isDateInPast(dayIndex) && emit('grid-click', `${bedNum}-0-${dayIndex}`)
+                  isSlotInteractive(dayIndex) && emit('grid-click', `${bedNum}-0-${dayIndex}`)
                 "
                 @drop="
-                  !props.isDateInPast(dayIndex) && emit('drop', $event, `${bedNum}-0-${dayIndex}`)
+                  isSlotInteractive(dayIndex) && emit('drop', $event, `${bedNum}-0-${dayIndex}`)
                 "
                 @dragstart="
-                  !props.isDateInPast(dayIndex) &&
+                  isSlotInteractive(dayIndex) &&
                   emit('drag-start', $event, `${bedNum}-0-${dayIndex}`)
                 "
-                @dragover.prevent="!props.isDateInPast(dayIndex) && emit('drag-over', $event)"
+                @dragover.prevent="isSlotInteractive(dayIndex) && emit('drag-over', $event)"
                 @dragleave="emit('drag-leave', $event)"
               >
                 <div v-if="getPatientDetails(`${bedNum}-0-${dayIndex}`)" class="patient-details">
-                  <template v-if="!props.isDateInPast(dayIndex)">
-                    <div class="patient-name">
-                      {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
-                      <span
-                        v-if="
-                          props.patientWithMemoIds.has(
-                            scheduleData[`${bedNum}-0-${dayIndex}`]?.patientId,
-                          )
-                        "
-                        class="memo-icon"
-                        title="有交班事項"
-                        @click.stop="
-                          emit('show-memos', scheduleData[`${bedNum}-0-${dayIndex}`]?.patientId)
-                        "
-                      >
-                        📝
-                      </span>
-                      <span
-                        v-for="disease in getPatientDetails(`${bedNum}-0-${dayIndex}`).diseases"
-                        :key="disease"
-                        class="disease-tag-in-table"
-                      >
-                        {{ disease }}
-                      </span>
-                    </div>
-                    <div class="patient-mrn">
-                      {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).medicalRecordNumber }}
-                      <span
-                        v-if="
-                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
-                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode !== 'HD'
-                        "
-                        class="special-dialysis-label"
-                      >
-                        ({{ getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode }})
-                      </span>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="patient-name-past">
-                      {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
-                      <span
-                        v-if="
-                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
-                          getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode !== 'HD'
-                        "
-                        class="special-dialysis-label"
-                      >
-                        ({{ getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode }})
-                      </span>
-                    </div>
-                  </template>
+                  <div class="patient-name">
+                    {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
+                    <MemoIcon :patient-id="scheduleData[`${bedNum}-0-${dayIndex}`]?.patientId" />
+                    <span
+                      v-for="disease in getPatientDetails(`${bedNum}-0-${dayIndex}`).diseases"
+                      :key="disease"
+                      class="disease-tag-in-table"
+                      >{{ disease }}</span
+                    >
+                  </div>
+                  <div class="patient-mrn">
+                    {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).medicalRecordNumber }}
+                    <span
+                      v-if="
+                        getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
+                        getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode !== 'HD'
+                      "
+                      class="special-dialysis-label"
+                    >
+                      ({{ getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode }})
+                    </span>
+                  </div>
                 </div>
-                <div v-else-if="!props.isDateInPast(dayIndex)" class="empty-slot-placeholder">
-                  +
-                </div>
+                <div v-else-if="isSlotInteractive(dayIndex)" class="empty-slot-placeholder">+</div>
               </div>
             </td>
           </tr>
@@ -225,101 +192,63 @@ const getBedDisplayName = (bedNum) => {
                 class="schedule-slot"
                 :class="[
                   getStyleFunc(`${bedNum}-${shiftIndex}-${dayIndex}`),
-                  { 'is-past': props.isDateInPast(dayIndex) },
+                  { 'is-past': !isSlotInteractive(dayIndex) && props.isDateInPast(dayIndex) },
                 ]"
                 :draggable="
                   getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`) &&
-                  !props.isDateInPast(dayIndex)
+                  isSlotInteractive(dayIndex)
                     ? 'true'
                     : 'false'
                 "
                 @click="
-                  !props.isDateInPast(dayIndex) &&
+                  isSlotInteractive(dayIndex) &&
                   emit('grid-click', `${bedNum}-${shiftIndex}-${dayIndex}`)
                 "
                 @drop="
-                  !props.isDateInPast(dayIndex) &&
+                  isSlotInteractive(dayIndex) &&
                   emit('drop', $event, `${bedNum}-${shiftIndex}-${dayIndex}`)
                 "
                 @dragstart="
-                  !props.isDateInPast(dayIndex) &&
+                  isSlotInteractive(dayIndex) &&
                   emit('drag-start', $event, `${bedNum}-${shiftIndex}-${dayIndex}`)
                 "
-                @dragover.prevent="!props.isDateInPast(dayIndex) && emit('drag-over', $event)"
+                @dragover.prevent="isSlotInteractive(dayIndex) && emit('drag-over', $event)"
                 @dragleave="emit('drag-leave', $event)"
               >
                 <div
                   v-if="getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`)"
                   class="patient-details"
                 >
-                  <template v-if="!props.isDateInPast(dayIndex)">
-                    <div class="patient-name">
-                      {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
-                      <span
-                        v-if="
-                          props.patientWithMemoIds.has(
-                            scheduleData[`${bedNum}-${shiftIndex}-${dayIndex}`]?.patientId,
-                          )
-                        "
-                        class="memo-icon"
-                        title="有交班事項"
-                        @click.stop="
-                          emit(
-                            'show-memos',
-                            scheduleData[`${bedNum}-${shiftIndex}-${dayIndex}`]?.patientId,
-                          )
-                        "
-                      >
-                        📝
-                      </span>
-                      <span
-                        v-for="disease in getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`)
-                          .diseases"
-                        :key="disease"
-                        class="disease-tag-in-table"
-                      >
-                        {{ disease }}
-                      </span>
-                    </div>
-                    <div class="patient-mrn">
-                      {{
-                        getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).medicalRecordNumber
-                      }}
-                      <span
-                        v-if="
-                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode &&
-                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode !==
-                            'HD'
-                        "
-                        class="special-dialysis-label"
-                      >
-                        ({{
-                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode
-                        }})
-                      </span>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div class="patient-name-past">
-                      {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
-                      <span
-                        v-if="
-                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode &&
-                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode !==
-                            'HD'
-                        "
-                        class="special-dialysis-label"
-                      >
-                        ({{
-                          getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode
-                        }})
-                      </span>
-                    </div>
-                  </template>
+                  <div class="patient-name">
+                    {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
+                    <MemoIcon
+                      :patient-id="scheduleData[`${bedNum}-${shiftIndex}-${dayIndex}`]?.patientId"
+                    />
+                    <span
+                      v-for="disease in getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`)
+                        .diseases"
+                      :key="disease"
+                      class="disease-tag-in-table"
+                      >{{ disease }}</span
+                    >
+                  </div>
+                  <div class="patient-mrn">
+                    {{
+                      getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).medicalRecordNumber
+                    }}
+                    <span
+                      v-if="
+                        getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode &&
+                        getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode !==
+                          'HD'
+                      "
+                      class="special-dialysis-label"
+                    >
+                      ({{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode }})
+                    </span>
+                  </div>
                 </div>
-                <div v-else-if="!props.isDateInPast(dayIndex)" class="empty-slot-placeholder">
-                  +
-                </div>
+                <div v-else-if="isSlotInteractive(dayIndex)" class="empty-slot-placeholder">+</div>
               </div>
             </td>
           </tr>
@@ -481,18 +410,5 @@ const getBedDisplayName = (bedNum) => {
   transform: scale(0.98);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
   z-index: 20;
-}
-
-.memo-icon {
-  display: inline-block;
-  vertical-align: middle;
-  cursor: pointer;
-  margin: 0 2px;
-  font-size: 1.1em;
-  transition: transform 0.2s;
-  order: -1;
-}
-.memo-icon:hover {
-  transform: scale(1.3);
 }
 </style>

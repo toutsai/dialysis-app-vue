@@ -101,7 +101,7 @@ const currentSlotId = ref(null)
 const highlightedTeam = ref(null)
 
 // --- 權限控制 ---
-const { isAdmin, isEditor } = useAuth()
+const { isAdmin, isEditor, canViewMemos } = useAuth() // <--- 獲取 canViewMemos
 const isPageLocked = computed(() => {
   if (!isEditor.value && !isAdmin.value) {
     return true
@@ -372,24 +372,33 @@ function handleSlotUpdate(shiftId, patientId) {
   setChange()
 }
 
+// 2. 修改 handleSlotClick 函式
 function handleSlotClick(shiftId) {
-  if (isPageLocked.value) {
-    const slotData = currentRecord.schedule[shiftId]
+  const slotData = currentRecord.schedule[shiftId]
+
+  // 情況一：使用者有權限編輯
+  if (!isPageLocked.value) {
+    if (slotData && slotData.patientId) {
+      const patient = patientMap.value.get(slotData.patientId)
+      if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
+        handleSlotUpdate(shiftId, null)
+      }
+    } else {
+      currentSlotId.value = shiftId
+      isPatientSelectDialogVisible.value = true
+    }
+    return // 處理完畢，結束函式
+  }
+
+  // 情況二：使用者沒有編輯權限，但可以查看備忘錄
+  if (isPageLocked.value && canViewMemos.value) {
     if (slotData && slotData.patientId) {
       showPatientMemos(slotData.patientId)
     }
-    return
+    // 如果點擊空格子，不做任何事
   }
-  const slotData = currentRecord.schedule[shiftId]
-  if (slotData && slotData.patientId) {
-    const patient = patientMap.value.get(slotData.patientId)
-    if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
-      handleSlotUpdate(shiftId, null)
-    }
-  } else {
-    currentSlotId.value = shiftId
-    isPatientSelectDialogVisible.value = true
-  }
+
+  // 其他所有情況（例如未登入），不做任何事
 }
 
 function handlePatientSelect({ patientId }) {
@@ -1505,12 +1514,26 @@ button:disabled {
 }
 
 .memo-icon-inline {
+  display: inline-block; /* 確保它可以有自己的尺寸和定位上下文 */
+  vertical-align: middle; /* 讓它和文字對齊得更好 */
   cursor: pointer;
   margin-left: 8px;
-  font-size: 1.1em;
+  font-size: 1.2em; /* 稍微放大一點，增加點擊目標 */
   transition: transform 0.2s;
+
+  /* ===================== 【核心修正】 ===================== */
+  position: relative; /* 創建一個新的定位上下文 */
+  z-index: 2; /* 將它的堆疊層級提高，確保它在最上面 */
+  /* ====================================================== */
 }
+
 .memo-icon-inline:hover {
-  transform: scale(1.3);
+  transform: scale(1.4); /* 放大效果更明顯 */
+}
+
+/* 確保父層容器不會意外攔截事件 */
+.patient-name,
+.patient-item {
+  position: relative; /* 給父層也加上相對定位，但不加 z-index */
 }
 </style>
