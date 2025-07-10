@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, provide, watchEffect } from 'vue' // <--- 加入 watchEffect
+import { ref, onMounted, computed, provide, watchEffect } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
@@ -74,13 +74,15 @@ const currentSlotId = ref(null)
 
 // --- 權限狀態 ---
 const auth = useAuth()
+const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
-// 【偵錯用】: 監控權限值的變化
+// 【偵錯用】
 watchEffect(() => {
   console.log(`[BaseScheduleView] Auth state changed:`)
   console.log(`  - isLoggedIn: ${auth.isLoggedIn.value}`)
   console.log(`  - currentUser.role: ${auth.currentUser.value?.role}`)
   console.log(`  - auth.canEditSchedules: ${auth.canEditSchedules.value}`)
+  console.log(`  - isPageLocked computed value: ${isPageLocked.value}`)
 })
 
 // --- Helper functions for state ---
@@ -96,7 +98,6 @@ const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id,
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
-
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
     counts: {
@@ -144,13 +145,13 @@ function showPatientMemos(patientId) {
 }
 
 function setChange() {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
 
 async function saveChangesToCloud() {
-  if (!auth.canEditSchedules) {
+  if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = '權限不足，無法儲存。'
     isAlertDialogVisible.value = true
@@ -209,12 +210,12 @@ function handleScheduleCheck() {
 }
 
 function openBedAssignmentDialog() {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   isAssignmentDialogVisible.value = true
 }
 
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   const patient = allOpdPatients.value.find((p) => p.id === patientId)
   if (!patient) return
   const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
@@ -235,8 +236,13 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
 }
 
 function handleGridClick(slotId) {
-  // 對於常規班表，頁面鎖定時不做任何事，因為 MemoIcon 自己會處理點擊
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) {
+    const patientId = masterRecord.value.schedule[slotId]?.patientId
+    if (patientId) {
+      showPatientMemos(patientId)
+    }
+    return
+  }
 
   const patientId = masterRecord.value.schedule[slotId]?.patientId
   if (patientId) {
@@ -249,7 +255,7 @@ function handleGridClick(slotId) {
 }
 
 function handlePatientSelect({ patientId, fillType }) {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   if (!patientId || !currentSlotId.value) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -301,7 +307,7 @@ function handlePatientSelect({ patientId, fillType }) {
 }
 
 function handleClearSelect(selectedValue) {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   if (!clearingSlotId.value) return
   const newSchedule = { ...masterRecord.value.schedule }
   if (selectedValue === 'single') {
@@ -323,7 +329,7 @@ function handleClearSelect(selectedValue) {
 }
 
 function onDrop(event, targetSlotId) {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
   const itemToDrop = draggedItem.value
@@ -353,7 +359,7 @@ function onDrop(event, targetSlotId) {
 }
 
 function onDragStart(event, slotId) {
-  if (!auth.canEditSchedules) {
+  if (isPageLocked.value) {
     event.preventDefault()
     return
   }
@@ -485,7 +491,7 @@ function getBaseCellStyle(slotId) {
   return {}
 }
 function onDragOver(event) {
-  if (!auth.canEditSchedules) return
+  if (isPageLocked.value) return
   event.preventDefault()
   const targetSlot = event.target.closest('.schedule-slot')
   if (targetSlot) {
@@ -496,7 +502,6 @@ function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 
-// 【修正點 2/3】: 使用 provide 將必要的數據和方法提供給後代元件
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
@@ -504,18 +509,13 @@ onMounted(loadAllData)
 </script>
 
 <template>
-  <!-- 【修正點 3/3】: 將 is-locked 的判斷改為 auth.canEditSchedules -->
-  <div class="page-container" :class="{ 'is-locked': !auth.canEditSchedules }">
+  <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">常規門診床位表</h1>
           <button class="btn btn-warning" @click="handleScheduleCheck">排程檢視</button>
-          <button
-            class="btn btn-info"
-            @click="openBedAssignmentDialog"
-            :disabled="!auth.canEditSchedules"
-          >
+          <button class="btn btn-info" @click="openBedAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
         </div>
@@ -523,7 +523,7 @@ onMounted(loadAllData)
           <span class="status-text">{{ statusText }}</span>
           <button
             class="btn-save"
-            :disabled="!hasUnsavedChanges || !auth.canEditSchedules"
+            :disabled="!hasUnsavedChanges || isPageLocked"
             @click="saveChangesToCloud"
           >
             儲存床位
@@ -554,7 +554,7 @@ onMounted(loadAllData)
           :hepatitis-beds="hepatitisBeds"
           :get-style-func="getBaseCellStyle"
           :patient-with-memo-ids="patientWithMemoIds"
-          :is-page-locked="!auth.canEditSchedules"
+          :is-page-locked="isPageLocked"
           @grid-click="handleGridClick"
           @drop="onDrop"
           @drag-start="onDragStart"
@@ -582,7 +582,7 @@ onMounted(loadAllData)
       :shifts="SHIFTS"
       :freq-map="FREQ_MAP_TO_DAY_INDEX"
       assignment-mode="base"
-      :is-page-locked="!auth.canEditSchedules"
+      :is-page-locked="isPageLocked"
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
@@ -591,7 +591,7 @@ onMounted(loadAllData)
       title="選擇病人排班 (常規)"
       :patients="allOpdPatients"
       :show-fill-options="true"
-      :is-page-locked="!auth.canEditSchedules"
+      :is-page-locked="isPageLocked"
       @confirm="handlePatientSelect"
       @cancel="isPatientSelectDialogVisible = false"
     />
@@ -775,12 +775,31 @@ onMounted(loadAllData)
 .is-locked .page-main-content {
   background-color: #fafafa;
 }
+/* ======================== 【CSS 權限修正點】 ======================== */
+
+/* 1. 對整個鎖定的格子，改變滑鼠指標，給予視覺提示 */
 .is-locked :deep(.schedule-slot) {
+  cursor: not-allowed;
+}
+
+/* 2. 移除之前過於強力的 pointer-events: none; */
+/* .is-locked :deep(.schedule-slot) {
   pointer-events: none;
+} */
+
+/* 3. 確保在鎖定狀態下，MemoIcon 依然可以被點擊 */
+/*    我們讓它的滑鼠指標變回 "小手"，並確保它的點擊事件是有效的 */
+.is-locked :deep(.memo-icon-wrapper) {
+  pointer-events: auto; /* <-- 讓 memo-icon 恢復接收滑鼠事件的能力 */
+  cursor: pointer; /* <-- 將滑鼠指標變回小手 */
 }
+
+/* 4. 明確禁用格子的拖曳能力 (雖然 script 已經做了，但 CSS 也可以加強) */
 .is-locked :deep(.schedule-slot[draggable='true']) {
-  cursor: default;
+  cursor: not-allowed;
 }
+
+/* ==================================================================== */
 .loading-state {
   display: flex;
   justify-content: center;

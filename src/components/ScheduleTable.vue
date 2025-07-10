@@ -31,6 +31,8 @@ const emit = defineEmits([
   'update:left-offset',
 ])
 
+// 創建一個輔助函式，用於判斷一個格子是否可以進行編輯互動。
+// 它的邏輯是：頁面沒有被鎖定，並且日期沒有過去。
 const isSlotInteractive = (dayIndex) => {
   return !props.isPageLocked && !props.isDateInPast(dayIndex)
 }
