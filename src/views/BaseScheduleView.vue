@@ -611,7 +611,6 @@ onMounted(loadAllData)
   background-color: #fff;
   box-sizing: border-box;
   border-bottom: 1px solid #dee2e6;
-  padding: 1rem 1.5rem;
 }
 .header-toolbar {
   display: flex;
