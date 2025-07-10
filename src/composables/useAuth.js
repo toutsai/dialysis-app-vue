@@ -6,9 +6,13 @@ import { where } from 'firebase/firestore'
 
 const usersApi = ApiManager('users')
 
+// --- Global State (模組級別的狀態) ---
+// 這些狀態在整個應用程式中是單例的，只會存在一份
 const currentUser = ref(null)
 const isLoggedIn = computed(() => !!currentUser.value)
 
+// --- Initialization Logic ---
+// 應用程式啟動時，嘗試從 localStorage 恢復使用者狀態
 const storedUser = localStorage.getItem('currentUser')
 if (storedUser) {
   try {
@@ -19,6 +23,8 @@ if (storedUser) {
   }
 }
 
+// --- Auth Functions (模組級別的函式) ---
+// 這些函式直接操作模組級別的狀態
 export function login(username, password) {
   return new Promise(async (resolve, reject) => {
     try {
@@ -50,6 +56,7 @@ export function login(username, password) {
 export function logout() {
   currentUser.value = null
   localStorage.removeItem('currentUser')
+  // 為了確保所有元件的狀態都重置，重新導向是個好方法
   window.location.href = '/login'
 }
 
@@ -77,8 +84,12 @@ export function changePassword(oldPassword, newPassword) {
 
 /**
  * useAuth 組合式函數，提供所有權限相關的狀態和函式。
+ * 這是其他元件引入和使用的主要入口。
  */
 export function useAuth() {
+  // --- Computed Permissions ---
+  // 所有權限都基於模組級別的 currentUser 和 isLoggedIn 狀態
+
   // 1. 是否為最高管理員 (只有 admin)
   const isAdmin = computed(() => {
     return isLoggedIn.value && currentUser.value?.role === 'admin'
@@ -98,18 +109,29 @@ export function useAuth() {
     return role === 'admin' || role === 'editor' || role === 'contributor'
   })
 
-  // 4. 【單一且正確的 isReadOnly】: 是否為「僅檢視」角色
-  //    這主要用於區分 viewer 和其他所有可操作的角色
+  // 4. 是否為「僅檢視」角色
   const isReadOnly = computed(() => {
     return isLoggedIn.value && currentUser.value?.role === 'viewer'
   })
 
-  // 5. 是否能編輯備忘錄 (基本上所有人都可以)
+  // 5. 是否能編輯備忘錄 (基本上除了 guest 都可以)
   const canEditMemos = computed(() => {
-    // 假設未來可能會有 'guest' 等不能編輯的角色
     return isLoggedIn.value && currentUser.value?.role !== 'guest'
   })
 
+  // ====================== 【問題修正點】: 新增這個權限！ ======================
+  // 6. 是否能編輯「排班表」
+  //    這個權限通常比較嚴格，我們假設只有 admin 和 editor 可以。
+  const canEditSchedules = computed(() => {
+    if (!isLoggedIn.value) return false
+    const role = currentUser.value?.role
+    // 直接重用 isEditor 的邏輯也可以，但為了清晰，我們獨立定義
+    return role === 'admin' || role === 'editor'
+  })
+  // ========================================================================
+
+  // --- Return all state and functions ---
+  // 將所有狀態和函式打包回傳，供元件使用
   return {
     isLoggedIn,
     currentUser,
@@ -122,5 +144,7 @@ export function useAuth() {
     canEditPatientsAndMemos,
     isReadOnly,
     canEditMemos,
+    // 【問題修正點】: 記得也要在這裡返回
+    canEditSchedules,
   }
 }
