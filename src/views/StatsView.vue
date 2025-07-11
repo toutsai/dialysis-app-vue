@@ -942,7 +942,7 @@ watch(currentDate, (newDate) => {
   justify-content: space-between;
   align-items: center;
   position: relative;
-  padding: 6px 8px;
+  padding: 2px 4px;
   margin-bottom: 5px;
   border-radius: 4px;
   border: 1px solid #b0bec5;
