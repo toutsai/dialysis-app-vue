@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientView.vue (已修改) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (已修正) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -11,14 +11,17 @@ import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import * as XLSX from 'xlsx'
-// 【1. 導入通知中心】
 import { useNotification } from '@/composables/useNotification.js'
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
+// ✨ 1. 補上這行遺漏的 ApiManager 實例 ✨
+const ordersHistoryApi = ApiManager('dialysis_orders_history')
+
 const allPatients = ref([])
 const activeTab = ref('er')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
@@ -42,13 +45,14 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
+const isOrderModalVisible = ref(false)
+const editingPatientForOrder = ref(null)
 
 const isConflictDialogVisible = ref(false)
 const conflictDialogOptions = ref([])
 const newPatientDataForConflict = ref(null)
 const existingPatientForConflict = ref(null)
 
-// 【2. 實例化通知中心】
 const { addNotification } = useNotification()
 
 const FREQ_COLOR_MAP = {
@@ -214,7 +218,6 @@ async function handleSavePatient(patientData) {
           await patientApi.update(patientData.id, updateData)
           await clearFutureSchedulesForPatient(patientData.id)
           await fetchAllPatients()
-          // 【發送通知】
           addNotification(`中止透析: ${patientData.name}`, 'patient')
         } catch (err) {
           console.error('中止透析操作失敗:', err)
@@ -232,7 +235,6 @@ async function handleSavePatient(patientData) {
         await patientApi.update(patientData.id, dataToUpdate)
         closeModal()
         await fetchAllPatients()
-        // 【發送通知】
         addNotification(`修改病人資料: ${patientData.name}`, 'patient')
       } catch (err) {
         console.error('更新病人資料失敗:', err)
@@ -281,7 +283,6 @@ async function handleSavePatient(patientData) {
       await patientApi.save(dataToCreate)
       closeModal()
       await fetchAllPatients()
-      // 【發送通知】
       addNotification(`新增病人: ${dataToCreate.name}`, 'patient')
     } catch (err) {
       console.error('新增病人失敗:', err)
@@ -321,7 +322,6 @@ async function handleConflictSelected() {
 
     closeModal()
     await fetchAllPatients()
-    // 【發送通知】
     addNotification(`轉移病人: ${newPatientData.name}`, 'patient')
   } catch (err) {
     console.error('轉移更新病人失敗:', err)
@@ -353,7 +353,6 @@ async function transferPatient(patientId, newStatus) {
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
-      // 【發送通知】
       addNotification(`轉移病人: ${patientName} 至 ${targetStatusText}`, 'patient')
     } catch (err) {
       console.error('轉床失敗:', err)
@@ -384,7 +383,6 @@ async function handleDeleteReasonSelected(reason) {
       })
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
-      // 【發送通知】
       addNotification(`刪除病人: ${patient.name}`, 'patient')
     }
   } catch (err) {
@@ -414,7 +412,6 @@ async function restorePatient(patientId) {
       deletedAt: null,
     })
     await fetchAllPatients()
-    // 【發送通知】
     addNotification(`復原病人: ${patient.name}`, 'patient')
   } catch (err) {
     console.error('復原失敗:', err)
@@ -464,7 +461,8 @@ async function fetchAllPatients() {
     allPatients.value = await patientApi.fetchAll()
   } catch (err) {
     console.error('讀取病人資料失敗:', err)
-    alertDialogTitle.value = '讀取病人資料失敗！'
+    alertDialogTitle.value = '讀取失敗'
+    alertDialogMessage.value = '讀取病人資料失敗！'
     isAlertDialogVisible.value = true
   }
 }
@@ -538,6 +536,56 @@ function handleCancel() {
     //
   } else {
     console.log('使用者取消了操作。')
+  }
+}
+
+function openOrderModal(patient) {
+  editingPatientForOrder.value = JSON.parse(JSON.stringify(patient))
+  isOrderModalVisible.value = true
+}
+
+// ✨ 2. 使用功能完整的 handleSaveOrder 函式 ✨
+async function handleSaveOrder(orderData) {
+  if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
+    alertDialogTitle.value = '儲存失敗'
+    alertDialogMessage.value = '找不到有效的病人資訊，請重新操作。'
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  const patientId = editingPatientForOrder.value.id
+  const patientName = editingPatientForOrder.value.name
+
+  const updatedAt = new Date().toISOString()
+  const finalOrderData = { ...orderData }
+
+  if (!finalOrderData.effectiveDate) {
+    finalOrderData.effectiveDate = updatedAt.slice(0, 10)
+  }
+
+  finalOrderData.updatedAt = updatedAt
+
+  const historyRecord = {
+    patientId: patientId,
+    patientName: patientName,
+    orders: finalOrderData,
+    updatedAt: updatedAt,
+  }
+
+  try {
+    await Promise.all([
+      patientApi.update(patientId, { dialysisOrders: finalOrderData }),
+      ordersHistoryApi.save(historyRecord),
+    ])
+
+    addNotification(`${patientName} 的透析醫囑已更新`, 'patient')
+    isOrderModalVisible.value = false
+    await fetchAllPatients()
+  } catch (error) {
+    console.error('儲存醫囑失敗:', error)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `儲存醫囑時發生錯誤: ${error.message}`
+    isAlertDialogVisible.value = true
   }
 }
 
@@ -666,6 +714,9 @@ onMounted(() => {
                   >
                     編輯
                   </button>
+                  <button class="btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                    透析醫囑
+                  </button>
                   <button
                     class="btn-transfer"
                     @click="transferPatient(p.id, 'ipd')"
@@ -779,6 +830,9 @@ onMounted(() => {
                   >
                     編輯
                   </button>
+                  <button class="btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                    透析醫囑
+                  </button>
                   <button
                     class="btn-transfer"
                     @click="transferPatient(p.id, 'er')"
@@ -879,6 +933,9 @@ onMounted(() => {
                     :disabled="isPageLocked"
                   >
                     編輯
+                  </button>
+                  <button class="btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                    透析醫囑
                   </button>
                   <button
                     class="btn-transfer"
@@ -983,6 +1040,12 @@ onMounted(() => {
       :message="confirmDialogMessage"
       @confirm="handleConfirm"
       @cancel="handleCancel"
+    />
+    <DialysisOrderModal
+      :is-visible="isOrderModalVisible"
+      :patient-data="editingPatientForOrder"
+      @close="isOrderModalVisible = false"
+      @save="handleSaveOrder"
     />
   </div>
 </template>
@@ -1106,7 +1169,7 @@ onMounted(() => {
 
 .toolbar {
   display: flex;
-  justify-content: flex-start; /* 修改: 靠左對齊 */
+  justify-content: flex-start;
   align-items: center;
   margin-bottom: 15px;
   flex-wrap: wrap;
@@ -1128,7 +1191,7 @@ onMounted(() => {
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 5px;
-  min-width: 250px; /* 新增: 給搜尋框一個最小寬度 */
+  min-width: 250px;
 }
 .toolbar .btn-export {
   background-color: #0ea5e9;
@@ -1226,12 +1289,22 @@ onMounted(() => {
   border: none;
   cursor: pointer;
   color: white;
+  margin-bottom: 5px;
 }
 .btn-edit {
   background-color: var(--primary-color);
 }
 .btn-transfer {
   background-color: var(--info-color);
+}
+.btn-order {
+  background-color: #ff9c07;
+  color: #212529;
+  border-color: #ffc107;
+}
+.btn-order:hover:not(:disabled) {
+  background-color: #ff9c07;
+  border-color: #d39e00;
 }
 .btn-delete {
   background-color: var(--danger-color);
