@@ -3,7 +3,7 @@
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
-import { useRoute, useRouter } from 'vue-router' // <-- 【新增】引入 useRoute 和 useRouter
+import { useRoute, useRouter } from 'vue-router'
 
 // --- API 實例 ---
 const memosApi = ApiManager('memos')
@@ -18,15 +18,13 @@ const dateInput = ref('')
 // --- UI 狀態 ---
 const isPatientDialogVisible = ref(false)
 const selectedPatient = ref(null)
-const filterPatientId = ref(null) // <-- 【新增】用於篩選列表的專用狀態
+const filterPatientId = ref(null)
 
-// 【新增】路由實例
+// --- 路由實例 ---
 const route = useRoute()
 const router = useRouter()
 
 // --- 計算屬性 ---
-
-// 【修改】讓 pendingList 根據 filterPatientId 篩選
 const pendingList = computed(() =>
   memos.value
     .filter((memo) => {
@@ -39,7 +37,6 @@ const pendingList = computed(() =>
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
 )
 
-// 【修改】讓 resolvedList 根據 filterPatientId 篩選
 const resolvedList = computed(() => {
   const sevenDaysAgo = new Date()
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
@@ -55,7 +52,6 @@ const resolvedList = computed(() => {
 })
 
 // --- 方法 ---
-
 async function fetchMemos() {
   try {
     memos.value = await memosApi.fetchAll()
@@ -72,6 +68,7 @@ async function fetchAllPatients() {
   }
 }
 
+// ======================== 【核心修正點】 ========================
 async function addMemo() {
   if (!contentInput.value.trim()) {
     alert('備忘內容不能為空！')
@@ -90,10 +87,8 @@ async function addMemo() {
     contentInput.value = ''
     dateInput.value = ''
 
-    // 如果當前處於篩選狀態，新增備忘後不要清除篩選
-    if (!filterPatientId.value) {
-      clearPatientSelection()
-    }
+    // 無論如何，新增成功後都清除選擇和篩選，回到初始狀態
+    clearPatientSelection()
 
     await fetchMemos()
   } catch (error) {
@@ -101,17 +96,14 @@ async function addMemo() {
     alert('新增備忘失敗！')
   }
 }
+// =============================================================
 
 function handlePatientSelected({ patientId }) {
   const patient = allPatients.value.find((p) => p.id === patientId) || null
   selectedPatient.value = patient
-
-  // 【新增】當使用者手動選擇時，也更新篩選狀態
   filterPatientId.value = patient ? patient.id : null
-
   isPatientDialogVisible.value = false
 
-  // 【新增】手動選擇後，更新 URL，但不留下歷史紀錄
   if (patient) {
     router.replace({ query: { patientId: patient.id } })
   } else {
@@ -119,11 +111,10 @@ function handlePatientSelected({ patientId }) {
   }
 }
 
-// 【修改】清除病人選擇時，也要清除篩選狀態和 URL query
 function clearPatientSelection() {
   selectedPatient.value = null
   filterPatientId.value = null
-  router.replace({ query: {} }) // 清除 URL 中的 query
+  router.replace({ query: {} })
 }
 
 async function updateMemoStatus(id, isResolved) {
@@ -151,7 +142,6 @@ function openPatientDialog() {
   isPatientDialogVisible.value = true
 }
 
-// 【修改】onMounted 邏輯，以處理路由參數
 onMounted(() => {
   const patientIdFromQuery = route.query.patientId
 
@@ -172,12 +162,8 @@ onMounted(() => {
     <h1 class="page-title">交班備忘錄</h1>
 
     <div class="memo-layout-grid">
-      <!-- ================================== -->
-      <!-- == Grid 區塊一 (左上): 新增備忘 == -->
-      <!-- ================================== -->
       <div id="form-section" class="memo-form-container">
         <div class="memo-form">
-          <!-- 【修改】動態標題，告知使用者正在篩選 -->
           <h2 v-if="filterPatientId">{{ selectedPatient?.name }} 的備忘</h2>
           <h2 v-else>新增備忘</h2>
           <textarea v-model="contentInput" placeholder="請輸入交班事項或備註..."></textarea>
@@ -186,17 +172,13 @@ onMounted(() => {
             <div class="options-wrapper">
               <div class="option-item">
                 <label>關聯病人(可選):</label>
-                <!-- 【修改】這裡的 v-if 改用 filterPatientId 判斷，避免 UI 在篩選時閃爍 -->
-                <div v-if="filterPatientId && selectedPatient" class="selected-patient-display">
+                <div v-if="selectedPatient" class="selected-patient-display">
                   <span>{{ selectedPatient.name }}</span>
-                  <button @click="clearPatientSelection" class="clear-btn" title="清除篩選">
+                  <button @click="clearPatientSelection" class="clear-btn" title="清除選擇與篩選">
                     ×
                   </button>
                 </div>
-                <!-- 沒在篩選時，顯示選擇按鈕 -->
-                <button v-else-if="!filterPatientId" @click="openPatientDialog" class="select-btn">
-                  選擇病人
-                </button>
+                <button v-else @click="openPatientDialog" class="select-btn">選擇病人</button>
               </div>
               <div class="option-item">
                 <label for="memo-date-input">目標日期(可選):</label>
@@ -208,11 +190,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- ================================== -->
-      <!-- ==   Grid 區塊二 (右側): 待處理   == -->
-      <!-- ================================== -->
       <div id="pending-section" class="memo-section">
-        <!-- 【修改】動態標題 -->
         <h2>{{ filterPatientId ? '待處理事項' : '所有待處理事項' }}</h2>
         <ul class="memo-list">
           <li v-for="memo in pendingList" :key="memo.id" class="memo-item">
@@ -235,18 +213,13 @@ onMounted(() => {
               <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
             </div>
           </li>
-          <!-- 【修改】動態空狀態提示 -->
           <li v-if="pendingList.length === 0" class="empty-state">
             {{ filterPatientId ? '該病人無待辦事項' : '太棒了，沒有待辦事項！' }}
           </li>
         </ul>
       </div>
 
-      <!-- ================================== -->
-      <!-- == Grid 區塊三 (左下): 已處理   == -->
-      <!-- ================================== -->
       <div id="resolved-section" class="memo-section">
-        <!-- 【修改】動態標題 -->
         <h2>{{ filterPatientId ? '已處理事項 (最近7天)' : '所有已處理事項 (最近7天)' }}</h2>
         <ul class="memo-list">
           <li v-for="memo in resolvedList" :key="memo.id" class="memo-item resolved">
@@ -264,7 +237,6 @@ onMounted(() => {
               <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
             </div>
           </li>
-          <!-- 【修改】動態空狀態提示 -->
           <li v-if="resolvedList.length === 0" class="empty-state">
             {{ filterPatientId ? '最近7天該病人無已處理事項' : '最近7天沒有已處理事項。' }}
           </li>
@@ -273,7 +245,6 @@ onMounted(() => {
     </div>
   </div>
 
-  <!-- Dialog 元件放在根元素之外 -->
   <PatientSelectDialog
     :is-visible="isPatientDialogVisible"
     title="選擇關聯病人"
@@ -285,27 +256,23 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 您的所有 CSS 樣式保持不變 */
 .memo-view {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
-
 .page-title {
   margin-bottom: 0;
 }
-
 .memo-layout-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   grid-template-rows: auto 1fr;
-  grid-template-areas:
-    'form pending'
-    'resolved pending';
+  grid-template-areas: 'form pending' 'resolved pending';
   gap: 24px;
   height: calc(100vh - 150px);
 }
-
 #form-section {
   grid-area: form;
 }
@@ -315,19 +282,17 @@ onMounted(() => {
 #resolved-section {
   grid-area: resolved;
 }
-
 #form-section,
 #pending-section,
 #resolved-section {
   background-color: #fff;
   border-radius: 8px;
-  padding: 10px;
+  padding: 24px;
   border: 1px solid #e9ecef;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-
 .memo-list {
   list-style: none;
   padding: 0;
@@ -335,7 +300,6 @@ onMounted(() => {
   overflow-y: auto;
   flex-grow: 1;
 }
-
 .memo-form {
   display: flex;
   flex-direction: column;
@@ -370,13 +334,11 @@ onMounted(() => {
   cursor: pointer;
   font-size: 1.1rem;
 }
-
 .memo-section h2 {
   margin-top: 0;
   padding-bottom: 10px;
   border-bottom: 1px solid #e9ecef;
 }
-
 .memo-item {
   background-color: #f8f9fa;
   padding: 15px;
@@ -391,7 +353,6 @@ onMounted(() => {
   text-decoration: line-through;
   color: #6c757d;
 }
-
 .memo-content p {
   margin: 0 0 10px 0;
   white-space: pre-wrap;
@@ -403,7 +364,6 @@ onMounted(() => {
 .memo-meta strong {
   color: #495057;
 }
-
 .memo-actions {
   display: flex;
   flex-direction: column;
@@ -448,11 +408,9 @@ onMounted(() => {
   flex-grow: 1;
   flex-basis: 0;
 }
-
 .option-item label {
   flex-shrink: 0;
 }
-
 .option-item input[type='text'],
 .option-item input[type='date'],
 .option-item .selected-patient-display,
@@ -483,7 +441,6 @@ onMounted(() => {
   align-items: center;
   background-color: #e9ecef;
 }
-
 .clear-btn {
   background: none;
   border: none;
