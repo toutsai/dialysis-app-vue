@@ -807,9 +807,12 @@ function getWeeklyCellStyle(slotId) {
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
+// 【核心修正】: runScheduleCheck 函式
 function runScheduleCheck() {
   const validationResult = { freqMismatch: [], duplicates: [] }
   const patientSchedules = {}
+
+  // 遍歷當前週的排程資料
   for (const slotId in weekScheduleMap.value) {
     const slotData = weekScheduleMap.value[slotId]
     if (slotData?.patientId) {
@@ -819,13 +822,22 @@ function runScheduleCheck() {
       patientSchedules[slotData.patientId].push(slotId)
     }
   }
+
+  // 檢查頻率不符
   for (const patientId in patientSchedules) {
     const patient = patientMap.value.get(patientId)
     if (!patient || !patient.freq || patient.status !== 'opd') continue
+
     const scheduledDays = new Set(
-      patientSchedules[patientId].map((slotId) => parseInt(slotId.split('-')[2], 10)),
+      patientSchedules[patientId]
+        .map((slotId) => parseInt(slotId.split('-').pop(), 10))
+        .filter((dayIndex) => !isDateInPast(dayIndex)), // <-- 只考慮未來的排班
     )
-    const expectedDays = new Set(FREQ_MAP_TO_DAY_INDEX[patient.freq] || [])
+
+    const expectedDays = new Set(
+      (FREQ_MAP_TO_DAY_INDEX[patient.freq] || []).filter((dayIndex) => !isDateInPast(dayIndex)), // <-- 只考慮未來的應排日
+    )
+
     if (
       scheduledDays.size !== expectedDays.size ||
       ![...scheduledDays].every((day) => expectedDays.has(day))
@@ -834,14 +846,27 @@ function runScheduleCheck() {
         .sort()
         .map((d) => WEEKDAYS[d].replace('星期', ''))
         .join('')
-      validationResult.freqMismatch.push(
-        `病人 ${patient.name} (應排 ${patient.freq})，卻排在週 ${actualDaysText}。`,
-      )
+      const expectedDaysText = [...expectedDays]
+        .sort()
+        .map((d) => WEEKDAYS[d].replace('星期', ''))
+        .join('')
+      if (actualDaysText !== expectedDaysText) {
+        // 避免預期和實際都為空時報錯
+        validationResult.freqMismatch.push(
+          `病人 ${patient.name} (應排 ${patient.freq})，在未來排程為週 ${actualDaysText || '無'}，與預期不符。`,
+        )
+      }
     }
   }
+
+  // 檢查重複排班
   for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
+    // 如果是過去的日子，則跳過檢查
+    if (isDateInPast(dayIndex)) continue
+
     const dailyPatientSet = new Set()
     const dailyDuplicates = new Set()
+
     for (const slotId in weekScheduleMap.value) {
       const slotDayIndex = parseInt(slotId.split('-')[2], 10)
       if (slotDayIndex === dayIndex) {
@@ -858,25 +883,29 @@ function runScheduleCheck() {
         }
       }
     }
+
     if (dailyDuplicates.size > 0) {
       validationResult.duplicates.push(
         `${WEEKDAYS[dayIndex]}: ${[...dailyDuplicates].join(', ')} 重複排班。`,
       )
     }
   }
+
   let issueMessage = ''
   if (validationResult.freqMismatch.length > 0) {
-    issueMessage += '【排班頻率不符】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
+    issueMessage +=
+      '【未來排班頻率不符】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
   }
   if (validationResult.duplicates.length > 0) {
-    issueMessage += '【同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
+    issueMessage += '【未來同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
   }
+
   if (issueMessage) {
-    alertDialogTitle.value = '排班問題檢查結果'
+    alertDialogTitle.value = '排班問題檢查結果 (僅未來日期)'
     alertDialogMessage.value = issueMessage
   } else {
     alertDialogTitle.value = '排程檢視完畢'
-    alertDialogMessage.value = '太棒了！未發現重複排班或頻率不符的問題。'
+    alertDialogMessage.value = '太棒了！未來排程未發現重複排班或頻率不符的問題。'
   }
   isAlertDialogVisible.value = true
 }
