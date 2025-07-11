@@ -16,14 +16,20 @@
         </div>
         <div class="form-group">
           <label for="password">密碼</label>
-          <input
-            type="password"
-            id="password"
-            v-model="password"
-            required
-            autocomplete="current-password"
-            placeholder="請輸入密碼"
-          />
+          <!-- 【核心修改點 3-1】: 將密碼輸入框和眼睛圖示包裝起來 -->
+          <div class="password-wrapper">
+            <input
+              :type="isPasswordVisible ? 'text' : 'password'"
+              id="password"
+              v-model="password"
+              required
+              autocomplete="current-password"
+              placeholder="請輸入密碼"
+            />
+            <span class="password-toggle-icon" @click="togglePasswordVisibility">
+              {{ isPasswordVisible ? '🙈' : '👁️' }}
+            </span>
+          </div>
         </div>
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
         <button type="submit" class="login-button" :disabled="isLoading">
@@ -37,7 +43,6 @@
           <li>密碼：預設為 <strong>123456</strong>。</li>
           <li>首次登入後，建議立即至「帳號設定」頁面變更密碼。</li>
         </ul>
-        <!-- 【邏輯修正】: 修改「忘記密碼」的提示文字，移除無效連結 -->
         <p class="forgot-password">若忘記密碼，請聯繫系統管理員或護理長重設。</p>
       </div>
     </div>
@@ -54,8 +59,16 @@ const password = ref('')
 const errorMessage = ref('')
 const isLoading = ref(false)
 
+// 【核心修改點 1-1】: 控制密碼可見性的狀態
+const isPasswordVisible = ref(false)
+
 const router = useRouter()
 const { login } = useAuth()
+
+// 【核心修改點 1-2】: 切換密碼可見性的函式
+const togglePasswordVisibility = () => {
+  isPasswordVisible.value = !isPasswordVisible.value
+}
 
 async function handleLogin() {
   if (isLoading.value) return
@@ -65,7 +78,8 @@ async function handleLogin() {
 
   try {
     await login(username.value, password.value)
-    router.replace({ name: 'Home' })
+    // 登入成功後的跳轉已由路由守衛統一處理，這裡不再需要手動跳轉
+    // router.replace({ name: 'Home' })
   } catch (error) {
     errorMessage.value = error.message
   } finally {
@@ -129,6 +143,33 @@ async function handleLogin() {
   margin-bottom: 8px;
   font-weight: 500;
   color: #555;
+}
+
+/* 【核心修改點 3-2】: 為密碼包裝容器增加相對定位 */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* 【核心修改點 3-3】: 調整 input 的寬度和 padding，為圖示留出空間 */
+.password-wrapper input {
+  width: 100%;
+  /* 確保 input 本身的 padding 不會和圖示重疊 */
+  padding-right: 3.5rem; /* 必須大於圖示的寬度和右邊距 */
+}
+
+/* 【核心修改點 3-4】: 定位和樣式化眼睛圖示 */
+.password-toggle-icon {
+  position: absolute;
+  right: 18px; /* 與 input 的 padding-right 配合 */
+  cursor: pointer;
+  user-select: none; /* 防止選中 emoji */
+  font-size: 1.5rem; /* 放大圖示使其更容易點擊 */
+  color: #a0aec0; /* 給圖示一個柔和的顏色 */
+  display: flex;
+  align-items: center;
+  height: 100%;
 }
 
 .form-group input {
@@ -197,11 +238,10 @@ async function handleLogin() {
   line-height: 1.6;
 }
 
-/* 【邏輯修正】: 修改「忘記密碼」的樣式，使其更像一段提示文字 */
 .forgot-password {
   margin-top: 15px;
   text-align: center;
   font-size: 0.9em;
-  color: #888; /* 使用較淺的顏色 */
+  color: #888;
 }
 </style>

@@ -38,13 +38,29 @@
                       :class="{ selected: patient.id === selectedPatientId }"
                       @click="handlePatientClick(patient.id)"
                     >
-                      {{ patient.name }} ({{
-                        patient.status === 'ipd'
-                          ? '住院'
-                          : patient.status === 'er'
-                            ? '急診'
-                            : patient.freq || 'N/A'
-                      }})
+                      <!-- 【修正點 3-1】: 顯示病人姓名和狀態 -->
+                      <span class="patient-info-name"
+                        >{{ patient.name }} ({{
+                          patient.status === 'ipd'
+                            ? '住院'
+                            : patient.status === 'er'
+                              ? '急診'
+                              : patient.freq || 'N/A'
+                        }})</span
+                      >
+                      <!-- 【修正點 3-2】: 顯示病人疾病標籤 -->
+                      <div
+                        v-if="patient.diseases && patient.diseases.length > 0"
+                        class="disease-tags-container"
+                      >
+                        <span
+                          v-for="disease in patient.diseases"
+                          :key="disease"
+                          class="disease-tag"
+                        >
+                          {{ disease }}
+                        </span>
+                      </div>
                     </li>
                   </ul>
                 </div>
@@ -85,7 +101,13 @@
                 >
                   <h5>{{ shiftDisplayNames[shiftCode] }}</h5>
                   <ul v-if="beds.length > 0" class="item-list bed-list">
-                    <li v-for="bed in beds" :key="bed" @click="handleBedClick(bed, shiftCode)">
+                    <!-- 【修正點 2-1】: 綁定 class，判斷是否為肝炎床 -->
+                    <li
+                      v-for="bed in beds"
+                      :key="bed"
+                      @click="handleBedClick(bed, shiftCode)"
+                      :class="{ 'hepatitis-bed': isHepatitisBed(bed) }"
+                    >
                       {{ typeof bed === 'string' ? `外圍 ${bed.split('-')[1]}` : bed }}
                     </li>
                   </ul>
@@ -105,7 +127,6 @@
         </div>
       </div>
     </div>
-    <!-- 【修正點 1】: 將 AlertDialog 引入並綁定狀態 -->
     <AlertDialog
       :is-visible="alertInfo.isVisible"
       :title="alertInfo.title"
@@ -117,7 +138,6 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-// 【修正點 2】: 導入 AlertDialog 元件
 import AlertDialog from '@/components/AlertDialog.vue'
 
 const props = defineProps({
@@ -141,20 +161,14 @@ const emit = defineEmits(['close', 'assign-bed'])
 const selectedFreq = ref('all')
 const selectedShiftFilter = ref('all')
 const selectedPatientId = ref(null)
-
-// 【修正點 3】: 新增管理 AlertDialog 的狀態
 const alertInfo = ref({
   isVisible: false,
   title: '',
   message: '',
 })
-
-// 【修正點 4】: 建立一個本地的、可修改的已排床 ID 集合
 const localAssignedPatientIds = ref(new Set())
 
 // --- Watchers ---
-
-// 【修正點 5】: 使用 watch 來同步從父層傳來的 props 到我們的本地狀態
 watch(
   () => props.scheduleData,
   (newSchedule) => {
@@ -195,8 +209,6 @@ watch(
 )
 
 // --- Computed Properties ---
-
-// 【修正點 6】: 修改 patientGroups，使其依賴於本地的 localAssignedPatientIds
 const patientGroups = computed(() => {
   if (props.predefinedPatientGroups) {
     return props.predefinedPatientGroups
@@ -207,7 +219,7 @@ const patientGroups = computed(() => {
         !p.isDeleted &&
         !p.isDiscontinued &&
         p.status === 'opd' &&
-        !localAssignedPatientIds.value.has(p.id) // <-- 使用本地狀態
+        !localAssignedPatientIds.value.has(p.id)
       if (!baseCondition) return false
       if (selectedFreq.value === 'all') {
         return !!p.freq
@@ -226,15 +238,15 @@ const patientGroups = computed(() => {
       '今日非排 (臨洗) - 門診': [],
     }
     if (!props.allPatients) return groups
+
     props.allPatients.forEach((p) => {
-      if (
-        p.isDeleted ||
-        localAssignedPatientIds.value.has(p.id) || // <-- 使用本地狀態
-        p.isDiscontinued
-      ) {
+      if (p.isDeleted || localAssignedPatientIds.value.has(p.id) || p.isDiscontinued) {
         return
       }
+
+      // 【修正點 1-1】: 統一使用 shouldPatientBeScheduled 進行判斷
       const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
+
       if (shouldSchedule) {
         if (p.status === 'er') groups['今日應排 - 急診'].push(p)
         else if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
@@ -310,13 +322,18 @@ const availableBeds = computed(() => {
 })
 
 // --- Functions ---
+// 【修正點 2-2】: 建立判斷肝炎床的函式
+const hepatitisBedNumbers = [31, 32, 33, 35, 36]
+function isHepatitisBed(bedNum) {
+  return typeof bedNum === 'number' && hepatitisBedNumbers.includes(bedNum)
+}
+
 function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
 }
 
 function handleBedClick(bedNum, shiftCode) {
   if (!selectedPatientId.value) {
-    // 【修正點 7】: 使用自訂的 AlertDialog 元件替換 alert()
     alertInfo.value = {
       isVisible: true,
       title: '操作提示',
@@ -338,21 +355,18 @@ function handleBedClick(bedNum, shiftCode) {
     shiftId: shiftId,
   })
 
-  // 【修正點 8】: 在 emit 事件後，立即手動更新本地狀態，觸發畫面即時刷新
   localAssignedPatientIds.value.add(patientIdToAssign)
-
-  // 清空當前選擇的病人，防止重複排同一個人
   selectedPatientId.value = null
 }
 
 function shouldPatientBeScheduled(patient, dayOfWeek) {
+  // 對於臨時病人，他們總是應該被考慮排班
+  if (patient.freq === '臨時') {
+    return true
+  }
   if (!patient.freq || !props.freqMap) return false
   const scheduledDays = props.freqMap[patient.freq]
-  // 假設 props.dayOfWeek 是 1 (Mon) 到 7 (Sun)
-  // 而 freqMap 是 0 (Mon) 到 5 (Sat)
-  const checkDayIndex = dayOfWeek - 1
-  if (checkDayIndex < 0 || checkDayIndex > 5) return false
-  return scheduledDays ? scheduledDays.includes(checkDayIndex) : false
+  return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
 }
 
 const shiftDisplayNames = {
@@ -363,7 +377,7 @@ const shiftDisplayNames = {
 </script>
 
 <style scoped>
-/* 樣式不變 */
+/* Dialog Overlay and Content */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -391,6 +405,7 @@ const shiftDisplayNames = {
   overflow: hidden;
 }
 
+/* Dialog Header */
 .dialog-header {
   display: flex;
   justify-content: space-between;
@@ -421,6 +436,7 @@ const shiftDisplayNames = {
   color: #000;
 }
 
+/* Dialog Body and Grid Layout */
 .dialog-body {
   overflow: hidden;
   display: flex;
@@ -469,6 +485,7 @@ const shiftDisplayNames = {
   margin: 0;
 }
 
+/* Patient List Styles */
 .patient-groups-container {
   overflow-y: auto;
   flex-grow: 1;
@@ -500,6 +517,10 @@ const shiftDisplayNames = {
   cursor: pointer;
   transition: all 0.2s ease-in-out;
   background-color: #fff;
+  /* 【修正點 3-3】: 讓內容垂直排列 */
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .patient-list li:hover {
   background-color: #e9ecef;
@@ -513,7 +534,32 @@ const shiftDisplayNames = {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
+.patient-list li.selected .patient-info-name {
+  color: white;
+}
+.patient-list li.selected .disease-tag {
+  background-color: white;
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+}
+.patient-info-name {
+  font-weight: 500;
+}
+.disease-tags-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.disease-tag {
+  background-color: #ffe4e6;
+  color: #c53030;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  font-weight: 500;
+}
 
+/* Bed List Styles */
 .bed-results-grid {
   display: flex;
   flex-direction: column;
@@ -535,19 +581,32 @@ const shiftDisplayNames = {
 .bed-list li {
   background-color: #e3f2fd;
   text-align: center;
-  flex-basis: 75px; /* 加寬以容納 '外圍 X' */
+  flex-basis: 75px;
   font-weight: bold;
   color: #0d47a1;
   padding: 8px;
   border: 1px solid #b3e5fc;
   border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 .bed-list li:hover {
   background-color: #bbdefb;
   transform: scale(1.05);
   border-color: #81d4fa;
 }
+/* 【修正點 2-3】: 肝炎床位的樣式 */
+.bed-list li.hepatitis-bed {
+  background-color: #fff9c4; /* 黃色背景 */
+  color: #f57f17; /* 深黃色文字 */
+  border-color: #fff176;
+}
+.bed-list li.hepatitis-bed:hover {
+  background-color: #fff59d;
+  border-color: #ffeb3b;
+}
 
+/* Empty State Styles */
 .empty-state,
 .empty-state-full {
   display: flex;

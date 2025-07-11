@@ -3,7 +3,6 @@ import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
 import UserFormModal from '@/components/UserFormModal.vue'
-// 【步驟 1】導入您的新元件
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
@@ -17,20 +16,18 @@ const isEditing = ref(false)
 const userToEdit = ref(null)
 
 // --- Dialog State ---
-// 狀態管理 AlertDialog
 const alertInfo = ref({
   isVisible: false,
   title: '',
   message: '',
 })
 
-// 狀態管理 ConfirmDialog
 const confirmInfo = ref({
   isVisible: false,
   title: '',
   message: '',
-  onConfirm: () => {}, // 儲存確認後要執行的動作
-  onCancel: () => {}, // 儲存取消後要執行的動作
+  onConfirm: () => {},
+  onCancel: () => {},
 })
 
 // --- 權限控制 ---
@@ -75,18 +72,15 @@ const filteredUsers = computed(() => {
   })
 })
 
-// --- 【步驟 2】建立觸發對話框的輔助函式 ---
-// 顯示通知對話框
+// --- Dialog Helper Functions ---
 function showAlert(title, message) {
   alertInfo.value = { isVisible: true, title, message }
 }
 
-// 關閉通知對話框
 function handleAlertConfirm() {
   alertInfo.value.isVisible = false
 }
 
-// 顯示確認對話框
 function showConfirm(title, message, confirmAction) {
   confirmInfo.value = {
     isVisible: true,
@@ -94,7 +88,7 @@ function showConfirm(title, message, confirmAction) {
     message,
     onConfirm: () => {
       confirmInfo.value.isVisible = false
-      confirmAction() // 執行真正要做的動作
+      confirmAction()
     },
     onCancel: () => {
       confirmInfo.value.isVisible = false
@@ -128,7 +122,6 @@ function handleEditUser(user) {
   isModalVisible.value = true
 }
 
-// 【步驟 3】將 handleDeleteUser 中的 confirm 和 alert 替換掉
 async function handleDeleteUser(userId, userName) {
   if (!isAdmin.value) return
   if (!userId) {
@@ -136,9 +129,7 @@ async function handleDeleteUser(userId, userName) {
     return
   }
 
-  // 使用新的 showConfirm 函式
   showConfirm('確認刪除', `您確定要刪除使用者 "${userName}" 嗎？\n此操作無法復原。`, async () => {
-    // 這是使用者點擊「確認」後才會執行的程式碼
     try {
       await usersApi.delete(userId)
       users.value = users.value.filter((user) => user.id !== userId)
@@ -150,7 +141,6 @@ async function handleDeleteUser(userId, userName) {
   })
 }
 
-// 【步驟 4】將 handleSaveUser 中的 alert 替換掉
 async function handleSaveUser(userData) {
   if (!isAdmin.value) return
   try {
@@ -244,7 +234,6 @@ onMounted(() => {
       @save="handleSaveUser"
     />
 
-    <!-- 【步驟 5】在模板的根部加上這兩個新元件 -->
     <AlertDialog
       :is-visible="alertInfo.isVisible"
       :title="alertInfo.title"
@@ -263,9 +252,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 您的 style 內容保持不變 */
 .user-management-container {
-  padding: 2rem;
+  padding: 1.5rem;
 }
 .page-header {
   display: flex;
@@ -276,7 +264,7 @@ onMounted(() => {
   gap: 1rem;
 }
 .page-header h1 {
-  font-size: 2.2rem;
+  font-size: 32px;
   color: #333;
   margin: 0;
 }
@@ -303,7 +291,8 @@ onMounted(() => {
 }
 .user-table th,
 .user-table td {
-  padding: 1rem 1.5rem;
+  /* 【核心修正】: 將上下的 padding 減少，以縮小行高 */
+  padding: 0.5rem 1.5rem;
   text-align: left;
   border-bottom: 1px solid #e0e0e0;
   font-size: 1rem;

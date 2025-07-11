@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, provide, watchEffect } from 'vue'
+import { ref, onMounted, computed, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
@@ -75,15 +75,6 @@ const currentSlotId = ref(null)
 // --- 權限狀態 ---
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
-
-// 【偵錯用】
-watchEffect(() => {
-  console.log(`[BaseScheduleView] Auth state changed:`)
-  console.log(`  - isLoggedIn: ${auth.isLoggedIn.value}`)
-  console.log(`  - currentUser.role: ${auth.currentUser.value?.role}`)
-  console.log(`  - auth.canEditSchedules: ${auth.canEditSchedules.value}`)
-  console.log(`  - isPageLocked computed value: ${isPageLocked.value}`)
-})
 
 // --- Helper functions for state ---
 function updateLeftOffset(newOffset) {

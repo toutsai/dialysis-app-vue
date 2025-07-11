@@ -1,9 +1,8 @@
-<!-- 檔案路徑: src/views/PatientView.vue (真正完整無省略的最終版) -->
+<!-- 檔案路徑: src/views/PatientView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
-// 【1. 引入新的 Service 函式】
 import {
   clearFutureSchedulesForPatient,
   cleanTemporaryDataInFutureSchedules,
@@ -15,6 +14,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import * as XLSX from 'xlsx'
+// 【1. 導入通知中心】
+import { useNotification } from '@/composables/useNotification.js'
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
@@ -41,6 +42,14 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
+
+const isConflictDialogVisible = ref(false)
+const conflictDialogOptions = ref([])
+const newPatientDataForConflict = ref(null)
+const existingPatientForConflict = ref(null)
+
+// 【2. 實例化通知中心】
+const { addNotification } = useNotification()
 
 const FREQ_COLOR_MAP = {
   一三五: 'freq-blue',
@@ -184,55 +193,144 @@ async function handleSavePatient(patientData) {
     isAlertDialogVisible.value = true
     return
   }
-  const originalPatient = editingPatient.value
-  const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
-  const isNowDiscontinued = patientData.isDiscontinued
 
-  if (!wasDiscontinuedBefore && isNowDiscontinued) {
-    confirmDialogTitle.value = '確認中止透析'
-    confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
-    confirmAction.value = async () => {
-      try {
-        closeModal()
-        const updateData = {
-          isDiscontinued: true,
-          discontinuedDate: patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+  // --- 編輯現有病人 ---
+  if (patientData.id) {
+    const originalPatient = editingPatient.value
+    const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
+    const isNowDiscontinued = patientData.isDiscontinued
+
+    if (!wasDiscontinuedBefore && isNowDiscontinued) {
+      confirmDialogTitle.value = '確認中止透析'
+      confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
+      confirmAction.value = async () => {
+        try {
+          closeModal()
+          const updateData = {
+            isDiscontinued: true,
+            discontinuedDate:
+              patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+          }
+          await patientApi.update(patientData.id, updateData)
+          await clearFutureSchedulesForPatient(patientData.id)
+          await fetchAllPatients()
+          // 【發送通知】
+          addNotification(`中止透析: ${patientData.name}`, 'patient')
+        } catch (err) {
+          console.error('中止透析操作失敗:', err)
+          alertDialogTitle.value = '操作失敗'
+          alertDialogMessage.value = err.message || '中止透析操作失敗！'
+          isAlertDialogVisible.value = true
         }
-        await patientApi.update(patientData.id, updateData)
-        await clearFutureSchedulesForPatient(patientData.id)
+      }
+      isConfirmDialogVisible.value = true
+    } else {
+      // 一般編輯儲存
+      try {
+        const dataToUpdate = { ...patientData }
+        delete dataToUpdate.id
+        await patientApi.update(patientData.id, dataToUpdate)
+        closeModal()
         await fetchAllPatients()
+        // 【發送通知】
+        addNotification(`修改病人資料: ${patientData.name}`, 'patient')
       } catch (err) {
-        console.error('中止透析操作失敗:', err)
+        console.error('更新病人資料失敗:', err)
         alertDialogTitle.value = '操作失敗'
-        alertDialogMessage.value = err.message || '中止透析操作失敗！'
+        alertDialogMessage.value = '更新病人資料失敗！'
         isAlertDialogVisible.value = true
       }
     }
+    return
+  }
+
+  // --- 新增病人（核心檢查邏輯） ---
+  if (!patientData.medicalRecordNumber) {
+    alertDialogTitle.value = '資料不完整'
+    alertDialogMessage.value = '請務必填寫病歷號。'
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  const existingPatient = allPatients.value.find(
+    (p) => p.medicalRecordNumber === patientData.medicalRecordNumber,
+  )
+
+  if (existingPatient) {
+    const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
+    const currentStatusText = existingPatient.isDeleted
+      ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
+      : statusMap[existingPatient.status] || '未知'
+    const targetStatusText = statusMap[modalType.value]
+
+    confirmDialogTitle.value = '病歷號重複'
+    confirmDialogMessage.value = `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`
+
+    newPatientDataForConflict.value = patientData
+    existingPatientForConflict.value = existingPatient
+
     isConfirmDialogVisible.value = true
+    confirmAction.value = () => handleConflictSelected()
   } else {
+    // 病人不存在，正常新增
     try {
-      const patientId = patientData.id
-      const dataToUpdate = { ...patientData }
-      delete dataToUpdate.id
-      if ('frequency' in dataToUpdate) {
-        delete dataToUpdate.frequency
-      }
-      if (patientId) {
-        await patientApi.update(patientId, dataToUpdate)
-      } else {
-        dataToUpdate.createdAt = new Date().toISOString()
-        dataToUpdate.isDeleted = false
-        dataToUpdate.status = modalType.value
-        await patientApi.save(dataToUpdate)
-      }
+      const dataToCreate = { ...patientData }
+      dataToCreate.createdAt = new Date().toISOString()
+      dataToCreate.isDeleted = false
+      dataToCreate.status = modalType.value
+      await patientApi.save(dataToCreate)
       closeModal()
       await fetchAllPatients()
+      // 【發送通知】
+      addNotification(`新增病人: ${dataToCreate.name}`, 'patient')
     } catch (err) {
-      console.error('儲存病人資料失敗:', err)
+      console.error('新增病人失敗:', err)
       alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = '儲存病人資料失敗！'
+      alertDialogMessage.value = '新增病人失敗！'
       isAlertDialogVisible.value = true
     }
+  }
+}
+
+async function handleConflictSelected() {
+  const existingPatient = existingPatientForConflict.value
+  const newPatientData = newPatientDataForConflict.value
+
+  if (!existingPatient || !newPatientData) return
+
+  try {
+    const dataToUpdate = {
+      ...newPatientData,
+      status: modalType.value,
+      isDeleted: false,
+      deletedAt: null,
+      deleteReason: null,
+      originalStatus: null,
+    }
+    delete dataToUpdate.id
+
+    await patientApi.update(existingPatient.id, dataToUpdate)
+
+    if (!existingPatient.isDeleted) {
+      await cleanTemporaryDataInFutureSchedules(existingPatient.id, dataToUpdate)
+    }
+
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = `病人 ${newPatientData.name} 已成功更新並轉移至 ${modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'} 清單。`
+    isAlertDialogVisible.value = true
+
+    closeModal()
+    await fetchAllPatients()
+    // 【發送通知】
+    addNotification(`轉移病人: ${newPatientData.name}`, 'patient')
+  } catch (err) {
+    console.error('轉移更新病人失敗:', err)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '轉移更新病人失敗！'
+    isAlertDialogVisible.value = true
+  } finally {
+    existingPatientForConflict.value = null
+    newPatientDataForConflict.value = null
   }
 }
 
@@ -255,6 +353,8 @@ async function transferPatient(patientId, newStatus) {
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
+      // 【發送通知】
+      addNotification(`轉移病人: ${patientName} 至 ${targetStatusText}`, 'patient')
     } catch (err) {
       console.error('轉床失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -284,6 +384,8 @@ async function handleDeleteReasonSelected(reason) {
       })
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
+      // 【發送通知】
+      addNotification(`刪除病人: ${patient.name}`, 'patient')
     }
   } catch (err) {
     console.error('刪除失敗:', err)
@@ -312,6 +414,8 @@ async function restorePatient(patientId) {
       deletedAt: null,
     })
     await fetchAllPatients()
+    // 【發送通知】
+    addNotification(`復原病人: ${patient.name}`, 'patient')
   } catch (err) {
     console.error('復原失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -430,7 +534,11 @@ function handleConfirm() {
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
-  console.log('使用者取消了操作。')
+  if (existingPatientForConflict.value) {
+    //
+  } else {
+    console.log('使用者取消了操作。')
+  }
 }
 
 onMounted(() => {
