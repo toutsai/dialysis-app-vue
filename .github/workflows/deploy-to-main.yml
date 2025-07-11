@@ -1,30 +1,47 @@
-# .github/workflows/deploy-to-main.yml
-name: Deploy to Production on Main Branch Push
+# 檔案路徑: .github/workflows/deploy-to-main.yml (修正後)
 
-# 觸發條件：只在 main 分支有 push 事件時觸發
+name: Deploy to Production Environment
+
 on:
   push:
     branches:
       - main
 
 jobs:
-  build_and_deploy:
+  build_and_deploy_to_prod: # 工作名稱可以改得更清晰
     runs-on: ubuntu-latest
+
+    # 【新增】為正式環境設定環境變數
+    env:
+      VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_PROD }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
+      VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID_PROD }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_PROD }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_PROD }}
+      VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_PROD }}
+
     steps:
-      # 步驟一：拉取你的程式碼
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      # 步驟二：安裝依賴並打包專案
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
       - name: Install Dependencies and Build for Production
-        run: npm install && npm run build:prod # <--- 使用 build:prod
+        run: |
+          npm ci # 
+          npm run build
 
-      # 步驟三：部署到 Firebase Hosting
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Deploy to Firebase Hosting (Production)
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          # 這裡的 Secret 名稱，就是您剛剛在終端機看到的那個
+          # 請確認您的正式環境服務帳號 Secret 名稱
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
-          # channelId: live 表示部署到正式線上環境
-          channelId: live
-          # 您的生產專案 ID
+
+          # 【關鍵修正】: 移除 channelId: live
+          # 直接指定 projectId 即可部署到該專案的預設 hosting 網站
           projectId: dialysis-schedule-cd36c
