@@ -3,7 +3,6 @@
     {
       "target": "production",
       "public": "dist",
-      "site": "dialysis-schedule-cd36c",
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
@@ -15,7 +14,6 @@
     {
       "target": "develop",
       "public": "dist",
-      "site": "my-dialysis-app-develop",
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
