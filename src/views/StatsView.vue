@@ -773,7 +773,6 @@ watch(currentDate, (newDate) => {
 <style scoped>
 .stats-sections-wrapper {
   overflow-y: auto;
-  padding: 0 1rem;
   flex-grow: 1;
 }
 .stats-section {
@@ -786,7 +785,6 @@ watch(currentDate, (newDate) => {
   align-items: center;
   gap: 20px;
   margin-bottom: 20px;
-  padding: 1rem;
 }
 .toolbar-left,
 .toolbar-right {
