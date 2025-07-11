@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/StatsView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -8,10 +9,11 @@ import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
-// 【1. 導入通知中心和對話框元件】
 import { useNotification } from '@/composables/useNotification.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+// ✨ 1. 引入新的彈出式元件 ✨
+import PreparationPopover from '@/components/PreparationPopover.vue'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
@@ -71,10 +73,14 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
 
-// 【2. 實例化通知中心】
-const { addNotification } = useNotification()
+// ✨ 2. 新增控制 Popover 的狀態 ✨
+const isPrepPopoverVisible = ref(false)
+const prepPopoverData = reactive({
+  patients: [],
+  targetElement: null,
+})
 
-// --- 權限狀態 ---
+const { addNotification } = useNotification()
 const auth = useAuth()
 const isPageLocked = computed(() => {
   if (!auth.canEditSchedules.value) {
@@ -95,6 +101,7 @@ const formatDate = (date) => {
   return `${year}-${month}-${day}`
 }
 
+// ✨ 3. 將 getPatientDisplayString 恢復為簡潔版本 ✨
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
   let identifier = ''
@@ -108,6 +115,7 @@ const getPatientDisplayString = (patientDetail) => {
   }
   const name = patientDetail.name
   const firstLineHtml = `<div class="patient-line-one">${identifier} - ${name}</div>`
+
   let secondLineContent = ''
   if (patientDetail.mode && patientDetail.mode !== 'HD') {
     secondLineContent += `<span class="stats-special-mode">(${patientDetail.mode})</span>`
@@ -122,12 +130,15 @@ const getPatientDisplayString = (patientDetail) => {
   const secondLineHtml = secondLineContent
     ? `<div class="patient-line-two">${secondLineContent.trim()}</div>`
     : ''
+
   return firstLineHtml + secondLineHtml
 }
 
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
+
+const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
@@ -137,6 +148,7 @@ const weekdayDisplay = computed(() => {
 })
 
 const statsData = computed(() => {
+  // ... (此處內部邏輯不變，保持原樣)
   if (!currentRecord.schedule) {
     return { early: {}, late: {} }
   }
@@ -163,7 +175,6 @@ const statsData = computed(() => {
       totalErCount: 0,
     }
   })
-  const patientMap = new Map(allPatients.value.map((p) => [p.id, p]))
 
   Object.values(currentRecord.schedule).forEach((shiftDetails) => {
     const {
@@ -177,8 +188,9 @@ const statsData = computed(() => {
       shiftId,
     } = shiftDetails
     if (!patientId) return
-    const patient = patientMap.get(patientId)
+    const patient = patientMap.value.get(patientId)
     if (!patient) return
+    // ✨ 4. 恢復 detail 物件為簡潔版本 ✨
     const detail = {
       id: patientId,
       shiftId: shiftId,
@@ -266,7 +278,31 @@ const statsData = computed(() => {
 })
 
 // --- 方法 ---
+
+// ✨ 5. 新增 Popover 的觸發與關閉函式 ✨
+function showPrepPopover(event, teamData, shiftType) {
+  // 從 teamData 中獲取正確班次的病人列表ID
+  const patientIds = teamData[shiftType]?.patients.map((p) => p.id) || []
+  // 使用 patientMap 從 ID 獲取完整的病人物件 (包含醫囑)
+  const patientsToShow = patientIds.map((id) => patientMap.value.get(id)).filter(Boolean)
+
+  // 如果沒有病人，就不顯示
+  if (patientsToShow.length === 0) return
+
+  // 更新 Popover 的資料
+  prepPopoverData.patients = patientsToShow
+  prepPopoverData.targetElement = event.currentTarget
+
+  // 顯示 Popover
+  isPrepPopoverVisible.value = true
+}
+
+function onPrepPopoverClose() {
+  isPrepPopoverVisible.value = false
+}
+
 function showPatientMemos(patientId) {
+  // ... (此函式不變)
   if (!patientId) return
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
@@ -278,6 +314,7 @@ function showPatientMemos(patientId) {
 }
 
 async function loadData(date) {
+  // ... (此函式不變)
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
@@ -315,13 +352,14 @@ async function loadData(date) {
 }
 
 function setChange() {
+  // ... (此函式不變)
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
 
-// 【3. 修改 saveChangesToCloud 加入通知】
 async function saveChangesToCloud() {
+  // ... (此函式不變)
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作禁止'
     alertDialogMessage.value = '操作被鎖定：無法儲存或權限不足。'
@@ -365,14 +403,10 @@ async function saveChangesToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存！'
-
-    // 發送通知
     addNotification(`修改護理分組: ${currentRecord.date}`, 'stats')
-
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
-
     await loadData(currentDate.value)
   } catch (error) {
     console.error('儲存變更失敗:', error)
@@ -384,6 +418,7 @@ async function saveChangesToCloud() {
 }
 
 function onDrop(event, newTeam, newResponsibility) {
+  // ... (此函式不變)
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
@@ -433,6 +468,7 @@ function onDrop(event, newTeam, newResponsibility) {
 }
 
 function onDragStart(event, patientDetail, responsibility) {
+  // ... (此函式不變)
   if (isPageLocked.value) {
     event.preventDefault()
     return
@@ -443,12 +479,14 @@ function onDragStart(event, patientDetail, responsibility) {
 }
 
 function openBedChangeDialog(patientDetail) {
+  // ... (此函式不變)
   if (isPageLocked.value) return
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
 
 function handleBedChange({ oldShiftId, newShiftId }) {
+  // ... (此函式不變)
   if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error('換床失敗，參數無效或找不到舊床位資料。')
@@ -462,6 +500,7 @@ function handleBedChange({ oldShiftId, newShiftId }) {
 }
 
 function updateNurseName(teamId, event) {
+  // ... (此函式不變)
   if (isPageLocked.value) {
     event.target.value = currentRecord.names?.[teamId] || ''
     return
@@ -474,6 +513,7 @@ function updateNurseName(teamId, event) {
 }
 
 function changeDate(days) {
+  // ... (此函式不變)
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     onConfirmAction.value = () => {
       const newDate = new Date(currentDate.value)
@@ -490,6 +530,7 @@ function changeDate(days) {
 }
 
 function goToToday() {
+  // ... (此函式不變)
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     onConfirmAction.value = () => {
       currentDate.value = new Date()
@@ -502,6 +543,7 @@ function goToToday() {
 }
 
 function handleConfirm() {
+  // ... (此函式不變)
   if (onConfirmAction.value) {
     onConfirmAction.value()
   }
@@ -510,27 +552,30 @@ function handleConfirm() {
 }
 
 function handleCancel() {
+  // ... (此函式不變)
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
 
 function onDragOver(event) {
+  // ... (此函式不變)
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
 
 function onDragLeave(event) {
+  // ... (此函式不變)
   event.currentTarget.classList.remove('drag-over-active')
 }
 function handleDialogCancel() {
+  // ... (此函式不變)
   isBedChangeDialogVisible.value = false
 }
 function triggerPrint() {
   window.print()
 }
 
-// --- Provide / Lifecycle Hooks ---
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
@@ -626,6 +671,15 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
+                <!-- ✨ 6. 新增觸發圖示 ✨ -->
+                <div
+                  class="prep-list-trigger"
+                  v-if="teamData.earlyShift.patients.length > 0"
+                  @click="showPrepPopover($event, teamData, 'earlyShift')"
+                  title="顯示備物清單"
+                >
+                  📋
+                </div>
               </div>
             </div>
             <div class="grid-row">
@@ -655,6 +709,15 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
+                <!-- ✨ 6. 新增觸發圖示 ✨ -->
+                <div
+                  class="prep-list-trigger"
+                  v-if="teamData.noonShiftOn.patients.length > 0"
+                  @click="showPrepPopover($event, teamData, 'noonShiftOn')"
+                  title="顯示備物清單"
+                >
+                  📋
+                </div>
               </div>
             </div>
             <div class="grid-row">
@@ -683,6 +746,15 @@ watch(currentDate, (newDate) => {
                     ></div>
                     <MemoIcon :patient-id="patient.id" />
                   </div>
+                </div>
+                <!-- ✨ 6. 新增觸發圖示 ✨ -->
+                <div
+                  class="prep-list-trigger"
+                  v-if="teamData.noonShiftOff.patients.length > 0"
+                  @click="showPrepPopover($event, teamData, 'noonShiftOff')"
+                  title="顯示備物清單"
+                >
+                  📋
                 </div>
               </div>
             </div>
@@ -759,6 +831,15 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
+                <!-- ✨ 6. 新增觸發圖示 ✨ -->
+                <div
+                  class="prep-list-trigger"
+                  v-if="teamData.noonShiftOff.patients.length > 0"
+                  @click="showPrepPopover($event, teamData, 'noonShiftOff')"
+                  title="顯示備物清單"
+                >
+                  📋
+                </div>
               </div>
             </div>
             <div class="grid-row">
@@ -787,6 +868,15 @@ watch(currentDate, (newDate) => {
                     ></div>
                     <MemoIcon :patient-id="patient.id" />
                   </div>
+                </div>
+                <!-- ✨ 6. 新增觸發圖示 ✨ -->
+                <div
+                  class="prep-list-trigger"
+                  v-if="teamData.lateShift.patients.length > 0"
+                  @click="showPrepPopover($event, teamData, 'lateShift')"
+                  title="顯示備物清單"
+                >
+                  📋
                 </div>
               </div>
             </div>
@@ -820,7 +910,6 @@ watch(currentDate, (newDate) => {
       @confirm="handleBedChange"
       @cancel="handleDialogCancel"
     />
-    <!-- 加入新的對話框元件 -->
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
@@ -833,6 +922,13 @@ watch(currentDate, (newDate) => {
       :message="confirmDialogMessage"
       @confirm="handleConfirm"
       @cancel="handleCancel"
+    />
+    <!-- ✨ 7. 新增 Popover 元件實例 ✨ -->
+    <PreparationPopover
+      :is-visible="isPrepPopoverVisible"
+      :patients="prepPopoverData.patients"
+      :target-element="prepPopoverData.targetElement"
+      @close="onPrepPopoverClose"
     />
   </div>
 </template>
@@ -982,6 +1078,7 @@ watch(currentDate, (newDate) => {
   outline: 2px solid #fbc02d;
 }
 .patient-list-cell {
+  position: relative; /* ✨ 8. 為觸發圖示的定位做準備 ✨ */
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -1102,6 +1199,23 @@ watch(currentDate, (newDate) => {
   font-size: 0.9em;
   line-height: 1.2;
 }
+
+/* ✨ 9. 新增觸發圖示的樣式 ✨ */
+.prep-list-trigger {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 2px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  user-select: none; /* 防止點擊時選取到圖示文字 */
+}
+.prep-list-trigger:hover {
+  background-color: #e0e0e0;
+}
+
 .is-locked .stats-section {
   cursor: not-allowed;
 }
@@ -1117,6 +1231,9 @@ watch(currentDate, (newDate) => {
 }
 .is-locked .patient-item {
   pointer-events: none;
+}
+.is-locked .prep-list-trigger {
+  display: none; /* 鎖定時直接隱藏觸發圖示 */
 }
 .is-locked :deep(.memo-icon-wrapper) {
   pointer-events: auto;
