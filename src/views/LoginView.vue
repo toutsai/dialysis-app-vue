@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/LoginView.vue (已修正) -->
 <template>
   <div class="login-container">
     <div class="login-box">
@@ -16,7 +17,6 @@
         </div>
         <div class="form-group">
           <label for="password">密碼</label>
-          <!-- 【核心修改點 3-1】: 將密碼輸入框和眼睛圖示包裝起來 -->
           <div class="password-wrapper">
             <input
               :type="isPasswordVisible ? 'text' : 'password'"
@@ -58,18 +58,16 @@ const username = ref('')
 const password = ref('')
 const errorMessage = ref('')
 const isLoading = ref(false)
-
-// 【核心修改點 1-1】: 控制密碼可見性的狀態
 const isPasswordVisible = ref(false)
 
 const router = useRouter()
 const { login } = useAuth()
 
-// 【核心修改點 1-2】: 切換密碼可見性的函式
 const togglePasswordVisibility = () => {
   isPasswordVisible.value = !isPasswordVisible.value
 }
 
+// 【核心修正點】: 在 login 成功後，主動發起導航
 async function handleLogin() {
   if (isLoading.value) return
 
@@ -77,9 +75,12 @@ async function handleLogin() {
   errorMessage.value = ''
 
   try {
+    // 1. 等待登入函式完成，這會更新 useAuth 中的 isLoggedIn 狀態
     await login(username.value, password.value)
-    // 登入成功後的跳轉已由路由守衛統一處理，這裡不再需要手動跳轉
-    // router.replace({ name: 'Home' })
+
+    // 2. 登入成功後，主動發起一次導航到我們的目標首頁
+    // 這個動作會觸發 router.beforeEach 守衛，守衛會驗證權限並放行
+    router.push({ name: 'Schedule' })
   } catch (error) {
     errorMessage.value = error.message
   } finally {
@@ -145,28 +146,24 @@ async function handleLogin() {
   color: #555;
 }
 
-/* 【核心修改點 3-2】: 為密碼包裝容器增加相對定位 */
 .password-wrapper {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-/* 【核心修改點 3-3】: 調整 input 的寬度和 padding，為圖示留出空間 */
 .password-wrapper input {
   width: 100%;
-  /* 確保 input 本身的 padding 不會和圖示重疊 */
-  padding-right: 3.5rem; /* 必須大於圖示的寬度和右邊距 */
+  padding-right: 3.5rem;
 }
 
-/* 【核心修改點 3-4】: 定位和樣式化眼睛圖示 */
 .password-toggle-icon {
   position: absolute;
-  right: 18px; /* 與 input 的 padding-right 配合 */
+  right: 18px;
   cursor: pointer;
-  user-select: none; /* 防止選中 emoji */
-  font-size: 1.5rem; /* 放大圖示使其更容易點擊 */
-  color: #a0aec0; /* 給圖示一個柔和的顏色 */
+  user-select: none;
+  font-size: 1.5rem;
+  color: #a0aec0;
   display: flex;
   align-items: center;
   height: 100%;
