@@ -19,11 +19,11 @@ const routes = [
       {
         path: '', // 預設子路由 (訪問 '/' 時)
         name: 'Home',
-        redirect: '/schedule',
+        redirect: '/schedule', // <-- 已確保訪問根路徑時跳轉到每日排程
       },
       {
         path: 'schedule',
-        name: 'Schedule',
+        name: 'Schedule', // <-- 這是我們的目標首頁
         component: () => import('../views/ScheduleView.vue'),
       },
       {
@@ -81,7 +81,7 @@ const router = createRouter({
   routes,
 })
 
-// 【核心修改】: 將所有路由守衛邏輯合併到一個 beforeEach 中
+// 【核心修改】: 將所有路由守衛邏輯合併到一個 beforeEach 中，並統一跳轉目標
 router.beforeEach((to, from, next) => {
   const { isLoggedIn, isAdmin } = useAuth()
 
@@ -90,24 +90,18 @@ router.beforeEach((to, from, next) => {
 
   // 情況 1: 訪問需要登入的頁面，但用戶未登入
   if (requiresAuth && !isLoggedIn.value) {
-    // 為了防止從登入頁無限重定向到登入頁，增加檢查
-    if (to.name !== 'Login') {
-      next({ name: 'Login' })
-    } else {
-      next() // 如果已經在登入頁，就什麼都不做
-    }
+    next({ name: 'Login' })
   }
   // 情況 2: 已登入，但試圖訪問登入頁面
   else if (to.name === 'Login' && isLoggedIn.value) {
-    // 將已登入的用戶從登入頁導向首頁
-    next({ name: 'Home' })
+    // 【修改點】將已登入的用戶從登入頁導向每日排程表
+    next({ name: 'Schedule' })
   }
   // 情況 3: 訪問需要管理員權限的頁面，但用戶不是管理員
   else if (requiresAdmin && !isAdmin.value) {
-    // 將非管理員用戶從管理頁面導向首頁（或一個“無權限”頁面）
-    // 這裡我們假設導向首頁
+    // 【修改點】將非管理員用戶從管理頁面導向每日排程表
     console.warn('權限不足：嘗試訪問管理員頁面。')
-    next({ name: 'Home' })
+    next({ name: 'Schedule' })
   }
   // 情況 4: 所有權限檢查通過，正常放行
   else {
