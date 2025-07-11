@@ -1,5 +1,124 @@
+<template>
+  <div>
+    <div v-if="isVisible" class="dialog-overlay" @click.self="emit('close')">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>智慧排班助理</h2>
+          <button @click="emit('close')" class="close-btn">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="assignment-grid">
+            <div class="column patient-column">
+              <div class="column-header">
+                <h4>{{ predefinedPatientGroups ? '問題病人列表' : '選擇病人' }}</h4>
+                <select
+                  v-if="
+                    (assignmentMode === 'frequency' || assignmentMode === 'base') &&
+                    !predefinedPatientGroups
+                  "
+                  v-model="selectedFreq"
+                >
+                  <option value="all">所有頻率</option>
+                  <option v-for="(days, freq) in freqMap" :key="freq" :value="freq">
+                    {{ freq }}
+                  </option>
+                </select>
+              </div>
+              <div class="patient-groups-container">
+                <div
+                  v-for="(patients, groupName) in patientGroups"
+                  :key="groupName"
+                  class="patient-group"
+                >
+                  <h5 v-if="patients.length > 0" class="group-title">{{ groupName }}</h5>
+                  <ul v-if="patients.length > 0" class="item-list patient-list">
+                    <li
+                      v-for="patient in patients"
+                      :key="patient.id"
+                      :class="{ selected: patient.id === selectedPatientId }"
+                      @click="handlePatientClick(patient.id)"
+                    >
+                      {{ patient.name }} ({{
+                        patient.status === 'ipd'
+                          ? '住院'
+                          : patient.status === 'er'
+                            ? '急診'
+                            : patient.freq || 'N/A'
+                      }})
+                    </li>
+                  </ul>
+                </div>
+                <div
+                  v-if="Object.values(patientGroups).every((p) => p.length === 0)"
+                  class="empty-state"
+                >
+                  無符合條件的病人
+                </div>
+              </div>
+            </div>
+            <div class="column bed-column">
+              <div class="column-header">
+                <h4>
+                  可用空床
+                  <span v-if="assignmentMode === 'frequency' || assignmentMode === 'base'">
+                    ({{
+                      allPatients.find((p) => p.id === selectedPatientId)?.freq ||
+                      (selectedFreq === 'all' ? '所有頻率' : selectedFreq)
+                    }})
+                  </span>
+                </h4>
+                <select v-model="selectedShiftFilter">
+                  <option value="all">所有班別</option>
+                  <option v-for="shift in shifts" :key="shift" :value="shift">
+                    {{ shiftDisplayNames[shift] }}
+                  </option>
+                </select>
+              </div>
+              <div v-if="!selectedPatientId" class="empty-state-full">
+                請先從左側選擇一位病人以查詢空床。
+              </div>
+              <div v-else class="bed-results-grid">
+                <div
+                  v-for="(beds, shiftCode) in availableBeds"
+                  :key="shiftCode"
+                  class="shift-group"
+                >
+                  <h5>{{ shiftDisplayNames[shiftCode] }}</h5>
+                  <ul v-if="beds.length > 0" class="item-list bed-list">
+                    <li v-for="bed in beds" :key="bed" @click="handleBedClick(bed, shiftCode)">
+                      {{ typeof bed === 'string' ? `外圍 ${bed.split('-')[1]}` : bed }}
+                    </li>
+                  </ul>
+                  <p v-else class="empty-state-small">無可用空床</p>
+                </div>
+                <div
+                  v-if="
+                    Object.values(availableBeds).every((b) => b.length === 0) && selectedPatientId
+                  "
+                  class="empty-state-full"
+                >
+                  此病人在此條件下無任何可用空床
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- 【修正點 1】: 將 AlertDialog 引入並綁定狀態 -->
+    <AlertDialog
+      :is-visible="alertInfo.isVisible"
+      :title="alertInfo.title"
+      :message="alertInfo.message"
+      @confirm="alertInfo.isVisible = false"
+    />
+  </div>
+</template>
+
 <script setup>
 import { ref, computed, watch } from 'vue'
+// 【修正點 2】: 導入 AlertDialog 元件
+import AlertDialog from '@/components/AlertDialog.vue'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -18,149 +137,42 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'assign-bed'])
 
+// --- 本地元件狀態 ---
 const selectedFreq = ref('all')
 const selectedShiftFilter = ref('all')
 const selectedPatientId = ref(null)
 
-function shouldPatientBeScheduled(patient, dayOfWeek) {
-  if (!patient.freq || !props.freqMap) return false
-  const scheduledDays = props.freqMap[patient.freq]
-  // 週日(0)對應到第七天，其他正常
-  const checkDay = dayOfWeek === 0 ? 7 : dayOfWeek
-  return scheduledDays ? scheduledDays.includes(checkDay) : false
-}
-
-const assignedPatientIds = computed(() => {
-  const ids = new Set()
-  if (!props.scheduleData) return ids
-  for (const slotData of Object.values(props.scheduleData)) {
-    if (slotData?.patientId) {
-      ids.add(slotData.patientId)
-    }
-  }
-  return ids
+// 【修正點 3】: 新增管理 AlertDialog 的狀態
+const alertInfo = ref({
+  isVisible: false,
+  title: '',
+  message: '',
 })
 
-const patientGroups = computed(() => {
-  if (props.predefinedPatientGroups) {
-    return props.predefinedPatientGroups
-  }
-  if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
-    const unassigned = props.allPatients.filter((p) => {
-      // 【核心修正 1/2】: 在這裡加入 !p.isDiscontinued 條件
-      const baseCondition =
-        !p.isDeleted &&
-        !p.isDiscontinued && // <-- 新增此行
-        p.status === 'opd' &&
-        !assignedPatientIds.value.has(p.id)
-      if (!baseCondition) return false
-      if (selectedFreq.value === 'all') {
-        return !!p.freq
+// 【修正點 4】: 建立一個本地的、可修改的已排床 ID 集合
+const localAssignedPatientIds = ref(new Set())
+
+// --- Watchers ---
+
+// 【修正點 5】: 使用 watch 來同步從父層傳來的 props 到我們的本地狀態
+watch(
+  () => props.scheduleData,
+  (newSchedule) => {
+    const ids = new Set()
+    if (newSchedule) {
+      for (const slotData of Object.values(newSchedule)) {
+        if (slotData?.patientId) {
+          ids.add(slotData.patientId)
+        }
       }
-      return p.freq === selectedFreq.value
-    })
-    return { 未排床門診: unassigned }
-  }
-  if (props.assignmentMode === 'singleDay') {
-    const groups = {
-      '今日應排 - 急診': [],
-      '今日應排 - 住院': [],
-      '今日應排 - 門診': [],
-      '今日非排 (臨洗) - 急診': [],
-      '今日非排 (臨洗) - 住院': [],
-      '今日非排 (臨洗) - 門診': [],
     }
-    if (!props.allPatients) return groups
-    props.allPatients.forEach((p) => {
-      // 【新增條件】過濾掉所有已中止透析的病人
-      if (
-        p.isDeleted ||
-        assignedPatientIds.value.has(p.id) ||
-        p.isDiscontinued // 適用於所有病人，無論狀態
-      ) {
-        return
-      }
-      const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
-      if (shouldSchedule) {
-        if (p.status === 'er') groups['今日應排 - 急診'].push(p)
-        else if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
-        else if (p.status === 'opd') groups['今日應排 - 門診'].push(p)
-      } else {
-        if (p.status === 'er') groups['今日非排 (臨洗) - 急診'].push(p)
-        else if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p)
-        else if (p.status === 'opd') groups['今日非排 (臨洗) - 門診'].push(p)
-      }
-    })
-    return groups
-  }
-  return {}
-})
-
-// 【核心修正】: 重構 availableBeds 的頻率檢查邏輯
-const availableBeds = computed(() => {
-  if (!selectedPatientId.value) return {}
-
-  const patient = props.allPatients.find((p) => p.id === selectedPatientId.value)
-  if (!patient) return {}
-
-  let bedsToConsider = []
-  if (props.assignmentMode === 'singleDay' || props.assignmentMode === 'frequency') {
-    bedsToConsider = props.bedLayout
-  } else {
-    bedsToConsider = props.bedLayout.filter((bed) => typeof bed === 'number')
-  }
-
-  const results = {}
-  props.shifts.forEach((shiftCode) => {
-    if (selectedShiftFilter.value === 'all' || selectedShiftFilter.value === shiftCode) {
-      results[shiftCode] = []
-    }
-  })
-
-  if (props.assignmentMode === 'singleDay') {
-    // 單日模式邏輯保持不變
-    bedsToConsider.forEach((bedNum) => {
-      props.shifts.forEach((shiftCode) => {
-        if (!results[shiftCode]) return
-        const bedIdPart =
-          typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
-        const dailySlotId = `${bedIdPart}-${shiftCode}`
-        if (!props.scheduleData[dailySlotId]?.patientId) {
-          results[shiftCode].push(bedNum)
-        }
-      })
-    })
-  } else {
-    // 'frequency' 或 'base' (常規) 模式的邏輯
-    const dayIndices = props.freqMap[patient.freq]
-    // 如果病人沒有有效的頻率，則不顯示任何空床
-    if (!dayIndices || dayIndices.length === 0) return {}
-
-    bedsToConsider.forEach((bedNum) => {
-      props.shifts.forEach((shiftCode, shiftIndex) => {
-        if (!results[shiftCode]) return
-
-        // 檢查此床位在此班次的所有應排班日期是否都可用
-        let isFullyAvailable = true
-        for (const dayIndex of dayIndices) {
-          // 無論是週排班還是常規班表，其 key 格式都包含這三部分
-          const slotIdToCheck = `${bedNum}-${shiftIndex}-${dayIndex}`
-          if (props.scheduleData[slotIdToCheck]?.patientId) {
-            isFullyAvailable = false
-            break // 只要有一天被佔用，就無需再檢查此床位，跳出內層循環
-          }
-        }
-
-        // 如果所有應排班日期都可用，才將此床位加入列表
-        if (isFullyAvailable) {
-          results[shiftCode].push(bedNum)
-        }
-      })
-    })
-  }
-
-  return results
-})
+    localAssignedPatientIds.value = ids
+  },
+  {
+    immediate: true,
+    deep: true,
+  },
+)
 
 watch(selectedFreq, () => {
   if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
@@ -182,25 +194,165 @@ watch(
   },
 )
 
+// --- Computed Properties ---
+
+// 【修正點 6】: 修改 patientGroups，使其依賴於本地的 localAssignedPatientIds
+const patientGroups = computed(() => {
+  if (props.predefinedPatientGroups) {
+    return props.predefinedPatientGroups
+  }
+  if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
+    const unassigned = props.allPatients.filter((p) => {
+      const baseCondition =
+        !p.isDeleted &&
+        !p.isDiscontinued &&
+        p.status === 'opd' &&
+        !localAssignedPatientIds.value.has(p.id) // <-- 使用本地狀態
+      if (!baseCondition) return false
+      if (selectedFreq.value === 'all') {
+        return !!p.freq
+      }
+      return p.freq === selectedFreq.value
+    })
+    return { 未排床門診: unassigned }
+  }
+  if (props.assignmentMode === 'singleDay') {
+    const groups = {
+      '今日應排 - 急診': [],
+      '今日應排 - 住院': [],
+      '今日應排 - 門診': [],
+      '今日非排 (臨洗) - 急診': [],
+      '今日非排 (臨洗) - 住院': [],
+      '今日非排 (臨洗) - 門診': [],
+    }
+    if (!props.allPatients) return groups
+    props.allPatients.forEach((p) => {
+      if (
+        p.isDeleted ||
+        localAssignedPatientIds.value.has(p.id) || // <-- 使用本地狀態
+        p.isDiscontinued
+      ) {
+        return
+      }
+      const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
+      if (shouldSchedule) {
+        if (p.status === 'er') groups['今日應排 - 急診'].push(p)
+        else if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
+        else if (p.status === 'opd') groups['今日應排 - 門診'].push(p)
+      } else {
+        if (p.status === 'er') groups['今日非排 (臨洗) - 急診'].push(p)
+        else if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p)
+        else if (p.status === 'opd') groups['今日非排 (臨洗) - 門診'].push(p)
+      }
+    })
+    return groups
+  }
+  return {}
+})
+
+const availableBeds = computed(() => {
+  if (!selectedPatientId.value) return {}
+
+  const patient = props.allPatients.find((p) => p.id === selectedPatientId.value)
+  if (!patient) return {}
+
+  let bedsToConsider = []
+  if (props.assignmentMode === 'singleDay' || props.assignmentMode === 'frequency') {
+    bedsToConsider = props.bedLayout
+  } else {
+    bedsToConsider = props.bedLayout.filter((bed) => typeof bed === 'number')
+  }
+
+  const results = {}
+  props.shifts.forEach((shiftCode) => {
+    if (selectedShiftFilter.value === 'all' || selectedShiftFilter.value === shiftCode) {
+      results[shiftCode] = []
+    }
+  })
+
+  if (props.assignmentMode === 'singleDay') {
+    bedsToConsider.forEach((bedNum) => {
+      props.shifts.forEach((shiftCode) => {
+        if (!results[shiftCode]) return
+        const bedIdPart =
+          typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
+        const dailySlotId = `${bedIdPart}-${shiftCode}`
+        if (!props.scheduleData[dailySlotId]?.patientId) {
+          results[shiftCode].push(bedNum)
+        }
+      })
+    })
+  } else {
+    const dayIndices = props.freqMap[patient.freq]
+    if (!dayIndices || dayIndices.length === 0) return {}
+
+    bedsToConsider.forEach((bedNum) => {
+      props.shifts.forEach((shiftCode, shiftIndex) => {
+        if (!results[shiftCode]) return
+
+        let isFullyAvailable = true
+        for (const dayIndex of dayIndices) {
+          const slotIdToCheck = `${bedNum}-${shiftIndex}-${dayIndex}`
+          if (props.scheduleData[slotIdToCheck]?.patientId) {
+            isFullyAvailable = false
+            break
+          }
+        }
+
+        if (isFullyAvailable) {
+          results[shiftCode].push(bedNum)
+        }
+      })
+    })
+  }
+
+  return results
+})
+
+// --- Functions ---
 function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
 }
 
 function handleBedClick(bedNum, shiftCode) {
   if (!selectedPatientId.value) {
-    alert('請先在左側選擇一位病人！')
+    // 【修正點 7】: 使用自訂的 AlertDialog 元件替換 alert()
+    alertInfo.value = {
+      isVisible: true,
+      title: '操作提示',
+      message: '請先在左側選擇一位病人！',
+    }
     return
   }
+
+  const patientIdToAssign = selectedPatientId.value
+
   const bedIdPart =
     typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
   const shiftId = `${bedIdPart}-${shiftCode}`
+
   emit('assign-bed', {
-    patientId: selectedPatientId.value,
+    patientId: patientIdToAssign,
     bedNum: bedNum,
     shiftCode: shiftCode,
     shiftId: shiftId,
   })
+
+  // 【修正點 8】: 在 emit 事件後，立即手動更新本地狀態，觸發畫面即時刷新
+  localAssignedPatientIds.value.add(patientIdToAssign)
+
+  // 清空當前選擇的病人，防止重複排同一個人
   selectedPatientId.value = null
+}
+
+function shouldPatientBeScheduled(patient, dayOfWeek) {
+  if (!patient.freq || !props.freqMap) return false
+  const scheduledDays = props.freqMap[patient.freq]
+  // 假設 props.dayOfWeek 是 1 (Mon) 到 7 (Sun)
+  // 而 freqMap 是 0 (Mon) 到 5 (Sat)
+  const checkDayIndex = dayOfWeek - 1
+  if (checkDayIndex < 0 || checkDayIndex > 5) return false
+  return scheduledDays ? scheduledDays.includes(checkDayIndex) : false
 }
 
 const shiftDisplayNames = {
@@ -209,110 +361,6 @@ const shiftDisplayNames = {
   late: '晚班',
 }
 </script>
-
-<template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="emit('close')">
-    <div class="dialog-content">
-      <div class="dialog-header">
-        <h2>智慧排班助理</h2>
-        <button @click="emit('close')" class="close-btn">×</button>
-      </div>
-      <div class="dialog-body">
-        <div class="assignment-grid">
-          <div class="column patient-column">
-            <div class="column-header">
-              <h4>{{ predefinedPatientGroups ? '問題病人列表' : '選擇病人' }}</h4>
-              <select
-                v-if="
-                  (assignmentMode === 'frequency' || assignmentMode === 'base') &&
-                  !predefinedPatientGroups
-                "
-                v-model="selectedFreq"
-              >
-                <option value="all">所有頻率</option>
-                <option v-for="(days, freq) in freqMap" :key="freq" :value="freq">
-                  {{ freq }}
-                </option>
-              </select>
-            </div>
-            <div class="patient-groups-container">
-              <div
-                v-for="(patients, groupName) in patientGroups"
-                :key="groupName"
-                class="patient-group"
-              >
-                <h5 v-if="patients.length > 0" class="group-title">{{ groupName }}</h5>
-                <ul v-if="patients.length > 0" class="item-list patient-list">
-                  <li
-                    v-for="patient in patients"
-                    :key="patient.id"
-                    :class="{ selected: patient.id === selectedPatientId }"
-                    @click="handlePatientClick(patient.id)"
-                  >
-                    {{ patient.name }} ({{
-                      patient.status === 'ipd'
-                        ? '住院'
-                        : patient.status === 'er'
-                          ? '急診'
-                          : patient.freq || 'N/A'
-                    }})
-                  </li>
-                </ul>
-              </div>
-              <div
-                v-if="Object.values(patientGroups).every((p) => p.length === 0)"
-                class="empty-state"
-              >
-                無符合條件的病人
-              </div>
-            </div>
-          </div>
-          <div class="column bed-column">
-            <div class="column-header">
-              <h4>
-                可用空床
-                <span v-if="assignmentMode === 'frequency' || assignmentMode === 'base'">
-                  ({{
-                    allPatients.find((p) => p.id === selectedPatientId)?.freq ||
-                    (selectedFreq === 'all' ? '所有頻率' : selectedFreq)
-                  }})
-                </span>
-              </h4>
-              <select v-model="selectedShiftFilter">
-                <option value="all">所有班別</option>
-                <option v-for="shift in shifts" :key="shift" :value="shift">
-                  {{ shiftDisplayNames[shift] }}
-                </option>
-              </select>
-            </div>
-            <div v-if="!selectedPatientId" class="empty-state-full">
-              請先從左側選擇一位病人以查詢空床。
-            </div>
-            <div v-else class="bed-results-grid">
-              <div v-for="(beds, shiftCode) in availableBeds" :key="shiftCode" class="shift-group">
-                <h5>{{ shiftDisplayNames[shiftCode] }}</h5>
-                <ul v-if="beds.length > 0" class="item-list bed-list">
-                  <li v-for="bed in beds" :key="bed" @click="handleBedClick(bed, shiftCode)">
-                    {{ typeof bed === 'string' ? `外圍 ${bed.split('-')[1]}` : bed }}
-                  </li>
-                </ul>
-                <p v-else class="empty-state-small">無可用空床</p>
-              </div>
-              <div
-                v-if="
-                  Object.values(availableBeds).every((b) => b.length === 0) && selectedPatientId
-                "
-                class="empty-state-full"
-              >
-                此病人在此條件下無任何可用空床
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</template>
 
 <style scoped>
 /* 樣式不變 */

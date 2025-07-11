@@ -8,8 +8,8 @@
     </main>
 
     <footer class="dialog-footer">
-      <button class="btn-secondary" @click="onCancel">取消</button>
       <button class="btn-primary" @click="onConfirm">確認</button>
+      <button class="btn-secondary" @click="onCancel">取消</button>
     </footer>
   </dialog>
 </template>

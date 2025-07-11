@@ -1,6 +1,5 @@
-<!-- 檔案路徑: src/views/StatsView.vue (最終修正版) -->
 <script setup>
-import { ref, onMounted, computed, reactive, watch } from 'vue'
+import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
@@ -8,13 +7,14 @@ import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import MemoIcon from '@/components/MemoIcon.vue'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
 const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
 
-// --- 常量 (保持不變) ---
+// --- 常量 ---
 const nurseNameList = [
   '陳素秋',
   '古孟麗',
@@ -60,11 +60,14 @@ const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
-const activeTab = ref('early')
+// 移除 activeTab
 
-const { isReadOnly } = useAuth()
+// --- 權限狀態 ---
+const auth = useAuth()
 const isPageLocked = computed(() => {
-  if (isReadOnly.value) return true
+  if (!auth.canEditSchedules.value) {
+    return true
+  }
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   return currentDate.value < today
@@ -82,15 +85,6 @@ const formatDate = (date) => {
 
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
-
-  const name = patientDetail.name
-  const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
-  const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
-  const combinedTags = [...new Set([...autoTags, ...manualTags])]
-  // 移除 '住' 和 '急'，因為它們已經通過顏色表示了
-  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
-  const noteString = finalTags.join(' ')
-
   let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
     identifier = patientDetail.wardNumber || '外圍'
@@ -100,24 +94,28 @@ const getPatientDisplayString = (patientDetail) => {
       identifier = parts[1]
     }
   }
-
-  const displayParts = [identifier, name]
-
+  const name = patientDetail.name
+  const firstLineHtml = `<div class="patient-line-one">${identifier} - ${name}</div>`
+  let secondLineContent = ''
   if (patientDetail.mode && patientDetail.mode !== 'HD') {
-    const modeTag = `<span class="stats-special-mode">${patientDetail.mode}</span>`
-    displayParts.push(modeTag)
+    secondLineContent += `<span class="stats-special-mode">(${patientDetail.mode})</span>`
   }
-
-  if (noteString) {
-    displayParts.push(noteString)
+  const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
+  const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
+  const combinedTags = [...new Set([...autoTags, ...manualTags])]
+  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
+  if (finalTags.length > 0) {
+    secondLineContent += ` <span class="note-display">${finalTags.join(' ')}</span>`
   }
-
-  return displayParts.join(' - ')
+  const secondLineHtml = secondLineContent
+    ? `<div class="patient-line-two">${secondLineContent.trim()}</div>`
+    : ''
+  return firstLineHtml + secondLineHtml
 }
 
-const patientWithMemoIds = computed(() => {
-  return new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId))
-})
+const patientWithMemoIds = computed(
+  () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
+)
 
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
@@ -132,7 +130,6 @@ const statsData = computed(() => {
   }
   const earlyShiftStats = {}
   const lateShiftStats = {}
-
   earlyTeams.forEach((team) => {
     earlyShiftStats[team] = {
       nurseName: (currentRecord.names && currentRecord.names[team]) || '',
@@ -170,7 +167,6 @@ const statsData = computed(() => {
     if (!patientId) return
     const patient = patientMap.get(patientId)
     if (!patient) return
-
     const detail = {
       id: patientId,
       shiftId: shiftId,
@@ -182,7 +178,6 @@ const statsData = computed(() => {
       wardNumber: wardNumber || '',
       classes: 'patient-item',
     }
-
     if (patient.status === 'er') detail.classes += ' status-er'
     else if (patient.status === 'ipd') detail.classes += ' status-ipd'
     else detail.classes += ' status-opd'
@@ -201,13 +196,9 @@ const statsData = computed(() => {
 
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
-      if (patientDetail.status === 'ipd') {
-        group.ipdCount++
-      } else if (patientDetail.status === 'er') {
-        group.erCount++
-      } else {
-        group.opdCount++
-      }
+      if (patientDetail.status === 'ipd') group.ipdCount++
+      else if (patientDetail.status === 'er') group.erCount++
+      else group.opdCount++
     }
     const shiftCode = shiftId.split('-')[2]
     if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
@@ -215,15 +206,13 @@ const statsData = computed(() => {
     } else if (shiftCode === SHIFT_CODES.LATE && nurseTeam && lateShiftStats[nurseTeam]) {
       assignAndCount(lateShiftStats[nurseTeam].lateShift, detail)
     } else if (shiftCode === SHIFT_CODES.NOON) {
-      if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
+      if (nurseTeamIn && earlyShiftStats[nurseTeamIn])
         assignAndCount(earlyShiftStats[nurseTeamIn].noonShiftOn, detail)
-      }
       if (nurseTeamOut) {
-        if (earlyShiftStats[nurseTeamOut]) {
-          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
-        } else if (lateShiftStats[nurseTeamOut]) {
+        if (lateShiftStats[nurseTeamOut])
           assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
-        }
+        else if (earlyShiftStats[nurseTeamOut])
+          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
       }
     }
   })
@@ -250,12 +239,9 @@ const statsData = computed(() => {
 
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
-    teamData.totalOpdCount =
-      teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount + teamData.noonShiftOff.opdCount
-    teamData.totalIpdCount =
-      teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount + teamData.noonShiftOff.ipdCount
-    teamData.totalErCount =
-      teamData.earlyShift.erCount + teamData.noonShiftOn.erCount + teamData.noonShiftOff.erCount
+    teamData.totalOpdCount = teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount
+    teamData.totalIpdCount = teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount
+    teamData.totalErCount = teamData.earlyShift.erCount + teamData.noonShiftOn.erCount
   }
   for (const team in lateShiftStats) {
     const teamData = lateShiftStats[team]
@@ -263,16 +249,15 @@ const statsData = computed(() => {
     teamData.totalIpdCount = teamData.lateShift.ipdCount + teamData.noonShiftOff.ipdCount
     teamData.totalErCount = teamData.lateShift.erCount + teamData.noonShiftOff.erCount
   }
+
   return { early: earlyShiftStats, late: lateShiftStats }
 })
 
 // --- 方法 ---
-
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
-
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && !memo.isResolved,
   )
@@ -316,11 +301,13 @@ async function loadData(date) {
     statusIndicator.value = '讀取失敗'
   }
 }
+
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
+
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法儲存或權限不足。')
@@ -370,76 +357,50 @@ async function saveChangesToCloud() {
   }
 }
 
-// 【核心修正】: 重寫 onDrop 函式以正確處理班次和組別的變更
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
-
-  // 1. 解析舊 ID，保留床位資訊
   const oldShiftIdParts = oldShiftId.split('-')
-  const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 結果如 'bed-1' 或 'peripheral-1'
-
-  // 2. 根據放下的位置決定新的班次碼
+  const bedPart = oldShiftIdParts.slice(0, -1).join('-')
   let newShiftCode
-  if (newResponsibility === 'earlyShift') {
-    newShiftCode = SHIFT_CODES.EARLY
-  } else if (newResponsibility === 'lateShift') {
-    newShiftCode = SHIFT_CODES.LATE
-  } else {
-    // noonShiftOn 或 noonShiftOff
-    newShiftCode = SHIFT_CODES.NOON
-  }
+  if (newResponsibility === 'earlyShift') newShiftCode = SHIFT_CODES.EARLY
+  else if (newResponsibility === 'lateShift') newShiftCode = SHIFT_CODES.LATE
+  else newShiftCode = SHIFT_CODES.NOON
 
-  // 3. 組成新的 shiftId
   const newShiftId = `${bedPart}-${newShiftCode}`
-
-  // 4. 檢查目標位置是否已被佔用 (僅在班次改變時)
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
     alert(`錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`)
     return
   }
-
-  // 5. 準備要更新的資料
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
-  // 更新 shiftId
   movingSlotData.shiftId = newShiftId
-
-  // 清除舊的護理組資訊
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
-
-  // 根據新位置設定新的護理組
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     movingSlotData.nurseTeam = newTeam
   } else if (newResponsibility === 'noonShiftOn') {
     movingSlotData.nurseTeamIn = newTeam
-    // 如果病人原本就有收針護理師，保留它
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
       movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
     }
   } else if (newResponsibility === 'noonShiftOff') {
     movingSlotData.nurseTeamOut = newTeam
-    // 如果病人原本就有上針護理師，保留它
     const oldResponsibility = event.dataTransfer.getData('text/plain')
     if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamIn) {
       movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
     }
   }
-
-  // 6. 執行資料更新
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
-
   setChange()
 }
 
@@ -452,11 +413,13 @@ function onDragStart(event, patientDetail, responsibility) {
   event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
+
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
@@ -469,6 +432,7 @@ function handleBedChange({ oldShiftId, newShiftId }) {
   setChange()
   isBedChangeDialogVisible.value = false
 }
+
 function updateNurseName(teamId, event) {
   if (isPageLocked.value) {
     event.target.value = currentRecord.names?.[teamId] || ''
@@ -480,6 +444,7 @@ function updateNurseName(teamId, event) {
   currentRecord.names[teamId] = event.target.value
   setChange()
 }
+
 function changeDate(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
@@ -488,17 +453,20 @@ function changeDate(days) {
   newDate.setDate(newDate.getDate() + days)
   currentDate.value = newDate
 }
+
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
   }
   currentDate.value = new Date()
 }
+
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
+
 function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
@@ -508,6 +476,10 @@ function handleDialogCancel() {
 function triggerPrint() {
   window.print()
 }
+
+// --- Provide / Lifecycle Hooks ---
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
 
 onMounted(() => {
   loadData(currentDate.value)
@@ -543,266 +515,240 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <div class="tabs-container">
-      <button
-        class="tab-button"
-        :class="{ active: activeTab === 'early' }"
-        @click="activeTab = 'early'"
-      >
-        早班組別
-      </button>
-      <button
-        class="tab-button"
-        :class="{ active: activeTab === 'late' }"
-        @click="activeTab = 'late'"
-      >
-        晚班組別
-      </button>
-    </div>
-
-    <div v-if="activeTab === 'early'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
-      <h2>早班組別</h2>
-      <div class="grid-container">
-        <div class="grid-header">
-          <div class="row-header"></div>
-          <div v-for="(_, teamName) in statsData.early" :key="teamName" class="team-header-cell">
-            {{ teamName }}組
+    <div class="stats-sections-wrapper">
+      <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
+        <h2>早班組別</h2>
+        <div class="grid-container">
+          <div class="grid-header">
+            <div class="row-header"></div>
+            <div v-for="(_, teamName) in statsData.early" :key="teamName" class="team-header-cell">
+              {{ teamName }}組
+            </div>
           </div>
-        </div>
-        <div class="grid-body">
-          <div class="grid-row">
-            <div class="row-header">姓名</div>
-            <div
-              v-for="(teamData, teamName) in statsData.early"
-              :key="teamName"
-              class="grid-cell name-cell"
-            >
-              <select
-                :value="teamData.nurseName"
-                @change="updateNurseName(teamName, $event)"
-                class="name-select"
-                :disabled="isPageLocked"
+          <div class="grid-body">
+            <div class="grid-row">
+              <div class="row-header">姓名</div>
+              <div
+                v-for="(teamData, teamName) in statsData.early"
+                :key="teamName"
+                class="grid-cell name-cell"
               >
-                <option value="">-- 未指派 --</option>
-                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
-              </select>
-            </div>
-          </div>
-          <div class="grid-row">
-            <div class="row-header">早班</div>
-            <div
-              v-for="(teamData, teamName) in statsData.early"
-              :key="teamName"
-              class="grid-cell patient-list-cell"
-              @drop="onDrop($event, teamName, 'earlyShift')"
-              @dragover.prevent="onDragOver"
-              @dragleave="onDragLeave"
-            >
-              <div class="patient-wrapper">
-                <div
-                  v-for="patient in teamData.earlyShift.patients"
-                  :key="patient.shiftId"
-                  :class="patient.classes"
-                  :draggable="!isPageLocked"
-                  @dragstart="onDragStart($event, patient, 'earlyShift')"
-                  @click="openBedChangeDialog(patient)"
-                  title="拖曳換組/班，點擊換床"
+                <select
+                  :value="teamData.nurseName"
+                  @change="updateNurseName(teamName, $event)"
+                  class="name-select"
+                  :disabled="isPageLocked"
                 >
-                  <span v-html="getPatientDisplayString(patient)"></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click.stop="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
+                  <option value="">-- 未指派 --</option>
+                  <option v-for="name in nurseNameList" :key="name" :value="name">
+                    {{ name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">早班</div>
+              <div
+                v-for="(teamData, teamName) in statsData.early"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                @drop="!isPageLocked && onDrop($event, teamName, 'earlyShift')"
+                @dragover.prevent="!isPageLocked && onDragOver($event)"
+                @dragleave="onDragLeave"
+              >
+                <div class="patient-wrapper">
+                  <div
+                    v-for="patient in teamData.earlyShift.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="!isPageLocked"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'earlyShift')"
                   >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      v-html="getPatientDisplayString(patient)"
+                      title="點擊換床"
+                    ></div>
+                    <MemoIcon :patient-id="patient.id" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">午班(上針)</div>
+              <div
+                v-for="(teamData, teamName) in statsData.early"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOn')"
+                @dragover.prevent="!isPageLocked && onDragOver($event)"
+                @dragleave="onDragLeave"
+              >
+                <div class="patient-wrapper">
+                  <div
+                    v-for="patient in teamData.noonShiftOn.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="!isPageLocked"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOn')"
+                  >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      v-html="getPatientDisplayString(patient)"
+                      title="點擊換床"
+                    ></div>
+                    <MemoIcon :patient-id="patient.id" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">午班(收針)</div>
+              <div
+                v-for="(teamData, teamName) in statsData.early"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
+                @dragover.prevent="!isPageLocked && onDragOver($event)"
+                @dragleave="onDragLeave"
+              >
+                <div class="patient-wrapper">
+                  <div
+                    v-for="patient in teamData.noonShiftOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="!isPageLocked"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
+                  >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      v-html="getPatientDisplayString(patient)"
+                      title="點擊換床"
+                    ></div>
+                    <MemoIcon :patient-id="patient.id" />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-          <div class="grid-row">
-            <div class="row-header">午班(上針)</div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
             <div
               v-for="(teamData, teamName) in statsData.early"
               :key="teamName"
-              class="grid-cell patient-list-cell"
-              @drop="onDrop($event, teamName, 'noonShiftOn')"
-              @dragover.prevent="onDragOver"
-              @dragleave="onDragLeave"
+              class="total-count-summary"
             >
-              <div class="patient-wrapper">
-                <div
-                  v-for="patient in teamData.noonShiftOn.patients"
-                  :key="patient.shiftId"
-                  :class="patient.classes"
-                  :draggable="!isPageLocked"
-                  @dragstart="onDragStart($event, patient, 'noonShiftOn')"
-                  @click="openBedChangeDialog(patient)"
-                  title="拖曳換組/班，點擊換床"
-                >
-                  <span v-html="getPatientDisplayString(patient)"></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click.stop="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
-                </div>
-              </div>
+              門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+                teamData.totalErCount
+              }}
             </div>
-          </div>
-          <div class="grid-row">
-            <div class="row-header">午班(收針)</div>
-            <div
-              v-for="(teamData, teamName) in statsData.early"
-              :key="teamName"
-              class="grid-cell patient-list-cell"
-              @drop="onDrop($event, teamName, 'noonShiftOff')"
-              @dragover.prevent="onDragOver"
-              @dragleave="onDragLeave"
-            >
-              <div class="patient-wrapper">
-                <div
-                  v-for="patient in teamData.noonShiftOff.patients"
-                  :key="patient.shiftId"
-                  :class="patient.classes"
-                  :draggable="!isPageLocked"
-                  @dragstart="onDragStart($event, patient, 'noonShiftOff')"
-                  @click="openBedChangeDialog(patient)"
-                  title="拖曳換組/班，點擊換床"
-                >
-                  <span v-html="getPatientDisplayString(patient)"></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click.stop="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="grid-footer">
-          <div class="row-header">照護人數</div>
-          <div
-            v-for="(teamData, teamName) in statsData.early"
-            :key="teamName"
-            class="total-count-summary"
-          >
-            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
-              teamData.totalErCount
-            }}
           </div>
         </div>
       </div>
-    </div>
 
-    <div v-if="activeTab === 'late'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
-      <h2>晚班組別</h2>
-      <div class="grid-container">
-        <div class="grid-header">
-          <div class="row-header"></div>
-          <div v-for="(_, teamName) in statsData.late" :key="teamName" class="team-header-cell">
-            {{ teamName }}組
+      <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
+        <h2>晚班組別</h2>
+        <div class="grid-container">
+          <div class="grid-header">
+            <div class="row-header"></div>
+            <div v-for="(_, teamName) in statsData.late" :key="teamName" class="team-header-cell">
+              {{ teamName }}組
+            </div>
           </div>
-        </div>
-        <div class="grid-body">
-          <div class="grid-row">
-            <div class="row-header">姓名</div>
-            <div
-              v-for="(teamData, teamName) in statsData.late"
-              :key="teamName"
-              class="grid-cell name-cell"
-            >
-              <select
-                :value="teamData.nurseName"
-                @change="updateNurseName(teamName, $event)"
-                class="name-select"
-                :disabled="isPageLocked"
+          <div class="grid-body">
+            <div class="grid-row">
+              <div class="row-header">姓名</div>
+              <div
+                v-for="(teamData, teamName) in statsData.late"
+                :key="teamName"
+                class="grid-cell name-cell"
               >
-                <option value="">-- 未指派 --</option>
-                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
-              </select>
-            </div>
-          </div>
-          <div class="grid-row">
-            <div class="row-header">午班(收針)</div>
-            <div
-              v-for="(teamData, teamName) in statsData.late"
-              :key="teamName"
-              class="grid-cell patient-list-cell"
-              @drop="onDrop($event, teamName, 'noonShiftOff')"
-              @dragover.prevent="onDragOver"
-              @dragleave="onDragLeave"
-            >
-              <div class="patient-wrapper">
-                <div
-                  v-for="patient in teamData.noonShiftOff.patients"
-                  :key="patient.shiftId"
-                  :class="patient.classes"
-                  :draggable="!isPageLocked"
-                  @dragstart="onDragStart($event, patient, 'noonShiftOff')"
-                  @click="openBedChangeDialog(patient)"
-                  title="拖曳換組/班，點擊換床"
+                <select
+                  :value="teamData.nurseName"
+                  @change="updateNurseName(teamName, $event)"
+                  class="name-select"
+                  :disabled="isPageLocked"
                 >
-                  <span v-html="getPatientDisplayString(patient)"></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click.stop="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
+                  <option value="">-- 未指派 --</option>
+                  <option v-for="name in nurseNameList" :key="name" :value="name">
+                    {{ name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">午班(收針)</div>
+              <div
+                v-for="(teamData, teamName) in statsData.late"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
+                @dragover.prevent="!isPageLocked && onDragOver($event)"
+                @dragleave="onDragLeave"
+              >
+                <div class="patient-wrapper">
+                  <div
+                    v-for="patient in teamData.noonShiftOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="!isPageLocked"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
                   >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      v-html="getPatientDisplayString(patient)"
+                      title="點擊換床"
+                    ></div>
+                    <MemoIcon :patient-id="patient.id" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">晚班</div>
+              <div
+                v-for="(teamData, teamName) in statsData.late"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                @drop="!isPageLocked && onDrop($event, teamName, 'lateShift')"
+                @dragover.prevent="!isPageLocked && onDragOver($event)"
+                @dragleave="onDragLeave"
+              >
+                <div class="patient-wrapper">
+                  <div
+                    v-for="patient in teamData.lateShift.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="!isPageLocked"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'lateShift')"
+                  >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      v-html="getPatientDisplayString(patient)"
+                      title="點擊換床"
+                    ></div>
+                    <MemoIcon :patient-id="patient.id" />
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-          <div class="grid-row">
-            <div class="row-header">晚班</div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
             <div
               v-for="(teamData, teamName) in statsData.late"
               :key="teamName"
-              class="grid-cell patient-list-cell"
-              @drop="onDrop($event, teamName, 'lateShift')"
-              @dragover.prevent="onDragOver"
-              @dragleave="onDragLeave"
+              class="total-count-summary"
             >
-              <div class="patient-wrapper">
-                <div
-                  v-for="patient in teamData.lateShift.patients"
-                  :key="patient.shiftId"
-                  :class="patient.classes"
-                  :draggable="!isPageLocked"
-                  @dragstart="onDragStart($event, patient, 'lateShift')"
-                  @click="openBedChangeDialog(patient)"
-                  title="拖曳換組/班，點擊換床"
-                >
-                  <span v-html="getPatientDisplayString(patient)"></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click.stop="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
-                </div>
-              </div>
+              門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+                teamData.totalErCount
+              }}
             </div>
-          </div>
-        </div>
-        <div class="grid-footer">
-          <div class="row-header">照護人數</div>
-          <div
-            v-for="(teamData, teamName) in statsData.late"
-            :key="teamName"
-            class="total-count-summary"
-          >
-            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
-              teamData.totalErCount
-            }}
           </div>
         </div>
       </div>
@@ -814,7 +760,6 @@ watch(currentDate, (newDate) => {
       :memos="memosForDialog"
       @close="isMemoDialogVisible = false"
     />
-
     <BedChangeDialog
       :is-visible="isBedChangeDialogVisible"
       :patient-info="editingPatientInfo"
@@ -826,30 +771,12 @@ watch(currentDate, (newDate) => {
 </template>
 
 <style scoped>
-.tabs-container {
-  display: flex;
-  border-bottom: 2px solid #e0e0e0;
-  margin-top: 15px;
-  margin-bottom: 20px;
+.stats-sections-wrapper {
+  overflow-y: auto;
+  flex-grow: 1;
 }
-.tab-button {
-  padding: 10px 20px;
-  font-size: 1.1em;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  background-color: transparent;
-  color: #757575;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -2px;
-  transition: all 0.2s ease-in-out;
-}
-.tab-button:hover {
-  color: #333;
-}
-.tab-button.active {
-  color: var(--primary-color, #005a9c);
-  border-bottom-color: var(--primary-color, #005a9c);
+.stats-section {
+  margin-bottom: 30px;
 }
 .header-toolbar {
   display: flex;
@@ -913,9 +840,6 @@ watch(currentDate, (newDate) => {
   background-color: #4caf50;
   color: white;
   border-color: #4caf50;
-}
-.stats-section {
-  margin-bottom: 30px;
 }
 .stats-section h2 {
   font-size: 1.5em;
@@ -1014,7 +938,10 @@ watch(currentDate, (newDate) => {
   padding: 10px 8px;
 }
 .patient-item {
-  display: block;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
   padding: 6px 8px;
   margin-bottom: 5px;
   border-radius: 4px;
@@ -1022,27 +949,44 @@ watch(currentDate, (newDate) => {
   background-color: #f5f5f5;
   font-size: 0.95em;
   line-height: 1.4;
-  cursor: pointer;
-  transition:
-    transform 0.2s,
-    box-shadow 0.2s;
   user-select: none;
 }
-.patient-item {
+.patient-main-info {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 2px;
+  flex-grow: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
 }
-
+:deep(.patient-line-one) {
+  font-weight: bold;
+  font-size: 1em;
+  white-space: nowrap;
+}
+:deep(.patient-line-two) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+:deep(.note-display) {
+  color: #c62828;
+  font-weight: bold;
+}
+:deep(.memo-icon-wrapper) {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+  align-self: center;
+}
 .patient-item:active {
   cursor: grabbing;
   background-color: #e0e0e0;
   opacity: 0.8;
   transform: scale(1.02);
-}
-
-.patient-item.has-memo {
-  box-shadow: 0 0 0 2px #ef5350;
 }
 .patient-item.status-opd {
   background-color: var(--green-bg, #e8f5e9);
@@ -1076,11 +1020,9 @@ watch(currentDate, (newDate) => {
   background-color: #8cbdf6;
   border-color: #42a5f5;
 }
-.patient-item.has-note-highlight {
+.patient-item.has-note-highlight :deep(.patient-line-one) {
   color: #c62828;
-  font-weight: bold;
 }
-
 :deep(.stats-special-mode) {
   display: inline-block;
   vertical-align: middle;
@@ -1090,13 +1032,8 @@ watch(currentDate, (newDate) => {
   border: 1px solid #ef9a9a;
   border-radius: 4px;
   font-weight: bold;
-  font-size: 0.8em;
+  font-size: 0.9em;
   line-height: 1.2;
-}
-
-.is-locked button:not([@click='triggerPrint']) {
-  opacity: 0.65;
-  pointer-events: none;
 }
 .is-locked .stats-section {
   cursor: not-allowed;
@@ -1104,22 +1041,18 @@ watch(currentDate, (newDate) => {
 .is-locked .patient-list-cell {
   background-color: #f5f5f5;
 }
-.is-locked .patient-item,
 .is-locked .name-select {
   pointer-events: none;
-}
-.is-locked .name-select {
   background-color: #eeeeee;
 }
-
-.memo-icon-inline {
-  cursor: pointer;
-  margin-left: 8px;
-  font-size: 1.2em;
-  transition: transform 0.2s;
-  flex-shrink: 0;
+.is-locked .patient-main-info {
+  cursor: not-allowed;
 }
-.memo-icon-inline:hover {
-  transform: scale(1.3);
+.is-locked .patient-item {
+  pointer-events: none;
+}
+.is-locked :deep(.memo-icon-wrapper) {
+  pointer-events: auto;
+  cursor: pointer;
 }
 </style>

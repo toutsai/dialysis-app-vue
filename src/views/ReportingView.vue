@@ -19,34 +19,48 @@ const formatDate = (date) => {
 const reportType = ref('daily')
 const selectedDate = ref(formatDate(new Date()))
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
+const selectedYear = ref(new Date().getFullYear())
+
 const isLoading = ref(false)
 const reportDateRange = ref({ start: '', end: '' })
+
+// 表格數據
 const dailyTableHeaders = ref([])
 const dailyTableRows = ref([])
 const monthlyTableHeaders = ref([])
 const monthlyTableRows = ref([])
+const yearlyTableHeaders = ref([])
+const yearlyTableRows = ref([])
 
 const reportTitle = computed(() => {
   if (reportDateRange.value.start === '') return '統計結果'
-  const { start, end } = reportDateRange.value
-  if (start === end) {
-    return `${start} 日報表`
+
+  if (reportType.value === 'daily') {
+    return `${reportDateRange.value.start} 日報表`
   }
-  return `${start} 至 ${end} 月報表`
+  if (reportType.value === 'monthly') {
+    return `${selectedMonth.value} 月報表`
+  }
+  if (reportType.value === 'yearly') {
+    return `${selectedYear.value} 年度報表`
+  }
+  return '統計報表'
 })
 
 const noData = computed(() => {
   if (reportType.value === 'daily') return dailyTableRows.value.length === 0
   if (reportType.value === 'monthly') return monthlyTableRows.value.length === 0
+  if (reportType.value === 'yearly') return yearlyTableRows.value.length === 0
   return true
 })
 
 async function generateReport() {
   if (
     (reportType.value === 'daily' && !selectedDate.value) ||
-    (reportType.value === 'monthly' && !selectedMonth.value)
+    (reportType.value === 'monthly' && !selectedMonth.value) ||
+    (reportType.value === 'yearly' && !selectedYear.value)
   ) {
-    alert('請先選擇日期或月份！')
+    alert('請先選擇日期、月份或年份！')
     return
   }
   isLoading.value = true
@@ -54,20 +68,29 @@ async function generateReport() {
   dailyTableRows.value = []
   monthlyTableHeaders.value = []
   monthlyTableRows.value = []
+  yearlyTableHeaders.value = []
+  yearlyTableRows.value = []
 
   try {
     let startDate, endDate
     if (reportType.value === 'daily') {
       startDate = selectedDate.value
       endDate = selectedDate.value
-    } else {
+    } else if (reportType.value === 'monthly') {
       const year = parseInt(selectedMonth.value.split('-')[0], 10)
       const month = parseInt(selectedMonth.value.split('-')[1], 10) - 1
       const firstDay = new Date(year, month, 1)
       const lastDay = new Date(year, month + 1, 0)
       startDate = formatDate(firstDay)
       endDate = formatDate(lastDay)
+    } else if (reportType.value === 'yearly') {
+      const year = selectedYear.value
+      const firstDay = new Date(year, 0, 1) // 1月1日
+      const lastDay = new Date(year, 11, 31) // 12月31日
+      startDate = formatDate(firstDay)
+      endDate = formatDate(lastDay)
     }
+
     reportDateRange.value = { start: startDate, end: endDate }
 
     const [schedulesData, patientsData] = await Promise.all([
@@ -78,8 +101,10 @@ async function generateReport() {
 
     if (reportType.value === 'daily') {
       processDailyReport(schedulesData, patientMap)
-    } else {
+    } else if (reportType.value === 'monthly') {
       processMonthlyReport(schedulesData, patientMap, startDate)
+    } else if (reportType.value === 'yearly') {
+      processYearlyReport(schedulesData, patientMap)
     }
   } catch (error) {
     console.error('生成報表失敗:', error)
@@ -96,21 +121,35 @@ function exportToExcel() {
   }
 
   let headers, dataRows, filename, excelTitle
-
   excelTitle = reportTitle.value
 
   if (reportType.value === 'daily') {
     headers = ['透析模式', '類別', ...dailyTableHeaders.value, '當日總計']
-    dataRows = dailyTableRows.value.map((row) => {
-      return [row.mode, row.status, ...row.shiftCounts, row.dailyTotal]
-    })
+    dataRows = dailyTableRows.value.map((row) => [
+      row.mode,
+      row.status,
+      ...row.shiftCounts,
+      row.dailyTotal,
+    ])
     filename = `日報表_${selectedDate.value}.xlsx`
-  } else {
+  } else if (reportType.value === 'monthly') {
     headers = ['透析模式', '類別', ...monthlyTableHeaders.value, '月總計']
-    dataRows = monthlyTableRows.value.map((row) => {
-      return [row.mode, row.status, ...row.dailyCounts, row.monthlyTotal]
-    })
+    dataRows = monthlyTableRows.value.map((row) => [
+      row.mode,
+      row.status,
+      ...row.dailyCounts,
+      row.monthlyTotal,
+    ])
     filename = `月報表_${selectedMonth.value}.xlsx`
+  } else if (reportType.value === 'yearly') {
+    headers = ['透析模式', '類別', ...yearlyTableHeaders.value, '年總計']
+    dataRows = yearlyTableRows.value.map((row) => [
+      row.mode,
+      row.status,
+      ...row.monthlyCounts,
+      row.yearlyTotal,
+    ])
+    filename = `年度報表_${selectedYear.value}.xlsx`
   }
 
   const titleRow = [excelTitle]
@@ -119,24 +158,12 @@ function exportToExcel() {
 
   const workbook = XLSX.utils.book_new()
   const worksheet = XLSX.utils.aoa_to_sheet(data)
-
-  const merge = {
-    s: { r: 0, c: 0 },
-    e: { r: 0, c: headers.length - 1 },
-  }
-
+  const merge = { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } }
   if (!worksheet['!merges']) worksheet['!merges'] = []
   worksheet['!merges'].push(merge)
-
   if (worksheet['A1']) {
-    worksheet['A1'].s = {
-      alignment: {
-        horizontal: 'center',
-        vertical: 'center',
-      },
-    }
+    worksheet['A1'].s = { alignment: { horizontal: 'center', vertical: 'center' } }
   }
-
   XLSX.utils.book_append_sheet(workbook, worksheet, '報表')
   XLSX.writeFile(workbook, filename)
 }
@@ -162,7 +189,6 @@ function processDailyReport(schedulesData, patientMap) {
   const shiftOrder = [SHIFT_CODES.EARLY, SHIFT_CODES.NOON, SHIFT_CODES.LATE]
   dailyTableHeaders.value = shiftOrder.map((code) => getShiftDisplayName(code))
   const reportMatrix = {}
-  // 【修改】: 在 statusDisplay 中增加 'er'
   const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
   shiftOrder.forEach((shiftCode, shiftIndex) => {
     const shiftData = shiftBreakdown[shiftCode] || {}
@@ -171,7 +197,7 @@ function processDailyReport(schedulesData, patientMap) {
         const [mode, status] = comboKey.split('-')
         reportMatrix[comboKey] = {
           mode: mode,
-          status: statusDisplay[status] || status, // 加上 or status 作為後備
+          status: statusDisplay[status] || status,
           shiftCounts: Array(shiftOrder.length).fill(0),
           dailyTotal: 0,
         }
@@ -221,7 +247,6 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   monthlyTableHeaders.value = Array.from({ length: daysInMonth }, (_, i) => i + 1)
   const reportMatrix = {}
-  // 【修改】: 在 statusDisplay 中增加 'er'
   const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = formatDate(new Date(year, month, day))
@@ -231,7 +256,7 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
         const [mode, status] = comboKey.split('-')
         reportMatrix[comboKey] = {
           mode: mode,
-          status: statusDisplay[status] || status, // 加上 or status 作為後備
+          status: statusDisplay[status] || status,
           dailyCounts: Array(daysInMonth).fill(0),
           monthlyTotal: 0,
         }
@@ -258,6 +283,72 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
   dailyTotalsRow.monthlyTotal = dailyTotalsRow.dailyCounts.reduce((sum, count) => sum + count, 0)
   monthlyTableRows.value = [...sortedRows, dailyTotalsRow]
 }
+
+function processYearlyReport(schedulesData, patientMap) {
+  const monthlyBreakdown = {}
+
+  for (const dailyRecord of schedulesData) {
+    if (!dailyRecord.schedule) continue
+
+    const recordDate = new Date(dailyRecord.date + 'T00:00:00')
+    const monthIndex = recordDate.getMonth()
+
+    for (const slotData of Object.values(dailyRecord.schedule)) {
+      if (!slotData?.patientId) continue
+      const patient = patientMap.get(slotData.patientId)
+      if (!patient) continue
+
+      const status = patient.status || 'unknown'
+      const mode = patient.mode || 'HD'
+      const comboKey = `${mode}-${status}`
+
+      if (!monthlyBreakdown[comboKey]) {
+        monthlyBreakdown[comboKey] = Array(12).fill(0)
+      }
+      monthlyBreakdown[comboKey][monthIndex]++
+    }
+  }
+
+  yearlyTableHeaders.value = Array.from({ length: 12 }, (_, i) => `${i + 1}月`)
+
+  const reportMatrix = {}
+  const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
+
+  for (const comboKey in monthlyBreakdown) {
+    const [mode, status] = comboKey.split('-')
+    const monthlyCounts = monthlyBreakdown[comboKey]
+
+    reportMatrix[comboKey] = {
+      mode: mode,
+      status: statusDisplay[status] || status,
+      monthlyCounts: monthlyCounts,
+      yearlyTotal: monthlyCounts.reduce((sum, count) => sum + count, 0),
+    }
+  }
+
+  const monthlyTotalsRow = {
+    mode: '每月總計',
+    status: '',
+    monthlyCounts: Array(12).fill(0),
+    yearlyTotal: 0,
+  }
+
+  const sortedRows = Object.values(reportMatrix).sort(
+    (a, b) => a.mode.localeCompare(b.mode) || a.status.localeCompare(b.status),
+  )
+
+  sortedRows.forEach((row) => {
+    row.monthlyCounts.forEach((count, index) => {
+      monthlyTotalsRow.monthlyCounts[index] += count
+    })
+  })
+  monthlyTotalsRow.yearlyTotal = monthlyTotalsRow.monthlyCounts.reduce(
+    (sum, count) => sum + count,
+    0,
+  )
+
+  yearlyTableRows.value = [...sortedRows, monthlyTotalsRow]
+}
 </script>
 
 <template>
@@ -270,18 +361,22 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
         <select id="report-type" v-model="reportType">
           <option value="daily">日報表</option>
           <option value="monthly">月報表</option>
+          <option value="yearly">年度報表</option>
         </select>
       </div>
       <div class="control-group">
-        <label v-if="reportType === 'daily'" for="report-date">選擇日期：</label>
-        <input v-if="reportType === 'daily'" id="report-date" type="date" v-model="selectedDate" />
-        <label v-if="reportType === 'monthly'" for="report-month">選擇月份：</label>
-        <input
-          v-if="reportType === 'monthly'"
-          id="report-month"
-          type="month"
-          v-model="selectedMonth"
-        />
+        <template v-if="reportType === 'daily'">
+          <label for="report-date">選擇日期：</label>
+          <input id="report-date" type="date" v-model="selectedDate" />
+        </template>
+        <template v-if="reportType === 'monthly'">
+          <label for="report-month">選擇月份：</label>
+          <input id="report-month" type="month" v-model="selectedMonth" />
+        </template>
+        <template v-if="reportType === 'yearly'">
+          <label for="report-year">選擇年份：</label>
+          <input id="report-year" type="number" v-model="selectedYear" />
+        </template>
       </div>
       <button class="generate-btn" @click="generateReport" :disabled="isLoading">
         {{ isLoading ? '生成中...' : '生成報表' }}
@@ -357,6 +452,38 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
         </table>
       </div>
 
+      <!-- 年度報表顯示區 -->
+      <div
+        v-else-if="reportType === 'yearly' && !noData"
+        class="results-table-container yearly-report"
+      >
+        <h2>{{ reportTitle }}</h2>
+        <table class="results-table yearly-table">
+          <thead>
+            <tr>
+              <th>透析模式</th>
+              <th>類別</th>
+              <th v-for="header in yearlyTableHeaders" :key="header">{{ header }}</th>
+              <th>年總計</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(row, rowIndex) in yearlyTableRows"
+              :key="rowIndex"
+              :class="{ 'total-row': row.mode === '每月總計' }"
+            >
+              <td>{{ row.mode }}</td>
+              <td>{{ row.status }}</td>
+              <td v-for="(count, monthIndex) in row.monthlyCounts" :key="monthIndex">
+                {{ count > 0 ? count : '' }}
+              </td>
+              <td class="total-col">{{ row.yearlyTotal }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
       <div v-else class="initial-state">
         <p>請選擇報表類型和日期，然後點擊「生成報表」。</p>
       </div>
@@ -365,7 +492,6 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
 </template>
 
 <style scoped>
-/* 樣式保持不變 */
 .reporting-view-container {
   padding: 1.5rem;
   background-color: #f8f9fa;
@@ -491,15 +617,22 @@ function processMonthlyReport(schedulesData, patientMap, monthStartDate) {
 .daily-table th:first-child,
 .daily-table td:first-child,
 .daily-table th:nth-child(2),
-.daily-table td:nth-child(2) {
+.daily-table td:nth-child(2),
+.yearly-table th:first-child,
+.yearly-table td:first-child,
+.yearly-table th:nth-child(2),
+.yearly-table td:nth-child(2) {
   background-color: #f8f9fa;
   min-width: 90px;
 }
 .daily-table tbody tr:nth-child(even) td:first-child,
-.daily-table tbody tr:nth-child(even) td:nth-child(2) {
+.daily-table tbody tr:nth-child(even) td:nth-child(2),
+.yearly-table tbody tr:nth-child(even) td:first-child,
+.yearly-table tbody tr:nth-child(even) td:nth-child(2) {
   background-color: #f0f3f5;
 }
-.daily-table .total-row td {
+.daily-table .total-row td,
+.yearly-table .total-row td {
   background-color: #e9ecef;
 }
 

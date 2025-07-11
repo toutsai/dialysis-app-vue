@@ -1,27 +1,44 @@
-# 檔案路徑: .github/workflows/deploy-to-develop.yml (修正後)
+# 檔案路徑: .github/workflows/deploy-to-develop.yml (建議版)
 
 name: Deploy to Development Environment
 
 on:
   push:
     branches:
-      - develop
+      - develope-branch # <--- 請務必確認這個分支名稱與您 Git 倉庫中的完全一致！
 
 jobs:
   build_and_deploy_to_dev:
     runs-on: ubuntu-latest
+    env:
+      VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_DEV }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_DEV }}
+      VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID_DEV }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_DEV }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_DEV }}
+      VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_DEV }}
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # 【核心修正】: 將 'npm run build' 修改為 'npm run build:dev'
-      - name: Install Dependencies and Build for Development
-        run: npm install && npm run build:dev # <-- 這裡的 build:dev 會強制 Vite 使用 .env.development
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies and Build
+        run: |
+          npm ci
+          npm run build:dev
 
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' # 確保這個 Secret 已設定
-          channelId: live
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}'
+          # 【關鍵】: projectId 和 target 搭配使用，指向 firebase.json 中的設定
           projectId: my-dialysis-app-develop
+          target: develop
+          channelId: live

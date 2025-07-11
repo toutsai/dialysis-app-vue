@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/views/LoginView.vue (完整版) -->
 <template>
   <div class="login-container">
     <div class="login-box">
@@ -31,12 +30,15 @@
           {{ isLoading ? '登入中...' : '登入' }}
         </button>
       </form>
-      <div class="test-accounts">
-        <p><strong>開發測試帳號:</strong></p>
+      <div class="user-notice">
+        <p><strong>使用者須知：</strong></p>
         <ul>
-          <li>編輯者 (可修改): 帳號 `editor` / 密碼 `1234`</li>
-          <li>檢視者 (僅檢視): 帳號 `viewer` / 密碼 `1234`</li>
+          <li>帳號：預設為您的 <strong>HIS 帳號</strong>。</li>
+          <li>密碼：預設為 <strong>123456</strong>。</li>
+          <li>首次登入後，建議立即至「帳號設定」頁面變更密碼。</li>
         </ul>
+        <!-- 【邏輯修正】: 修改「忘記密碼」的提示文字，移除無效連結 -->
+        <p class="forgot-password">若忘記密碼，請聯繫系統管理員或護理長重設。</p>
       </div>
     </div>
   </div>
@@ -47,34 +49,26 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 
-const username = ref('editor') // 為了開發方便，可以預填帳號
-const password = ref('1234') // 為了開發方便，可以預填密碼
+const username = ref('')
+const password = ref('')
 const errorMessage = ref('')
 const isLoading = ref(false)
 
 const router = useRouter()
-// 從 useAuth 中獲取我們需要的 login 函式
 const { login } = useAuth()
 
 async function handleLogin() {
-  if (isLoading.value) return // 防止重複提交
+  if (isLoading.value) return
 
   isLoading.value = true
   errorMessage.value = ''
 
   try {
-    // 呼叫 useAuth 中的 login 函式，並等待其完成
     await login(username.value, password.value)
-
-    // 登入成功後，使用 vue-router 跳轉到首頁
-    // replace: true 表示這次導航不會留下歷史紀錄，
-    // 這樣用戶登入後按「返回」不會回到登入頁。
     router.replace({ name: 'Home' })
   } catch (error) {
-    // 如果 login 函式 reject，表示登入失敗，顯示錯誤訊息
     errorMessage.value = error.message
   } finally {
-    // 無論成功或失敗，都將加載狀態設回 false
     isLoading.value = false
   }
 }
@@ -96,7 +90,7 @@ async function handleLogin() {
   border-radius: 12px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
   width: 100%;
-  max-width: 420px;
+  max-width: 450px;
   text-align: center;
   animation: fadeIn 0.5s ease-in-out;
 }
@@ -117,6 +111,7 @@ async function handleLogin() {
   margin-bottom: 32px;
   color: #333;
   font-weight: 600;
+  font-size: 1.8rem;
 }
 
 .login-form {
@@ -138,10 +133,10 @@ async function handleLogin() {
 
 .form-group input {
   width: 100%;
-  padding: 12px 15px;
+  padding: 14px 18px;
   border: 1px solid #ccc;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: 1.1rem;
   transition:
     border-color 0.2s,
     box-shadow 0.2s;
@@ -149,8 +144,8 @@ async function handleLogin() {
 
 .form-group input:focus {
   outline: none;
-  border-color: var(--primary-color, #1abc9c);
-  box-shadow: 0 0 0 3px rgba(26, 188, 156, 0.2);
+  border-color: var(--primary-color, #3498db);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
 }
 
 .error-message {
@@ -160,20 +155,20 @@ async function handleLogin() {
 }
 
 .login-button {
-  padding: 12px;
-  background-color: var(--primary-color, #1abc9c);
+  padding: 14px;
+  background-color: var(--primary-color, #3498db);
   color: white;
   border: none;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 1.1rem;
   font-weight: bold;
   transition: background-color 0.2s;
   margin-top: 8px;
 }
 
 .login-button:hover:not(:disabled) {
-  background-color: var(--primary-color-dark, #16a085);
+  background-color: var(--primary-color-dark, #2980b9);
 }
 
 .login-button:disabled {
@@ -181,19 +176,32 @@ async function handleLogin() {
   cursor: not-allowed;
 }
 
-.test-accounts {
+.user-notice {
   margin-top: 24px;
-  font-size: 0.9em;
+  font-size: 0.95em;
   color: #666;
   text-align: left;
   background: #f8f9fa;
-  padding: 15px;
+  padding: 15px 20px;
   border-radius: 8px;
   border: 1px solid #e9ecef;
 }
 
-.test-accounts ul {
+.user-notice p {
+  margin: 0 0 10px 0;
+}
+
+.user-notice ul {
   padding-left: 20px;
-  margin: 5px 0 0 0;
+  margin: 5px 0 15px 0;
+  line-height: 1.6;
+}
+
+/* 【邏輯修正】: 修改「忘記密碼」的樣式，使其更像一段提示文字 */
+.forgot-password {
+  margin-top: 15px;
+  text-align: center;
+  font-size: 0.9em;
+  color: #888; /* 使用較淺的顏色 */
 }
 </style>

@@ -61,6 +61,18 @@ const routes = [
         name: 'Reporting', // 路由名稱
         component: () => import('../views/ReportingView.vue'), // 指向我們新建立的元件
       },
+      {
+        path: 'user-management',
+        name: 'UserManagement',
+        component: () => import('../views/UserManagementView.vue'),
+        meta: { requiresAuth: true, requiresAdmin: true }, // 新增 meta 標記
+      },
+      {
+        path: 'account-settings', // 路徑是 /account-settings
+        name: 'AccountSettings', // 路由名稱
+        component: () => import('../views/AccountSettingsView.vue'), // 指向我們剛建立的元件
+        // 這裡不需要額外的 meta，因為它繼承了父路由的 requiresAuth: true
+      },
       // =======================================================
     ],
   },
@@ -96,6 +108,21 @@ router.beforeEach((to, from, next) => {
     next({ name: 'Home' })
   } else {
     // 其他情況，正常放行
+    next()
+  }
+})
+
+router.beforeEach((to, from, next) => {
+  const { isLoggedIn, isAdmin } = useAuth()
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
+  const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
+
+  if (requiresAuth && !isLoggedIn.value) {
+    next({ name: 'Login' })
+  } else if (requiresAdmin && !isAdmin.value) {
+    // 如果需要 admin 權限但用戶不是 admin，導向首頁或顯示無權限頁面
+    next({ name: 'Home' })
+  } else {
     next()
   }
 })
