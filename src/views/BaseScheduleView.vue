@@ -159,6 +159,11 @@ async function saveChangesToCloud() {
   }
   statusText.value = '儲存中...'
   try {
+    // 1. 定義要儲存的目標文件 ID，這是固定的。
+    const docId = 'MASTER_SCHEDULE'
+
+    // 2. 準備要儲存到 Firestore 的純淨資料 (Payload)。
+    //    不再需要包含 id 欄位。
     const scheduleToSave = {}
     for (const slotId in masterRecord.value.schedule) {
       const slotData = masterRecord.value.schedule[slotId]
@@ -170,22 +175,32 @@ async function saveChangesToCloud() {
         }
       }
     }
-    const dataToSave = {
-      id: masterRecord.value.id,
+    const dataPayload = {
       schedule: scheduleToSave,
       updatedAt: new Date(),
     }
-    await baseSchedulesApi.save(masterRecord.value.id, dataToSave)
+
+    // 3. 使用 save(id, data) 格式進行儲存。
+    //    無論是第一次建立還是後續更新，這種寫法都適用。
+    await baseSchedulesApi.save(docId, dataPayload)
+
+    // 4. 【重要】如果這是第一次儲存，需要更新本地的 masterRecord 狀態，
+    //    確保它也擁有 id，這樣下次就不會出錯。
+    if (!masterRecord.value.id) {
+      masterRecord.value.id = docId
+    }
+
     hasUnsavedChanges.value = false
     statusText.value = '床位儲存成功！'
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '常規門診床位已成功儲存！'
     isAlertDialogVisible.value = true
   } catch (error) {
+    // 錯誤日誌會提供更詳細的資訊，例如是權限問題還是網路問題
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
     alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '儲存失敗，請檢查網路連線或聯繫管理員。'
+    alertDialogMessage.value = `儲存失敗，請檢查網路連線或聯繫管理員。\n錯誤: ${error.message}`
     isAlertDialogVisible.value = true
   }
 }
