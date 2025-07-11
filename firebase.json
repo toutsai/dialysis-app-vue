@@ -2,7 +2,8 @@
   "hosting": [
     {
       "target": "production",
-      "public": "dist", // 或是你的建置輸出資料夾
+      "public": "dist",
+      "site": "dialysis-schedule-cd36c",
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
@@ -13,7 +14,8 @@
     },
     {
       "target": "develop",
-      "public": "dist", // 部署的資料夾是同一個
+      "public": "dist",
+      "site": "my-dialysis-app-develop",
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {

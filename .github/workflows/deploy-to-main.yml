@@ -8,10 +8,8 @@ on:
       - main
 
 jobs:
-  build_and_deploy_to_prod: # 工作名稱可以改得更清晰
+  build_and_deploy_to_prod:
     runs-on: ubuntu-latest
-
-    # 【新增】為正式環境設定環境變數
     env:
       VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_PROD }}
       VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
@@ -32,16 +30,14 @@ jobs:
 
       - name: Install Dependencies and Build for Production
         run: |
-          npm ci # 
+          npm ci
           npm run build
 
       - name: Deploy to Firebase Hosting (Production)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          # 請確認您的正式環境服務帳號 Secret 名稱
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
-
-          # 【關鍵修正】: 移除 channelId: live
-          # 直接指定 projectId 即可部署到該專案的預設 hosting 網站
+          # 【關鍵修正】: 移除 channelId: live，改用 target
           projectId: dialysis-schedule-cd36c
+          target: production

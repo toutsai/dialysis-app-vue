@@ -1,17 +1,15 @@
-# 檔案路徑: .github/workflows/deploy-to-develop.yml (最終建議版)
+# 檔案路徑: .github/workflows/deploy-to-develop.yml (建議版)
 
 name: Deploy to Development Environment
 
 on:
   push:
     branches:
-      - develope-branch # 確保您的分支名稱完全正確
+      - develope-branch # <--- 請務必確認這個分支名稱與您 Git 倉庫中的完全一致！
 
 jobs:
   build_and_deploy_to_dev:
     runs-on: ubuntu-latest
-
-    # 這是正確的，將環境變數設定在 Job 層級
     env:
       VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_DEV }}
       VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_DEV }}
@@ -33,12 +31,13 @@ jobs:
       - name: Install Dependencies and Build
         run: |
           npm ci
-          npm run build:dev # 確保您 package.json 有這個 script
+          npm run build:dev
 
       - name: Deploy to Firebase Hosting (Development)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' # 請確認 Secret 名稱
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}'
+          # 【關鍵】: projectId 和 target 搭配使用，指向 firebase.json 中的設定
           projectId: my-dialysis-app-develop
-          target: develop # 這是正確的用法
+          target: develop
