@@ -1,8 +1,9 @@
 <script setup>
-import { ref, onMounted, computed, reactive, watch, provide } from 'vue' // 1. 引入 provide
+import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
+import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 
 import {
   SHIFT_CODES,
@@ -19,7 +20,8 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
-import MemoIcon from '@/components/MemoIcon.vue' // 2. 引入新元件
+import MemoIcon from '@/components/MemoIcon.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue' // <--- 1. 導入新元件
 
 // --- Layout and Constants ---
 const layoutData = {
@@ -98,6 +100,11 @@ const patientNameForDialog = ref('')
 const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const highlightedTeam = ref(null)
+
+// --- Dialog State ---  <--- 2. 新增 Dialog 狀態管理
+const isConfirmDialogVisible = ref(false)
+const confirmDialogMessage = ref('')
+const onConfirmAction = ref(null)
 
 // --- 權限控制 ---
 const auth = useAuth()
@@ -266,16 +273,12 @@ async function saveDataToCloud() {
 }
 
 function clearBoard() {
-  if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：無法清除。'
-    isAlertDialogVisible.value = true
-    return
-  }
-  if (confirm('確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)')) {
+  confirmDialogMessage.value = '確定要清除畫面上的所有資料嗎？(此操作需儲存後才會生效)'
+  onConfirmAction.value = () => {
     currentRecord.schedule = {}
     setChange()
   }
+  isConfirmDialogVisible.value = true
 }
 
 async function copySchedule() {
@@ -287,32 +290,37 @@ async function copySchedule() {
     alert('請選擇一個與當前不同的來源日期！')
     return
   }
-  if (
-    !confirm(`確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`)
-  )
-    return
-  statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
-  try {
-    const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
-    if (sourceRecords.length > 0) {
-      const sourceSchedule = sourceRecords[0].schedule || {}
-      const processedSchedule = {}
-      for (const shiftId in sourceSchedule) {
-        if (sourceSchedule[shiftId]?.patientId) {
-          processedSchedule[shiftId] = { ...sourceSchedule[shiftId] }
+
+  confirmDialogMessage.value = `確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`
+  onConfirmAction.value = async () => {
+    statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
+    try {
+      const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
+      if (sourceRecords.length > 0) {
+        const sourceSchedule = sourceRecords[0].schedule || {}
+        const processedSchedule = {}
+        for (const shiftId in sourceSchedule) {
+          if (sourceSchedule[shiftId]?.patientId) {
+            processedSchedule[shiftId] = { ...sourceSchedule[shiftId] }
+          }
         }
+        currentRecord.schedule = processedSchedule
+        setChange()
+        statusIndicator.value = '複製成功，請記得儲存'
+      } else {
+        alertDialogTitle.value = '複製失敗'
+        alertDialogMessage.value = `在雲端找不到 ${copySourceDate.value} 的排程資料。`
+        isAlertDialogVisible.value = true
+        statusIndicator.value = '複製失敗'
       }
-      currentRecord.schedule = processedSchedule
-      setChange()
-      statusIndicator.value = '複製成功，請記得儲存'
-    } else {
-      alert(`在雲端找不到 ${copySourceDate.value} 的排程資料。`)
+    } catch (error) {
+      alertDialogTitle.value = '複製失敗'
+      alertDialogMessage.value = `複製失敗: ${error.message}`
+      isAlertDialogVisible.value = true
       statusIndicator.value = '複製失敗'
     }
-  } catch (error) {
-    alert(`複製失敗: ${error.message}`)
-    statusIndicator.value = '複製失敗'
   }
+  isConfirmDialogVisible.value = true
 }
 
 function onDrop(event, targetShiftId) {
@@ -359,32 +367,28 @@ function handleSlotUpdate(shiftId, patientId) {
   setChange()
 }
 
-// ======================== 【權限修正點】: 修改 handleSlotClick 的邏輯 ========================
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
 
-  // 情況一：頁面已鎖定 (權限不足或日期已過)
   if (isPageLocked.value) {
-    // 如果格內有病人，則執行唯讀操作：顯示備忘錄
-    if (slotData && slotData.patientId) {
+    if (slotData?.patientId) {
       showPatientMemos(slotData.patientId)
     }
-    // 如果是空格子，則不做任何事。直接返回。
     return
   }
 
-  // 情況二：頁面未鎖定，執行正常的編輯邏輯
-  if (slotData && slotData.patientId) {
+  if (slotData?.patientId) {
     const patient = patientMap.value.get(slotData.patientId)
-    if (confirm(`確定要將「${patient?.name}」從此班次中移除嗎？`)) {
+    confirmDialogMessage.value = `確定要將「${patient?.name}」從此班次中移除嗎？`
+    onConfirmAction.value = () => {
       handleSlotUpdate(shiftId, null)
     }
+    isConfirmDialogVisible.value = true
   } else {
     currentSlotId.value = shiftId
     isPatientSelectDialogVisible.value = true
   }
 }
-// =======================================================================================
 
 function handlePatientSelect({ patientId }) {
   if (!patientId || !currentSlotId.value) return
@@ -425,6 +429,18 @@ function updateNurseTeam(event, shiftId, type) {
   } else if (type === 'out') {
     slot.nurseTeamOut = value || null
   }
+  setChange()
+}
+
+function updateNote(event, shiftId) {
+  if (isPageLocked.value) {
+    event.target.textContent = getCombinedNote(shiftId)
+    return
+  }
+  if (!currentRecord.schedule[shiftId]) {
+    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+  }
+  currentRecord.schedule[shiftId].manualNote = event.target.textContent.trim()
   setChange()
 }
 
@@ -645,6 +661,197 @@ function triggerPrint() {
   window.print()
 }
 
+// --- Dialog Handlers --- <--- 3. 新增 Dialog 處理函式
+function handleConfirm() {
+  if (typeof onConfirmAction.value === 'function') {
+    onConfirmAction.value()
+  }
+  isConfirmDialogVisible.value = false
+  onConfirmAction.value = null
+}
+
+function handleCancel() {
+  isConfirmDialogVisible.value = false
+  onConfirmAction.value = null
+}
+
+// 實例化計算模組
+const { distributePatients } = useTeamAssigner()
+
+// 全新設計的自動分組函式
+function autoAssignNurseTeams() {
+  if (isPageLocked.value) {
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '頁面已鎖定，無法執行自動分組。'
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  // <--- 4. 將執行邏輯包裝起來，並使用新的確認對話框
+  confirmDialogMessage.value = '此操作將會覆蓋現有的護理師分組，您確定要繼續嗎？'
+  onConfirmAction.value = () => {
+    // 實際的分配邏輯
+    executeAutoAssignment()
+  }
+  isConfirmDialogVisible.value = true
+}
+
+function executeAutoAssignment() {
+  // 1. 收集並豐富病人資訊
+  const getRichPatientList = (shiftCode) => {
+    const patients = []
+    for (const shiftId in currentRecord.schedule) {
+      if (!shiftId.endsWith(shiftCode)) continue
+
+      const slot = currentRecord.schedule[shiftId]
+      if (slot?.patientId) {
+        const patientData = patientMap.value.get(slot.patientId)
+        if (patientData) {
+          const bedNumberStr = shiftId.split('-')[1]
+          const bedNumber = parseInt(bedNumberStr, 10)
+          patients.push({
+            id: slot.patientId,
+            shiftId: slot.shiftId,
+            status: patientData.status,
+            isHepatitis: !isNaN(bedNumber) && hepatitisBeds.includes(bedNumber),
+            isPeripheral: shiftId.startsWith('peripheral'),
+          })
+        }
+      }
+    }
+    return patients
+  }
+
+  const allEarlyPatients = getRichPatientList(SHIFT_CODES.EARLY)
+  const allNoonPatients = getRichPatientList(SHIFT_CODES.NOON)
+  const allLatePatients = getRichPatientList(SHIFT_CODES.LATE)
+
+  // 2. 分離主院區和外圍病人
+  const mainArea = (list) => list.filter((p) => !p.isPeripheral)
+  const peripheral = (list) => list.filter((p) => p.isPeripheral)
+  const sort = (list) => {
+    const getSortKey = (shiftId) => {
+      if (!shiftId || typeof shiftId !== 'string') return 999
+      const parts = shiftId.split('-')
+      if (parts[0] === 'peripheral') return 100 + parseInt(parts[1], 10)
+      const num = parseInt(parts[1], 10)
+      return isNaN(num) ? 999 : num
+    }
+    return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
+  }
+
+  // 3. 為每個班別獨立定義規則並執行分配
+  // --- 早班 ---
+  const earlyMain = mainArea(allEarlyPatients)
+  const earlyTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
+  const useEarlyTeamA = earlyMain.length > 36
+  const earlyRules = {
+    priorityTeams: {
+      hepatitis: '早G',
+      inPatientTeams: ['早H', '早I', '早J', '早K'],
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4, 早K: 4 },
+    },
+    mainDistribution: {
+      specialTeam: useEarlyTeamA ? { name: '早A', capacity: 2 } : null,
+      regularTeams: (useEarlyTeamA ? baseTeams.slice(0, 11) : baseTeams.slice(1, 11)).map(
+        (t) => `早${t}`,
+      ),
+      primaryCapacity: 4,
+      fillMethod: useEarlyTeamA ? 'block' : 'average',
+    },
+  }
+  const earlyAssignments = distributePatients(sort(earlyMain), earlyTeamsToUse, earlyRules)
+  earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
+
+  // --- 午班 (上針) ---
+  const noonMain = mainArea(allNoonPatients)
+  const noonTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
+  const useNoonTeamA = noonMain.length > 36
+  const noonRules = {
+    priorityTeams: {
+      hepatitis: '早G',
+      inPatientTeams: ['早H', '早I', '早J', '早K'],
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4, 早K: 4 },
+    },
+    mainDistribution: {
+      specialTeam: useNoonTeamA ? { name: '早A', capacity: 2 } : null,
+      regularTeams: (useNoonTeamA ? baseTeams.slice(0, 11) : baseTeams.slice(1, 11)).map(
+        (t) => `早${t}`,
+      ),
+      primaryCapacity: 4,
+      fillMethod: useNoonTeamA ? 'block' : 'average',
+    },
+  }
+  const noonOnAssignments = distributePatients(sort(noonMain), noonTeamsToUse, noonRules)
+  noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
+
+  // --- 晚班 & 午班收針 ---
+  const lateCombinedMain = [...mainArea(allLatePatients), ...mainArea(allNoonPatients)]
+  const lateTeamsToUse = baseTeams.slice(0, 8).map((t) => `晚${t}`)
+  const lateRules = {
+    priorityTeams: {
+      hepatitis: '晚G',
+      inPatientTeams: ['晚H', '晚I'],
+      inPatientCapacity: { 晚H: 2, 晚I: 2 },
+    },
+    mainDistribution: {
+      specialTeam: null,
+      regularTeams: baseTeams.slice(0, 8).map((t) => `晚${t}`),
+      primaryCapacity: 4,
+      fillMethod: 'average', // 晚班固定用平均模式
+    },
+  }
+  const lateCombinedAssignments = distributePatients(
+    sort(lateCombinedMain),
+    lateTeamsToUse,
+    lateRules,
+  )
+  lateCombinedAssignments['晚外圍'] = [
+    ...peripheral(allLatePatients),
+    ...peripheral(allNoonPatients),
+  ]
+
+  // 4. 更新 schedule 物件
+  Object.values(currentRecord.schedule).forEach((slot) => {
+    if (slot) {
+      slot.nurseTeam = null
+      slot.nurseTeamIn = null
+      slot.nurseTeamOut = null
+    }
+  })
+
+  const applyToSchedule = (assignments, prop) => {
+    for (const team in assignments) {
+      for (const patient of assignments[team]) {
+        if (currentRecord.schedule[patient.shiftId]) {
+          currentRecord.schedule[patient.shiftId][prop] = team
+        }
+      }
+    }
+  }
+
+  applyToSchedule(earlyAssignments, 'nurseTeam')
+  applyToSchedule(noonOnAssignments, 'nurseTeamIn')
+
+  for (const team in lateCombinedAssignments) {
+    for (const patient of lateCombinedAssignments[team]) {
+      const slot = currentRecord.schedule[patient.shiftId]
+      if (slot) {
+        const shiftCode = patient.shiftId.split('-')[2]
+        if (shiftCode === SHIFT_CODES.LATE) slot.nurseTeam = team
+        else if (shiftCode === SHIFT_CODES.NOON) slot.nurseTeamOut = team
+      }
+    }
+  }
+
+  // 5. 觸發UI更新
+  setChange()
+  statusIndicator.value = '自動分組完成，請確認並儲存'
+  alertDialogTitle.value = '操作成功'
+  alertDialogMessage.value = '自動分組已完成！請檢視結果並點擊「儲存」。'
+  isAlertDialogVisible.value = true
+}
+
 // --- Provide / Lifecycle Hooks ---
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
@@ -681,6 +888,14 @@ watch(currentDate, (newDate, oldDate) => {
             :disabled="isPageLocked"
           >
             智慧排床
+          </button>
+          <button
+            class="btn"
+            @click="autoAssignNurseTeams"
+            :disabled="isPageLocked"
+            style="background-color: #007bff; color: white; border-color: #007bff"
+          >
+            自動分組
           </button>
         </div>
         <div class="toolbar-right">
@@ -1003,6 +1218,14 @@ watch(currentDate, (newDate, oldDate) => {
     :message="alertDialogMessage"
     @confirm="isAlertDialogVisible = false"
   />
+  <!-- 5. 加入新的 ConfirmDialog 元件實例 -->
+  <ConfirmDialog
+    :is-visible="isConfirmDialogVisible"
+    title="請確認"
+    :message="confirmDialogMessage"
+    @confirm="handleConfirm"
+    @cancel="handleCancel"
+  />
 </template>
 
 <style scoped>
@@ -1052,6 +1275,7 @@ watch(currentDate, (newDate, oldDate) => {
   flex-shrink: 0;
   border-bottom: 1px solid #e0e0e0;
   z-index: 10;
+  background-color: white;
 }
 .page-main-content {
   flex-grow: 1;
