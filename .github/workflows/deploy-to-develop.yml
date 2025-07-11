@@ -41,3 +41,4 @@ jobs:
           # 【關鍵】: projectId 和 target 搭配使用，指向 firebase.json 中的設定
           projectId: my-dialysis-app-develop
           target: develop
+          channelId: live

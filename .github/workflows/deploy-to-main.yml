@@ -41,3 +41,4 @@ jobs:
           # 【關鍵修正】: 移除 channelId: live，改用 target
           projectId: dialysis-schedule-cd36c
           target: production
+          channelId: live
