@@ -8,6 +8,10 @@ import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
+// 【1. 導入通知中心和對話框元件】
+import { useNotification } from '@/composables/useNotification.js'
+import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
@@ -60,7 +64,15 @@ const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
-// 移除 activeTab
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
+const isConfirmDialogVisible = ref(false)
+const confirmDialogMessage = ref('')
+const onConfirmAction = ref(null)
+
+// 【2. 實例化通知中心】
+const { addNotification } = useNotification()
 
 // --- 權限狀態 ---
 const auth = useAuth()
@@ -308,13 +320,18 @@ function setChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
+// 【3. 修改 saveChangesToCloud 加入通知】
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
-    alert('操作被鎖定：無法儲存或權限不足。')
+    alertDialogTitle.value = '操作禁止'
+    alertDialogMessage.value = '操作被鎖定：無法儲存或權限不足。'
+    isAlertDialogVisible.value = true
     return
   }
   if (!currentRecord.id && Object.keys(currentRecord.schedule).length === 0) {
-    alert('沒有資料可以儲存。')
+    alertDialogTitle.value = '提示'
+    alertDialogMessage.value = '沒有資料可以儲存。'
+    isAlertDialogVisible.value = true
     return
   }
   statusIndicator.value = '儲存中...'
@@ -348,12 +365,21 @@ async function saveChangesToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存！'
-    alert('變更儲存成功！')
+
+    // 發送通知
+    addNotification(`修改護理分組: ${currentRecord.date}`, 'stats')
+
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '變更儲存成功！'
+    isAlertDialogVisible.value = true
+
     await loadData(currentDate.value)
   } catch (error) {
     console.error('儲存變更失敗:', error)
     statusIndicator.value = '儲存失敗'
-    alert(`儲存失敗: ${error.message}`)
+    alertDialogTitle.value = '儲存失敗'
+    alertDialogMessage.value = `儲存失敗: ${error.message}`
+    isAlertDialogVisible.value = true
   }
 }
 
@@ -376,7 +402,9 @@ function onDrop(event, newTeam, newResponsibility) {
 
   const newShiftId = `${bedPart}-${newShiftCode}`
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
-    alert(`錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`)
+    alertDialogTitle.value = '操作錯誤'
+    alertDialogMessage.value = `錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`
+    isAlertDialogVisible.value = true
     return
   }
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
@@ -447,18 +475,43 @@ function updateNurseName(teamId, event) {
 
 function changeDate(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
-    if (!confirm('您有未儲存的變更，確定要切換日期嗎？')) return
+    onConfirmAction.value = () => {
+      const newDate = new Date(currentDate.value)
+      newDate.setDate(newDate.getDate() + days)
+      currentDate.value = newDate
+    }
+    confirmDialogMessage.value = '您有未儲存的變更，確定要切換日期嗎？'
+    isConfirmDialogVisible.value = true
+  } else {
+    const newDate = new Date(currentDate.value)
+    newDate.setDate(newDate.getDate() + days)
+    currentDate.value = newDate
   }
-  const newDate = new Date(currentDate.value)
-  newDate.setDate(newDate.getDate() + days)
-  currentDate.value = newDate
 }
 
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
-    if (!confirm('您有未儲存的變更，確定要切換到今天嗎？')) return
+    onConfirmAction.value = () => {
+      currentDate.value = new Date()
+    }
+    confirmDialogMessage.value = '您有未儲存的變更，確定要切換到今天嗎？'
+    isConfirmDialogVisible.value = true
+  } else {
+    currentDate.value = new Date()
   }
-  currentDate.value = new Date()
+}
+
+function handleConfirm() {
+  if (onConfirmAction.value) {
+    onConfirmAction.value()
+  }
+  isConfirmDialogVisible.value = false
+  onConfirmAction.value = null
+}
+
+function handleCancel() {
+  isConfirmDialogVisible.value = false
+  onConfirmAction.value = null
 }
 
 function onDragOver(event) {
@@ -767,6 +820,20 @@ watch(currentDate, (newDate) => {
       @confirm="handleBedChange"
       @cancel="handleDialogCancel"
     />
+    <!-- 加入新的對話框元件 -->
+    <AlertDialog
+      :is-visible="isAlertDialogVisible"
+      :title="alertDialogTitle"
+      :message="alertDialogMessage"
+      @confirm="isAlertDialogVisible = false"
+    />
+    <ConfirmDialog
+      :is-visible="isConfirmDialogVisible"
+      title="請確認"
+      :message="confirmDialogMessage"
+      @confirm="handleConfirm"
+      @cancel="handleCancel"
+    />
   </div>
 </template>
 
@@ -942,7 +1009,7 @@ watch(currentDate, (newDate) => {
   justify-content: space-between;
   align-items: center;
   position: relative;
-  padding: 2px 4px;
+  padding: 6px 8px;
   margin-bottom: 5px;
   border-radius: 4px;
   border: 1px solid #b0bec5;

@@ -1,9 +1,13 @@
-<!-- src/views/MemoView.vue (Memo路由整合最終版) -->
+<!-- src/views/MemoView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useRoute, useRouter } from 'vue-router'
+// 【1. 導入通知中心和對話框】
+import { useNotification } from '@/composables/useNotification.js'
+import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- API 實例 ---
 const memosApi = ApiManager('memos')
@@ -19,6 +23,18 @@ const dateInput = ref('')
 const isPatientDialogVisible = ref(false)
 const selectedPatient = ref(null)
 const filterPatientId = ref(null)
+
+// --- Dialog State ---
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
+const isConfirmDialogVisible = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+const confirmAction = ref(null)
+
+// 【2. 實例化通知中心】
+const { addNotification } = useNotification()
 
 // --- 路由實例 ---
 const route = useRoute()
@@ -68,10 +84,12 @@ async function fetchAllPatients() {
   }
 }
 
-// ======================== 【核心修正點】 ========================
+// 【3. 修改 addMemo，加入通知和對話框】
 async function addMemo() {
   if (!contentInput.value.trim()) {
-    alert('備忘內容不能為空！')
+    alertDialogTitle.value = '提示'
+    alertDialogMessage.value = '備忘內容不能為空！'
+    isAlertDialogVisible.value = true
     return
   }
   const newMemo = {
@@ -84,19 +102,18 @@ async function addMemo() {
   }
   try {
     await memosApi.save(newMemo)
+    addNotification('新增交班備忘', 'memo') // 發送通知
     contentInput.value = ''
     dateInput.value = ''
-
-    // 無論如何，新增成功後都清除選擇和篩選，回到初始狀態
     clearPatientSelection()
-
     await fetchMemos()
   } catch (error) {
     console.error('新增備忘失敗:', error)
-    alert('新增備忘失敗！')
+    alertDialogTitle.value = '錯誤'
+    alertDialogMessage.value = '新增備忘失敗！'
+    isAlertDialogVisible.value = true
   }
 }
-// =============================================================
 
 function handlePatientSelected({ patientId }) {
   const patient = allPatients.value.find((p) => p.id === patientId) || null
@@ -117,29 +134,54 @@ function clearPatientSelection() {
   router.replace({ query: {} })
 }
 
+// 【4. 修改 updateMemoStatus，加入通知】
 async function updateMemoStatus(id, isResolved) {
   try {
     await memosApi.update(id, { isResolved })
     await fetchMemos()
+    addNotification(isResolved ? '備忘已處理' : '備忘移回待辦', 'memo')
   } catch (error) {
     console.error('更新狀態失敗:', error)
-    alert('更新狀態失敗！')
+    alertDialogTitle.value = '錯誤'
+    alertDialogMessage.value = '更新狀態失敗！'
+    isAlertDialogVisible.value = true
   }
 }
 
+// 【5. 修改 deleteMemo，加入通知和對話框】
 async function deleteMemo(id) {
-  if (!confirm('確定要永久刪除這條備忘嗎？此操作無法復原。')) return
-  try {
-    await memosApi.delete(id)
-    await fetchMemos()
-  } catch (error) {
-    console.error('刪除失敗:', error)
-    alert('刪除失敗！')
+  confirmDialogTitle.value = '確認刪除'
+  confirmDialogMessage.value = '確定要永久刪除這條備忘嗎？此操作無法復原。'
+  confirmAction.value = async () => {
+    try {
+      await memosApi.delete(id)
+      await fetchMemos()
+      addNotification('刪除一則備忘', 'memo')
+    } catch (error) {
+      console.error('刪除失敗:', error)
+      alertDialogTitle.value = '錯誤'
+      alertDialogMessage.value = '刪除失敗！'
+      isAlertDialogVisible.value = true
+    }
   }
+  isConfirmDialogVisible.value = true
 }
 
 function openPatientDialog() {
   isPatientDialogVisible.value = true
+}
+
+function handleConfirm() {
+  if (confirmAction.value) {
+    confirmAction.value()
+  }
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+
+function handleCancel() {
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
 }
 
 onMounted(() => {
@@ -252,6 +294,21 @@ onMounted(() => {
     :show-fill-options="false"
     @confirm="handlePatientSelected"
     @cancel="isPatientDialogVisible = false"
+  />
+
+  <!-- 【6. 加入新的對話框元件】 -->
+  <AlertDialog
+    :is-visible="isAlertDialogVisible"
+    :title="alertDialogTitle"
+    :message="alertDialogMessage"
+    @confirm="isAlertDialogVisible = false"
+  />
+  <ConfirmDialog
+    :is-visible="isConfirmDialogVisible"
+    :title="confirmDialogTitle"
+    :message="confirmDialogMessage"
+    @confirm="handleConfirm"
+    @cancel="handleCancel"
   />
 </template>
 

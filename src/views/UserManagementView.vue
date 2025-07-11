@@ -253,7 +253,7 @@ onMounted(() => {
 
 <style scoped>
 .user-management-container {
-  padding: 2rem;
+  padding: 1.5rem;
 }
 .page-header {
   display: flex;
@@ -264,7 +264,7 @@ onMounted(() => {
   gap: 1rem;
 }
 .page-header h1 {
-  font-size: 2.2rem;
+  font-size: 32px;
   color: #333;
   margin: 0;
 }

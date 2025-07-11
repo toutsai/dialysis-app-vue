@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientView.vue (真正完整無省略的最終版) -->
+<!-- 檔案路徑: src/views/PatientView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -14,6 +14,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import * as XLSX from 'xlsx'
+// 【1. 導入通知中心】
+import { useNotification } from '@/composables/useNotification.js'
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
@@ -41,11 +43,13 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 
-// 【1. 新增：管理病人衝突對話框的狀態】
 const isConflictDialogVisible = ref(false)
 const conflictDialogOptions = ref([])
 const newPatientDataForConflict = ref(null)
 const existingPatientForConflict = ref(null)
+
+// 【2. 實例化通知中心】
+const { addNotification } = useNotification()
 
 const FREQ_COLOR_MAP = {
   一三五: 'freq-blue',
@@ -182,7 +186,6 @@ function exportDeletedPatients() {
   XLSX.writeFile(workbook, `已刪除病人清單_${today}.xlsx`)
 }
 
-// 【2. 核心修改：重構 handleSavePatient 函式】
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -198,7 +201,6 @@ async function handleSavePatient(patientData) {
     const isNowDiscontinued = patientData.isDiscontinued
 
     if (!wasDiscontinuedBefore && isNowDiscontinued) {
-      // 處理中止透析的確認流程
       confirmDialogTitle.value = '確認中止透析'
       confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
       confirmAction.value = async () => {
@@ -212,6 +214,8 @@ async function handleSavePatient(patientData) {
           await patientApi.update(patientData.id, updateData)
           await clearFutureSchedulesForPatient(patientData.id)
           await fetchAllPatients()
+          // 【發送通知】
+          addNotification(`中止透析: ${patientData.name}`, 'patient')
         } catch (err) {
           console.error('中止透析操作失敗:', err)
           alertDialogTitle.value = '操作失敗'
@@ -228,6 +232,8 @@ async function handleSavePatient(patientData) {
         await patientApi.update(patientData.id, dataToUpdate)
         closeModal()
         await fetchAllPatients()
+        // 【發送通知】
+        addNotification(`修改病人資料: ${patientData.name}`, 'patient')
       } catch (err) {
         console.error('更新病人資料失敗:', err)
         alertDialogTitle.value = '操作失敗'
@@ -235,7 +241,7 @@ async function handleSavePatient(patientData) {
         isAlertDialogVisible.value = true
       }
     }
-    return // 編輯流程結束
+    return
   }
 
   // --- 新增病人（核心檢查邏輯） ---
@@ -251,29 +257,20 @@ async function handleSavePatient(patientData) {
   )
 
   if (existingPatient) {
-    // 病人已存在，顯示衝突對話框
     const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
     const currentStatusText = existingPatient.isDeleted
       ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
       : statusMap[existingPatient.status] || '未知'
     const targetStatusText = statusMap[modalType.value]
 
-    conflictDialogOptions.value = [
-      {
-        value: 'transfer',
-        text: `是，將此病人從 [${currentStatusText}] 轉為 [${targetStatusText}]，並更新資料`,
-      },
-      { value: 'cancel', text: '否，取消新增，讓我修改病歷號' },
-    ]
-    confirmDialogTitle.value = '病歷號重複' // 使用 ConfirmDialog 的 title
+    confirmDialogTitle.value = '病歷號重複'
     confirmDialogMessage.value = `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`
 
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
 
-    // 使用 isConfirmDialogVisible 和 confirmAction 進行彈窗
     isConfirmDialogVisible.value = true
-    confirmAction.value = () => handleConflictSelected({ value: 'transfer' }) // 如果用戶按確定，則執行轉移動作
+    confirmAction.value = () => handleConflictSelected()
   } else {
     // 病人不存在，正常新增
     try {
@@ -284,6 +281,8 @@ async function handleSavePatient(patientData) {
       await patientApi.save(dataToCreate)
       closeModal()
       await fetchAllPatients()
+      // 【發送通知】
+      addNotification(`新增病人: ${dataToCreate.name}`, 'patient')
     } catch (err) {
       console.error('新增病人失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -293,7 +292,6 @@ async function handleSavePatient(patientData) {
   }
 }
 
-// 【3. 新增：處理衝突對話框選擇的函式】
 async function handleConflictSelected() {
   const existingPatient = existingPatientForConflict.value
   const newPatientData = newPatientDataForConflict.value
@@ -303,17 +301,16 @@ async function handleConflictSelected() {
   try {
     const dataToUpdate = {
       ...newPatientData,
-      status: modalType.value, // 更新為當前表單的狀態
+      status: modalType.value,
       isDeleted: false,
       deletedAt: null,
       deleteReason: null,
       originalStatus: null,
     }
-    delete dataToUpdate.id // 從新資料中移除id，因為我們要用舊的id
+    delete dataToUpdate.id
 
     await patientApi.update(existingPatient.id, dataToUpdate)
 
-    // 如果是從刪除狀態恢復，不需要清除未來排程。如果是狀態轉換，則需要清理。
     if (!existingPatient.isDeleted) {
       await cleanTemporaryDataInFutureSchedules(existingPatient.id, dataToUpdate)
     }
@@ -324,13 +321,14 @@ async function handleConflictSelected() {
 
     closeModal()
     await fetchAllPatients()
+    // 【發送通知】
+    addNotification(`轉移病人: ${newPatientData.name}`, 'patient')
   } catch (err) {
     console.error('轉移更新病人失敗:', err)
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = '轉移更新病人失敗！'
     isAlertDialogVisible.value = true
   } finally {
-    // 清理狀態
     existingPatientForConflict.value = null
     newPatientDataForConflict.value = null
   }
@@ -355,6 +353,8 @@ async function transferPatient(patientId, newStatus) {
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
+      // 【發送通知】
+      addNotification(`轉移病人: ${patientName} 至 ${targetStatusText}`, 'patient')
     } catch (err) {
       console.error('轉床失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -384,6 +384,8 @@ async function handleDeleteReasonSelected(reason) {
       })
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
+      // 【發送通知】
+      addNotification(`刪除病人: ${patient.name}`, 'patient')
     }
   } catch (err) {
     console.error('刪除失敗:', err)
@@ -412,6 +414,8 @@ async function restorePatient(patientId) {
       deletedAt: null,
     })
     await fetchAllPatients()
+    // 【發送通知】
+    addNotification(`復原病人: ${patient.name}`, 'patient')
   } catch (err) {
     console.error('復原失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -530,9 +534,6 @@ function handleConfirm() {
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
-
-  // 如果是因為病歷號衝突而取消，我們不清空暫存的資料，
-  // 讓使用者可以在表單中修改病歷號後重新嘗試。
   if (existingPatientForConflict.value) {
     //
   } else {
@@ -983,10 +984,6 @@ onMounted(() => {
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-    <!-- 【4. 新增：處理病歷號衝突的對話框】
-         我們復用 ConfirmDialog，因為它有標題、訊息和兩個按鈕，足以應對此場景。
-         上面的JS邏輯會動態改變它的內容。
-    -->
   </div>
 </template>
 

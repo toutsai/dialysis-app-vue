@@ -4,6 +4,8 @@ import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
+// 【1. 導入通知中心】
+import { useNotification } from '@/composables/useNotification.js'
 
 import {
   SHIFT_CODES,
@@ -21,7 +23,7 @@ import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue' // <--- 1. 導入新元件
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- Layout and Constants ---
 const layoutData = {
@@ -101,7 +103,6 @@ const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const highlightedTeam = ref(null)
 
-// --- Dialog State ---  <--- 2. 新增 Dialog 狀態管理
 const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
@@ -116,6 +117,9 @@ const isPageLocked = computed(() => {
   today.setHours(0, 0, 0, 0)
   return currentDate.value < today
 })
+
+// 【2. 實例化通知中心】
+const { addNotification } = useNotification()
 
 function formatDate(date) {
   const year = date.getFullYear()
@@ -221,6 +225,7 @@ function setChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
+// 【3. 修改 saveDataToCloud 加入通知】
 async function saveDataToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -256,10 +261,16 @@ async function saveDataToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
+
+    // 發送全局事件，用於通知其他元件（如週排班總表）更新
     const updateEvent = new CustomEvent('schedule-updated', {
       detail: { date: currentRecord.date },
     })
     window.dispatchEvent(updateEvent)
+
+    // 發送側邊欄通知
+    addNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
+
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
@@ -661,7 +672,6 @@ function triggerPrint() {
   window.print()
 }
 
-// --- Dialog Handlers --- <--- 3. 新增 Dialog 處理函式
 function handleConfirm() {
   if (typeof onConfirmAction.value === 'function') {
     onConfirmAction.value()
@@ -687,17 +697,14 @@ function autoAssignNurseTeams() {
     return
   }
 
-  // <--- 4. 將執行邏輯包裝起來，並使用新的確認對話框
   confirmDialogMessage.value = '此操作將會覆蓋現有的護理師分組，您確定要繼續嗎？'
   onConfirmAction.value = () => {
-    // 實際的分配邏輯
     executeAutoAssignment()
   }
   isConfirmDialogVisible.value = true
 }
 
 function executeAutoAssignment() {
-  // 1. 收集並豐富病人資訊
   const getRichPatientList = (shiftCode) => {
     const patients = []
     for (const shiftId in currentRecord.schedule) {
@@ -726,7 +733,6 @@ function executeAutoAssignment() {
   const allNoonPatients = getRichPatientList(SHIFT_CODES.NOON)
   const allLatePatients = getRichPatientList(SHIFT_CODES.LATE)
 
-  // 2. 分離主院區和外圍病人
   const mainArea = (list) => list.filter((p) => !p.isPeripheral)
   const peripheral = (list) => list.filter((p) => p.isPeripheral)
   const sort = (list) => {
@@ -740,8 +746,6 @@ function executeAutoAssignment() {
     return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
   }
 
-  // 3. 為每個班別獨立定義規則並執行分配
-  // --- 早班 ---
   const earlyMain = mainArea(allEarlyPatients)
   const earlyTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
   const useEarlyTeamA = earlyMain.length > 36
@@ -763,7 +767,6 @@ function executeAutoAssignment() {
   const earlyAssignments = distributePatients(sort(earlyMain), earlyTeamsToUse, earlyRules)
   earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
 
-  // --- 午班 (上針) ---
   const noonMain = mainArea(allNoonPatients)
   const noonTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
   const useNoonTeamA = noonMain.length > 36
@@ -785,7 +788,6 @@ function executeAutoAssignment() {
   const noonOnAssignments = distributePatients(sort(noonMain), noonTeamsToUse, noonRules)
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  // --- 晚班 & 午班收針 ---
   const lateCombinedMain = [...mainArea(allLatePatients), ...mainArea(allNoonPatients)]
   const lateTeamsToUse = baseTeams.slice(0, 8).map((t) => `晚${t}`)
   const lateRules = {
@@ -798,7 +800,7 @@ function executeAutoAssignment() {
       specialTeam: null,
       regularTeams: baseTeams.slice(0, 8).map((t) => `晚${t}`),
       primaryCapacity: 4,
-      fillMethod: 'average', // 晚班固定用平均模式
+      fillMethod: 'average',
     },
   }
   const lateCombinedAssignments = distributePatients(
@@ -811,7 +813,6 @@ function executeAutoAssignment() {
     ...peripheral(allNoonPatients),
   ]
 
-  // 4. 更新 schedule 物件
   Object.values(currentRecord.schedule).forEach((slot) => {
     if (slot) {
       slot.nurseTeam = null
@@ -844,7 +845,6 @@ function executeAutoAssignment() {
     }
   }
 
-  // 5. 觸發UI更新
   setChange()
   statusIndicator.value = '自動分組完成，請確認並儲存'
   alertDialogTitle.value = '操作成功'
@@ -1269,7 +1269,6 @@ watch(currentDate, (newDate, oldDate) => {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  background-color: #f4f7f9;
 }
 .page-header {
   flex-shrink: 0;
