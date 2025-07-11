@@ -1,10 +1,5 @@
-<!-- 檔案路徑: src/views/StatsView.vue (最終正確版) -->
 <script setup>
-// ... 您的 <script setup> 內容完全不變，這裡省略以節省篇幅 ...
-// 我們上次修正的統計邏輯和權限判斷都是正確的。
-// 問題只出在 <template> 和 <style>。
-
-import { ref, onMounted, computed, reactive, watch } from 'vue'
+import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
@@ -12,6 +7,7 @@ import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import MemoIcon from '@/components/MemoIcon.vue'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
@@ -67,9 +63,9 @@ const patientNameForDialog = ref('')
 const activeTab = ref('early')
 
 // --- 權限狀態 ---
-const { isEditor } = useAuth()
+const auth = useAuth()
 const isPageLocked = computed(() => {
-  if (!isEditor.value) {
+  if (!auth.canEditSchedules.value) {
     return true
   }
   const today = new Date()
@@ -89,12 +85,8 @@ const formatDate = (date) => {
 
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
-  const name = patientDetail.name
-  const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
-  const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
-  const combinedTags = [...new Set([...autoTags, ...manualTags])]
-  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
-  const noteString = finalTags.join(' ')
+
+  // --- 第一行：床號 + 姓名 ---
   let identifier = ''
   if (patientDetail.shiftId.startsWith('peripheral')) {
     identifier = patientDetail.wardNumber || '外圍'
@@ -104,15 +96,30 @@ const getPatientDisplayString = (patientDetail) => {
       identifier = parts[1]
     }
   }
-  const displayParts = [identifier, name]
+  const name = patientDetail.name
+  const firstLineHtml = `<div class="patient-line-one">${identifier} - ${name}</div>`
+
+  // --- 第二行：模式 + 備註 ---
+  let secondLineContent = ''
+  // 加上特殊透析模式標籤
   if (patientDetail.mode && patientDetail.mode !== 'HD') {
-    const modeTag = `<span class="stats-special-mode">${patientDetail.mode}</span>`
-    displayParts.push(modeTag)
+    secondLineContent += `<span class="stats-special-mode">(${patientDetail.mode})</span>`
   }
-  if (noteString) {
-    displayParts.push(noteString)
+  // 加上其他備註標籤
+  const autoTags = (patientDetail.autoNote || '').split(' ').filter(Boolean)
+  const manualTags = (patientDetail.manualNote || '').split(' ').filter(Boolean)
+  const combinedTags = [...new Set([...autoTags, ...manualTags])]
+  const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
+  if (finalTags.length > 0) {
+    secondLineContent += ` <span class="note-display">${finalTags.join(' ')}</span>`
   }
-  return displayParts.join(' - ')
+
+  // 只有當第二行有內容時，才生成第二行的 HTML
+  const secondLineHtml = secondLineContent
+    ? `<div class="patient-line-two">${secondLineContent.trim()}</div>`
+    : ''
+
+  return firstLineHtml + secondLineHtml
 }
 
 const patientWithMemoIds = computed(
@@ -479,6 +486,10 @@ function triggerPrint() {
   window.print()
 }
 
+// --- Provide / Lifecycle Hooks ---
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
+
 onMounted(() => {
   loadData(currentDate.value)
 })
@@ -530,7 +541,6 @@ watch(currentDate, (newDate) => {
       </button>
     </div>
 
-    <!-- ======================== 【模板修正點】 ======================== -->
     <div v-if="activeTab === 'early'" class="stats-section" :class="{ 'is-locked': isPageLocked }">
       <h2>早班組別</h2>
       <div class="grid-container">
@@ -577,19 +587,13 @@ watch(currentDate, (newDate) => {
                   :draggable="!isPageLocked"
                   @dragstart="!isPageLocked && onDragStart($event, patient, 'earlyShift')"
                 >
-                  <span
+                  <div
                     class="patient-main-info"
                     @click="!isPageLocked && openBedChangeDialog(patient)"
                     v-html="getPatientDisplayString(patient)"
                     title="點擊換床"
-                  ></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
+                  ></div>
+                  <MemoIcon :patient-id="patient.id" />
                 </div>
               </div>
             </div>
@@ -612,19 +616,13 @@ watch(currentDate, (newDate) => {
                   :draggable="!isPageLocked"
                   @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOn')"
                 >
-                  <span
+                  <div
                     class="patient-main-info"
                     @click="!isPageLocked && openBedChangeDialog(patient)"
                     v-html="getPatientDisplayString(patient)"
                     title="點擊換床"
-                  ></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
+                  ></div>
+                  <MemoIcon :patient-id="patient.id" />
                 </div>
               </div>
             </div>
@@ -647,19 +645,13 @@ watch(currentDate, (newDate) => {
                   :draggable="!isPageLocked"
                   @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
                 >
-                  <span
+                  <div
                     class="patient-main-info"
                     @click="!isPageLocked && openBedChangeDialog(patient)"
                     v-html="getPatientDisplayString(patient)"
                     title="點擊換床"
-                  ></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
+                  ></div>
+                  <MemoIcon :patient-id="patient.id" />
                 </div>
               </div>
             </div>
@@ -726,19 +718,13 @@ watch(currentDate, (newDate) => {
                   :draggable="!isPageLocked"
                   @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
                 >
-                  <span
+                  <div
                     class="patient-main-info"
                     @click="!isPageLocked && openBedChangeDialog(patient)"
                     v-html="getPatientDisplayString(patient)"
                     title="點擊換床"
-                  ></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
+                  ></div>
+                  <MemoIcon :patient-id="patient.id" />
                 </div>
               </div>
             </div>
@@ -761,19 +747,13 @@ watch(currentDate, (newDate) => {
                   :draggable="!isPageLocked"
                   @dragstart="!isPageLocked && onDragStart($event, patient, 'lateShift')"
                 >
-                  <span
+                  <div
                     class="patient-main-info"
                     @click="!isPageLocked && openBedChangeDialog(patient)"
                     v-html="getPatientDisplayString(patient)"
                     title="點擊換床"
-                  ></span>
-                  <span
-                    v-if="patientWithMemoIds.has(patient.id)"
-                    class="memo-icon-inline"
-                    @click="showPatientMemos(patient.id)"
-                    title="有交班事項"
-                    >📝</span
-                  >
+                  ></div>
+                  <MemoIcon :patient-id="patient.id" />
                 </div>
               </div>
             </div>
@@ -841,7 +821,6 @@ watch(currentDate, (newDate) => {
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 20px;
   margin-bottom: 20px;
 }
 .toolbar-left,
@@ -999,7 +978,6 @@ watch(currentDate, (newDate) => {
   padding: 10px 8px;
 }
 
-/* ======================== 【CSS 修正點】 ======================== */
 .patient-item {
   display: flex;
   justify-content: space-between;
@@ -1012,31 +990,43 @@ watch(currentDate, (newDate) => {
   background-color: #f5f5f5;
   font-size: 0.95em;
   line-height: 1.4;
-  /* 移除 cursor: pointer; 因為點擊事件分離了 */
   user-select: none;
 }
 
 .patient-main-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   flex-grow: 1;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer; /* 只讓這部分可點擊 (用於編輯) */
-}
-
-.memo-icon-inline {
-  flex-shrink: 0;
   cursor: pointer;
-  margin-left: 8px;
-  font-size: 1.2em;
-  transition: transform 0.2s;
-  z-index: 2;
 }
 
-.memo-icon-inline:hover {
-  transform: scale(1.4);
+:deep(.patient-line-one) {
+  font-weight: bold;
+  font-size: 1em;
+  white-space: nowrap;
 }
-/* ============================================================= */
+:deep(.patient-line-two) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+:deep(.note-display) {
+  color: #c62828;
+  font-weight: bold;
+}
+
+:deep(.memo-icon-wrapper) {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+  align-self: center;
+}
 
 .patient-item:active {
   cursor: grabbing;
@@ -1079,9 +1069,8 @@ watch(currentDate, (newDate) => {
   background-color: #8cbdf6;
   border-color: #42a5f5;
 }
-.patient-item.has-note-highlight {
+.patient-item.has-note-highlight :deep(.patient-line-one) {
   color: #c62828;
-  font-weight: bold;
 }
 
 :deep(.stats-special-mode) {
@@ -1093,25 +1082,28 @@ watch(currentDate, (newDate) => {
   border: 1px solid #ef9a9a;
   border-radius: 4px;
   font-weight: bold;
-  font-size: 0.8em;
+  font-size: 0.9em;
   line-height: 1.2;
 }
 
-.is-locked button:not([@click='triggerPrint']) {
-  opacity: 0.65;
-  pointer-events: none;
-}
 .is-locked .stats-section {
   cursor: not-allowed;
 }
 .is-locked .patient-list-cell {
   background-color: #f5f5f5;
 }
-.is-locked .patient-item,
 .is-locked .name-select {
   pointer-events: none;
-}
-.is-locked .name-select {
   background-color: #eeeeee;
+}
+.is-locked .patient-main-info {
+  cursor: not-allowed;
+}
+.is-locked .patient-item {
+  pointer-events: none;
+}
+.is-locked :deep(.memo-icon-wrapper) {
+  pointer-events: auto;
+  cursor: pointer;
 }
 </style>
