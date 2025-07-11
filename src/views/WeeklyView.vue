@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted, computed, onUnmounted, provide, watchEffect } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
@@ -154,7 +154,7 @@ const patientNameForDialog = ref('')
 
 // --- 權限狀態 ---
 const auth = useAuth()
-const isPageLocked = computed(() => !auth.canEditSchedules)
+const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
 // --- Helper functions for state ---
 function updateLeftOffset(newOffset) {
@@ -261,25 +261,19 @@ const scheduledPatientIds = computed(() => {
   }
   return ids
 })
-
-// ======================== 【問題一 & 二 最終修正點】 ========================
 const problemsToSolve = computed(() => {
-  // 過濾出所有符合條件的未排床病人
   const unassignedPatients = allPatients.value.filter((patient) => {
     return (
       !patient.isDeleted &&
       !patient.isDiscontinued &&
       !scheduledPatientIds.value.has(patient.id) &&
-      patient.freq // 確保病人有頻率可以排
+      patient.freq
     )
   })
-
-  // 直接回傳給對話框的格式
   return {
     '未排床病人 (有頻率)': unassignedPatients,
   }
 })
-// ========================================================================
 
 // --- Functions and Logic ---
 function showPatientMemos(patientId) {
@@ -359,11 +353,17 @@ function handleSlotUpdate(weeklySlotId, slotData) {
 }
 
 function handleGridClick(slotId) {
-  if (isPageLocked.value) return
   const dayIndex = parseInt(slotId.split('-').pop(), 10)
-  if (isDateInPast(dayIndex)) {
+
+  // 結合權限和日期判斷
+  if (isPageLocked.value || isDateInPast(dayIndex)) {
+    const patientId = weekScheduleMap.value[slotId]?.patientId
+    if (patientId) {
+      showPatientMemos(patientId)
+    }
     return
   }
+
   const slotData = weekScheduleMap.value[slotId]
   if (slotData?.patientId) {
     clearingSlotId.value = slotId
@@ -373,6 +373,7 @@ function handleGridClick(slotId) {
     isPatientSelectDialogVisible.value = true
   }
 }
+
 function handlePatientSelect({ patientId, fillType }) {
   if (isPageLocked.value) return
   if (!patientId || !currentSlotId.value) return
@@ -803,14 +804,6 @@ function getWeeklyCellStyle(slotId) {
   }
   return {}
 }
-function onDragOver(event) {
-  if (isPageLocked.value) return
-  event.preventDefault()
-  const targetSlot = event.target.closest('.schedule-slot')
-  if (targetSlot && !targetSlot.classList.contains('is-past')) {
-    targetSlot.classList.add('drag-over')
-  }
-}
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
@@ -890,9 +883,12 @@ function runScheduleCheck() {
 
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
-  // 觸發對話框顯示，剩下的交給 computed property `problemsToSolve` 去處理
   isProblemSolverDialogVisible.value = true
 }
+
+// --- Provide / Lifecycle Hooks ---
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
 
 onMounted(() => {
   loadAllData()
