@@ -1273,7 +1273,6 @@ watch(currentDate, (newDate, oldDate) => {
 }
 .page-header {
   flex-shrink: 0;
-  padding: 1rem;
   border-bottom: 1px solid #e0e0e0;
   z-index: 10;
   background-color: white;
@@ -1286,7 +1285,6 @@ watch(currentDate, (newDate, oldDate) => {
 .schedule-content {
   flex-grow: 1;
   overflow-y: auto;
-  padding: 1rem;
   min-width: 0;
 }
 .inpatient-sidebar {
