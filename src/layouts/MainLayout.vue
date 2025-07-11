@@ -1,9 +1,14 @@
---- START OF FILE MainLayout.vue (Converted - 2025-07-09 11:33) ---
 <template>
   <div class="dashboard-container">
     <aside class="sidebar">
       <div>
-        <div class="sidebar-header">部北透析管理平台</div>
+        <div class="sidebar-header">
+          <!-- 【修正點 1/3】: 讓 header 變成 flex 容器，方便對齊 -->
+          <span class="platform-title">部北透析管理平台</span>
+          <span v-if="environmentTag" :class="['environment-tag', environmentTag.class]">
+            {{ environmentTag.text }}
+          </span>
+        </div>
         <ul class="sidebar-nav">
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
@@ -15,7 +20,6 @@
       </div>
 
       <div>
-        <!-- 【佈局修正 1/3】: 創建新的「後臺管理」區塊 -->
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
@@ -28,12 +32,10 @@
           </ul>
         </div>
 
-        <!-- 【佈局修正 2/3】: 調整用戶操作區塊的 HTML 結構 -->
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
           </div>
-          <!-- 上下對調，並使用 RouterLink 和 button -->
           <button @click="handleLogout" class="action-button btn-logout">登出</button>
           <RouterLink to="/account-settings" class="action-button btn-secondary">
             更改密碼
@@ -50,9 +52,27 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
+import { computed } from 'vue' // 【修正點 2/3】: 引入 computed
 
 const router = useRouter()
 const { currentUser, logout, isAdmin } = useAuth()
+
+// 【新增】建立一個計算屬性來決定環境標籤的文字和樣式
+const environmentTag = computed(() => {
+  // import.meta.env.MODE 的值會是 'development' 或 'production'
+  if (import.meta.env.MODE === 'development') {
+    return {
+      text: '(開發版)',
+      class: 'env-tag-dev',
+    }
+  } else if (import.meta.env.MODE === 'production') {
+    return {
+      text: '(正式版)',
+      class: 'env-tag-prod',
+    }
+  }
+  return null // 其他模式不顯示
+})
 
 function handleLogout() {
   logout()
@@ -73,21 +93,44 @@ function handleLogout() {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  /* 【佈局修正】: 使用 flexbox 讓區塊上下分開 */
   justify-content: space-between;
   transition: width 0.3s;
 }
 
 .sidebar-header {
   padding: 0 20px 20px 20px;
-  font-size: 1.5em;
-  font-weight: bold;
   border-bottom: 1px solid #34495e;
   white-space: nowrap;
+  /* 【修正點 3/3】: 修改 header 樣式以支援兩行對齊 */
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column; /* 垂直排列 */
+  align-items: center; /* 水平置中 */
+  gap: 4px; /* 標題和標籤之間的間距 */
 }
+
+.platform-title {
+  font-size: 1.5em;
+  font-weight: bold;
+}
+
+/* 【新增】環境標籤的樣式 */
+.environment-tag {
+  align-self: flex-end; /* 靠右對齊 */
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 2px 5px;
+  border-radius: 4px;
+  opacity: 0.9;
+}
+.env-tag-dev {
+  background-color: #ffc107; /* 黃色 */
+  color: #333;
+}
+.env-tag-prod {
+  background-color: #28a745; /* 綠色 */
+  color: white;
+}
+/* ======================== */
 
 .sidebar-nav {
   list-style: none;
@@ -129,39 +172,34 @@ function handleLogout() {
   background-color: #f4f7f9;
 }
 
-/* 【佈局修正 3/3】: 新增與調整樣式 */
-
-/* 後臺管理區塊樣式 */
 .management-section {
   padding: 20px 0;
-  border-top: 1px solid #34495e; /* 與上方分隔 */
+  border-top: 1px solid #34495e;
 }
 
 .section-title {
   font-size: 0.9em;
   font-weight: bold;
-  color: #95a5a6; /* 較淺的灰色 */
+  color: #95a5a6;
   text-transform: uppercase;
   letter-spacing: 1px;
   padding: 0 20px;
   margin-bottom: 10px;
 }
-/* 讓管理區塊的導航連結樣式與主導航一致 */
 .management-section .sidebar-nav {
   padding-top: 0;
 }
 .management-section .nav-link {
-  font-size: 1.2em; /* 可以稍微小一點 */
+  font-size: 1.2em;
 }
 
-/* 用戶資訊與登出按鈕的樣式 */
 .nav-footer {
   padding: 20px;
   border-top: 1px solid #4a627a;
   text-align: center;
-  display: flex; /* 使用 flexbox 來控制間距 */
+  display: flex;
   flex-direction: column;
-  gap: 10px; /* 加大按鈕間的間距 */
+  gap: 10px;
 }
 
 .user-info {
@@ -179,7 +217,6 @@ function handleLogout() {
   font-style: italic;
 }
 
-/* 操作按鈕通用樣式 */
 .action-button {
   display: block;
   width: 100%;
@@ -194,7 +231,6 @@ function handleLogout() {
   transition: background-color 0.2s;
 }
 
-/* 登出按鈕 (紅色) */
 .btn-logout {
   background: #e74c3c;
   color: white;
@@ -203,7 +239,6 @@ function handleLogout() {
   background: #c0392b;
 }
 
-/* 次要按鈕樣式 (更改密碼) (深灰色) */
 .btn-secondary {
   background-color: #4a5568;
   color: white;
