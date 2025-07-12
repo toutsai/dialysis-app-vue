@@ -24,7 +24,8 @@ const FREQ_OPTIONS = [
 ]
 const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP']
 const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
-const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', '隔離']
+// 【修改 1/3】: 新增 'COVID' 到疾病清單
+const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', 'COVID', '隔離']
 
 const isEditing = computed(() => !!(form.value && form.value.id))
 
@@ -41,15 +42,13 @@ const patientTypeText = computed(() => {
   }
 })
 
-// 【新增】: 監聽彈窗可見性，以鎖定/解鎖背景滾動
 watch(
   () => props.isModalVisible,
   (isVisible) => {
     if (typeof document !== 'undefined') {
       if (isVisible) {
         document.body.classList.add('modal-open')
-        // 當彈窗打開時，進行初始化
-        form.value = { ...props.patientData }
+        form.value = JSON.parse(JSON.stringify(props.patientData)) // 深拷貝
         if (!form.value.id) {
           form.value.status = props.patientType
         }
@@ -62,6 +61,16 @@ watch(
     }
   },
 )
+
+// 【修改 2/3】: 處理自訂標籤的點擊事件
+function toggleDisease(disease) {
+  const index = form.value.diseases.indexOf(disease)
+  if (index > -1) {
+    form.value.diseases.splice(index, 1)
+  } else {
+    form.value.diseases.push(disease)
+  }
+}
 
 function closeModal() {
   emit('close')
@@ -77,7 +86,6 @@ function handleSave() {
 </script>
 
 <template>
-  <!-- 【修改】: 使用 Transition 元件包裹，並用 overlay 實現背景和居中 -->
   <Transition name="modal-fade">
     <div v-if="isModalVisible" class="modal-overlay" @click.self="closeModal">
       <div class="modal-content">
@@ -157,12 +165,21 @@ function handleSave() {
               <textarea id="remarks" rows="3" v-model="form.remarks"></textarea>
             </div>
 
+            <!-- 【修改 3/3】: 將 checkbox 改為自訂的標籤樣式 -->
             <fieldset class="form-group form-field-full">
               <legend>須注意疾病</legend>
-              <div class="checkbox-container">
-                <div v-for="d in DISEASES" :key="d" class="checkbox-group">
-                  <input type="checkbox" :id="`disease-${d}`" :value="d" v-model="form.diseases" />
-                  <label :for="`disease-${d}`">{{ d }}</label>
+              <div class="custom-checkbox-container">
+                <div
+                  v-for="d in DISEASES"
+                  :key="d"
+                  class="custom-checkbox"
+                  :class="{
+                    selected: form.diseases?.includes(d),
+                    [`disease-${d.toLowerCase()}`]: form.diseases?.includes(d),
+                  }"
+                  @click="toggleDisease(d)"
+                >
+                  {{ d }}
                 </div>
               </div>
             </fieldset>
@@ -172,14 +189,20 @@ function handleSave() {
               class="form-group form-field-full"
             >
               <legend>狀態標記</legend>
-              <div class="checkbox-container">
-                <div class="checkbox-group">
-                  <input type="checkbox" id="is-first-dialysis" v-model="form.isFirstDialysis" />
-                  <label for="is-first-dialysis">首透</label>
+              <div class="custom-checkbox-container">
+                <div
+                  class="custom-checkbox"
+                  :class="{ selected: form.isFirstDialysis }"
+                  @click="form.isFirstDialysis = !form.isFirstDialysis"
+                >
+                  首透
                 </div>
-                <div class="checkbox-group">
-                  <input type="checkbox" id="is-discontinued" v-model="form.isDiscontinued" />
-                  <label for="is-discontinued">中止透析</label>
+                <div
+                  class="custom-checkbox"
+                  :class="{ selected: form.isDiscontinued }"
+                  @click="form.isDiscontinued = !form.isDiscontinued"
+                >
+                  中止透析
                 </div>
               </div>
             </fieldset>
@@ -220,12 +243,12 @@ function handleSave() {
   padding: 24px;
   border: 1px solid #dee2e6;
   width: 90%;
-  max-width: 800px; /* 增加寬度以容納三列表單 */
+  max-width: 800px;
   border-radius: 12px;
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
   display: flex;
   flex-direction: column;
-  max-height: 90vh; /* 限制最大高度 */
+  max-height: 90vh;
 }
 
 /* 彈窗頭部 */
@@ -259,15 +282,14 @@ function handleSave() {
 
 /* 彈窗主體 (包含表單) */
 .modal-body {
-  overflow-y: auto; /* 當內容過多時，內部滾動 */
-  padding-right: 10px; /* 預留滾動條空間 */
+  overflow-y: auto;
+  padding-right: 10px;
   margin-right: -10px;
 }
 
 /* 表單網格佈局 */
 .form-grid {
   display: grid;
-  /* 自動適應，每列最小 220px */
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
 }
@@ -277,7 +299,6 @@ function handleSave() {
   flex-direction: column;
 }
 
-/* 表單欄位全寬 */
 .form-field-full {
   grid-column: 1 / -1;
 }
@@ -289,7 +310,6 @@ function handleSave() {
   font-size: 0.95rem;
 }
 
-/* 輸入框、下拉選單、文本域的統一風格 */
 .form-field input[type='text'],
 .form-field input[type='date'],
 .form-field select,
@@ -312,7 +332,7 @@ function handleSave() {
   box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
 }
 
-/* Fieldset 樣式 */
+/* Fieldset 和 Legend 樣式 */
 .form-group {
   border: 1px solid #e9ecef;
   padding: 16px;
@@ -324,25 +344,44 @@ function handleSave() {
   font-weight: 500;
   color: #495057;
 }
-.checkbox-container {
+
+/* --- 【全新】自訂標籤 (checkbox) 樣式 --- */
+.custom-checkbox-container {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px 24px;
+  gap: 12px;
 }
-.checkbox-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.checkbox-group input[type='checkbox'] {
-  height: 1.1em;
-  width: 1.1em;
+.custom-checkbox {
+  padding: 8px 16px;
+  border: 1px solid #ced4da;
+  border-radius: 20px; /* 改為圓角膠囊形狀 */
   cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease-in-out;
+  font-weight: 500;
+  color: #495057;
+  background-color: #fff;
 }
-.checkbox-group label {
-  font-weight: normal;
-  margin-bottom: 0;
-  cursor: pointer;
+.custom-checkbox:hover {
+  border-color: #adb5bd;
+  background-color: #f8f9fa;
+}
+.custom-checkbox.selected {
+  color: #fff;
+  border-color: transparent;
+  background-color: var(--primary-color, #007bff); /* 預設選中顏色 */
+}
+/* 特定疾病的選中顏色 */
+.custom-checkbox.selected.disease-hiv,
+.custom-checkbox.selected.disease-rpr,
+.custom-checkbox.selected.disease-hbv,
+.custom-checkbox.selected.disease-hcv,
+.custom-checkbox.selected.disease-covid {
+  background-color: var(--danger-color, #dc3545);
+}
+.custom-checkbox.selected.disease-隔離 {
+  background-color: var(--warning-color, #ffc107);
+  color: #212529;
 }
 
 /* 彈窗底部 */

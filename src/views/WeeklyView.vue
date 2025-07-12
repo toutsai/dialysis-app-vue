@@ -974,7 +974,6 @@ onUnmounted(() => {
               :stats-data="statsToolbarData"
               :weekdays="statsToolbarWeekdays"
               :column-widths="columnWidths"
-              size="compact"
             />
           </div>
           <ScheduleTable

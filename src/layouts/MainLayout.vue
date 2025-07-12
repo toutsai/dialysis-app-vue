@@ -54,14 +54,17 @@
           </ul>
         </div>
 
+        <!-- 【修改】將登出與修改密碼按鈕放入 button-group 中 -->
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
           </div>
-          <button @click="handleLogout" class="action-button btn-logout">登出</button>
-          <RouterLink to="/account-settings" class="action-button btn-secondary">
-            更改密碼
-          </RouterLink>
+          <div class="button-group">
+            <RouterLink to="/account-settings" class="action-button btn-secondary">
+              更改密碼
+            </RouterLink>
+            <button @click="handleLogout" class="action-button btn-logout">登出</button>
+          </div>
         </div>
       </div>
     </aside>
@@ -133,15 +136,18 @@ const formatTime = (date) => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  height: 100vh;
 }
-/* 【CSS 核心修改】: 將側邊欄分為上下兩部分 */
+
 .main-nav-section {
   padding: 20px 0;
 }
+
 .footer-section {
   display: flex;
   flex-direction: column;
+  flex-grow: 1;
+  min-height: 0;
 }
 
 .sidebar-header {
@@ -182,15 +188,14 @@ const formatTime = (date) => {
   margin: 0;
 }
 
-/* 【CSS 核心修改】: 縮小導航連結的垂直 padding */
 .nav-link {
   display: flex;
   align-items: center;
   gap: 15px;
   color: #ecf0f1;
   text-decoration: none;
-  padding: 8px 20px; /* 從 10px 減少到 8px */
-  font-size: 1.2em; /* 稍微縮小字體 */
+  padding: 8px 20px;
+  font-size: 1.2em;
   transition:
     background-color 0.2s,
     padding-left 0.2s;
@@ -220,7 +225,7 @@ const formatTime = (date) => {
 }
 
 .section-title {
-  font-size: 0.8em; /* 縮小一點 */
+  font-size: 0.8em;
   font-weight: bold;
   color: #95a5a6;
   text-transform: uppercase;
@@ -232,7 +237,7 @@ const formatTime = (date) => {
   padding-top: 0;
 }
 .management-section .nav-link {
-  font-size: 1.1em; /* 縮小一點 */
+  font-size: 1.1em;
   padding: 8px 20px;
 }
 
@@ -242,11 +247,11 @@ const formatTime = (date) => {
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px; /* 調整使用者名稱與按鈕群組的間距 */
 }
 
 .user-info {
-  margin-bottom: 10px;
+  margin-bottom: 0; /* 因 nav-footer已有 gap，移除此處的 margin */
   font-size: 1em;
   line-height: 1.4;
 }
@@ -255,17 +260,23 @@ const formatTime = (date) => {
   display: block;
 }
 
+/* 【新增】按鈕群組樣式 */
+.button-group {
+  display: flex;
+  gap: 8px; /* 設定按鈕間的距離 */
+}
+
+/* 【修改】操作按鈕樣式 */
 .action-button {
-  display: block;
-  width: 100%;
+  flex: 1; /* 讓兩個按鈕平分寬度 */
   text-align: center;
-  padding: 0.6rem;
+  padding: 0.5rem; /* 稍微縮小內邊距 */
   border-radius: 5px;
   border: none;
   cursor: pointer;
   font-weight: bold;
   text-decoration: none;
-  font-size: 0.9em;
+  font-size: 0.85em; /* 稍微縮小字體 */
   transition: background-color 0.2s;
 }
 
@@ -285,40 +296,36 @@ const formatTime = (date) => {
   background-color: #2d3748;
 }
 
-/* --- 【通知區域樣式優化】 --- */
 .notification-area {
   padding: 10px;
-  max-height: 240px; /* 限制最大高度，3個通知的高度差不多是這個值 */
-  overflow-y: auto; /* 超出高度時顯示滾動條 */
+  overflow-y: auto;
   border-top: 1px solid #34495e;
+  flex-grow: 1;
+  min-height: 0;
 }
 .notification-area .section-title {
   padding: 0 10px 8px 10px;
   margin: 0;
 }
 
-/* --- 【滾動條樣式修改】 --- */
-/* For Webkit-based browsers (Chrome, Safari, Edge) */
 .notification-area::-webkit-scrollbar {
   width: 6px;
 }
 .notification-area::-webkit-scrollbar-track {
-  background: transparent; /* 滾動條背景透明 */
+  background: transparent;
 }
 .notification-area::-webkit-scrollbar-thumb {
-  background-color: #5a6a7a; /* << 修改為淺灰色 */
+  background-color: #5a6a7a;
   border-radius: 20px;
 }
 .notification-area::-webkit-scrollbar-thumb:hover {
-  background-color: #4a5568; /* << 修改為稍深的灰色 */
+  background-color: #4a5568;
 }
 
-/* For Firefox */
 .notification-area {
   scrollbar-width: thin;
-  scrollbar-color: #5a6a7a transparent; /* << 修改為淺灰色 和 背景顏色 */
+  scrollbar-color: #5a6a7a transparent;
 }
-/* --- 【滾動條樣式修改結束】 --- */
 
 .notification-list {
   display: flex;
@@ -328,7 +335,7 @@ const formatTime = (date) => {
 
 .notification-item {
   border-radius: 6px;
-  padding: 6px 10px; /* 縮小內邊距 */
+  padding: 6px 10px;
   color: #1a202c;
   display: flex;
   flex-direction: column;
@@ -357,11 +364,11 @@ const formatTime = (date) => {
   gap: 8px;
 }
 .notification-icon {
-  font-size: 1.2em; /* 稍微縮小圖標 */
+  font-size: 1.2em;
 }
 .notification-message {
   margin: 0;
-  font-size: 0.85em; /* 縮小訊息文字 */
+  font-size: 0.85em;
   font-weight: 500;
   line-height: 1.3;
   flex-grow: 1;

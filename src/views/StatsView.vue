@@ -47,6 +47,7 @@ const nurseNameList = [
   '林佩佳',
   '吳思婷',
   '吳幸美',
+  '林芳羽',
 ]
 const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
@@ -668,7 +669,7 @@ watch(currentDate, (newDate) => {
           <span class="current-date-text">{{ formatDate(currentDate) }}</span>
           <span class="weekday-display">{{ weekdayDisplay }}</span>
           <button @click="changeDate(1)" class="date-nav-btn">下一天 ></button>
-          <button @click="goToToday" id="today-btn">回到今日</button>
+          <button @click="goToToday">回到今日</button>
         </div>
       </div>
       <div class="toolbar-right">
@@ -696,7 +697,6 @@ watch(currentDate, (newDate) => {
         <span class="duty-role-tag role-field-commander">現場指揮官</span>
         <span class="duty-person">莊明月護理長</span>
         <span class="duty-divider"></span>
-        <!-- ✨ 核心修正點：對調「工友」和「引導救護班」的內容和樣式 ✨ -->
         <span class="duty-role-tag role-guide">引導救護班</span>
         <span class="duty-person">工友</span>
       </div>
@@ -735,10 +735,11 @@ watch(currentDate, (newDate) => {
 
     <div class="stats-sections-wrapper">
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
-        <h2>早班組別</h2>
+        <!-- <h2>早班組別</h2> <--【修改】移除此處的 H2 -->
         <div class="grid-container">
           <div class="grid-header">
-            <div class="row-header"></div>
+            <!--【修改】將標題移入此處-->
+            <div class="row-header section-title-cell">早班</div>
             <div
               v-for="(_, teamName) in effectiveStatsData.early"
               :key="teamName"
@@ -896,10 +897,11 @@ watch(currentDate, (newDate) => {
       </div>
 
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
-        <h2>晚班組別</h2>
+        <!-- <h2>晚班組別</h2> <--【修改】移除此處的 H2 -->
         <div class="grid-container">
           <div class="grid-header">
-            <div class="row-header"></div>
+            <!--【修改】將標題移入此處-->
+            <div class="row-header section-title-cell">晚班</div>
             <div
               v-for="(_, teamName) in effectiveStatsData.late"
               :key="teamName"
@@ -1126,6 +1128,8 @@ watch(currentDate, (newDate) => {
   color: white;
   border-color: #4caf50;
 }
+/*【修改】移除 h2 的樣式*/
+/*
 .stats-section h2 {
   font-size: 1.5em;
   color: #005a9c;
@@ -1133,6 +1137,7 @@ watch(currentDate, (newDate) => {
   padding-bottom: 10px;
   margin-bottom: 15px;
 }
+*/
 .grid-container {
   display: grid;
   grid-template-columns: 90px repeat(12, 1fr);
@@ -1171,7 +1176,7 @@ watch(currentDate, (newDate) => {
   text-align: center;
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 2; /* 提高 z-index */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1180,6 +1185,19 @@ watch(currentDate, (newDate) => {
   background-color: #e3f2fd;
   font-weight: bold;
   text-align: center;
+  position: sticky; /*【新增】讓欄位標頭固定*/
+  top: 0;
+  z-index: 1;
+}
+/*【新增】表格左上角標題儲存格的樣式*/
+.section-title-cell {
+  font-size: 1.5em;
+  color: #005a9c;
+  background-color: #e3f2fd;
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3; /*確保在最上層*/
 }
 .name-cell {
   padding: 0 !important;
