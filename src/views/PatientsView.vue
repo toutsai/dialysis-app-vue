@@ -675,31 +675,31 @@ onMounted(() => {
 <template>
   <div>
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
-      <h1 class="page-title">透析病人管理系統</h1>
+      <h1 class="page-title">透析病人管理</h1>
       <div class="tabs">
         <button class="tab-button" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
-          急診病人
+          急診
         </button>
         <button
           class="tab-button"
           :class="{ active: activeTab === 'ipd' }"
           @click="changeTab('ipd')"
         >
-          住院病人
+          住院
         </button>
         <button
           class="tab-button"
           :class="{ active: activeTab === 'opd' }"
           @click="changeTab('opd')"
         >
-          門診常規
+          門診
         </button>
         <button
           class="tab-button"
           :class="{ active: activeTab === 'deleted' }"
           @click="changeTab('deleted')"
         >
-          已刪除病人
+          已刪除
         </button>
       </div>
 
@@ -708,7 +708,7 @@ onMounted(() => {
         <div class="view-header">
           <div class="controls-left">
             <button @click="openAddPatientModal('er')" :disabled="isPageLocked" class="btn-add">
-              新增急診病人
+              新增病人
             </button>
             <div class="search-group">
               <input type="text" v-model="erSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
@@ -848,7 +848,7 @@ onMounted(() => {
         <div class="view-header">
           <div class="controls-left">
             <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked" class="btn-add">
-              新增住院病人
+              新增病人
             </button>
             <div class="search-group">
               <input type="text" v-model="ipdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
@@ -988,7 +988,7 @@ onMounted(() => {
         <div class="view-header">
           <div class="controls-left">
             <button @click="openAddPatientModal('opd')" :disabled="isPageLocked" class="btn-add">
-              新增門診病人
+              新增病人
             </button>
             <div class="search-group">
               <input type="text" v-model="opdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
