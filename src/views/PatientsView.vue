@@ -1,4 +1,4 @@
-// 檔案路徑: src/views/PatientsView.vue (已修正)
+<!-- 檔案路徑: src/views/PatientsView.vue (已修正) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -543,7 +543,6 @@ function openOrderModal(patient) {
   isOrderModalVisible.value = true
 }
 
-// ✨ 核心修正點：此函式現在處理乾淨的資料儲存 ✨
 async function handleSaveOrder(orderDataFromModal) {
   if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
     alertDialogTitle.value = '儲存失敗'
@@ -556,7 +555,6 @@ async function handleSaveOrder(orderDataFromModal) {
   const patientName = editingPatientForOrder.value.name
   const updatedAt = new Date().toISOString()
 
-  // 1. 建立一個 "乾淨" 的醫囑物件，只包含醫囑本身需要的欄位
   const cleanOrders = {
     ak: orderDataFromModal.ak || '',
     dialysateCa: orderDataFromModal.dialysateCa || '',
@@ -567,20 +565,16 @@ async function handleSaveOrder(orderDataFromModal) {
     effectiveDate: orderDataFromModal.effectiveDate || updatedAt.slice(0, 10),
   }
 
-  // 2. 建立要寫入歷史集合的完整紀錄
   const historyRecord = {
     patientId: patientId,
     patientName: patientName,
-    orders: cleanOrders, // 使用乾淨的醫囑物件
-    updatedAt: updatedAt, // 在頂層記錄修改時間
+    orders: cleanOrders,
+    updatedAt: updatedAt,
   }
 
   try {
-    // 3. 使用 Promise.all 同時更新兩個地方
     await Promise.all([
-      // A. 更新病人主檔上的 `dialysisOrders` 欄位
       patientApi.update(patientId, { dialysisOrders: cleanOrders }),
-      // B. 在歷史集合中新增一筆完整紀錄
       ordersHistoryApi.save(historyRecord),
     ])
 
@@ -680,7 +674,7 @@ onMounted(() => {
                 <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th class="col-shrink">操作</th>
+                <th class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -712,34 +706,42 @@ onMounted(() => {
                 </td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
-                <td class="col-shrink action-buttons">
-                  <button
-                    class="btn-edit"
-                    @click="openEditPatientModal(p)"
-                    :disabled="isPageLocked"
-                  >
-                    編輯
-                  </button>
-                  <button class="btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                <td class="col-actions action-buttons">
+                  <button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
                     透析醫囑
                   </button>
                   <button
-                    class="btn-transfer"
+                    class="btn btn-transfer"
                     @click="transferPatient(p.id, 'ipd')"
                     :disabled="isPageLocked"
                   >
                     轉住院
                   </button>
                   <button
-                    class="btn-transfer"
+                    class="btn btn-transfer"
                     @click="transferPatient(p.id, 'opd')"
                     :disabled="isPageLocked"
                   >
                     轉門診
                   </button>
-                  <button class="btn-delete" @click="deletePatient(p.id)" :disabled="isPageLocked">
-                    刪除
-                  </button>
+                  <div class="icon-buttons">
+                    <button
+                      class="btn-icon btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                      title="編輯"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      class="btn-icon btn-delete"
+                      @click="deletePatient(p.id)"
+                      :disabled="isPageLocked"
+                      title="刪除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -796,7 +798,7 @@ onMounted(() => {
                 <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th class="col-shrink">操作</th>
+                <th class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -828,34 +830,42 @@ onMounted(() => {
                 </td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
-                <td class="col-shrink action-buttons">
-                  <button
-                    class="btn-edit"
-                    @click="openEditPatientModal(p)"
-                    :disabled="isPageLocked"
-                  >
-                    編輯
-                  </button>
-                  <button class="btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                <td class="col-actions action-buttons">
+                  <button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
                     透析醫囑
                   </button>
                   <button
-                    class="btn-transfer"
+                    class="btn btn-transfer"
                     @click="transferPatient(p.id, 'er')"
                     :disabled="isPageLocked"
                   >
                     轉急診
                   </button>
                   <button
-                    class="btn-transfer"
+                    class="btn btn-transfer"
                     @click="transferPatient(p.id, 'opd')"
                     :disabled="isPageLocked"
                   >
                     轉門診
                   </button>
-                  <button class="btn-delete" @click="deletePatient(p.id)" :disabled="isPageLocked">
-                    刪除
-                  </button>
+                  <div class="icon-buttons">
+                    <button
+                      class="btn-icon btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                      title="編輯"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      class="btn-icon btn-delete"
+                      @click="deletePatient(p.id)"
+                      :disabled="isPageLocked"
+                      title="刪除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -911,7 +921,7 @@ onMounted(() => {
                 <th @click="handleSort('createdAt')" class="col-shrink">
                   新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
                 </th>
-                <th class="col-shrink">操作</th>
+                <th class="col-actions">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -932,34 +942,42 @@ onMounted(() => {
                 <td class="col-shrink">{{ p.vascAccess }}</td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.createdAt) }}</td>
-                <td class="col-shrink action-buttons">
-                  <button
-                    class="btn-edit"
-                    @click="openEditPatientModal(p)"
-                    :disabled="isPageLocked"
-                  >
-                    編輯
-                  </button>
-                  <button class="btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                <td class="col-actions action-buttons">
+                  <button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
                     透析醫囑
                   </button>
                   <button
-                    class="btn-transfer"
+                    class="btn btn-transfer"
                     @click="transferPatient(p.id, 'er')"
                     :disabled="isPageLocked"
                   >
                     轉急診
                   </button>
                   <button
-                    class="btn-transfer"
+                    class="btn btn-transfer"
                     @click="transferPatient(p.id, 'ipd')"
                     :disabled="isPageLocked"
                   >
                     轉住院
                   </button>
-                  <button class="btn-delete" @click="deletePatient(p.id)" :disabled="isPageLocked">
-                    刪除
-                  </button>
+                  <div class="icon-buttons">
+                    <button
+                      class="btn-icon btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                      title="編輯"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      class="btn-icon btn-delete"
+                      @click="deletePatient(p.id)"
+                      :disabled="isPageLocked"
+                      title="刪除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1004,7 +1022,7 @@ onMounted(() => {
                 <td class="col-shrink">{{ p.deleteReason }}</td>
                 <td class="col-expand">{{ p.remarks }}</td>
                 <td class="col-shrink">{{ formatDate(p.deletedAt) }}</td>
-                <td class="col-shrink action-buttons">
+                <td class="col-actions action-buttons">
                   <button
                     class="btn-restore"
                     @click="restorePatient(p.id)"
@@ -1287,44 +1305,82 @@ onMounted(() => {
 .patient-table tr.status-discontinued button {
   text-decoration: none;
 }
-.action-buttons button {
-  margin-right: 5px;
+
+/* ✨ 核心修正點：調整操作按鈕的樣式和佈局 ✨ */
+.col-actions {
+  width: 320px; /* 給予一個固定的寬度以容納所有按鈕 */
+}
+.action-buttons {
+  display: flex;
+  flex-wrap: nowrap; /* 強制不換行 */
+  gap: 0.5rem;
+  align-items: center;
+}
+.action-buttons .btn {
   padding: 5px 10px;
   font-size: 0.9em;
   border-radius: 4px;
   border: none;
   cursor: pointer;
   color: white;
-  margin-bottom: 5px;
+  white-space: nowrap; /* 確保按鈕文字不換行 */
 }
-.btn-edit {
-  background-color: var(--primary-color);
-}
-.btn-transfer {
-  background-color: var(--info-color);
-}
-.btn-order {
+.btn.btn-order {
   background-color: #ff9c07;
   color: #212529;
   border-color: #ffc107;
 }
-.btn-order:hover:not(:disabled) {
-  background-color: #ff9c07;
+.btn.btn-order:hover:not(:disabled) {
+  background-color: #e0a800;
   border-color: #d39e00;
 }
-.btn-delete {
-  background-color: var(--danger-color);
+.btn.btn-transfer {
+  background-color: #17a2b8;
 }
-.btn-restore {
+.btn.btn-restore {
   background-color: var(--success-color);
 }
+.icon-buttons {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto; /* 將圖示按鈕推到最右邊 */
+}
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  line-height: 1;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+.btn-icon.btn-edit {
+  color: #007bff;
+}
+.btn-icon.btn-delete {
+  color: #dc3545;
+}
+.btn-icon.btn-edit:hover {
+  background-color: #e0e7ff;
+}
+.btn-icon.btn-delete:hover {
+  background-color: #fee2e2;
+}
+
 .table-wrapper {
   max-height: calc(70vh - 50px);
   overflow-y: auto;
 }
 .is-locked .view-header button,
 .is-locked .toolbar button,
-.is-locked .action-buttons button {
+.is-locked .action-buttons .btn,
+.is-locked .action-buttons .btn-icon {
   opacity: 0.65;
   pointer-events: none;
 }
@@ -1342,8 +1398,8 @@ onMounted(() => {
 .patient-table td.col-shrink:has(.name-cell-content) {
   text-align: left;
 }
-.patient-table td.action-buttons {
-  text-align: center;
+.patient-table td.col-actions {
+  text-align: left;
 }
 .date-subtext {
   font-size: 0.8em;

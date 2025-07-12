@@ -1,139 +1,144 @@
 <!-- src/components/BedChangeDialog.vue (重構版) -->
 <script setup>
 import { ref, computed, watch } from 'vue'
-
-// 1. 引入我們需要的常量
-import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
+import { SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
 
 const props = defineProps({
   isVisible: Boolean,
-  patientInfo: Object, // { id, shiftId, name, ... } e.g., shiftId: 'bed-29-early'
-  currentSchedule: Object, // 完整的當日 schedule 物件
+  patientInfo: Object,
+  currentSchedule: Object,
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
 
-const selectedNewBed = ref(null)
+const selectedNewBedId = ref(null)
 
-// 【核心邏輯】計算可用的空床位
-const availableBeds = computed(() => {
-  if (!props.isVisible || !props.patientInfo || !props.patientInfo.shiftId) return []
+// 肝炎床位號碼
+const hepatitisBedNumbers = [31, 32, 33, 35, 36]
+function isHepatitisBed(bedNum) {
+  return typeof bedNum === 'number' && hepatitisBedNumbers.includes(bedNum)
+}
 
-  // 2. 從 patientInfo.shiftId 中解析出班別代碼
-  const shiftCode = props.patientInfo.shiftId.split('-')[2] // 'early', 'noon', 'late'
+// 【核心邏輯】計算可用的空床位，並按班別分組
+const availableBedsByShift = computed(() => {
+  if (!props.isVisible || !props.currentSchedule) return {}
 
-  // 檢查是否是有效的班別代碼
-  if (!Object.values(SHIFT_CODES).includes(shiftCode)) {
-    console.error(`無效的班別代碼: ${shiftCode}`)
-    return []
-  }
-
-  // 3. 定義所有可能的床號
-  const allBedNumbers = [
-    1,
-    2,
-    3,
-    5,
-    6,
-    7,
-    8,
-    9,
-    11,
-    12,
-    13,
-    15,
-    16,
-    17,
-    18,
-    19,
-    21,
-    22,
-    23,
-    25,
-    26,
-    27,
-    28,
-    29,
-    31,
-    32,
-    33,
-    35,
-    36,
-    37,
-    38,
-    39,
-    51,
-    52,
-    53,
-    55,
-    56,
-    57,
-    58,
-    59,
-    61,
-    62,
-    63,
-    65,
-    'peripheral-1',
-    'peripheral-2',
-    'peripheral-3',
-    'peripheral-4',
-    'peripheral-5',
-    'peripheral-6',
+  const allPossibleBeds = [
+    ...Array.from({ length: 65 }, (_, i) => i + 1).filter(
+      (i) => ![4, 10, 14, 20, 24, 30, 34, 40, 50, 54, 60, 64].includes(i),
+    ), // 假設1-65床，排除不存在的號碼
+    ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
   ]
 
-  // 4. 找出所有已佔用的床位
   const occupiedBedShiftIds = new Set(Object.keys(props.currentSchedule))
 
-  // 5. 過濾出同班次的空床位
-  return allBedNumbers
-    .map((bedNum) => `bed-${bedNum}-${shiftCode}`) // 組裝成標準 ID
-    .filter((shiftId) => !occupiedBedShiftIds.has(shiftId)) // 檢查該 ID 是否未被佔用
+  const available = {
+    [SHIFT_CODES.EARLY]: [],
+    [SHIFT_CODES.NOON]: [],
+    [SHIFT_CODES.LATE]: [],
+  }
+
+  allPossibleBeds.forEach((bedNum) => {
+    Object.values(SHIFT_CODES).forEach((shiftCode) => {
+      const bedIdPart = typeof bedNum === 'string' ? bedNum : `bed-${bedNum}`
+      const shiftId = `${bedIdPart}-${shiftCode}`
+      if (!occupiedBedShiftIds.has(shiftId)) {
+        available[shiftCode].push(bedNum)
+      }
+    })
+  })
+
+  // 排序
+  Object.values(available).forEach((beds) => {
+    beds.sort((a, b) => {
+      const numA = typeof a === 'number' ? a : Infinity
+      const numB = typeof b === 'number' ? b : Infinity
+      if (numA !== Infinity || numB !== Infinity) return numA - numB
+      return String(a).localeCompare(String(b))
+    })
+  })
+
+  return available
 })
 
-// 當 Dialog 打開時，清空上一次的選擇
 watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      selectedNewBed.value = null
+      selectedNewBedId.value = null
     }
   },
 )
 
+function handleBedClick(bedNum, shiftCode) {
+  const bedIdPart = typeof bedNum === 'string' ? bedNum : `bed-${bedNum}`
+  selectedNewBedId.value = `${bedIdPart}-${shiftCode}`
+}
+
 function confirmChange() {
-  if (!selectedNewBed.value) {
+  if (!selectedNewBedId.value) {
     alert('請選擇一個新的床位！')
     return
   }
   emit('confirm', {
     oldShiftId: props.patientInfo.shiftId,
-    newShiftId: selectedNewBed.value,
+    newShiftId: selectedNewBedId.value,
   })
+}
+
+function getBedDisplay(bed) {
+  if (typeof bed === 'string' && bed.startsWith('peripheral-')) {
+    return `外圍 ${bed.split('-')[1]}`
+  }
+  return bed
 }
 </script>
 
 <template>
-  <div v-if="isVisible" class="dialog-overlay">
+  <div v-if="isVisible" class="dialog-overlay" @click.self="$emit('cancel')">
     <div class="dialog-content">
-      <h3 class="dialog-title">更換床位</h3>
-      <div v-if="patientInfo" class="patient-info">
-        <p><strong>病人:</strong> {{ patientInfo.name }}</p>
-        <p><strong>目前床位:</strong> {{ patientInfo.shiftId }}</p>
+      <div class="dialog-header">
+        <h3>更換床位</h3>
+        <button @click="$emit('cancel')" class="close-btn">×</button>
       </div>
-      <div class="form-group">
-        <label for="bed-select">請選擇新床位:</label>
-        <select id="bed-select" v-model="selectedNewBed" class="bed-select-input">
-          <option :value="null" disabled>-- 請選擇 --</option>
-          <option v-for="bedId in availableBeds" :key="bedId" :value="bedId">
-            {{ bedId }}
-          </option>
-        </select>
-        <p v-if="availableBeds.length === 0" class="no-beds-message">此班次已無可用空床！</p>
+
+      <div class="dialog-body">
+        <div v-if="patientInfo" class="patient-info">
+          <span><strong>病人:</strong> {{ patientInfo.name }}</span>
+          <span><strong>目前床位:</strong> {{ patientInfo.shiftId }}</span>
+        </div>
+
+        <div class="beds-container">
+          <div
+            v-for="(beds, shiftCode) in availableBedsByShift"
+            :key="shiftCode"
+            class="shift-group"
+          >
+            <h4>{{ getShiftDisplayName(shiftCode) }}</h4>
+            <div v-if="beds.length > 0" class="bed-grid">
+              <div
+                v-for="bed in beds"
+                :key="`${bed}-${shiftCode}`"
+                class="bed-item"
+                :class="{
+                  'hepatitis-bed': isHepatitisBed(bed),
+                  selected:
+                    `${typeof bed === 'string' ? bed : 'bed-' + bed}-${shiftCode}` ===
+                    selectedNewBedId,
+                }"
+                @click="handleBedClick(bed, shiftCode)"
+              >
+                {{ getBedDisplay(bed) }}
+              </div>
+            </div>
+            <p v-else class="no-beds-message">此班次已無可用空床</p>
+          </div>
+        </div>
       </div>
+
       <div class="dialog-actions">
         <button @click="$emit('cancel')" class="btn-cancel">取消</button>
-        <button @click="confirmChange" :disabled="!selectedNewBed" class="btn-confirm">
+        <button @click="confirmChange" :disabled="!selectedNewBedId" class="btn-confirm">
           確定更換
         </button>
       </div>
@@ -141,7 +146,6 @@ function confirmChange() {
   </div>
 </template>
 
-<!-- Style 部分保持不變 -->
 <style scoped>
 .dialog-overlay {
   position: fixed;
@@ -157,59 +161,136 @@ function confirmChange() {
 }
 .dialog-content {
   background: white;
-  padding: 25px;
-  border-radius: 8px;
-  width: 400px;
+  border-radius: 12px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 800px;
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
 }
-.dialog-title {
-  margin-top: 0;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 10px;
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e5e5e5;
 }
-.form-group {
-  margin: 20px 0;
+.dialog-header h3 {
+  margin: 0;
+  font-size: 1.5rem;
 }
-.bed-select-input {
-  width: 100%;
-  padding: 8px;
-  font-size: 1em;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: #aaa;
 }
+
+.dialog-body {
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.patient-info {
+  display: flex;
+  justify-content: space-between;
+  background-color: #f8f9fa;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+  font-size: 1.1em;
+}
+
+.beds-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.shift-group h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.2rem;
+  color: #333;
+}
+
+.bed-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.bed-item {
+  flex-basis: calc(12.5% - 0.75rem); /* 8 items per row approx. */
+  text-align: center;
+  padding: 0.75rem 0;
+  border: 1px solid #b3e5fc;
+  background-color: #e3f2fd;
+  color: #0d47a1;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.bed-item:hover {
+  background-color: #bbdefb;
+  transform: translateY(-2px);
+}
+
+.bed-item.hepatitis-bed {
+  background-color: #fff9c4;
+  border-color: #fff176;
+  color: #f57f17;
+}
+
+.bed-item.hepatitis-bed:hover {
+  background-color: #fff59d;
+}
+
+.bed-item.selected {
+  background-color: var(--primary-color, #007bff);
+  color: white;
+  border-color: var(--primary-color, #007bff);
+  font-weight: bold;
+  transform: scale(1.05);
+}
+
+.no-beds-message {
+  color: #6c757d;
+  font-style: italic;
+  padding: 1rem;
+  text-align: center;
+  background-color: #f8f9fa;
+  border-radius: 6px;
+}
+
 .dialog-actions {
   text-align: right;
-  margin-top: 20px;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e5e5e5;
+  background-color: #f8f9fa;
 }
 .dialog-actions button {
-  padding: 8px 16px;
+  padding: 0.6rem 1.2rem;
   border-radius: 5px;
   border: none;
   cursor: pointer;
   margin-left: 10px;
+  font-weight: 500;
+  font-size: 1rem;
 }
 .btn-confirm {
-  background-color: var(--primary-color);
+  background-color: #28a745;
   color: white;
 }
+.btn-confirm:disabled {
+  background-color: #a5d6a7;
+  cursor: not-allowed;
+}
 .btn-cancel {
-  background-color: #ccc;
-}
-/* 這些樣式似乎不屬於這個 Dialog，但暫時保留以防萬一 */
-.patient-item.has-memo {
-  outline: 2px solid #dc3545;
-}
-.patient-item[draggable='true'] {
-  cursor: grab;
-}
-.patient-item[draggable='true']:active {
-  cursor: grabbing;
-}
-.patient-list-cell {
-  border: 2px dashed transparent;
-  transition: border-color 0.2s;
-}
-.patient-list-cell:hover {
-  border-color: #a5d6a7;
+  background-color: #6c757d;
+  color: white;
 }
 </style>
