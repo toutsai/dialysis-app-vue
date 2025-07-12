@@ -1,8 +1,8 @@
 <!-- 檔案路徑: src/views/StatsView.vue (已修改) -->
 <script setup>
-import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
+import { ref, onMounted, computed, reactive, watch, provide, watchEffect } from 'vue'
 import ApiManager from '@/services/api_manager.js'
-import { where } from 'firebase/firestore'
+import { where, orderBy, limit } from 'firebase/firestore'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
@@ -12,13 +12,13 @@ import MemoIcon from '@/components/MemoIcon.vue'
 import { useNotification } from '@/composables/useNotification.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-// ✨ 1. 引入新的彈出式元件 ✨
 import PreparationPopover from '@/components/PreparationPopover.vue'
 
 // --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
 const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
+const ordersHistoryApi = ApiManager('dialysis_orders_history')
 
 // --- 常量 ---
 const nurseNameList = [
@@ -48,9 +48,39 @@ const nurseNameList = [
   '吳思婷',
   '吳幸美',
 ]
-const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
-const earlyTeams = baseTeams.map((t) => `早${t}`)
-const lateTeams = baseTeams.map((t) => `晚${t}`)
+// ✨ 1. 修正組別，讓其與您的需求精確匹配 ✨
+const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
+const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍'] // 晚班依然顯示到K，因為午班收針會用到
+const nightBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] // 夜班只到H
+
+const earlyTeams = earlyBaseTeams.map((t) => `早${t}`)
+const lateTeams = lateBaseTeams.map((t) => `晚${t}`)
+
+const dutyAssignments = {
+  early: {
+    現場指揮官: 'K',
+    安全防護班: ['A', 'B', 'J-75'],
+    引導救護班: ['C', 'D', 'E', 'G', 'H-1', 'I-2'],
+    滅火班: 'F-75',
+  },
+  late: {
+    // 晚班勤務與早班相同
+    現場指揮官: 'K',
+    安全防護班: ['A', 'B', 'J-75'],
+    引導救護班: ['C', 'D', 'E', 'G', 'H-1', 'I-2'],
+    滅火班: 'F-75',
+  },
+  night: {
+    // 夜班勤務
+    現場指揮官: 'A',
+    '安全防護班/通報班': 'B',
+    引導救護班: ['C', 'D', 'E', 'G', 'H'],
+    滅火班: 'F-128',
+  },
+}
+
+// ✨ 2. 新增：控制消防勤務下拉選單的狀態 ✨
+const isFireDutyDropdownVisible = ref(false)
 
 // --- 核心狀態 ---
 const currentDate = ref(new Date())
@@ -73,7 +103,6 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
 
-// ✨ 2. 新增控制 Popover 的狀態 ✨
 const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({
   patients: [],
@@ -101,7 +130,6 @@ const formatDate = (date) => {
   return `${year}-${month}-${day}`
 }
 
-// ✨ 3. 將 getPatientDisplayString 恢復為簡潔版本 ✨
 const getPatientDisplayString = (patientDetail) => {
   if (!patientDetail) return ''
   let identifier = ''
@@ -147,11 +175,50 @@ const weekdayDisplay = computed(() => {
   return weekdays[dayIndex]
 })
 
-const statsData = computed(() => {
-  // ... (此處內部邏輯不變，保持原樣)
-  if (!currentRecord.schedule) {
-    return { early: {}, late: {} }
+// ========================================================================
+// 醫囑計算邏輯核心
+// ========================================================================
+
+const effectiveStatsData = ref({ early: {}, late: {} })
+
+async function getEffectiveOrdersForDate(patientId, targetDate) {
+  if (!patientId || !targetDate) {
+    return {}
   }
+
+  const dateStr = targetDate.toISOString().slice(0, 10)
+
+  try {
+    const queryConstraints = [
+      where('patientId', '==', patientId),
+      where('orders.effectiveDate', '<=', dateStr),
+      orderBy('orders.effectiveDate', 'desc'),
+      orderBy('updatedAt', 'desc'),
+      limit(1),
+    ]
+
+    const results = await ordersHistoryApi.fetchAll(queryConstraints)
+    return results.length > 0 ? results[0].orders : {}
+  } catch (error) {
+    if (error.code === 'failed-precondition') {
+      console.error(
+        `Firestore 錯誤：查詢需要複合索引。請檢查 Firebase 控制台並根據提示建立索引。\n` +
+          `集合: dialysis_orders_history\n` +
+          `欄位: patientId (ASC), orders.effectiveDate (DESC), updatedAt (DESC)`,
+      )
+    } else {
+      console.error(`獲取病人 ${patientId} 的醫囑失敗:`, error)
+    }
+    return {}
+  }
+}
+
+watchEffect(async () => {
+  if (!currentRecord.schedule || allPatients.value.length === 0) {
+    effectiveStatsData.value = { early: {}, late: {} }
+    return
+  }
+
   const earlyShiftStats = {}
   const lateShiftStats = {}
   earlyTeams.forEach((team) => {
@@ -176,7 +243,22 @@ const statsData = computed(() => {
     }
   })
 
-  Object.values(currentRecord.schedule).forEach((shiftDetails) => {
+  const scheduleValues = Object.values(currentRecord.schedule)
+  const patientDetailsPromises = scheduleValues.map(async (shiftDetails) => {
+    const { patientId } = shiftDetails
+    if (!patientId) return null
+
+    const patient = patientMap.value.get(patientId)
+    if (!patient) return null
+
+    const effectiveOrders = await getEffectiveOrdersForDate(patientId, currentDate.value)
+
+    return { ...shiftDetails, effectiveOrders, patientData: patient }
+  })
+
+  const resolvedPatientDetails = (await Promise.all(patientDetailsPromises)).filter(Boolean)
+
+  resolvedPatientDetails.forEach((shiftDetails) => {
     const {
       patientId,
       autoNote,
@@ -186,11 +268,10 @@ const statsData = computed(() => {
       nurseTeamIn,
       nurseTeamOut,
       shiftId,
+      effectiveOrders,
+      patientData: patient,
     } = shiftDetails
-    if (!patientId) return
-    const patient = patientMap.value.get(patientId)
-    if (!patient) return
-    // ✨ 4. 恢復 detail 物件為簡潔版本 ✨
+
     const detail = {
       id: patientId,
       shiftId: shiftId,
@@ -201,7 +282,9 @@ const statsData = computed(() => {
       manualNote: manualNote || '',
       wardNumber: wardNumber || '',
       classes: 'patient-item',
+      dialysisOrders: effectiveOrders,
     }
+
     if (patient.status === 'er') detail.classes += ' status-er'
     else if (patient.status === 'ipd') detail.classes += ' status-ipd'
     else detail.classes += ' status-opd'
@@ -240,6 +323,7 @@ const statsData = computed(() => {
       }
     }
   })
+
   const sortPatientsByBed = (a, b) => {
     const getSortKey = (shiftId) => {
       if (!shiftId || typeof shiftId !== 'string') return 999
@@ -263,37 +347,35 @@ const statsData = computed(() => {
 
   for (const team in earlyShiftStats) {
     const teamData = earlyShiftStats[team]
-    teamData.totalOpdCount = teamData.earlyShift.opdCount + teamData.noonShiftOn.opdCount
-    teamData.totalIpdCount = teamData.earlyShift.ipdCount + teamData.noonShiftOn.ipdCount
-    teamData.totalErCount = teamData.earlyShift.erCount + teamData.noonShiftOn.erCount
+    teamData.totalOpdCount =
+      (teamData.earlyShift.opdCount || 0) + (teamData.noonShiftOn.opdCount || 0)
+    teamData.totalIpdCount =
+      (teamData.earlyShift.ipdCount || 0) + (teamData.noonShiftOn.ipdCount || 0)
+    teamData.totalErCount = (teamData.earlyShift.erCount || 0) + (teamData.noonShiftOn.erCount || 0)
   }
   for (const team in lateShiftStats) {
     const teamData = lateShiftStats[team]
-    teamData.totalOpdCount = teamData.lateShift.opdCount + teamData.noonShiftOff.opdCount
-    teamData.totalIpdCount = teamData.lateShift.ipdCount + teamData.noonShiftOff.ipdCount
-    teamData.totalErCount = teamData.lateShift.erCount + teamData.noonShiftOff.erCount
+    teamData.totalOpdCount =
+      (teamData.lateShift.opdCount || 0) + (teamData.noonShiftOff.opdCount || 0)
+    teamData.totalIpdCount =
+      (teamData.lateShift.ipdCount || 0) + (teamData.noonShiftOff.ipdCount || 0)
+    teamData.totalErCount = (teamData.lateShift.erCount || 0) + (teamData.noonShiftOff.erCount || 0)
   }
 
-  return { early: earlyShiftStats, late: lateShiftStats }
+  effectiveStatsData.value = { early: earlyShiftStats, late: lateShiftStats }
 })
 
-// --- 方法 ---
+// ========================================================================
+// 方法區
+// ========================================================================
 
-// ✨ 5. 新增 Popover 的觸發與關閉函式 ✨
 function showPrepPopover(event, teamData, shiftType) {
-  // 從 teamData 中獲取正確班次的病人列表ID
-  const patientIds = teamData[shiftType]?.patients.map((p) => p.id) || []
-  // 使用 patientMap 從 ID 獲取完整的病人物件 (包含醫囑)
-  const patientsToShow = patientIds.map((id) => patientMap.value.get(id)).filter(Boolean)
+  const patientsInShift = teamData[shiftType]?.patients || []
+  if (patientsInShift.length === 0) return
 
-  // 如果沒有病人，就不顯示
-  if (patientsToShow.length === 0) return
-
-  // 更新 Popover 的資料
-  prepPopoverData.patients = patientsToShow
+  prepPopoverData.patients = patientsInShift
   prepPopoverData.targetElement = event.currentTarget
 
-  // 顯示 Popover
   isPrepPopoverVisible.value = true
 }
 
@@ -302,7 +384,6 @@ function onPrepPopoverClose() {
 }
 
 function showPatientMemos(patientId) {
-  // ... (此函式不變)
   if (!patientId) return
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
@@ -314,7 +395,6 @@ function showPatientMemos(patientId) {
 }
 
 async function loadData(date) {
-  // ... (此函式不變)
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
@@ -352,14 +432,12 @@ async function loadData(date) {
 }
 
 function setChange() {
-  // ... (此函式不變)
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
 
 async function saveChangesToCloud() {
-  // ... (此函式不變)
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作禁止'
     alertDialogMessage.value = '操作被鎖定：無法儲存或權限不足。'
@@ -418,7 +496,6 @@ async function saveChangesToCloud() {
 }
 
 function onDrop(event, newTeam, newResponsibility) {
-  // ... (此函式不變)
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
@@ -468,7 +545,6 @@ function onDrop(event, newTeam, newResponsibility) {
 }
 
 function onDragStart(event, patientDetail, responsibility) {
-  // ... (此函式不變)
   if (isPageLocked.value) {
     event.preventDefault()
     return
@@ -479,14 +555,12 @@ function onDragStart(event, patientDetail, responsibility) {
 }
 
 function openBedChangeDialog(patientDetail) {
-  // ... (此函式不變)
   if (isPageLocked.value) return
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
 
 function handleBedChange({ oldShiftId, newShiftId }) {
-  // ... (此函式不變)
   if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error('換床失敗，參數無效或找不到舊床位資料。')
@@ -500,7 +574,6 @@ function handleBedChange({ oldShiftId, newShiftId }) {
 }
 
 function updateNurseName(teamId, event) {
-  // ... (此函式不變)
   if (isPageLocked.value) {
     event.target.value = currentRecord.names?.[teamId] || ''
     return
@@ -513,7 +586,6 @@ function updateNurseName(teamId, event) {
 }
 
 function changeDate(days) {
-  // ... (此函式不變)
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     onConfirmAction.value = () => {
       const newDate = new Date(currentDate.value)
@@ -530,7 +602,6 @@ function changeDate(days) {
 }
 
 function goToToday() {
-  // ... (此函式不變)
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     onConfirmAction.value = () => {
       currentDate.value = new Date()
@@ -543,7 +614,6 @@ function goToToday() {
 }
 
 function handleConfirm() {
-  // ... (此函式不變)
   if (onConfirmAction.value) {
     onConfirmAction.value()
   }
@@ -552,24 +622,20 @@ function handleConfirm() {
 }
 
 function handleCancel() {
-  // ... (此函式不變)
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
 
 function onDragOver(event) {
-  // ... (此函式不變)
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
 
 function onDragLeave(event) {
-  // ... (此函式不變)
   event.currentTarget.classList.remove('drag-over-active')
 }
 function handleDialogCancel() {
-  // ... (此函式不變)
   isBedChangeDialogVisible.value = false
 }
 function triggerPrint() {
@@ -613,21 +679,74 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
+    <!-- ✨ 3. 整合後的消防勤務資訊列 ✨ -->
+    <div class="duty-command-bar">
+      <div class="main-commanders">
+        <span class="duty-title">消防編組:</span>
+        <span class="duty-role">總指揮官:</span>
+        <span class="duty-person">廖丁瑩主任</span>
+        <span class="duty-divider">|</span>
+        <span class="duty-role">通報班:</span>
+        <span class="duty-person">謝淑琴書記</span>
+        <span class="duty-divider">|</span>
+        <span class="duty-role">現場指揮官:</span>
+        <span class="duty-person">莊明月護理長</span>
+        <span class="duty-divider">|</span>
+        <span class="duty-role">工友:</span>
+        <span class="duty-person">引導救護班</span>
+      </div>
+      <div class="duty-dropdown-wrapper">
+        <button
+          class="duty-dropdown-trigger"
+          @click="isFireDutyDropdownVisible = !isFireDutyDropdownVisible"
+        >
+          <span>勤務分組詳情</span>
+          <span class="toggle-arrow" :class="{ 'is-rotated': isFireDutyDropdownVisible }">▼</span>
+        </button>
+        <transition name="slide-fade">
+          <div v-if="isFireDutyDropdownVisible" class="duty-dropdown-menu">
+            <div v-for="(duties, shift) in dutyAssignments" :key="shift" class="duty-shift-group">
+              <h4 class="duty-shift-header">
+                {{ shift === 'early' ? '早班' : shift === 'late' ? '午/晚班' : '夜班' }}
+              </h4>
+              <div class="duty-item" v-for="(teams, dutyName) in duties" :key="dutyName">
+                <div class="duty-name">{{ dutyName }}</div>
+                <div class="duty-teams">
+                  <span
+                    v-if="Array.isArray(teams)"
+                    v-for="team in teams"
+                    :key="team"
+                    class="duty-team-tag"
+                    >{{ team }}</span
+                  >
+                  <span v-else class="duty-team-tag">{{ teams }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </transition>
+      </div>
+    </div>
+
     <div class="stats-sections-wrapper">
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <h2>早班組別</h2>
         <div class="grid-container">
           <div class="grid-header">
             <div class="row-header"></div>
-            <div v-for="(_, teamName) in statsData.early" :key="teamName" class="team-header-cell">
-              {{ teamName }}組
+            <div
+              v-for="(_, teamName) in effectiveStatsData.early"
+              :key="teamName"
+              class="team-header-cell"
+            >
+              {{ teamName.replace('早', '') }}組
             </div>
           </div>
           <div class="grid-body">
             <div class="grid-row">
               <div class="row-header">姓名</div>
               <div
-                v-for="(teamData, teamName) in statsData.early"
+                v-for="(teamData, teamName) in effectiveStatsData.early"
                 :key="teamName"
                 class="grid-cell name-cell"
               >
@@ -647,7 +766,7 @@ watch(currentDate, (newDate) => {
             <div class="grid-row">
               <div class="row-header">早班</div>
               <div
-                v-for="(teamData, teamName) in statsData.early"
+                v-for="(teamData, teamName) in effectiveStatsData.early"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
                 @drop="!isPageLocked && onDrop($event, teamName, 'earlyShift')"
@@ -671,7 +790,6 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <!-- ✨ 6. 新增觸發圖示 ✨ -->
                 <div
                   class="prep-list-trigger"
                   v-if="teamData.earlyShift.patients.length > 0"
@@ -685,7 +803,7 @@ watch(currentDate, (newDate) => {
             <div class="grid-row">
               <div class="row-header">午班(上針)</div>
               <div
-                v-for="(teamData, teamName) in statsData.early"
+                v-for="(teamData, teamName) in effectiveStatsData.early"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
                 @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOn')"
@@ -709,7 +827,6 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <!-- ✨ 6. 新增觸發圖示 ✨ -->
                 <div
                   class="prep-list-trigger"
                   v-if="teamData.noonShiftOn.patients.length > 0"
@@ -723,7 +840,7 @@ watch(currentDate, (newDate) => {
             <div class="grid-row">
               <div class="row-header">午班(收針)</div>
               <div
-                v-for="(teamData, teamName) in statsData.early"
+                v-for="(teamData, teamName) in effectiveStatsData.early"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
                 @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
@@ -747,7 +864,6 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <!-- ✨ 6. 新增觸發圖示 ✨ -->
                 <div
                   class="prep-list-trigger"
                   v-if="teamData.noonShiftOff.patients.length > 0"
@@ -762,7 +878,7 @@ watch(currentDate, (newDate) => {
           <div class="grid-footer">
             <div class="row-header">照護人數</div>
             <div
-              v-for="(teamData, teamName) in statsData.early"
+              v-for="(teamData, teamName) in effectiveStatsData.early"
               :key="teamName"
               class="total-count-summary"
             >
@@ -779,15 +895,19 @@ watch(currentDate, (newDate) => {
         <div class="grid-container">
           <div class="grid-header">
             <div class="row-header"></div>
-            <div v-for="(_, teamName) in statsData.late" :key="teamName" class="team-header-cell">
-              {{ teamName }}組
+            <div
+              v-for="(_, teamName) in effectiveStatsData.late"
+              :key="teamName"
+              class="team-header-cell"
+            >
+              {{ teamName.replace('晚', '') }}組
             </div>
           </div>
           <div class="grid-body">
             <div class="grid-row">
               <div class="row-header">姓名</div>
               <div
-                v-for="(teamData, teamName) in statsData.late"
+                v-for="(teamData, teamName) in effectiveStatsData.late"
                 :key="teamName"
                 class="grid-cell name-cell"
               >
@@ -807,7 +927,7 @@ watch(currentDate, (newDate) => {
             <div class="grid-row">
               <div class="row-header">午班(收針)</div>
               <div
-                v-for="(teamData, teamName) in statsData.late"
+                v-for="(teamData, teamName) in effectiveStatsData.late"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
                 @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
@@ -831,7 +951,6 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <!-- ✨ 6. 新增觸發圖示 ✨ -->
                 <div
                   class="prep-list-trigger"
                   v-if="teamData.noonShiftOff.patients.length > 0"
@@ -845,7 +964,7 @@ watch(currentDate, (newDate) => {
             <div class="grid-row">
               <div class="row-header">晚班</div>
               <div
-                v-for="(teamData, teamName) in statsData.late"
+                v-for="(teamData, teamName) in effectiveStatsData.late"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
                 @drop="!isPageLocked && onDrop($event, teamName, 'lateShift')"
@@ -869,7 +988,6 @@ watch(currentDate, (newDate) => {
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <!-- ✨ 6. 新增觸發圖示 ✨ -->
                 <div
                   class="prep-list-trigger"
                   v-if="teamData.lateShift.patients.length > 0"
@@ -884,7 +1002,7 @@ watch(currentDate, (newDate) => {
           <div class="grid-footer">
             <div class="row-header">照護人數</div>
             <div
-              v-for="(teamData, teamName) in statsData.late"
+              v-for="(teamData, teamName) in effectiveStatsData.late"
               :key="teamName"
               class="total-count-summary"
             >
@@ -923,7 +1041,6 @@ watch(currentDate, (newDate) => {
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-    <!-- ✨ 7. 新增 Popover 元件實例 ✨ -->
     <PreparationPopover
       :is-visible="isPrepPopoverVisible"
       :patients="prepPopoverData.patients"
@@ -939,7 +1056,7 @@ watch(currentDate, (newDate) => {
   flex-grow: 1;
 }
 .stats-section {
-  margin-bottom: 30px;
+  margin-bottom: 20px;
 }
 .header-toolbar {
   display: flex;
@@ -947,7 +1064,7 @@ watch(currentDate, (newDate) => {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 .toolbar-left,
 .toolbar-right {
@@ -1078,7 +1195,7 @@ watch(currentDate, (newDate) => {
   outline: 2px solid #fbc02d;
 }
 .patient-list-cell {
-  position: relative; /* ✨ 8. 為觸發圖示的定位做準備 ✨ */
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -1199,8 +1316,6 @@ watch(currentDate, (newDate) => {
   font-size: 0.9em;
   line-height: 1.2;
 }
-
-/* ✨ 9. 新增觸發圖示的樣式 ✨ */
 .prep-list-trigger {
   position: absolute;
   bottom: 4px;
@@ -1210,12 +1325,11 @@ watch(currentDate, (newDate) => {
   padding: 2px;
   border-radius: 4px;
   transition: background-color 0.2s;
-  user-select: none; /* 防止點擊時選取到圖示文字 */
+  user-select: none;
 }
 .prep-list-trigger:hover {
   background-color: #e0e0e0;
 }
-
 .is-locked .stats-section {
   cursor: not-allowed;
 }
@@ -1232,11 +1346,130 @@ watch(currentDate, (newDate) => {
 .is-locked .patient-item {
   pointer-events: none;
 }
+
+.is-locked :deep(.memo-icon-wrapper),
 .is-locked .prep-list-trigger {
-  display: none; /* 鎖定時直接隱藏觸發圖示 */
-}
-.is-locked :deep(.memo-icon-wrapper) {
   pointer-events: auto;
   cursor: pointer;
+}
+
+/* ✨ 4. 新增：消防勤務資訊列樣式 ✨ */
+.duty-command-bar {
+  background-color: #fff;
+  border: 1px solid #e2e8f0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.main-commanders {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.duty-title {
+  font-weight: 600;
+  color: #1e40af;
+}
+.duty-role {
+  font-size: 0.9em;
+  color: #475569;
+}
+.duty-person {
+  font-weight: 500;
+  color: #1e293b;
+}
+.duty-divider {
+  color: #cbd5e1;
+}
+.duty-dropdown-wrapper {
+  position: relative;
+}
+.duty-dropdown-trigger {
+  background-color: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+.duty-dropdown-trigger:hover {
+  background-color: #e2e8f0;
+}
+.duty-dropdown-trigger .toggle-arrow {
+  transition: transform 0.2s ease-in-out;
+}
+.duty-dropdown-trigger .toggle-arrow.is-rotated {
+  transform: rotate(180deg);
+}
+.duty-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  background-color: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  width: 600px;
+  z-index: 100;
+  padding: 12px;
+}
+.duty-shift-group {
+  margin-bottom: 12px;
+}
+.duty-shift-group:last-child {
+  margin-bottom: 0;
+}
+.duty-shift-header {
+  font-size: 1.1em;
+  font-weight: bold;
+  color: #005a9c;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid #e2e8f0;
+}
+.duty-item {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.95em;
+}
+.duty-name {
+  font-weight: 500;
+  text-align: right;
+  color: #475569;
+}
+.duty-teams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.duty-team-tag {
+  background-color: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+.slide-fade-enter-active {
+  transition: all 0.2s ease-out;
+}
+.slide-fade-leave-active {
+  transition: all 0.2s cubic-bezier(1, 0.5, 0.8, 1);
+}
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  transform: translateY(-5px);
+  opacity: 0;
 }
 </style>

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (已修正) -->
+// 檔案路徑: src/views/PatientsView.vue (已修正)
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -19,7 +19,6 @@ import { useNotification } from '@/composables/useNotification.js'
 
 const patientApi = ApiManager('patients')
 const schedulesApi = ApiManager('schedules')
-// ✨ 1. 補上這行遺漏的 ApiManager 實例 ✨
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 
 const allPatients = ref([])
@@ -544,8 +543,8 @@ function openOrderModal(patient) {
   isOrderModalVisible.value = true
 }
 
-// ✨ 2. 使用功能完整的 handleSaveOrder 函式 ✨
-async function handleSaveOrder(orderData) {
+// ✨ 核心修正點：此函式現在處理乾淨的資料儲存 ✨
+async function handleSaveOrder(orderDataFromModal) {
   if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
     alertDialogTitle.value = '儲存失敗'
     alertDialogMessage.value = '找不到有效的病人資訊，請重新操作。'
@@ -555,26 +554,33 @@ async function handleSaveOrder(orderData) {
 
   const patientId = editingPatientForOrder.value.id
   const patientName = editingPatientForOrder.value.name
-
   const updatedAt = new Date().toISOString()
-  const finalOrderData = { ...orderData }
 
-  if (!finalOrderData.effectiveDate) {
-    finalOrderData.effectiveDate = updatedAt.slice(0, 10)
+  // 1. 建立一個 "乾淨" 的醫囑物件，只包含醫囑本身需要的欄位
+  const cleanOrders = {
+    ak: orderDataFromModal.ak || '',
+    dialysateCa: orderDataFromModal.dialysateCa || '',
+    heparinInitial: orderDataFromModal.heparinInitial || '',
+    heparinMaintenance: orderDataFromModal.heparinMaintenance || '',
+    bloodFlow: orderDataFromModal.bloodFlow || '',
+    dryWeight: orderDataFromModal.dryWeight || '',
+    effectiveDate: orderDataFromModal.effectiveDate || updatedAt.slice(0, 10),
   }
 
-  finalOrderData.updatedAt = updatedAt
-
+  // 2. 建立要寫入歷史集合的完整紀錄
   const historyRecord = {
     patientId: patientId,
     patientName: patientName,
-    orders: finalOrderData,
-    updatedAt: updatedAt,
+    orders: cleanOrders, // 使用乾淨的醫囑物件
+    updatedAt: updatedAt, // 在頂層記錄修改時間
   }
 
   try {
+    // 3. 使用 Promise.all 同時更新兩個地方
     await Promise.all([
-      patientApi.update(patientId, { dialysisOrders: finalOrderData }),
+      // A. 更新病人主檔上的 `dialysisOrders` 欄位
+      patientApi.update(patientId, { dialysisOrders: cleanOrders }),
+      // B. 在歷史集合中新增一筆完整紀錄
       ordersHistoryApi.save(historyRecord),
     ])
 
