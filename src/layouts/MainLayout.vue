@@ -297,6 +297,29 @@ const formatTime = (date) => {
   margin: 0;
 }
 
+/* --- 【滾動條樣式修改】 --- */
+/* For Webkit-based browsers (Chrome, Safari, Edge) */
+.notification-area::-webkit-scrollbar {
+  width: 6px;
+}
+.notification-area::-webkit-scrollbar-track {
+  background: transparent; /* 滾動條背景透明 */
+}
+.notification-area::-webkit-scrollbar-thumb {
+  background-color: #fef08a; /* 淡黃色滾動條 */
+  border-radius: 20px;
+}
+.notification-area::-webkit-scrollbar-thumb:hover {
+  background-color: #facc15; /* 滑鼠懸停時稍深的黃色 */
+}
+
+/* For Firefox */
+.notification-area {
+  scrollbar-width: thin;
+  scrollbar-color: #fef08a transparent; /* 滾動條顏色 和 背景顏色 */
+}
+/* --- 【滾動條樣式修改結束】 --- */
+
 .notification-list {
   display: flex;
   flex-direction: column;
