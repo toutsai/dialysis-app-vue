@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (已修改) -->
+<!-- 檔案路徑: src/views/StatsView.vue (已修正) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide, watchEffect } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -48,10 +48,9 @@ const nurseNameList = [
   '吳思婷',
   '吳幸美',
 ]
-// ✨ 1. 修正組別，讓其與您的需求精確匹配 ✨
 const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
-const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍'] // 晚班依然顯示到K，因為午班收針會用到
-const nightBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] // 夜班只到H
+const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
+const nightBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 
 const earlyTeams = earlyBaseTeams.map((t) => `早${t}`)
 const lateTeams = lateBaseTeams.map((t) => `晚${t}`)
@@ -64,14 +63,12 @@ const dutyAssignments = {
     滅火班: 'F-75',
   },
   late: {
-    // 晚班勤務與早班相同
     現場指揮官: 'K',
     安全防護班: ['A', 'B', 'J-75'],
     引導救護班: ['C', 'D', 'E', 'G', 'H-1', 'I-2'],
     滅火班: 'F-75',
   },
   night: {
-    // 夜班勤務
     現場指揮官: 'A',
     '安全防護班/通報班': 'B',
     引導救護班: ['C', 'D', 'E', 'G', 'H'],
@@ -79,7 +76,6 @@ const dutyAssignments = {
   },
 }
 
-// ✨ 2. 新增：控制消防勤務下拉選單的狀態 ✨
 const isFireDutyDropdownVisible = ref(false)
 
 // --- 核心狀態 ---
@@ -368,6 +364,15 @@ watchEffect(async () => {
 // ========================================================================
 // 方法區
 // ========================================================================
+
+function getDutyTagClass(dutyName) {
+  if (dutyName.includes('指揮官')) return 'role-field-commander'
+  if (dutyName.includes('通報')) return 'role-reporter'
+  if (dutyName.includes('安全')) return 'role-safety'
+  if (dutyName.includes('引導')) return 'role-guide'
+  if (dutyName.includes('滅火')) return 'role-fire'
+  return 'role-default'
+}
 
 function showPrepPopover(event, teamData, shiftType) {
   const patientsInShift = teamData[shiftType]?.patients || []
@@ -679,21 +684,21 @@ watch(currentDate, (newDate) => {
       </div>
     </div>
 
-    <!-- ✨ 3. 整合後的消防勤務資訊列 ✨ -->
     <div class="duty-command-bar">
       <div class="main-commanders">
         <span class="duty-title">消防編組:</span>
-        <span class="duty-role">總指揮官:</span>
+        <span class="duty-role-tag role-commander">總指揮官</span>
         <span class="duty-person">廖丁瑩主任</span>
-        <span class="duty-divider">|</span>
-        <span class="duty-role">通報班:</span>
+        <span class="duty-divider"></span>
+        <span class="duty-role-tag role-reporter">通報班</span>
         <span class="duty-person">謝淑琴書記</span>
-        <span class="duty-divider">|</span>
-        <span class="duty-role">現場指揮官:</span>
+        <span class="duty-divider"></span>
+        <span class="duty-role-tag role-field-commander">現場指揮官</span>
         <span class="duty-person">莊明月護理長</span>
-        <span class="duty-divider">|</span>
-        <span class="duty-role">工友:</span>
-        <span class="duty-person">引導救護班</span>
+        <span class="duty-divider"></span>
+        <!-- ✨ 核心修正點：對調「工友」和「引導救護班」的內容和樣式 ✨ -->
+        <span class="duty-role-tag role-guide">引導救護班</span>
+        <span class="duty-person">工友</span>
       </div>
       <div class="duty-dropdown-wrapper">
         <button
@@ -710,7 +715,7 @@ watch(currentDate, (newDate) => {
                 {{ shift === 'early' ? '早班' : shift === 'late' ? '午/晚班' : '夜班' }}
               </h4>
               <div class="duty-item" v-for="(teams, dutyName) in duties" :key="dutyName">
-                <div class="duty-name">{{ dutyName }}</div>
+                <div class="duty-name" :class="getDutyTagClass(dutyName)">{{ dutyName }}</div>
                 <div class="duty-teams">
                   <span
                     v-if="Array.isArray(teams)"
@@ -1346,18 +1351,17 @@ watch(currentDate, (newDate) => {
 .is-locked .patient-item {
   pointer-events: none;
 }
-
 .is-locked :deep(.memo-icon-wrapper),
 .is-locked .prep-list-trigger {
   pointer-events: auto;
   cursor: pointer;
 }
 
-/* ✨ 4. 新增：消防勤務資訊列樣式 ✨ */
+/* ✨ 5. 美化後的消防勤務資訊列樣式 ✨ */
 .duty-command-bar {
-  background-color: #fff;
-  border: 1px solid #e2e8f0;
-  padding: 8px 16px;
+  background-color: #fffbeb;
+  border: 1px solid #fef3c7;
+  padding: 10px 16px;
   border-radius: 8px;
   margin-bottom: 20px;
   display: flex;
@@ -1369,23 +1373,48 @@ watch(currentDate, (newDate) => {
 .main-commanders {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 .duty-title {
   font-weight: 600;
-  color: #1e40af;
+  font-size: 1.1em;
+  color: #b45309;
 }
-.duty-role {
-  font-size: 0.9em;
-  color: #475569;
+.duty-role-tag {
+  font-size: 0.85em;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  color: #fff;
 }
+.duty-role-tag.role-commander {
+  background-color: #be185d;
+}
+.duty-role-tag.role-reporter {
+  background-color: #059669;
+}
+.duty-role-tag.role-field-commander {
+  background-color: #d97706;
+}
+/* ✨ 核心修正點：為「工友」和「引導救護班」新增樣式 ✨ */
+.duty-role-tag.role-worker {
+  background-color: #6d28d9;
+}
+.duty-role-tag.role-guide {
+  background-color: #0d9488;
+}
+
 .duty-person {
   font-weight: 500;
   color: #1e293b;
+  margin-left: -4px;
 }
 .duty-divider {
-  color: #cbd5e1;
+  width: 1px;
+  height: 16px;
+  background-color: #d1d5db;
+  margin: 0 4px;
 }
 .duty-dropdown-wrapper {
   position: relative;
@@ -1406,6 +1435,7 @@ watch(currentDate, (newDate) => {
 }
 .duty-dropdown-trigger .toggle-arrow {
   transition: transform 0.2s ease-in-out;
+  font-size: 0.8em;
 }
 .duty-dropdown-trigger .toggle-arrow.is-rotated {
   transform: rotate(180deg);
@@ -1445,10 +1475,35 @@ watch(currentDate, (newDate) => {
   font-size: 0.95em;
 }
 .duty-name {
-  font-weight: 500;
-  text-align: right;
-  color: #475569;
+  font-size: 0.9em;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+  color: #fff;
+  text-align: center;
+  justify-self: end;
 }
+/* ✨ 核心修正點：為下拉選單內的職務加上顏色 ✨ */
+.duty-name.role-field-commander {
+  background-color: #d97706;
+}
+.duty-name.role-safety {
+  background-color: #2563eb;
+} /* 安全防護班用藍色 */
+.duty-name.role-guide {
+  background-color: #0d9488;
+}
+.duty-name.role-fire {
+  background-color: #be185d;
+}
+.duty-name.role-reporter,
+.duty-name[class*='通報班'] {
+  background-color: #059669;
+}
+.duty-name.role-default {
+  background-color: #475569;
+}
+
 .duty-teams {
   display: flex;
   flex-wrap: wrap;
