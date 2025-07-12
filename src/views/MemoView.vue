@@ -4,7 +4,6 @@ import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useRoute, useRouter } from 'vue-router'
-// 【1. 導入通知中心和對話框】
 import { useNotification } from '@/composables/useNotification.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -17,7 +16,7 @@ const patientsApi = ApiManager('patients')
 const memos = ref([])
 const allPatients = ref([])
 const contentInput = ref('')
-const dateInput = ref('')
+const dateInput = ref('') // 到期日
 
 // --- UI 狀態 ---
 const isPatientDialogVisible = ref(false)
@@ -33,7 +32,6 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 
-// 【2. 實例化通知中心】
 const { addNotification } = useNotification()
 
 // --- 路由實例 ---
@@ -44,7 +42,8 @@ const router = useRouter()
 const pendingList = computed(() =>
   memos.value
     .filter((memo) => {
-      const isPending = !memo.isResolved
+      // 狀態為 'pending' 或沒有 status 欄位的舊資料
+      const isPending = memo.status === 'pending' || !memo.status
       if (filterPatientId.value) {
         return isPending && memo.patientId === filterPatientId.value
       }
@@ -58,7 +57,8 @@ const resolvedList = computed(() => {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
   return memos.value
     .filter((memo) => {
-      const isRecentResolved = memo.isResolved && new Date(memo.createdAt) > sevenDaysAgo
+      // 狀態為 'resolved' 的資料
+      const isRecentResolved = memo.status === 'resolved' && new Date(memo.createdAt) > sevenDaysAgo
       if (filterPatientId.value) {
         return isRecentResolved && memo.patientId === filterPatientId.value
       }
@@ -66,6 +66,19 @@ const resolvedList = computed(() => {
     })
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
 })
+
+// 【新增】expiredList 的計算屬性
+const expiredList = computed(() =>
+  memos.value
+    .filter((memo) => {
+      const isExpired = memo.status === 'expired'
+      if (filterPatientId.value) {
+        return isExpired && memo.patientId === filterPatientId.value
+      }
+      return isExpired
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+)
 
 // --- 方法 ---
 async function fetchMemos() {
@@ -84,7 +97,6 @@ async function fetchAllPatients() {
   }
 }
 
-// 【3. 修改 addMemo，加入通知和對話框】
 async function addMemo() {
   if (!contentInput.value.trim()) {
     alertDialogTitle.value = '提示'
@@ -97,12 +109,13 @@ async function addMemo() {
     patientId: selectedPatient.value ? selectedPatient.value.id : null,
     patientName: selectedPatient.value ? selectedPatient.value.name : null,
     targetDate: dateInput.value || null,
-    isResolved: false,
+    status: 'pending', // 使用 status 欄位，預設為 'pending'
+    isResolved: false, // 為了兼容舊的 resolvedList，暫時保留
     createdAt: new Date().toISOString(),
   }
   try {
     await memosApi.save(newMemo)
-    addNotification('新增交班備忘', 'memo') // 發送通知
+    addNotification('新增交班備忘', 'memo')
     contentInput.value = ''
     dateInput.value = ''
     clearPatientSelection()
@@ -134,12 +147,23 @@ function clearPatientSelection() {
   router.replace({ query: {} })
 }
 
-// 【4. 修改 updateMemoStatus，加入通知】
-async function updateMemoStatus(id, isResolved) {
+// 【修改】updateMemoStatus 函式以處理新狀態
+async function updateMemoStatus(id, resolve, isFromExpired = false) {
   try {
-    await memosApi.update(id, { isResolved })
+    let newStatus = ''
+    let message = ''
+
+    if (resolve) {
+      newStatus = 'resolved'
+      message = '備忘已處理'
+    } else {
+      newStatus = 'pending'
+      message = isFromExpired ? '備忘已從過期中移回待辦' : '備忘移回待辦'
+    }
+
+    await memosApi.update(id, { status: newStatus, isResolved: resolve }) // 同時更新兩個欄位
     await fetchMemos()
-    addNotification(isResolved ? '備忘已處理' : '備忘移回待辦', 'memo')
+    addNotification(message, 'memo')
   } catch (error) {
     console.error('更新狀態失敗:', error)
     alertDialogTitle.value = '錯誤'
@@ -148,7 +172,6 @@ async function updateMemoStatus(id, isResolved) {
   }
 }
 
-// 【5. 修改 deleteMemo，加入通知和對話框】
 async function deleteMemo(id) {
   confirmDialogTitle.value = '確認刪除'
   confirmDialogMessage.value = '確定要永久刪除這條備忘嗎？此操作無法復原。'
@@ -223,7 +246,7 @@ onMounted(() => {
                 <button v-else @click="openPatientDialog" class="select-btn">選擇病人</button>
               </div>
               <div class="option-item">
-                <label for="memo-date-input">目標日期(可選):</label>
+                <label for="memo-date-input">到期日(可選):</label>
                 <input v-model="dateInput" type="date" id="memo-date-input" />
               </div>
             </div>
@@ -244,7 +267,7 @@ onMounted(() => {
                   >| 關聯病人: <strong>{{ memo.patientName }}</strong></span
                 >
                 <span v-if="memo.targetDate"
-                  >| 目標日期: <strong>{{ memo.targetDate }}</strong></span
+                  >| 到期日: <strong>{{ memo.targetDate }}</strong></span
                 >
               </div>
             </div>
@@ -258,6 +281,31 @@ onMounted(() => {
           <li v-if="pendingList.length === 0" class="empty-state">
             {{ filterPatientId ? '該病人無待辦事項' : '太棒了，沒有待辦事項！' }}
           </li>
+        </ul>
+      </div>
+
+      <div id="expired-section" class="memo-section">
+        <h2>{{ filterPatientId ? '已到期事項' : '所有已到期事項' }}</h2>
+        <ul class="memo-list">
+          <li v-for="memo in expiredList" :key="memo.id" class="memo-item expired">
+            <div class="memo-content">
+              <p>{{ memo.content }}</p>
+              <div class="memo-meta">
+                <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                <span v-if="memo.targetDate"
+                  >| 到期於: <strong>{{ memo.targetDate }}</strong></span
+                >
+                <span v-if="memo.patientName"
+                  >| 關聯病人: <strong>{{ memo.patientName }}</strong></span
+                >
+              </div>
+            </div>
+            <div class="memo-actions">
+              <button @click="updateMemoStatus(memo.id, false, true)">移回待處理</button>
+              <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li v-if="expiredList.length === 0" class="empty-state">沒有已到期的事項。</li>
         </ul>
       </div>
 
@@ -296,7 +344,6 @@ onMounted(() => {
     @cancel="isPatientDialogVisible = false"
   />
 
-  <!-- 【6. 加入新的對話框元件】 -->
   <AlertDialog
     :is-visible="isAlertDialogVisible"
     :title="alertDialogTitle"
@@ -313,7 +360,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 您的所有 CSS 樣式保持不變 */
 .memo-view {
   display: flex;
   flex-direction: column;
@@ -325,8 +371,11 @@ onMounted(() => {
 .memo-layout-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  grid-template-rows: auto 1fr;
-  grid-template-areas: 'form pending' 'resolved pending';
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas:
+    'form pending'
+    'expired pending'
+    'resolved pending';
   gap: 24px;
   height: calc(100vh - 150px);
 }
@@ -335,16 +384,23 @@ onMounted(() => {
 }
 #pending-section {
   grid-area: pending;
+  /* 讓 pending 區塊佔滿垂直空間 */
+  grid-row: 1 / span 3;
 }
 #resolved-section {
   grid-area: resolved;
 }
+#expired-section {
+  grid-area: expired;
+}
+
 #form-section,
 #pending-section,
-#resolved-section {
+#resolved-section,
+#expired-section {
   background-color: #fff;
   border-radius: 8px;
-  padding: 24px;
+  padding: 5px;
   border: 1px solid #e9ecef;
   display: flex;
   flex-direction: column;
@@ -369,12 +425,6 @@ onMounted(() => {
   border-radius: 6px;
   border: 1px solid #ced4da;
   font-size: 1.1rem;
-}
-.memo-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-  align-items: center;
 }
 .option-item {
   display: flex;
@@ -409,6 +459,13 @@ onMounted(() => {
 .memo-item.resolved p {
   text-decoration: line-through;
   color: #6c757d;
+}
+.memo-item.expired {
+  background-color: #f1f5f9;
+  border-left: 5px solid #64748b;
+}
+.memo-item.expired p {
+  color: #64748b;
 }
 .memo-content p {
   margin: 0 0 10px 0;

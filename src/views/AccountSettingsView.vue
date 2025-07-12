@@ -1,10 +1,10 @@
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router' // 【修正1/3】: 引入 useRouter
+import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 
 const { changePassword, currentUser } = useAuth()
-const router = useRouter() // 【修正2/3】: 創建 router 實例
+const router = useRouter()
 
 const oldPassword = ref('')
 const newPassword = ref('')
@@ -13,9 +13,23 @@ const message = ref('')
 const messageType = ref('') // 'success' or 'error'
 const isLoading = ref(false)
 
+const isOldPasswordVisible = ref(false)
+const isNewPasswordVisible = ref(false)
+const isConfirmPasswordVisible = ref(false)
+
+function togglePasswordVisibility(field) {
+  if (field === 'old') {
+    isOldPasswordVisible.value = !isOldPasswordVisible.value
+  } else if (field === 'new') {
+    isNewPasswordVisible.value = !isNewPasswordVisible.value
+  } else if (field === 'confirm') {
+    isConfirmPasswordVisible.value = !isConfirmPasswordVisible.value
+  }
+}
+
 async function handleChangePassword() {
   message.value = ''
-  isLoading.value = true
+  isLoading.value = false
 
   if (newPassword.value !== confirmPassword.value) {
     message.value = '新密碼與確認密碼不相符。'
@@ -34,7 +48,6 @@ async function handleChangePassword() {
     await changePassword(oldPassword.value, newPassword.value)
     message.value = '密碼已成功更新！'
     messageType.value = 'success'
-    // 清空表單
     oldPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
@@ -46,10 +59,8 @@ async function handleChangePassword() {
   }
 }
 
-// 【修正3/3】: 新增取消操作的函數
 function handleCancel() {
-  // 導航到預設的首頁
-  router.push({ name: 'Home' }) // 'Home' 會自動重定向到 '/schedule'
+  router.push({ name: 'Home' })
 }
 </script>
 
@@ -64,40 +75,55 @@ function handleCancel() {
       </header>
 
       <form @submit.prevent="handleChangePassword" class="password-form">
+        <!-- 【核心修改 1/3】: 複製 LoginView 的 HTML 結構 -->
         <div class="form-group">
           <label for="old-password">舊密碼</label>
-          <input
-            id="old-password"
-            type="password"
-            v-model="oldPassword"
-            required
-            autocomplete="current-password"
-          />
+          <div class="password-wrapper">
+            <input
+              id="old-password"
+              :type="isOldPasswordVisible ? 'text' : 'password'"
+              v-model="oldPassword"
+              required
+              autocomplete="current-password"
+            />
+            <span class="password-toggle-icon" @click="togglePasswordVisibility('old')">
+              {{ isOldPasswordVisible ? '🙈' : '👁️' }}
+            </span>
+          </div>
         </div>
 
         <div class="form-group">
           <label for="new-password">新密碼</label>
-          <input
-            id="new-password"
-            type="password"
-            v-model="newPassword"
-            required
-            autocomplete="new-password"
-          />
+          <div class="password-wrapper">
+            <input
+              id="new-password"
+              :type="isNewPasswordVisible ? 'text' : 'password'"
+              v-model="newPassword"
+              required
+              autocomplete="new-password"
+            />
+            <span class="password-toggle-icon" @click="togglePasswordVisibility('new')">
+              {{ isNewPasswordVisible ? '🙈' : '👁️' }}
+            </span>
+          </div>
         </div>
 
         <div class="form-group">
           <label for="confirm-password">確認新密碼</label>
-          <input
-            id="confirm-password"
-            type="password"
-            v-model="confirmPassword"
-            required
-            autocomplete="new-password"
-          />
+          <div class="password-wrapper">
+            <input
+              id="confirm-password"
+              :type="isConfirmPasswordVisible ? 'text' : 'password'"
+              v-model="confirmPassword"
+              required
+              autocomplete="new-password"
+            />
+            <span class="password-toggle-icon" @click="togglePasswordVisibility('confirm')">
+              {{ isConfirmPasswordVisible ? '🙈' : '👁️' }}
+            </span>
+          </div>
         </div>
 
-        <!-- 【排版修正】: 將按鈕放入一個容器中以便排版 -->
         <div class="form-actions">
           <button type="button" class="btn-cancel" @click="handleCancel">取消</button>
           <button type="submit" class="submit-btn" :disabled="isLoading">
@@ -189,15 +215,38 @@ function handleCancel() {
   box-shadow: 0 0 0 3px rgba(0, 90, 156, 0.2);
 }
 
-/* 【排版修正】: 新增按鈕容器的樣式 */
+/* 【核心修改 2/3】: 複製 LoginView 的 password-wrapper 樣式 */
+.password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-wrapper input {
+  width: 100%;
+  padding-right: 3.5rem;
+}
+
+/* 【核心修改 3/3】: 複製 LoginView 的 password-toggle-icon 樣式 */
+.password-toggle-icon {
+  position: absolute;
+  right: 1rem;
+  cursor: pointer;
+  user-select: none;
+  font-size: 1.5rem;
+  color: #a0aec0;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
 .form-actions {
   display: flex;
-  justify-content: flex-end; /* 按鈕靠右對齊 */
-  gap: 1rem; /* 按鈕間的間距 */
+  justify-content: flex-end;
+  gap: 1rem;
   margin-top: 1rem;
 }
 
-/* 【排版修正】: 調整按鈕樣式 */
 .submit-btn,
 .btn-cancel {
   padding: 0.8rem 1.5rem;
@@ -210,12 +259,12 @@ function handleCancel() {
 }
 
 .submit-btn {
-  background-color: var(--primary-color, #16a34a); /* 改為圖片中的綠色 */
+  background-color: var(--primary-color, #16a3a4);
   color: white;
 }
 
 .submit-btn:hover:not(:disabled) {
-  background-color: #15803d; /* 深一點的綠色 */
+  background-color: #15803d;
 }
 
 .submit-btn:disabled {

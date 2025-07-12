@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "dialysis-schedule-cd36c"
+    "default": "my-dialysis-app-develop",
+    "develop": "my-dialysis-app-develop"
   },
   "targets": {
     "dialysis-schedule-cd36c": {
@@ -17,5 +18,6 @@
         ]
       }
     }
-  }
+  },
+  "etags": {}
 }

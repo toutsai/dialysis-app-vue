@@ -14,7 +14,7 @@
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
           <li><RouterLink to="/weekly" class="nav-link">週排班總表</RouterLink></li>
           <li><RouterLink to="/base-schedule" class="nav-link">常規門診床位</RouterLink></li>
-          <li><RouterLink to="/patients" class="nav-link">病人管理系統</RouterLink></li>
+          <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
       </div>
