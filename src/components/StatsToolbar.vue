@@ -131,6 +131,8 @@ const getBarStyles = (shiftCount) => {
 .stat-shift-group {
   display: flex;
   gap: 6px;
+  flex-grow: 1; /* 【新增】讓此區塊佔滿剩餘空間 */
+  justify-content: space-between; /* 【新增】將內部項目分散對齊 */
 }
 
 .shift-tag {

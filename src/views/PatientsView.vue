@@ -1024,7 +1024,7 @@ onMounted(() => {
                 <td class="col-shrink">{{ formatDate(p.deletedAt) }}</td>
                 <td class="col-actions action-buttons">
                   <button
-                    class="btn-restore"
+                    class="btn btn-restore"
                     @click="restorePatient(p.id)"
                     :disabled="isPageLocked"
                   >
