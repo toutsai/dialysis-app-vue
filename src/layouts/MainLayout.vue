@@ -306,17 +306,17 @@ const formatTime = (date) => {
   background: transparent; /* 滾動條背景透明 */
 }
 .notification-area::-webkit-scrollbar-thumb {
-  background-color: #fef08a; /* 淡黃色滾動條 */
+  background-color: #5a6a7a; /* << 修改為淺灰色 */
   border-radius: 20px;
 }
 .notification-area::-webkit-scrollbar-thumb:hover {
-  background-color: #facc15; /* 滑鼠懸停時稍深的黃色 */
+  background-color: #4a5568; /* << 修改為稍深的灰色 */
 }
 
 /* For Firefox */
 .notification-area {
   scrollbar-width: thin;
-  scrollbar-color: #fef08a transparent; /* 滾動條顏色 和 背景顏色 */
+  scrollbar-color: #5a6a7a transparent; /* << 修改為淺灰色 和 背景顏色 */
 }
 /* --- 【滾動條樣式修改結束】 --- */
 

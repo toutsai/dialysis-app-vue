@@ -1,8 +1,9 @@
-<!-- 檔案路徑: src/components/DialysisOrderModal.vue (已修改) -->
+<!-- 檔案路徑: src/components/DialysisOrderModal.vue (已修正) -->
 <script setup>
-import { ref, reactive, watch } from 'vue' // ✨ 1. 從 nextTick 改回 watch ✨
+import { ref, reactive, watch, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where, orderBy, limit } from 'firebase/firestore'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -12,11 +13,13 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['close', 'save'])
+const emit = defineEmits(['close', 'save', 'delete-order'])
 
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 const orderHistory = ref([])
 const isLoadingHistory = ref(false)
+const isConfirmDeleteVisible = ref(false)
+const orderToDelete = ref(null)
 
 const akOptions = [
   '13M',
@@ -43,6 +46,30 @@ const localOrderData = reactive({
   effectiveDate: '',
 })
 
+const todayStr = computed(() => new Date().toISOString().slice(0, 10))
+
+const activeOrder = computed(() => {
+  const effectiveOrders = orderHistory.value
+    .filter((o) => o.orders.effectiveDate <= todayStr.value)
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+  return effectiveOrders.length > 0 ? effectiveOrders[0] : null
+})
+
+const pendingOrders = computed(() => {
+  return orderHistory.value
+    .filter((o) => o.orders.effectiveDate > todayStr.value)
+    .sort((a, b) => new Date(a.orders.effectiveDate) - new Date(b.orders.effectiveDate))
+})
+
+const archivedOrders = computed(() => {
+  const activeId = activeOrder.value ? activeOrder.value.id : null
+  const pendingIds = new Set(pendingOrders.value.map((p) => p.id))
+
+  return orderHistory.value
+    .filter((o) => o.id !== activeId && !pendingIds.has(o.id))
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+})
+
 async function fetchOrderHistory(patientId) {
   if (!patientId) return
   isLoadingHistory.value = true
@@ -51,7 +78,7 @@ async function fetchOrderHistory(patientId) {
     const queryConstraints = [
       where('patientId', '==', patientId),
       orderBy('updatedAt', 'desc'),
-      limit(5),
+      limit(20),
     ]
     const historyData = await ordersHistoryApi.fetchAll(queryConstraints)
     orderHistory.value = historyData
@@ -73,7 +100,7 @@ watch(
       localOrderData.heparinMaintenance = orders.heparinMaintenance || ''
       localOrderData.bloodFlow = orders.bloodFlow || ''
       localOrderData.dryWeight = orders.dryWeight || ''
-      localOrderData.effectiveDate = orders.effectiveDate || ''
+      localOrderData.effectiveDate = orders.effectiveDate || new Date().toISOString().slice(0, 10)
 
       fetchOrderHistory(props.patientData.id)
     } else {
@@ -90,41 +117,46 @@ function handleClose() {
   emit('close')
 }
 
+function requestDeleteOrder(record) {
+  orderToDelete.value = record
+  isConfirmDeleteVisible.value = true
+}
+
+async function confirmDelete() {
+  if (!orderToDelete.value) return
+  try {
+    await ordersHistoryApi.delete(orderToDelete.value.id)
+    orderHistory.value = orderHistory.value.filter((item) => item.id !== orderToDelete.value.id)
+  } catch (error) {
+    console.error('刪除醫囑歷史失敗:', error)
+  } finally {
+    isConfirmDeleteVisible.value = false
+    orderToDelete.value = null
+  }
+}
+
 function formatDate(isoString) {
   if (!isoString) return 'N/A'
-  return isoString.slice(0, 10)
+  const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
+  if (isNaN(date.getTime())) return 'N/A'
+  return date.toISOString().slice(0, 10)
 }
 
-// ✨ 2. 新增：用於比較並返回 CSS class 的函式 ✨
-function getComparisonClass(currentRow, previousRow, field) {
-  if (!previousRow) return ''
-  const currentValue = currentRow.orders[field] || ''
-  const previousValue = previousRow.orders[field] || ''
-  return currentValue !== previousValue ? 'is-changed' : ''
-}
-
-// ✨ 3. 新增：專門處理 Heparin 的比較函式 ✨
-function getHeparinComparisonClass(currentRow, previousRow) {
-  if (!previousRow) return ''
-  const currentInitial = currentRow.orders.heparinInitial || ''
-  const currentMaintenance = currentRow.orders.heparinMaintenance || ''
-  const previousInitial = previousRow.orders.heparinInitial || ''
-  const previousMaintenance = previousRow.orders.heparinMaintenance || ''
-  const isChanged = currentInitial !== previousInitial || currentMaintenance !== previousMaintenance
-  return isChanged ? 'is-changed' : ''
+function getComparisonClass(currentValue, previousValue) {
+  if (previousValue === undefined) return ''
+  return (currentValue || '') !== (previousValue || '') ? 'is-changed' : ''
 }
 </script>
 
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="handleClose">
-    <div class="dialog-content">
-      <div class="dialog-header">
-        <h2>{{ patientData?.name }} - 透析醫囑</h2>
-        <button @click="handleClose" class="close-btn">×</button>
-      </div>
+  <div>
+    <div v-if="isVisible" class="dialog-overlay" @click.self="handleClose">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>{{ patientData?.name }} - 透析醫囑</h2>
+          <button @click="handleClose" class="close-btn">×</button>
+        </div>
 
-      <div class="dialog-body">
-        <!-- 上半部：醫囑編輯區 -->
         <div class="form-section">
           <form @submit.prevent="handleSave" class="order-form">
             <div class="form-grid">
@@ -191,14 +223,15 @@ function getHeparinComparisonClass(currentRow, previousRow) {
           </form>
         </div>
 
-        <!-- 下半部：歷史紀錄區 -->
         <div class="history-section">
-          <h3 class="history-title">最近 5 筆醫囑歷史</h3>
+          <h3 class="history-title">醫囑歷史</h3>
           <div class="history-table-wrapper">
             <div v-if="isLoadingHistory" class="loading-state">載入中...</div>
             <table v-else-if="orderHistory.length > 0">
               <thead>
                 <tr>
+                  <th class="col-action">操作</th>
+                  <th>狀態</th>
                   <th>修改日期</th>
                   <th>生效日期</th>
                   <th>DW</th>
@@ -209,25 +242,131 @@ function getHeparinComparisonClass(currentRow, previousRow) {
                 </tr>
               </thead>
               <tbody>
-                <!-- ✨ 4. 修改 v-for 和 :class 綁定 ✨ -->
-                <tr v-for="(record, index) in orderHistory" :key="record.id">
+                <tr v-if="activeOrder" class="active-order">
+                  <td class="col-action">
+                    <button
+                      @click="requestDeleteOrder(activeOrder)"
+                      class="btn-delete"
+                      title="刪除此筆歷史"
+                    >
+                      ×
+                    </button>
+                  </td>
+                  <td><span class="status-tag active">最新</span></td>
+                  <td>{{ formatDate(activeOrder.updatedAt) }}</td>
+                  <!-- ✨ 核心修正點 1：拿「新」的 activeOrder 去跟「舊」的 archivedOrders[0] (或 pendingOrders) 比較 ✨ -->
+                  <td
+                    :class="
+                      getComparisonClass(
+                        activeOrder.orders.effectiveDate,
+                        (archivedOrders[0] || pendingOrders[0])?.orders.effectiveDate,
+                      )
+                    "
+                  >
+                    {{ formatDate(activeOrder.orders.effectiveDate) }}
+                  </td>
+                  <td
+                    :class="
+                      getComparisonClass(
+                        activeOrder.orders.dryWeight,
+                        (archivedOrders[0] || pendingOrders[0])?.orders.dryWeight,
+                      )
+                    "
+                  >
+                    {{ activeOrder.orders.dryWeight || '–' }}
+                  </td>
+                  <td
+                    :class="
+                      getComparisonClass(
+                        activeOrder.orders.bloodFlow,
+                        (archivedOrders[0] || pendingOrders[0])?.orders.bloodFlow,
+                      )
+                    "
+                  >
+                    {{ activeOrder.orders.bloodFlow || '–' }}
+                  </td>
+                  <td
+                    :class="
+                      getComparisonClass(
+                        activeOrder.orders.ak,
+                        (archivedOrders[0] || pendingOrders[0])?.orders.ak,
+                      )
+                    "
+                  >
+                    {{ activeOrder.orders.ak || '–' }}
+                  </td>
+                  <td
+                    :class="
+                      getComparisonClass(
+                        activeOrder.orders.dialysateCa,
+                        (archivedOrders[0] || pendingOrders[0])?.orders.dialysateCa,
+                      )
+                    "
+                  >
+                    {{ activeOrder.orders.dialysateCa || '–' }}
+                  </td>
+                  <td
+                    :class="
+                      getComparisonClass(
+                        `${activeOrder.orders.heparinInitial || ''}/${activeOrder.orders.heparinMaintenance || ''}`,
+                        `${(archivedOrders[0] || pendingOrders[0])?.orders.heparinInitial || ''}/${(archivedOrders[0] || pendingOrders[0])?.orders.heparinMaintenance || ''}`,
+                      )
+                    "
+                  >
+                    {{ activeOrder.orders.heparinInitial || '–' }}/{{
+                      activeOrder.orders.heparinMaintenance || '–'
+                    }}
+                  </td>
+                </tr>
+
+                <tr
+                  v-for="(record, index) in pendingOrders"
+                  :key="`pending-${record.id}`"
+                  class="pending-order"
+                >
+                  <td class="col-action">
+                    <button
+                      @click="requestDeleteOrder(record)"
+                      class="btn-delete"
+                      title="刪除此筆歷史"
+                    >
+                      ×
+                    </button>
+                  </td>
+                  <td><span class="status-tag pending">未生效</span></td>
                   <td>{{ formatDate(record.updatedAt) }}</td>
-                  <td :class="getComparisonClass(record, orderHistory[index + 1], 'effectiveDate')">
-                    {{ formatDate(record.orders.effectiveDate) }}
+                  <!-- 未生效的醫囑，我們通常不進行比較，因為它們還沒有基準 -->
+                  <td>{{ formatDate(record.orders.effectiveDate) }}</td>
+                  <td>{{ record.orders.dryWeight || '–' }}</td>
+                  <td>{{ record.orders.bloodFlow || '–' }}</td>
+                  <td>{{ record.orders.ak || '–' }}</td>
+                  <td>{{ record.orders.dialysateCa || '–' }}</td>
+                  <td>
+                    {{ record.orders.heparinInitial || '–' }}/{{
+                      record.orders.heparinMaintenance || '–'
+                    }}
                   </td>
-                  <td :class="getComparisonClass(record, orderHistory[index + 1], 'dryWeight')">
-                    {{ record.orders.dryWeight || '–' }}
+                </tr>
+
+                <!-- ✨ 核心修正點 2：歷史紀錄現在不需要高亮，因為高亮顯示在「最新」那一行 ✨ -->
+                <tr v-for="record in archivedOrders" :key="`archived-${record.id}`">
+                  <td class="col-action">
+                    <button
+                      @click="requestDeleteOrder(record)"
+                      class="btn-delete"
+                      title="刪除此筆歷史"
+                    >
+                      ×
+                    </button>
                   </td>
-                  <td :class="getComparisonClass(record, orderHistory[index + 1], 'bloodFlow')">
-                    {{ record.orders.bloodFlow || '–' }}
-                  </td>
-                  <td :class="getComparisonClass(record, orderHistory[index + 1], 'ak')">
-                    {{ record.orders.ak || '–' }}
-                  </td>
-                  <td :class="getComparisonClass(record, orderHistory[index + 1], 'dialysateCa')">
-                    {{ record.orders.dialysateCa || '–' }}
-                  </td>
-                  <td :class="getHeparinComparisonClass(record, orderHistory[index + 1])">
+                  <td><span class="status-tag history">歷史</span></td>
+                  <td>{{ formatDate(record.updatedAt) }}</td>
+                  <td>{{ formatDate(record.orders.effectiveDate) }}</td>
+                  <td>{{ record.orders.dryWeight || '–' }}</td>
+                  <td>{{ record.orders.bloodFlow || '–' }}</td>
+                  <td>{{ record.orders.ak || '–' }}</td>
+                  <td>{{ record.orders.dialysateCa || '–' }}</td>
+                  <td>
                     {{ record.orders.heparinInitial || '–' }}/{{
                       record.orders.heparinMaintenance || '–'
                     }}
@@ -238,17 +377,59 @@ function getHeparinComparisonClass(currentRow, previousRow) {
             <div v-else class="empty-state">無歷史紀錄</div>
           </div>
         </div>
-      </div>
 
-      <div class="dialog-footer">
-        <button @click="handleSave" class="btn-save">儲存醫囑</button>
-        <button @click="handleClose" class="btn-cancel">取消</button>
+        <div class="dialog-footer">
+          <button @click="handleSave" class="btn-save">儲存醫囑</button>
+          <button @click="handleClose" class="btn-cancel">取消</button>
+        </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :is-visible="isConfirmDeleteVisible"
+      title="確認刪除"
+      message="您確定要永久刪除這筆醫囑歷史紀錄嗎？此操作無法復原。"
+      @confirm="confirmDelete"
+      @cancel="isConfirmDeleteVisible = false"
+    />
   </div>
 </template>
 
 <style scoped>
+/* ✨ CSS 核心修改點：使用 Flexbox 佈局 ✨ */
+.dialog-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 900px; /* 稍微加寬以容納新欄位 */
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+.dialog-header,
+.dialog-footer {
+  flex-shrink: 0; /* 確保頭尾不被壓縮 */
+}
+.form-section {
+  flex-shrink: 0;
+  padding: 1rem 1.5rem;
+}
+.history-section {
+  flex-grow: 1; /* 讓歷史區塊填滿剩餘空間 */
+  padding: 0 1.5rem 1rem;
+  overflow-y: hidden; /* 自身不滾動 */
+  display: flex;
+  flex-direction: column;
+}
+.history-table-wrapper {
+  flex-grow: 1; /* 讓表格 wrapper 填滿歷史區塊的剩餘空間 */
+  overflow-y: auto; /* ✨ 只有表格滾動 ✨ */
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+/* 其他樣式調整 */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -260,16 +441,6 @@ function getHeparinComparisonClass(currentRow, previousRow) {
   justify-content: center;
   align-items: center;
   z-index: 1000;
-}
-.dialog-content {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-  width: 90%;
-  max-width: 800px;
-  display: flex;
-  flex-direction: column;
-  max-height: 90vh;
 }
 .dialog-header {
   padding: 1rem 1.5rem;
@@ -290,19 +461,11 @@ function getHeparinComparisonClass(currentRow, previousRow) {
   cursor: pointer;
   color: #aaa;
 }
-.dialog-body {
-  padding: 1.5rem;
-  overflow-y: auto;
-}
-.form-section {
-  padding-bottom: 1.5rem;
-  margin-bottom: 1.5rem;
-  border-bottom: 2px dashed #e0e0e0;
-}
+
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 .form-group {
   display: flex;
@@ -318,7 +481,7 @@ function getHeparinComparisonClass(currentRow, previousRow) {
 }
 .form-group input,
 .form-group select {
-  padding: 0.75rem;
+  padding: 0.6rem;
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 1rem;
@@ -331,22 +494,11 @@ function getHeparinComparisonClass(currentRow, previousRow) {
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
-.history-section {
-  display: flex;
-  flex-direction: column;
-}
 .history-title {
   margin-top: 0;
-  margin-bottom: 1rem;
+  margin-bottom: 0.5rem;
   font-size: 1.2rem;
   color: #333;
-}
-.history-table-wrapper {
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  overflow: hidden;
-  max-height: 200px;
-  overflow-y: auto;
 }
 .history-table-wrapper table {
   width: 100%;
@@ -362,10 +514,67 @@ function getHeparinComparisonClass(currentRow, previousRow) {
 .history-table-wrapper th {
   background-color: #f8f9fa;
   font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .history-table-wrapper tr:last-child td {
   border-bottom: none;
 }
+.col-action {
+  width: 50px;
+}
+.btn-delete {
+  background: none;
+  border: 1px solid #e53e3e;
+  color: #e53e3e;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-weight: bold;
+  line-height: 1;
+  padding: 0;
+  transition: all 0.2s;
+}
+.btn-delete:hover {
+  background-color: #e53e3e;
+  color: white;
+}
+
+.status-tag {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  color: white;
+}
+.status-tag.active {
+  background-color: #38a169; /* 綠色 */
+}
+.status-tag.pending {
+  background-color: #f97316; /* 橘色 */
+}
+.status-tag.history {
+  background-color: #718096; /* 灰色 */
+}
+tr.active-order {
+  background-color: #f0fff4;
+  font-weight: 500;
+}
+tr.active-order td {
+  font-weight: bold;
+}
+tr.active-order td:nth-child(2) {
+  border-left: 4px solid #38a169;
+}
+tr.pending-order {
+  background-color: #fffbeb;
+}
+tr.pending-order td:nth-child(2) {
+  border-left: 4px solid #f97316;
+}
+
 .loading-state,
 .empty-state {
   padding: 2rem;
@@ -398,8 +607,7 @@ function getHeparinComparisonClass(currentRow, previousRow) {
   color: white;
 }
 
-/* ✨ 5. 新增高亮樣式 ✨ */
-:deep(.is-changed) {
+.is-changed {
   color: #dc3545; /* 紅色 */
   font-weight: bold;
 }
