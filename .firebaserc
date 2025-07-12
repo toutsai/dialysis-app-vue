@@ -1,7 +1,8 @@
 {
   "projects": {
     "default": "my-dialysis-app-develop",
-    "develop": "my-dialysis-app-develop"
+    "develop": "my-dialysis-app-develop",
+    "production": "dialysis-schedule-cd36c"
   },
   "targets": {
     "dialysis-schedule-cd36c": {
