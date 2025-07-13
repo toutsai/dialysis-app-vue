@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (已修正) -->
+<!-- 檔案路徑: src/views/StatsView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide, watchEffect } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -100,6 +100,10 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
 
+// ✨ 1. 新增 Ref 來暫存換床時的資訊
+const pendingChangeInfo = ref(null)
+const bedChangeTargetShift = ref(null)
+
 const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({
   patients: [],
@@ -171,10 +175,6 @@ const weekdayDisplay = computed(() => {
   const dayIndex = new Date(currentDate.value).getDay()
   return weekdays[dayIndex]
 })
-
-// ========================================================================
-// 醫囑計算邏輯核心
-// ========================================================================
 
 const effectiveStatsData = ref({ early: {}, late: {} })
 
@@ -362,10 +362,6 @@ watchEffect(async () => {
   effectiveStatsData.value = { early: earlyShiftStats, late: lateShiftStats }
 })
 
-// ========================================================================
-// 方法區
-// ========================================================================
-
 function getDutyTagClass(dutyName) {
   if (dutyName.includes('指揮官')) return 'role-field-commander'
   if (dutyName.includes('通報')) return 'role-reporter'
@@ -501,53 +497,76 @@ async function saveChangesToCloud() {
   }
 }
 
+// ✨ 2. 重構 onDrop 函數以實現新流程
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
+
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
+
   const oldShiftIdParts = oldShiftId.split('-')
-  const bedPart = oldShiftIdParts.slice(0, -1).join('-')
+  const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 'bed-16' or 'peripheral-1'
+
   let newShiftCode
-  if (newResponsibility === 'earlyShift') newShiftCode = SHIFT_CODES.EARLY
-  else if (newResponsibility === 'lateShift') newShiftCode = SHIFT_CODES.LATE
+  if (newResponsibility.startsWith('early')) newShiftCode = SHIFT_CODES.EARLY
+  else if (newResponsibility.startsWith('late')) newShiftCode = SHIFT_CODES.LATE
   else newShiftCode = SHIFT_CODES.NOON
 
   const newShiftId = `${bedPart}-${newShiftCode}`
+
+  // 檢查目標床位是否被佔用 (只有在班次改變時才需要檢查)
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
-    alertDialogTitle.value = '操作錯誤'
-    alertDialogMessage.value = `錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`
-    isAlertDialogVisible.value = true
-    return
-  }
-  const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
-  movingSlotData.shiftId = newShiftId
-  delete movingSlotData.nurseTeam
-  delete movingSlotData.nurseTeamIn
-  delete movingSlotData.nurseTeamOut
-  if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
-    movingSlotData.nurseTeam = newTeam
-  } else if (newResponsibility === 'noonShiftOn') {
-    movingSlotData.nurseTeamIn = newTeam
-    const oldResponsibility = event.dataTransfer.getData('text/plain')
-    if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
-      movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
+    // 情境二: 床位衝突，彈出引導式換床對話框
+    pendingChangeInfo.value = {
+      patientDetail: patientDetail,
+      newTeam: newTeam,
+      newResponsibility: newResponsibility,
     }
-  } else if (newResponsibility === 'noonShiftOff') {
-    movingSlotData.nurseTeamOut = newTeam
-    const oldResponsibility = event.dataTransfer.getData('text/plain')
-    if (oldResponsibility.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamIn) {
-      movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
+    bedChangeTargetShift.value = newShiftCode
+    openBedChangeDialog(patientDetail)
+  } else {
+    // 情境一: 目標床位無人，直接移動
+    const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+    movingSlotData.shiftId = newShiftId
+
+    // 清空舊的組別資訊
+    delete movingSlotData.nurseTeam
+    delete movingSlotData.nurseTeamIn
+    delete movingSlotData.nurseTeamOut
+
+    // 根據新的責任區設定新的組別
+    if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
+      movingSlotData.nurseTeam = newTeam
+    } else if (newResponsibility === 'noonShiftOn') {
+      movingSlotData.nurseTeamIn = newTeam
+    } else if (newResponsibility === 'noonShiftOff') {
+      movingSlotData.nurseTeamOut = newTeam
     }
+
+    // 處理午班對應的另一半組別
+    if (newShiftCode === SHIFT_CODES.NOON) {
+      const oldResponsibility = event.dataTransfer.getData('text/plain')
+      if (oldResponsibility === 'noonShiftOn' && currentRecord.schedule[oldShiftId].nurseTeamOut) {
+        movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
+      } else if (
+        oldResponsibility === 'noonShiftOff' &&
+        currentRecord.schedule[oldShiftId].nurseTeamIn
+      ) {
+        movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
+      }
+    }
+
+    // 刪除舊紀錄，建立新紀錄
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = movingSlotData
+    setChange()
   }
-  delete currentRecord.schedule[oldShiftId]
-  currentRecord.schedule[newShiftId] = movingSlotData
-  setChange()
 }
 
 function onDragStart(event, patientDetail, responsibility) {
@@ -566,17 +585,60 @@ function openBedChangeDialog(patientDetail) {
   isBedChangeDialogVisible.value = true
 }
 
+// ✨ 3. 重構 handleBedChange 以處理來自引導式流程的確認
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value) return
-  if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
-    console.error('換床失敗，參數無效或找不到舊床位資料。')
+  if (!currentRecord.schedule[oldShiftId]) {
+    console.error('換床失敗，找不到舊床位資料。')
+    isBedChangeDialogVisible.value = false
     return
   }
-  const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
-  delete currentRecord.schedule[oldShiftId]
-  currentRecord.schedule[newShiftId] = patientData
+
+  // 檢查是否有暫存的拖曳資訊
+  if (pendingChangeInfo.value) {
+    const { newTeam, newResponsibility } = pendingChangeInfo.value
+    const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+
+    // 更新 slot 的 shiftId 為新選擇的床位
+    movingSlotData.shiftId = newShiftId
+
+    // 清空舊的組別資訊
+    delete movingSlotData.nurseTeam
+    delete movingSlotData.nurseTeamIn
+    delete movingSlotData.nurseTeamOut
+
+    // 根據最初拖曳的目標設定新的組別
+    if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
+      movingSlotData.nurseTeam = newTeam
+    } else if (newResponsibility === 'noonShiftOn') {
+      movingSlotData.nurseTeamIn = newTeam
+    } else if (newResponsibility === 'noonShiftOff') {
+      movingSlotData.nurseTeamOut = newTeam
+    }
+
+    // 刪除舊紀錄，建立新紀錄
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = movingSlotData
+  } else {
+    // 原始的換床邏輯 (點擊病人卡片觸發)
+    const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = patientData
+  }
+
   setChange()
   isBedChangeDialogVisible.value = false
+  // 清理暫存狀態
+  pendingChangeInfo.value = null
+  bedChangeTargetShift.value = null
+}
+
+// ✨ 4. 新增 handleDialogCancel 函數並綁定
+function handleDialogCancel() {
+  isBedChangeDialogVisible.value = false
+  // 清理暫存狀態
+  pendingChangeInfo.value = null
+  bedChangeTargetShift.value = null
 }
 
 function updateNurseName(teamId, event) {
@@ -641,9 +703,7 @@ function onDragOver(event) {
 function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
-function handleDialogCancel() {
-  isBedChangeDialogVisible.value = false
-}
+
 function triggerPrint() {
   window.print()
 }
@@ -735,10 +795,8 @@ watch(currentDate, (newDate) => {
 
     <div class="stats-sections-wrapper">
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
-        <!-- <h2>早班組別</h2> <--【修改】移除此處的 H2 -->
         <div class="grid-container">
           <div class="grid-header">
-            <!--【修改】將標題移入此處-->
             <div class="row-header section-title-cell">早班</div>
             <div
               v-for="(_, teamName) in effectiveStatsData.early"
@@ -897,10 +955,8 @@ watch(currentDate, (newDate) => {
       </div>
 
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
-        <!-- <h2>晚班組別</h2> <--【修改】移除此處的 H2 -->
         <div class="grid-container">
           <div class="grid-header">
-            <!--【修改】將標題移入此處-->
             <div class="row-header section-title-cell">晚班</div>
             <div
               v-for="(_, teamName) in effectiveStatsData.late"
@@ -1032,6 +1088,7 @@ watch(currentDate, (newDate) => {
       :is-visible="isBedChangeDialogVisible"
       :patient-info="editingPatientInfo"
       :current-schedule="currentRecord.schedule"
+      :target-shift-filter="bedChangeTargetShift"
       @confirm="handleBedChange"
       @cancel="handleDialogCancel"
     />
@@ -1128,16 +1185,6 @@ watch(currentDate, (newDate) => {
   color: white;
   border-color: #4caf50;
 }
-/*【修改】移除 h2 的樣式*/
-/*
-.stats-section h2 {
-  font-size: 1.5em;
-  color: #005a9c;
-  border-bottom: 2px solid #e0e0e0;
-  padding-bottom: 10px;
-  margin-bottom: 15px;
-}
-*/
 .grid-container {
   display: grid;
   grid-template-columns: 90px repeat(12, 1fr);
@@ -1176,7 +1223,7 @@ watch(currentDate, (newDate) => {
   text-align: center;
   position: sticky;
   left: 0;
-  z-index: 2; /* 提高 z-index */
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1185,15 +1232,13 @@ watch(currentDate, (newDate) => {
   background-color: #e3f2fd;
   font-weight: bold;
   text-align: center;
-  position: sticky; /*【新增】讓欄位標頭固定*/
+  position: sticky;
   top: 0;
   z-index: 1;
-  /* --- ✨ 以下為新增的置中樣式 ✨ --- */
   display: flex;
-  align-items: center; /* 垂直置中 */
-  justify-content: center; /* 水平置中 */
+  align-items: center;
+  justify-content: center;
 }
-/*【新增】表格左上角標題儲存格的樣式*/
 .section-title-cell {
   font-size: 1.5em;
   color: #005a9c;
@@ -1201,7 +1246,7 @@ watch(currentDate, (newDate) => {
   position: sticky;
   top: 0;
   left: 0;
-  z-index: 3; /*確保在最上層*/
+  z-index: 3;
 }
 .name-cell {
   padding: 0 !important;
@@ -1378,8 +1423,6 @@ watch(currentDate, (newDate) => {
   pointer-events: auto;
   cursor: pointer;
 }
-
-/* ✨ 5. 美化後的消防勤務資訊列樣式 ✨ */
 .duty-command-bar {
   background-color: #fffbeb;
   border: 1px solid #fef3c7;
@@ -1419,14 +1462,12 @@ watch(currentDate, (newDate) => {
 .duty-role-tag.role-field-commander {
   background-color: #d97706;
 }
-/* ✨ 核心修正點：為「工友」和「引導救護班」新增樣式 ✨ */
 .duty-role-tag.role-worker {
   background-color: #6d28d9;
 }
 .duty-role-tag.role-guide {
   background-color: #0d9488;
 }
-
 .duty-person {
   font-weight: 500;
   color: #1e293b;
@@ -1506,13 +1547,12 @@ watch(currentDate, (newDate) => {
   text-align: center;
   justify-self: end;
 }
-/* ✨ 核心修正點：為下拉選單內的職務加上顏色 ✨ */
 .duty-name.role-field-commander {
   background-color: #d97706;
 }
 .duty-name.role-safety {
   background-color: #2563eb;
-} /* 安全防護班用藍色 */
+}
 .duty-name.role-guide {
   background-color: #0d9488;
 }
@@ -1526,7 +1566,6 @@ watch(currentDate, (newDate) => {
 .duty-name.role-default {
   background-color: #475569;
 }
-
 .duty-teams {
   display: flex;
   flex-wrap: wrap;

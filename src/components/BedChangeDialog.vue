@@ -1,4 +1,4 @@
-<!-- src/components/BedChangeDialog.vue (重構版) -->
+<!-- src/components/BedChangeDialog.vue (已修改) -->
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
@@ -7,39 +7,41 @@ const props = defineProps({
   isVisible: Boolean,
   patientInfo: Object,
   currentSchedule: Object,
+  // ✨ 1. 新增 prop，用來接收要篩選的目標班次
+  targetShiftFilter: {
+    type: String,
+    default: null, // e.g., 'early', 'noon', 'late'
+  },
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
 
 const selectedNewBedId = ref(null)
 
-// 肝炎床位號碼
 const hepatitisBedNumbers = [31, 32, 33, 35, 36]
 function isHepatitisBed(bedNum) {
   return typeof bedNum === 'number' && hepatitisBedNumbers.includes(bedNum)
 }
 
-// 【核心邏輯】計算可用的空床位，並按班別分組
+// ✨ 2. 修改 computed，使其能夠根據 prop 進行篩選
 const availableBedsByShift = computed(() => {
   if (!props.isVisible || !props.currentSchedule) return {}
 
   const allPossibleBeds = [
     ...Array.from({ length: 65 }, (_, i) => i + 1).filter(
       (i) => ![4, 10, 14, 20, 24, 30, 34, 40, 50, 54, 60, 64].includes(i),
-    ), // 假設1-65床，排除不存在的號碼
+    ),
     ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
   ]
 
   const occupiedBedShiftIds = new Set(Object.keys(props.currentSchedule))
+  const allShifts = Object.values(SHIFT_CODES)
 
-  const available = {
-    [SHIFT_CODES.EARLY]: [],
-    [SHIFT_CODES.NOON]: [],
-    [SHIFT_CODES.LATE]: [],
-  }
+  const available = {}
+  allShifts.forEach((s) => (available[s] = []))
 
   allPossibleBeds.forEach((bedNum) => {
-    Object.values(SHIFT_CODES).forEach((shiftCode) => {
+    allShifts.forEach((shiftCode) => {
       const bedIdPart = typeof bedNum === 'string' ? bedNum : `bed-${bedNum}`
       const shiftId = `${bedIdPart}-${shiftCode}`
       if (!occupiedBedShiftIds.has(shiftId)) {
@@ -48,7 +50,6 @@ const availableBedsByShift = computed(() => {
     })
   })
 
-  // 排序
   Object.values(available).forEach((beds) => {
     beds.sort((a, b) => {
       const numA = typeof a === 'number' ? a : Infinity
@@ -58,7 +59,33 @@ const availableBedsByShift = computed(() => {
     })
   })
 
+  // 如果有傳入篩選條件，只回傳該班次的空床
+  if (props.targetShiftFilter && available[props.targetShiftFilter]) {
+    return {
+      [props.targetShiftFilter]: available[props.targetShiftFilter],
+    }
+  }
+
   return available
+})
+
+// ✨ 3. 動態設定對話框標題和提示訊息
+const dialogTitle = computed(() => {
+  if (props.targetShiftFilter && props.patientInfo) {
+    return `為【${props.patientInfo.name}】選擇新的空床位`
+  }
+  return '更換床位'
+})
+
+const patientInfoDisplay = computed(() => {
+  if (props.targetShiftFilter && props.patientInfo) {
+    const targetShiftName = getShiftDisplayName(props.targetShiftFilter)
+    return {
+      ...props.patientInfo,
+      targetShift: targetShiftName,
+    }
+  }
+  return props.patientInfo
 })
 
 watch(
@@ -98,14 +125,17 @@ function getBedDisplay(bed) {
   <div v-if="isVisible" class="dialog-overlay" @click.self="$emit('cancel')">
     <div class="dialog-content">
       <div class="dialog-header">
-        <h3>更換床位</h3>
+        <h3>{{ dialogTitle }}</h3>
         <button @click="$emit('cancel')" class="close-btn">×</button>
       </div>
 
       <div class="dialog-body">
-        <div v-if="patientInfo" class="patient-info">
-          <span><strong>病人:</strong> {{ patientInfo.name }}</span>
-          <span><strong>目前床位:</strong> {{ patientInfo.shiftId }}</span>
+        <div v-if="patientInfoDisplay" class="patient-info">
+          <span><strong>病人:</strong> {{ patientInfoDisplay.name }}</span>
+          <span v-if="patientInfoDisplay.targetShift"
+            ><strong>目標班次:</strong> {{ patientInfoDisplay.targetShift }}</span
+          >
+          <span v-else><strong>目前床位:</strong> {{ patientInfoDisplay.shiftId }}</span>
         </div>
 
         <div class="beds-container">
@@ -146,6 +176,7 @@ function getBedDisplay(bed) {
   </div>
 </template>
 
+<!-- Style 部分與原檔案相同，故省略 -->
 <style scoped>
 .dialog-overlay {
   position: fixed;
