@@ -1,11 +1,9 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
-// 【1. 導入通知中心】
 import { useNotification } from '@/composables/useNotification.js'
 
 import {
@@ -119,7 +117,6 @@ const isPageLocked = computed(() => {
   return currentDate.value < today
 })
 
-// 【2. 實例化通知中心】
 const { addNotification } = useNotification()
 
 function formatDate(date) {
@@ -186,8 +183,6 @@ function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-  // ✨ 備註：此處顯示的邏輯可能也需要調整，但因為它只顯示 pending，所以暫時沒問題
-  // 但為了與資料源一致，這裡的 isResolved 其實可以拿掉
   memosForDialog.value = activeMemos.value.filter((memo) => memo.patientId === patientId)
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
@@ -226,7 +221,6 @@ function setChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
-// 【3. 修改 saveDataToCloud 加入通知】
 async function saveDataToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -262,16 +256,11 @@ async function saveDataToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
-
-    // 發送全局事件，用於通知其他元件（如週排班總表）更新
     const updateEvent = new CustomEvent('schedule-updated', {
       detail: { date: currentRecord.date },
     })
     window.dispatchEvent(updateEvent)
-
-    // 發送側邊欄通知
     addNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
-
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
@@ -302,7 +291,6 @@ async function copySchedule() {
     alert('請選擇一個與當前不同的來源日期！')
     return
   }
-
   confirmDialogMessage.value = `確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`
   onConfirmAction.value = async () => {
     statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
@@ -518,8 +506,7 @@ async function loadAllData() {
   try {
     const [patientsData, memosData] = await Promise.all([
       patientsApi.fetchAll(),
-      // ✨ 核心修正點：只抓取 status 為 'pending' 的備忘錄 ✨
-      memosApi.fetchAll([where('status', '==', 'pending')]),
+      memosApi.fetchAll([where('isResolved', '==', false)]),
     ])
     allPatients.value = patientsData
     activeMemos.value = memosData
@@ -690,22 +677,7 @@ function handleCancel() {
 // 實例化計算模組
 const { distributePatients } = useTeamAssigner()
 
-// 全新設計的自動分組函式
-function autoAssignNurseTeams() {
-  if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '頁面已鎖定，無法執行自動分組。'
-    isAlertDialogVisible.value = true
-    return
-  }
-
-  confirmDialogMessage.value = '此操作將會覆蓋現有的護理師分組，您確定要繼續嗎？'
-  onConfirmAction.value = () => {
-    executeAutoAssignment()
-  }
-  isConfirmDialogVisible.value = true
-}
-
+// 【核心修改點】: executeAutoAssignment 函式內部
 function executeAutoAssignment() {
   const getRichPatientList = (shiftCode) => {
     const patients = []
@@ -748,19 +720,22 @@ function executeAutoAssignment() {
     return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
   }
 
-  // --- 早班 & 午班上針 ---
+  // 【修改點 1】: 白天班的基礎組別只到 J
+  const dayBaseTeams = baseTeams.filter((t) => t !== 'K')
+
+  // --- 早班 ---
   const earlyMain = mainArea(allEarlyPatients)
-  const earlyTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
+  const earlyTeamsToUse = dayBaseTeams.map((t) => `早${t}`)
   const useEarlyTeamA = earlyMain.length > 36
   const earlyRules = {
     priorityTeams: {
       hepatitis: '早G',
-      inPatientTeams: ['早H', '早I', '早J', '早K'],
-      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4, 早K: 4 },
+      inPatientTeams: ['早H', '早I', '早J'],
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4 },
     },
     mainDistribution: {
       specialTeam: useEarlyTeamA ? { name: '早A', capacity: 2 } : null,
-      regularTeams: (useEarlyTeamA ? baseTeams.slice(0, 11) : baseTeams.slice(1, 11)).map(
+      regularTeams: (useEarlyTeamA ? dayBaseTeams : dayBaseTeams.filter((t) => t !== 'A')).map(
         (t) => `早${t}`,
       ),
       primaryCapacity: 4,
@@ -770,18 +745,19 @@ function executeAutoAssignment() {
   const earlyAssignments = distributePatients(sort(earlyMain), earlyTeamsToUse, earlyRules)
   earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
 
+  // --- 午班 (上針) ---
   const noonMain = mainArea(allNoonPatients)
-  const noonTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
+  const noonTeamsToUse = dayBaseTeams.map((t) => `早${t}`)
   const useNoonTeamA = noonMain.length > 36
   const noonRules = {
     priorityTeams: {
       hepatitis: '早G',
-      inPatientTeams: ['早H', '早I', '早J', '早K'],
-      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4, 早K: 4 },
+      inPatientTeams: ['早H', '早I', '早J'],
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4 },
     },
     mainDistribution: {
       specialTeam: useNoonTeamA ? { name: '早A', capacity: 2 } : null,
-      regularTeams: (useNoonTeamA ? baseTeams.slice(0, 11) : baseTeams.slice(1, 11)).map(
+      regularTeams: (useNoonTeamA ? dayBaseTeams : dayBaseTeams.filter((t) => t !== 'A')).map(
         (t) => `早${t}`,
       ),
       primaryCapacity: 4,
@@ -791,9 +767,8 @@ function executeAutoAssignment() {
   const noonOnAssignments = distributePatients(sort(noonMain), noonTeamsToUse, noonRules)
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  // --- 晚班 ---
-  // ✨ 修改點 1: 只分配晚班的病人，不再合併午班病人
-  const lateMain = mainArea(allLatePatients)
+  // --- 晚班 & 午班收針 ---
+  const lateCombinedMain = [...mainArea(allLatePatients), ...mainArea(allNoonPatients)]
   const lateTeamsToUse = baseTeams.slice(0, 8).map((t) => `晚${t}`)
   const lateRules = {
     priorityTeams: {
@@ -808,17 +783,22 @@ function executeAutoAssignment() {
       fillMethod: 'average',
     },
   }
-  // ✨ 修改點 2: 只傳入晚班病人進行分配
-  const lateAssignments = distributePatients(sort(lateMain), lateTeamsToUse, lateRules)
-  lateAssignments['晚外圍'] = peripheral(allLatePatients)
+  const lateCombinedAssignments = distributePatients(
+    sort(lateCombinedMain),
+    lateTeamsToUse,
+    lateRules,
+  )
+  lateCombinedAssignments['晚外圍'] = [
+    ...peripheral(allLatePatients),
+    ...peripheral(allNoonPatients),
+  ]
 
-  // --- 將結果寫回 schedule ---
+  // --- 更新 schedule ---
   Object.values(currentRecord.schedule).forEach((slot) => {
     if (slot) {
-      // ✨ 修改點 3: 清空早班和晚班的 team，但保留午班收針(nurseTeamOut)的 team
       slot.nurseTeam = null
       slot.nurseTeamIn = null
-      // slot.nurseTeamOut = null; // <--- 註解掉此行
+      slot.nurseTeamOut = null
     }
   })
 
@@ -832,18 +812,40 @@ function executeAutoAssignment() {
     }
   }
 
-  applyToSchedule(earlyAssignments, 'nurseTeam') // 早班
-  applyToSchedule(noonOnAssignments, 'nurseTeamIn') // 午班上針
+  applyToSchedule(earlyAssignments, 'nurseTeam')
+  applyToSchedule(noonOnAssignments, 'nurseTeamIn')
 
-  // ✨ 修改點 4: 只將晚班分配結果應用到晚班病人上
-  applyToSchedule(lateAssignments, 'nurseTeam') // 晚班
+  for (const team in lateCombinedAssignments) {
+    for (const patient of lateCombinedAssignments[team]) {
+      const slot = currentRecord.schedule[patient.shiftId]
+      if (slot) {
+        const shiftCode = patient.shiftId.split('-')[2]
+        if (shiftCode === SHIFT_CODES.LATE) slot.nurseTeam = team
+        else if (shiftCode === SHIFT_CODES.NOON) slot.nurseTeamOut = team
+      }
+    }
+  }
 
   setChange()
   statusIndicator.value = '自動分組完成，請確認並儲存'
   alertDialogTitle.value = '操作成功'
-  alertDialogMessage.value =
-    '自動分組已完成！請檢視結果並點擊「儲存」。\n(注意：午班收針組別未變動)'
+  alertDialogMessage.value = '自動分組已完成！請檢視結果並點擊「儲存」。'
   isAlertDialogVisible.value = true
+}
+
+function autoAssignNurseTeams() {
+  if (isPageLocked.value) {
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = '頁面已鎖定，無法執行自動分組。'
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  confirmDialogMessage.value = '此操作將會覆蓋現有的護理師分組，您確定要繼續嗎？'
+  onConfirmAction.value = () => {
+    executeAutoAssignment()
+  }
+  isConfirmDialogVisible.value = true
 }
 
 // --- Provide / Lifecycle Hooks ---
