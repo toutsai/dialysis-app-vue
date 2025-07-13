@@ -6,7 +6,8 @@
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
-          "source": "**",
+          // 【核心修正點 1】: 修改 production 目標的 source
+          "source": "!{**.*,/__/*}",
           "destination": "/index.html"
         }
       ]
@@ -17,7 +18,8 @@
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
-          "source": "**",
+          // 【核心修正點 2】: 修改 develop 目標的 source
+          "source": "!{**.*,/__/*}",
           "destination": "/index.html"
         }
       ]
