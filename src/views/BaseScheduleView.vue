@@ -779,7 +779,7 @@ onMounted(loadAllData)
   flex-shrink: 0;
   background-color: #fff;
   box-sizing: border-box;
-  border-bottom: 1px solid #dee2e6;
+  /* border-bottom: 1px solid #dee2e6; */
 }
 .header-toolbar {
   display: flex;
@@ -866,7 +866,6 @@ onMounted(loadAllData)
   border-radius: 8px;
   overflow: hidden;
   border: 1px solid #dee2e6;
-  margin-top: 1rem;
 }
 
 .schedule-area {

@@ -1058,6 +1058,7 @@ onUnmounted(() => {
               :stats-data="statsToolbarData"
               :weekdays="statsToolbarWeekdays"
               :column-widths="columnWidths"
+              size="compact"
             />
           </div>
           <ScheduleTable
@@ -1226,7 +1227,7 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .page-header {
-  border-bottom: 1px solid #dee2e6;
+  /* border-bottom: 1px solid #dee2e6; */
   background-color: #fff;
   flex-shrink: 0;
 }
@@ -1272,13 +1273,14 @@ onUnmounted(() => {
 
 .stats-toolbar-wrapper {
   flex-shrink: 0;
-  padding: 8px 8px 8px 0;
+  padding: 0px 8px 8px 0;
   box-sizing: border-box;
   transition: padding-left 0.2s ease-in-out;
 }
 .schedule-table-component {
   flex-grow: 1;
   overflow: auto;
+  border-radius: 8px;
 }
 .status-text {
   font-style: italic;
