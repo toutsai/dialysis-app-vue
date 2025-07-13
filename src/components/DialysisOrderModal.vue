@@ -46,28 +46,47 @@ const localOrderData = reactive({
   effectiveDate: '',
 })
 
+// ✨ 核心修正點 2：建立一個安全的日期轉換函式 ✨
+const getDate = (dateValue) => {
+  if (!dateValue) return null
+  // 判斷是否為 Firestore Timestamp 物件，若是則轉換
+  if (typeof dateValue.toDate === 'function') {
+    return dateValue.toDate()
+  }
+  // 否則當作一般日期字串或 Date 物件處理
+  const date = new Date(dateValue)
+  return isNaN(date.getTime()) ? null : date
+}
+
 const todayStr = computed(() => new Date().toISOString().slice(0, 10))
 
 const activeOrder = computed(() => {
   const effectiveOrders = orderHistory.value
     .filter((o) => o.orders.effectiveDate <= todayStr.value)
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+    // 使用安全的 getDate 函式進行排序
+    .sort((a, b) => getDate(b.updatedAt) - getDate(a.updatedAt))
   return effectiveOrders.length > 0 ? effectiveOrders[0] : null
 })
 
 const pendingOrders = computed(() => {
-  return orderHistory.value
-    .filter((o) => o.orders.effectiveDate > todayStr.value)
-    .sort((a, b) => new Date(a.orders.effectiveDate) - new Date(b.orders.effectiveDate))
+  return (
+    orderHistory.value
+      .filter((o) => o.orders.effectiveDate > todayStr.value)
+      // 使用安全的 getDate 函式進行排序
+      .sort((a, b) => getDate(a.orders.effectiveDate) - getDate(b.orders.effectiveDate))
+  )
 })
 
 const archivedOrders = computed(() => {
   const activeId = activeOrder.value ? activeOrder.value.id : null
   const pendingIds = new Set(pendingOrders.value.map((p) => p.id))
 
-  return orderHistory.value
-    .filter((o) => o.id !== activeId && !pendingIds.has(o.id))
-    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
+  return (
+    orderHistory.value
+      .filter((o) => o.id !== activeId && !pendingIds.has(o.id))
+      // 使用安全的 getDate 函式進行排序
+      .sort((a, b) => getDate(b.updatedAt) - getDate(a.updatedAt))
+  )
 })
 
 async function fetchOrderHistory(patientId) {
@@ -137,8 +156,8 @@ async function confirmDelete() {
 
 function formatDate(isoString) {
   if (!isoString) return 'N/A'
-  const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
-  if (isNaN(date.getTime())) return 'N/A'
+  const date = getDate(isoString) // 直接使用我們新的輔助函式
+  if (!date) return 'N/A'
   return date.toISOString().slice(0, 10)
 }
 
@@ -148,6 +167,7 @@ function getComparisonClass(currentValue, previousValue) {
 }
 </script>
 
+<!-- Template and Style sections remain unchanged -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="handleClose">
@@ -186,7 +206,7 @@ function getComparisonClass(currentValue, previousValue) {
                 <label for="dryWeight">乾體重 (DW)</label>
                 <input
                   id="dryWeight"
-                  v-model="localOrderData.dryWeight"
+                  v-model.number="localOrderData.dryWeight"
                   type="number"
                   step="0.1"
                   placeholder="單位: kg"
@@ -196,7 +216,7 @@ function getComparisonClass(currentValue, previousValue) {
                 <label for="bloodFlow">血液流速 (BF)</label>
                 <input
                   id="bloodFlow"
-                  v-model="localOrderData.bloodFlow"
+                  v-model.number="localOrderData.bloodFlow"
                   type="number"
                   placeholder="ml/min"
                 />
@@ -205,7 +225,7 @@ function getComparisonClass(currentValue, previousValue) {
                 <label for="heparinInitial">Heparin 初劑量</label>
                 <input
                   id="heparinInitial"
-                  v-model="localOrderData.heparinInitial"
+                  v-model.number="localOrderData.heparinInitial"
                   type="number"
                   placeholder="單位: u"
                 />
@@ -214,7 +234,7 @@ function getComparisonClass(currentValue, previousValue) {
                 <label for="heparinMaintenance">Heparin 維持劑量</label>
                 <input
                   id="heparinMaintenance"
-                  v-model="localOrderData.heparinMaintenance"
+                  v-model.number="localOrderData.heparinMaintenance"
                   type="number"
                   placeholder="單位: u/hr"
                 />
@@ -254,7 +274,6 @@ function getComparisonClass(currentValue, previousValue) {
                   </td>
                   <td><span class="status-tag active">最新</span></td>
                   <td>{{ formatDate(activeOrder.updatedAt) }}</td>
-                  <!-- ✨ 核心修正點 1：拿「新」的 activeOrder 去跟「舊」的 archivedOrders[0] (或 pendingOrders) 比較 ✨ -->
                   <td
                     :class="
                       getComparisonClass(
@@ -273,7 +292,7 @@ function getComparisonClass(currentValue, previousValue) {
                       )
                     "
                   >
-                    {{ activeOrder.orders.dryWeight || '–' }}
+                    {{ activeOrder.orders.dryWeight ?? '–' }}
                   </td>
                   <td
                     :class="
@@ -283,7 +302,7 @@ function getComparisonClass(currentValue, previousValue) {
                       )
                     "
                   >
-                    {{ activeOrder.orders.bloodFlow || '–' }}
+                    {{ activeOrder.orders.bloodFlow ?? '–' }}
                   </td>
                   <td
                     :class="
@@ -308,13 +327,13 @@ function getComparisonClass(currentValue, previousValue) {
                   <td
                     :class="
                       getComparisonClass(
-                        `${activeOrder.orders.heparinInitial || ''}/${activeOrder.orders.heparinMaintenance || ''}`,
-                        `${(archivedOrders[0] || pendingOrders[0])?.orders.heparinInitial || ''}/${(archivedOrders[0] || pendingOrders[0])?.orders.heparinMaintenance || ''}`,
+                        `${activeOrder.orders.heparinInitial ?? ''}/${activeOrder.orders.heparinMaintenance ?? ''}`,
+                        `${(archivedOrders[0] || pendingOrders[0])?.orders.heparinInitial ?? ''}/${(archivedOrders[0] || pendingOrders[0])?.orders.heparinMaintenance ?? ''}`,
                       )
                     "
                   >
-                    {{ activeOrder.orders.heparinInitial || '–' }}/{{
-                      activeOrder.orders.heparinMaintenance || '–'
+                    {{ activeOrder.orders.heparinInitial ?? '–' }}/{{
+                      activeOrder.orders.heparinMaintenance ?? '–'
                     }}
                   </td>
                 </tr>
@@ -335,20 +354,18 @@ function getComparisonClass(currentValue, previousValue) {
                   </td>
                   <td><span class="status-tag pending">未生效</span></td>
                   <td>{{ formatDate(record.updatedAt) }}</td>
-                  <!-- 未生效的醫囑，我們通常不進行比較，因為它們還沒有基準 -->
                   <td>{{ formatDate(record.orders.effectiveDate) }}</td>
-                  <td>{{ record.orders.dryWeight || '–' }}</td>
-                  <td>{{ record.orders.bloodFlow || '–' }}</td>
+                  <td>{{ record.orders.dryWeight ?? '–' }}</td>
+                  <td>{{ record.orders.bloodFlow ?? '–' }}</td>
                   <td>{{ record.orders.ak || '–' }}</td>
                   <td>{{ record.orders.dialysateCa || '–' }}</td>
                   <td>
-                    {{ record.orders.heparinInitial || '–' }}/{{
-                      record.orders.heparinMaintenance || '–'
+                    {{ record.orders.heparinInitial ?? '–' }}/{{
+                      record.orders.heparinMaintenance ?? '–'
                     }}
                   </td>
                 </tr>
 
-                <!-- ✨ 核心修正點 2：歷史紀錄現在不需要高亮，因為高亮顯示在「最新」那一行 ✨ -->
                 <tr v-for="record in archivedOrders" :key="`archived-${record.id}`">
                   <td class="col-action">
                     <button
@@ -362,13 +379,13 @@ function getComparisonClass(currentValue, previousValue) {
                   <td><span class="status-tag history">歷史</span></td>
                   <td>{{ formatDate(record.updatedAt) }}</td>
                   <td>{{ formatDate(record.orders.effectiveDate) }}</td>
-                  <td>{{ record.orders.dryWeight || '–' }}</td>
-                  <td>{{ record.orders.bloodFlow || '–' }}</td>
+                  <td>{{ record.orders.dryWeight ?? '–' }}</td>
+                  <td>{{ record.orders.bloodFlow ?? '–' }}</td>
                   <td>{{ record.orders.ak || '–' }}</td>
                   <td>{{ record.orders.dialysateCa || '–' }}</td>
                   <td>
-                    {{ record.orders.heparinInitial || '–' }}/{{
-                      record.orders.heparinMaintenance || '–'
+                    {{ record.orders.heparinInitial ?? '–' }}/{{
+                      record.orders.heparinMaintenance ?? '–'
                     }}
                   </td>
                 </tr>

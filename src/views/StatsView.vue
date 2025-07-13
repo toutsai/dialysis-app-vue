@@ -408,7 +408,7 @@ async function loadData(date) {
     const [dailyRecords, patientsData, memosData] = await Promise.all([
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       patientsApi.fetchAll(),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
+      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
     allPatients.value = patientsData
     activeMemos.value = memosData
@@ -1188,6 +1188,10 @@ watch(currentDate, (newDate) => {
   position: sticky; /*【新增】讓欄位標頭固定*/
   top: 0;
   z-index: 1;
+  /* --- ✨ 以下為新增的置中樣式 ✨ --- */
+  display: flex;
+  align-items: center; /* 垂直置中 */
+  justify-content: center; /* 水平置中 */
 }
 /*【新增】表格左上角標題儲存格的樣式*/
 .section-title-cell {
@@ -1379,7 +1383,7 @@ watch(currentDate, (newDate) => {
 .duty-command-bar {
   background-color: #fffbeb;
   border: 1px solid #fef3c7;
-  padding: 10px 16px;
+  padding: 4px 16px;
   border-radius: 8px;
   margin-bottom: 20px;
   display: flex;
@@ -1447,6 +1451,7 @@ watch(currentDate, (newDate) => {
   align-items: center;
   gap: 8px;
   font-weight: 500;
+  height: 40px;
 }
 .duty-dropdown-trigger:hover {
   background-color: #e2e8f0;

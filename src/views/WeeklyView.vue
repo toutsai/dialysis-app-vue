@@ -1,5 +1,6 @@
+<!-- 檔案路徑: src/views/WeeklyView.vue (已修正) -->
 <script setup>
-import { ref, onMounted, computed, onUnmounted, provide, watchEffect } from 'vue'
+import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue' // ✨ 導入 nextTick
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
@@ -152,6 +153,10 @@ const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
+// ✨ 1. 新增搜尋相關的狀態 ✨
+const searchQuery = ref('')
+const isSearchFocused = ref(false)
+
 // --- 權限狀態 ---
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
@@ -275,13 +280,72 @@ const problemsToSolve = computed(() => {
   }
 })
 
+// ✨ 2. 新增搜尋結果的計算屬性 ✨
+const searchResults = computed(() => {
+  if (!searchQuery.value) {
+    return []
+  }
+  const query = searchQuery.value.toLowerCase()
+  return allPatients.value
+    .filter((p) => {
+      const nameMatch = p.name && p.name.toLowerCase().includes(query)
+      const mrnMatch = p.medicalRecordNumber && p.medicalRecordNumber.includes(query)
+      return nameMatch || mrnMatch
+    })
+    .slice(0, 5) // 最多顯示 5 個結果
+})
+
 // --- Functions and Logic ---
+// ✨ 3. 新增定位與高亮病人的函式 ✨
+function locatePatientOnGrid(patientId) {
+  searchQuery.value = '' // 清空搜尋框
+  isSearchFocused.value = false // 隱藏結果列表
+
+  // 在週排班表中找到該病人的第一個位置
+  const targetSlotId = Object.keys(weekScheduleMap.value).find(
+    (slotId) => weekScheduleMap.value[slotId]?.patientId === patientId,
+  )
+
+  if (!targetSlotId) {
+    alertDialogTitle.value = '提示'
+    alertDialogMessage.value = '該病人本週無排班。'
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  // 使用 nextTick 確保 DOM 已經更新
+  nextTick(() => {
+    const targetElement = document.querySelector(`[data-slot-id="${targetSlotId}"]`)
+    if (targetElement) {
+      // 捲動到目標位置
+      targetElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center',
+      })
+
+      // 加入閃爍高亮效果
+      targetElement.classList.add('highlight-flash')
+      setTimeout(() => {
+        targetElement.classList.remove('highlight-flash')
+      }, 2000) // 2秒後移除高亮
+    }
+  })
+}
+
+// ✨ 4. 新增處理搜尋框失焦的函式 ✨
+function handleSearchBlur() {
+  setTimeout(() => {
+    isSearchFocused.value = false
+  }, 200)
+}
+
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
   memosForDialog.value = activeMemos.value.filter(
-    (memo) => memo.patientId === patientId && !memo.isResolved,
+    (memo) => memo.patientId === patientId && memo.status === 'pending',
   )
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
@@ -735,7 +799,7 @@ async function loadAllData() {
     const [patients, weeklyRecords, memos] = await Promise.all([
       patientsApi.fetchAll(),
       schedulesApi.fetchAll([where('date', 'in', datesForQuery)]),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
+      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
     allPatients.value = patients
     activeMemos.value = memos
@@ -804,16 +868,17 @@ function getWeeklyCellStyle(slotId) {
   return {}
 }
 
-// 【核心修正點】: 在 <script setup> 中定義 onDragOver 函式
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
   const targetSlot = event.target.closest('.schedule-slot')
   if (targetSlot) {
     const slotId = targetSlot.dataset.slotId
-    const dayIndex = parseInt(slotId.split('-').pop(), 10)
-    if (!isDateInPast(dayIndex)) {
-      targetSlot.classList.add('drag-over')
+    if (slotId) {
+      const dayIndex = parseInt(slotId.split('-').pop(), 10)
+      if (!isDateInPast(dayIndex)) {
+        targetSlot.classList.add('drag-over')
+      }
     }
   }
 }
@@ -928,7 +993,6 @@ onUnmounted(() => {
   window.removeEventListener('schedule-updated', handleScheduleUpdate)
 })
 </script>
-
 <template>
   <div>
     <div class="page-container">
@@ -952,6 +1016,26 @@ onUnmounted(() => {
               >
                 智慧排床
               </button>
+              <!-- ✨ 5. 加入搜尋框的 HTML 結構 ✨ -->
+              <div class="search-container">
+                <input
+                  type="text"
+                  v-model="searchQuery"
+                  class="patient-search-input"
+                  placeholder="搜尋病人姓名/病歷號..."
+                  @focus="isSearchFocused = true"
+                  @blur="handleSearchBlur"
+                />
+                <ul v-if="searchResults.length > 0 && isSearchFocused" class="search-results">
+                  <li
+                    v-for="patient in searchResults"
+                    :key="patient.id"
+                    @click="locatePatientOnGrid(patient.id)"
+                  >
+                    {{ patient.name }} - {{ patient.medicalRecordNumber }}
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
           <div class="main-actions">
@@ -1059,7 +1143,81 @@ onUnmounted(() => {
   </div>
 </template>
 
+<!-- ✨ 6. 新增搜尋框與高亮效果的 CSS 樣式 ✨ -->
 <style scoped>
+/* 搜尋容器的樣式 */
+.search-container {
+  position: relative;
+  display: inline-block;
+}
+
+.patient-search-input {
+  /* 讓樣式與其他按鈕對齊 */
+  padding: 0.5rem 1rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  width: 220px;
+  height: 45px; /* 與按鈕同高 */
+  box-sizing: border-box; /* 確保 padding 不會增加總寬高 */
+  transition: all 0.2s;
+}
+.patient-search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+/* 搜尋結果下拉選單 */
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.search-results li {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+
+.search-results li:last-child {
+  border-bottom: none;
+}
+
+.search-results li:hover {
+  background-color: #f0f0f0;
+}
+
+/* 高亮閃爍效果的 Keyframes 動畫 */
+@keyframes highlight-animation {
+  0% {
+    background-color: #fffbe3;
+    outline: 3px solid #f8c000;
+  }
+  100% {
+    background-color: transparent;
+    outline: 3px solid transparent;
+  }
+}
+
+/* 應用動畫的 class */
+:deep(.highlight-flash) {
+  animation: highlight-animation 2s ease-out;
+}
+
+/* -- 原有樣式保持不變 -- */
 .page-container {
   display: flex;
   flex-direction: column;

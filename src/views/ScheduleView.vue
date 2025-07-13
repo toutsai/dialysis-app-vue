@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/ScheduleView.vue (已修正) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -185,9 +186,9 @@ function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-  memosForDialog.value = activeMemos.value.filter(
-    (memo) => memo.patientId === patientId && !memo.isResolved,
-  )
+  // ✨ 備註：此處顯示的邏輯可能也需要調整，但因為它只顯示 pending，所以暫時沒問題
+  // 但為了與資料源一致，這裡的 isResolved 其實可以拿掉
+  memosForDialog.value = activeMemos.value.filter((memo) => memo.patientId === patientId)
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
@@ -517,7 +518,8 @@ async function loadAllData() {
   try {
     const [patientsData, memosData] = await Promise.all([
       patientsApi.fetchAll(),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
+      // ✨ 核心修正點：只抓取 status 為 'pending' 的備忘錄 ✨
+      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
     allPatients.value = patientsData
     activeMemos.value = memosData

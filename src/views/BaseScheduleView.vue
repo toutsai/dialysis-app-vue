@@ -1,5 +1,6 @@
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (已修正) -->
 <script setup>
-import { ref, onMounted, computed, provide } from 'vue'
+import { ref, onMounted, computed, provide, nextTick } from 'vue' // ✨ 導入 nextTick
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
@@ -72,6 +73,10 @@ const patientNameForDialog = ref('')
 const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
 
+// --- 搜尋相關狀態 ---
+const searchQuery = ref('')
+const isSearchFocused = ref(false)
+
 // --- 權限狀態 ---
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
@@ -123,13 +128,68 @@ const statsToolbarData = computed(() => {
 })
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
+// --- 搜尋相關計算屬性 ---
+const searchResults = computed(() => {
+  if (!searchQuery.value) {
+    return []
+  }
+  const query = searchQuery.value.toLowerCase()
+  return allOpdPatients.value
+    .filter((p) => {
+      const nameMatch = p.name && p.name.toLowerCase().includes(query)
+      const mrnMatch = p.medicalRecordNumber && p.medicalRecordNumber.includes(query)
+      return nameMatch || mrnMatch
+    })
+    .slice(0, 5)
+})
+
 // --- Functions ---
+// ✨ 核心修正點 1: 新增處理搜尋框失焦的函式 ✨
+function handleSearchBlur() {
+  setTimeout(() => {
+    isSearchFocused.value = false
+  }, 200)
+}
+
+function locatePatientOnGrid(patientId) {
+  searchQuery.value = ''
+  isSearchFocused.value = false
+
+  if (!masterRecord.value || !masterRecord.value.schedule) return
+
+  const targetSlotId = Object.keys(masterRecord.value.schedule).find(
+    (slotId) => masterRecord.value.schedule[slotId]?.patientId === patientId,
+  )
+
+  if (!targetSlotId) {
+    alertDialogTitle.value = '提示'
+    alertDialogMessage.value = '該病人未被排入常規班表。'
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  nextTick(() => {
+    const targetElement = document.querySelector(`[data-slot-id="${targetSlotId}"]`)
+    if (targetElement) {
+      targetElement.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center',
+      })
+      targetElement.classList.add('highlight-flash')
+      setTimeout(() => {
+        targetElement.classList.remove('highlight-flash')
+      }, 2000)
+    }
+  })
+}
+
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
   memosForDialog.value = activeMemos.value.filter(
-    (memo) => memo.patientId === patientId && !memo.isResolved,
+    (memo) => memo.patientId === patientId && memo.status === 'pending',
   )
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
@@ -150,11 +210,7 @@ async function saveChangesToCloud() {
   }
   statusText.value = '儲存中...'
   try {
-    // 1. 定義要儲存的目標文件 ID，這是固定的。
     const docId = 'MASTER_SCHEDULE'
-
-    // 2. 準備要儲存到 Firestore 的純淨資料 (Payload)。
-    //    不再需要包含 id 欄位。
     const scheduleToSave = {}
     for (const slotId in masterRecord.value.schedule) {
       const slotData = masterRecord.value.schedule[slotId]
@@ -170,24 +226,16 @@ async function saveChangesToCloud() {
       schedule: scheduleToSave,
       updatedAt: new Date(),
     }
-
-    // 3. 使用 save(id, data) 格式進行儲存。
-    //    無論是第一次建立還是後續更新，這種寫法都適用。
     await baseSchedulesApi.save(docId, dataPayload)
-
-    // 4. 【重要】如果這是第一次儲存，需要更新本地的 masterRecord 狀態，
-    //    確保它也擁有 id，這樣下次就不會出錯。
     if (!masterRecord.value.id) {
       masterRecord.value.id = docId
     }
-
     hasUnsavedChanges.value = false
     statusText.value = '床位儲存成功！'
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '常規門診床位已成功儲存！'
     isAlertDialogVisible.value = true
   } catch (error) {
-    // 錯誤日誌會提供更詳細的資訊，例如是權限問題還是網路問題
     console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
     alertDialogTitle.value = '操作失敗'
@@ -384,7 +432,7 @@ async function loadAllData() {
     const [patients, baseScheduleDoc, memos] = await Promise.all([
       patientsApi.fetchAll([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
       baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
+      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
     allOpdPatients.value = patients
     activeMemos.value = memos
@@ -524,6 +572,26 @@ onMounted(loadAllData)
           <button class="btn btn-info" @click="openBedAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
+          <!-- ✨ 5. 加入搜尋框的 HTML 結構 ✨ -->
+          <div class="search-container">
+            <input
+              type="text"
+              v-model="searchQuery"
+              class="patient-search-input"
+              placeholder="搜尋病人姓名/病歷號..."
+              @focus="isSearchFocused = true"
+              @blur="handleSearchBlur"
+            />
+            <ul v-if="searchResults.length > 0 && isSearchFocused" class="search-results">
+              <li
+                v-for="patient in searchResults"
+                :key="patient.id"
+                @click="locatePatientOnGrid(patient.id)"
+              >
+                {{ patient.name }} - {{ patient.medicalRecordNumber }}
+              </li>
+            </ul>
+          </div>
         </div>
         <div class="toolbar-right">
           <span class="status-text">{{ statusText }}</span>
@@ -624,7 +692,82 @@ onMounted(loadAllData)
   </div>
 </template>
 
+<!-- ✨ 6. 新增搜尋框與高亮效果的 CSS 樣式 ✨ -->
 <style scoped>
+/* 搜尋容器的樣式 */
+.search-container {
+  position: relative;
+  display: inline-block;
+}
+
+.patient-search-input {
+  /* 讓樣式與其他按鈕對齊 */
+  padding: 8px 16px;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  width: 220px;
+  height: 45px; /* 與按鈕同高 */
+  box-sizing: border-box; /* 確保 padding 不會增加總寬高 */
+  transition: all 0.2s;
+  font-size: 1rem;
+}
+.patient-search-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+/* 搜尋結果下拉選單 */
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-top: none;
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.search-results li {
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+
+.search-results li:last-child {
+  border-bottom: none;
+}
+
+.search-results li:hover {
+  background-color: #f0f0f0;
+}
+
+/* 高亮閃爍效果的 Keyframes 動畫 */
+@keyframes highlight-animation {
+  0% {
+    background-color: #fffbe3;
+    outline: 3px solid #f8c000;
+  }
+  100% {
+    background-color: transparent;
+    outline: 3px solid transparent;
+  }
+}
+
+/* 應用動畫的 class */
+:deep(.highlight-flash) {
+  animation: highlight-animation 2s ease-out;
+}
+
+/* -- 原有樣式保持不變 -- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -781,31 +924,19 @@ onMounted(loadAllData)
 .is-locked .page-main-content {
   background-color: #fafafa;
 }
-/* ======================== 【CSS 權限修正點】 ======================== */
-
-/* 1. 對整個鎖定的格子，改變滑鼠指標，給予視覺提示 */
 .is-locked :deep(.schedule-slot) {
   cursor: not-allowed;
 }
 
-/* 2. 移除之前過於強力的 pointer-events: none; */
-/* .is-locked :deep(.schedule-slot) {
-  pointer-events: none;
-} */
-
-/* 3. 確保在鎖定狀態下，MemoIcon 依然可以被點擊 */
-/*    我們讓它的滑鼠指標變回 "小手"，並確保它的點擊事件是有效的 */
 .is-locked :deep(.memo-icon-wrapper) {
-  pointer-events: auto; /* <-- 讓 memo-icon 恢復接收滑鼠事件的能力 */
-  cursor: pointer; /* <-- 將滑鼠指標變回小手 */
+  pointer-events: auto;
+  cursor: pointer;
 }
 
-/* 4. 明確禁用格子的拖曳能力 (雖然 script 已經做了，但 CSS 也可以加強) */
 .is-locked :deep(.schedule-slot[draggable='true']) {
   cursor: not-allowed;
 }
 
-/* ==================================================================== */
 .loading-state {
   display: flex;
   justify-content: center;

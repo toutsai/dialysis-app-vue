@@ -236,7 +236,7 @@ onMounted(() => {
           <div class="form-actions">
             <div class="options-wrapper">
               <div class="option-item">
-                <label>關聯病人(可選):</label>
+                <label>關聯病人</label>
                 <div v-if="selectedPatient" class="selected-patient-display">
                   <span>{{ selectedPatient.name }}</span>
                   <button @click="clearPatientSelection" class="clear-btn" title="清除選擇與篩選">
@@ -246,7 +246,7 @@ onMounted(() => {
                 <button v-else @click="openPatientDialog" class="select-btn">選擇病人</button>
               </div>
               <div class="option-item">
-                <label for="memo-date-input">到期日(可選):</label>
+                <label for="memo-date-input">到期日</label>
                 <input v-model="dateInput" type="date" id="memo-date-input" />
               </div>
             </div>

@@ -633,13 +633,22 @@ async function handleSaveOrder(orderDataFromModal) {
   const patientName = editingPatientForOrder.value.name
   const updatedAt = new Date().toISOString()
 
+  // ✨ 核心修正點 1：建立輔助函式，確保所有數值欄位被正確處理 ✨
+  const parseNumeric = (value) => {
+    if (value === '' || value === null || value === undefined) {
+      return null // 將空值或空字串統一存為 null
+    }
+    const num = Number(value)
+    return isNaN(num) ? null : num // 如果轉換後不是數字，也存為 null
+  }
+
   const cleanOrders = {
     ak: orderDataFromModal.ak || '',
     dialysateCa: orderDataFromModal.dialysateCa || '',
-    heparinInitial: orderDataFromModal.heparinInitial || '',
-    heparinMaintenance: orderDataFromModal.heparinMaintenance || '',
-    bloodFlow: orderDataFromModal.bloodFlow || '',
-    dryWeight: orderDataFromModal.dryWeight || '',
+    heparinInitial: parseNumeric(orderDataFromModal.heparinInitial),
+    heparinMaintenance: parseNumeric(orderDataFromModal.heparinMaintenance),
+    bloodFlow: parseNumeric(orderDataFromModal.bloodFlow),
+    dryWeight: parseNumeric(orderDataFromModal.dryWeight),
     effectiveDate: orderDataFromModal.effectiveDate || updatedAt.slice(0, 10),
   }
 
@@ -672,6 +681,7 @@ onMounted(() => {
 })
 </script>
 
+<!-- Template and Style sections remain unchanged -->
 <template>
   <div>
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
@@ -1274,6 +1284,7 @@ onMounted(() => {
   border: 1px solid #ccc;
   border-radius: 5px;
   min-width: 250px;
+  height: 40px;
 }
 
 .stats-summary {
@@ -1575,6 +1586,7 @@ onMounted(() => {
   border: 1px solid #ccc;
   border-radius: 5px;
   min-width: 250px;
+  height: 40px;
 }
 .toolbar .btn-export {
   background-color: #0ea5e9;
