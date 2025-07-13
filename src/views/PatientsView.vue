@@ -1375,7 +1375,7 @@ onMounted(() => {
 
 /* 欄位寬度設定 */
 .col-name {
-  flex: 0 0 120px;
+  flex: 0 0 140px;
 }
 .col-mrn {
   flex: 0 0 90px;
