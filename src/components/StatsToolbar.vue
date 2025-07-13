@@ -1,17 +1,25 @@
+<!-- 檔案路徑: src/components/StatsToolbar.vue (已修正) -->
 <script setup>
 import { computed } from 'vue'
 import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleConstants'
 
 const props = defineProps({
-  statsData: Array,
-  weekdays: Array,
+  statsData: {
+    type: Array,
+    required: true,
+  },
+  weekdays: {
+    type: Array,
+    required: true,
+  },
   columnWidths: {
     type: Array,
     default: () => [],
   },
+  // ✨ 1. (已存在) 接收 size prop
   size: {
     type: String,
-    default: 'normal',
+    default: 'normal', // 'normal' 或 'compact'
   },
 })
 
@@ -22,9 +30,7 @@ const shiftOrder = computed(() => {
   }))
 })
 
-// 【修改 1/2】: getBarStyles 現在會回傳三種狀態的樣式
 const getBarStyles = (shiftCount) => {
-  // 預設回傳三種狀態都為 0%
   const defaultStyles = {
     opdStyle: { width: '0%' },
     ipdStyle: { width: '0%' },
@@ -35,20 +41,20 @@ const getBarStyles = (shiftCount) => {
     return defaultStyles
   }
 
-  // 計算門診(opd)、住院(ipd)和急診(er)的百分比
   const opdPercent = ((shiftCount.opd || 0) / shiftCount.total) * 100
   const ipdPercent = ((shiftCount.ipd || 0) / shiftCount.total) * 100
-  const erPercent = ((shiftCount.er || 0) / shiftCount.total) * 100 // 新增急診百分比計算
+  const erPercent = ((shiftCount.er || 0) / shiftCount.total) * 100
 
   return {
     opdStyle: { width: `${opdPercent}%` },
     ipdStyle: { width: `${ipdPercent}%` },
-    erStyle: { width: `${erPercent}%` }, // 回傳急診樣式
+    erStyle: { width: `${erPercent}%` },
   }
 }
 </script>
 
 <template>
+  <!-- ✨ 2. (已存在) 動態綁定 class ✨ -->
   <div class="stats-toolbar" :class="`size-${size}`">
     <div
       v-for="(dayData, index) in statsData"
@@ -67,7 +73,6 @@ const getBarStyles = (shiftCount) => {
             {{ shift.display }} {{ dayData.counts[shift.code]?.total || 0 }}
           </div>
           <div class="ratio-bar">
-            <!-- 【修改 2/2】: 在比例條中新增急診的色塊 -->
             <div
               class="bar-segment er-bar"
               :style="getBarStyles(dayData.counts[shift.code]).erStyle"
@@ -104,7 +109,7 @@ const getBarStyles = (shiftCount) => {
   padding: 6px 8px;
   border-radius: 6px;
   background-color: #f8f9fa;
-  border: 1px solid #e9ecef;
+  /* border: 1px solid #e9ecef; */
   transition: width 0.2s ease-in-out; /* 讓寬度變化更平滑 */
   box-sizing: border-box;
 }
@@ -131,6 +136,8 @@ const getBarStyles = (shiftCount) => {
 .stat-shift-group {
   display: flex;
   gap: 6px;
+  flex-grow: 1; /* 【新增】讓此區塊佔滿剩餘空間 */
+  justify-content: space-between; /* 【新增】將內部項目分散對齊 */
 }
 
 .shift-tag {
@@ -185,11 +192,11 @@ const getBarStyles = (shiftCount) => {
   background-color: var(--danger-color, #dc3545);
 }
 
-/* 【新增】: 急診色塊的樣式 */
 .er-bar {
   background-color: var(--purple-main, #9a34ff);
 }
 
+/* ✨ 3. (已存在) 新增/修改 compact 與 normal 樣式 ✨ */
 .stats-toolbar.size-normal .day-summary strong,
 .stats-toolbar.size-normal .day-total-count {
   font-size: 1.1em;

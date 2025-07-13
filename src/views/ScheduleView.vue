@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/ScheduleView.vue (已修改) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -185,9 +186,9 @@ function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-  memosForDialog.value = activeMemos.value.filter(
-    (memo) => memo.patientId === patientId && !memo.isResolved,
-  )
+  // ✨ 備註：此處顯示的邏輯可能也需要調整，但因為它只顯示 pending，所以暫時沒問題
+  // 但為了與資料源一致，這裡的 isResolved 其實可以拿掉
+  memosForDialog.value = activeMemos.value.filter((memo) => memo.patientId === patientId)
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
@@ -517,7 +518,8 @@ async function loadAllData() {
   try {
     const [patientsData, memosData] = await Promise.all([
       patientsApi.fetchAll(),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
+      // ✨ 核心修正點：只抓取 status 為 'pending' 的備忘錄 ✨
+      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
     allPatients.value = patientsData
     activeMemos.value = memosData
@@ -746,6 +748,7 @@ function executeAutoAssignment() {
     return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
   }
 
+  // --- 早班 & 午班上針 ---
   const earlyMain = mainArea(allEarlyPatients)
   const earlyTeamsToUse = baseTeams.slice(0, 11).map((t) => `早${t}`)
   const useEarlyTeamA = earlyMain.length > 36
@@ -788,7 +791,9 @@ function executeAutoAssignment() {
   const noonOnAssignments = distributePatients(sort(noonMain), noonTeamsToUse, noonRules)
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  const lateCombinedMain = [...mainArea(allLatePatients), ...mainArea(allNoonPatients)]
+  // --- 晚班 ---
+  // ✨ 修改點 1: 只分配晚班的病人，不再合併午班病人
+  const lateMain = mainArea(allLatePatients)
   const lateTeamsToUse = baseTeams.slice(0, 8).map((t) => `晚${t}`)
   const lateRules = {
     priorityTeams: {
@@ -803,21 +808,17 @@ function executeAutoAssignment() {
       fillMethod: 'average',
     },
   }
-  const lateCombinedAssignments = distributePatients(
-    sort(lateCombinedMain),
-    lateTeamsToUse,
-    lateRules,
-  )
-  lateCombinedAssignments['晚外圍'] = [
-    ...peripheral(allLatePatients),
-    ...peripheral(allNoonPatients),
-  ]
+  // ✨ 修改點 2: 只傳入晚班病人進行分配
+  const lateAssignments = distributePatients(sort(lateMain), lateTeamsToUse, lateRules)
+  lateAssignments['晚外圍'] = peripheral(allLatePatients)
 
+  // --- 將結果寫回 schedule ---
   Object.values(currentRecord.schedule).forEach((slot) => {
     if (slot) {
+      // ✨ 修改點 3: 清空早班和晚班的 team，但保留午班收針(nurseTeamOut)的 team
       slot.nurseTeam = null
       slot.nurseTeamIn = null
-      slot.nurseTeamOut = null
+      // slot.nurseTeamOut = null; // <--- 註解掉此行
     }
   })
 
@@ -831,24 +832,17 @@ function executeAutoAssignment() {
     }
   }
 
-  applyToSchedule(earlyAssignments, 'nurseTeam')
-  applyToSchedule(noonOnAssignments, 'nurseTeamIn')
+  applyToSchedule(earlyAssignments, 'nurseTeam') // 早班
+  applyToSchedule(noonOnAssignments, 'nurseTeamIn') // 午班上針
 
-  for (const team in lateCombinedAssignments) {
-    for (const patient of lateCombinedAssignments[team]) {
-      const slot = currentRecord.schedule[patient.shiftId]
-      if (slot) {
-        const shiftCode = patient.shiftId.split('-')[2]
-        if (shiftCode === SHIFT_CODES.LATE) slot.nurseTeam = team
-        else if (shiftCode === SHIFT_CODES.NOON) slot.nurseTeamOut = team
-      }
-    }
-  }
+  // ✨ 修改點 4: 只將晚班分配結果應用到晚班病人上
+  applyToSchedule(lateAssignments, 'nurseTeam') // 晚班
 
   setChange()
   statusIndicator.value = '自動分組完成，請確認並儲存'
   alertDialogTitle.value = '操作成功'
-  alertDialogMessage.value = '自動分組已完成！請檢視結果並點擊「儲存」。'
+  alertDialogMessage.value =
+    '自動分組已完成！請檢視結果並點擊「儲存」。\n(注意：午班收針組別未變動)'
   isAlertDialogVisible.value = true
 }
 

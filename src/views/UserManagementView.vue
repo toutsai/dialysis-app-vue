@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/UserManagementView.vue (已修正) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -70,6 +71,13 @@ const filteredUsers = computed(() => {
     }
     return a.name.localeCompare(b.name, 'zh-Hant')
   })
+})
+
+const usersInTwoColumns = computed(() => {
+  const mid = Math.ceil(filteredUsers.value.length / 2)
+  const leftColumn = filteredUsers.value.slice(0, mid)
+  const rightColumn = filteredUsers.value.slice(mid)
+  return [leftColumn, rightColumn]
 })
 
 // --- Dialog Helper Functions ---
@@ -192,37 +200,48 @@ onMounted(() => {
 
     <div v-if="isLoading" class="loading-state">載入中...</div>
 
-    <table v-else-if="filteredUsers.length > 0" class="user-table">
-      <thead>
-        <tr>
-          <th class="col-name">姓名</th>
-          <th class="col-username">帳號</th>
-          <th class="col-title">職稱</th>
-          <th class="col-role">角色</th>
-          <th class="col-email">Email</th>
-          <th class="col-date">異動日期</th>
-          <th v-if="isAdmin" class="col-actions">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="user in filteredUsers" :key="user.id">
-          <td>{{ user.name }}</td>
-          <td>{{ user.username }}</td>
-          <td>{{ user.title }}</td>
-          <td :class="['role-cell', `role-${user.role}`]">
-            <span class="role-badge">{{ user.role }}</span>
-          </td>
-          <td>{{ user.email }}</td>
-          <td>{{ formatDate(user.updatedAt || user.createdAt) }}</td>
-          <td v-if="isAdmin">
-            <button class="btn btn-edit" @click="handleEditUser(user)">編輯</button>
-            <button class="btn btn-delete" @click="handleDeleteUser(user.id, user.name)">
-              刪除
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else-if="filteredUsers.length > 0" class="tables-wrapper">
+      <div v-for="(column, index) in usersInTwoColumns" :key="index" class="table-column">
+        <table v-if="column.length > 0" class="user-table">
+          <thead>
+            <tr>
+              <th class="col-name">姓名</th>
+              <th class="col-username">帳號</th>
+              <th class="col-title">職稱</th>
+              <th class="col-role">角色</th>
+              <th class="col-email">Email</th>
+              <th class="col-date">異動日期</th>
+              <th v-if="isAdmin" class="col-actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="user in column" :key="user.id">
+              <td>{{ user.name }}</td>
+              <td>{{ user.username }}</td>
+              <td>{{ user.title }}</td>
+              <td :class="['role-cell', `role-${user.role}`]">
+                <span class="role-badge">{{ user.role }}</span>
+              </td>
+              <td>{{ user.email }}</td>
+              <td>{{ formatDate(user.updatedAt || user.createdAt) }}</td>
+              <!-- ✨ 1. 將文字按鈕替換為圖示按鈕 ✨ -->
+              <td v-if="isAdmin" class="action-buttons">
+                <button class="btn-icon btn-edit" @click="handleEditUser(user)" title="編輯">
+                  ✏️
+                </button>
+                <button
+                  class="btn-icon btn-delete"
+                  @click="handleDeleteUser(user.id, user.name)"
+                  title="刪除"
+                >
+                  🗑️
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
 
     <div v-else class="empty-state">沒有符合條件的使用者</div>
 
@@ -280,6 +299,16 @@ onMounted(() => {
   font-size: 1rem;
   width: 250px;
 }
+.tables-wrapper {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+}
+.table-column {
+  flex: 1;
+  min-width: 0;
+}
+
 .user-table {
   width: 100%;
   border-collapse: collapse;
@@ -291,14 +320,14 @@ onMounted(() => {
 }
 .user-table th,
 .user-table td {
-  /* 【核心修正】: 將上下的 padding 減少，以縮小行高 */
-  padding: 0.5rem 1.5rem;
+  padding: 0.75rem 1rem;
   text-align: left;
   border-bottom: 1px solid #e0e0e0;
-  font-size: 1rem;
+  font-size: 0.95rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  vertical-align: middle;
 }
 .user-table th {
   background-color: #f7f9fc;
@@ -307,26 +336,11 @@ onMounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.user-table .col-name {
-  width: 12%;
-}
-.user-table .col-username {
-  width: 10%;
-}
-.user-table .col-title {
-  width: 12%;
-}
-.user-table .col-role {
-  width: 12%;
-}
 .user-table .col-email {
   width: auto;
 }
-.user-table .col-date {
-  width: 12%;
-}
 .user-table .col-actions {
-  width: 14%;
+  width: 120px; /* 給予一個固定的像素寬度 */
 }
 .user-table td.col-email {
   white-space: normal;
@@ -360,21 +374,35 @@ onMounted(() => {
 .btn-primary:hover {
   background-color: #218838;
 }
-.btn-edit {
-  background-color: #007bff;
-  color: white;
-  margin-right: 0.5rem;
+
+/* ✨ 2. 新增圖示按鈕的樣式 ✨ */
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
 }
-.btn-edit:hover {
-  background-color: #0056b3;
+.btn-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  font-size: 1.2rem; /* 調整圖示大小 */
+  line-height: 1;
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
 }
-.btn-delete {
-  background-color: #e74c3c;
-  color: white;
+.btn-icon.btn-edit:hover {
+  background-color: #e0e7ff;
 }
-.btn-delete:hover {
-  background-color: #c0392b;
+.btn-icon.btn-delete:hover {
+  background-color: #fee2e2;
 }
+
 .role-badge {
   padding: 0.3em 0.8em;
   border-radius: 12px;

@@ -134,6 +134,7 @@ const getBedDisplayName = (bedNum) => {
             <td v-for="(day, dayIndex) in weekdays" :key="`slot-${bedNum}-0-${dayIndex}`">
               <div
                 class="schedule-slot"
+                :data-slot-id="`${bedNum}-0-${dayIndex}`"
                 :class="[
                   getStyleFunc(`${bedNum}-0-${dayIndex}`),
                   { 'is-past': !isSlotInteractive(dayIndex) && props.isDateInPast(dayIndex) },
@@ -192,6 +193,7 @@ const getBedDisplayName = (bedNum) => {
             >
               <div
                 class="schedule-slot"
+                :data-slot-id="`${bedNum}-${shiftIndex}-${dayIndex}`"
                 :class="[
                   getStyleFunc(`${bedNum}-${shiftIndex}-${dayIndex}`),
                   { 'is-past': !isSlotInteractive(dayIndex) && props.isDateInPast(dayIndex) },
