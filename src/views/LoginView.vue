@@ -61,13 +61,13 @@ const isLoading = ref(false)
 const isPasswordVisible = ref(false)
 
 const router = useRouter()
-const { login } = useAuth()
+const { login } = useAuth() // 從 useAuth 獲取 login 函式
 
 const togglePasswordVisibility = () => {
   isPasswordVisible.value = !isPasswordVisible.value
 }
 
-// 【核心修正點】: 在 login 成功後，主動發起導航
+// ✨ 保持這個版本，它已經是正確的了
 async function handleLogin() {
   if (isLoading.value) return
 
@@ -75,12 +75,10 @@ async function handleLogin() {
   errorMessage.value = ''
 
   try {
-    // 1. 等待登入函式完成，這會更新 useAuth 中的 isLoggedIn 狀態
+    // login 函式現在內部會處理路由跳轉
     await login(username.value, password.value)
 
-    // 2. 登入成功後，主動發起一次導航到我們的目標首頁
-    // 這個動作會觸發 router.beforeEach 守衛，守衛會驗證權限並放行
-    router.push({ name: 'Schedule' })
+    // 登入成功後，useAuth 內部會自動導航，這裡不需要再做 router.push
   } catch (error) {
     errorMessage.value = error.message
   } finally {
