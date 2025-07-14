@@ -777,7 +777,7 @@ onMounted(loadAllData)
 }
 .page-header {
   flex-shrink: 0;
-  background-color: #fff;
+  padding: 0 0 10px 0;
   box-sizing: border-box;
   /* border-bottom: 1px solid #dee2e6; */
 }

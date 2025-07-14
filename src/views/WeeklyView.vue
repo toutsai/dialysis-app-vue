@@ -1227,8 +1227,8 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .page-header {
-  /* border-bottom: 1px solid #dee2e6; */
-  background-color: #fff;
+  border-bottom: 1px solid #dee2e6;
+  padding: 0 0 20px 0;
   flex-shrink: 0;
 }
 .header-toolbar {
