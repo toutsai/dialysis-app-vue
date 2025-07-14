@@ -1242,7 +1242,7 @@ onUnmounted(() => {
 .main-actions {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.5rem;
   flex-wrap: wrap;
 }
 .page-title {

@@ -1158,8 +1158,8 @@ watch(currentDate, (newDate) => {
   font-size: 26px;
   font-weight: bold;
   color: var(--primary-color);
-  margin-left: -5px;
-  margin-right: 5px;
+  margin-left: -10px;
+  margin-right: 10px;
 }
 .status-indicator {
   font-size: 0.9em;
