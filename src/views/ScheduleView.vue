@@ -1258,7 +1258,6 @@ watch(currentDate, (newDate, oldDate) => {
   flex-shrink: 0;
   border-bottom: 1px solid #e0e0e0;
   z-index: 10;
-  background-color: white;
 }
 .page-main-content {
   flex-grow: 1;
