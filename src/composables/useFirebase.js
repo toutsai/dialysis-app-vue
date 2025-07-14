@@ -1,12 +1,13 @@
-// 檔案路徑: src/composables/useFirebase.js
+// 檔案路徑: src/firebase.js (推薦的新檔名)
+// 或者直接覆蓋 src/composables/useFirebase.js
 
 import { initializeApp } from 'firebase/app'
+import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
+import { getFunctions } from 'firebase/functions'
 
 // 1. Firebase 設定
-//    【修改重點】不再寫死金鑰，而是從 Vite 的環境變數 (import.meta.env) 動態讀取。
-//    - 在本地開發 (npm run dev)，Vite 會讀取 .env.local 檔案。
-//    - 在建置部署 (npm run build)，Vite 會讀取 .env.production 檔案。
+//    從 Vite 的環境變數動態讀取，完美支援多專案部署 (develop/production)
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -16,9 +17,16 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 }
 
-// 2. 初始化 Firebase，並確保只執行一次
-const firebaseApp = initializeApp(firebaseConfig)
-const db = getFirestore(firebaseApp)
+// 2. 初始化 Firebase App
+//    這是整個應用的 Firebase 核心實例
+const app = initializeApp(firebaseConfig)
 
-// 3. 匯出 db 實例，讓任何地方都可以 import 它
-export { db }
+// 3. ✨ 集中初始化所有需要的 Firebase 服務 ✨
+//    所有服務都從同一個 app 實例中衍生出來，確保它們屬於同一個專案。
+const auth = getAuth(app)
+const db = getFirestore(app)
+const functions = getFunctions(app)
+
+// 4. 將所有初始化後的服務實例匯出
+//    這樣，應用的其他部分就可以按需導入它們。
+export { app, auth, db, functions }
