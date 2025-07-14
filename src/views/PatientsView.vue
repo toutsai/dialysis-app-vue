@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (已修正) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (最終安全版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -59,6 +59,13 @@ const selectedPatientForHistory = ref(null)
 
 const { addNotification } = useNotification()
 
+// --- ✨ 關鍵修正點 1: 用最安全的方式獲取權限狀態 ---
+// 我們不再解構，而是先拿到完整的 auth 物件
+const auth = useAuth()
+// 然後從 auth 物件中，安全地拿出我們需要的 isLoggedIn 和 isReadOnly
+const { isLoggedIn } = auth
+const isPageLocked = computed(() => auth.isReadOnly.value)
+
 const FREQ_COLOR_MAP = {
   一三五: 'freq-blue',
   二四六: 'freq-green',
@@ -80,8 +87,6 @@ const DELETE_REASONS = [
   { value: '腎臟移植', text: '腎臟移植' },
   { value: '作廢', text: '作廢' },
 ]
-const { isReadOnly } = useAuth()
-const isPageLocked = computed(() => isReadOnly.value)
 
 const displayedPatients = computed(() => {
   let patientsToDisplay
@@ -201,13 +206,10 @@ async function handleSavePatient(patientData) {
     isAlertDialogVisible.value = true
     return
   }
-
-  // --- 編輯現有病人 ---
   if (patientData.id) {
     const originalPatient = editingPatient.value
     const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
     const isNowDiscontinued = patientData.isDiscontinued
-
     if (!wasDiscontinuedBefore && isNowDiscontinued) {
       confirmDialogTitle.value = '確認中止透析'
       confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
@@ -232,7 +234,6 @@ async function handleSavePatient(patientData) {
       }
       isConfirmDialogVisible.value = true
     } else {
-      // 一般編輯儲存
       try {
         const dataToUpdate = { ...patientData }
         delete dataToUpdate.id
@@ -249,43 +250,34 @@ async function handleSavePatient(patientData) {
     }
     return
   }
-
-  // --- 新增病人（核心檢查邏輯） ---
   if (!patientData.medicalRecordNumber) {
     alertDialogTitle.value = '資料不完整'
     alertDialogMessage.value = '請務必填寫病歷號。'
     isAlertDialogVisible.value = true
     return
   }
-
   const existingPatient = allPatients.value.find(
     (p) => p.medicalRecordNumber === patientData.medicalRecordNumber,
   )
-
   if (existingPatient) {
     const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
     const currentStatusText = existingPatient.isDeleted
       ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
       : statusMap[existingPatient.status] || '未知'
     const targetStatusText = statusMap[modalType.value]
-
     confirmDialogTitle.value = '病歷號重複'
     confirmDialogMessage.value = `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`
-
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
-
     isConfirmDialogVisible.value = true
     confirmAction.value = () => handleConflictSelected()
   } else {
-    // 病人不存在，正常新增
     try {
       const dataToCreate = { ...patientData }
       dataToCreate.createdAt = new Date().toISOString()
       dataToCreate.isDeleted = false
       dataToCreate.status = modalType.value
       const savedPatient = await patientApi.save(dataToCreate)
-
       const historyEntry = {
         patientId: savedPatient.id,
         patientName: dataToCreate.name,
@@ -296,7 +288,6 @@ async function handleSavePatient(patientData) {
         },
       }
       await historyApi.save(historyEntry)
-
       closeModal()
       await fetchAllPatients()
       addNotification(`新增病人: ${dataToCreate.name}`, 'patient')
@@ -312,9 +303,7 @@ async function handleSavePatient(patientData) {
 async function handleConflictSelected() {
   const existingPatient = existingPatientForConflict.value
   const newPatientData = newPatientDataForConflict.value
-
   if (!existingPatient || !newPatientData) return
-
   try {
     const dataToUpdate = {
       ...newPatientData,
@@ -325,9 +314,7 @@ async function handleConflictSelected() {
       originalStatus: null,
     }
     delete dataToUpdate.id
-
     await patientApi.update(existingPatient.id, dataToUpdate)
-
     const historyEntry = {
       patientId: existingPatient.id,
       patientName: newPatientData.name,
@@ -342,15 +329,12 @@ async function handleConflictSelected() {
       },
     }
     await historyApi.save(historyEntry)
-
     if (!existingPatient.isDeleted) {
       await cleanTemporaryDataInFutureSchedules(existingPatient.id, dataToUpdate)
     }
-
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = `病人 ${newPatientData.name} 已成功更新並轉移至 ${modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'} 清單。`
     isAlertDialogVisible.value = true
-
     closeModal()
     await fetchAllPatients()
     addNotification(`轉移病人: ${newPatientData.name}`, 'patient')
@@ -381,7 +365,6 @@ async function transferPatient(patientId, newStatus) {
     try {
       const originalPatientData = allPatients.value.find((p) => p.id === patientId)
       await patientApi.update(patientId, { status: newStatus })
-
       const historyEntry = {
         patientId: patientId,
         patientName: originalPatientData.name,
@@ -393,7 +376,6 @@ async function transferPatient(patientId, newStatus) {
         },
       }
       await historyApi.save(historyEntry)
-
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
@@ -426,7 +408,6 @@ async function handleDeleteReasonSelected(reason) {
         deleteReason: reason,
         deletedAt: deletedAt,
       })
-
       const historyEntry = {
         patientId: patientToDeleteId.value,
         patientName: patient.name,
@@ -438,7 +419,6 @@ async function handleDeleteReasonSelected(reason) {
         },
       }
       await historyApi.save(historyEntry)
-
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
       addNotification(`刪除病人: ${patient.name}`, 'patient')
@@ -470,7 +450,6 @@ async function restorePatient(patientId) {
       deleteReason: null,
       deletedAt: null,
     })
-
     const historyEntry = {
       patientId: patientId,
       patientName: patient.name,
@@ -482,7 +461,6 @@ async function restorePatient(patientId) {
       },
     }
     await historyApi.save(historyEntry)
-
     await fetchAllPatients()
     addNotification(`復原病人: ${patient.name}`, 'patient')
   } catch (err) {
@@ -628,20 +606,16 @@ async function handleSaveOrder(orderDataFromModal) {
     isAlertDialogVisible.value = true
     return
   }
-
   const patientId = editingPatientForOrder.value.id
   const patientName = editingPatientForOrder.value.name
   const updatedAt = new Date().toISOString()
-
-  // ✨ 核心修正點 1：建立輔助函式，確保所有數值欄位被正確處理 ✨
   const parseNumeric = (value) => {
     if (value === '' || value === null || value === undefined) {
-      return null // 將空值或空字串統一存為 null
+      return null
     }
     const num = Number(value)
-    return isNaN(num) ? null : num // 如果轉換後不是數字，也存為 null
+    return isNaN(num) ? null : num
   }
-
   const cleanOrders = {
     ak: orderDataFromModal.ak || '',
     dialysateCa: orderDataFromModal.dialysateCa || '',
@@ -651,20 +625,17 @@ async function handleSaveOrder(orderDataFromModal) {
     dryWeight: parseNumeric(orderDataFromModal.dryWeight),
     effectiveDate: orderDataFromModal.effectiveDate || updatedAt.slice(0, 10),
   }
-
   const historyRecord = {
     patientId: patientId,
     patientName: patientName,
     orders: cleanOrders,
     updatedAt: updatedAt,
   }
-
   try {
     await Promise.all([
       patientApi.update(patientId, { dialysisOrders: cleanOrders }),
       ordersHistoryApi.save(historyRecord),
     ])
-
     addNotification(`${patientName} 的透析醫囑已更新`, 'patient')
     isOrderModalVisible.value = false
     await fetchAllPatients()
@@ -681,9 +652,16 @@ onMounted(() => {
 })
 </script>
 
-<!-- Template and Style sections remain unchanged -->
 <template>
-  <div>
+  <!--
+    --- ✨ 關鍵修正點 2: 安裝「安全門」---
+    這個 v-if 就是我們的安全門。
+    只有當 useAuth 中的 isLoggedIn.value 變為 true 之後
+    (也就是 currentUser 被完整賦值後)，
+    這個 div 裡面的所有內容才會開始被渲染。
+    這從根本上杜絕了任何讀取未定義值的可能性。
+  -->
+  <div v-if="isLoggedIn">
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理</h1>
       <div class="tabs">
