@@ -1,4 +1,11 @@
 {
+  // ✨ --- 新增這個區塊 --- ✨
+  // 告訴 Firebase CLI 您的 Firestore 規則檔案在哪裡
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+
   "hosting": [
     {
       "target": "production",
@@ -6,7 +13,6 @@
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
-          // 【核心修正點 1】: 修改 production 目標的 source
           "source": "!{**.*,/__/*}",
           "destination": "/index.html"
         }
@@ -18,7 +24,6 @@
       "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
       "rewrites": [
         {
-          // 【核心修正點 2】: 修改 develop 目標的 source
           "source": "!{**.*,/__/*}",
           "destination": "/index.html"
         }
