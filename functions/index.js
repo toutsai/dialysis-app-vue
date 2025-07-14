@@ -1,3 +1,7 @@
+// 檔案路徑: functions/index.js (最終、最完整的版本)
+
+// 引入 v2 版本的函式模組
+const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
@@ -8,55 +12,165 @@ admin.initializeApp()
 // 取得 Firestore 資料庫的實例
 const db = admin.firestore()
 
+// ===================================================================
+// Helper Functions (輔助函式)
+// ===================================================================
+
 /**
- * @name checkExpiredMemos
+ * 格式化日期為 'YYYY-MM-DD' 字串
+ * @param {Date} date - 日期物件
+ * @returns {string}
+ */
+function formatDateForQuery(date) {
+  const year = date.getFullYear()
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// ===================================================================
+// Scheduled Functions (定時執行的函式)
+// ===================================================================
+
+/**
+ * @name checkExpiredMemos (v2 語法)
  * @description 每日定時執行的雲端函式，用來檢查並更新已到期的備忘錄。
- * 執行時間：每天凌晨 2:00 (台北時區)
  */
 exports.checkExpiredMemos = onSchedule(
   {
     schedule: 'every day 02:00',
-    timeZone: 'Asia/Taipei', // 確保使用台北時區
+    timeZone: 'Asia/Taipei',
   },
   async (event) => {
     logger.info('開始執行每日備忘錄到期檢查...')
 
-    // 1. 取得今天的日期字串 (格式：YYYY-MM-DD)
     const today = new Date()
-    const year = today.getFullYear()
-    const month = (today.getMonth() + 1).toString().padStart(2, '0')
-    const day = today.getDate().toString().padStart(2, '0')
-    const todayStr = `${year}-${month}-${day}`
+    const todayStr = formatDateForQuery(today)
 
-    // 2. 建立查詢：
-    //    - 找尋 'memos' 集合
-    //    - 條件1: status 必須是 'pending' (待處理)
-    //    - 條件2: targetDate (到期日) 欄位必須存在且小於或等於今天
     const query = db
       .collection('memos')
       .where('status', '==', 'pending')
       .where('targetDate', '<=', todayStr)
 
-    // 3. 執行查詢
     const snapshot = await query.get()
 
-    // 如果沒有任何文件符合條件，就提前結束
     if (snapshot.empty) {
       logger.info('沒有找到已到期的備忘錄，任務結束。')
       return null
     }
 
-    // 4. 準備批次更新
     const batch = db.batch()
     snapshot.forEach((doc) => {
       logger.info(`備忘錄 ${doc.id} 已到期，準備更新狀態...`)
       batch.update(doc.ref, { status: 'expired' })
     })
 
-    // 5. 提交批次更新
     await batch.commit()
-
     logger.info(`成功更新了 ${snapshot.size} 筆備忘錄為 'expired'。`)
     return null
   },
 )
+
+/**
+ * ✨ --- 新增的函式 --- ✨
+ * @name initializeFutureSchedules
+ * @description 每日定時執行的雲端函式，確保未來30天的排程文件存在。
+ * 執行時間：每天凌晨 3:00 (台北時區)
+ */
+exports.initializeFutureSchedules = onSchedule(
+  {
+    schedule: 'every day 03:00',
+    timeZone: 'Asia/Taipei',
+  },
+  async (event) => {
+    logger.info('開始執行未來排程文件初始化任務...')
+    const schedulesRef = db.collection('schedules')
+    const today = new Date()
+    const datesToCheck = []
+
+    // 產生未來30天的日期字串
+    for (let i = 0; i < 30; i++) {
+      const targetDate = new Date()
+      targetDate.setDate(today.getDate() + i)
+      datesToCheck.push(formatDateForQuery(targetDate))
+    }
+
+    try {
+      const snapshot = await schedulesRef.where('date', 'in', datesToCheck).get()
+      const existingDates = new Set(snapshot.docs.map((doc) => doc.data().date))
+
+      const datesToCreate = datesToCheck.filter((dateStr) => !existingDates.has(dateStr))
+
+      if (datesToCreate.length === 0) {
+        logger.info('所有必要的未來排程均已存在，無需初始化。')
+        return null
+      }
+
+      logger.info(`發現 ${datesToCreate.length} 個缺失的排程文件，正在創建...`)
+
+      const batch = db.batch()
+      datesToCreate.forEach((dateStr) => {
+        const newScheduleRef = schedulesRef.doc()
+        batch.set(newScheduleRef, {
+          date: dateStr,
+          schedule: {},
+          names: {},
+        })
+      })
+
+      await batch.commit()
+      logger.info(`成功創建了 ${datesToCreate.length} 個空白排程文件。`)
+    } catch (error) {
+      logger.error('排程初始化失敗:', error)
+    }
+    return null
+  },
+)
+
+// ===================================================================
+// Callable Functions (可由前端呼叫的函式)
+// ===================================================================
+
+/**
+ * @name customLogin (v2 語法)
+ * @description 自訂登入的雲端函式，驗證成功後回傳 custom token。
+ */
+exports.customLogin = onCall(async (request) => {
+  // 在 v2 中，傳入的資料在 request.data
+  const { username, password } = request.data
+
+  if (!username || !password) {
+    // 在 v2 中，直接拋出 HttpsError
+    throw new HttpsError('invalid-argument', '請提供帳號和密碼。')
+  }
+
+  try {
+    const usersRef = db.collection('users')
+    const snapshot = await usersRef.where('username', '==', username).limit(1).get()
+
+    if (snapshot.empty) {
+      throw new HttpsError('not-found', '帳號不存在。')
+    }
+
+    const userDoc = snapshot.docs[0]
+    const userData = userDoc.data()
+
+    if (userData.password !== password) {
+      throw new HttpsError('unauthenticated', '密碼錯誤。')
+    }
+
+    const uid = userDoc.id
+    const customToken = await admin.auth().createCustomToken(uid, {
+      role: userData.role,
+      name: userData.name,
+    })
+
+    return { token: customToken }
+  } catch (error) {
+    logger.error('Login function error:', error)
+    if (error instanceof HttpsError) {
+      throw error
+    }
+    throw new HttpsError('internal', '伺服器發生未知錯誤。')
+  }
+})

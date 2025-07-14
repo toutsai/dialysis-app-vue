@@ -1,29 +1,31 @@
+// 檔案路徑: src/router/index.js (最終推薦版本)
+
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuth } from '@/composables/useAuth.js'
+import { getAuth, onAuthStateChanged } from 'firebase/auth' // ✨ 1. 引入 Firebase Auth 的核心函式
+import { auth } from '@/composables/useFirebase.js'
 import MainLayout from '@/layouts/MainLayout.vue'
 
+// --- 路由定義 (保持不變) ---
 const routes = [
-  // 公共路由，不需要佈局
   {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
+    meta: { requiresAuth: false },
   },
-
-  // 受保護的路由，全部使用 MainLayout 作為佈局
   {
     path: '/',
     component: MainLayout,
     meta: { requiresAuth: true },
     children: [
       {
-        path: '', // 預設子路由 (訪問 '/' 時)
+        path: '',
         name: 'Home',
-        redirect: '/schedule', // <-- 已確保訪問根路徑時跳轉到每日排程
+        redirect: '/schedule',
       },
       {
         path: 'schedule',
-        name: 'Schedule', // <-- 這是我們的目標首頁
+        name: 'Schedule',
         component: () => import('../views/ScheduleView.vue'),
       },
       {
@@ -60,7 +62,7 @@ const routes = [
         path: 'user-management',
         name: 'UserManagement',
         component: () => import('../views/UserManagementView.vue'),
-        meta: { requiresAuth: true, requiresAdmin: true },
+        meta: { requiresAdmin: true },
       },
       {
         path: 'account-settings',
@@ -69,7 +71,6 @@ const routes = [
       },
     ],
   },
-  // 如果有其他路由匹配不到，可以加一個 404 頁面
   {
     path: '/:pathMatch(.*)*',
     redirect: '/',
@@ -81,30 +82,50 @@ const router = createRouter({
   routes,
 })
 
-// 【核心修改】: 將所有路由守衛邏輯合併到一個 beforeEach 中，並統一跳轉目標
-router.beforeEach((to, from, next) => {
-  const { isLoggedIn, isAdmin } = useAuth()
+// ✨ 2. 建立一個輔助函式，用於獲取當前的認證狀態
+const getCurrentUser = () => {
+  return new Promise((resolve, reject) => {
+    // onAuthStateChanged 會在狀態確定後立即解除監聽，確保只執行一次
+    const removeListener = onAuthStateChanged(
+      getAuth(),
+      (user) => {
+        removeListener()
+        resolve(user)
+      },
+      reject,
+    )
+  })
+}
 
+// ✨ 3. 全新的、基於非同步檢查的路由守衛
+router.beforeEach(async (to, from, next) => {
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
+  const currentUser = await getCurrentUser() // 等待 Firebase 確認使用者狀態
 
-  // 情況 1: 訪問需要登入的頁面，但用戶未登入
-  if (requiresAuth && !isLoggedIn.value) {
-    next({ name: 'Login' })
-  }
-  // 情況 2: 已登入，但試圖訪問登入頁面
-  else if (to.name === 'Login' && isLoggedIn.value) {
-    // 【修改點】將已登入的用戶從登入頁導向每日排程表
+  if (requiresAuth && !currentUser) {
+    // 情況 1: 訪問需要登入的頁面，但 Firebase 確認用戶未登入
+    next({ name: 'Login', query: { redirect: to.fullPath } })
+  } else if (to.name === 'Login' && currentUser) {
+    // 情況 2: 已登入用戶試圖訪問登入頁，導向首頁
     next({ name: 'Schedule' })
-  }
-  // 情況 3: 訪問需要管理員權限的頁面，但用戶不是管理員
-  else if (requiresAdmin && !isAdmin.value) {
-    // 【修改點】將非管理員用戶從管理頁面導向每日排程表
-    console.warn('權限不足：嘗試訪問管理員頁面。')
-    next({ name: 'Schedule' })
-  }
-  // 情況 4: 所有權限檢查通過，正常放行
-  else {
+  } else if (requiresAdmin) {
+    // 情況 3: 訪問需要管理員權限的頁面
+    if (currentUser) {
+      // 此時 useAuth() 內部狀態已經被 useAuth.js 中的 onAuthStateChanged 更新
+      const { isAdmin } = useAuth()
+      if (isAdmin.value) {
+        next() // 是管理員，放行
+      } else {
+        console.warn('權限不足：嘗試訪問管理員頁面。將導向首頁。')
+        next({ name: 'Schedule' }) // 不是管理員，導向首頁
+      }
+    } else {
+      // 理論上不會執行到這裡，因為會被情況1攔截，但作為保險
+      next({ name: 'Login' })
+    }
+  } else {
+    // 情況 4: 所有檢查通過，正常放行
     next()
   }
 })
