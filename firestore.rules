@@ -1,0 +1,70 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserRole() {
+      // 從登入後產生的 token 中直接讀取角色
+      return request.auth.token.role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() == 'admin';
+    }
+
+    function isEditor() {
+      let role = getUserRole();
+      return isAuthenticated() && (role == 'admin' || role == 'editor');
+    }
+    
+    function isContributor() {
+      let role = getUserRole();
+      return isAuthenticated() && (role == 'admin' || role == 'editor' || role == 'contributor');
+    }
+
+    // --- 各個集合的規則 ---
+    match /users/{userId} {
+      allow list: if isAdmin();
+      allow get: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+      allow write: if isAdmin(); 
+    }
+
+    match /patients/{patientId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isContributor();
+      allow delete: if isEditor();
+    }
+    
+    match /schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow write: if isEditor();
+    }
+
+    match /base_schedules/{scheduleId} {
+      allow read: if isAuthenticated();
+      allow write: if isEditor();
+    }
+    
+    match /memos/{memoId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isEditor();
+    }
+
+    match /dialysis_orders_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow create: if isContributor();
+      allow update, delete: if false; 
+    }
+
+    match /patient_history/{historyId} {
+      allow read: if isAuthenticated();
+      allow create: if isContributor();
+      allow update, delete: if false;
+    }
+  }
+}

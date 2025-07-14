@@ -13,7 +13,7 @@
     "_comment_build_dev": "--- 專門用於開發環境的建置指令 ---",
     "build:dev": "vite build --mode development",
     "_comment_deploy": "--- 完整的部署流程 ---",
-    "deploy:prod": "npm run build && firebase deploy --only hosting:production",
+    "deploy:prod": "npm run build && firebase deploy --only hosting:production,functions",
     "deploy:dev": "npm run build:dev && firebase deploy --only hosting:develop"
   },
   "dependencies": {
