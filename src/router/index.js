@@ -3,6 +3,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getAuth, onAuthStateChanged } from 'firebase/auth' // ✨ 1. 引入 Firebase Auth 的核心函式
 import { auth } from '@/composables/useFirebase.js'
+import { useAuth } from '@/composables/useAuth.js' // 引入 useAuth 才能在下面使用
 import MainLayout from '@/layouts/MainLayout.vue'
 
 // --- 路由定義 (保持不變) ---
