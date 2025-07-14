@@ -174,34 +174,3 @@ exports.customLogin = onCall(async (request) => {
     throw new HttpsError('internal', '伺服器發生未知錯誤。')
   }
 })
-// ===================================================================
-// ✨ 【診斷用】請在檔案末尾新增這個函式 ✨
-// ===================================================================
-
-/**
- * @name testTokenCreation
- * @description 一個極其簡單的函式，僅用於測試 createCustomToken 的權限問題。
- */
-exports.testTokenCreation = onCall(async (request) => {
-  logger.info('正在執行權限診斷函式 testTokenCreation...')
-
-  const testUid = 'test-user-for-debug-12345' // 一個寫死的測試 UID
-
-  try {
-    // 我們只執行這一個核心動作，不讀取任何資料庫
-    const customToken = await admin.auth().createCustomToken(testUid)
-
-    logger.info('成功產生測試 Token！權限檢查通過。Token:', customToken)
-
-    // 如果成功，回傳一個成功的訊息和 token
-    return {
-      success: true,
-      message: 'Token creation successful!',
-      token: customToken,
-    }
-  } catch (error) {
-    // 如果失敗，將最詳細的錯誤訊息記錄下來並回傳
-    logger.error('testTokenCreation 函式發生錯誤:', error)
-    throw new HttpsError('internal', error.message, error)
-  }
-})
