@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/ScheduleView.vue (已修正) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -240,6 +241,12 @@ async function saveDataToCloud() {
             standardSlot[key] = slotData[key]
           }
         })
+
+        // ✨ 新增的修改點：在儲存前，清空所有午班的 nurseTeamOut ✨
+        if (shiftId.endsWith(SHIFT_CODES.NOON)) {
+          standardSlot.nurseTeamOut = null
+        }
+
         cleanSchedule[shiftId] = standardSlot
       }
     }
@@ -264,6 +271,9 @@ async function saveDataToCloud() {
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
+
+    // 儲存後重新載入資料，確保畫面與資料庫同步
+    await loadDataForDay(currentDate.value)
   } catch (error) {
     console.error('儲存失敗:', error)
     statusIndicator.value = '儲存失敗'
@@ -674,10 +684,8 @@ function handleCancel() {
   onConfirmAction.value = null
 }
 
-// 實例化計算模組
 const { distributePatients } = useTeamAssigner()
 
-// 【核心修改點】: executeAutoAssignment 函式內部
 function executeAutoAssignment() {
   const getRichPatientList = (shiftCode) => {
     const patients = []
@@ -720,7 +728,6 @@ function executeAutoAssignment() {
     return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
   }
 
-  // 【修改點 1】: 白天班的基礎組別只到 J
   const dayBaseTeams = baseTeams.filter((t) => t !== 'K')
 
   // --- 早班 ---
@@ -767,8 +774,8 @@ function executeAutoAssignment() {
   const noonOnAssignments = distributePatients(sort(noonMain), noonTeamsToUse, noonRules)
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  // --- 晚班 & 午班收針 ---
-  const lateCombinedMain = [...mainArea(allLatePatients), ...mainArea(allNoonPatients)]
+  // --- 晚班 ---
+  const lateMain = mainArea(allLatePatients) // 只分配晚班病人
   const lateTeamsToUse = baseTeams.slice(0, 8).map((t) => `晚${t}`)
   const lateRules = {
     priorityTeams: {
@@ -783,22 +790,15 @@ function executeAutoAssignment() {
       fillMethod: 'average',
     },
   }
-  const lateCombinedAssignments = distributePatients(
-    sort(lateCombinedMain),
-    lateTeamsToUse,
-    lateRules,
-  )
-  lateCombinedAssignments['晚外圍'] = [
-    ...peripheral(allLatePatients),
-    ...peripheral(allNoonPatients),
-  ]
+  const lateAssignments = distributePatients(sort(lateMain), lateTeamsToUse, lateRules)
+  lateAssignments['晚外圍'] = peripheral(allLatePatients)
 
   // --- 更新 schedule ---
   Object.values(currentRecord.schedule).forEach((slot) => {
     if (slot) {
       slot.nurseTeam = null
       slot.nurseTeamIn = null
-      slot.nurseTeamOut = null
+      // 不再清空 nurseTeamOut
     }
   })
 
@@ -814,22 +814,13 @@ function executeAutoAssignment() {
 
   applyToSchedule(earlyAssignments, 'nurseTeam')
   applyToSchedule(noonOnAssignments, 'nurseTeamIn')
-
-  for (const team in lateCombinedAssignments) {
-    for (const patient of lateCombinedAssignments[team]) {
-      const slot = currentRecord.schedule[patient.shiftId]
-      if (slot) {
-        const shiftCode = patient.shiftId.split('-')[2]
-        if (shiftCode === SHIFT_CODES.LATE) slot.nurseTeam = team
-        else if (shiftCode === SHIFT_CODES.NOON) slot.nurseTeamOut = team
-      }
-    }
-  }
+  applyToSchedule(lateAssignments, 'nurseTeam')
 
   setChange()
   statusIndicator.value = '自動分組完成，請確認並儲存'
   alertDialogTitle.value = '操作成功'
-  alertDialogMessage.value = '自動分組已完成！請檢視結果並點擊「儲存」。'
+  alertDialogMessage.value =
+    '自動分組已完成！請檢視結果並點擊「儲存」。\n(注意：午班收針組別未變動)'
   isAlertDialogVisible.value = true
 }
 
@@ -840,7 +831,6 @@ function autoAssignNurseTeams() {
     isAlertDialogVisible.value = true
     return
   }
-
   confirmDialogMessage.value = '此操作將會覆蓋現有的護理師分組，您確定要繼續嗎？'
   onConfirmAction.value = () => {
     executeAutoAssignment()
@@ -848,7 +838,6 @@ function autoAssignNurseTeams() {
   isConfirmDialogVisible.value = true
 }
 
-// --- Provide / Lifecycle Hooks ---
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
@@ -1214,7 +1203,6 @@ watch(currentDate, (newDate, oldDate) => {
     :message="alertDialogMessage"
     @confirm="isAlertDialogVisible = false"
   />
-  <!-- 5. 加入新的 ConfirmDialog 元件實例 -->
   <ConfirmDialog
     :is-visible="isConfirmDialogVisible"
     title="請確認"
