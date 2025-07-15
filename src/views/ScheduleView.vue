@@ -516,7 +516,7 @@ async function loadAllData() {
   try {
     const [patientsData, memosData] = await Promise.all([
       patientsApi.fetchAll(),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
+      memosApi.fetchAll([where('isResolved', '==', 'pending')]),
     ])
     allPatients.value = patientsData
     activeMemos.value = memosData
