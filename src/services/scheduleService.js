@@ -436,15 +436,6 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
           },
         }
 
-        // 📝 顯示通知
-        if (showNotifications && updatePromises.length > 0) {
-          if (result.success) {
-            addNotification('排程資料已清理', 'schedule')
-          } else {
-            addNotification('清理臨時資料時發生錯誤', 'error')
-          }
-        }
-
         console.log('🎉 [cleanTempData] 完成:', result)
         return result
       },

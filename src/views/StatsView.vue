@@ -698,8 +698,6 @@ async function saveChangesToCloud() {
     console.log(`✅ [StatsView] 統計檢視儲存成功: ${currentRecord.date}`)
 
     // 🆕 簡化的儲存成功通知
-    addNotification(`✅ 護理分組儲存成功: ${formatDate(currentDate.value)}`, 'stats')
-
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
@@ -709,8 +707,6 @@ async function saveChangesToCloud() {
     statusIndicator.value = '儲存失敗'
 
     // 🆕 簡化的儲存失敗通知
-    addNotification(`❌ 護理分組儲存失敗: ${error.message}`, 'stats')
-
     alertDialogTitle.value = '儲存失敗'
     alertDialogMessage.value = `儲存失敗: ${error.message}`
     isAlertDialogVisible.value = true

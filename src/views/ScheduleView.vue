@@ -1,8 +1,6 @@
 <!-- 檔案路徑: src/views/ScheduleView.vue (完全優化版) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
-// ❌ 移除 ApiManager
-// import ApiManager from '@/services/api_manager.js'
 import {
   where,
   collection,
@@ -141,7 +139,6 @@ const saveScheduleData = performanceMonitor(
       },
       {
         loadingMessage: '儲存排程資料中...',
-        successMessage: '排程儲存成功！',
         errorPrefix: '儲存排程失敗',
       },
     )

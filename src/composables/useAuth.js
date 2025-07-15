@@ -127,7 +127,7 @@ export function useAuth() {
         },
         {
           loadingMessage: '登入中...',
-          successMessage: `歡迎回來，${username}！`,
+          successMessage: '',
           errorPrefix: '登入失敗',
           retryCount: 2, // 重試2次
           retryDelay: 1000,

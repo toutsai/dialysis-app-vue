@@ -21,22 +21,24 @@
 
       <!-- 底部功能區塊 (包含通知、管理、登出) -->
       <div class="footer-section">
+        <!-- 【更新】通知區域 - 配合改良版通知結構 -->
         <div class="notification-area">
           <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
           <transition-group name="notification-list" tag="div" class="notification-list">
             <div
               v-for="notif in notifications"
               :key="notif.id"
-              class="notification-item"
-              :class="`notification-type-${notif.type}`"
+              class="notification-card"
+              :class="`notification-${notif.type}`"
             >
-              <div class="notification-content">
-                <span class="notification-icon">{{ getIconForNotification(notif.type) }}</span>
-                <p class="notification-message">{{ notif.message }}</p>
-              </div>
-              <div class="notification-footer-item">
-                <span class="notification-time">{{ formatTime(notif.timestamp) }}</span>
+              <div class="notification-header">
+                <span class="notification-icon">{{ notif.config.icon }}</span>
+                <span class="notification-type-text">{{ getTypeText(notif.type) }}</span>
                 <button class="notification-close" @click="removeNotification(notif.id)">×</button>
+              </div>
+              <div class="notification-body">
+                <p class="notification-message">{{ notif.message }}</p>
+                <span class="notification-time">{{ notif.time }}</span>
               </div>
             </div>
           </transition-group>
@@ -103,23 +105,20 @@ function handleLogout() {
   logout()
 }
 
-const getIconForNotification = (type) => {
+// 【更新】取得通知類型文字 - 配合改良版通知
+const getTypeText = (type) => {
   switch (type) {
     case 'patient':
-      return '👤'
+      return '病人'
     case 'schedule':
-      return '📅'
-    case 'stats':
-      return '📊'
+      return '排程'
+    case 'team':
+      return '分組'
     case 'memo':
-      return '📝'
+      return '備忘'
     default:
-      return '✅'
+      return '系統'
   }
-}
-
-const formatTime = (date) => {
-  return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 </script>
 
@@ -296,6 +295,9 @@ const formatTime = (date) => {
   background-color: #2d3748;
 }
 
+/* ============================================ */
+/* 【更新】通知區域樣式 - 配合改良版通知結構 */
+/* ============================================ */
 .notification-area {
   padding: 10px;
   overflow-y: auto;
@@ -322,87 +324,109 @@ const formatTime = (date) => {
   background-color: #4a5568;
 }
 
-.notification-area {
-  scrollbar-width: thin;
-  scrollbar-color: #5a6a7a transparent;
-}
-
 .notification-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.notification-item {
-  border-radius: 6px;
-  padding: 6px 10px;
+/* 【新增】通知卡片樣式 */
+.notification-card {
+  border-radius: 8px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid;
+  background-color: #ffffff;
   color: #1a202c;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
-.notification-type-default {
-  background-color: #e0f2fe;
+/* 通知類型顏色 - 配合改良版配置 */
+.notification-schedule {
+  border-left-color: #3498db; /* 藍色 */
 }
-.notification-type-patient {
-  background-color: #dcfce7;
+.notification-patient {
+  border-left-color: #f39c12; /* 橙色 */
 }
-.notification-type-schedule {
-  background-color: #fef9c3;
+.notification-team {
+  border-left-color: #27ae60; /* 綠色 */
 }
-.notification-type-stats {
-  background-color: #ffedd5;
-}
-.notification-type-memo {
-  background-color: #f3e8ff;
+.notification-memo {
+  border-left-color: #9b59b6; /* 紫色 */
 }
 
-.notification-content {
+.notification-header {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding: 8px 12px 4px 12px;
+  background-color: rgba(0, 0, 0, 0.02);
 }
+
 .notification-icon {
   font-size: 1.2em;
+  flex-shrink: 0;
 }
-.notification-message {
-  margin: 0;
-  font-size: 0.85em;
-  font-weight: 500;
-  line-height: 1.3;
+
+.notification-type-text {
+  font-size: 0.75em;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   flex-grow: 1;
 }
-.notification-footer-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 2px;
-}
-.notification-time {
-  font-size: 0.7em;
-  color: #718096;
-}
+
 .notification-close {
   background: none;
   border: none;
-  color: #a0aec0;
-  font-size: 1.2em;
+  color: #9ca3af;
+  font-size: 1.4em;
   cursor: pointer;
   padding: 0;
   line-height: 1;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s;
 }
 .notification-close:hover {
-  color: #4a5568;
+  color: #6b7280;
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
+.notification-body {
+  padding: 4px 12px 8px 12px;
+}
+
+.notification-message {
+  margin: 0 0 4px 0;
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.3;
+  color: #374151;
+}
+
+.notification-time {
+  font-size: 0.7em;
+  color: #9ca3af;
+  font-weight: 400;
+}
+
+/* 動畫效果 */
 .notification-list-enter-active,
 .notification-list-leave-active {
-  transition: all 0.5s ease;
+  transition: all 0.4s ease;
 }
 .notification-list-enter-from,
 .notification-list-leave-to {
   opacity: 0;
-  transform: scale(0.9) translateY(-20px);
+  transform: scale(0.95) translateY(-10px);
+}
+.notification-list-move {
+  transition: transform 0.3s ease;
 }
 </style>

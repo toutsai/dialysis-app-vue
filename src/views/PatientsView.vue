@@ -241,7 +241,7 @@ async function handleSavePatient(patientData) {
           await optimizedUpdatePatient(patientData.id, updateData)
           await clearFutureSchedulesForPatient(patientData.id)
           await fetchAllPatients()
-          addNotification('病人資料已修改', 'patient')
+          addNotification('變更病人資料', 'patient')
         } catch (err) {
           console.error('中止透析操作失敗:', err)
           alertDialogTitle.value = '操作失敗'
@@ -258,7 +258,7 @@ async function handleSavePatient(patientData) {
         await optimizedUpdatePatient(patientData.id, dataToUpdate)
         closeModal()
         await fetchAllPatients()
-        addNotification('病人資料已修改', 'patient')
+        addNotification('變更病人資料', 'patient')
       } catch (err) {
         console.error('更新病人資料失敗:', err)
         alertDialogTitle.value = '操作失敗'
@@ -317,7 +317,7 @@ async function handleSavePatient(patientData) {
       await optimizedSavePatientHistory(historyEntry)
       closeModal()
       await fetchAllPatients()
-      addNotification('病人資料已新增', 'patient')
+      addNotification('新增病人資料', 'patient')
     } catch (err) {
       console.error('新增病人失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -370,7 +370,7 @@ async function handleConflictSelected() {
     isAlertDialogVisible.value = true
     closeModal()
     await fetchAllPatients()
-    addNotification('病人資料已修改', 'patient')
+    addNotification('變更病人資料', 'patient')
   } catch (err) {
     console.error('轉移更新病人失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -420,7 +420,7 @@ async function transferPatient(patientId, newStatus) {
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
-      addNotification('病人資料已修改', 'patient')
+      addNotification('變更病人資料', 'patient')
     } catch (err) {
       console.error('轉床失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -469,7 +469,7 @@ async function handleDeleteReasonSelected(reason) {
       await optimizedSavePatientHistory(historyEntry)
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
-      addNotification('病人資料已刪除', 'patient')
+      addNotification('刪除病人資料', 'patient')
     }
   } catch (err) {
     console.error('刪除失敗:', err)
@@ -516,7 +516,7 @@ async function restorePatient(patientId) {
     // ✅ 使用優化函式
     await optimizedSavePatientHistory(historyEntry)
     await fetchAllPatients()
-    addNotification('病人資料已復原', 'patient')
+    addNotification('復原病人資料', 'patient')
   } catch (err) {
     console.error('復原失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -706,7 +706,7 @@ async function handleSaveOrder(orderDataFromModal) {
       optimizedSaveDialysisOrderHistory(historyRecord),
     ])
     console.log('✅ [PatientsView] 透析醫囑儲存成功')
-    addNotification('病人資料已修改', 'patient')
+    addNotification('變更病人資料', 'patient')
     isOrderModalVisible.value = false
     await fetchAllPatients()
   } catch (error) {
