@@ -1,20 +1,8 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (優化版) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (已修正) -->
 <script setup>
-import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue'
-import { where } from 'firebase/firestore'
-
-// ✅ 導入優化後的函式
-import {
-  fetchAllPatients as optimizedFetchAllPatients,
-  fetchAllSchedules as optimizedFetchAllSchedules,
-  saveSchedule as optimizedSaveSchedule,
-  updateSchedule as optimizedUpdateSchedule,
-  fetchAllMemos as optimizedFetchAllMemos,
-} from '@/services/optimizedApiService.js'
-
-// ✅ 導入基礎排程 API（這個還需要用 ApiManager，因為我們還沒有優化這個集合）
+import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue' // ✨ 導入 nextTick
 import ApiManager from '@/services/api_manager.js'
-
+import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
@@ -35,7 +23,6 @@ function getStartOfWeek(date) {
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
   return new Date(new Date(d.setDate(diff)).setHours(0, 0, 0, 0))
 }
-
 function formatDate(date, withYear = false) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -47,7 +34,6 @@ function formatDate(date, withYear = false) {
   }
   return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
 }
-
 function formatDateForQuery(date) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -58,14 +44,10 @@ function formatDateForQuery(date) {
 }
 
 // --- API and Constants ---
-// ❌ 移除舊的 API 管理器
-// const patientsApi = ApiManager('patients')
-// const schedulesApi = ApiManager('schedules')
-// const memosApi = ApiManager('memos')
-
-// ✅ 只保留基礎排程 API（暫時）
+const patientsApi = ApiManager('patients')
+const schedulesApi = ApiManager('schedules')
 const baseSchedulesApi = ApiManager('base_schedules')
-
+const memosApi = ApiManager('memos')
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const PATIENT_STATUS = { INPATIENT: 'ipd' }
@@ -74,7 +56,6 @@ const CLEAR_OPTIONS = [
   { value: 'this_week_for_patient', text: '刪除此病人本週所有排程' },
   { value: 'this_and_future_for_bed', text: '刪除此床此次與未來排程' },
 ]
-
 const bedLayout = [
   1,
   2,
@@ -127,9 +108,7 @@ const bedLayout = [
   if (numA !== Infinity || numB !== Infinity) return numA - numB
   return String(a).localeCompare(String(b))
 })
-
 const hepatitisBeds = [31, 32, 33, 35, 36]
-
 const FREQ_MAP_TO_DAY_INDEX = {
   一三五: [0, 2, 4],
   二四六: [1, 3, 5],
@@ -139,7 +118,6 @@ const FREQ_MAP_TO_DAY_INDEX = {
   一五: [0, 4],
   二六: [1, 5],
 }
-
 const STYLE_PRIORITY = {
   抽: { class: 'tag-chou' },
   新: { class: 'tag-new' },
@@ -175,7 +153,7 @@ const isMemoDialogVisible = ref(false)
 const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 
-// ✨ 搜尋相關狀態
+// ✨ 1. 新增搜尋相關的狀態 ✨
 const searchQuery = ref('')
 const isSearchFocused = ref(false)
 
@@ -187,25 +165,21 @@ const isPageLocked = computed(() => !auth.canEditSchedules.value)
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
-
 function updateColumnWidths(newWidths) {
   columnWidths.value = newWidths
 }
 
 // --- Computed Properties ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
-
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
-
 const weekDisplay = computed(() => {
   const start = new Date(currentWeekStartDate.value)
   const end = new Date(start)
   end.setDate(start.getDate() + 5)
   return `${formatDate(start, true)} ~ ${formatDate(end, true)}`
 })
-
 const weekDates = computed(() =>
   Array.from({ length: 6 }).map((_, i) => {
     const d = new Date(currentWeekStartDate.value)
@@ -213,7 +187,6 @@ const weekDates = computed(() =>
     return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateForQuery(d) }
   }),
 )
-
 const statsToolbarData = computed(() => {
   const baseData = WEEKDAYS.map(() => ({
     counts: {
@@ -223,9 +196,7 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
-
   const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
-
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
@@ -251,7 +222,6 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
-
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   weekDates.value.forEach((day, dayIndex) => {
@@ -282,9 +252,7 @@ const weekScheduleMap = computed(() => {
   })
   return combinedSchedule
 })
-
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
-
 const scheduledPatientIds = computed(() => {
   const ids = new Set()
   for (const dailyRecord of weekScheduleRecords.value.values()) {
@@ -298,7 +266,6 @@ const scheduledPatientIds = computed(() => {
   }
   return ids
 })
-
 const problemsToSolve = computed(() => {
   const unassignedPatients = allPatients.value.filter((patient) => {
     return (
@@ -313,7 +280,7 @@ const problemsToSolve = computed(() => {
   }
 })
 
-// ✨ 搜尋結果
+// ✨ 2. 新增搜尋結果的計算屬性 ✨
 const searchResults = computed(() => {
   if (!searchQuery.value) {
     return []
@@ -325,15 +292,16 @@ const searchResults = computed(() => {
       const mrnMatch = p.medicalRecordNumber && p.medicalRecordNumber.includes(query)
       return nameMatch || mrnMatch
     })
-    .slice(0, 5)
+    .slice(0, 5) // 最多顯示 5 個結果
 })
 
 // --- Functions and Logic ---
-// ✨ 病人定位功能
+// ✨ 3. 新增定位與高亮病人的函式 ✨
 function locatePatientOnGrid(patientId) {
-  searchQuery.value = ''
-  isSearchFocused.value = false
+  searchQuery.value = '' // 清空搜尋框
+  isSearchFocused.value = false // 隱藏結果列表
 
+  // 在週排班表中找到該病人的第一個位置
   const targetSlotId = Object.keys(weekScheduleMap.value).find(
     (slotId) => weekScheduleMap.value[slotId]?.patientId === patientId,
   )
@@ -345,23 +313,27 @@ function locatePatientOnGrid(patientId) {
     return
   }
 
+  // 使用 nextTick 確保 DOM 已經更新
   nextTick(() => {
     const targetElement = document.querySelector(`[data-slot-id="${targetSlotId}"]`)
     if (targetElement) {
+      // 捲動到目標位置
       targetElement.scrollIntoView({
         behavior: 'smooth',
         block: 'center',
         inline: 'center',
       })
 
+      // 加入閃爍高亮效果
       targetElement.classList.add('highlight-flash')
       setTimeout(() => {
         targetElement.classList.remove('highlight-flash')
-      }, 2000)
+      }, 2000) // 2秒後移除高亮
     }
   })
 }
 
+// ✨ 4. 新增處理搜尋框失焦的函式 ✨
 function handleSearchBlur() {
   setTimeout(() => {
     isSearchFocused.value = false
@@ -378,7 +350,6 @@ function showPatientMemos(patientId) {
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
-
 function isDateInPast(dayIndex) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -386,13 +357,11 @@ function isDateInPast(dayIndex) {
   scheduleDate.setDate(scheduleDate.getDate() + dayIndex)
   return scheduleDate.getTime() < today.getTime()
 }
-
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
-
 function getDailyShiftIdFromWeekly(weeklySlotId) {
   if (!weeklySlotId) return null
   const parts = weeklySlotId.split('-')
@@ -586,7 +555,6 @@ function handleClearSelect(selectedValue) {
   clearingSlotId.value = null
 }
 
-// ✅ 優化的儲存功能
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -594,15 +562,10 @@ async function saveChangesToCloud() {
     isAlertDialogVisible.value = true
     return
   }
-
-  console.log('💾 [WeeklyView] 開始儲存週排班變更...')
   statusText.value = '儲存中...'
-
   try {
     const promises = []
     const datesInView = new Set(weekDates.value.map((d) => d.queryDate))
-
-    console.log(`🔄 [WeeklyView] 處理 ${datesInView.size} 個日期的排程資料`)
 
     for (const date of datesInView) {
       const dailyRecord = weekScheduleRecords.value.get(date) || {
@@ -611,7 +574,6 @@ async function saveChangesToCloud() {
         schedule: {},
         names: {},
       }
-
       const scheduleToSave = {}
       if (dailyRecord.schedule) {
         for (const shiftId in dailyRecord.schedule) {
@@ -631,53 +593,35 @@ async function saveChangesToCloud() {
         }
       }
 
-      const dataToSave = {
-        date: date,
-        schedule: scheduleToSave,
-        names: dailyRecord.names || {},
-      }
-
+      const dataToSave = { date: date, schedule: scheduleToSave, names: dailyRecord.names || {} }
       let docId = dailyRecord.id
-
       if (!docId) {
-        // ✅ 使用優化函式查詢現有文件
-        const existingDocs = await optimizedFetchAllSchedules()
-        const existingDoc = existingDocs.find((doc) => doc.date === date)
-        if (existingDoc) docId = existingDoc.id
+        const existingDocs = await schedulesApi.fetchAll([where('date', '==', date)])
+        if (existingDocs.length > 0) docId = existingDocs[0].id
       }
 
       if (docId) {
         if (Object.keys(scheduleToSave).length > 0 || Object.keys(dataToSave.names).length > 0) {
-          console.log(`🔄 [WeeklyView] 更新日期 ${date} 的排程資料`)
-          // ✅ 使用優化函式更新
-          promises.push(optimizedUpdateSchedule(docId, dataToSave))
+          promises.push(schedulesApi.update(docId, dataToSave))
         } else {
-          console.log(`🗑️ [WeeklyView] 刪除日期 ${date} 的空排程`)
-          // 這裡暫時還用舊的 API，因為我們還沒有優化刪除功能
-          const schedulesApi = ApiManager('schedules')
           promises.push(schedulesApi.delete(docId))
         }
       } else {
         if (Object.keys(scheduleToSave).length > 0) {
-          console.log(`💾 [WeeklyView] 新增日期 ${date} 的排程資料`)
-          // ✅ 使用優化函式儲存
-          promises.push(optimizedSaveSchedule(dataToSave))
+          promises.push(schedulesApi.save(dataToSave))
         }
       }
     }
 
     await Promise.all(promises)
-
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '週排班已成功儲存！'
     isAlertDialogVisible.value = true
-
-    console.log('✅ [WeeklyView] 週排班儲存完成')
     await loadAllData()
   } catch (error) {
-    console.error('❌ [WeeklyView] 儲存失敗:', error)
+    console.error('儲存失敗:', error)
     statusText.value = '儲存失敗'
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = `儲存失敗：${error.message}`
@@ -724,7 +668,6 @@ function onDrop(event, targetWeeklySlotId) {
   }
   draggedItem.value = null
 }
-
 function onDragStart(event, slotId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -743,7 +686,6 @@ function onDragStart(event, slotId) {
   draggedItem.value = { source: slotId, data: { ...slotData } }
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function onSidebarDragStart(event, patient) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -762,14 +704,12 @@ function onSidebarDragStart(event, patient) {
   }
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function showConfirmDialog(title, message, onConfirm) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
   confirmAction.value = onConfirm
   isConfirmDialogVisible.value = true
 }
-
 async function loadBaseSchedule() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -781,7 +721,6 @@ async function loadBaseSchedule() {
     '載入常規班表',
     '確定要載入常規班表嗎？\n這將會【清空並覆蓋】今天及未來的所有排班資料。',
     async () => {
-      console.log('🔄 [WeeklyView] 開始載入常規班表...')
       statusText.value = '正在載入常規班表...'
       try {
         for (const slotId in weekScheduleMap.value) {
@@ -814,10 +753,9 @@ async function loadBaseSchedule() {
             }
           }
         }
-        console.log('✅ [WeeklyView] 常規班表載入完成')
         statusText.value = '常規班表已載入至未來排程，請記得儲存。'
       } catch (error) {
-        console.error('❌ [WeeklyView] 載入常規班表失敗:', error)
+        console.error('載入常規班表失敗:', error)
         statusText.value = '載入失敗'
         alertDialogTitle.value = '錯誤'
         alertDialogMessage.value = '載入常規班表時發生錯誤。'
@@ -826,7 +764,6 @@ async function loadBaseSchedule() {
     },
   )
 }
-
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換日期嗎？', () => {
@@ -842,7 +779,6 @@ function changeWeek(days) {
     loadAllData()
   }
 }
-
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換到本週嗎？', () => {
@@ -854,42 +790,21 @@ function goToToday() {
     loadAllData()
   }
 }
-
-// ✅ 優化的資料載入功能
 async function loadAllData() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
-
   try {
     const datesForQuery = weekDates.value.map((d) => d.queryDate)
     if (datesForQuery.length === 0) return
-
-    console.log('🔄 [WeeklyView] 開始載入週排班資料...')
-    console.log(
-      `📅 [WeeklyView] 查詢日期範圍: ${datesForQuery[0]} ~ ${datesForQuery[datesForQuery.length - 1]}`,
-    )
-
-    // ✅ 使用優化函式並行載入資料
-    const [patients, allSchedules, memos] = await Promise.all([
-      optimizedFetchAllPatients(),
-      optimizedFetchAllSchedules(),
-      optimizedFetchAllMemos(),
+    const [patients, weeklyRecords, memos] = await Promise.all([
+      patientsApi.fetchAll(),
+      schedulesApi.fetchAll([where('date', 'in', datesForQuery)]),
+      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
-
-    // 過濾出本週的排程
-    const weeklyRecords = allSchedules.filter((record) => datesForQuery.includes(record.date))
-
-    console.log(`✅ [WeeklyView] 資料載入完成:`)
-    console.log(`   - 患者: ${patients.length} 位`)
-    console.log(`   - 本週排程: ${weeklyRecords.length} 天`)
-    console.log(`   - 備忘錄: ${memos.filter((m) => m.status === 'pending').length} 筆`)
-
     allPatients.value = patients
-    activeMemos.value = memos.filter((memo) => memo.status === 'pending')
-
+    activeMemos.value = memos
     const localPatientMap = new Map(patients.map((p) => [p.id, p]))
     const newWeekRecords = new Map()
-
     weeklyRecords.forEach((record) => {
       if (record.schedule) {
         for (const shiftId in record.schedule) {
@@ -903,23 +818,20 @@ async function loadAllData() {
       }
       newWeekRecords.set(record.date, record)
     })
-
     weekScheduleRecords.value = newWeekRecords
     statusText.value = '資料已載入'
   } catch (error) {
-    console.error('❌ [WeeklyView] 讀取週排班資料失敗:', error)
+    console.error('讀取週排班資料失敗:', error)
     statusText.value = '讀取失敗'
   }
 }
-
 function handleScheduleUpdate(event) {
   const { date } = event.detail
   if (weekDates.value.some((d) => d.queryDate === date)) {
-    console.log(`🔄 [WeeklyView] 監聽到日期 ${date} 的變更，正在重新載入本週資料...`)
+    console.log(`[WeeklyView] 監聽到日期 ${date} 的變更，正在重新載入本週資料...`)
     loadAllData()
   }
 }
-
 function handleConflictConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
@@ -927,12 +839,10 @@ function handleConflictConfirm() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
 function handleConflictCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
 function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
@@ -976,7 +886,6 @@ function onDragOver(event) {
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
-
 function runScheduleCheck() {
   const validationResult = { freqMismatch: [], duplicates: [] }
   const patientSchedules = {}
@@ -1077,16 +986,13 @@ provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
 onMounted(() => {
-  console.log('🚀 [WeeklyView] 組件已掛載，開始初始化...')
   loadAllData()
   window.addEventListener('schedule-updated', handleScheduleUpdate)
 })
-
 onUnmounted(() => {
   window.removeEventListener('schedule-updated', handleScheduleUpdate)
 })
 </script>
-
 <template>
   <div>
     <div class="page-container">
@@ -1110,7 +1016,7 @@ onUnmounted(() => {
               >
                 智慧排床
               </button>
-              <!-- ✨ 搜尋框 -->
+              <!-- ✨ 5. 加入搜尋框的 HTML 結構 ✨ -->
               <div class="search-container">
                 <input
                   type="text"
@@ -1187,7 +1093,6 @@ onUnmounted(() => {
       </main>
     </div>
 
-    <!-- Modals -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
@@ -1239,23 +1144,24 @@ onUnmounted(() => {
   </div>
 </template>
 
+<!-- ✨ 6. 新增搜尋框與高亮效果的 CSS 樣式 ✨ -->
 <style scoped>
-/* 搜尋容器樣式 */
+/* 搜尋容器的樣式 */
 .search-container {
   position: relative;
   display: inline-block;
 }
 
 .patient-search-input {
+  /* 讓樣式與其他按鈕對齊 */
   padding: 0.5rem 1rem;
   border: 1px solid #ccc;
   border-radius: 4px;
   width: 220px;
-  height: 45px;
-  box-sizing: border-box;
+  height: 45px; /* 與按鈕同高 */
+  box-sizing: border-box; /* 確保 padding 不會增加總寬高 */
   transition: all 0.2s;
 }
-
 .patient-search-input:focus {
   outline: none;
   border-color: #007bff;
@@ -1295,7 +1201,7 @@ onUnmounted(() => {
   background-color: #f0f0f0;
 }
 
-/* 高亮閃爍效果 */
+/* 高亮閃爍效果的 Keyframes 動畫 */
 @keyframes highlight-animation {
   0% {
     background-color: #fffbe3;
@@ -1307,11 +1213,12 @@ onUnmounted(() => {
   }
 }
 
+/* 應用動畫的 class */
 :deep(.highlight-flash) {
   animation: highlight-animation 2s ease-out;
 }
 
-/* 原有樣式保持不變 */
+/* -- 原有樣式保持不變 -- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1319,13 +1226,11 @@ onUnmounted(() => {
   width: 100%;
   overflow: hidden;
 }
-
 .page-header {
   border-bottom: 1px solid #dee2e6;
   padding: 0 0 20px 0;
   flex-shrink: 0;
 }
-
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -1333,7 +1238,6 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 1rem;
 }
-
 .toolbar-left,
 .main-actions {
   display: flex;
@@ -1341,31 +1245,25 @@ onUnmounted(() => {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-
 .page-title {
   margin: 0;
   font-size: 32px;
-  color: #333; /* 黑色標題 */
 }
-
 .date-navigator {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-
 .week-display-text {
   font-weight: bold;
   font-size: 26px;
   white-space: nowrap;
 }
-
 .page-main-content {
   display: flex;
   flex-grow: 1;
   overflow: hidden;
 }
-
 .schedule-area {
   flex-grow: 1;
   display: flex;
@@ -1379,18 +1277,15 @@ onUnmounted(() => {
   box-sizing: border-box;
   transition: padding-left 0.2s ease-in-out;
 }
-
 .schedule-table-component {
   flex-grow: 1;
   overflow: auto;
   border-radius: 8px;
 }
-
 .status-text {
   font-style: italic;
   color: #6c757d;
 }
-
 .btn,
 .btn-save,
 button {
@@ -1402,36 +1297,30 @@ button {
   transition: all 0.2s;
   white-space: nowrap;
 }
-
 .btn:hover,
 .btn-save:not(:disabled):hover {
   border-color: #888;
   background-color: #e9ecef;
 }
-
 .btn-save {
   background-color: #28a745;
   color: white;
   border-color: #28a745;
 }
-
 .btn-save:hover {
   background-color: #218838;
 }
-
 .btn-save:disabled {
   background-color: #6c757d;
   border-color: #6c757d;
   cursor: not-allowed;
   opacity: 0.65;
 }
-
 .btn.btn-warning {
   background-color: #ffc107;
   color: #212529;
   border-color: #ffc107;
 }
-
 .btn.btn-info {
   background-color: #17a2b8;
   color: white;
@@ -1441,31 +1330,24 @@ button {
 :deep(.schedule-slot.status-opd) {
   background-color: var(--green-bg, #e8f5e9);
 }
-
 :deep(.schedule-slot.status-ipd) {
   background-color: var(--red-bg, #ffebee);
 }
-
 :deep(.schedule-slot.status-er) {
   background-color: var(--purple-bg, #f3e5f5);
 }
-
 :deep(.schedule-slot.tag-chou) {
   background-color: #658ee0;
 }
-
 :deep(.schedule-slot.tag-new) {
   background-color: #f5ec8e;
 }
-
 :deep(.schedule-slot.tag-huan) {
   background-color: #e0f7fa;
 }
-
 :deep(.schedule-slot.tag-liang) {
   background-color: #fff3e0;
 }
-
 :deep(.schedule-slot.tag-b) {
   background-color: #fff9c4;
 }
@@ -1474,7 +1356,6 @@ button {
   cursor: not-allowed;
   opacity: 0.65;
 }
-
 .sidebar-locked {
   pointer-events: none;
   opacity: 0.6;
