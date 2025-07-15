@@ -118,6 +118,7 @@ async function fetchMemos() {
     console.log(
       `✅ [MemoView] 備忘錄載入完成: ${memos.value.length} 筆 (${Math.round(endTime - startTime)}ms)`,
     )
+    // ❌ 移除載入通知
   } catch (err) {
     console.error('❌ [MemoView] 讀取備忘錄失敗:', err)
     error.value = '載入備忘錄失敗，請重試'
@@ -141,6 +142,7 @@ async function fetchAllPatients() {
     console.log(
       `✅ [MemoView] 患者列表載入完成: ${allPatients.value.length} 筆 (${Math.round(endTime - startTime)}ms)`,
     )
+    // ❌ 移除載入通知
   } catch (err) {
     console.error('❌ [MemoView] 獲取病人列表失敗:', err)
     handleError('獲取病人列表失敗', err)
@@ -158,7 +160,7 @@ async function initializeData() {
     // 並行載入兩個 API
     await Promise.all([fetchMemos(), fetchAllPatients()])
 
-    // 處理 URL 參數
+    // ❌ 移除載入通知，處理 URL 參數
     const patientIdFromQuery = route.query.patientId
     if (patientIdFromQuery && allPatients.value.length > 0) {
       const patient = allPatients.value.find((p) => p.id === patientIdFromQuery)
@@ -225,7 +227,8 @@ async function addMemo() {
 
     // 🆕 如果之前有篩選，提示用戶
     if (wasFiltered) {
-      addNotification('已清除病人篩選，可在右側查看新增的備忘', 'info')
+      // ❌ 移除這個提示通知，因為它不在核心業務操作中
+      // addNotification('已清除病人篩選，可在右側查看新增的備忘', 'info')
     }
   } catch (err) {
     console.error('❌ [MemoView] 新增備忘失敗:', err)

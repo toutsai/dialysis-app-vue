@@ -1,4 +1,4 @@
-// src/composables/useAuth.js (階段二完整版)
+// src/composables/useAuth.js (修正版)
 
 import { ref, computed, readonly, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -6,11 +6,8 @@ import { auth, functions } from '@/composables/useFirebase.js'
 import { signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth'
 import { httpsCallable } from 'firebase/functions'
 
-// ✨ 完整整合錯誤處理系統
+// ✅ 只導入，不在此處調用
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
-
-// 初始化錯誤處理
-const { handleApiCall, validateInput, validationRules } = useErrorHandler()
 
 // Global State
 const currentUser = ref(null)
@@ -83,6 +80,9 @@ onAuthStateChanged(auth, async (user) => {
 
 export function useAuth() {
   const router = useRouter()
+
+  // ✅ 修正：在函數內部調用 useErrorHandler
+  const { handleApiCall, validateInput, validationRules } = useErrorHandler()
 
   // ✨ 完全重構：使用 handleApiCall 的登入函式
   const login = async (username, password) => {
