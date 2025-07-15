@@ -78,7 +78,8 @@ const fetchPatients = performanceMonitor('fetchPatients', async () => {
 const fetchMemos = performanceMonitor('fetchMemos', async () => {
   return await handleApiCall(
     async () => {
-      const q = query(memosCollection, where('isResolved', '==', 'pending'))
+      // ✅ 修正查詢條件：改為查詢 status === 'pending'
+      const q = query(memosCollection, where('status', '==', 'pending'))
       const querySnapshot = await getDocs(q)
       const memos = []
       querySnapshot.forEach((doc) => {

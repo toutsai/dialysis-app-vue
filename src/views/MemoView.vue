@@ -516,7 +516,9 @@ onMounted(() => {
               @click="activeTab = 'expired'"
             >
               已到期事項
-              <span v-if="memoStats.expired > 0" class="tab-count">{{ memoStats.expired }}</span>
+              <span v-if="memoStats.expired > 0" class="tab-count expired-count">{{
+                memoStats.expired
+              }}</span>
             </button>
             <button
               class="tab-btn"
@@ -524,7 +526,9 @@ onMounted(() => {
               @click="activeTab = 'resolved'"
             >
               已處理事項 (最近7天)
-              <span v-if="memoStats.resolved > 0" class="tab-count">{{ memoStats.resolved }}</span>
+              <span v-if="memoStats.resolved > 0" class="tab-count resolved-count">{{
+                memoStats.resolved
+              }}</span>
             </button>
           </div>
 
@@ -583,7 +587,7 @@ onMounted(() => {
       <div class="memo-card pending-card">
         <h2 class="card-title">
           {{ filterPatientId ? '待處理事項' : '所有待處理事項' }}
-          <span v-if="memoStats.pending > 0" class="title-count">({{ memoStats.pending }})</span>
+          <span v-if="memoStats.pending > 0" class="title-count">{{ memoStats.pending }}</span>
         </h2>
 
         <!-- 🆕 載入狀態 -->
@@ -683,9 +687,12 @@ onMounted(() => {
 
 .title-count {
   font-size: 0.9rem;
-  font-weight: 400;
-  color: #007bff;
+  font-weight: 600;
+  color: white; /* 🆕 白色文字 */
+  background-color: #dc3545; /* 🆕 實心紅色背景 */
   margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 12px;
 }
 
 /* 錯誤橫幅 */
@@ -788,8 +795,6 @@ onMounted(() => {
 
 /* Tab 計數 */
 .tab-count {
-  background-color: #007bff;
-  color: white;
   font-size: 0.8rem;
   padding: 2px 6px;
   border-radius: 10px;
@@ -797,6 +802,19 @@ onMounted(() => {
   min-width: 18px;
   display: inline-block;
   text-align: center;
+  font-weight: 600;
+}
+
+/* 🆕 已到期數量 - 藍色資訊 */
+.tab-count.expired-count {
+  background-color: #007bff;
+  color: white;
+}
+
+/* 🆕 已處理數量 - 綠色完成 */
+.tab-count.resolved-count {
+  background-color: #28a745;
+  color: white;
 }
 
 /* 禁用狀態 */
