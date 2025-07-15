@@ -1,8 +1,30 @@
-<!-- 檔案路徑: src/views/StatsView.vue (已修改) -->
+<!-- 檔案路徑: src/views/StatsView.vue (優化版 - 修正版 + 側欄通知) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide, watchEffect } from 'vue'
+
+// ✨ 核心優化 1: 替換 ApiManager 為優化版 API 服務 ✨
+import {
+  fetchAllPatients as optimizedFetchAllPatients,
+  fetchAllMemos as optimizedFetchAllMemos,
+} from '@/services/optimizedApiService.js'
+
+// ✨ 核心優化 2: 為了確保資料一致性，schedules 使用直接 Firestore API ✨
+import {
+  where,
+  orderBy,
+  limit,
+  collection,
+  getDocs,
+  query,
+  doc,
+  updateDoc,
+  addDoc,
+} from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
+
+// ✨ 核心優化 3: dialysis_orders_history 暫時保留舊 API（等待後續優化） ✨
 import ApiManager from '@/services/api_manager.js'
-import { where, orderBy, limit } from 'firebase/firestore'
+
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
@@ -15,10 +37,57 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
 
 // --- API 實例 ---
-const schedulesApi = ApiManager('schedules')
-const patientsApi = ApiManager('patients')
-const memosApi = ApiManager('memos')
+// ✨ 優化 3: 保留 dialysis_orders_history API 暫時使用舊版（後續優化） ✨
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
+
+// ✨ 新增：直接使用 Firestore API 讀取 schedules，確保與 ScheduleView 一致 ✨
+const schedulesCollection = collection(db, 'schedules')
+
+// ✨ 優化版 schedules 讀取函數 - 與 ScheduleView 保持一致 ✨
+const fetchSchedulesByDate = async (dateStr) => {
+  try {
+    console.log(`📅 [StatsView] 直接查詢 Firestore schedules: ${dateStr}`)
+    const q = query(schedulesCollection, where('date', '==', dateStr))
+    const querySnapshot = await getDocs(q)
+    const schedules = []
+    querySnapshot.forEach((doc) => {
+      schedules.push({ id: doc.id, ...doc.data() })
+    })
+    console.log(`✅ [StatsView] 直接載入 ${schedules.length} 個排程文件`)
+    return schedules
+  } catch (error) {
+    console.error(`❌ [StatsView] 載入排程失敗:`, error)
+    throw error
+  }
+}
+
+// ✨ 優化版儲存函數 - 與 ScheduleView 保持一致 ✨
+const saveScheduleData = async (scheduleData, scheduleId = null) => {
+  try {
+    if (scheduleId) {
+      const docRef = doc(schedulesCollection, scheduleId)
+      await updateDoc(docRef, {
+        ...scheduleData,
+        updatedAt: new Date(),
+        lastModifiedBy: 'StatsView',
+      })
+      console.log(`✅ [StatsView] 更新排程文件: ${scheduleId}`)
+      return { id: scheduleId, ...scheduleData }
+    } else {
+      const docRef = await addDoc(schedulesCollection, {
+        ...scheduleData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastModifiedBy: 'StatsView',
+      })
+      console.log(`✅ [StatsView] 創建新排程文件: ${docRef.id}`)
+      return { id: docRef.id, ...scheduleData }
+    }
+  } catch (error) {
+    console.error(`❌ [StatsView] 儲存排程失敗:`, error)
+    throw error
+  }
+}
 
 // --- 常量 ---
 const nurseNameList = [
@@ -211,11 +280,21 @@ async function getEffectiveOrdersForDate(patientId, targetDate) {
 }
 
 watchEffect(async () => {
+  console.log(`🔄 [StatsView] watchEffect 觸發:`)
+  console.log(
+    `   - currentRecord.schedule:`,
+    Object.keys(currentRecord.schedule || {}).length,
+    '個記錄',
+  )
+  console.log(`   - allPatients.value:`, allPatients.value.length, '位病人')
+
   if (!currentRecord.schedule || allPatients.value.length === 0) {
+    console.log(`⚠️ [StatsView] 資料不足，清空統計資料`)
     effectiveStatsData.value = { early: {}, late: {} }
     return
   }
 
+  console.log(`📊 [StatsView] 開始計算統計資料...`)
   const earlyShiftStats = {}
   const lateShiftStats = {}
   earlyTeams.forEach((team) => {
@@ -254,6 +333,21 @@ watchEffect(async () => {
   })
 
   const resolvedPatientDetails = (await Promise.all(patientDetailsPromises)).filter(Boolean)
+  console.log(`👥 [StatsView] 解析病人詳情: ${resolvedPatientDetails.length} 個有效記錄`)
+
+  if (resolvedPatientDetails.length === 0) {
+    console.log(`⚠️ [StatsView] 沒有有效的病人詳情，可能是資料匹配問題`)
+    // 檢查原始資料
+    console.log(`🔍 [StatsView] 除錯資訊:`)
+    console.log(
+      `   - currentRecord.schedule 樣本:`,
+      Object.entries(currentRecord.schedule).slice(0, 3),
+    )
+    console.log(
+      `   - allPatients 樣本:`,
+      allPatients.value.slice(0, 3).map((p) => ({ id: p.id, name: p.name })),
+    )
+  }
 
   resolvedPatientDetails.forEach((shiftDetails) => {
     const {
@@ -268,6 +362,11 @@ watchEffect(async () => {
       effectiveOrders,
       patientData: patient,
     } = shiftDetails
+
+    console.log(`👤 [StatsView] 處理病人: ${patient.name} (${shiftId})`)
+    console.log(
+      `   - nurseTeam: ${nurseTeam}, nurseTeamIn: ${nurseTeamIn}, nurseTeamOut: ${nurseTeamOut}`,
+    )
 
     const detail = {
       id: patientId,
@@ -305,19 +404,35 @@ watchEffect(async () => {
       else group.opdCount++
     }
     const shiftCode = shiftId.split('-')[2]
+    console.log(
+      `   - shiftCode: ${shiftCode} (${SHIFT_CODES.EARLY}=${SHIFT_CODES.EARLY}, ${SHIFT_CODES.LATE}=${SHIFT_CODES.LATE}, ${SHIFT_CODES.NOON}=${SHIFT_CODES.NOON})`,
+    )
+
     if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
+      console.log(`   ✅ 分配到早班 ${nurseTeam}`)
       assignAndCount(earlyShiftStats[nurseTeam].earlyShift, detail)
     } else if (shiftCode === SHIFT_CODES.LATE && nurseTeam && lateShiftStats[nurseTeam]) {
+      console.log(`   ✅ 分配到晚班 ${nurseTeam}`)
       assignAndCount(lateShiftStats[nurseTeam].lateShift, detail)
     } else if (shiftCode === SHIFT_CODES.NOON) {
-      if (nurseTeamIn && earlyShiftStats[nurseTeamIn])
+      console.log(`   🕐 午班處理`)
+      if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
+        console.log(`   ✅ 分配到午班上針 ${nurseTeamIn}`)
         assignAndCount(earlyShiftStats[nurseTeamIn].noonShiftOn, detail)
-      if (nurseTeamOut) {
-        if (lateShiftStats[nurseTeamOut])
-          assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
-        else if (earlyShiftStats[nurseTeamOut])
-          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
       }
+      if (nurseTeamOut) {
+        if (lateShiftStats[nurseTeamOut]) {
+          console.log(`   ✅ 分配到午班收針(晚班) ${nurseTeamOut}`)
+          assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
+        } else if (earlyShiftStats[nurseTeamOut]) {
+          console.log(`   ✅ 分配到午班收針(早班) ${nurseTeamOut}`)
+          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
+        }
+      }
+    } else {
+      console.log(
+        `   ❌ 無法分配: shiftCode=${shiftCode}, nurseTeam=${nurseTeam}, nurseTeamIn=${nurseTeamIn}, nurseTeamOut=${nurseTeamOut}`,
+      )
     }
   })
 
@@ -360,6 +475,29 @@ watchEffect(async () => {
   }
 
   effectiveStatsData.value = { early: earlyShiftStats, late: lateShiftStats }
+
+  console.log(`✅ [StatsView] 統計資料計算完成:`)
+  console.log(`   - 早班組別:`, Object.keys(earlyShiftStats).length, '個')
+  console.log(`   - 晚班組別:`, Object.keys(lateShiftStats).length, '個')
+
+  // 顯示每個組別的病人數量
+  Object.entries(earlyShiftStats).forEach(([team, data]) => {
+    const totalPatients =
+      (data.earlyShift?.patients?.length || 0) +
+      (data.noonShiftOn?.patients?.length || 0) +
+      (data.noonShiftOff?.patients?.length || 0)
+    if (totalPatients > 0) {
+      console.log(`   - ${team}: ${totalPatients} 位病人`)
+    }
+  })
+
+  Object.entries(lateShiftStats).forEach(([team, data]) => {
+    const totalPatients =
+      (data.lateShift?.patients?.length || 0) + (data.noonShiftOff?.patients?.length || 0)
+    if (totalPatients > 0) {
+      console.log(`   - ${team}: ${totalPatients} 位病人`)
+    }
+  })
 })
 
 function getDutyTagClass(dutyName) {
@@ -375,6 +513,7 @@ function showPrepPopover(event, teamData, shiftType) {
   const patientsInShift = teamData[shiftType]?.patients || []
   if (patientsInShift.length === 0) return
 
+  console.log(`📋 [StatsView] 顯示備物清單: ${shiftType}, ${patientsInShift.length} 位病人`)
   prepPopoverData.patients = patientsInShift
   prepPopoverData.targetElement = event.currentTarget
 
@@ -389,6 +528,7 @@ function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
+  console.log(`📝 [StatsView] 顯示病人備忘錄: ${patient.name}`)
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && !memo.isResolved,
   )
@@ -396,49 +536,111 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
+// ✨ 核心優化 4: 確保與 ScheduleView 資料一致性 ✨
 async function loadData(date) {
+  console.log(`🚀 [StatsView] 開始載入統計檢視資料: ${formatDate(date)}`)
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
+
   try {
-    const [dailyRecords, patientsData, memosData] = await Promise.all([
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-      patientsApi.fetchAll(),
-      memosApi.fetchAll([where('status', '==', 'pending')]),
+    console.log(`🔄 [StatsView] 查詢日期: ${dateStr}`)
+
+    // 使用優化 API 載入病人和備忘錄，使用直接 Firestore API 載入排程
+    const [patientsData, memosData] = await Promise.all([
+      optimizedFetchAllPatients(),
+      optimizedFetchAllMemos([where('status', '==', 'pending')]),
     ])
+
+    // 單獨載入排程資料，確保與 ScheduleView 一致
+    const dailyRecords = await fetchSchedulesByDate(dateStr)
+
+    console.log(`✅ [StatsView] 資料載入完成:`)
+    console.log(`   - 本日排程: ${dailyRecords.length} 筆`)
+    console.log(`   - 患者: ${patientsData.length} 位`)
+    console.log(`   - 備忘錄: ${memosData.length} 筆`)
+
     allPatients.value = patientsData
     activeMemos.value = memosData
+
     if (dailyRecords.length > 0) {
       const record = dailyRecords[0]
+      console.log(`📊 [StatsView] 處理排程記錄: ${record.id}`)
+
       if (record.schedule) {
         const localPatientMap = new Map(patientsData.map((p) => [p.id, p]))
+        let validScheduleCount = 0
+        let nurseTeamCount = 0
+
+        // ✨ 詳細檢查護理組別資料 ✨
+        console.log(`🔍 [StatsView] 檢查排程資料結構...`)
+        const sampleSlots = Object.entries(record.schedule).slice(0, 5)
+        sampleSlots.forEach(([slotId, slotData]) => {
+          console.log(`   ${slotId}:`, {
+            patientId: slotData.patientId,
+            nurseTeam: slotData.nurseTeam,
+            nurseTeamIn: slotData.nurseTeamIn,
+            nurseTeamOut: slotData.nurseTeamOut,
+          })
+        })
+
         for (const shiftId in record.schedule) {
           const slot = record.schedule[shiftId]
           if (slot && slot.patientId) {
             const patient = localPatientMap.get(slot.patientId)
             slot.autoNote = patient ? generateAutoNote(patient) : ''
             slot.manualNote = slot.manualNote || ''
+            validScheduleCount++
+
+            // 統計有護理組別的記錄數
+            if (slot.nurseTeam || slot.nurseTeamIn || slot.nurseTeamOut) {
+              nurseTeamCount++
+            }
           }
         }
+        console.log(`📈 [StatsView] 有效排程記錄: ${validScheduleCount} 個`)
+        console.log(`👥 [StatsView] 有護理組別的記錄: ${nurseTeamCount} 個`)
+
+        if (nurseTeamCount === 0) {
+          console.log(`⚠️ [StatsView] 警告：沒有護理組別資料，請到「每日排程表」設定護理組別`)
+        } else {
+          console.log(`✅ [StatsView] 發現護理組別資料，應該能正常顯示統計`)
+        }
       }
+
       Object.assign(currentRecord, record)
       statusIndicator.value = '資料已載入'
     } else {
+      console.log(`📝 [StatsView] 無排程資料，初始化空記錄`)
       Object.assign(currentRecord, { id: null, date: dateStr, schedule: {}, names: {} })
       statusIndicator.value = '本日無排程資料'
     }
   } catch (error) {
-    console.error('讀取報表資料失敗:', error)
+    console.error('❌ [StatsView] 讀取報表資料失敗:', error)
     statusIndicator.value = '讀取失敗'
   }
 }
 
+// 在 StatsView 中使用通用類型
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
+
+  try {
+    const dateStr = formatDate(currentDate.value)
+    addNotification(`護理分組有變更: ${dateStr}`, 'stats')
+  } catch (error) {
+    console.error('❌ [StatsView] 發送變更通知失敗:', error)
+    addNotification('護理分組有變更', 'stats')
+  }
 }
 
+function notifyTeamChange(patientName, fromTeam, toTeam) {
+  addNotification(`${patientName} 調整至 ${toTeam}`, 'stats')
+}
+
+// ✨ 核心優化 5: 使用與 ScheduleView 一致的儲存方式 ✨
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作禁止'
@@ -452,9 +654,15 @@ async function saveChangesToCloud() {
     isAlertDialogVisible.value = true
     return
   }
+
+  console.log('💾 [StatsView] 開始儲存統計檢視變更...')
   statusIndicator.value = '儲存中...'
+
   try {
     const cleanSchedule = {}
+    let savedSlotCount = 0
+
+    // 準備儲存資料 - 與 ScheduleView 使用相同格式
     for (const shiftId in currentRecord.schedule) {
       const slot = currentRecord.schedule[shiftId]
       if (slot && slot.patientId) {
@@ -468,45 +676,68 @@ async function saveChangesToCloud() {
           nurseTeamOut: slot.nurseTeamOut || null,
           wardNumber: slot.wardNumber || null,
         }
+        savedSlotCount++
       }
     }
+
+    console.log(`📊 [StatsView] 準備儲存: ${savedSlotCount} 個排程記錄`)
+
     const dataToSave = {
       date: currentRecord.date,
       schedule: cleanSchedule,
       names: currentRecord.names,
     }
-    if (currentRecord.id) {
-      await schedulesApi.update(currentRecord.id, dataToSave)
-    } else {
-      const savedRecord = await schedulesApi.save(dataToSave)
-      currentRecord.id = savedRecord.id
-    }
+
+    // ✨ 使用與 ScheduleView 相同的儲存方式 ✨
+    const savedRecord = await saveScheduleData(dataToSave, currentRecord.id)
+    currentRecord.id = savedRecord.id
+
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存！'
-    addNotification(`修改護理分組: ${currentRecord.date}`, 'stats')
+
+    console.log(`✅ [StatsView] 統計檢視儲存成功: ${currentRecord.date}`)
+
+    // 🆕 簡化的儲存成功通知
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
     await loadData(currentDate.value)
   } catch (error) {
-    console.error('儲存變更失敗:', error)
+    console.error('❌ [StatsView] 儲存變更失敗:', error)
     statusIndicator.value = '儲存失敗'
+
+    // 🆕 簡化的儲存失敗通知
     alertDialogTitle.value = '儲存失敗'
     alertDialogMessage.value = `儲存失敗: ${error.message}`
     isAlertDialogVisible.value = true
   }
 }
 
-// ✨ 2. 重構 onDrop 函數以實現新流程
+// ✨ 重構 onDrop 函數 - 確保拖曳換組/換班功能完全正常 ✨
 function onDrop(event, newTeam, newResponsibility) {
-  if (isPageLocked.value) return
+  if (isPageLocked.value) {
+    console.log(`🔒 [StatsView] 頁面已鎖定，無法拖曳`)
+    return
+  }
+
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
 
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
+
+  console.log(`🖱️ [StatsView] 拖曳操作開始:`)
+  console.log(`   - 病人: ${patientDetail.name}`)
+  console.log(`   - 原床位: ${oldShiftId}`)
+  console.log(`   - 目標組別: ${newTeam}`)
+  console.log(`   - 目標責任區: ${newResponsibility}`)
+
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
-    console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
+    console.error(`❌ [StatsView] 拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
+    console.log(
+      `🔍 [StatsView] 當前 schedule keys:`,
+      Object.keys(currentRecord.schedule).slice(0, 10),
+    )
     return
   }
 
@@ -514,15 +745,26 @@ function onDrop(event, newTeam, newResponsibility) {
   const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 'bed-16' or 'peripheral-1'
 
   let newShiftCode
-  if (newResponsibility.startsWith('early')) newShiftCode = SHIFT_CODES.EARLY
-  else if (newResponsibility.startsWith('late')) newShiftCode = SHIFT_CODES.LATE
-  else newShiftCode = SHIFT_CODES.NOON
+  if (newResponsibility.startsWith('early')) {
+    newShiftCode = SHIFT_CODES.EARLY
+    console.log(`   → 目標班次: 早班 (${SHIFT_CODES.EARLY})`)
+  } else if (newResponsibility.startsWith('late')) {
+    newShiftCode = SHIFT_CODES.LATE
+    console.log(`   → 目標班次: 晚班 (${SHIFT_CODES.LATE})`)
+  } else {
+    newShiftCode = SHIFT_CODES.NOON
+    console.log(`   → 目標班次: 午班 (${SHIFT_CODES.NOON})`)
+  }
 
   const newShiftId = `${bedPart}-${newShiftCode}`
+  console.log(`   → 新床位ID: ${newShiftId}`)
 
   // 檢查目標床位是否被佔用 (只有在班次改變時才需要檢查)
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
     // 情境二: 床位衝突，彈出引導式換床對話框
+    console.log(`⚠️ [StatsView] 床位衝突，開啟換床對話框: ${newShiftId}`)
+    console.log(`   - 目標床位被佔用者: ${currentRecord.schedule[newShiftId].patientId}`)
+
     pendingChangeInfo.value = {
       patientDetail: patientDetail,
       newTeam: newTeam,
@@ -532,10 +774,20 @@ function onDrop(event, newTeam, newResponsibility) {
     openBedChangeDialog(patientDetail)
   } else {
     // 情境一: 目標床位無人，直接移動
+    console.log(`✅ [StatsView] 目標床位空閒，直接移動病人`)
+
     const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
     movingSlotData.shiftId = newShiftId
 
     // 清空舊的組別資訊
+    const oldNurseTeam = movingSlotData.nurseTeam
+    const oldNurseTeamIn = movingSlotData.nurseTeamIn
+    const oldNurseTeamOut = movingSlotData.nurseTeamOut
+
+    console.log(
+      `   - 清空舊組別: nurseTeam=${oldNurseTeam}, In=${oldNurseTeamIn}, Out=${oldNurseTeamOut}`,
+    )
+
     delete movingSlotData.nurseTeam
     delete movingSlotData.nurseTeamIn
     delete movingSlotData.nurseTeamOut
@@ -543,64 +795,130 @@ function onDrop(event, newTeam, newResponsibility) {
     // 根據新的責任區設定新的組別
     if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
       movingSlotData.nurseTeam = newTeam
+      console.log(`   - 設定新組別: nurseTeam = ${newTeam}`)
     } else if (newResponsibility === 'noonShiftOn') {
       movingSlotData.nurseTeamIn = newTeam
+      console.log(`   - 設定新組別: nurseTeamIn = ${newTeam}`)
     } else if (newResponsibility === 'noonShiftOff') {
       movingSlotData.nurseTeamOut = newTeam
+      console.log(`   - 設定新組別: nurseTeamOut = ${newTeam}`)
     }
 
     // 處理午班對應的另一半組別
     if (newShiftCode === SHIFT_CODES.NOON) {
       const oldResponsibility = event.dataTransfer.getData('text/plain')
-      if (oldResponsibility === 'noonShiftOn' && currentRecord.schedule[oldShiftId].nurseTeamOut) {
-        movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
-      } else if (
-        oldResponsibility === 'noonShiftOff' &&
-        currentRecord.schedule[oldShiftId].nurseTeamIn
-      ) {
-        movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
+      console.log(`   - 午班特殊處理，原責任區: ${oldResponsibility}`)
+
+      if (oldResponsibility === 'noonShiftOn' && oldNurseTeamOut) {
+        movingSlotData.nurseTeamOut = oldNurseTeamOut
+        console.log(`   - 保留原收針組別: ${oldNurseTeamOut}`)
+      } else if (oldResponsibility === 'noonShiftOff' && oldNurseTeamIn) {
+        movingSlotData.nurseTeamIn = oldNurseTeamIn
+        console.log(`   - 保留原上針組別: ${oldNurseTeamIn}`)
       }
     }
 
     // 刪除舊紀錄，建立新紀錄
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
+
+    console.log(`✅ [StatsView] 拖曳完成，病人已移動到新位置`)
+    console.log(`   - 最終組別設定:`, {
+      nurseTeam: movingSlotData.nurseTeam,
+      nurseTeamIn: movingSlotData.nurseTeamIn,
+      nurseTeamOut: movingSlotData.nurseTeamOut,
+    })
+
+    // 🆕 發送拖曳調整通知
+    const targetTeamDisplay = newTeam.replace('早', '').replace('晚', '')
+    const responsibilityDisplay =
+      newResponsibility === 'earlyShift'
+        ? '早班'
+        : newResponsibility === 'lateShift'
+          ? '晚班'
+          : newResponsibility === 'noonShiftOn'
+            ? '午班上針'
+            : '午班收針'
+    notifyTeamChange(patientDetail.name, '原組別', `${responsibilityDisplay}${targetTeamDisplay}組`)
+
     setChange()
   }
 }
 
 function onDragStart(event, patientDetail, responsibility) {
   if (isPageLocked.value) {
+    console.log(`🔒 [StatsView] 頁面已鎖定，無法開始拖拽`)
     event.preventDefault()
     return
   }
+
+  console.log(`🖱️ [StatsView] 開始拖拽:`)
+  console.log(`   - 病人: ${patientDetail.name}`)
+  console.log(`   - 床位: ${patientDetail.shiftId}`)
+  console.log(`   - 責任區: ${responsibility}`)
+  console.log(`   - 當前組別資訊:`, {
+    nurseTeam: currentRecord.schedule[patientDetail.shiftId]?.nurseTeam,
+    nurseTeamIn: currentRecord.schedule[patientDetail.shiftId]?.nurseTeamIn,
+    nurseTeamOut: currentRecord.schedule[patientDetail.shiftId]?.nurseTeamOut,
+  })
+
   event.dataTransfer.setData('application/json', JSON.stringify(patientDetail))
   event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
 
 function openBedChangeDialog(patientDetail) {
-  if (isPageLocked.value) return
+  if (isPageLocked.value) {
+    console.log(`🔒 [StatsView] 頁面已鎖定，無法開啟換床對話框`)
+    return
+  }
+
+  console.log(`🛏️ [StatsView] 開啟換床對話框:`)
+  console.log(`   - 病人: ${patientDetail.name}`)
+  console.log(`   - 當前床位: ${patientDetail.shiftId}`)
+  console.log(`   - 是否來自拖曳: ${pendingChangeInfo.value ? '是' : '否'}`)
+
+  if (pendingChangeInfo.value) {
+    console.log(`   - 拖曳目標組別: ${pendingChangeInfo.value.newTeam}`)
+    console.log(`   - 拖曳目標責任區: ${pendingChangeInfo.value.newResponsibility}`)
+  }
+
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
 
-// ✨ 3. 重構 handleBedChange 以處理來自引導式流程的確認
+// ✨ 重構 handleBedChange - 確保換床功能完全正常 ✨
 function handleBedChange({ oldShiftId, newShiftId }) {
-  if (isPageLocked.value) return
+  if (isPageLocked.value) {
+    console.log(`🔒 [StatsView] 頁面已鎖定，無法換床`)
+    return
+  }
+
   if (!currentRecord.schedule[oldShiftId]) {
-    console.error('換床失敗，找不到舊床位資料。')
+    console.error('❌ [StatsView] 換床失敗，找不到舊床位資料。')
+    console.log(`🔍 [StatsView] 查找床位: ${oldShiftId}`)
+    console.log(`🔍 [StatsView] 可用床位:`, Object.keys(currentRecord.schedule).slice(0, 10))
     isBedChangeDialogVisible.value = false
     return
   }
 
+  console.log(`🔄 [StatsView] 處理換床:`)
+  console.log(`   - 原床位: ${oldShiftId}`)
+  console.log(`   - 新床位: ${newShiftId}`)
+
   // 檢查是否有暫存的拖曳資訊
   if (pendingChangeInfo.value) {
+    console.log(`🖱️ [StatsView] 來自拖曳的換床操作`)
     const { newTeam, newResponsibility } = pendingChangeInfo.value
     const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
 
     // 更新 slot 的 shiftId 為新選擇的床位
     movingSlotData.shiftId = newShiftId
+
+    // 保存原有組別資訊
+    const originalNurseTeam = movingSlotData.nurseTeam
+    const originalNurseTeamIn = movingSlotData.nurseTeamIn
+    const originalNurseTeamOut = movingSlotData.nurseTeamOut
 
     // 清空舊的組別資訊
     delete movingSlotData.nurseTeam
@@ -610,20 +928,42 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     // 根據最初拖曳的目標設定新的組別
     if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
       movingSlotData.nurseTeam = newTeam
+      console.log(`   - 設定護理組別: ${newTeam}`)
     } else if (newResponsibility === 'noonShiftOn') {
       movingSlotData.nurseTeamIn = newTeam
+      console.log(`   - 設定午班上針組別: ${newTeam}`)
     } else if (newResponsibility === 'noonShiftOff') {
       movingSlotData.nurseTeamOut = newTeam
+      console.log(`   - 設定午班收針組別: ${newTeam}`)
     }
 
     // 刪除舊紀錄，建立新紀錄
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
+    console.log(`✅ [StatsView] 拖曳換床完成`)
+
+    // 🆕 發送拖曳換床調整通知
+    const targetTeamDisplay = newTeam.replace('早', '').replace('晚', '')
+    const responsibilityDisplay =
+      newResponsibility === 'earlyShift'
+        ? '早班'
+        : newResponsibility === 'lateShift'
+          ? '晚班'
+          : newResponsibility === 'noonShiftOn'
+            ? '午班上針'
+            : '午班收針'
+    notifyTeamChange(
+      editingPatientInfo.value?.name || '病人',
+      '原組別',
+      `${responsibilityDisplay}${targetTeamDisplay}組`,
+    )
   } else {
     // 原始的換床邏輯 (點擊病人卡片觸發)
+    console.log(`👆 [StatsView] 來自點擊的換床操作`)
     const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = patientData
+    console.log(`✅ [StatsView] 點擊換床完成`)
   }
 
   setChange()
@@ -635,6 +975,7 @@ function handleBedChange({ oldShiftId, newShiftId }) {
 
 // ✨ 4. 新增 handleDialogCancel 函數並綁定
 function handleDialogCancel() {
+  console.log(`❌ [StatsView] 取消換床對話框`)
   isBedChangeDialogVisible.value = false
   // 清理暫存狀態
   pendingChangeInfo.value = null
@@ -646,6 +987,7 @@ function updateNurseName(teamId, event) {
     event.target.value = currentRecord.names?.[teamId] || ''
     return
   }
+  console.log(`👩‍⚕️ [StatsView] 更新護士姓名: ${teamId} -> ${event.target.value}`)
   if (!currentRecord.names) {
     currentRecord.names = {}
   }
@@ -658,6 +1000,9 @@ function changeDate(days) {
     onConfirmAction.value = () => {
       const newDate = new Date(currentDate.value)
       newDate.setDate(newDate.getDate() + days)
+      console.log(
+        `📅 [StatsView] 切換日期: ${formatDate(currentDate.value)} -> ${formatDate(newDate)}`,
+      )
       currentDate.value = newDate
     }
     confirmDialogMessage.value = '您有未儲存的變更，確定要切換日期嗎？'
@@ -665,6 +1010,9 @@ function changeDate(days) {
   } else {
     const newDate = new Date(currentDate.value)
     newDate.setDate(newDate.getDate() + days)
+    console.log(
+      `📅 [StatsView] 切換日期: ${formatDate(currentDate.value)} -> ${formatDate(newDate)}`,
+    )
     currentDate.value = newDate
   }
 }
@@ -672,11 +1020,13 @@ function changeDate(days) {
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     onConfirmAction.value = () => {
+      console.log(`📅 [StatsView] 返回今日: ${formatDate(new Date())}`)
       currentDate.value = new Date()
     }
     confirmDialogMessage.value = '您有未儲存的變更，確定要切換到今天嗎？'
     isConfirmDialogVisible.value = true
   } else {
+    console.log(`📅 [StatsView] 返回今日: ${formatDate(new Date())}`)
     currentDate.value = new Date()
   }
 }
@@ -705,6 +1055,7 @@ function onDragLeave(event) {
 }
 
 function triggerPrint() {
+  console.log(`🖨️ [StatsView] 觸發列印報表`)
   window.print()
 }
 
@@ -712,8 +1063,10 @@ provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
 onMounted(() => {
+  console.log(`🚀 [StatsView] 組件已掛載，開始初始化...`)
   loadData(currentDate.value)
 })
+
 watch(currentDate, (newDate) => {
   loadData(newDate)
 })
