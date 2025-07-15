@@ -1,4 +1,4 @@
-// src/services/scheduleService.js (完全乾淨版本)
+// src/services/scheduleService.js (修正版 - 移除ID格式驗證)
 
 import { doc, updateDoc, where, limit, collection, getDocs, query } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
@@ -66,16 +66,22 @@ const createDateRange = (startDate, maxMonths = QUERY_LIMITS.MAX_DATE_RANGE_MONT
   }
 }
 
-// ✨ 輔助函式：驗證病人ID
+// 🔧 修正後的輔助函式：驗證病人ID（移除格式驗證）
 const validatePatientId = (patientId) => {
+  console.log('🔧 [scheduleService] 驗證病人ID:', patientId, '(只檢查必填，無格式限制)')
+
+  // 🔧 只檢查必填，移除格式驗證
   const validation = validateInput(patientId, [
     validationRules.required('病人ID為必填'),
-    validationRules.patientId('病人ID格式錯誤 (應為6-12位英數字)'),
+    // ❌ 移除這行：validationRules.patientId('病人ID格式錯誤 (應為6-12位英數字)'),
   ])
 
   if (!validation.isValid) {
+    console.log('❌ [scheduleService] 病人ID驗證失敗:', validation.errors)
     throw new Error(`病人ID驗證失敗: ${validation.errors.join(', ')}`)
   }
+
+  console.log('✅ [scheduleService] 病人ID驗證通過')
 }
 
 // ✨ 輔助函式：獲取未來排程資料（帶快取）
@@ -112,7 +118,8 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
       maxRetries = 3,
     } = options
 
-    // 🔍 嚴格輸入驗證
+    // 🔍 修正後的輸入驗證（無格式限制）
+    console.log('🔧 [clearFutureSchedules] 開始驗證病人ID...')
     validatePatientId(patientId)
 
     if (!(startDate instanceof Date) || isNaN(startDate)) {
@@ -246,9 +253,9 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
         // 📝 顯示通知
         if (showNotifications) {
           if (result.success) {
-            addNotification(result.message, 'schedule')
+            addNotification('排程資料已清除', 'schedule')
           } else {
-            addNotification(`清除排程時發生錯誤: ${result.message}`, 'error')
+            addNotification('清除排程時發生錯誤', 'error')
           }
         }
 
@@ -277,7 +284,8 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
       maxRetries = 2,
     } = options
 
-    // 🔍 輸入驗證
+    // 🔍 修正後的輸入驗證（無格式限制）
+    console.log('🔧 [cleanTemporaryData] 開始驗證病人ID...')
     validatePatientId(patientId)
 
     if (!updatedPatientData || typeof updatedPatientData !== 'object') {
@@ -431,9 +439,9 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
         // 📝 顯示通知
         if (showNotifications && updatePromises.length > 0) {
           if (result.success) {
-            addNotification(result.message, 'schedule')
+            addNotification('排程資料已清理', 'schedule')
           } else {
-            addNotification(`清理臨時資料時發生錯誤: ${result.message}`, 'error')
+            addNotification('清理臨時資料時發生錯誤', 'error')
           }
         }
 
@@ -458,6 +466,8 @@ export const getPatientSchedules = performanceMonitor(
   async (patientId, startDate, endDate, options = {}) => {
     const { useCache: enableCache = true } = options
 
+    // 🔧 修正後的驗證（無格式限制）
+    console.log('🔧 [getPatientSchedules] 開始驗證病人ID...')
     validatePatientId(patientId)
 
     // 驗證日期格式

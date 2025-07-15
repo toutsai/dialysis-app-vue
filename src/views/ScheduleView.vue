@@ -28,8 +28,6 @@ import {
 // ✅ 使用錯誤處理系統
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
-import SystemDiagnostic from '@/components/SystemDiagnostic.vue'
-
 import {
   SHIFT_CODES,
   ORDERED_SHIFT_CODES,
@@ -989,9 +987,6 @@ watch(currentDate, (newDate, oldDate) => {
 </script>
 
 <template>
-  <!-- 🩺 診斷組件 -->
-  <SystemDiagnostic />
-
   <div class="page-container">
     <header class="page-header">
       <div class="header-toolbar">

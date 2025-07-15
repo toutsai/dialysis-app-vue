@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (優化版 - 修正版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (優化版 - 修正版 + 側欄通知) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide, watchEffect } from 'vue'
 
@@ -621,11 +621,23 @@ async function loadData(date) {
   }
 }
 
+// 在 StatsView 中使用通用類型
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
-  console.log(`📝 [StatsView] 標記變更需要儲存`)
+
+  try {
+    const dateStr = formatDate(currentDate.value)
+    addNotification(`護理分組有變更: ${dateStr}`, 'stats')
+  } catch (error) {
+    console.error('❌ [StatsView] 發送變更通知失敗:', error)
+    addNotification('護理分組有變更', 'stats')
+  }
+}
+
+function notifyTeamChange(patientName, fromTeam, toTeam) {
+  addNotification(`${patientName} 調整至 ${toTeam}`, 'stats')
 }
 
 // ✨ 核心優化 5: 使用與 ScheduleView 一致的儲存方式 ✨
@@ -685,7 +697,9 @@ async function saveChangesToCloud() {
 
     console.log(`✅ [StatsView] 統計檢視儲存成功: ${currentRecord.date}`)
 
-    addNotification(`修改護理分組: ${currentRecord.date}`, 'stats')
+    // 🆕 簡化的儲存成功通知
+    addNotification(`✅ 護理分組儲存成功: ${formatDate(currentDate.value)}`, 'stats')
+
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
@@ -693,6 +707,10 @@ async function saveChangesToCloud() {
   } catch (error) {
     console.error('❌ [StatsView] 儲存變更失敗:', error)
     statusIndicator.value = '儲存失敗'
+
+    // 🆕 簡化的儲存失敗通知
+    addNotification(`❌ 護理分組儲存失敗: ${error.message}`, 'stats')
+
     alertDialogTitle.value = '儲存失敗'
     alertDialogMessage.value = `儲存失敗: ${error.message}`
     isAlertDialogVisible.value = true
@@ -815,6 +833,18 @@ function onDrop(event, newTeam, newResponsibility) {
       nurseTeamOut: movingSlotData.nurseTeamOut,
     })
 
+    // 🆕 發送拖曳調整通知
+    const targetTeamDisplay = newTeam.replace('早', '').replace('晚', '')
+    const responsibilityDisplay =
+      newResponsibility === 'earlyShift'
+        ? '早班'
+        : newResponsibility === 'lateShift'
+          ? '晚班'
+          : newResponsibility === 'noonShiftOn'
+            ? '午班上針'
+            : '午班收針'
+    notifyTeamChange(patientDetail.name, '原組別', `${responsibilityDisplay}${targetTeamDisplay}組`)
+
     setChange()
   }
 }
@@ -915,6 +945,22 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
     console.log(`✅ [StatsView] 拖曳換床完成`)
+
+    // 🆕 發送拖曳換床調整通知
+    const targetTeamDisplay = newTeam.replace('早', '').replace('晚', '')
+    const responsibilityDisplay =
+      newResponsibility === 'earlyShift'
+        ? '早班'
+        : newResponsibility === 'lateShift'
+          ? '晚班'
+          : newResponsibility === 'noonShiftOn'
+            ? '午班上針'
+            : '午班收針'
+    notifyTeamChange(
+      editingPatientInfo.value?.name || '病人',
+      '原組別',
+      `${responsibilityDisplay}${targetTeamDisplay}組`,
+    )
   } else {
     // 原始的換床邏輯 (點擊病人卡片觸發)
     console.log(`👆 [StatsView] 來自點擊的換床操作`)

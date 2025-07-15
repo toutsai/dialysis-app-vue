@@ -97,6 +97,52 @@ async function processBatch(operation, collection, items) {
 }
 
 // ============================================
+// 🔧 資料驗證輔助函數（移除所有格式驗證）
+// ============================================
+
+/**
+ * 基礎資料清理 - 只做必要的清理，不做格式驗證
+ */
+function sanitizePatientData(patientData) {
+  const cleaned = { ...patientData }
+
+  // 🔧 只做基本的去空白處理，不做格式驗證
+  if (cleaned.medicalRecordNumber) {
+    cleaned.medicalRecordNumber = cleaned.medicalRecordNumber.toString().trim()
+  }
+
+  if (cleaned.name) {
+    cleaned.name = cleaned.name.toString().trim()
+  }
+
+  console.log('🧹 [API] 資料清理完成，無格式驗證')
+  return cleaned
+}
+
+/**
+ * 基礎資料驗證 - 只檢查必填欄位，不檢查格式
+ */
+function validatePatientData(patientData) {
+  const errors = []
+
+  // 🔧 只檢查必填欄位，不檢查格式
+  if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
+    errors.push('病歷號不能為空')
+  }
+
+  if (!patientData.name || !patientData.name.trim()) {
+    errors.push('病人姓名不能為空')
+  }
+
+  if (errors.length > 0) {
+    console.log('❌ [API] 基礎驗證失敗:', errors)
+    throw new Error(errors.join(', '))
+  }
+
+  console.log('✅ [API] 基礎驗證通過，無格式限制')
+}
+
+// ============================================
 // 排程相關優化函式 (從 ScheduleView.vue 遷移過來)
 // ============================================
 
@@ -179,7 +225,7 @@ export async function updateSchedule(scheduleId, updateData) {
 }
 
 // ============================================
-// 患者相關優化函式
+// 患者相關優化函式 - 🔧 移除所有ID格式驗證
 // ============================================
 
 /**
@@ -215,15 +261,20 @@ export async function fetchAllPatients() {
 }
 
 /**
- * 優化的患者資料儲存
+ * 優化的患者資料儲存 - 🔧 移除ID格式驗證
  */
 export async function savePatient(patientData) {
   const startTime = performance.now()
-  console.log('💾 [API] 儲存患者資料...', patientData.name)
+  console.log('💾 [API] 儲存患者資料...', patientData.name || '未命名')
+  console.log('🔧 [API] 病歷號:', patientData.medicalRecordNumber, '(無格式限制)')
 
   try {
+    // 🔧 只做基礎清理和驗證，移除所有格式檢查
+    const cleanedData = sanitizePatientData(patientData)
+    validatePatientData(cleanedData)
+
     const api = ApiManager('patients')
-    const result = await api.save(patientData)
+    const result = await api.save(cleanedData)
 
     const endTime = performance.now()
     console.log(`✅ [API] 患者儲存完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
@@ -239,15 +290,24 @@ export async function savePatient(patientData) {
 }
 
 /**
- * 優化的患者資料更新
+ * 優化的患者資料更新 - 🔧 移除ID格式驗證
  */
 export async function updatePatient(patientId, updateData) {
   const startTime = performance.now()
   console.log('🔄 [API] 更新患者資料...', patientId)
+  console.log('🔧 [API] 更新資料:', updateData)
 
   try {
+    // 🔧 如果更新資料包含病歷號，只做基礎清理，不做格式檢查
+    const cleanedData = { ...updateData }
+
+    if (cleanedData.medicalRecordNumber) {
+      cleanedData.medicalRecordNumber = cleanedData.medicalRecordNumber.toString().trim()
+      console.log('🔧 [API] 病歷號已清理:', cleanedData.medicalRecordNumber, '(無格式限制)')
+    }
+
     const api = ApiManager('patients')
-    await api.update(patientId, updateData)
+    await api.update(patientId, cleanedData)
 
     const endTime = performance.now()
     console.log(`✅ [API] 患者更新完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
@@ -267,11 +327,11 @@ export async function updatePatient(patientId, updateData) {
 /**
  * 優化的備忘錄資料載入
  */
-export async function fetchAllMemos() {
+export async function fetchAllMemos(queryConstraints = null) {
   const cacheKey = getCacheKey('fetchAll', 'memos')
   const cached = getCache(cacheKey)
 
-  if (cached) {
+  if (cached && !queryConstraints) {
     console.log('📦 [Cache Hit] 使用快取的備忘錄資料')
     return cached
   }
@@ -281,14 +341,16 @@ export async function fetchAllMemos() {
 
   try {
     const api = ApiManager('memos')
-    const data = await api.fetchAll()
+    const data = queryConstraints ? await api.fetchAll(queryConstraints) : await api.fetchAll()
 
     const endTime = performance.now()
     console.log(
       `✅ [API] 備忘錄載入完成，共 ${data.length} 筆，耗時 ${(endTime - startTime).toFixed(2)}ms`,
     )
 
-    setCache(cacheKey, data)
+    if (!queryConstraints) {
+      setCache(cacheKey, data)
+    }
     return data
   } catch (error) {
     console.error('❌ [API] 備忘錄載入失敗:', error)

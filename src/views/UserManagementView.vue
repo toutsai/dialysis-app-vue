@@ -490,17 +490,13 @@ onMounted(() => {
 <style scoped>
 .user-management-container {
   padding: 1.5rem;
-  background-color: #f8f9fa;
   min-height: 100vh;
 }
 
 /* 🆕 優先級 1: 頁面標題區域 */
 .page-header {
-  background-color: white;
   border-radius: 12px;
-  padding: 2rem;
   margin-bottom: 2rem;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .header-top {
@@ -786,13 +782,16 @@ onMounted(() => {
 }
 
 .btn-primary {
-  background-color: #007bff;
+  background: linear-gradient(135deg, #28a745, #20c997);
   color: white;
+  border: none;
+  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background-color: #0056b3;
+  background: linear-gradient(135deg, #218838, #1e7e34);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
 }
 
 .btn:disabled {

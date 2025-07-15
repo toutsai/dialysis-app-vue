@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (完整優化版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (移除ID驗證版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -241,7 +241,7 @@ async function handleSavePatient(patientData) {
           await optimizedUpdatePatient(patientData.id, updateData)
           await clearFutureSchedulesForPatient(patientData.id)
           await fetchAllPatients()
-          addNotification(`中止透析: ${patientData.name}`, 'patient')
+          addNotification('病人資料已修改', 'patient')
         } catch (err) {
           console.error('中止透析操作失敗:', err)
           alertDialogTitle.value = '操作失敗'
@@ -258,7 +258,7 @@ async function handleSavePatient(patientData) {
         await optimizedUpdatePatient(patientData.id, dataToUpdate)
         closeModal()
         await fetchAllPatients()
-        addNotification(`修改病人資料: ${patientData.name}`, 'patient')
+        addNotification('病人資料已修改', 'patient')
       } catch (err) {
         console.error('更新病人資料失敗:', err)
         alertDialogTitle.value = '操作失敗'
@@ -269,7 +269,8 @@ async function handleSavePatient(patientData) {
     return
   }
 
-  if (!patientData.medicalRecordNumber) {
+  // 🔧 只保留基本的必填驗證，移除格式驗證
+  if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
     alertDialogTitle.value = '資料不完整'
     alertDialogMessage.value = '請務必填寫病歷號。'
     isAlertDialogVisible.value = true
@@ -316,7 +317,7 @@ async function handleSavePatient(patientData) {
       await optimizedSavePatientHistory(historyEntry)
       closeModal()
       await fetchAllPatients()
-      addNotification(`新增病人: ${dataToCreate.name}`, 'patient')
+      addNotification('病人資料已新增', 'patient')
     } catch (err) {
       console.error('新增病人失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -369,7 +370,7 @@ async function handleConflictSelected() {
     isAlertDialogVisible.value = true
     closeModal()
     await fetchAllPatients()
-    addNotification(`轉移病人: ${newPatientData.name}`, 'patient')
+    addNotification('病人資料已修改', 'patient')
   } catch (err) {
     console.error('轉移更新病人失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -419,7 +420,7 @@ async function transferPatient(patientId, newStatus) {
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
-      addNotification(`轉移病人: ${patientName} 至 ${targetStatusText}`, 'patient')
+      addNotification('病人資料已修改', 'patient')
     } catch (err) {
       console.error('轉床失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -468,7 +469,7 @@ async function handleDeleteReasonSelected(reason) {
       await optimizedSavePatientHistory(historyEntry)
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
-      addNotification(`刪除病人: ${patient.name}`, 'patient')
+      addNotification('病人資料已刪除', 'patient')
     }
   } catch (err) {
     console.error('刪除失敗:', err)
@@ -515,7 +516,7 @@ async function restorePatient(patientId) {
     // ✅ 使用優化函式
     await optimizedSavePatientHistory(historyEntry)
     await fetchAllPatients()
-    addNotification(`復原病人: ${patient.name}`, 'patient')
+    addNotification('病人資料已復原', 'patient')
   } catch (err) {
     console.error('復原失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -705,7 +706,7 @@ async function handleSaveOrder(orderDataFromModal) {
       optimizedSaveDialysisOrderHistory(historyRecord),
     ])
     console.log('✅ [PatientsView] 透析醫囑儲存成功')
-    addNotification(`${patientName} 的透析醫囑已更新`, 'patient')
+    addNotification('病人資料已修改', 'patient')
     isOrderModalVisible.value = false
     await fetchAllPatients()
   } catch (error) {
@@ -1289,7 +1290,7 @@ onMounted(() => {
 
 /* 基礎佈局 */
 .page-container {
-  padding: 1rem;
+  padding: 1.5rem;
 }
 
 .page-title {
