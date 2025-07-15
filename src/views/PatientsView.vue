@@ -1,8 +1,17 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (最終安全版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (完整優化版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
-import ApiManager from '@/services/api_manager.js'
+
+// ✅ 導入優化後的函式
+import {
+  fetchAllPatients as optimizedFetchAllPatients,
+  updatePatient as optimizedUpdatePatient,
+  savePatient as optimizedSavePatient,
+  savePatientHistory as optimizedSavePatientHistory,
+  saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
+} from '@/services/optimizedApiService.js'
+
 import {
   clearFutureSchedulesForPatient,
   cleanTemporaryDataInFutureSchedules,
@@ -17,11 +26,6 @@ import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import * as XLSX from 'xlsx'
 import { useNotification } from '@/composables/useNotification.js'
-
-const patientApi = ApiManager('patients')
-const schedulesApi = ApiManager('schedules')
-const ordersHistoryApi = ApiManager('dialysis_orders_history')
-const historyApi = ApiManager('patient_history')
 
 const allPatients = ref([])
 const activeTab = ref('er')
@@ -59,10 +63,8 @@ const selectedPatientForHistory = ref(null)
 
 const { addNotification } = useNotification()
 
-// --- ✨ 關鍵修正點 1: 用最安全的方式獲取權限狀態 ---
-// 我們不再解構，而是先拿到完整的 auth 物件
+// ✨ 安全的權限狀態獲取
 const auth = useAuth()
-// 然後從 auth 物件中，安全地拿出我們需要的 isLoggedIn 和 isReadOnly
 const { isLoggedIn } = auth
 const isPageLocked = computed(() => auth.isReadOnly.value)
 
@@ -92,6 +94,7 @@ const displayedPatients = computed(() => {
   let patientsToDisplay
   let searchTerm = ''
   if (!allPatients.value) return []
+
   if (activeTab.value === 'er') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
     searchTerm = erSearchTerm.value.toLowerCase()
@@ -107,6 +110,7 @@ const displayedPatients = computed(() => {
   } else {
     patientsToDisplay = []
   }
+
   if (searchTerm) {
     patientsToDisplay = patientsToDisplay.filter(
       (p) =>
@@ -114,6 +118,7 @@ const displayedPatients = computed(() => {
         (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)),
     )
   }
+
   return [...patientsToDisplay].sort((a, b) => {
     let valA, valB
     if (currentSort.value.column === 'freq') {
@@ -136,13 +141,16 @@ const patientStats = computed(() => {
   if (activeTab.value === 'deleted' || !allPatients.value) {
     return null
   }
+
   const patientsForStats = allPatients.value.filter(
     (p) => p.status === activeTab.value && !p.isDeleted,
   )
+
   const stats = {
     total: patientsForStats.length,
     byFrequency: {},
   }
+
   patientsForStats.forEach((patient) => {
     const freq = patient.freq || '未設定'
     if (!stats.byFrequency[freq]) {
@@ -150,6 +158,7 @@ const patientStats = computed(() => {
     }
     stats.byFrequency[freq]++
   })
+
   const sortedFrequencies = {}
   const freqOrder = [
     '一三五',
@@ -163,16 +172,19 @@ const patientStats = computed(() => {
     '臨時',
     '未設定',
   ]
+
   freqOrder.forEach((key) => {
     if (stats.byFrequency[key]) {
       sortedFrequencies[key] = stats.byFrequency[key]
     }
   })
+
   for (const key in stats.byFrequency) {
     if (!sortedFrequencies[key]) {
       sortedFrequencies[key] = stats.byFrequency[key]
     }
   }
+
   stats.byFrequency = sortedFrequencies
   return stats
 })
@@ -183,6 +195,7 @@ function exportDeletedPatients() {
     alert('沒有已刪除的病人資料可供匯出。')
     return
   }
+
   const headers = ['姓名', '病歷號', '原狀態', '刪除原因', '刪除日期', '備註']
   const data = deletedPatients.map((p) => [
     p.name || '',
@@ -192,6 +205,7 @@ function exportDeletedPatients() {
     formatDate(p.deletedAt) || '',
     p.remarks || '',
   ])
+
   const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data])
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '已刪除病人')
@@ -206,10 +220,12 @@ async function handleSavePatient(patientData) {
     isAlertDialogVisible.value = true
     return
   }
+
   if (patientData.id) {
     const originalPatient = editingPatient.value
     const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
     const isNowDiscontinued = patientData.isDiscontinued
+
     if (!wasDiscontinuedBefore && isNowDiscontinued) {
       confirmDialogTitle.value = '確認中止透析'
       confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
@@ -221,7 +237,8 @@ async function handleSavePatient(patientData) {
             discontinuedDate:
               patientData.discontinuedDate || new Date().toISOString().split('T')[0],
           }
-          await patientApi.update(patientData.id, updateData)
+          // ✅ 使用優化函式
+          await optimizedUpdatePatient(patientData.id, updateData)
           await clearFutureSchedulesForPatient(patientData.id)
           await fetchAllPatients()
           addNotification(`中止透析: ${patientData.name}`, 'patient')
@@ -237,7 +254,8 @@ async function handleSavePatient(patientData) {
       try {
         const dataToUpdate = { ...patientData }
         delete dataToUpdate.id
-        await patientApi.update(patientData.id, dataToUpdate)
+        // ✅ 使用優化函式
+        await optimizedUpdatePatient(patientData.id, dataToUpdate)
         closeModal()
         await fetchAllPatients()
         addNotification(`修改病人資料: ${patientData.name}`, 'patient')
@@ -250,21 +268,24 @@ async function handleSavePatient(patientData) {
     }
     return
   }
+
   if (!patientData.medicalRecordNumber) {
     alertDialogTitle.value = '資料不完整'
     alertDialogMessage.value = '請務必填寫病歷號。'
     isAlertDialogVisible.value = true
     return
   }
+
   const existingPatient = allPatients.value.find(
     (p) => p.medicalRecordNumber === patientData.medicalRecordNumber,
   )
+
   if (existingPatient) {
     const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
     const currentStatusText = existingPatient.isDeleted
       ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
       : statusMap[existingPatient.status] || '未知'
-    const targetStatusText = statusMap[modalType.value]
+
     confirmDialogTitle.value = '病歷號重複'
     confirmDialogMessage.value = `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`
     newPatientDataForConflict.value = patientData
@@ -277,7 +298,10 @@ async function handleSavePatient(patientData) {
       dataToCreate.createdAt = new Date().toISOString()
       dataToCreate.isDeleted = false
       dataToCreate.status = modalType.value
-      const savedPatient = await patientApi.save(dataToCreate)
+
+      // ✅ 使用優化函式
+      const savedPatient = await optimizedSavePatient(dataToCreate)
+
       const historyEntry = {
         patientId: savedPatient.id,
         patientName: dataToCreate.name,
@@ -287,7 +311,9 @@ async function handleSavePatient(patientData) {
           status: modalType.value,
         },
       }
-      await historyApi.save(historyEntry)
+
+      // ✅ 使用優化函式
+      await optimizedSavePatientHistory(historyEntry)
       closeModal()
       await fetchAllPatients()
       addNotification(`新增病人: ${dataToCreate.name}`, 'patient')
@@ -304,6 +330,7 @@ async function handleConflictSelected() {
   const existingPatient = existingPatientForConflict.value
   const newPatientData = newPatientDataForConflict.value
   if (!existingPatient || !newPatientData) return
+
   try {
     const dataToUpdate = {
       ...newPatientData,
@@ -314,7 +341,10 @@ async function handleConflictSelected() {
       originalStatus: null,
     }
     delete dataToUpdate.id
-    await patientApi.update(existingPatient.id, dataToUpdate)
+
+    // ✅ 使用優化函式
+    await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
+
     const historyEntry = {
       patientId: existingPatient.id,
       patientName: newPatientData.name,
@@ -323,15 +353,17 @@ async function handleConflictSelected() {
       eventDetails: {
         from: existingPatient.status,
         to: modalType.value,
-        note: `從衝突中解決，原狀態為 ${
-          existingPatient.isDeleted ? '已刪除' : existingPatient.status
-        }`,
+        note: `從衝突中解決，原狀態為 ${existingPatient.isDeleted ? '已刪除' : existingPatient.status}`,
       },
     }
-    await historyApi.save(historyEntry)
+
+    // ✅ 使用優化函式
+    await optimizedSavePatientHistory(historyEntry)
+
     if (!existingPatient.isDeleted) {
       await cleanTemporaryDataInFutureSchedules(existingPatient.id, dataToUpdate)
     }
+
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = `病人 ${newPatientData.name} 已成功更新並轉移至 ${modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'} 清單。`
     isAlertDialogVisible.value = true
@@ -356,15 +388,20 @@ async function transferPatient(patientId, newStatus) {
     isAlertDialogVisible.value = true
     return
   }
+
   const patientName = allPatients.value.find((p) => p.id === patientId)?.name || '此病人'
   const targetStatusMap = { ipd: '住院', opd: '門診', er: '急診' }
   const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
+
   confirmDialogTitle.value = `確認轉為${targetStatusText}`
   confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`
   confirmAction.value = async () => {
     try {
       const originalPatientData = allPatients.value.find((p) => p.id === patientId)
-      await patientApi.update(patientId, { status: newStatus })
+
+      // ✅ 使用優化函式
+      await optimizedUpdatePatient(patientId, { status: newStatus })
+
       const historyEntry = {
         patientId: patientId,
         patientName: originalPatientData.name,
@@ -375,7 +412,10 @@ async function transferPatient(patientId, newStatus) {
           to: newStatus,
         },
       }
-      await historyApi.save(historyEntry)
+
+      // ✅ 使用優化函式
+      await optimizedSavePatientHistory(historyEntry)
+
       const updatedPatient = { ...originalPatientData, status: newStatus }
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
@@ -397,17 +437,22 @@ async function handleDeleteReasonSelected(reason) {
     isAlertDialogVisible.value = true
     return
   }
+
   if (!patientToDeleteId.value) return
+
   try {
     const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
     if (patient) {
       const deletedAt = new Date().toISOString()
-      await patientApi.update(patientToDeleteId.value, {
+
+      // ✅ 使用優化函式
+      await optimizedUpdatePatient(patientToDeleteId.value, {
         isDeleted: true,
         originalStatus: patient.status,
         deleteReason: reason,
         deletedAt: deletedAt,
       })
+
       const historyEntry = {
         patientId: patientToDeleteId.value,
         patientName: patient.name,
@@ -418,7 +463,9 @@ async function handleDeleteReasonSelected(reason) {
           fromStatus: patient.status,
         },
       }
-      await historyApi.save(historyEntry)
+
+      // ✅ 使用優化函式
+      await optimizedSavePatientHistory(historyEntry)
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
       addNotification(`刪除病人: ${patient.name}`, 'patient')
@@ -441,15 +488,19 @@ async function restorePatient(patientId) {
     isAlertDialogVisible.value = true
     return
   }
+
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
     const newStatus = patient.originalStatus || 'opd'
-    await patientApi.update(patientId, {
+
+    // ✅ 使用優化函式
+    await optimizedUpdatePatient(patientId, {
       isDeleted: false,
       status: newStatus,
       deleteReason: null,
       deletedAt: null,
     })
+
     const historyEntry = {
       patientId: patientId,
       patientName: patient.name,
@@ -460,7 +511,9 @@ async function restorePatient(patientId) {
         fromReason: patient.deleteReason,
       },
     }
-    await historyApi.save(historyEntry)
+
+    // ✅ 使用優化函式
+    await optimizedSavePatientHistory(historyEntry)
     await fetchAllPatients()
     addNotification(`復原病人: ${patient.name}`, 'patient')
   } catch (err) {
@@ -511,11 +564,14 @@ function deletePatient(patientId) {
   isDeleteDialogVisible.value = true
 }
 
+// ✅ 使用優化函式載入患者資料
 async function fetchAllPatients() {
   try {
-    allPatients.value = await patientApi.fetchAll()
+    console.log('🔄 [PatientsView] 開始載入患者資料...')
+    allPatients.value = await optimizedFetchAllPatients()
+    console.log(`✅ [PatientsView] 患者資料載入完成，共 ${allPatients.value.length} 位患者`)
   } catch (err) {
-    console.error('讀取病人資料失敗:', err)
+    console.error('❌ [PatientsView] 讀取病人資料失敗:', err)
     alertDialogTitle.value = '讀取失敗'
     alertDialogMessage.value = '讀取病人資料失敗！'
     isAlertDialogVisible.value = true
@@ -599,6 +655,7 @@ function openOrderModal(patient) {
   isOrderModalVisible.value = true
 }
 
+// ✅ 修正透析醫囑儲存功能
 async function handleSaveOrder(orderDataFromModal) {
   if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
     alertDialogTitle.value = '儲存失敗'
@@ -606,9 +663,11 @@ async function handleSaveOrder(orderDataFromModal) {
     isAlertDialogVisible.value = true
     return
   }
+
   const patientId = editingPatientForOrder.value.id
   const patientName = editingPatientForOrder.value.name
   const updatedAt = new Date().toISOString()
+
   const parseNumeric = (value) => {
     if (value === '' || value === null || value === undefined) {
       return null
@@ -616,6 +675,7 @@ async function handleSaveOrder(orderDataFromModal) {
     const num = Number(value)
     return isNaN(num) ? null : num
   }
+
   const cleanOrders = {
     ak: orderDataFromModal.ak || '',
     dialysateCa: orderDataFromModal.dialysateCa || '',
@@ -625,22 +685,31 @@ async function handleSaveOrder(orderDataFromModal) {
     dryWeight: parseNumeric(orderDataFromModal.dryWeight),
     effectiveDate: orderDataFromModal.effectiveDate || updatedAt.slice(0, 10),
   }
+
+  // ✅ 修正醫囑歷史記錄，加入更完整的資料結構
   const historyRecord = {
     patientId: patientId,
     patientName: patientName,
     orders: cleanOrders,
     updatedAt: updatedAt,
+    createdAt: updatedAt, // 新增 createdAt 欄位
+    operationType: 'UPDATE', // 新增操作類型
   }
+
   try {
+    console.log('💾 [PatientsView] 儲存透析醫囑...')
     await Promise.all([
-      patientApi.update(patientId, { dialysisOrders: cleanOrders }),
-      ordersHistoryApi.save(historyRecord),
+      // ✅ 使用優化函式更新患者資料
+      optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders }),
+      // ✅ 使用優化函式儲存醫囑歷史
+      optimizedSaveDialysisOrderHistory(historyRecord),
     ])
+    console.log('✅ [PatientsView] 透析醫囑儲存成功')
     addNotification(`${patientName} 的透析醫囑已更新`, 'patient')
     isOrderModalVisible.value = false
     await fetchAllPatients()
   } catch (error) {
-    console.error('儲存醫囑失敗:', error)
+    console.error('❌ [PatientsView] 儲存醫囑失敗:', error)
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = `儲存醫囑時發生錯誤: ${error.message}`
     isAlertDialogVisible.value = true
@@ -648,22 +717,17 @@ async function handleSaveOrder(orderDataFromModal) {
 }
 
 onMounted(() => {
+  console.log('🚀 [PatientsView] 組件已掛載，開始初始化...')
   fetchAllPatients()
 })
 </script>
 
 <template>
-  <!--
-    --- ✨ 關鍵修正點 2: 安裝「安全門」---
-    這個 v-if 就是我們的安全門。
-    只有當 useAuth 中的 isLoggedIn.value 變為 true 之後
-    (也就是 currentUser 被完整賦值後)，
-    這個 div 裡面的所有內容才會開始被渲染。
-    這從根本上杜絕了任何讀取未定義值的可能性。
-  -->
+  <!-- ✨ 安全門：只有登入後才渲染內容 -->
   <div v-if="isLoggedIn">
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理</h1>
+
       <div class="tabs">
         <button class="tab-button" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
           急診
@@ -716,6 +780,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
         <div class="table-wrapper">
           <div class="flex-table-wrapper">
             <div class="flex-table-header">
@@ -741,6 +806,7 @@ onMounted(() => {
               </div>
               <div class="flex-cell col-actions">操作</div>
             </div>
+
             <div class="flex-table-body">
               <div
                 v-for="p in displayedPatients"
@@ -856,6 +922,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
         <div class="table-wrapper">
           <div class="flex-table-wrapper">
             <div class="flex-table-header">
@@ -881,6 +948,7 @@ onMounted(() => {
               </div>
               <div class="flex-cell col-actions">操作</div>
             </div>
+
             <div class="flex-table-body">
               <div
                 v-for="p in displayedPatients"
@@ -996,6 +1064,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
         <div class="table-wrapper">
           <div class="flex-table-wrapper">
             <div class="flex-table-header">
@@ -1020,6 +1089,7 @@ onMounted(() => {
               </div>
               <div class="flex-cell col-actions">操作</div>
             </div>
+
             <div class="flex-table-body">
               <div
                 v-for="p in displayedPatients"
@@ -1099,7 +1169,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 已刪除病人表格 (維持原樣) -->
+      <!-- 已刪除病人表格 -->
       <div v-if="activeTab === 'deleted'" class="tab-content active">
         <div class="toolbar">
           <div class="search-group">
@@ -1107,6 +1177,7 @@ onMounted(() => {
           </div>
           <button @click="exportDeletedPatients" class="btn-export">轉出已刪除清單</button>
         </div>
+
         <div class="table-wrapper">
           <table class="patient-table">
             <thead>
@@ -1152,6 +1223,7 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Modal 組件 -->
     <PatientFormModal
       :is-modal-visible="isModalVisible"
       :patient-data="editingPatient"
@@ -1159,6 +1231,7 @@ onMounted(() => {
       @close="closeModal"
       @save="handleSavePatient"
     />
+
     <SelectionDialog
       :is-visible="isDeleteDialogVisible"
       title="請選擇刪除原因"
@@ -1166,12 +1239,14 @@ onMounted(() => {
       @select="handleDeleteReasonSelected"
       @cancel="cancelDelete"
     />
+
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
+
     <ConfirmDialog
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"
@@ -1179,12 +1254,14 @@ onMounted(() => {
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
+
     <DialysisOrderModal
       :is-visible="isOrderModalVisible"
       :patient-data="editingPatientForOrder"
       @close="isOrderModalVisible = false"
       @save="handleSaveOrder"
     />
+
     <PatientHistoryModal
       :is-visible="isHistoryModalVisible"
       :patient-id="selectedPatientForHistory?.id"
@@ -1195,12 +1272,39 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* [原有樣式，僅微調] */
+/* CSS 變數 */
+:root {
+  --primary-color: #005a9c;
+  --success-color: #16a34a;
+  --danger-color: #dc3545;
+  --warning-color: #f97316;
+  --info-color: #0ea5e9;
+  --green-bg: #f0fdf4;
+  --blue-bg: #eff6ff;
+  --purple-bg: #e9d5ff;
+  --orange-bg: #fff7ed;
+  --grey-bg: #f8f9fa;
+  --grey-text: #6c757d;
+}
+
+/* 基礎佈局 */
+.page-container {
+  padding: 1rem;
+}
+
+.page-title {
+  margin-bottom: 1.5rem;
+  color: #333; /* ✅ 黑色 */
+  font-weight: bold;
+}
+
+/* 分頁標籤 */
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
   margin-bottom: 20px;
 }
+
 .tab-button {
   padding: 10px 20px;
   border: none;
@@ -1209,11 +1313,14 @@ onMounted(() => {
   cursor: pointer;
   position: relative;
   color: #666;
+  transition: color 0.2s;
 }
+
 .tab-button.active {
-  color: #005a9c;
+  color: var(--primary-color);
   font-weight: bold;
 }
+
 .tab-button.active::after {
   content: '';
   position: absolute;
@@ -1221,11 +1328,14 @@ onMounted(() => {
   left: 0;
   right: 0;
   height: 2px;
-  background-color: #005a9c;
+  background-color: var(--primary-color);
 }
-.tab-content {
-  display: block;
+
+.tab-button:hover:not(.active) {
+  color: #555;
 }
+
+/* 視圖標題區 */
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -1234,37 +1344,56 @@ onMounted(() => {
   flex-wrap: wrap;
   margin-bottom: 15px;
 }
+
 .controls-left {
   display: flex;
   align-items: center;
   gap: 15px;
   flex-wrap: wrap;
 }
+
 .controls-left .btn-add {
   padding: 8px 15px;
   font-size: 1em;
-  background-color: #16a34a;
+  background-color: var(--success-color);
   color: white;
   border: none;
   border-radius: 5px;
   cursor: pointer;
   flex-shrink: 0;
+  transition: background-color 0.2s;
 }
-.controls-left .btn-add:hover {
+
+.controls-left .btn-add:hover:not(:disabled) {
   background-color: #15803d;
 }
+
+.controls-left .btn-add:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .controls-left .search-group {
   display: flex;
   align-items: center;
 }
+
 .controls-left input {
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 5px;
   min-width: 250px;
   height: 40px;
+  font-size: 1rem;
 }
 
+.controls-left input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(0, 90, 156, 0.1);
+}
+
+/* 統計摘要 */
 .stats-summary {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
@@ -1275,17 +1404,20 @@ onMounted(() => {
   gap: 20px;
   flex-wrap: wrap;
 }
+
 .total-count {
   font-size: 1.1em;
   font-weight: bold;
-  color: var(--primary-color, #005a9c);
+  color: var(--primary-color);
   white-space: nowrap;
 }
+
 .freq-counts {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
+
 .freq-tag {
   color: #fff;
   padding: 4px 10px;
@@ -1294,6 +1426,7 @@ onMounted(() => {
   font-weight: 500;
   white-space: nowrap;
 }
+
 .freq-tag.freq-blue {
   background-color: #2563eb;
 }
@@ -1313,11 +1446,12 @@ onMounted(() => {
   background-color: #64748b;
 }
 
-/* --- 【全新 Flexbox 表格樣式】 --- */
+/* Flexbox 表格樣式 */
 .table-wrapper {
-  max-height: calc(100vh - 250px); /* 調整高度計算 */
+  max-height: calc(100vh - 250px);
   overflow-y: auto;
 }
+
 .flex-table-wrapper {
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -1329,6 +1463,7 @@ onMounted(() => {
   display: flex;
   border-bottom: 1px solid #ddd;
 }
+
 .flex-table-body .flex-table-row:last-child {
   border-bottom: none;
 }
@@ -1336,6 +1471,9 @@ onMounted(() => {
 .flex-table-header {
   background-color: #f2f2f2;
   font-weight: bold;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .flex-cell {
@@ -1346,6 +1484,7 @@ onMounted(() => {
   white-space: nowrap;
   border-right: 1px solid #ddd;
 }
+
 .flex-table-header .flex-cell:last-child,
 .flex-table-row .flex-cell:last-child {
   border-right: none;
@@ -1392,7 +1531,9 @@ onMounted(() => {
 .flex-table-header .flex-cell {
   cursor: pointer;
   user-select: none;
+  transition: background-color 0.2s;
 }
+
 .flex-table-header .flex-cell:hover {
   background-color: #e8e8e8;
 }
@@ -1404,21 +1545,24 @@ onMounted(() => {
   gap: 8px;
   flex-wrap: nowrap;
 }
+
 .patient-name-text {
   font-weight: bold;
 }
+
 .disease-tags-container {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+
 :deep(.disease-tag) {
   display: inline-block;
   padding: 2px 6px;
   font-size: 0.8em;
   font-weight: bold;
-  color: var(--danger-color, #dc3545);
-  border: 1px solid var(--danger-color, #dc3545);
+  color: var(--danger-color);
+  border: 1px solid var(--danger-color);
   border-radius: 4px;
 }
 
@@ -1430,6 +1574,7 @@ onMounted(() => {
   align-items: center;
   width: 100%;
 }
+
 .action-buttons .btn {
   padding: 5px 10px;
   font-size: 0.9em;
@@ -1438,25 +1583,45 @@ onMounted(() => {
   cursor: pointer;
   color: white;
   white-space: nowrap;
+  transition: background-color 0.2s;
 }
+
 .btn.btn-order {
   background-color: #ff9c07;
   color: #212529;
 }
+
 .btn.btn-order:hover:not(:disabled) {
   background-color: #e0a800;
 }
+
 .btn.btn-transfer {
   background-color: #17a2b8;
 }
+
+.btn.btn-transfer:hover:not(:disabled) {
+  background-color: #138496;
+}
+
 .btn.btn-restore {
   background-color: var(--success-color);
 }
+
+.btn.btn-restore:hover:not(:disabled) {
+  background-color: #15803d;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .icon-buttons {
   display: flex;
   gap: 0.25rem;
   margin-left: auto;
 }
+
 .btn-icon {
   background: none;
   border: none;
@@ -1472,6 +1637,12 @@ onMounted(() => {
   justify-content: center;
   transition: background-color 0.2s;
 }
+
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-icon.btn-edit {
   color: #007bff;
 }
@@ -1481,13 +1652,14 @@ onMounted(() => {
 .btn-icon.btn-history {
   color: #6c757d;
 }
-.btn-icon.btn-edit:hover {
+
+.btn-icon.btn-edit:hover:not(:disabled) {
   background-color: #e0e7ff;
 }
-.btn-icon.btn-delete:hover {
+.btn-icon.btn-delete:hover:not(:disabled) {
   background-color: #fee2e2;
 }
-.btn-icon.btn-history:hover {
+.btn-icon.btn-history:hover:not(:disabled) {
   background-color: #f1f3f5;
 }
 
@@ -1499,7 +1671,7 @@ onMounted(() => {
   background-color: var(--blue-bg);
 }
 .flex-table-row.status-er {
-  background-color: var(--purple-bg, #e9d5ff);
+  background-color: #f3e8ff; /* ✅ 改為淡紫色 */
 }
 .flex-table-row.status-biweekly {
   background-color: var(--orange-bg);
@@ -1523,6 +1695,7 @@ onMounted(() => {
   color: #666;
   margin-top: 2px;
 }
+
 .flex-table-row.status-discontinued .date-subtext {
   color: #991b1b;
 }
@@ -1533,12 +1706,13 @@ onMounted(() => {
   color: #999;
 }
 
+/* 鎖定狀態 */
 .is-locked .flex-table-wrapper {
   pointer-events: none;
   opacity: 0.65;
 }
 
-/* 已刪除病人的表格樣式 (維持原樣) */
+/* 已刪除病人的表格樣式 */
 .toolbar {
   display: flex;
   justify-content: flex-start;
@@ -1547,6 +1721,7 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 15px;
 }
+
 .toolbar button {
   padding: 8px 15px;
   font-size: 1em;
@@ -1554,11 +1729,14 @@ onMounted(() => {
   border: none;
   border-radius: 5px;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
+
 .toolbar .search-group {
   display: flex;
   gap: 5px;
 }
+
 .toolbar input {
   padding: 8px;
   border: 1px solid #ccc;
@@ -1566,16 +1744,20 @@ onMounted(() => {
   min-width: 250px;
   height: 40px;
 }
+
 .toolbar .btn-export {
-  background-color: #0ea5e9;
+  background-color: var(--info-color);
 }
+
 .toolbar .btn-export:hover {
   background-color: #0284c7;
 }
+
 .patient-table {
   width: 100%;
   border-collapse: collapse;
 }
+
 .patient-table th,
 .patient-table td {
   border: 1px solid #ddd;
@@ -1583,9 +1765,39 @@ onMounted(() => {
   text-align: left;
   vertical-align: middle;
 }
+
 .patient-table th {
   background-color: #f2f2f2;
   cursor: pointer;
   user-select: none;
+  font-weight: 600;
+}
+
+.patient-table th:hover {
+  background-color: #e8e8e8;
+}
+
+/* 響應式設計 */
+@media (max-width: 1200px) {
+  .col-actions {
+    flex: 0 0 300px;
+  }
+}
+
+@media (max-width: 768px) {
+  .view-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .stats-summary {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .controls-left input {
+    min-width: 200px;
+  }
 }
 </style>
