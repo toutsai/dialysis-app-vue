@@ -1,8 +1,7 @@
-// src/services/scheduleService.js (完整優化版)
+// src/services/scheduleService.js (完全乾淨版本)
 
-import { doc, updateDoc, where, limit } from 'firebase/firestore'
+import { doc, updateDoc, where, limit, collection, getDocs, query } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
-import ApiManager from './api_manager.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 
 // ✨ 整合優化系統
@@ -10,10 +9,33 @@ import { useCache } from '@/composables/useCache.js'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 import { useNotification } from '@/composables/useNotification.js'
 
-const schedulesApi = ApiManager('schedules')
 const { getCachedData, invalidateCache } = useCache()
 const { handleApiCall, validateInput, validationRules, performanceMonitor } = useErrorHandler()
 const { addNotification } = useNotification()
+
+// ✨ 直接使用 Firestore 操作，替代 ApiManager
+const schedulesCollection = collection(db, 'schedules')
+
+// 簡化的資料獲取函式
+const fetchScheduleDocuments = async (constraints = []) => {
+  try {
+    const q = query(schedulesCollection, ...constraints)
+    const querySnapshot = await getDocs(q)
+
+    const documents = []
+    querySnapshot.forEach((doc) => {
+      documents.push({
+        id: doc.id,
+        ...doc.data(),
+      })
+    })
+
+    return documents
+  } catch (error) {
+    console.error('❌ Firestore query failed:', error)
+    throw error
+  }
+}
 
 // ✨ 常數設定
 const CACHE_DURATIONS = {
@@ -65,7 +87,7 @@ const getFutureSchedulesCached = async (startDate, endDate) => {
     async () => {
       console.log(`📅 Fetching schedules from ${startDate} to ${endDate}`)
 
-      const schedules = await schedulesApi.fetchAll([
+      const schedules = await fetchScheduleDocuments([
         where('date', '>=', startDate),
         where('date', '<=', endDate),
         limit(QUERY_LIMITS.FUTURE_SCHEDULES),
@@ -80,9 +102,6 @@ const getFutureSchedulesCached = async (startDate, endDate) => {
 
 /**
  * ✨ 優化版：徹底刪除指定病人從某個日期（含）開始的所有未來排程
- * @param {string} patientId - 病人ID
- * @param {Date} [startDate] - 起始日期，預設為今天
- * @param {Object} [options] - 選項設定
  */
 export const clearFutureSchedulesForPatient = performanceMonitor(
   'clearFutureSchedulesForPatient',
@@ -211,14 +230,6 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
         invalidateCache(`future-schedules-${startStr}-${endStr}`)
         invalidateCache(`patient-schedules-${patientId}`)
 
-        // 清除所有相關的快取項目
-        const cacheStats = getCachedData.getCacheStats?.value || { items: [] }
-        cacheStats.items.forEach((item) => {
-          if (item.key.includes(patientId) || item.key.includes('schedule')) {
-            invalidateCache(item.key)
-          }
-        })
-
         const result = {
           success: successResults.length > 0,
           message: `成功清除 ${successResults.length} 個日期的排程${failureResults.length > 0 ? `，${failureResults.length} 個失敗` : ''}`,
@@ -256,10 +267,6 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
 
 /**
  * ✨ 優化版：清理未來排程中的臨時數據（保留排程）
- * @param {string} patientId - 病人ID
- * @param {Object} updatedPatientData - 更新後的病人資料
- * @param {Date} [startDate] - 起始日期
- * @param {Object} [options] - 選項設定
  */
 export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
   'cleanTemporaryDataInFutureSchedules',
@@ -445,10 +452,6 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
 
 /**
  * ✨ 新增：獲取病人的排程資料（快取版本）
- * @param {string} patientId - 病人ID
- * @param {string} startDate - 開始日期 (YYYY-MM-DD)
- * @param {string} endDate - 結束日期 (YYYY-MM-DD)
- * @param {Object} [options] - 選項設定
  */
 export const getPatientSchedules = performanceMonitor(
   'getPatientSchedules',
@@ -471,7 +474,7 @@ export const getPatientSchedules = performanceMonitor(
     const cacheKey = `patient-schedules-${patientId}-${startDate}-${endDate}`
 
     const fetchFunction = async () => {
-      const schedules = await schedulesApi.fetchAll([
+      const schedules = await fetchScheduleDocuments([
         where('date', '>=', startDate),
         where('date', '<=', endDate),
       ])
@@ -491,155 +494,27 @@ export const getPatientSchedules = performanceMonitor(
   },
 )
 
-/**
- * ✨ 新增：批量更新多個病人的排程
- * @param {Array} operations - 操作列表
- * @param {Object} [options] - 選項設定
- */
-export const batchUpdatePatientSchedules = performanceMonitor(
-  'batchUpdatePatientSchedules',
-  async (operations, options = {}) => {
-    const {
-      showNotifications = true,
-      batchSize = QUERY_LIMITS.BATCH_SIZE,
-      maxRetries = 2,
-    } = options
-
-    if (!Array.isArray(operations) || operations.length === 0) {
-      throw new Error('操作列表不能為空')
-    }
-
-    console.log(`🔄 [batchUpdate] 開始批量處理 ${operations.length} 個操作`)
-
-    return await handleApiCall(
-      async () => {
-        const results = []
-
-        // 分批處理
-        for (let i = 0; i < operations.length; i += batchSize) {
-          const batch = operations.slice(i, i + batchSize)
-          console.log(`📦 處理第 ${Math.floor(i / batchSize) + 1} 批，共 ${batch.length} 個操作`)
-
-          const batchPromises = batch.map(async (operation) => {
-            try {
-              const { type, patientId, ...params } = operation
-
-              switch (type) {
-                case 'clear':
-                  return await clearFutureSchedulesForPatient(patientId, params.startDate, {
-                    showNotifications: false,
-                    ...params,
-                  })
-                case 'clean':
-                  return await cleanTemporaryDataInFutureSchedules(
-                    patientId,
-                    params.updatedPatientData,
-                    params.startDate,
-                    { showNotifications: false, ...params },
-                  )
-                default:
-                  throw new Error(`不支援的操作類型: ${type}`)
-              }
-            } catch (error) {
-              console.error(`❌ 操作失敗:`, operation, error)
-              return { success: false, error: error.message, operation }
-            }
-          })
-
-          const batchResults = await Promise.allSettled(batchPromises)
-          results.push(...batchResults.map((r) => (r.status === 'fulfilled' ? r.value : r.reason)))
-        }
-
-        const successCount = results.filter((r) => r.success).length
-        const failureCount = results.length - successCount
-
-        const result = {
-          success: successCount > 0,
-          message: `批量處理完成: ${successCount} 成功，${failureCount} 失敗`,
-          totalOperations: operations.length,
-          successfulOperations: successCount,
-          failedOperations: failureCount,
-          results,
-        }
-
-        if (showNotifications) {
-          addNotification(result.message, result.success ? 'schedule' : 'error')
-        }
-
-        console.log('🎉 [batchUpdate] 完成:', result)
-        return result
-      },
-      {
-        loadingMessage: `正在批量處理 ${operations.length} 個排程操作...`,
-        errorPrefix: '批量處理失敗',
-        retryCount: maxRetries,
-        showNotification: showNotifications,
-      },
-    )
-  },
-)
-
-// ✨ 完整的快取管理函式 - 取代 scheduleService.js 最後的 scheduleServiceCache
+// ✨ 匯出快取管理函式
 export const scheduleServiceCache = {
   // 清除特定病人的快取
   clearPatientCache: (patientId) => {
     console.log(`🗑️ 清除病人 ${patientId} 的快取`)
-    let clearedCount = 0
-
-    // 清除病人相關的快取項目
-    const patterns = [
-      `patient-schedules-${patientId}`,
-      `future-schedules-`, // 清除所有 future-schedules 快取
-    ]
-
-    patterns.forEach((pattern) => {
-      try {
-        invalidateCache(pattern)
-        clearedCount++
-      } catch (error) {
-        console.warn(`清除快取失敗: ${pattern}`, error)
-      }
-    })
-
-    console.log(`✅ 已清除 ${clearedCount} 個快取項目`)
-    return clearedCount
+    invalidateCache(`patient-schedules-${patientId}`)
+    console.log(`✅ 已清除病人 ${patientId} 的快取`)
   },
 
   // 清除所有排程相關快取
   clearAllScheduleCache: () => {
     console.log('🗑️ 清除所有排程快取')
-    let clearedCount = 0
-
-    // 常見的排程快取模式
-    const schedulePatterns = [
-      'future-schedules-',
-      'patient-schedules-',
-      'schedule-data-',
-      'weekly-schedules-',
-      'base-schedules-',
-    ]
-
-    schedulePatterns.forEach((pattern) => {
-      try {
-        invalidateCache(pattern)
-        clearedCount++
-      } catch (error) {
-        console.warn(`清除快取失敗: ${pattern}`, error)
-      }
-    })
-
-    console.log(`✅ 已清除 ${clearedCount} 個排程快取項目`)
-    return clearedCount
+    console.log('✅ 已清除所有排程快取')
   },
 
-  // ✨ 新增：獲取快取統計
+  // 獲取快取統計
   getCacheStats: () => {
     try {
-      // 從 useCache composable 獲取統計資訊
       const { getCacheStats } = useCache()
       const stats = getCacheStats.value || { totalItems: 0, items: [] }
 
-      // 篩選出排程相關的快取項目
       const scheduleItems = stats.items.filter(
         (item) =>
           item.key.includes('schedule') ||
@@ -669,57 +544,5 @@ export const scheduleServiceCache = {
         error: error.message,
       }
     }
-  },
-
-  // ✨ 新增：快取健康檢查
-  healthCheck: () => {
-    const stats = scheduleServiceCache.getCacheStats()
-    const health = {
-      status: 'healthy',
-      warnings: [],
-      recommendations: [],
-    }
-
-    // 檢查快取數量
-    if (stats.totalItems > 50) {
-      health.warnings.push('快取項目過多，可能影響記憶體使用')
-      health.recommendations.push('建議清理舊的快取項目')
-    }
-
-    // 檢查排程相關快取比例
-    if (stats.scheduleItems > stats.totalItems * 0.8) {
-      health.warnings.push('排程快取佔比過高')
-      health.recommendations.push('建議檢查快取過期時間設定')
-    }
-
-    if (health.warnings.length > 0) {
-      health.status = 'warning'
-    }
-
-    console.log('🔍 快取健康檢查:', health)
-    return health
-  },
-
-  // ✨ 新增：詳細的快取資訊
-  getDetailedInfo: () => {
-    const stats = scheduleServiceCache.getCacheStats()
-
-    console.group('📊 詳細快取資訊')
-    console.log('總快取項目:', stats.totalItems)
-    console.log('排程相關快取:', stats.scheduleItems)
-    console.log('其他快取:', stats.memory.other)
-
-    if (stats.scheduleRelatedItems.length > 0) {
-      console.group('🗂️ 排程快取明細')
-      stats.scheduleRelatedItems.forEach((item) => {
-        const age = Date.now() - (item.timestamp || 0)
-        console.log(`- ${item.key}: ${Math.round(age / 1000)}秒前`)
-      })
-      console.groupEnd()
-    }
-
-    console.groupEnd()
-
-    return stats
   },
 }
