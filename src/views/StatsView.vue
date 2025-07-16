@@ -1605,8 +1605,6 @@ watch(currentDate, (newDate) => {
   background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 12px 16px;
-  margin-bottom: 8px;
   box-shadow:
     0 1px 3px rgba(0, 0, 0, 0.08),
     0 1px 2px rgba(0, 0, 0, 0.04);
@@ -1641,7 +1639,7 @@ watch(currentDate, (newDate) => {
 }
 
 :global(.notification-item.type-stats) {
-  border-left: 4px solid #8b5cf6;
+  border-left: 4px solid #6545af;
   background: linear-gradient(135deg, #e9d5ff 0%, #f3e8ff 100%);
 }
 
@@ -1650,8 +1648,8 @@ watch(currentDate, (newDate) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 20px;
+  height: 20px;
   border-radius: 8px;
   margin-right: 12px;
   font-size: 16px;

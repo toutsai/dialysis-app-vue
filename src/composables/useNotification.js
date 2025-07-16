@@ -10,7 +10,7 @@ const MAX_NOTIFICATIONS = 3
 const NOTIFICATION_TYPES = {
   schedule: {
     icon: '📅',
-    bgColor: '#3498db', // 藍色
+    bgColor: '#3056b6ff', // 藍色
     textColor: '#fff',
   },
   team: {
