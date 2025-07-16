@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (已修改) -->
+<!-- 檔案路徑: src/views/StatsView.vue (簡化版 - 精簡即時動態通知) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide, watchEffect } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -49,6 +49,7 @@ const nurseNameList = [
   '吳幸美',
   '林芳羽',
 ]
+
 const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const nightBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -100,7 +101,6 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
 
-// ✨ 1. 新增 Ref 來暫存換床時的資訊
 const pendingChangeInfo = ref(null)
 const bedChangeTargetShift = ref(null)
 
@@ -112,6 +112,7 @@ const prepPopoverData = reactive({
 
 const { addNotification } = useNotification()
 const auth = useAuth()
+
 const isPageLocked = computed(() => {
   if (!auth.canEditSchedules.value) {
     return true
@@ -285,12 +286,14 @@ watchEffect(async () => {
     if (patient.status === 'er') detail.classes += ' status-er'
     else if (patient.status === 'ipd') detail.classes += ' status-ipd'
     else detail.classes += ' status-opd'
+
     const combinedNote = [
       ...new Set([
         ...(autoNote || '').split(' ').filter(Boolean),
         ...(manualNote || '').split(' ').filter(Boolean),
       ]),
     ].join(' ')
+
     if (combinedNote) detail.classes += ' has-note-highlight'
     if (combinedNote.includes('抽')) detail.classes += ' tag-chou'
     if (combinedNote.includes('新')) detail.classes += ' tag-new'
@@ -304,6 +307,7 @@ watchEffect(async () => {
       else if (patientDetail.status === 'er') group.erCount++
       else group.opdCount++
     }
+
     const shiftCode = shiftId.split('-')[2]
     if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
       assignAndCount(earlyShiftStats[nurseTeam].earlyShift, detail)
@@ -331,6 +335,7 @@ watchEffect(async () => {
     }
     return getSortKey(a.shiftId) - getSortKey(b.shiftId)
   }
+
   for (const team in earlyShiftStats) {
     Object.values(earlyShiftStats[team]).forEach((group) => {
       if (group.patients) group.patients.sort(sortPatientsByBed)
@@ -377,7 +382,6 @@ function showPrepPopover(event, teamData, shiftType) {
 
   prepPopoverData.patients = patientsInShift
   prepPopoverData.targetElement = event.currentTarget
-
   isPrepPopoverVisible.value = true
 }
 
@@ -433,25 +437,31 @@ async function loadData(date) {
   }
 }
 
+// 🎯 簡化重點 1: 完全移除 setChange 中的通知
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
+  // ❌ 完全移除：不發送任何即時動態通知
 }
 
+// 🎯 簡化重點 2: 只保留最重要的業務事件通知 - 儲存成功
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
+    // ✅ 彈窗通知：操作狀態反饋
     alertDialogTitle.value = '操作禁止'
     alertDialogMessage.value = '操作被鎖定：無法儲存或權限不足。'
     isAlertDialogVisible.value = true
     return
   }
   if (!currentRecord.id && Object.keys(currentRecord.schedule).length === 0) {
+    // ✅ 彈窗通知：操作狀態反饋
     alertDialogTitle.value = '提示'
     alertDialogMessage.value = '沒有資料可以儲存。'
     isAlertDialogVisible.value = true
     return
   }
+
   statusIndicator.value = '儲存中...'
   try {
     const cleanSchedule = {}
@@ -470,34 +480,43 @@ async function saveChangesToCloud() {
         }
       }
     }
+
     const dataToSave = {
       date: currentRecord.date,
       schedule: cleanSchedule,
       names: currentRecord.names,
     }
+
     if (currentRecord.id) {
       await schedulesApi.update(currentRecord.id, dataToSave)
     } else {
       const savedRecord = await schedulesApi.save(dataToSave)
       currentRecord.id = savedRecord.id
     }
+
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存！'
+
+    // ✅ 即時動態：僅保留最重要的業務事件 - 修改護理分組
     addNotification(`修改護理分組: ${currentRecord.date}`, 'stats')
+
+    // ✅ 彈窗通知：操作狀態反饋
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
+
     await loadData(currentDate.value)
   } catch (error) {
     console.error('儲存變更失敗:', error)
     statusIndicator.value = '儲存失敗'
+
+    // ✅ 彈窗通知：操作狀態反饋
     alertDialogTitle.value = '儲存失敗'
     alertDialogMessage.value = `儲存失敗: ${error.message}`
     isAlertDialogVisible.value = true
   }
 }
 
-// ✨ 2. 重構 onDrop 函數以實現新流程
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -511,7 +530,7 @@ function onDrop(event, newTeam, newResponsibility) {
   }
 
   const oldShiftIdParts = oldShiftId.split('-')
-  const bedPart = oldShiftIdParts.slice(0, -1).join('-') // 'bed-16' or 'peripheral-1'
+  const bedPart = oldShiftIdParts.slice(0, -1).join('-')
 
   let newShiftCode
   if (newResponsibility.startsWith('early')) newShiftCode = SHIFT_CODES.EARLY
@@ -520,9 +539,7 @@ function onDrop(event, newTeam, newResponsibility) {
 
   const newShiftId = `${bedPart}-${newShiftCode}`
 
-  // 檢查目標床位是否被佔用 (只有在班次改變時才需要檢查)
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
-    // 情境二: 床位衝突，彈出引導式換床對話框
     pendingChangeInfo.value = {
       patientDetail: patientDetail,
       newTeam: newTeam,
@@ -531,16 +548,13 @@ function onDrop(event, newTeam, newResponsibility) {
     bedChangeTargetShift.value = newShiftCode
     openBedChangeDialog(patientDetail)
   } else {
-    // 情境一: 目標床位無人，直接移動
     const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
     movingSlotData.shiftId = newShiftId
 
-    // 清空舊的組別資訊
     delete movingSlotData.nurseTeam
     delete movingSlotData.nurseTeamIn
     delete movingSlotData.nurseTeamOut
 
-    // 根據新的責任區設定新的組別
     if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
       movingSlotData.nurseTeam = newTeam
     } else if (newResponsibility === 'noonShiftOn') {
@@ -549,7 +563,6 @@ function onDrop(event, newTeam, newResponsibility) {
       movingSlotData.nurseTeamOut = newTeam
     }
 
-    // 處理午班對應的另一半組別
     if (newShiftCode === SHIFT_CODES.NOON) {
       const oldResponsibility = event.dataTransfer.getData('text/plain')
       if (oldResponsibility === 'noonShiftOn' && currentRecord.schedule[oldShiftId].nurseTeamOut) {
@@ -562,9 +575,12 @@ function onDrop(event, newTeam, newResponsibility) {
       }
     }
 
-    // 刪除舊紀錄，建立新紀錄
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
+
+    // ❌ 簡化：移除拖曳調整的即時動態通知（太頻繁）
+    // 只在用戶實際保存時才發送重要的業務事件通知
+
     setChange()
   }
 }
@@ -585,7 +601,6 @@ function openBedChangeDialog(patientDetail) {
   isBedChangeDialogVisible.value = true
 }
 
-// ✨ 3. 重構 handleBedChange 以處理來自引導式流程的確認
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value) return
   if (!currentRecord.schedule[oldShiftId]) {
@@ -594,20 +609,15 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     return
   }
 
-  // 檢查是否有暫存的拖曳資訊
   if (pendingChangeInfo.value) {
     const { newTeam, newResponsibility } = pendingChangeInfo.value
     const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
-
-    // 更新 slot 的 shiftId 為新選擇的床位
     movingSlotData.shiftId = newShiftId
 
-    // 清空舊的組別資訊
     delete movingSlotData.nurseTeam
     delete movingSlotData.nurseTeamIn
     delete movingSlotData.nurseTeamOut
 
-    // 根據最初拖曳的目標設定新的組別
     if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
       movingSlotData.nurseTeam = newTeam
     } else if (newResponsibility === 'noonShiftOn') {
@@ -616,27 +626,26 @@ function handleBedChange({ oldShiftId, newShiftId }) {
       movingSlotData.nurseTeamOut = newTeam
     }
 
-    // 刪除舊紀錄，建立新紀錄
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
+
+    // ❌ 簡化：移除換床調整的即時動態通知（太細節）
+    // 只在用戶實際保存時才發送重要的業務事件通知
   } else {
-    // 原始的換床邏輯 (點擊病人卡片觸發)
     const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = patientData
+    // ❌ 簡化：純換床不發送即時動態通知
   }
 
   setChange()
   isBedChangeDialogVisible.value = false
-  // 清理暫存狀態
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
 
-// ✨ 4. 新增 handleDialogCancel 函數並綁定
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
-  // 清理暫存狀態
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
@@ -714,6 +723,7 @@ provide('showPatientMemos', showPatientMemos)
 onMounted(() => {
   loadData(currentDate.value)
 })
+
 watch(currentDate, (newDate) => {
   loadData(newDate)
 })
@@ -1588,5 +1598,191 @@ watch(currentDate, (newDate) => {
 .slide-fade-leave-to {
   transform: translateY(-5px);
   opacity: 0;
+}
+
+/* ✨ 即時動態通知卡片樣式 */
+:global(.notification-item) {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 懸停效果 */
+:global(.notification-item:hover) {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.1),
+    0 2px 4px rgba(0, 0, 0, 0.06);
+  border-color: #cbd5e1;
+}
+
+/* 不同類型的通知顏色 */
+:global(.notification-item.type-schedule) {
+  border-left: 4px solid #3b82f6;
+  background: linear-gradient(135deg, #dbeafe 0%, #f0f9ff 100%);
+}
+
+:global(.notification-item.type-patient) {
+  border-left: 4px solid #10b981;
+  background: linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%);
+}
+
+:global(.notification-item.type-memo) {
+  border-left: 4px solid #f59e0b;
+  background: linear-gradient(135deg, #fed7aa 0%, #fef3c7 100%);
+}
+
+:global(.notification-item.type-stats) {
+  border-left: 4px solid #6545af;
+  background: linear-gradient(135deg, #e9d5ff 0%, #f3e8ff 100%);
+}
+
+/* 通知圖標樣式 */
+:global(.notification-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 8px;
+  margin-right: 12px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+:global(.notification-icon.type-schedule) {
+  background: #3b82f6;
+  color: white;
+}
+
+:global(.notification-icon.type-patient) {
+  background: #10b981;
+  color: white;
+}
+
+:global(.notification-icon.type-memo) {
+  background: #f59e0b;
+  color: white;
+}
+
+:global(.notification-icon.type-stats) {
+  background: #8b5cf6;
+  color: white;
+}
+
+/* 通知內容區域 */
+:global(.notification-content) {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+:global(.notification-text) {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+  line-height: 1.4;
+}
+
+:global(.notification-time) {
+  font-size: 12px;
+  color: #64748b;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+/* 關閉按鈕 */
+:global(.notification-close) {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.1);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #64748b;
+  opacity: 0;
+  transition: all 0.2s ease;
+}
+
+:global(.notification-item:hover .notification-close) {
+  opacity: 1;
+}
+
+:global(.notification-close:hover) {
+  background: rgba(148, 163, 184, 0.2);
+  color: #475569;
+}
+
+/* 新通知的滑入動畫 */
+@keyframes notification-appear {
+  0% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+:global(.notification-item.is-new) {
+  animation: notification-appear 0.3s ease-out;
+}
+
+/* 空狀態樣式 */
+:global(.notification-empty) {
+  text-align: center;
+  padding: 24px 16px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+:global(.notification-empty-icon) {
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+/* 深色模式適配 */
+@media (prefers-color-scheme: dark) {
+  :global(.notification-item) {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    border-color: #475569;
+    color: #e2e8f0;
+  }
+
+  :global(.notification-item:hover) {
+    border-color: #64748b;
+  }
+
+  :global(.notification-text) {
+    color: #e2e8f0;
+  }
+
+  :global(.notification-time) {
+    color: #94a3b8;
+  }
+
+  :global(.notification-close) {
+    color: #94a3b8;
+  }
+
+  :global(.notification-close:hover) {
+    color: #cbd5e1;
+  }
 }
 </style>

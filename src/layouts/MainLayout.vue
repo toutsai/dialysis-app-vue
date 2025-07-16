@@ -21,6 +21,7 @@
 
       <!-- 底部功能區塊 (包含通知、管理、登出) -->
       <div class="footer-section">
+        <!-- 通知區域 - 緊湊版 -->
         <div class="notification-area">
           <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
           <transition-group name="notification-list" tag="div" class="notification-list">
@@ -31,30 +32,31 @@
               :class="`notification-type-${notif.type}`"
             >
               <div class="notification-content">
-                <span class="notification-icon">{{ getIconForNotification(notif.type) }}</span>
+                <span class="notification-icon">{{ notif.config.icon }}</span>
                 <p class="notification-message">{{ notif.message }}</p>
               </div>
               <div class="notification-footer-item">
-                <span class="notification-time">{{ formatTime(notif.timestamp) }}</span>
+                <span class="notification-time">{{ notif.time }}</span>
                 <button class="notification-close" @click="removeNotification(notif.id)">×</button>
               </div>
             </div>
           </transition-group>
         </div>
 
+        <!-- 後臺管理區塊 -->
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
-            <li><router-link to="/reporting" class="nav-link">統計報表</router-link></li>
+            <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
-              <router-link v-if="isAdmin" to="/user-management" class="nav-link"
-                >使用者管理</router-link
-              >
+              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
+                使用者管理
+              </RouterLink>
             </li>
           </ul>
         </div>
 
-        <!-- 【修改】將登出與修改密碼按鈕放入 button-group 中 -->
+        <!-- 用戶資訊與操作按鈕 -->
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
@@ -68,6 +70,7 @@
         </div>
       </div>
     </aside>
+
     <main class="content-area">
       <RouterView />
     </main>
@@ -103,23 +106,20 @@ function handleLogout() {
   logout()
 }
 
-const getIconForNotification = (type) => {
+// 【更新】取得通知類型文字 - 配合改良版通知
+const getTypeText = (type) => {
   switch (type) {
     case 'patient':
-      return '👤'
+      return '病人'
     case 'schedule':
-      return '📅'
-    case 'stats':
-      return '📊'
+      return '排程'
+    case 'team':
+      return '分組'
     case 'memo':
-      return '📝'
+      return '備忘'
     default:
-      return '✅'
+      return '系統'
   }
-}
-
-const formatTime = (date) => {
-  return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 </script>
 
@@ -247,11 +247,11 @@ const formatTime = (date) => {
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 10px; /* 調整使用者名稱與按鈕群組的間距 */
+  gap: 10px;
 }
 
 .user-info {
-  margin-bottom: 0; /* 因 nav-footer已有 gap，移除此處的 margin */
+  margin-bottom: 0;
   font-size: 1em;
   line-height: 1.4;
 }
@@ -260,23 +260,21 @@ const formatTime = (date) => {
   display: block;
 }
 
-/* 【新增】按鈕群組樣式 */
 .button-group {
   display: flex;
-  gap: 8px; /* 設定按鈕間的距離 */
+  gap: 8px;
 }
 
-/* 【修改】操作按鈕樣式 */
 .action-button {
-  flex: 1; /* 讓兩個按鈕平分寬度 */
+  flex: 1;
   text-align: center;
-  padding: 0.5rem; /* 稍微縮小內邊距 */
+  padding: 0.5rem;
   border-radius: 5px;
   border: none;
   cursor: pointer;
   font-weight: bold;
   text-decoration: none;
-  font-size: 0.85em; /* 稍微縮小字體 */
+  font-size: 0.85em;
   transition: background-color 0.2s;
 }
 
@@ -296,6 +294,9 @@ const formatTime = (date) => {
   background-color: #2d3748;
 }
 
+/* ============================================ */
+/* 【更新】緊湊版通知區域樣式 */
+/* ============================================ */
 .notification-area {
   padding: 10px;
   overflow-y: auto;
@@ -303,6 +304,7 @@ const formatTime = (date) => {
   flex-grow: 1;
   min-height: 0;
 }
+
 .notification-area .section-title {
   padding: 0 10px 8px 10px;
   margin: 0;
@@ -322,87 +324,113 @@ const formatTime = (date) => {
   background-color: #4a5568;
 }
 
-.notification-area {
-  scrollbar-width: thin;
-  scrollbar-color: #5a6a7a transparent;
-}
-
 .notification-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+/* 緊湊版通知卡片樣式 */
 .notification-item {
-  border-radius: 6px;
-  padding: 6px 10px;
-  color: #1a202c;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.notification-type-default {
-  background-color: #e0f2fe;
-}
-.notification-type-patient {
-  background-color: #dcfce7;
-}
-.notification-type-schedule {
-  background-color: #fef9c3;
-}
-.notification-type-stats {
-  background-color: #ffedd5;
-}
-.notification-type-memo {
-  background-color: #f3e8ff;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid transparent;
+  transition: all 0.3s ease;
 }
 
 .notification-content {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
 }
+
 .notification-icon {
-  font-size: 1.2em;
+  font-size: 16px;
+  margin-right: 8px;
+  flex-shrink: 0;
 }
+
 .notification-message {
+  flex: 1;
   margin: 0;
-  font-size: 0.85em;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #333;
   font-weight: 500;
-  line-height: 1.3;
-  flex-grow: 1;
 }
+
 .notification-footer-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 2px;
 }
+
 .notification-time {
-  font-size: 0.7em;
-  color: #718096;
+  font-size: 12px;
+  color: #666;
+  font-weight: 400;
 }
+
 .notification-close {
   background: none;
   border: none;
-  color: #a0aec0;
-  font-size: 1.2em;
+  font-size: 18px;
+  color: #999;
   cursor: pointer;
   padding: 0;
-  line-height: 1;
-}
-.notification-close:hover {
-  color: #4a5568;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
 }
 
+.notification-close:hover {
+  color: #666;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* 不同類型的通知樣式 */
+.notification-type-schedule {
+  border-left-color: #3498db;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f8fbff 100%);
+}
+
+.notification-type-team {
+  border-left-color: #27ae60;
+  background: linear-gradient(135deg, #e8f5e8 0%, #f8fff8 100%);
+}
+
+.notification-type-patient {
+  border-left-color: #f39c12;
+  background: linear-gradient(135deg, #fef3e2 0%, #fffaf5 100%);
+}
+
+.notification-type-memo {
+  border-left-color: #9b59b6;
+  background: linear-gradient(135deg, #f3e8ff 0%, #faf8ff 100%);
+}
+
+/* 動畫效果 */
 .notification-list-enter-active,
 .notification-list-leave-active {
-  transition: all 0.5s ease;
+  transition: all 0.3s ease;
 }
-.notification-list-enter-from,
+
+.notification-list-enter-from {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
 .notification-list-leave-to {
   opacity: 0;
-  transform: scale(0.9) translateY(-20px);
+  transform: translateX(100%);
+}
+
+.notification-list-move {
+  transition: transform 0.3s ease;
 }
 </style>

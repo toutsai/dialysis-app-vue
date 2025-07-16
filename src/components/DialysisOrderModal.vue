@@ -1,8 +1,15 @@
-<!-- 檔案路徑: src/components/DialysisOrderModal.vue (已修正) -->
+<!-- 檔案路徑: src/components/DialysisOrderModal.vue (優化版) -->
 <script setup>
 import { ref, reactive, watch, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
 import { where, orderBy, limit } from 'firebase/firestore'
+// ❌ 移除舊的 ApiManager 導入
+// import ApiManager from '@/services/api_manager.js'
+
+// ✅ 導入優化後的函式
+import {
+  fetchDialysisOrderHistory as optimizedFetchDialysisOrderHistory,
+  deleteDialysisOrderHistory as optimizedDeleteDialysisOrderHistory,
+} from '@/services/optimizedApiService.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const props = defineProps({
@@ -15,7 +22,9 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'save', 'delete-order'])
 
-const ordersHistoryApi = ApiManager('dialysis_orders_history')
+// ❌ 移除舊的 API 管理器實例
+// const ordersHistoryApi = ApiManager('dialysis_orders_history')
+
 const orderHistory = ref([])
 const isLoadingHistory = ref(false)
 const isConfirmDeleteVisible = ref(false)
@@ -89,20 +98,30 @@ const archivedOrders = computed(() => {
   )
 })
 
+// ✅ 使用優化的 API 載入醫囑歷史
 async function fetchOrderHistory(patientId) {
   if (!patientId) return
   isLoadingHistory.value = true
   orderHistory.value = []
+
   try {
+    console.log('🔄 [DialysisOrderModal] 載入患者醫囑歷史...', patientId)
+
     const queryConstraints = [
       where('patientId', '==', patientId),
       orderBy('updatedAt', 'desc'),
       limit(20),
     ]
-    const historyData = await ordersHistoryApi.fetchAll(queryConstraints)
+
+    // ✅ 使用優化函式
+    const historyData = await optimizedFetchDialysisOrderHistory(queryConstraints)
     orderHistory.value = historyData
+
+    console.log(`✅ [DialysisOrderModal] 醫囑歷史載入完成，共 ${historyData.length} 筆記錄`)
   } catch (error) {
-    console.error('讀取醫囑歷史失敗:', error)
+    console.error('❌ [DialysisOrderModal] 讀取醫囑歷史失敗:', error)
+    // 顯示友善的錯誤訊息
+    alert(`載入醫囑歷史失敗：${error.message}`)
   } finally {
     isLoadingHistory.value = false
   }
@@ -137,17 +156,64 @@ function handleClose() {
 }
 
 function requestDeleteOrder(record) {
+  if (!record || !record.id) {
+    console.error('❌ [DialysisOrderModal] 無效的刪除記錄:', record)
+    alert('錯誤：無法識別要刪除的記錄')
+    return
+  }
+
+  console.log('🗑️ [DialysisOrderModal] 準備刪除醫囑歷史:', record.id)
   orderToDelete.value = record
   isConfirmDeleteVisible.value = true
 }
 
+// ✅ 修正的刪除函式，加強錯誤處理
 async function confirmDelete() {
-  if (!orderToDelete.value) return
+  if (!orderToDelete.value || !orderToDelete.value.id) {
+    console.error('❌ [DialysisOrderModal] 刪除操作：缺少有效的記錄ID')
+    alert('錯誤：無法識別要刪除的記錄')
+    return
+  }
+
+  const recordId = orderToDelete.value.id
+  const patientName = orderToDelete.value.patientName || '未知患者'
+
   try {
-    await ordersHistoryApi.delete(orderToDelete.value.id)
-    orderHistory.value = orderHistory.value.filter((item) => item.id !== orderToDelete.value.id)
+    console.log('🗑️ [DialysisOrderModal] 開始刪除醫囑歷史...', recordId)
+
+    // ✅ 使用優化的刪除函式
+    await optimizedDeleteDialysisOrderHistory(recordId)
+
+    // 從本地陣列中移除已刪除的記錄
+    orderHistory.value = orderHistory.value.filter((item) => item.id !== recordId)
+
+    console.log('✅ [DialysisOrderModal] 醫囑歷史刪除成功')
+    alert(`成功刪除 ${patientName} 的醫囑歷史記錄`)
   } catch (error) {
-    console.error('刪除醫囑歷史失敗:', error)
+    console.error('❌ [DialysisOrderModal] 刪除醫囑歷史失敗:', error)
+
+    // 根據錯誤類型顯示不同的訊息
+    let errorMessage = '刪除失敗'
+
+    if (error.message.includes('權限不足')) {
+      errorMessage = '權限不足：您沒有權限刪除此記錄'
+    } else if (error.message.includes('記錄不存在')) {
+      errorMessage = '記錄不存在：此記錄可能已被其他人刪除'
+    } else if (error.message.includes('網路')) {
+      errorMessage = '網路錯誤：請檢查網路連線後重試'
+    } else {
+      errorMessage = `刪除失敗：${error.message}`
+    }
+
+    alert(errorMessage)
+
+    // 如果是權限問題，重新載入歷史以確保資料同步
+    if (error.message.includes('權限') || error.message.includes('記錄不存在')) {
+      console.log('🔄 [DialysisOrderModal] 重新載入醫囑歷史以同步資料...')
+      if (props.patientData?.id) {
+        fetchOrderHistory(props.patientData.id)
+      }
+    }
   } finally {
     isConfirmDeleteVisible.value = false
     orderToDelete.value = null

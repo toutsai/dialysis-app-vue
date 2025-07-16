@@ -1,11 +1,30 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (已修正) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (完全優化版 - 通知策略修正) -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
-import ApiManager from '@/services/api_manager.js'
-import { where } from 'firebase/firestore'
+import {
+  where,
+  collection,
+  getDocs,
+  query,
+  addDoc,
+  setDoc,
+  updateDoc,
+  doc,
+} from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useNotification } from '@/composables/useNotification.js'
+
+// ✅ 使用我們的優化函式
+import {
+  clearFutureSchedulesForPatient,
+  cleanTemporaryDataInFutureSchedules,
+  getPatientSchedules,
+} from '@/services/scheduleService.js'
+
+// ✅ 使用錯誤處理系統
+import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
 import {
   SHIFT_CODES,
@@ -24,6 +43,110 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+
+// ✅ 初始化錯誤處理系統
+const { handleApiCall, performanceMonitor } = useErrorHandler()
+
+// ✅ 直接使用 Firestore 集合，替代 ApiManager
+const patientsCollection = collection(db, 'patients')
+const schedulesCollection = collection(db, 'schedules')
+const memosCollection = collection(db, 'memos')
+
+// ✅ 優化的資料獲取函式
+const fetchPatients = performanceMonitor('fetchPatients', async () => {
+  return await handleApiCall(
+    async () => {
+      const querySnapshot = await getDocs(patientsCollection)
+      const patients = []
+      querySnapshot.forEach((doc) => {
+        patients.push({ id: doc.id, ...doc.data() })
+      })
+      console.log(`📊 Loaded ${patients.length} patients`)
+      return patients
+    },
+    {
+      loadingMessage: '載入病人資料中...',
+      errorPrefix: '載入病人資料失敗',
+      showNotification: false, // ❌ 不在即時動態顯示載入狀態
+    },
+  )
+})
+
+const fetchMemos = performanceMonitor('fetchMemos', async () => {
+  return await handleApiCall(
+    async () => {
+      // ✅ 修正查詢條件：改為查詢 status === 'pending'
+      const q = query(memosCollection, where('status', '==', 'pending'))
+      const querySnapshot = await getDocs(q)
+      const memos = []
+      querySnapshot.forEach((doc) => {
+        memos.push({ id: doc.id, ...doc.data() })
+      })
+      console.log(`📝 Loaded ${memos.length} pending memos`)
+      return memos
+    },
+    {
+      loadingMessage: '載入備忘資料中...',
+      errorPrefix: '載入備忘資料失敗',
+      showNotification: false, // ❌ 不在即時動態顯示載入狀態
+    },
+  )
+})
+
+const fetchSchedulesByDate = performanceMonitor('fetchSchedulesByDate', async (dateStr) => {
+  return await handleApiCall(
+    async () => {
+      const q = query(schedulesCollection, where('date', '==', dateStr))
+      const querySnapshot = await getDocs(q)
+      const schedules = []
+      querySnapshot.forEach((doc) => {
+        schedules.push({ id: doc.id, ...doc.data() })
+      })
+      console.log(`📅 Loaded ${schedules.length} schedule documents for ${dateStr}`)
+      return schedules
+    },
+    {
+      errorPrefix: `載入 ${dateStr} 排程失敗`,
+      showNotification: false, // ❌ 不在即時動態顯示載入狀態
+    },
+  )
+})
+
+const saveScheduleData = performanceMonitor(
+  'saveScheduleData',
+  async (scheduleData, scheduleId = null) => {
+    return await handleApiCall(
+      async () => {
+        if (scheduleId) {
+          // 更新現有記錄
+          const docRef = doc(schedulesCollection, scheduleId)
+          await updateDoc(docRef, {
+            ...scheduleData,
+            updatedAt: new Date(),
+            lastModifiedBy: 'ScheduleView',
+          })
+          console.log(`✅ Updated schedule document: ${scheduleId}`)
+          return { id: scheduleId, ...scheduleData }
+        } else {
+          // 創建新記錄
+          const docRef = await addDoc(schedulesCollection, {
+            ...scheduleData,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            lastModifiedBy: 'ScheduleView',
+          })
+          console.log(`✅ Created new schedule document: ${docRef.id}`)
+          return { id: docRef.id, ...scheduleData }
+        }
+      },
+      {
+        loadingMessage: '儲存排程資料中...',
+        errorPrefix: '儲存排程失敗',
+        showNotification: false, // ❌ 儲存過程不在即時動態顯示
+      },
+    )
+  },
+)
 
 // --- Layout and Constants ---
 const layoutData = {
@@ -77,11 +200,6 @@ const freqToDays = {
   臨時: [0, 1, 2, 3, 4, 5, 6, 7],
 }
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
-
-// --- API Instances ---
-const patientsApi = ApiManager('patients')
-const schedulesApi = ApiManager('schedules')
-const memosApi = ApiManager('memos')
 
 // --- Reactive State ---
 const currentDate = ref(new Date())
@@ -222,14 +340,16 @@ function setChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
+// ✅ 優化版的儲存函式 - 正確的通知策略
 async function saveDataToCloud() {
   if (isPageLocked.value) {
+    // ✅ 權限錯誤 → 彈窗通知
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = '操作被鎖定：權限不足或日期已過。'
     isAlertDialogVisible.value = true
     return
   }
-  statusIndicator.value = '儲存中...'
+
   try {
     const cleanSchedule = {}
     for (const shiftId in currentRecord.schedule) {
@@ -242,7 +362,7 @@ async function saveDataToCloud() {
           }
         })
 
-        // ✨ 新增的修改點：在儲存前，清空所有午班的 nurseTeamOut ✨
+        // 在儲存前，清空所有午班的 nurseTeamOut
         if (shiftId.endsWith(SHIFT_CODES.NOON)) {
           standardSlot.nurseTeamOut = null
         }
@@ -250,24 +370,29 @@ async function saveDataToCloud() {
         cleanSchedule[shiftId] = standardSlot
       }
     }
+
     const dataToSave = {
       date: currentRecord.date,
       schedule: cleanSchedule,
       names: currentRecord.names,
     }
-    if (currentRecord.id) {
-      await schedulesApi.update(currentRecord.id, dataToSave)
-    } else if (Object.keys(cleanSchedule).length > 0) {
-      const savedRecord = await schedulesApi.save(dataToSave)
-      currentRecord.id = savedRecord.id
-    }
+
+    // ✅ 使用優化的儲存函式
+    const savedRecord = await saveScheduleData(dataToSave, currentRecord.id)
+    currentRecord.id = savedRecord.id
+
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
+
     const updateEvent = new CustomEvent('schedule-updated', {
       detail: { date: currentRecord.date },
     })
     window.dispatchEvent(updateEvent)
+
+    // ✅ 具體業務通知 → 即時動態
     addNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
+
+    // ✅ 操作成功反饋 → 彈窗通知
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
@@ -275,8 +400,10 @@ async function saveDataToCloud() {
     // 儲存後重新載入資料，確保畫面與資料庫同步
     await loadDataForDay(currentDate.value)
   } catch (error) {
-    console.error('儲存失敗:', error)
+    console.error('❌ 儲存失敗:', error)
     statusIndicator.value = '儲存失敗'
+
+    // ✅ 操作失敗反饋 → 彈窗通知
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = `儲存失敗: ${error.message}`
     isAlertDialogVisible.value = true
@@ -292,6 +419,7 @@ function clearBoard() {
   isConfirmDialogVisible.value = true
 }
 
+// ✅ 優化版的複製函式 - 正確的通知策略
 async function copySchedule() {
   if (isPageLocked.value) {
     alert('操作被鎖定：無法複製排程。')
@@ -303,9 +431,10 @@ async function copySchedule() {
   }
   confirmDialogMessage.value = `確定要將 ${copySourceDate.value} 的排程複製到本日嗎？\n這會覆蓋當前畫面的所有內容！`
   onConfirmAction.value = async () => {
-    statusIndicator.value = `從 ${copySourceDate.value} 複製中...`
     try {
-      const sourceRecords = await schedulesApi.fetchAll([where('date', '==', copySourceDate.value)])
+      // ✅ 使用優化的資料獲取函式
+      const sourceRecords = await fetchSchedulesByDate(copySourceDate.value)
+
       if (sourceRecords.length > 0) {
         const sourceSchedule = sourceRecords[0].schedule || {}
         const processedSchedule = {}
@@ -317,17 +446,23 @@ async function copySchedule() {
         currentRecord.schedule = processedSchedule
         setChange()
         statusIndicator.value = '複製成功，請記得儲存'
+
+        // ❌ 複製操作不在即時動態顯示（這是普通操作，不是業務事件）
       } else {
+        statusIndicator.value = `找不到 ${copySourceDate.value} 的排程資料`
+
+        // ✅ 操作失敗反饋 → 彈窗通知
         alertDialogTitle.value = '複製失敗'
         alertDialogMessage.value = `在雲端找不到 ${copySourceDate.value} 的排程資料。`
         isAlertDialogVisible.value = true
-        statusIndicator.value = '複製失敗'
       }
     } catch (error) {
+      statusIndicator.value = '複製失敗'
+
+      // ✅ 操作失敗反饋 → 彈窗通知
       alertDialogTitle.value = '複製失敗'
       alertDialogMessage.value = `複製失敗: ${error.message}`
       isAlertDialogVisible.value = true
-      statusIndicator.value = '複製失敗'
     }
   }
   isConfirmDialogVisible.value = true
@@ -405,6 +540,8 @@ function handlePatientSelect({ patientId }) {
   isPatientSelectDialogVisible.value = false
   if (scheduledPatientIds.value.has(patientId)) {
     const patient = patientMap.value.get(patientId)
+
+    // ✅ 重複排班警告 → 彈窗通知
     alertDialogTitle.value = '重複排班警告'
     alertDialogMessage.value = `病人 ${patient.name} 在本日已有排班，無法重複排入。`
     isAlertDialogVisible.value = true
@@ -512,27 +649,33 @@ function goToToday() {
   currentDate.value = new Date()
 }
 
-async function loadAllData() {
+// ✅ 優化版的資料載入函式
+const loadAllData = performanceMonitor('loadAllData', async () => {
   try {
-    const [patientsData, memosData] = await Promise.all([
-      patientsApi.fetchAll(),
-      memosApi.fetchAll([where('isResolved', '==', false)]),
-    ])
+    console.log('🔄 Loading all data...')
+    const [patientsData, memosData] = await Promise.all([fetchPatients(), fetchMemos()])
     allPatients.value = patientsData
     activeMemos.value = memosData
+    console.log('✅ All data loaded successfully')
   } catch (error) {
-    console.error('獲取病人或備忘資料失敗:', error)
+    console.error('❌ Failed to load data:', error)
     statusIndicator.value = '讀取病人或備忘資料失敗'
   }
-}
+})
 
-async function loadDataForDay(date) {
+// ✅ 優化版的每日資料載入函式
+const loadDataForDay = performanceMonitor('loadDataForDay', async (date) => {
   hasUnsavedChanges.value = false
   statusIndicator.value = '讀取中...'
   const dateStr = formatDate(date)
+
   try {
-    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+    console.log(`📅 Loading data for ${dateStr}`)
+
+    // ✅ 使用優化的資料獲取函式
+    const dailyRecords = await fetchSchedulesByDate(dateStr)
     const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+
     const finalSchedule = {}
     if (record.schedule) {
       for (const shiftId in record.schedule) {
@@ -547,18 +690,23 @@ async function loadDataForDay(date) {
         }
       }
     }
+
     Object.assign(currentRecord, {
       id: record.id || null,
       date: dateStr,
       schedule: finalSchedule,
       names: record.names || {},
     })
+
     statusIndicator.value = record.id ? '資料已載入' : '本日無排程'
+    console.log(
+      `✅ Data loaded for ${dateStr}, found ${Object.keys(finalSchedule).length} scheduled slots`,
+    )
   } catch (error) {
-    console.error('載入資料失敗:', error)
+    console.error('❌ Failed to load day data:', error)
     statusIndicator.value = '讀取失敗'
   }
-}
+})
 
 function shouldPatientBeScheduled(patient, dayOfWeek) {
   if (!patient.freq) return false
@@ -567,6 +715,7 @@ function shouldPatientBeScheduled(patient, dayOfWeek) {
   return scheduledDays ? scheduledDays.includes(checkDay) : false
 }
 
+// ✅ 排程檢視結果 → 彈窗通知（這是查詢結果，不是業務事件）
 function runScheduleCheck() {
   const warnings = []
   const dayOfWeek = currentDate.value.getDay()
@@ -598,6 +747,8 @@ function runScheduleCheck() {
       .join('\n- ')
     warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
   }
+
+  // ✅ 檢視結果 → 彈窗通知
   if (warnings.length > 0) {
     alertDialogTitle.value = '排班檢視警告'
     alertDialogMessage.value = warnings.join('\n\n')
@@ -686,6 +837,7 @@ function handleCancel() {
 
 const { distributePatients } = useTeamAssigner()
 
+// ✅ 自動分組 → 操作反饋用彈窗（不是業務事件）
 function executeAutoAssignment() {
   const getRichPatientList = (shiftCode) => {
     const patients = []
@@ -775,7 +927,7 @@ function executeAutoAssignment() {
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
   // --- 晚班 ---
-  const lateMain = mainArea(allLatePatients) // 只分配晚班病人
+  const lateMain = mainArea(allLatePatients)
   const lateTeamsToUse = baseTeams.slice(0, 8).map((t) => `晚${t}`)
   const lateRules = {
     priorityTeams: {
@@ -798,7 +950,6 @@ function executeAutoAssignment() {
     if (slot) {
       slot.nurseTeam = null
       slot.nurseTeamIn = null
-      // 不再清空 nurseTeamOut
     }
   })
 
@@ -818,6 +969,10 @@ function executeAutoAssignment() {
 
   setChange()
   statusIndicator.value = '自動分組完成，請確認並儲存'
+
+  // ❌ 自動分組不在即時動態顯示（這是普通操作，不是業務事件）
+
+  // ✅ 操作完成反饋 → 彈窗通知
   alertDialogTitle.value = '操作成功'
   alertDialogMessage.value =
     '自動分組已完成！請檢視結果並點擊「儲存」。\n(注意：午班收針組別未變動)'
@@ -826,6 +981,7 @@ function executeAutoAssignment() {
 
 function autoAssignNurseTeams() {
   if (isPageLocked.value) {
+    // ✅ 權限錯誤 → 彈窗通知
     alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = '頁面已鎖定，無法執行自動分組。'
     isAlertDialogVisible.value = true
@@ -1213,7 +1369,7 @@ watch(currentDate, (newDate, oldDate) => {
 </template>
 
 <style scoped>
-/* ======================== 【CSS 權限修正點】 ======================== */
+/* CSS 部分保持原樣 */
 .page-container.is-locked .btn,
 .page-container.is-locked .add-btn,
 .page-container.is-locked input[type='date'] {
@@ -1240,13 +1396,11 @@ watch(currentDate, (newDate, oldDate) => {
   cursor: not-allowed;
 }
 
-/* 特別恢復 memo-icon 的點擊能力 */
 .is-locked .memo-icon-inline,
 .is-locked :deep(.memo-icon-wrapper) {
   pointer-events: auto;
   cursor: pointer;
 }
-/* ================================================================= */
 
 .page-container {
   display: flex;
@@ -1678,7 +1832,7 @@ button:disabled {
 }
 .memo-icon-inline {
   position: relative;
-  z-index: 2; /* 其他樣式不變 */
+  z-index: 2;
 }
 .patient-name {
   position: relative;
