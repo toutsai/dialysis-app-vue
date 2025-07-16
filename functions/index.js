@@ -1,18 +1,21 @@
-// 檔案路徑: functions/index.js (修改後，新增即時同步功能)
+// 檔案路徑: functions/index.js (最終修正、完整無省略版)
 
 // 引入 v2 版本的函式模組
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
-const { onDocumentUpdated } = require('firebase-functions/v2/firestore') // ✨ 新增：引入 Firestore v2 觸發器
+const { onDocumentUpdated } = require('firebase-functions/v2/firestore')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
-const _ = require('lodash') // ✨ 新增：引入 lodash 用於物件比對
+const _ = require('lodash')
 
 // 初始化 Firebase Admin SDK
 admin.initializeApp()
 
 // 取得 Firestore 資料庫的實例
 const db = admin.firestore()
+// ✨ --- 新增這一行 --- ✨
+// 明確地從 admin.firestore 中解構出 FieldValue
+const { FieldValue } = require('firebase-admin/firestore')
 
 // ===================================================================
 // Helper Functions (輔助函式)
@@ -31,11 +34,11 @@ function formatDateForQuery(date) {
 }
 
 /**
- * ✨ --- 新增的輔助函式 --- ✨
+ * ✨ --- 修正後的輔助函式 --- ✨
  * 計算兩個排程物件之間的差異
  * @param {object} beforeSchedule - 更新前的 schedule 物件
  * @param {object} afterSchedule - 更新後的 schedule 物件
- * @returns {{added: Map<string, object>, removed: Map<string, object>, moved: Array<object>}} - 回傳差異集
+ * @returns {{added: Map<string, object>, removed: Map<string, object>, modified: Array<object>}} - 回傳差異集
  */
 function calculateScheduleDiff(beforeSchedule, afterSchedule) {
   const beforeSlots = new Map(Object.entries(beforeSchedule))
@@ -43,45 +46,39 @@ function calculateScheduleDiff(beforeSchedule, afterSchedule) {
   const diff = {
     added: new Map(),
     removed: new Map(),
-    moved: [],
+    modified: [], // 新增：用於追蹤內容變更
   }
 
-  // 使用 Set 來收集所有相關的 patientId，避免重複處理
-  const allPatientIds = new Set([
-    ...Object.values(beforeSchedule).map((s) => s.patientId),
-    ...Object.values(afterSchedule).map((s) => s.patientId),
-  ])
-
-  allPatientIds.forEach((patientId) => {
-    if (!patientId) return
-
-    // 找到該病人在更新前和更新後的位置
-    const beforeSlotEntry = [...beforeSlots.entries()].find(
-      ([, slot]) => slot.patientId === patientId,
-    )
-    const afterSlotEntry = [...afterSlots.entries()].find(
-      ([, slot]) => slot.patientId === patientId,
-    )
-
-    const beforeSlotId = beforeSlotEntry ? beforeSlotEntry[0] : undefined
-    const afterSlotId = afterSlotEntry ? afterSlotEntry[0] : undefined
-
-    if (!beforeSlotId && afterSlotId) {
-      // 如果之前沒有，現在有了 -> 新增
-      diff.added.set(afterSlotId, afterSlots.get(afterSlotId))
-    } else if (beforeSlotId && !afterSlotId) {
-      // 如果之前有，現在沒有了 -> 移除
-      diff.removed.set(beforeSlotId, beforeSlots.get(beforeSlotId))
-    } else if (beforeSlotId && afterSlotId && beforeSlotId !== afterSlotId) {
-      // 如果前後都有，但位置不同 -> 移動
-      diff.moved.push({
-        patientId,
-        from: beforeSlotId,
-        to: afterSlotId,
-        data: afterSlots.get(afterSlotId),
-      })
+  // 檢查 afterSlots 中的每一項
+  afterSlots.forEach((afterSlot, slotId) => {
+    if (beforeSlots.has(slotId)) {
+      const beforeSlot = beforeSlots.get(slotId)
+      // 病人ID不同，視為一個離開，一個進入
+      if (afterSlot.patientId !== beforeSlot.patientId) {
+        // 如果 patientId 是 null 或 undefined，代表是清空床位或新增到空床位
+        if (beforeSlot.patientId) {
+          diff.removed.set(slotId, beforeSlot)
+        }
+        if (afterSlot.patientId) {
+          diff.added.set(slotId, afterSlot)
+        }
+      } else if (afterSlot.patientId && !_.isEqual(afterSlot, beforeSlot)) {
+        // ID相同，但內容不同 (例如備註修改)
+        diff.modified.push({ slotId, data: afterSlot })
+      }
+    } else {
+      // 在 before 中不存在，是新增
+      if (afterSlot.patientId) {
+        diff.added.set(slotId, afterSlot)
+      }
     }
-    // 如果前後位置相同，則視為無變動，不處理
+  })
+
+  // 檢查 beforeSlots 中哪些項目在 afterSlots 中消失了
+  beforeSlots.forEach((beforeSlot, slotId) => {
+    if (beforeSlot.patientId && !afterSlots.has(slotId)) {
+      diff.removed.set(slotId, beforeSlot)
+    }
   })
 
   return diff
@@ -135,7 +132,7 @@ exports.checkExpiredMemos = onSchedule(
 )
 
 /**
- * ✨ --- 修改後的函式 --- ✨
+ * ✨ --- 修正後的函式 --- ✨
  * @name initializeFutureSchedules
  * @description 每日定時執行的雲端函式，確保未來30天的排程文件存在，並從總表複製內容。
  * 執行時間：每天凌晨 3:00 (台北時區)
@@ -158,7 +155,6 @@ exports.initializeFutureSchedules = onSchedule(
     }
 
     try {
-      // 1. 取得總床位表範本
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       if (!masterScheduleDoc.exists) {
         logger.warn('找不到 MASTER_SCHEDULE 範本，無法初始化排程。')
@@ -166,11 +162,9 @@ exports.initializeFutureSchedules = onSchedule(
       }
       const masterSchedule = masterScheduleDoc.data().schedule || {}
 
-      // 2. 找出已存在的排程日期
       const snapshot = await schedulesRef.where('date', 'in', datesToCheck).get()
       const existingDates = new Set(snapshot.docs.map((doc) => doc.data().date))
 
-      // 3. 找出需要新創建的日期
       const datesToCreate = datesToCheck.filter((dateStr) => !existingDates.has(dateStr))
 
       if (datesToCreate.length === 0) {
@@ -182,12 +176,11 @@ exports.initializeFutureSchedules = onSchedule(
 
       const batch = db.batch()
       datesToCreate.forEach((dateStr) => {
-        const targetDate = new Date(dateStr)
-        // JS 的 getDay() 週日是0，我們需要對應到總表的 index 6
-        const dayOfWeek = targetDate.getDay() // 0=Sun, 1=Mon, ..., 6=Sat
+        const dateParts = dateStr.split('-')
+        const targetDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+        const dayOfWeek = targetDate.getDay()
         const masterDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
 
-        // 從總表中篩選出符合當天星期的排班
         const dailySchedule = {}
         for (const slotId in masterSchedule) {
           const slotDayIndex = parseInt(slotId.split('-')[2], 10)
@@ -196,14 +189,14 @@ exports.initializeFutureSchedules = onSchedule(
           }
         }
 
-        // 創建新的排程文件
-        const newScheduleRef = schedulesRef.doc() // 自動產生 ID
+        const newScheduleRef = schedulesRef.doc()
         batch.set(newScheduleRef, {
           date: dateStr,
           schedule: dailySchedule,
-          names: {}, // 預設為空，待護理師填寫
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          names: {},
+          // ✨ --- 修正這裡的語法 --- ✨
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         })
       })
 
@@ -267,38 +260,38 @@ exports.customLogin = onCall(async (request) => {
 // ===================================================================
 
 /**
- * ✨ --- 新增的函式 --- ✨
+ * ✨ --- 修正後的函式 --- ✨
  * @name syncMasterScheduleToFuture
  * @description 當總床位表(MASTER_SCHEDULE)更新時，自動同步未來30天的排程
  */
 exports.syncMasterScheduleToFuture = onDocumentUpdated(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
-    logger.info('🔄 [syncMasterSchedule] MASTER_SCHEDULE 更新，觸發同步。')
+    logger.info('✅ [syncMasterSchedule] 觸發器成功啟動！')
 
     const beforeData = event.data.before.data()
     const afterData = event.data.after.data()
 
     if (_.isEqual(beforeData.schedule, afterData.schedule)) {
-      logger.info('✅ Schedule 物件無實質變化，無需同步。')
+      logger.info('✅ [syncMasterSchedule] Schedule 物件無實質變化，無需同步。')
       return null
     }
 
     const diff = calculateScheduleDiff(beforeData.schedule || {}, afterData.schedule || {})
 
-    if (diff.added.size === 0 && diff.removed.size === 0 && diff.moved.length === 0) {
-      logger.info('✅ 經計算後無實質排班變動，無需同步。')
+    if (diff.added.size === 0 && diff.removed.size === 0 && diff.modified.length === 0) {
+      logger.info('✅ [syncMasterSchedule] 經計算後無實質排班變動，無需同步。')
       return null
     }
 
-    logger.info('🔍 變更集:', {
+    logger.info('🔍 [syncMasterSchedule] 計算出的變更集:', {
       added: diff.added.size,
       removed: diff.removed.size,
-      moved: diff.moved.length,
+      modified: diff.modified.length,
     })
 
     const today = new Date()
-    today.setHours(0, 0, 0, 0) // 確保從今天的開始計算
+    today.setHours(0, 0, 0, 0)
     const futureDates = []
     for (let i = 0; i < 30; i++) {
       const targetDate = new Date(today)
@@ -306,12 +299,12 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       futureDates.push(formatDateForQuery(targetDate))
     }
 
-    logger.info(`⏳ 正在查詢 ${futureDates.length} 天的未來排程...`)
+    logger.info(`⏳ [syncMasterSchedule] 正在查詢 ${futureDates.length} 天的未來排程...`)
     const schedulesRef = db.collection('schedules')
     const querySnapshot = await schedulesRef.where('date', 'in', futureDates).get()
 
     if (querySnapshot.empty) {
-      logger.info('📭 未來30天內沒有已存在的排程文件，無需同步。')
+      logger.info('📭 [syncMasterSchedule] 未來30天內沒有已存在的排程文件，無需同步。')
       return null
     }
 
@@ -319,75 +312,73 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
     let updatedDocCount = 0
 
     querySnapshot.forEach((doc) => {
-      logger.info(`✍️  準備更新 ${doc.id} (${doc.data().date})...`)
       const scheduleDoc = doc.data()
       const currentSchedule = scheduleDoc.schedule || {}
       let hasChanges = false
 
-      // 處理被移除的排班
+      const dateParts = scheduleDoc.date.split('-')
+      const docDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2])
+      const dayOfWeek = docDate.getDay()
+      const scheduleDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+
+      const processSlot = (slotId, operation) => {
+        const masterDayIndex = parseInt(slotId.split('-')[2], 10)
+        if (scheduleDayIndex === masterDayIndex) {
+          if (operation.type === 'remove') {
+            if (
+              currentSchedule[slotId] &&
+              currentSchedule[slotId].patientId === operation.patientId
+            ) {
+              delete currentSchedule[slotId]
+              hasChanges = true
+            }
+          } else if (operation.type === 'add') {
+            if (!currentSchedule[slotId]) {
+              currentSchedule[slotId] = operation.data
+              hasChanges = true
+            }
+          } else if (operation.type === 'modify') {
+            if (currentSchedule[slotId]) {
+              currentSchedule[slotId] = { ...currentSchedule[slotId], ...operation.data }
+              hasChanges = true
+            }
+          }
+        }
+      }
+
       diff.removed.forEach((slotData, slotId) => {
-        const dayOfWeek = new Date(scheduleDoc.date).getUTCDay() // 0=Sun, 1=Mon...
-        const masterDayIndex = parseInt(slotId.split('-')[2], 10)
-        if ((dayOfWeek === 0 ? 6 : dayOfWeek - 1) === masterDayIndex) {
-          if (currentSchedule[slotId] && currentSchedule[slotId].patientId === slotData.patientId) {
-            delete currentSchedule[slotId]
-            hasChanges = true
-          }
-        }
+        processSlot(slotId, { type: 'remove', patientId: slotData.patientId })
       })
 
-      // 處理新增的排班
       diff.added.forEach((slotData, slotId) => {
-        const dayOfWeek = new Date(scheduleDoc.date).getUTCDay()
-        const masterDayIndex = parseInt(slotId.split('-')[2], 10)
-        if ((dayOfWeek === 0 ? 6 : dayOfWeek - 1) === masterDayIndex) {
-          if (!currentSchedule[slotId]) {
-            currentSchedule[slotId] = slotData
-            hasChanges = true
-          }
-        }
+        processSlot(slotId, { type: 'add', data: slotData })
       })
 
-      // 處理移動的排班
-      diff.moved.forEach((move) => {
-        const dayOfWeek = new Date(scheduleDoc.date).getUTCDay()
-        const fromMasterDayIndex = parseInt(move.from.split('-')[2], 10)
-        const toMasterDayIndex = parseInt(move.to.split('-')[2], 10)
-
-        if ((dayOfWeek === 0 ? 6 : dayOfWeek - 1) === fromMasterDayIndex) {
-          if (
-            currentSchedule[move.from] &&
-            currentSchedule[move.from].patientId === move.patientId
-          ) {
-            delete currentSchedule[move.from]
-            hasChanges = true
-          }
-        }
-        if ((dayOfWeek === 0 ? 6 : dayOfWeek - 1) === toMasterDayIndex) {
-          if (!currentSchedule[move.to]) {
-            currentSchedule[move.to] = move.data
-            hasChanges = true
-          }
-        }
+      diff.modified.forEach(({ slotId, data }) => {
+        processSlot(slotId, { type: 'modify', data })
       })
 
       if (hasChanges) {
+        logger.info(
+          `✍️ [syncMasterSchedule] 文件 ${doc.id} (${scheduleDoc.date}) 有變動，加入批量更新。`,
+        )
         const docRef = schedulesRef.doc(doc.id)
         batch.update(docRef, {
           schedule: currentSchedule,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          // ✨ --- 修正這裡的語法 --- ✨
+          updatedAt: FieldValue.serverTimestamp(),
         })
         updatedDocCount++
       }
     })
 
     if (updatedDocCount > 0) {
-      logger.info(`🚀 準備提交更新，共 ${updatedDocCount} 份文件...`)
+      logger.info(`🚀 [syncMasterSchedule] 準備提交更新，共 ${updatedDocCount} 份文件...`)
       return batch.commit().then(() => {
-        logger.info(`✅ 同步完成！成功更新 ${updatedDocCount} 份未來排程。`)
+        logger.info(`✅ [syncMasterSchedule] 同步完成！成功更新 ${updatedDocCount} 份未來排程。`)
       })
     } else {
-      logger.info('✅ 檢查完畢，未來排程無需進行同步操作。')
+      logger.info('✅ [syncMasterSchedule] 檢查完畢，未來排程無需進行同步操作。')
       return null
     }
   },

@@ -2,9 +2,9 @@
 // 或者直接覆蓋 src/composables/useFirebase.js
 
 import { initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
-import { getFunctions } from 'firebase/functions'
+import { getAuth, connectAuthEmulator } from 'firebase/auth' // ✨ 引入 connectAuthEmulator
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore' // ✨ 引入 connectFirestoreEmulator
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions' // ✨ 引入 connectFunctionsEmulator
 
 // 1. Firebase 設定
 //    從 Vite 的環境變數動態讀取，完美支援多專案部署 (develop/production)
@@ -27,6 +27,15 @@ const auth = getAuth(app)
 const db = getFirestore(app)
 const functions = getFunctions(app)
 
-// 4. 將所有初始化後的服務實例匯出
-//    這樣，應用的其他部分就可以按需導入它們。
+// ✨ --- 新增這段關鍵的程式碼 --- ✨
+// 檢查是否處於開發模式 (Vite 預設會設定 import.meta.env.DEV 為 true)
+// 並且確保模擬器的主機位址存在
+if (import.meta.env.DEV) {
+  console.log('🔥 Running in development mode, connecting to emulators...')
+
+  // ✨ 同步修改成新的 Port
+  connectAuthEmulator(auth, 'http://127.0.0.1:9199')
+  connectFirestoreEmulator(db, '127.0.0.1', 8180)
+  connectFunctionsEmulator(functions, '127.0.0.1', 5101)
+}
 export { app, auth, db, functions }
