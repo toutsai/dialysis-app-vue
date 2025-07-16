@@ -160,7 +160,7 @@ async function initializeData() {
     // 並行載入兩個 API
     await Promise.all([fetchMemos(), fetchAllPatients()])
 
-    // ❌ 移除載入通知，處理 URL 參數
+    // ❌ 不需要載入通知，處理 URL 參數
     const patientIdFromQuery = route.query.patientId
     if (patientIdFromQuery && allPatients.value.length > 0) {
       const patient = allPatients.value.find((p) => p.id === patientIdFromQuery)
@@ -208,9 +208,12 @@ async function addMemo() {
     memos.value.unshift(optimisticMemo)
 
     // 清空表單
+    const contentPreview =
+      contentInput.value.substring(0, 20) + (contentInput.value.length > 20 ? '...' : '')
     contentInput.value = ''
     dateInput.value = ''
     const wasFiltered = !!selectedPatient.value
+    const patientContext = selectedPatient.value ? ` (${selectedPatient.value.name})` : ''
     clearPatientSelection()
 
     // 實際保存到後端
@@ -222,14 +225,12 @@ async function addMemo() {
       memos.value[tempIndex] = savedMemo
     }
 
-    addNotification('新增交班備忘', 'memo')
-    console.log('✅ [MemoView] 備忘新增成功')
+    // ✅ 具體的業務事件通知
+    addNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
 
-    // 🆕 如果之前有篩選，提示用戶
-    if (wasFiltered) {
-      // ❌ 移除這個提示通知，因為它不在核心業務操作中
-      // addNotification('已清除病人篩選，可在右側查看新增的備忘', 'info')
-    }
+    // ✅ 操作狀態反饋用彈窗
+    showAlert('新增成功', '備忘錄已成功新增。')
+    console.log('✅ [MemoView] 備忘新增成功')
   } catch (err) {
     console.error('❌ [MemoView] 新增備忘失敗:', err)
 
@@ -265,9 +266,11 @@ function handlePatientSelected({ patientId }) {
   if (patient) {
     router.replace({ query: { patientId: patient.id } })
     console.log(`🎯 [MemoView] 已篩選患者: ${patient.name}`)
+    // ❌ 不需要通知，這只是篩選操作
   } else {
     router.replace({ query: {} })
     console.log('🔄 [MemoView] 已清除患者篩選')
+    // ❌ 不需要通知，這只是篩選操作
   }
 }
 
@@ -276,6 +279,7 @@ function clearPatientSelection() {
   filterPatientId.value = null
   router.replace({ query: {} })
   console.log('🔄 [MemoView] 已清除病人選擇')
+  // ❌ 不需要通知，這只是清除選擇
 }
 
 // --- 🆕 優化的狀態更新函數 ---
@@ -299,17 +303,36 @@ async function updateMemoStatus(id, resolve, isFromExpired = false) {
     isResolved: resolve,
   }
 
-  let message = ''
+  // 準備通知內容
+  const contentPreview =
+    originalMemo.content.substring(0, 15) + (originalMemo.content.length > 15 ? '...' : '')
+  const patientContext = originalMemo.patientName ? ` (${originalMemo.patientName})` : ''
+
+  let notificationMessage = ''
+  let alertMessage = ''
+
   if (resolve) {
-    message = '備忘已處理'
+    notificationMessage = `完成備忘：${contentPreview}${patientContext}`
+    alertMessage = '備忘已標記為處理完成。'
   } else {
-    message = isFromExpired ? '備忘已從過期中移回待辦' : '備忘移回待辦'
+    if (isFromExpired) {
+      notificationMessage = `復原備忘：${contentPreview}${patientContext} (從過期復原)`
+      alertMessage = '備忘已從過期清單移回待辦。'
+    } else {
+      notificationMessage = `復原備忘：${contentPreview}${patientContext}`
+      alertMessage = '備忘已移回待辦清單。'
+    }
   }
 
   try {
     // 實際更新後端
     await memosApi.update(id, { status: newStatus, isResolved: resolve })
-    addNotification(message, 'memo')
+
+    // ✅ 具體的業務事件通知
+    addNotification(notificationMessage, 'memo')
+
+    // ✅ 操作狀態反饋用彈窗
+    showAlert('操作成功', alertMessage)
     console.log(`✅ [MemoView] 備忘狀態更新成功: ${id}`)
   } catch (err) {
     console.error('❌ [MemoView] 更新狀態失敗:', err)
@@ -325,8 +348,10 @@ async function deleteMemo(id) {
   const memo = memos.value.find((m) => m.id === id)
   if (!memo) return
 
+  const contentPreview = memo.content.substring(0, 20) + (memo.content.length > 20 ? '...' : '')
+
   confirmDialogTitle.value = '確認刪除'
-  confirmDialogMessage.value = `確定要永久刪除備忘「${memo.content.substring(0, 20)}${memo.content.length > 20 ? '...' : ''}」嗎？此操作無法復原。`
+  confirmDialogMessage.value = `確定要永久刪除備忘「${contentPreview}」嗎？此操作無法復原。`
 
   confirmAction.value = async () => {
     console.log(`🔄 [MemoView] 刪除備忘: ${id}`)
@@ -336,11 +361,17 @@ async function deleteMemo(id) {
     if (memoIndex === -1) return
 
     const removedMemo = memos.value.splice(memoIndex, 1)[0]
+    const patientContext = removedMemo.patientName ? ` (${removedMemo.patientName})` : ''
 
     try {
       // 實際刪除
       await memosApi.delete(id)
-      addNotification('刪除一則備忘', 'memo')
+
+      // ✅ 具體的業務事件通知
+      addNotification(`刪除備忘：${contentPreview}${patientContext}`, 'memo')
+
+      // ✅ 操作狀態反饋用彈窗
+      showAlert('刪除成功', '備忘錄已成功刪除。')
       console.log(`✅ [MemoView] 備忘刪除成功: ${id}`)
     } catch (err) {
       console.error('❌ [MemoView] 刪除失敗:', err)
