@@ -21,42 +21,42 @@
 
       <!-- 底部功能區塊 (包含通知、管理、登出) -->
       <div class="footer-section">
-        <!-- 【更新】通知區域 - 配合改良版通知結構 -->
+        <!-- 通知區域 - 緊湊版 -->
         <div class="notification-area">
           <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
           <transition-group name="notification-list" tag="div" class="notification-list">
             <div
               v-for="notif in notifications"
               :key="notif.id"
-              class="notification-card"
-              :class="`notification-${notif.type}`"
+              class="notification-item"
+              :class="`notification-type-${notif.type}`"
             >
-              <div class="notification-header">
+              <div class="notification-content">
                 <span class="notification-icon">{{ notif.config.icon }}</span>
-                <span class="notification-type-text">{{ getTypeText(notif.type) }}</span>
-                <button class="notification-close" @click="removeNotification(notif.id)">×</button>
-              </div>
-              <div class="notification-body">
                 <p class="notification-message">{{ notif.message }}</p>
+              </div>
+              <div class="notification-footer-item">
                 <span class="notification-time">{{ notif.time }}</span>
+                <button class="notification-close" @click="removeNotification(notif.id)">×</button>
               </div>
             </div>
           </transition-group>
         </div>
 
+        <!-- 後臺管理區塊 -->
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
-            <li><router-link to="/reporting" class="nav-link">統計報表</router-link></li>
+            <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
-              <router-link v-if="isAdmin" to="/user-management" class="nav-link"
-                >使用者管理</router-link
-              >
+              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
+                使用者管理
+              </RouterLink>
             </li>
           </ul>
         </div>
 
-        <!-- 【修改】將登出與修改密碼按鈕放入 button-group 中 -->
+        <!-- 用戶資訊與操作按鈕 -->
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
@@ -70,6 +70,7 @@
         </div>
       </div>
     </aside>
+
     <main class="content-area">
       <RouterView />
     </main>
@@ -246,11 +247,11 @@ const getTypeText = (type) => {
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 10px; /* 調整使用者名稱與按鈕群組的間距 */
+  gap: 10px;
 }
 
 .user-info {
-  margin-bottom: 0; /* 因 nav-footer已有 gap，移除此處的 margin */
+  margin-bottom: 0;
   font-size: 1em;
   line-height: 1.4;
 }
@@ -259,23 +260,21 @@ const getTypeText = (type) => {
   display: block;
 }
 
-/* 【新增】按鈕群組樣式 */
 .button-group {
   display: flex;
-  gap: 8px; /* 設定按鈕間的距離 */
+  gap: 8px;
 }
 
-/* 【修改】操作按鈕樣式 */
 .action-button {
-  flex: 1; /* 讓兩個按鈕平分寬度 */
+  flex: 1;
   text-align: center;
-  padding: 0.5rem; /* 稍微縮小內邊距 */
+  padding: 0.5rem;
   border-radius: 5px;
   border: none;
   cursor: pointer;
   font-weight: bold;
   text-decoration: none;
-  font-size: 0.85em; /* 稍微縮小字體 */
+  font-size: 0.85em;
   transition: background-color 0.2s;
 }
 
@@ -296,7 +295,7 @@ const getTypeText = (type) => {
 }
 
 /* ============================================ */
-/* 【更新】通知區域樣式 - 配合改良版通知結構 */
+/* 【更新】緊湊版通知區域樣式 */
 /* ============================================ */
 .notification-area {
   padding: 10px;
@@ -305,6 +304,7 @@ const getTypeText = (type) => {
   flex-grow: 1;
   min-height: 0;
 }
+
 .notification-area .section-title {
   padding: 0 10px 8px 10px;
   margin: 0;
@@ -330,102 +330,106 @@ const getTypeText = (type) => {
   gap: 8px;
 }
 
-/* 【新增】通知卡片樣式 */
-.notification-card {
+/* 緊湊版通知卡片樣式 */
+.notification-item {
   border-radius: 8px;
-  padding: 0;
-  overflow: hidden;
+  padding: 12px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid;
-  background-color: #ffffff;
-  color: #1a202c;
+  border-left: 4px solid transparent;
+  transition: all 0.3s ease;
 }
 
-/* 通知類型顏色 - 配合改良版配置 */
-.notification-schedule {
-  border-left-color: #3498db; /* 藍色 */
-}
-.notification-patient {
-  border-left-color: #f39c12; /* 橙色 */
-}
-.notification-team {
-  border-left-color: #27ae60; /* 綠色 */
-}
-.notification-memo {
-  border-left-color: #9b59b6; /* 紫色 */
-}
-
-.notification-header {
+.notification-content {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px 4px 12px;
-  background-color: rgba(0, 0, 0, 0.02);
+  align-items: flex-start;
+  margin-bottom: 8px;
 }
 
 .notification-icon {
-  font-size: 1.2em;
+  font-size: 16px;
+  margin-right: 8px;
   flex-shrink: 0;
 }
 
-.notification-type-text {
-  font-size: 0.75em;
-  font-weight: 600;
-  color: #6b7280;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  flex-grow: 1;
+.notification-message {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #333;
+  font-weight: 500;
+}
+
+.notification-footer-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.notification-time {
+  font-size: 12px;
+  color: #666;
+  font-weight: 400;
 }
 
 .notification-close {
   background: none;
   border: none;
-  color: #9ca3af;
-  font-size: 1.4em;
+  font-size: 18px;
+  color: #999;
   cursor: pointer;
   padding: 0;
-  line-height: 1;
   width: 20px;
   height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: all 0.2s ease;
 }
+
 .notification-close:hover {
-  color: #6b7280;
-  background-color: rgba(0, 0, 0, 0.05);
+  color: #666;
+  background-color: rgba(0, 0, 0, 0.1);
 }
 
-.notification-body {
-  padding: 4px 12px 8px 12px;
+/* 不同類型的通知樣式 */
+.notification-type-schedule {
+  border-left-color: #3498db;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f8fbff 100%);
 }
 
-.notification-message {
-  margin: 0 0 4px 0;
-  font-size: 0.9em;
-  font-weight: 500;
-  line-height: 1.3;
-  color: #374151;
+.notification-type-team {
+  border-left-color: #27ae60;
+  background: linear-gradient(135deg, #e8f5e8 0%, #f8fff8 100%);
 }
 
-.notification-time {
-  font-size: 0.7em;
-  color: #9ca3af;
-  font-weight: 400;
+.notification-type-patient {
+  border-left-color: #f39c12;
+  background: linear-gradient(135deg, #fef3e2 0%, #fffaf5 100%);
+}
+
+.notification-type-memo {
+  border-left-color: #9b59b6;
+  background: linear-gradient(135deg, #f3e8ff 0%, #faf8ff 100%);
 }
 
 /* 動畫效果 */
 .notification-list-enter-active,
 .notification-list-leave-active {
-  transition: all 0.4s ease;
+  transition: all 0.3s ease;
 }
-.notification-list-enter-from,
+
+.notification-list-enter-from {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+
 .notification-list-leave-to {
   opacity: 0;
-  transform: scale(0.95) translateY(-10px);
+  transform: translateX(100%);
 }
+
 .notification-list-move {
   transition: transform 0.3s ease;
 }
