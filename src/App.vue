@@ -10,10 +10,31 @@
 </template>
 
 <script setup>
-// App.vue 的 script 現在非常乾淨。
-// 我們不需要在這裡引入 onMounted 或任何資料庫相關的邏輯，
-// 因為這些操作都應該在受路由守衛保護的頁面 (如 MainLayout.vue)
-// 或後端 (Cloud Functions) 中進行。
+function detectAdBlocker() {
+  // 簡單的廣告攔截器檢測
+  const testAd = document.createElement('div')
+  testAd.innerHTML = '&nbsp;'
+  testAd.className = 'adsbox'
+  document.body.appendChild(testAd)
+
+  window.setTimeout(() => {
+    if (testAd.offsetHeight === 0) {
+      // 可能有廣告攔截器
+      console.warn('偵測到廣告攔截器，可能影響系統功能')
+    }
+    testAd.remove()
+  }, 100)
+}
+
+// 在主要的異步操作中添加友善的錯誤處理
+try {
+  // Firebase 操作
+} catch (error) {
+  if (error.message.includes('message channel closed')) {
+    console.warn('連接被中斷，可能是廣告攔截器影響')
+    // 顯示友善的提示給用戶
+  }
+}
 </script>
 
 <style>
