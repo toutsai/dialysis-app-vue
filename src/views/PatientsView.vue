@@ -1,9 +1,8 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (移除ID驗證版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (修改後，確保刪除/復原時同步清除未來排程) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
 
-// ✅ 導入優化後的函式
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   updatePatient as optimizedUpdatePatient,
@@ -12,6 +11,7 @@ import {
   saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
 
+// ✨ 確保引入 clearFutureSchedulesForPatient
 import {
   clearFutureSchedulesForPatient,
   cleanTemporaryDataInFutureSchedules,
@@ -63,7 +63,6 @@ const selectedPatientForHistory = ref(null)
 
 const { addNotification } = useNotification()
 
-// ✨ 安全的權限狀態獲取
 const auth = useAuth()
 const { isLoggedIn } = auth
 const isPageLocked = computed(() => auth.isReadOnly.value)
@@ -241,10 +240,8 @@ async function handleSavePatient(patientData) {
           await clearFutureSchedulesForPatient(patientData.id)
           await fetchAllPatients()
 
-          // ✅ 具體的業務事件通知
           addNotification(`中止透析：${patientData.name}`, 'patient')
 
-          // ✅ 操作狀態反饋用彈窗
           alertDialogTitle.value = '操作成功'
           alertDialogMessage.value = `${patientData.name} 已標記為中止透析，相關排程已清除。`
           isAlertDialogVisible.value = true
@@ -264,10 +261,8 @@ async function handleSavePatient(patientData) {
         closeModal()
         await fetchAllPatients()
 
-        // ✅ 具體的業務事件通知
         addNotification(`編輯病人：${patientData.name}`, 'patient')
 
-        // ✅ 操作狀態反饋用彈窗
         alertDialogTitle.value = '儲存成功'
         alertDialogMessage.value = '病人資料已成功更新。'
         isAlertDialogVisible.value = true
@@ -281,7 +276,6 @@ async function handleSavePatient(patientData) {
     return
   }
 
-  // 🔧 只保留基本的必填驗證，移除格式驗證
   if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
     alertDialogTitle.value = '資料不完整'
     alertDialogMessage.value = '請務必填寫病歷號。'
@@ -328,12 +322,10 @@ async function handleSavePatient(patientData) {
       closeModal()
       await fetchAllPatients()
 
-      // ✅ 具體的業務事件通知
       const statusText =
         modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
       addNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
 
-      // ✅ 操作狀態反饋用彈窗
       alertDialogTitle.value = '新增成功'
       alertDialogMessage.value = '病人資料已成功新增。'
       isAlertDialogVisible.value = true
@@ -385,12 +377,10 @@ async function handleConflictSelected() {
     closeModal()
     await fetchAllPatients()
 
-    // ✅ 具體的業務事件通知
     const statusText =
       modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
     addNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
 
-    // ✅ 操作狀態反饋用彈窗
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`
     isAlertDialogVisible.value = true
@@ -442,10 +432,8 @@ async function transferPatient(patientId, newStatus) {
       await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
 
-      // ✅ 具體的業務事件通知
       addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
 
-      // ✅ 操作狀態反饋用彈窗
       alertDialogTitle.value = '轉移成功'
       alertDialogMessage.value = `${patientName} 已成功轉至${targetStatusText}。`
       isAlertDialogVisible.value = true
@@ -493,13 +481,12 @@ async function handleDeleteReasonSelected(reason) {
       }
 
       await optimizedSavePatientHistory(historyEntry)
+      // ✨ 這裡的呼叫是正確的，無需修改
       await clearFutureSchedulesForPatient(patientToDeleteId.value)
       await fetchAllPatients()
 
-      // ✅ 具體的業務事件通知
       addNotification(`刪除病人：${patient.name} (${reason})`, 'patient')
 
-      // ✅ 操作狀態反饋用彈窗
       alertDialogTitle.value = '刪除成功'
       alertDialogMessage.value = `${patient.name} 已刪除，相關排程已清除。`
       isAlertDialogVisible.value = true
@@ -515,6 +502,7 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
+// ✨ [修改] 復原病人時，也加入清除未來排程的邏輯
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -547,14 +535,17 @@ async function restorePatient(patientId) {
     }
 
     await optimizedSavePatientHistory(historyEntry)
+
+    // ✨ [修改] 新增呼叫：清除可能殘存的未來排程
+    await clearFutureSchedulesForPatient(patientId)
+
     await fetchAllPatients()
 
-    // ✅ 具體的業務事件通知
     addNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
 
-    // ✅ 操作狀態反饋用彈窗
+    // ✨ [修改] 更新提示文字，告知使用者排程已清除
     alertDialogTitle.value = '復原成功'
-    alertDialogMessage.value = `${patient.name} 已復原至${statusText}清單。`
+    alertDialogMessage.value = `${patient.name} 已復原至${statusText}清單，其未來排程已被清除，請至總床位表重新安排。`
     isAlertDialogVisible.value = true
   } catch (err) {
     console.error('復原失敗:', err)
@@ -604,7 +595,6 @@ function deletePatient(patientId) {
   isDeleteDialogVisible.value = true
 }
 
-// ✅ 使用優化函式載入患者資料
 async function fetchAllPatients() {
   try {
     console.log('🔄 [PatientsView] 開始載入患者資料...')
@@ -695,7 +685,6 @@ function openOrderModal(patient) {
   isOrderModalVisible.value = true
 }
 
-// ✅ 修正透析醫囑儲存功能
 async function handleSaveOrder(orderDataFromModal) {
   if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
     alertDialogTitle.value = '儲存失敗'
@@ -746,10 +735,8 @@ async function handleSaveOrder(orderDataFromModal) {
     isOrderModalVisible.value = false
     await fetchAllPatients()
 
-    // ✅ 具體的業務事件通知
     addNotification(`更新醫囑：${patientName}`, 'patient')
 
-    // ✅ 操作狀態反饋用彈窗
     alertDialogTitle.value = '儲存成功'
     alertDialogMessage.value = '透析醫囑已成功儲存。'
     isAlertDialogVisible.value = true
@@ -768,7 +755,6 @@ onMounted(() => {
 </script>
 
 <template>
-  <!-- ✨ 安全門：只有登入後才渲染內容 -->
   <div v-if="isLoggedIn">
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理</h1>
@@ -1317,7 +1303,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* CSS 變數 */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -1332,18 +1317,16 @@ onMounted(() => {
   --grey-text: #6c757d;
 }
 
-/* 基礎佈局 */
 .page-container {
   padding: 1.5rem;
 }
 
 .page-title {
   margin-bottom: 1.5rem;
-  color: #333; /* ✅ 黑色 */
+  color: #333;
   font-weight: bold;
 }
 
-/* 分頁標籤 */
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
@@ -1380,7 +1363,6 @@ onMounted(() => {
   color: #555;
 }
 
-/* 視圖標題區 */
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -1438,7 +1420,6 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(0, 90, 156, 0.1);
 }
 
-/* 統計摘要 */
 .stats-summary {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
@@ -1491,7 +1472,6 @@ onMounted(() => {
   background-color: #64748b;
 }
 
-/* Flexbox 表格樣式 */
 .table-wrapper {
   max-height: calc(100vh - 250px);
   overflow-y: auto;
@@ -1535,7 +1515,6 @@ onMounted(() => {
   border-right: none;
 }
 
-/* 欄位寬度設定 */
 .col-name {
   flex: 0 0 140px;
 }
@@ -1583,7 +1562,6 @@ onMounted(() => {
   background-color: #e8e8e8;
 }
 
-/* 姓名欄位特殊樣式 */
 .name-cell-content {
   display: flex;
   align-items: center;
@@ -1611,7 +1589,6 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-/* 操作按鈕樣式 */
 .action-buttons {
   display: flex;
   flex-wrap: nowrap;
@@ -1708,7 +1685,6 @@ onMounted(() => {
   background-color: #f1f3f5;
 }
 
-/* 行背景色 */
 .flex-table-row.status-opd {
   background-color: var(--green-bg);
 }
@@ -1716,7 +1692,7 @@ onMounted(() => {
   background-color: var(--blue-bg);
 }
 .flex-table-row.status-er {
-  background-color: #f3e8ff; /* ✅ 改為淡紫色 */
+  background-color: #f3e8ff;
 }
 .flex-table-row.status-biweekly {
   background-color: var(--orange-bg);
@@ -1751,13 +1727,11 @@ onMounted(() => {
   color: #999;
 }
 
-/* 鎖定狀態 */
 .is-locked .flex-table-wrapper {
   pointer-events: none;
   opacity: 0.65;
 }
 
-/* 已刪除病人的表格樣式 */
 .toolbar {
   display: flex;
   justify-content: flex-start;
@@ -1822,7 +1796,6 @@ onMounted(() => {
   background-color: #e8e8e8;
 }
 
-/* 響應式設計 */
 @media (max-width: 1200px) {
   .col-actions {
     flex: 0 0 300px;

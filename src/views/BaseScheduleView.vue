@@ -1,16 +1,13 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (優化版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (修改為 門住總床位表，並增強排程檢視) -->
 <script setup>
-import { ref, onMounted, computed, provide, nextTick } from 'vue' // ✨ 導入 nextTick
+import { ref, onMounted, computed, provide, nextTick } from 'vue'
 
-// ✨ 核心優化 1: 替換 ApiManager 為優化版 API 服務 ✨
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   fetchAllMemos as optimizedFetchAllMemos,
 } from '@/services/optimizedApiService.js'
 
-// ✨ 核心優化 2: base_schedules 暫時保留舊 API（等待後續優化） ✨
 import ApiManager from '@/services/api_manager.js'
-
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
@@ -25,7 +22,6 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
 // --- API and Constants ---
-// ✨ 優化 3: 保留 base_schedules API 暫時使用舊版（後續優化） ✨
 const baseSchedulesApi = ApiManager('base_schedules')
 
 const SHIFTS = ORDERED_SHIFT_CODES
@@ -58,7 +54,7 @@ const CLEAR_OPTIONS = [
 ]
 
 // --- Reactive State ---
-const allOpdPatients = ref([])
+const allPatients = ref([])
 const masterRecord = ref(null)
 const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
@@ -99,7 +95,8 @@ function updateColumnWidths(newWidths) {
 }
 
 // --- Computed Properties ---
-const patientMap = computed(() => new Map(allOpdPatients.value.map((p) => [p.id, p])))
+const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
@@ -115,7 +112,7 @@ const statsToolbarData = computed(() => {
   if (!masterRecord.value || !masterRecord.value.schedule) {
     return dailyCounts
   }
-  const localPatientMap = new Map(allOpdPatients.value.map((p) => [p.id, p]))
+  const localPatientMap = patientMap.value
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData && slotData.patientId) {
@@ -127,7 +124,9 @@ const statsToolbarData = computed(() => {
         const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
         if (shiftStats) {
           shiftStats.total++
-          shiftStats.opd++
+          if (patient.status === 'opd') shiftStats.opd++
+          else if (patient.status === 'ipd') shiftStats.ipd++
+          else if (patient.status === 'er') shiftStats.er++
           dailyCounts[dayIndex].total++
         }
       }
@@ -137,13 +136,12 @@ const statsToolbarData = computed(() => {
 })
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 
-// --- 搜尋相關計算屬性 ---
 const searchResults = computed(() => {
   if (!searchQuery.value) {
     return []
   }
   const query = searchQuery.value.toLowerCase()
-  return allOpdPatients.value
+  return allPatients.value
     .filter((p) => {
       const nameMatch = p.name && p.name.toLowerCase().includes(query)
       const mrnMatch = p.medicalRecordNumber && p.medicalRecordNumber.includes(query)
@@ -153,7 +151,6 @@ const searchResults = computed(() => {
 })
 
 // --- Functions ---
-// ✨ 核心修正點 1: 新增處理搜尋框失焦的函式 ✨
 function handleSearchBlur() {
   setTimeout(() => {
     isSearchFocused.value = false
@@ -172,9 +169,9 @@ function locatePatientOnGrid(patientId) {
   )
 
   if (!targetSlotId) {
-    console.log(`⚠️ [BaseScheduleView] 病人 ${patientId} 未在常規班表中`)
+    console.log(`⚠️ [BaseScheduleView] 病人 ${patientId} 未在總床位表中`)
     alertDialogTitle.value = '提示'
-    alertDialogMessage.value = '該病人未被排入常規班表。'
+    alertDialogMessage.value = '該病人未被排入總床位表。'
     isAlertDialogVisible.value = true
     return
   }
@@ -216,7 +213,6 @@ function setChange() {
   console.log(`📝 [BaseScheduleView] 標記變更需要儲存`)
 }
 
-// ✨ 核心優化 4: 優化儲存功能 ✨
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -225,14 +221,13 @@ async function saveChangesToCloud() {
     return
   }
 
-  console.log('💾 [BaseScheduleView] 開始儲存常規班表變更...')
+  console.log('💾 [BaseScheduleView] 開始儲存總床位表變更...')
   statusText.value = '儲存中...'
 
   try {
     const docId = 'MASTER_SCHEDULE'
     const scheduleToSave = {}
 
-    // 準備儲存資料
     let savedSlotCount = 0
     for (const slotId in masterRecord.value.schedule) {
       const slotData = masterRecord.value.schedule[slotId]
@@ -253,7 +248,6 @@ async function saveChangesToCloud() {
       updatedAt: new Date(),
     }
 
-    // 使用舊 API 儲存（等待後續優化）
     await baseSchedulesApi.save(docId, dataPayload)
 
     if (!masterRecord.value.id) {
@@ -263,10 +257,10 @@ async function saveChangesToCloud() {
     hasUnsavedChanges.value = false
     statusText.value = '床位儲存成功！'
 
-    console.log(`✅ [BaseScheduleView] 常規班表儲存成功: ${savedSlotCount} 個床位`)
+    console.log(`✅ [BaseScheduleView] 總床位表儲存成功: ${savedSlotCount} 個床位`)
 
     alertDialogTitle.value = '操作成功'
-    alertDialogMessage.value = '常規門診床位已成功儲存！'
+    alertDialogMessage.value = '門住總床位表已成功儲存！'
     isAlertDialogVisible.value = true
   } catch (error) {
     console.error('❌ [BaseScheduleView] 儲存失敗:', error)
@@ -277,22 +271,24 @@ async function saveChangesToCloud() {
   }
 }
 
+// ✨ [修改] 增強排程檢視功能
 function handleScheduleCheck() {
   console.log(`🔍 [BaseScheduleView] 開始排班檢查...`)
   const results = runBedCheck()
   let issueMessage = ''
 
+  if (results.unassignedCrucial.length > 0) {
+    issueMessage += '【重要病人未排床】:\n- ' + results.unassignedCrucial.join('\n- ') + '\n\n'
+  }
   if (results.freqMismatch.length > 0) {
-    issueMessage += '【排班頻率不符】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
+    issueMessage += '【門診頻率不符】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
   }
   if (results.duplicates.length > 0) {
     issueMessage += '【同日重複排班】:\n- ' + results.duplicates.join('\n- ') + '\n\n'
   }
 
   if (issueMessage) {
-    console.log(
-      `⚠️ [BaseScheduleView] 發現排班問題: 頻率不符 ${results.freqMismatch.length} 個，重複排班 ${results.duplicates.length} 個`,
-    )
+    console.log(`⚠️ [BaseScheduleView] 發現排班問題`)
     alertDialogTitle.value = '排班問題檢查結果'
     alertDialogMessage.value = issueMessage
   } else {
@@ -311,14 +307,28 @@ function openBedAssignmentDialog() {
 
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
   if (isPageLocked.value) return
-  const patient = allOpdPatients.value.find((p) => p.id === patientId)
+  const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
 
   console.log(`🛏️ [BaseScheduleView] 智慧排床: ${patient.name} -> 床位 ${bedNum}, ${shiftCode} 班`)
 
   const dayIndices = FREQ_MAP_TO_DAY_INDEX[patient.freq] || []
   const shiftIndex = SHIFTS.indexOf(shiftCode)
-  if (shiftIndex === -1 || dayIndices.length === 0) return
+  if (shiftIndex === -1) {
+    console.warn(`[BaseScheduleView] 無效的班別代碼: ${shiftCode}`)
+    return
+  }
+
+  // ✨ [修改] 允許沒有頻率的病人單次排入
+  if (dayIndices.length === 0) {
+    console.log(`[BaseScheduleView] 病人 ${patient.name} 無有效頻率，將進行單次排班`)
+    // 這裡我們需要一個方法來確定要排在哪一天，目前智慧排床是基於頻率的。
+    // 為了安全起見，提示用戶手動排班。
+    alertDialogTitle.value = '智慧排床提示'
+    alertDialogMessage.value = `病人 ${patient.name} 沒有設定常規頻率，請從空床位手動點擊排入。`
+    isAlertDialogVisible.value = true
+    return
+  }
 
   const newSchedule = { ...masterRecord.value.schedule }
   dayIndices.forEach((dayIndex) => {
@@ -467,7 +477,6 @@ function onDrop(event, targetSlotId) {
   const targetSlotData = newSchedule[targetSlotId]
 
   if (targetSlotData && targetSlotData.patientId) {
-    // 交換位置
     console.log(`🔄 [BaseScheduleView] 拖拽交換: ${sourceSlotId} <-> ${targetSlotId}`)
     const sourceSlotData = { ...newSchedule[sourceSlotId] }
     newSchedule[targetSlotId] = {
@@ -481,7 +490,6 @@ function onDrop(event, targetSlotId) {
       sourceSlotId: undefined,
     }
   } else {
-    // 移動到空位
     console.log(`➡️ [BaseScheduleView] 拖拽移動: ${sourceSlotId} -> ${targetSlotId}`)
     newSchedule[targetSlotId] = { ...itemToDrop, shiftId: targetSlotId, sourceSlotId: undefined }
     delete newSchedule[sourceSlotId]
@@ -507,38 +515,33 @@ function onDragStart(event, slotId) {
   event.dataTransfer.effectAllowed = 'move'
 }
 
-// ✨ 核心優化 5: 優化資料載入功能 ✨
 async function loadAllData() {
   console.log('🚀 [BaseScheduleView] 組件已掛載，開始初始化...')
   statusText.value = '讀取中...'
 
   try {
-    console.log('🔄 [BaseScheduleView] 開始載入常規班表資料...')
+    console.log('🔄 [BaseScheduleView] 開始載入總床位表資料...')
 
-    // 使用優化 API 載入病人和備忘錄
     const [patients, memos] = await Promise.all([
-      optimizedFetchAllPatients([where('status', '==', 'opd'), where('isDeleted', '==', false)]),
+      optimizedFetchAllPatients([where('isDeleted', '==', false)]),
       optimizedFetchAllMemos([where('status', '==', 'pending')]),
     ])
 
-    // ✨ 新增：雙重檢查確保只有門診病人 ✨
-    const opdOnlyPatients = patients.filter((p) => p.status === 'opd' && !p.isDeleted)
     console.log(
-      `🔍 [BaseScheduleView] 過濾檢查: 原始 ${patients.length} 位 -> 門診 ${opdOnlyPatients.length} 位`,
+      `🔍 [BaseScheduleView] 過濾檢查: 載入 ${patients.length} 位可排班病人 (門診/住院/急診)`,
     )
 
-    // 使用舊 API 載入基礎排程（等待後續優化）
     const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
 
     console.log(`✅ [BaseScheduleView] 資料載入完成:`)
-    console.log(`   - 患者: ${opdOnlyPatients.length} 位 (僅門診)`)
+    console.log(`   - 患者: ${patients.length} 位`)
     console.log(`   - 備忘錄: ${memos.length} 筆`)
     console.log(`   - 基礎排程: ${baseScheduleDoc ? '已載入' : '無資料'}`)
 
-    allOpdPatients.value = opdOnlyPatients
+    allPatients.value = patients
     activeMemos.value = memos
 
-    const tempPatientMap = new Map(opdOnlyPatients.map((p) => [p.id, p]))
+    const tempPatientMap = new Map(patients.map((p) => [p.id, p]))
 
     if (baseScheduleDoc) {
       const loadedSchedule = baseScheduleDoc.schedule || {}
@@ -564,23 +567,25 @@ async function loadAllData() {
       console.log(`📊 [BaseScheduleView] 處理完成: ${validSlotCount} 個有效床位排班`)
       masterRecord.value = { id: baseScheduleDoc.id, schedule: finalSchedule }
     } else {
-      console.log(`📝 [BaseScheduleView] 初始化空白常規班表`)
+      console.log(`📝 [BaseScheduleView] 初始化空白總床位表`)
       masterRecord.value = { schedule: {} }
     }
 
-    statusText.value = '常規床位已載入'
+    statusText.value = '總床位表已載入'
   } catch (error) {
     console.error('❌ [BaseScheduleView] 載入資料失敗:', error)
     statusText.value = '讀取失敗'
   }
 }
 
+// ✨ [修改] 增強的排程檢查邏輯
 function runBedCheck() {
   console.log(`🔍 [BaseScheduleView] 執行床位檢查...`)
-  const validationResult = { freqMismatch: [], duplicates: [] }
+  // ✨ [修改] 新增 unassignedCrucial 用於存放未排床的住院/急診病人
+  const validationResult = { freqMismatch: [], duplicates: [], unassignedCrucial: [] }
   const patientSchedules = {}
+  const scheduledPatientIds = new Set()
 
-  // 收集所有病人的排班
   for (const slotId in masterRecord.value.schedule) {
     const slotData = masterRecord.value.schedule[slotId]
     if (slotData?.patientId) {
@@ -588,13 +593,22 @@ function runBedCheck() {
         patientSchedules[slotData.patientId] = []
       }
       patientSchedules[slotData.patientId].push(slotId)
+      scheduledPatientIds.add(slotData.patientId)
     }
   }
 
-  // 檢查頻率是否符合
+  // ✨ [修改] 新增檢查：遍歷所有病人，找出未排床的住院/急診病人
+  allPatients.value.forEach((p) => {
+    if ((p.status === 'ipd' || p.status === 'er') && !scheduledPatientIds.has(p.id)) {
+      validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
+    }
+  })
+
+  // 檢查門診頻率是否符合
   for (const patientId in patientSchedules) {
     const patient = patientMap.value.get(patientId)
-    if (!patient || !patient.freq) continue
+    // 只檢查門診病人的頻率
+    if (!patient || !patient.freq || patient.status !== 'opd') continue
 
     const scheduledDays = new Set(
       patientSchedules[patientId].map((slotId) => parseInt(slotId.split('-')[2], 10)),
@@ -607,7 +621,7 @@ function runBedCheck() {
     if (JSON.stringify(actualDaysArray) !== JSON.stringify(expectedDaysArray)) {
       const actualDaysText = actualDaysArray.map((d) => WEEKDAYS[d].replace('星期', '')).join('')
       validationResult.freqMismatch.push(
-        `病人 ${patient.name} (應排 ${patient.freq})，卻排在 ${actualDaysText}。`,
+        `${patient.name} (應排 ${patient.freq})，卻排在 ${actualDaysText}。`,
       )
     }
   }
@@ -631,9 +645,7 @@ function runBedCheck() {
     }
   }
 
-  console.log(
-    `✅ [BaseScheduleView] 床位檢查完成: 頻率不符 ${validationResult.freqMismatch.length} 個, 重複排班 ${validationResult.duplicates.length} 個`,
-  )
+  console.log(`✅ [BaseScheduleView] 床位檢查完成`, validationResult)
   return validationResult
 }
 
@@ -696,12 +708,11 @@ onMounted(loadAllData)
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">常規門診床位表</h1>
+          <h1 class="page-title">門住總床位表</h1>
           <button class="btn btn-warning" @click="handleScheduleCheck">排程檢視</button>
           <button class="btn btn-info" @click="openBedAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
-          <!-- ✨ 5. 加入搜尋框的 HTML 結構 ✨ -->
           <div class="search-container">
             <input
               type="text"
@@ -767,7 +778,7 @@ onMounted(loadAllData)
           @update:column-widths="updateColumnWidths"
           @update:left-offset="updateLeftOffset"
         />
-        <div v-else class="loading-state">正在載入常規班表資料...</div>
+        <div v-else class="loading-state">正在載入總床位表資料...</div>
       </div>
     </main>
 
@@ -779,7 +790,7 @@ onMounted(loadAllData)
     />
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
-      :all-patients="allOpdPatients"
+      :all-patients="allPatients"
       :bed-layout="bedLayout"
       :schedule-data="masterRecord ? masterRecord.schedule : {}"
       :shifts="SHIFTS"
@@ -791,8 +802,8 @@ onMounted(loadAllData)
     />
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
-      title="選擇病人排班 (常規)"
-      :patients="allOpdPatients"
+      title="選擇病人排班 (總表)"
+      :patients="allPatients"
       :show-fill-options="true"
       :is-page-locked="isPageLocked"
       @confirm="handlePatientSelect"
@@ -821,22 +832,19 @@ onMounted(loadAllData)
   </div>
 </template>
 
-<!-- ✨ 6. 新增搜尋框與高亮效果的 CSS 樣式 ✨ -->
 <style scoped>
-/* 搜尋容器的樣式 */
 .search-container {
   position: relative;
   display: inline-block;
 }
 
 .patient-search-input {
-  /* 讓樣式與其他按鈕對齊 */
   padding: 8px 16px;
   border: 1px solid #ced4da;
   border-radius: 6px;
   width: 220px;
-  height: 45px; /* 與按鈕同高 */
-  box-sizing: border-box; /* 確保 padding 不會增加總寬高 */
+  height: 45px;
+  box-sizing: border-box;
   transition: all 0.2s;
   font-size: 1rem;
 }
@@ -846,7 +854,6 @@ onMounted(loadAllData)
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
-/* 搜尋結果下拉選單 */
 .search-results {
   position: absolute;
   top: 100%;
@@ -879,7 +886,6 @@ onMounted(loadAllData)
   background-color: #f0f0f0;
 }
 
-/* 高亮閃爍效果的 Keyframes 動畫 */
 @keyframes highlight-animation {
   0% {
     background-color: #fffbe3;
@@ -891,12 +897,10 @@ onMounted(loadAllData)
   }
 }
 
-/* 應用動畫的 class */
 :deep(.highlight-flash) {
   animation: highlight-animation 2s ease-out;
 }
 
-/* -- 原有樣式保持不變 -- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -908,7 +912,6 @@ onMounted(loadAllData)
   flex-shrink: 0;
   padding: 0 0 10px 0;
   box-sizing: border-box;
-  /* border-bottom: 1px solid #dee2e6; */
 }
 .header-toolbar {
   display: flex;

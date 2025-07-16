@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (修改後，支援門住總床位表) -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="emit('close')">
@@ -38,7 +39,6 @@
                       :class="{ selected: patient.id === selectedPatientId }"
                       @click="handlePatientClick(patient.id)"
                     >
-                      <!-- 【修正點 3-1】: 顯示病人姓名和狀態 -->
                       <span class="patient-info-name"
                         >{{ patient.name }} ({{
                           patient.status === 'ipd'
@@ -48,7 +48,6 @@
                               : patient.freq || 'N/A'
                         }})</span
                       >
-                      <!-- 【修正點 3-2】: 顯示病人疾病標籤 -->
                       <div
                         v-if="patient.diseases && patient.diseases.length > 0"
                         class="disease-tags-container"
@@ -101,7 +100,6 @@
                 >
                   <h5>{{ shiftDisplayNames[shiftCode] }}</h5>
                   <ul v-if="beds.length > 0" class="item-list bed-list">
-                    <!-- 【修正點 2-1】: 綁定 class，判斷是否為肝炎床 -->
                     <li
                       v-for="bed in beds"
                       :key="bed"
@@ -209,25 +207,49 @@ watch(
 )
 
 // --- Computed Properties ---
+// ✨ [修改] 核心修改點：重構 patientGroups 的邏輯
 const patientGroups = computed(() => {
   if (props.predefinedPatientGroups) {
     return props.predefinedPatientGroups
   }
+
+  // ✨ 當在「門住總床位表」(base) 或「週排班表」(frequency) 使用時
   if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
-    const unassigned = props.allPatients.filter((p) => {
+    const groups = {
+      '門診 (有頻率)': [],
+      '住院/急診 (有頻率)': [],
+      '其他 (無頻率)': [],
+    }
+
+    const unassignedPatients = props.allPatients.filter((p) => {
       const baseCondition =
-        !p.isDeleted &&
-        !p.isDiscontinued &&
-        p.status === 'opd' &&
-        !localAssignedPatientIds.value.has(p.id)
+        !p.isDeleted && !p.isDiscontinued && !localAssignedPatientIds.value.has(p.id)
       if (!baseCondition) return false
+
       if (selectedFreq.value === 'all') {
-        return !!p.freq
+        return true
       }
       return p.freq === selectedFreq.value
     })
-    return { 未排床門診: unassigned }
+
+    unassignedPatients.forEach((p) => {
+      // 檢查病人是否有有效的、可排程的頻率
+      if (p.freq && props.freqMap[p.freq]) {
+        if (p.status === 'opd') {
+          groups['門診 (有頻率)'].push(p)
+        } else if (p.status === 'ipd' || p.status === 'er') {
+          groups['住院/急診 (有頻率)'].push(p)
+        }
+      } else {
+        // 沒有頻率或頻率無效的病人歸入此類
+        groups['其他 (無頻率)'].push(p)
+      }
+    })
+
+    return groups
   }
+
+  // ✨ 當在「每日排程表」(singleDay) 使用時，邏輯保持不變
   if (props.assignmentMode === 'singleDay') {
     const groups = {
       '今日應排 - 急診': [],
@@ -243,8 +265,6 @@ const patientGroups = computed(() => {
       if (p.isDeleted || localAssignedPatientIds.value.has(p.id) || p.isDiscontinued) {
         return
       }
-
-      // 【修正點 1-1】: 統一使用 shouldPatientBeScheduled 進行判斷
       const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
 
       if (shouldSchedule) {
@@ -267,6 +287,9 @@ const availableBeds = computed(() => {
 
   const patient = props.allPatients.find((p) => p.id === selectedPatientId.value)
   if (!patient) return {}
+
+  // ✨ [修改] 新增保護：如果選擇的病人沒有頻率，則不顯示可用空床
+  if (!patient.freq) return {}
 
   let bedsToConsider = []
   if (props.assignmentMode === 'singleDay' || props.assignmentMode === 'frequency') {
@@ -322,7 +345,6 @@ const availableBeds = computed(() => {
 })
 
 // --- Functions ---
-// 【修正點 2-2】: 建立判斷肝炎床的函式
 const hepatitisBedNumbers = [31, 32, 33, 35, 36]
 function isHepatitisBed(bedNum) {
   return typeof bedNum === 'number' && hepatitisBedNumbers.includes(bedNum)
@@ -360,7 +382,6 @@ function handleBedClick(bedNum, shiftCode) {
 }
 
 function shouldPatientBeScheduled(patient, dayOfWeek) {
-  // 對於臨時病人，他們總是應該被考慮排班
   if (patient.freq === '臨時') {
     return true
   }
@@ -377,7 +398,7 @@ const shiftDisplayNames = {
 </script>
 
 <style scoped>
-/* Dialog Overlay and Content */
+/* 樣式無需修改，保持原樣即可 */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -405,7 +426,6 @@ const shiftDisplayNames = {
   overflow: hidden;
 }
 
-/* Dialog Header */
 .dialog-header {
   display: flex;
   justify-content: space-between;
@@ -436,7 +456,6 @@ const shiftDisplayNames = {
   color: #000;
 }
 
-/* Dialog Body and Grid Layout */
 .dialog-body {
   overflow: hidden;
   display: flex;
@@ -485,7 +504,6 @@ const shiftDisplayNames = {
   margin: 0;
 }
 
-/* Patient List Styles */
 .patient-groups-container {
   overflow-y: auto;
   flex-grow: 1;
@@ -517,7 +535,6 @@ const shiftDisplayNames = {
   cursor: pointer;
   transition: all 0.2s ease-in-out;
   background-color: #fff;
-  /* 【修正點 3-3】: 讓內容垂直排列 */
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -559,7 +576,6 @@ const shiftDisplayNames = {
   font-weight: 500;
 }
 
-/* Bed List Styles */
 .bed-results-grid {
   display: flex;
   flex-direction: column;
@@ -595,10 +611,9 @@ const shiftDisplayNames = {
   transform: scale(1.05);
   border-color: #81d4fa;
 }
-/* 【修正點 2-3】: 肝炎床位的樣式 */
 .bed-list li.hepatitis-bed {
-  background-color: #fff9c4; /* 黃色背景 */
-  color: #f57f17; /* 深黃色文字 */
+  background-color: #fff9c4;
+  color: #f57f17;
   border-color: #fff176;
 }
 .bed-list li.hepatitis-bed:hover {
@@ -606,7 +621,6 @@ const shiftDisplayNames = {
   border-color: #ffeb3b;
 }
 
-/* Empty State Styles */
 .empty-state,
 .empty-state-full {
   display: flex;
