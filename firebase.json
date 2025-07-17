@@ -1,32 +1,26 @@
 {
-  // ✨ --- 新增這個區塊 --- ✨
-  // 告訴 Firebase CLI 您的 Firestore 規則檔案在哪裡
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-
-  // ✨ --- 新增這整個 emulators 物件 --- ✨
-  // 這是用來設定本地模擬器的
   "emulators": {
     "auth": {
-      "port": 9199 // ✨ 從 9099 改成 9199
+      "port": 9199
     },
     "functions": {
-      "port": 5101 // ✨ 從 5001 改成 5101
+      "port": 5101
     },
     "firestore": {
-      "port": 8180 // ✨ 從 8080 改成 8180
+      "port": 8180
     },
     "hosting": {
-      "port": 5100 // ✨ 從 5000/5005 改成 5100
+      "port": 5100
     },
     "ui": {
       "enabled": true,
-      "port": 4100 // ✨ 從 4000/4001 改成 4100
+      "port": 4100
     }
   },
-
   "hosting": [
     {
       "target": "production",
