@@ -34,7 +34,9 @@ if (import.meta.env.DEV) {
   console.log('🔥 Running in development mode, connecting to emulators...')
 
   // ✨ 同步修改成新的 Port
-  connectAuthEmulator(auth, 'http://127.0.0.1:9199')
+  connectAuthEmulator(auth, 'http://127.0.0.1:9199', {
+    disableAppCheck: true,
+  })
   connectFirestoreEmulator(db, '127.0.0.1', 8180)
   connectFunctionsEmulator(functions, '127.0.0.1', 5101)
 }
