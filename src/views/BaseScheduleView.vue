@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終完整版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (修正顏色顯示優先級 - 完整無省略) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -169,14 +169,6 @@ const FREQ_MAP_TO_DAY_INDEX = {
   三六: [2, 5],
   一五: [0, 4],
   二六: [1, 5],
-}
-const STYLE_PRIORITY = {
-  抽: { class: 'tag-chou' },
-  新: { class: 'tag-new' },
-  住: { class: 'tag-ip' },
-  換: { class: 'tag-huan' },
-  兩: { class: 'tag-liang' },
-  B: { class: 'tag-b' },
 }
 const ACTION_OPTIONS = [
   { value: 'delete_rule', text: '刪除此排班規則' },
@@ -591,6 +583,8 @@ function handlePatientSelect({ patientId }) {
   currentSlotId.value = null
 }
 
+// 檔案路徑: src/views/BaseScheduleView.vue
+
 function onDrop(event, targetSlotId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -600,32 +594,48 @@ function onDrop(event, targetSlotId) {
   if (!itemToDrop) return
 
   const targetParts = targetSlotId.split('-')
-  const targetRuleId = `${targetParts[0]}-${targetParts[1]}`
-  const sourceRuleId = itemToDrop.sourceRuleId
+  const targetRuleId = `${targetParts[0]}-${targetParts[1]}` // "bedNum-shiftIndex"
+  const sourceRuleId = itemToDrop.sourceRuleId // "bedNum-shiftIndex"
 
+  // 不允許將規則拖放到自己身上
   if (targetRuleId === sourceRuleId) {
     draggedItem.value = null
     return
   }
 
-  const sourceRuleData = { ...masterRecord.value.schedule[sourceRuleId] }
-  const targetRuleData = masterRecord.value.schedule[targetRuleId]
-    ? { ...masterRecord.value.schedule[targetRuleId] }
-    : null
   const newScheduleRules = { ...masterRecord.value.schedule }
+  const targetRuleData = newScheduleRules[targetRuleId]
 
+  // [核心修正] 檢查目標位置是否已被佔用
   if (targetRuleData && targetRuleData.patientId) {
-    console.log(`🔄 [BaseScheduleView] 交換規則: ${sourceRuleId} <-> ${targetRuleId}`)
-    newScheduleRules[targetRuleId] = sourceRuleData
-    newScheduleRules[sourceRuleId] = targetRuleData
-  } else {
-    console.log(`➡️ [BaseScheduleView] 移動規則: ${sourceRuleId} -> ${targetRuleId}`)
-    newScheduleRules[targetRuleId] = sourceRuleData
-    delete newScheduleRules[sourceRuleId]
+    // 如果目標位置有病人，則彈出提示並中止操作
+    const existingPatient = patientMap.value.get(targetRuleData.patientId)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `目標床位已被 ${existingPatient?.name || '未知病人'} 佔用，無法放置。`
+    isAlertDialogVisible.value = true
+
+    // 清理拖曳狀態
+    draggedItem.value = null
+    return // 中止函式執行
   }
 
+  // 如果目標位置是空的，則執行「移動」操作
+  console.log(`➡️ [BaseScheduleView] 移動規則: ${sourceRuleId} -> ${targetRuleId}`)
+
+  // 複製來源規則的資料
+  const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
+
+  // 在新位置建立規則
+  newScheduleRules[targetRuleId] = sourceRuleData
+
+  // 從舊位置刪除規則
+  delete newScheduleRules[sourceRuleId]
+
+  // 更新最終的 schedule 物件
   masterRecord.value.schedule = newScheduleRules
   setChange()
+
+  // 清理拖曳狀態
   draggedItem.value = null
 }
 
@@ -725,21 +735,30 @@ function handleCancel() {
 function getBaseCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
+
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
 
-  const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
-  for (const key in STYLE_PRIORITY) {
-    if (combinedNote.includes(key)) {
-      if (key === '住' || key === '隔' || key === 'R') {
-        return { 'status-ipd': true }
-      }
-      return { [STYLE_PRIORITY[key].class]: true }
-    }
+  // [核心修正] 直接檢查規則 (slotData) 中的 freq 屬性
+  const biweeklyFreqs = ['一四', '二五', '三六', '一五', '二六']
+
+  // 1. 最高優先級：直接檢查頻率是否為一週兩次
+  if (biweeklyFreqs.includes(slotData.freq)) {
+    return { 'status-biweekly': true } // 橘色
   }
-  if (patient.status === 'er') return { 'status-er': true }
-  if (patient.status === 'ipd') return { 'status-ipd': true }
-  if (patient.status === 'opd') return { 'status-opd': true }
+
+  // 2. 如果不是兩次，再根據病人狀態決定顏色
+  if (patient.status === 'ipd') {
+    return { 'status-ipd': true } // 紅色
+  }
+  if (patient.status === 'er') {
+    return { 'status-er': true } // 紫色
+  }
+  if (patient.status === 'opd') {
+    return { 'status-opd': true } // 綠色
+  }
+
+  // 3. 如果沒有任何匹配，則無特殊背景色
   return {}
 }
 
@@ -959,8 +978,9 @@ onMounted(loadAllData)
   background-color: var(--purple-bg, #f3e5f5);
 }
 :deep(.schedule-slot.status-biweekly) {
-  background-color: var(--orange-bg, #fff3e0);
+  background-color: var(--orange-bg, #ffcc80);
 }
+/* 其他 tag class 可以保留，以防未來需要 */
 :deep(.schedule-slot.tag-chou) {
   background-color: #e3f2fd;
 }
