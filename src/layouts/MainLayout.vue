@@ -78,11 +78,17 @@
 </template>
 
 <script setup>
+// [既有程式碼] - 您原有的 import
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { computed } from 'vue'
 import { useNotification } from '@/composables/useNotification.js'
 
+// [新增程式碼] - 為了呼叫 Cloud Function 和監聽狀態
+import { watch } from 'vue'
+import { getFunctions, httpsCallable } from 'firebase/functions'
+
+// [既有程式碼] - 您原有的變數和函式
 const router = useRouter()
 const { currentUser, logout, isAdmin } = useAuth()
 const { notifications, removeNotification } = useNotification()
@@ -106,7 +112,6 @@ function handleLogout() {
   logout()
 }
 
-// 【更新】取得通知類型文字 - 配合改良版通知
 const getTypeText = (type) => {
   switch (type) {
     case 'patient':
@@ -121,9 +126,58 @@ const getTypeText = (type) => {
       return '系統'
   }
 }
+
+// ===================================================================
+// [新增程式碼] - 登入時自動展程的完整邏輯
+// ===================================================================
+const triggerScheduleCheck = async () => {
+  // 檢查 sessionStorage，如果這個瀏覽器分頁已經檢查過，就直接跳過
+  if (sessionStorage.getItem('hasCheckedSchedules')) {
+    console.log('🗓️ [MainLayout] 本次登入階段已檢查過排程，跳過。')
+    return
+  }
+
+  console.log('🚀 [MainLayout] 準備觸發雲端函式 ensureFutureSchedules...')
+  try {
+    const functions = getFunctions()
+    // 'ensureFutureSchedules' 必須與您在 functions/index.js 中定義的函式名稱完全一致
+    const ensureSchedules = httpsCallable(functions, 'ensureFutureSchedules')
+    const result = await ensureSchedules()
+
+    // 成功呼叫後的日誌，可以從瀏覽器開發者工具的 console 中看到
+    console.log('✅ [MainLayout] 雲端函式 ensureFutureSchedules 執行成功:', result.data)
+
+    // 在 sessionStorage 中設定一個標記，防止重複觸發
+    sessionStorage.setItem('hasCheckedSchedules', 'true')
+  } catch (error) {
+    console.error('❌ [MainLayout] 呼叫 ensureFutureSchedules 失敗:', error)
+    // 這裡可以加入一個更友善的錯誤提示，例如使用您的 useNotification composable
+    // addNotification({ type: 'system', message: '自動展程失敗，請聯繫管理員。' })
+  }
+}
+
+// 監聽 useAuth() 回傳的 currentUser 狀態
+watch(
+  () => currentUser.value, // 我們要監聽的是 currentUser 的 .value
+  (newUser) => {
+    if (newUser) {
+      // 當 currentUser 從 null 變為有值時 (表示使用者成功登入)
+      // 就觸發檢查
+      triggerScheduleCheck()
+    } else {
+      // 當 currentUser 從有值變為 null 時 (表示使用者登出)
+      // 清除 sessionStorage 中的標記，以便下次登入時可以重新檢查
+      console.log('🚪 [MainLayout] 使用者已登出，清除排程檢查標記。')
+      sessionStorage.removeItem('hasCheckedSchedules')
+    }
+  },
+  { immediate: true }, // immediate: true 確保在組件一掛載就立即執行一次檢查
+  // 這對處理「F5 重新整理頁面但仍保持登入狀態」的情況非常重要
+)
 </script>
 
 <style scoped>
+/* 您的 CSS 樣式保持不變 */
 .dashboard-container {
   display: flex;
   height: 100vh;

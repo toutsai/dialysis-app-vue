@@ -1,4 +1,4 @@
-// 檔案路徑: functions/index.js (最終修正，確保展程邏輯完美 - 完整無省略)
+// 檔案路徑: functions/index.js (已加入前端觸發的 onCall 函式)
 
 // 引入 v2 版本的函式模組
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
@@ -83,7 +83,7 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
 }
 
 // ===================================================================
-// Scheduled Functions (定時執行的函式)
+// Scheduled Functions (定時執行的函式 - 系統的保險)
 // ===================================================================
 
 /**
@@ -96,6 +96,7 @@ exports.checkExpiredMemos = onSchedule(
     timeZone: 'Asia/Taipei',
   },
   async (event) => {
+    // ... (此函式邏輯不變)
     logger.info('開始執行每日備忘錄到期檢查...')
     const todayStr = formatDateForQuery(new Date())
     try {
@@ -124,43 +125,59 @@ exports.checkExpiredMemos = onSchedule(
 
 /**
  * @name initializeFutureSchedules
- * @description 每日確保未來60天的排程文件存在
+ * @description 【每日定時管家】每日確保未來60天的排程文件存在
  */
 exports.initializeFutureSchedules = onSchedule(
   {
     schedule: 'every day 03:00',
     timeZone: 'Asia/Taipei',
+    timeoutSeconds: 540,
+    memory: '1GiB',
   },
   async (event) => {
     logger.info('🚀 [initializeFutureSchedules] 開始執行未來60天排程初始化...')
     const schedulesRef = db.collection('schedules')
     const today = new Date()
-    const datesToCheck = []
 
-    for (let i = 0; i < 60; i++) {
+    // --- 核心修正：將 60 天的日期分成兩批 ---
+    const datesToCheck_part1 = []
+    for (let i = 0; i < 30; i++) {
       const targetDate = new Date()
       targetDate.setDate(today.getDate() + i)
-      datesToCheck.push(formatDateForQuery(targetDate))
+      datesToCheck_part1.push(formatDateForQuery(targetDate))
+    }
+    const datesToCheck_part2 = []
+    for (let i = 30; i < 60; i++) {
+      const targetDate = new Date()
+      targetDate.setDate(today.getDate() + i)
+      datesToCheck_part2.push(formatDateForQuery(targetDate))
     }
 
     try {
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
-      if (!masterScheduleDoc.exists) {
-        logger.warn('⚠️ 找不到 MASTER_SCHEDULE，無法初始化。')
-        return null
+      let masterRules = {}
+      if (masterScheduleDoc.exists) {
+        logger.info('✅ 成功讀取 MASTER_SCHEDULE 規則。')
+        masterRules = masterScheduleDoc.data().schedule || {}
+      } else {
+        logger.warn('⚠️ 找不到 MASTER_SCHEDULE，將使用空規則來產生空白排程。')
       }
-      const masterRules = masterScheduleDoc.data().schedule || {}
 
-      const snapshot = await schedulesRef.where('date', 'in', datesToCheck).get()
-      const existingDates = new Set(snapshot.docs.map((doc) => doc.data().date))
-      const datesToCreate = datesToCheck.filter((dateStr) => !existingDates.has(dateStr))
+      // --- 核心修正：分兩次查詢，並合併結果 ---
+      const snapshot_part1 = await schedulesRef.where('date', 'in', datesToCheck_part1).get()
+      const snapshot_part2 = await schedulesRef.where('date', 'in', datesToCheck_part2).get()
+
+      const existingDocs = [...snapshot_part1.docs, ...snapshot_part2.docs]
+      const existingDates = new Set(existingDocs.map((doc) => doc.data().date))
+      const allDatesToCheck = [...datesToCheck_part1, ...datesToCheck_part2]
+      const datesToCreate = allDatesToCheck.filter((dateStr) => !existingDates.has(dateStr))
 
       if (datesToCreate.length === 0) {
-        logger.info('✅ 所有未來60天排程均已存在。')
+        logger.info('✅ 所有未來60天排程均已存在，無需操作。')
         return null
       }
 
-      logger.info(`⏳ 發現 ${datesToCreate.length} 個缺失排程，正在創建...`)
+      logger.info(`⏳ 發現 ${datesToCreate.length} 個缺失的每日排程，正在創建...`)
       const batch = db.batch()
       datesToCreate.forEach((dateStr) => {
         const dateParts = dateStr.split('-')
@@ -175,7 +192,7 @@ exports.initializeFutureSchedules = onSchedule(
         })
       })
       await batch.commit()
-      logger.info(`✅ 成功創建了 ${datesToCreate.length} 個排程文件。`)
+      logger.info(`✅ 成功創建了 ${datesToCreate.length} 個每日排程文件。`)
     } catch (error) {
       logger.error('❌ 排程初始化失敗:', error)
     }
@@ -184,7 +201,7 @@ exports.initializeFutureSchedules = onSchedule(
 )
 
 // ===================================================================
-// Callable Functions (可由前端呼叫的函式)
+// Callable Functions (可由前端呼叫的函式 - 滿足即時性需求)
 // ===================================================================
 
 /**
@@ -192,6 +209,7 @@ exports.initializeFutureSchedules = onSchedule(
  * @description 自訂登入的雲端函式
  */
 exports.customLogin = onCall(async (request) => {
+  // ... (此函式邏輯不變)
   const { username, password } = request.data
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供帳號和密碼。')
@@ -222,6 +240,88 @@ exports.customLogin = onCall(async (request) => {
   }
 })
 
+/**
+ * @name ensureFutureSchedules
+ * @description 【前端觸發助理】確保未來60天排程存在，處理冷啟動或即時需求
+ */
+exports.ensureFutureSchedules = onCall(
+  { timeoutSeconds: 300, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
+    }
+
+    logger.info(
+      `🚀 [ensureFutureSchedules] 由使用者 ${request.auth.uid} 觸發，開始檢查未來60天排程...`,
+    )
+    const schedulesRef = db.collection('schedules')
+    const today = new Date()
+
+    // --- 核心修正：將 60 天的日期分成兩批 ---
+    const datesToCheck_part1 = [] // 第 1-30 天
+    for (let i = 0; i < 30; i++) {
+      const targetDate = new Date()
+      targetDate.setDate(today.getDate() + i)
+      datesToCheck_part1.push(formatDateForQuery(targetDate))
+    }
+
+    const datesToCheck_part2 = [] // 第 31-60 天
+    for (let i = 30; i < 60; i++) {
+      const targetDate = new Date()
+      targetDate.setDate(today.getDate() + i)
+      datesToCheck_part2.push(formatDateForQuery(targetDate))
+    }
+
+    try {
+      let masterRules = {}
+      const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
+
+      if (masterScheduleDoc.exists) {
+        masterRules = masterScheduleDoc.data().schedule || {}
+        logger.info(`🔍 [ensureFutureSchedules] 成功載入 MASTER_SCHEDULE 規則。`)
+      } else {
+        logger.warn('⚠️ [ensureFutureSchedules] 找不到 MASTER_SCHEDULE 文件，將創建空白排程。')
+      }
+
+      // --- 核心修正：分兩次查詢，並合併結果 ---
+      const snapshot_part1 = await schedulesRef.where('date', 'in', datesToCheck_part1).get()
+      const snapshot_part2 = await schedulesRef.where('date', 'in', datesToCheck_part2).get()
+
+      const existingDocs = [...snapshot_part1.docs, ...snapshot_part2.docs]
+      const existingDates = new Set(existingDocs.map((doc) => doc.data().date))
+      const allDatesToCheck = [...datesToCheck_part1, ...datesToCheck_part2]
+      const datesToCreate = allDatesToCheck.filter((dateStr) => !existingDates.has(dateStr))
+
+      if (datesToCreate.length === 0) {
+        logger.info('✅ [ensureFutureSchedules] 所有未來60天排程均已存在，無需操作。')
+        return { success: true, message: '所有排程均已存在。', createdCount: 0 }
+      }
+
+      logger.info(`⏳ [ensureFutureSchedules] 發現 ${datesToCreate.length} 個缺失排程，正在創建...`)
+      const batch = db.batch()
+      datesToCreate.forEach((dateStr) => {
+        const dateParts = dateStr.split('-')
+        const targetDate = new Date(dateParts[0], parseInt(dateParts[1], 10) - 1, dateParts[2])
+        const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+        const newDocRef = schedulesRef.doc(dateStr)
+        batch.set(newDocRef, {
+          date: dateStr,
+          schedule: dailySchedule,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        })
+      })
+      await batch.commit()
+      const successMsg = `成功創建了 ${datesToCreate.length} 個排程文件。`
+      logger.info(`✅ [ensureFutureSchedules] ${successMsg}`)
+      return { success: true, message: successMsg, createdCount: datesToCreate.length }
+    } catch (error) {
+      logger.error('❌ [ensureFutureSchedules] 執行失敗:', error)
+      throw new HttpsError('internal', '伺服器展程時發生錯誤。', { details: error.message })
+    }
+  },
+)
+
 // ===================================================================
 // Firestore Triggers (資料庫觸發的函式)
 // ===================================================================
@@ -233,8 +333,8 @@ exports.customLogin = onCall(async (request) => {
 exports.syncMasterScheduleToFuture = onDocumentUpdated(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
+    // ... (此函式邏輯不變)
     logger.info('🚀 [syncMasterSchedule] 觸發器成功啟動！')
-
     const beforeSchedule = event.data.before.data().schedule || {}
     const afterSchedule = event.data.after.data().schedule || {}
 
@@ -254,13 +354,6 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       const dateStr = formatDateForQuery(targetDate)
       const newDailySchedule = generateDailyScheduleFromRules(latestRules, targetDate)
       const dailyDocRef = db.collection('schedules').doc(dateStr)
-
-      // [核心修正] 使用 .update() 方法
-      // .update() 會用提供的物件「完全替換」指定的欄位。
-      // 在這裡，它會將 Firestore 中舊的整個 'schedule' map，
-      // 完全替換為我們新產生的 'newDailySchedule' map。
-      // 這就實現了真正的「覆蓋」，而不是「合併」。
-      // 前提是 `initializeFutureSchedules` 函式確保了這些文件都已存在。
       batch.update(dailyDocRef, {
         schedule: newDailySchedule,
         lastSynced: FieldValue.serverTimestamp(),
@@ -276,7 +369,6 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
         '⚠️ 錯誤可能原因：某個日期的排程文件不存在，導致 update 操作失敗。請檢查 initializeFutureSchedules 是否正常運作。',
       )
     }
-
     return null
   },
 )
