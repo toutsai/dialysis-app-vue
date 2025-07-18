@@ -826,7 +826,7 @@ async function saveChangesToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存！'
-    addNotification(`修改護理分組: ${currentRecord.date}`, 'stats')
+    addNotification(`修改護理分組: ${currentRecord.date}`, 'team')
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
@@ -1035,7 +1035,6 @@ watch(currentDate, (newDate) => {
   }
 }
 .page-container {
-  padding: 1rem;
   box-sizing: border-box;
   position: relative;
 }
