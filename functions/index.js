@@ -1,4 +1,4 @@
-// 檔案路徑: functions/index.js (重構後，支援60天預展 - 完整無省略)
+// 檔案路徑: functions/index.js (最終修正，確保展程邏輯完美 - 完整無省略)
 
 // 引入 v2 版本的函式模組
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
@@ -55,23 +55,26 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
 
   for (const ruleId in masterRules) {
     const rule = masterRules[ruleId]
+    if (!rule || !rule.freq) continue
+
     const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
 
     if (freqDays.includes(systemDayIndex)) {
-      const [bedNum, shiftIndexStr] = ruleId.split('-')
-      const shiftIndex = parseInt(shiftIndexStr, 10)
+      const parts = ruleId.split('-')
+      const shiftIndex = parseInt(parts.pop(), 10)
+      const bedNum = parts.join('-')
+
       const shiftCode = SHIFTS[shiftIndex]
 
-      if (shiftCode) {
-        const dailyShiftId = bedNum.startsWith('peripheral')
-          ? `${bedNum}-${shiftCode}`
-          : `bed-${bedNum}-${shiftCode}`
+      if (bedNum && shiftCode) {
+        const dailyShiftId = `bed-${bedNum}-${shiftCode}`
 
         dailySchedule[dailyShiftId] = {
           patientId: rule.patientId,
           shiftId: shiftCode,
           autoNote: rule.autoNote || '',
           manualNote: rule.manualNote || '',
+          baseRuleId: ruleId,
         }
       }
     }
@@ -129,12 +132,11 @@ exports.initializeFutureSchedules = onSchedule(
     timeZone: 'Asia/Taipei',
   },
   async (event) => {
-    logger.info('🚀 [initializeFutureSchedules] 開始執行未來排程文件初始化任務...')
+    logger.info('🚀 [initializeFutureSchedules] 開始執行未來60天排程初始化...')
     const schedulesRef = db.collection('schedules')
     const today = new Date()
     const datesToCheck = []
 
-    // [核心修正] 將預展天數從 30 改為 60
     for (let i = 0; i < 60; i++) {
       const targetDate = new Date()
       targetDate.setDate(today.getDate() + i)
@@ -144,23 +146,21 @@ exports.initializeFutureSchedules = onSchedule(
     try {
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       if (!masterScheduleDoc.exists) {
-        logger.warn('⚠️ 找不到 MASTER_SCHEDULE 範本，無法初始化排程。')
+        logger.warn('⚠️ 找不到 MASTER_SCHEDULE，無法初始化。')
         return null
       }
       const masterRules = masterScheduleDoc.data().schedule || {}
 
       const snapshot = await schedulesRef.where('date', 'in', datesToCheck).get()
       const existingDates = new Set(snapshot.docs.map((doc) => doc.data().date))
-
       const datesToCreate = datesToCheck.filter((dateStr) => !existingDates.has(dateStr))
 
       if (datesToCreate.length === 0) {
-        logger.info('✅ 所有必要的未來排程均已存在，無需初始化。')
+        logger.info('✅ 所有未來60天排程均已存在。')
         return null
       }
 
-      logger.info(`⏳ 發現 ${datesToCreate.length} 個缺失的排程文件，正在根據總表規則創建...`)
-
+      logger.info(`⏳ 發現 ${datesToCreate.length} 個缺失排程，正在創建...`)
       const batch = db.batch()
       datesToCreate.forEach((dateStr) => {
         const dateParts = dateStr.split('-')
@@ -174,7 +174,6 @@ exports.initializeFutureSchedules = onSchedule(
           updatedAt: FieldValue.serverTimestamp(),
         })
       })
-
       await batch.commit()
       logger.info(`✅ 成功創建了 ${datesToCreate.length} 個排程文件。`)
     } catch (error) {
@@ -248,7 +247,6 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
     const latestRules = afterSchedule
     const batch = db.batch()
 
-    // [核心修正] 將預展天數從 30 改為 60
     for (let i = 0; i < 60; i++) {
       const targetDate = new Date()
       targetDate.setHours(0, 0, 0, 0)
@@ -256,15 +254,17 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       const dateStr = formatDateForQuery(targetDate)
       const newDailySchedule = generateDailyScheduleFromRules(latestRules, targetDate)
       const dailyDocRef = db.collection('schedules').doc(dateStr)
-      batch.set(
-        dailyDocRef,
-        {
-          date: dateStr,
-          schedule: newDailySchedule,
-          lastSynced: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      )
+
+      // [核心修正] 使用 .update() 方法
+      // .update() 會用提供的物件「完全替換」指定的欄位。
+      // 在這裡，它會將 Firestore 中舊的整個 'schedule' map，
+      // 完全替換為我們新產生的 'newDailySchedule' map。
+      // 這就實現了真正的「覆蓋」，而不是「合併」。
+      // 前提是 `initializeFutureSchedules` 函式確保了這些文件都已存在。
+      batch.update(dailyDocRef, {
+        schedule: newDailySchedule,
+        lastSynced: FieldValue.serverTimestamp(),
+      })
     }
 
     try {
@@ -272,6 +272,9 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       logger.info('✅ 同步完成！已使用最新規則更新未來60天的排程。')
     } catch (error) {
       logger.error('❌ 同步未來排程時發生錯誤:', error)
+      logger.error(
+        '⚠️ 錯誤可能原因：某個日期的排程文件不存在，導致 update 操作失敗。請檢查 initializeFutureSchedules 是否正常運作。',
+      )
     }
 
     return null

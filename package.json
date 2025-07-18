@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "lint": "eslint . --fix",
     "format": "prettier --write src/",
+    "run:init-schedules": "firebase functions:scheduler:run initializefutureschedules",
     "// --- 獨立的、精準的部署指令 (用於單獨更新) ---": "",
     "deploy:hosting:prod": "firebase deploy --only hosting:production",
     "deploy:hosting:dev": "firebase deploy --only hosting:develop",

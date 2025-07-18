@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (修正渲染邏輯 - 完整無省略) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (最終重構，直接讀取 schedule - 完整無省略) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -13,7 +13,11 @@
             <button @click="goToToday">回到今日</button>
           </div>
           <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
-          <button class="btn btn-info" @click="openAssignmentDialog" :disabled="isPageLocked">
+          <button
+            class="btn btn-info"
+            @click="isAssignmentDialogVisible = true"
+            :disabled="isPageLocked"
+          >
             智慧排床
           </button>
           <button
