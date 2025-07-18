@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (升級版) -->
 <script setup>
 import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue'
 import { where } from 'firebase/firestore' // ✨ --- 新增這一行 --- ✨
@@ -163,6 +162,9 @@ const patientNameForDialog = ref('')
 const searchQuery = ref('')
 const isSearchFocused = ref(false)
 
+// --- [新增] BedAssignmentDialog 的 Context ---
+const assignmentContext = ref({ mode: 'weekly', patient: null, originalSlotId: null })
+
 // --- Auth ---
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
@@ -212,9 +214,11 @@ const statsToolbarData = computed(() => {
           if (slotData && slotData.patientId && slotData.shiftId) {
             const patient = localPatientMap.get(slotData.patientId)
             if (!patient) continue
-            const shiftCode = slotData.shiftId.split('-')[2]
-            const shiftStats = baseData[dayIndex].counts[shiftCode]
-            if (shiftStats) {
+            // 修正: 確保 shiftId 存在且格式正確
+            const shiftIdParts = slotData.shiftId.split('-')
+            const shiftCode = shiftIdParts.length > 0 ? shiftIdParts[shiftIdParts.length - 1] : null
+            if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
+              const shiftStats = baseData[dayIndex].counts[shiftCode]
               shiftStats.total++
               baseData[dayIndex].total++
               if (patient.status === 'opd') shiftStats.opd++
@@ -234,28 +238,18 @@ const weekScheduleMap = computed(() => {
     const dailyRecord = weekScheduleRecords.value.get(day.queryDate)
     if (dailyRecord && dailyRecord.schedule) {
       for (const idInDailySchedule in dailyRecord.schedule) {
-        // 使用不同的變數名以示區分
         const slotData = dailyRecord.schedule[idInDailySchedule]
         if (slotData) {
           const parts = idInDailySchedule.split('-')
           let bedNumber, shiftCode, shiftIndex
-
-          // ✨ --- 核心修改點在這裡 --- ✨
-          // 我們現在要同時處理兩種可能的 ID 格式
-
-          // 格式 1: "bed-1-early" 或 "peripheral-1-early" (來自 ScheduleView)
           if (parts[0] === 'bed' || parts[0] === 'peripheral') {
             bedNumber = parts[0] === 'peripheral' ? `${parts[0]}-${parts[1]}` : parts[1]
-            shiftCode = parts[parts.length - 1] // shiftCode 在最後
+            shiftCode = parts[parts.length - 1]
             shiftIndex = SHIFTS.indexOf(shiftCode)
-          }
-          // 格式 2: "1-0-2" (來自 BaseScheduleView 的舊資料)
-          // 透過檢查第一個 part 是否為純數字來判斷
-          else if (!isNaN(parseInt(parts[0], 10))) {
+          } else if (!isNaN(parseInt(parts[0], 10))) {
             bedNumber = parts[0]
             shiftIndex = parseInt(parts[1], 10)
           }
-
           if (bedNumber !== undefined && shiftIndex !== -1 && shiftIndex !== undefined) {
             const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
             combinedSchedule[weeklySlotId] = slotData
@@ -536,7 +530,6 @@ function handleClearSelect(selectedValue) {
   clearingSlotId.value = null
 }
 
-// ✨ [修改] 升級的儲存功能
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -551,7 +544,6 @@ async function saveChangesToCloud() {
     for (const date of weekDates.value.map((d) => d.queryDate)) {
       const dailyRecord = weekScheduleRecords.value.get(date)
       if (dailyRecord) {
-        // 只處理有記錄(可能為空)的日子
         const scheduleToSave = {}
         for (const shiftId in dailyRecord.schedule) {
           const slotData = dailyRecord.schedule[shiftId]
@@ -706,7 +698,6 @@ function goToToday() {
   }
 }
 
-// ✨ [修改] 升級的資料載入功能
 async function loadAllData() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
@@ -735,7 +726,6 @@ async function loadAllData() {
     const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
     const newWeekRecords = new Map()
 
-    // 預先填入本週的所有日期，確保即使是空排程也有紀錄
     weekDates.value.forEach((day) => {
       newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {}, names: {} })
     })
@@ -749,7 +739,6 @@ async function loadAllData() {
             slotData.autoNote = patient ? generateAutoNote(patient) : ''
             slotData.manualNote = slotData.manualNote || ''
           } else if (slotData && slotData.patientId) {
-            // 如果在排程中找到病人，但在病人列表中找不到（可能已被刪除），則將其從排程中移除
             console.warn(
               `[WeeklyView] 在日期 ${record.date} 的排程中發現無效的病人ID ${slotData.patientId}，將其忽略。`,
             )
@@ -793,7 +782,7 @@ function getWeeklyCellStyle(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) return {}
   const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {} // ✨ 新增保護
+  if (!patient) return {}
   const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
   for (const key in STYLE_PRIORITY) {
     if (combinedNote.includes(key)) {
@@ -920,6 +909,12 @@ function runScheduleCheck() {
 
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
+  // [新增] 打開彈窗時，設定好 context
+  assignmentContext.value = {
+    mode: 'weekly-unassigned', // 可以定義一個專屬於週視圖的模式
+    patient: null,
+    originalSlotId: null,
+  }
   isProblemSolverDialogVisible.value = true
 }
 
@@ -952,7 +947,6 @@ onUnmounted(() => {
             </div>
             <div class="main-actions">
               <button @click="goToToday">回到本週</button>
-              <!-- ✨ [修改] 移除"載入常規班表"按鈕 -->
               <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
               <button
                 class="btn btn-info"
@@ -1056,6 +1050,7 @@ onUnmounted(() => {
       :is-page-locked="isPageLocked"
       @close="isProblemSolverDialogVisible = false"
       @assign-bed="handleAssignBed"
+      :context="assignmentContext"
     />
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"

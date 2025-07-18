@@ -126,7 +126,7 @@ export function useAuth() {
           errorPrefix: '登入失敗',
           retryCount: 2,
           retryDelay: 1000,
-          showNotification: true, // 顯示成功或失敗的通知
+          showNotification: false, // 不顯示成功或失敗的通知
         },
       )
       return result
@@ -154,7 +154,7 @@ export function useAuth() {
           successMessage: '已安全登出',
           errorPrefix: '登出失敗',
           retryCount: 1,
-          showNotification: true,
+          showNotification: false, // 不顯示成功或失敗的通知
         },
       )
     } finally {
