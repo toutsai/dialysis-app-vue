@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (最終修正版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (採用 Composable 的最終完整版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -47,7 +47,6 @@
       </div>
       <div class="controls-panel">
         <div class="controls-left">
-          <!-- [修改] 將單一按鈕改為一組按鈕 -->
           <button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
             清除住院病人
           </button>
@@ -320,6 +319,8 @@
       :memos="memosForDialog"
       @close="isMemoDialogVisible = false"
     />
+
+    <!-- ✨ [核心修正] 傳遞 predefined-patient-groups -->
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
       :all-patients="allPatients"
@@ -327,11 +328,14 @@
       :schedule-data="currentRecord.schedule"
       :shifts="ORDERED_SHIFT_CODES"
       :freq-map="freqToDays"
-      :context="{ mode: 'singleDay', dayOfWeek: dayOfWeek }"
+      assignment-mode="singleDay"
+      :day-of-week="dayOfWeek"
+      :predefined-patient-groups="patientGroupsForDialog"
       :is-page-locked="isPageLocked"
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
+
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
       title="選擇病人 (單次排班)"
@@ -370,6 +374,7 @@ import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useNotification } from '@/composables/useNotification.js'
+import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js' // ✨ [核心修正] 引入 Composable
 
 import {
   SHIFT_CODES,
@@ -485,8 +490,6 @@ function formatDate(date) {
   const day = date.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
-// --- Computed Properties ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
@@ -499,6 +502,43 @@ const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
+
+// ✨ [核心修正] 使用 Composable 來進行所有排程分析
+const { scheduledPatientIds, getDailyUnassignedPatients, getDailyTemporaryPatients } =
+  useScheduleAnalysis(
+    allPatients,
+    computed(() => currentRecord.schedule),
+    freqToDays,
+  )
+
+// ✨ [核心修正] 格式化 Composable 的結果，以符合 UI 需求
+const patientGroupsForDialog = computed(() => {
+  const groups = {
+    '今日應排 - 急診': [],
+    '今日應排 - 住院': [],
+    '今日應排 - 門診': [],
+    '今日非排 (臨洗) - 急診': [],
+    '今日非排 (臨洗) - 住院': [],
+    '今日非排 (臨洗) - 門診': [],
+  }
+
+  const dailyUnassigned = getDailyUnassignedPatients(dayOfWeek).value
+  dailyUnassigned.forEach((p) => {
+    if (p.status === 'er') groups['今日應排 - 急診'].push(p)
+    else if (p.status === 'ipd') groups['今日應排 - 住院'].push(p)
+    else if (p.status === 'opd') groups['今日應排 - 門診'].push(p)
+  })
+
+  const dailyTemporary = getDailyTemporaryPatients(dayOfWeek).value
+  dailyTemporary.forEach((p) => {
+    if (p.status === 'er') groups['今日非排 (臨洗) - 急診'].push(p)
+    else if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p)
+    else if (p.status === 'opd') groups['今日非排 (臨洗) - 門診'].push(p)
+  })
+
+  return groups
+})
+
 const statsToolbarData = computed(() => {
   const dailyData = {
     counts: {
@@ -528,14 +568,6 @@ const statsToolbarData = computed(() => {
   return [dailyData]
 })
 const statsToolbarWeekdays = computed(() => ['本日'])
-const scheduledPatientIds = computed(() => {
-  if (!currentRecord.schedule) return new Set()
-  return new Set(
-    Object.values(currentRecord.schedule)
-      .filter((slot) => slot && slot.patientId)
-      .map((slot) => slot.patientId),
-  )
-})
 
 // --- [新增] 新的清除功能 ---
 function clearInpatients() {
@@ -657,7 +689,6 @@ async function loadAllData() {
   }
 }
 
-// [核心修正] 請用這個簡化後的函式替換舊的 saveDataToCloud
 async function saveDataToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -667,7 +698,6 @@ async function saveDataToCloud() {
   }
   statusIndicator.value = '儲存中...'
   try {
-    // 直接使用 currentRecord 中的資料，不再做任何"清理"
     const dataToSave = {
       date: currentRecord.date,
       schedule: currentRecord.schedule || {},
@@ -675,24 +705,20 @@ async function saveDataToCloud() {
     }
 
     if (currentRecord.id) {
-      // 更新現有文件
       await optimizedUpdateSchedule(currentRecord.id, dataToSave)
     } else if (Object.keys(dataToSave.schedule).length > 0) {
-      // 如果是新的一天，且有資料，則創建新文件
       const savedRecord = await optimizedSaveSchedule(dataToSave)
-      currentRecord.id = savedRecord.id // 將新ID存回本地狀態
+      currentRecord.id = savedRecord.id
     }
 
     hasUnsavedChanges.value = false
     statusIndicator.value = '儲存成功！'
 
-    // 發送全局事件，通知其他元件（如週排班總表）更新
     const updateEvent = new CustomEvent('schedule-updated', {
       detail: { date: currentRecord.date },
     })
     window.dispatchEvent(updateEvent)
 
-    // 發送側邊欄通知
     addNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
 
     alertDialogTitle.value = '操作成功'
@@ -944,17 +970,9 @@ function onSidebarDragStart(event, patient) {
   event.dataTransfer.effectAllowed = 'move'
 }
 
-function shouldPatientBeScheduled(patient, dayOfWeek) {
-  if (!patient.freq) return false
-  const scheduledDays = freqToDays[patient.freq]
-  const checkDay = dayOfWeek === 0 ? 7 : dayOfWeek
-  return scheduledDays ? scheduledDays.includes(checkDay) : false
-}
-
 function runScheduleCheck() {
   const warnings = []
-  const dayOfWeek = currentDate.value.getDay()
-  const todayScheduledPatientIds = new Set(scheduledPatientIds.value)
+  const todayScheduledPatientIds = new Set(scheduledPatientIds.value) // Use the one from composable
   const duplicateNames = new Set()
   let tempScheduled = {}
   Object.values(currentRecord.schedule).forEach((slot) => {
@@ -971,17 +989,16 @@ function runScheduleCheck() {
       `【重複排班】:\n- 病人 ${Array.from(duplicateNames).join(', ')} 在本日出現超過一次。`,
     )
   }
-  const allPatientsToCheck = allPatients.value.filter((p) => !p.isDeleted)
-  const missingPatients = allPatientsToCheck.filter((p) => {
-    const shouldBeScheduled = shouldPatientBeScheduled(p, dayOfWeek)
-    return shouldBeScheduled && !todayScheduledPatientIds.has(p.id)
-  })
+
+  // ✨ [核心修正] 直接使用 Composable 的計算結果
+  const missingPatients = getDailyUnassignedPatients(dayOfWeek).value
   if (missingPatients.length > 0) {
     const missingPatientNames = missingPatients
       .map((p) => `${p.name} (${p.status === 'ipd' ? '住院' : '門診'})`)
       .join('\n- ')
     warnings.push(`【未排床病人】:\n- ${missingPatientNames}`)
   }
+
   if (warnings.length > 0) {
     alertDialogTitle.value = '排班檢視警告'
     alertDialogMessage.value = warnings.join('\n\n')
@@ -1085,10 +1102,8 @@ function autoAssignNurseTeams() {
 }
 
 function executeAutoAssignment() {
-  // 1. [核心] 創建一個 currentRecord.schedule 的深層副本 (Clone)
   const scheduleCopy = JSON.parse(JSON.stringify(currentRecord.schedule))
 
-  // 2. 準備一個函式，用來從 "副本" 中提取病人列表
   const getRichPatientList = (shiftCode) => {
     return Object.entries(scheduleCopy)
       .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(shiftCode))
@@ -1108,12 +1123,10 @@ function executeAutoAssignment() {
       .filter(Boolean)
   }
 
-  // 3. 獲取各班別的病人
   const allEarlyPatients = getRichPatientList(SHIFT_CODES.EARLY)
   const allNoonPatients = getRichPatientList(SHIFT_CODES.NOON)
   const allLatePatients = getRichPatientList(SHIFT_CODES.LATE)
 
-  // 4. 準備排序和篩選的輔助函式
   const mainArea = (list) => list.filter((p) => !p.isPeripheral)
   const peripheral = (list) => list.filter((p) => p.isPeripheral)
   const sort = (list) => {
@@ -1127,8 +1140,6 @@ function executeAutoAssignment() {
     return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
   }
 
-  // 5. 建立分組規則 (這部分邏輯不變)
-  // 早班規則
   const earlyMain = mainArea(allEarlyPatients)
   const useEarlyTeamA = earlyMain.length > 36
   const earlyTeamsForDistribution = (
@@ -1148,7 +1159,6 @@ function executeAutoAssignment() {
     },
   }
 
-  // 午班上針規則
   const noonMain = mainArea(allNoonPatients)
   const useNoonTeamA = noonMain.length > 36
   const noonTeamsForDistribution = (
@@ -1168,9 +1178,7 @@ function executeAutoAssignment() {
     },
   }
 
-  // ✨ --- 核心修正 #1：晚班的病人來源 --- ✨
-  // 原本: const lateCombinedMain = [...mainArea(allLatePatients), ...mainArea(allNoonPatients)]
-  const lateMainOnly = mainArea(allLatePatients) // ✨ 只取晚班自己的病人
+  const lateMainOnly = mainArea(allLatePatients)
 
   const lateTeamsForDistribution = baseTeams.slice(0, 8).map((t) => `晚${t}`)
   const lateRules = {
@@ -1187,7 +1195,6 @@ function executeAutoAssignment() {
     },
   }
 
-  // 6. 呼叫分組引擎
   const earlyAssignments = distributePatients(
     sort(earlyMain),
     ['早A', ...earlyTeamsForDistribution, '早H', '早I', '早J', '早K'].filter(Boolean),
@@ -1202,20 +1209,18 @@ function executeAutoAssignment() {
   )
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  // ✨ --- 核心修正 #2：只對晚班病人進行分組 --- ✨
   const lateAssignments = distributePatients(
-    sort(lateMainOnly), // ✨ 使用只包含晚班病人的列表
+    sort(lateMainOnly),
     [...lateTeamsForDistribution, '晚H', '晚I'],
     lateRules,
   )
-  lateAssignments['晚外圍'] = peripheral(allLatePatients) // ✨ 外圍也只分晚班的
+  lateAssignments['晚外圍'] = peripheral(allLatePatients)
 
-  // 7. 將分組結果應用到 "副本" 上
   Object.values(scheduleCopy).forEach((slot) => {
     if (slot) {
       slot.nurseTeam = null
       slot.nurseTeamIn = null
-      slot.nurseTeamOut = null // ✨ 確保每次都清空舊的收針分組
+      slot.nurseTeamOut = null
     }
   })
 
@@ -1229,18 +1234,12 @@ function executeAutoAssignment() {
     }
   }
 
-  // 只應用早班和午班上針的分組
   applyToSchedule(earlyAssignments, 'nurseTeam')
   applyToSchedule(noonOnAssignments, 'nurseTeamIn')
-
-  // ✨ --- 核心修正 #3：只更新晚班病人的 nurseTeam --- ✨
-  // 原本的 for 迴圈被移除，改為更精準的 applyToSchedule
   applyToSchedule(lateAssignments, 'nurseTeam')
 
-  // 8. 用修改完成的副本，一次性地 "替換" 掉原始的 schedule
   currentRecord.schedule = scheduleCopy
 
-  // 9. 標記變更，並通知使用者
   setChange()
   statusIndicator.value = '自動分組完成，請確認並儲存'
   alertDialogTitle.value = '操作成功'

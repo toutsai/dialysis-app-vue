@@ -1,8 +1,157 @@
+<!-- 檔案路徑: src/views/WeeklyView.vue (檔案結構與邏輯修正的最終完整版) -->
+<template>
+  <div>
+    <div class="page-container">
+      <header class="page-header">
+        <div class="header-toolbar">
+          <div class="toolbar-left">
+            <h1 class="page-title">週排班總表</h1>
+            <div class="date-navigator">
+              <button @click="changeWeek(-7)">< 上一週</button>
+              <span class="week-display-text">{{ weekDisplay }}</span>
+              <button @click="changeWeek(7)">下一週 ></button>
+            </div>
+            <div class="main-actions">
+              <button @click="goToToday">回到本週</button>
+              <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
+              <button
+                class="btn btn-info"
+                @click="openBedAssignmentDialog"
+                :disabled="isPageLocked"
+              >
+                智慧排床
+              </button>
+              <div class="search-container">
+                <input
+                  type="text"
+                  v-model="searchQuery"
+                  class="patient-search-input"
+                  placeholder="搜尋病人姓名/病歷號..."
+                  @focus="isSearchFocused = true"
+                  @blur="handleSearchBlur"
+                />
+                <ul v-if="searchResults.length > 0 && isSearchFocused" class="search-results">
+                  <li
+                    v-for="patient in searchResults"
+                    :key="patient.id"
+                    @click="locatePatientOnGrid(patient.id)"
+                  >
+                    {{ patient.name }} - {{ patient.medicalRecordNumber }}
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="main-actions">
+            <span class="status-text">{{ statusText }}</span>
+            <button
+              class="btn-save"
+              :disabled="!hasUnsavedChanges || isPageLocked"
+              @click="saveChangesToCloud"
+            >
+              儲存變更
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <main class="page-main-content">
+        <div class="schedule-area">
+          <div class="stats-toolbar-wrapper" :style="{ paddingLeft: `${leftOffset}px` }">
+            <StatsToolbar
+              :stats-data="statsToolbarData"
+              :weekdays="statsToolbarWeekdays"
+              :column-widths="columnWidths"
+              size="compact"
+            />
+          </div>
+          <ScheduleTable
+            class="schedule-table-component"
+            :layout="bedLayout"
+            :schedule-data="weekScheduleMap"
+            :patient-map="patientMap"
+            :shifts="SHIFTS"
+            :weekdays="WEEKDAYS"
+            :week-dates="weekDates.map((d) => d.date)"
+            :hepatitis-beds="hepatitisBeds"
+            :get-style-func="getWeeklyCellStyle"
+            :is-date-in-past="isDateInPast"
+            :patient-with-memo-ids="patientWithMemoIds"
+            :is-page-locked="isPageLocked"
+            @grid-click="handleGridClick"
+            @drop="onDrop"
+            @drag-start="onDragStart"
+            @drag-over="onDragOver"
+            @dragleave="onDragLeave"
+            @show-memos="showPatientMemos"
+            @update:column-widths="updateColumnWidths"
+            @update:left-offset="updateLeftOffset"
+          />
+        </div>
+        <InpatientSidebar
+          :patients="allPatients"
+          :scheduled-ids="scheduledPatientIds"
+          @drag-start="onSidebarDragStart"
+          :class="{ 'sidebar-locked': isPageLocked }"
+        />
+      </main>
+    </div>
+
+    <!-- Modals -->
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-name="patientNameForDialog"
+      :memos="memosForDialog"
+      @close="isMemoDialogVisible = false"
+    />
+    <BedAssignmentDialog
+      :is-visible="isProblemSolverDialogVisible"
+      :all-patients="allPatients"
+      :bed-layout="bedLayout"
+      :schedule-data="weekScheduleMap"
+      :shifts="SHIFTS"
+      :freq-map="FREQ_MAP_TO_DAY_INDEX"
+      :predefined-patient-groups="problemsToSolve"
+      assignment-mode="frequency"
+      :is-page-locked="isPageLocked"
+      @close="isProblemSolverDialogVisible = false"
+      @assign-bed="handleAssignBed"
+    />
+    <PatientSelectDialog
+      :is-visible="isPatientSelectDialogVisible"
+      title="選擇病人排班"
+      :patients="allPatients"
+      :show-fill-options="true"
+      :is-page-locked="isPageLocked"
+      @confirm="handlePatientSelect"
+      @cancel="isPatientSelectDialogVisible = false"
+    />
+    <SelectionDialog
+      :is-visible="isClearDialogVisible"
+      title="清除排班選項"
+      :options="CLEAR_OPTIONS"
+      @select="handleClearSelect"
+      @cancel="isClearDialogVisible = false"
+    />
+    <AlertDialog
+      :is-visible="isAlertDialogVisible"
+      :title="alertDialogTitle"
+      :message="alertDialogMessage"
+      @confirm="isAlertDialogVisible = false"
+    />
+    <ConfirmDialog
+      :is-visible="isConfirmDialogVisible"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      @confirm="handleConflictConfirm"
+      @cancel="handleConflictCancel"
+    />
+  </div>
+</template>
+
 <script setup>
 import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue'
-import { where } from 'firebase/firestore' // ✨ --- 新增這一行 --- ✨
-
-// ✨ [修改] 引入所有需要的優化服務
+import { where } from 'firebase/firestore'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   fetchAllSchedules as optimizedFetchAllSchedules,
@@ -10,8 +159,8 @@ import {
   updateSchedule as optimizedUpdateSchedule,
   fetchAllMemos as optimizedFetchAllMemos,
 } from '@/services/optimizedApiService.js'
-
 import { useAuth } from '@/composables/useAuth.js'
+import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
 import StatsToolbar from '@/components/StatsToolbar.vue'
@@ -162,13 +311,9 @@ const patientNameForDialog = ref('')
 const searchQuery = ref('')
 const isSearchFocused = ref(false)
 
-// --- [新增] BedAssignmentDialog 的 Context ---
-const assignmentContext = ref({ mode: 'weekly', patient: null, originalSlotId: null })
-
 // --- Auth ---
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
-
 // --- Helper functions for state ---
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
@@ -214,7 +359,6 @@ const statsToolbarData = computed(() => {
           if (slotData && slotData.patientId && slotData.shiftId) {
             const patient = localPatientMap.get(slotData.patientId)
             if (!patient) continue
-            // 修正: 確保 shiftId 存在且格式正確
             const shiftIdParts = slotData.shiftId.split('-')
             const shiftCode = shiftIdParts.length > 0 ? shiftIdParts[shiftIdParts.length - 1] : null
             if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
@@ -261,31 +405,18 @@ const weekScheduleMap = computed(() => {
   return combinedSchedule
 })
 
-const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
-const scheduledPatientIds = computed(() => {
-  const ids = new Set()
-  for (const dailyRecord of weekScheduleRecords.value.values()) {
-    if (dailyRecord && dailyRecord.schedule) {
-      for (const slotData of Object.values(dailyRecord.schedule)) {
-        if (slotData && slotData.patientId) {
-          ids.add(slotData.patientId)
-        }
-      }
-    }
-  }
-  return ids
-})
+const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
+  allPatients,
+  weekScheduleMap,
+  FREQ_MAP_TO_DAY_INDEX,
+)
+
 const problemsToSolve = computed(() => {
-  const unassignedPatients = allPatients.value.filter((patient) => {
-    return (
-      !patient.isDeleted &&
-      !patient.isDiscontinued &&
-      !scheduledPatientIds.value.has(patient.id) &&
-      patient.freq
-    )
-  })
-  return { '未排床病人 (有頻率)': unassignedPatients }
+  return { '本週未排床病人 (有頻率)': globallyUnassignedPatients.value }
 })
+
+const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
+
 const searchResults = computed(() => {
   if (!searchQuery.value) return []
   const query = searchQuery.value.toLowerCase()
@@ -487,6 +618,7 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
         handleSlotUpdate(weeklySlotId, newPatientData)
     }
   })
+  isProblemSolverDialogVisible.value = false // Close dialog after assignment
 }
 
 function handleClearSelect(selectedValue) {
@@ -707,21 +839,14 @@ async function loadAllData() {
     tempDate.setDate(tempDate.getDate() + 5)
     const endDate = formatDateForQuery(tempDate)
 
-    console.log(`🔄 [WeeklyView] 開始載入資料，查詢範圍: ${startDate} ~ ${endDate}`)
-
     const [patients, schedules, memos] = await Promise.all([
       optimizedFetchAllPatients(),
       optimizedFetchAllSchedules([where('date', '>=', startDate), where('date', '<=', endDate)]),
-      optimizedFetchAllMemos(),
+      optimizedFetchAllMemos([where('status', '==', 'pending')]),
     ])
 
-    console.log(`✅ [WeeklyView] 資料載入完成:`)
-    console.log(`   - 患者: ${patients.length} 位`)
-    console.log(`   - 本週排程: ${schedules.length} 天`)
-    console.log(`   - 備忘錄: ${memos.filter((m) => m.status === 'pending').length} 筆`)
-
     allPatients.value = patients.filter((p) => !p.isDeleted)
-    activeMemos.value = memos.filter((memo) => memo.status === 'pending')
+    activeMemos.value = memos
 
     const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
     const newWeekRecords = new Map()
@@ -909,12 +1034,6 @@ function runScheduleCheck() {
 
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
-  // [新增] 打開彈窗時，設定好 context
-  assignmentContext.value = {
-    mode: 'weekly-unassigned', // 可以定義一個專屬於週視圖的模式
-    patient: null,
-    originalSlotId: null,
-  }
   isProblemSolverDialogVisible.value = true
 }
 
@@ -932,157 +1051,6 @@ onUnmounted(() => {
   window.removeEventListener('schedule-updated', handleScheduleUpdate)
 })
 </script>
-
-<template>
-  <div>
-    <div class="page-container">
-      <header class="page-header">
-        <div class="header-toolbar">
-          <div class="toolbar-left">
-            <h1 class="page-title">週排班總表</h1>
-            <div class="date-navigator">
-              <button @click="changeWeek(-7)">< 上一週</button>
-              <span class="week-display-text">{{ weekDisplay }}</span>
-              <button @click="changeWeek(7)">下一週 ></button>
-            </div>
-            <div class="main-actions">
-              <button @click="goToToday">回到本週</button>
-              <button class="btn btn-warning" @click="runScheduleCheck">排程檢視</button>
-              <button
-                class="btn btn-info"
-                @click="openBedAssignmentDialog"
-                :disabled="isPageLocked"
-              >
-                智慧排床
-              </button>
-              <div class="search-container">
-                <input
-                  type="text"
-                  v-model="searchQuery"
-                  class="patient-search-input"
-                  placeholder="搜尋病人姓名/病歷號..."
-                  @focus="isSearchFocused = true"
-                  @blur="handleSearchBlur"
-                />
-                <ul v-if="searchResults.length > 0 && isSearchFocused" class="search-results">
-                  <li
-                    v-for="patient in searchResults"
-                    :key="patient.id"
-                    @click="locatePatientOnGrid(patient.id)"
-                  >
-                    {{ patient.name }} - {{ patient.medicalRecordNumber }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-          <div class="main-actions">
-            <span class="status-text">{{ statusText }}</span>
-            <button
-              class="btn-save"
-              :disabled="!hasUnsavedChanges || isPageLocked"
-              @click="saveChangesToCloud"
-            >
-              儲存變更
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main class="page-main-content">
-        <div class="schedule-area">
-          <div class="stats-toolbar-wrapper" :style="{ paddingLeft: `${leftOffset}px` }">
-            <StatsToolbar
-              :stats-data="statsToolbarData"
-              :weekdays="statsToolbarWeekdays"
-              :column-widths="columnWidths"
-              size="compact"
-            />
-          </div>
-          <ScheduleTable
-            class="schedule-table-component"
-            :layout="bedLayout"
-            :schedule-data="weekScheduleMap"
-            :patient-map="patientMap"
-            :shifts="SHIFTS"
-            :weekdays="WEEKDAYS"
-            :week-dates="weekDates.map((d) => d.date)"
-            :hepatitis-beds="hepatitisBeds"
-            :get-style-func="getWeeklyCellStyle"
-            :is-date-in-past="isDateInPast"
-            :patient-with-memo-ids="patientWithMemoIds"
-            :is-page-locked="isPageLocked"
-            @grid-click="handleGridClick"
-            @drop="onDrop"
-            @drag-start="onDragStart"
-            @drag-over="onDragOver"
-            @dragleave="onDragLeave"
-            @show-memos="showPatientMemos"
-            @update:column-widths="updateColumnWidths"
-            @update:left-offset="updateLeftOffset"
-          />
-        </div>
-        <InpatientSidebar
-          :patients="allPatients"
-          :scheduled-ids="scheduledPatientIds"
-          @drag-start="onSidebarDragStart"
-          :class="{ 'sidebar-locked': isPageLocked }"
-        />
-      </main>
-    </div>
-
-    <!-- Modals -->
-    <MemoDisplayDialog
-      :is-visible="isMemoDialogVisible"
-      :patient-name="patientNameForDialog"
-      :memos="memosForDialog"
-      @close="isMemoDialogVisible = false"
-    />
-    <BedAssignmentDialog
-      :is-visible="isProblemSolverDialogVisible"
-      :all-patients="allPatients"
-      :bed-layout="bedLayout"
-      :schedule-data="weekScheduleMap"
-      :shifts="SHIFTS"
-      :freq-map="FREQ_MAP_TO_DAY_INDEX"
-      :predefined-patient-groups="problemsToSolve"
-      assignment-mode="frequency"
-      :is-page-locked="isPageLocked"
-      @close="isProblemSolverDialogVisible = false"
-      @assign-bed="handleAssignBed"
-      :context="assignmentContext"
-    />
-    <PatientSelectDialog
-      :is-visible="isPatientSelectDialogVisible"
-      title="選擇病人排班"
-      :patients="allPatients"
-      :show-fill-options="true"
-      :is-page-locked="isPageLocked"
-      @confirm="handlePatientSelect"
-      @cancel="isPatientSelectDialogVisible = false"
-    />
-    <SelectionDialog
-      :is-visible="isClearDialogVisible"
-      title="清除排班選項"
-      :options="CLEAR_OPTIONS"
-      @select="handleClearSelect"
-      @cancel="isClearDialogVisible = false"
-    />
-    <AlertDialog
-      :is-visible="isAlertDialogVisible"
-      :title="alertDialogTitle"
-      :message="alertDialogMessage"
-      @confirm="isAlertDialogVisible = false"
-    />
-    <ConfirmDialog
-      :is-visible="isConfirmDialogVisible"
-      :title="confirmDialogTitle"
-      :message="confirmDialogMessage"
-      @confirm="handleConflictConfirm"
-      @cancel="handleConflictCancel"
-    />
-  </div>
-</template>
 
 <style scoped>
 .search-container {
