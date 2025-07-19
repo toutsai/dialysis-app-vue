@@ -694,11 +694,13 @@ function runBedCheck() {
   const validationResult = { duplicates: [], unassignedCrucial: [] }
   const scheduledPatientIds = new Set()
 
+  // 如果沒有主排程記錄，直接返回
   if (!masterRecord.value || !masterRecord.value.schedule) {
     console.log('無排程資料可檢查')
     return validationResult
   }
 
+  // 第一步：遍歷現有規則，找出所有已排班的病人ID，並檢查是否有重複規則
   for (const ruleId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData?.patientId) {
@@ -710,12 +712,25 @@ function runBedCheck() {
     }
   }
 
+  // 建立一個狀態顯示名稱的對應表，讓提示更友好
+  const statusMap = {
+    ipd: '住院',
+    er: '急診',
+    opd: '門診',
+  }
+
+  // 第二步：遍歷所有病人，找出應該排班但未被排入規則的病人
   allPatients.value.forEach((p) => {
-    if ((p.status === 'ipd' || p.status === 'er') && !scheduledPatientIds.has(p.id)) {
-      validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
+    // 核心邏輯修正：
+    // 判斷條件改為：病人有設定頻率(freq)，且不是已刪除或已停用的狀態，而且沒有出現在已排班的列表中
+    if (p.freq && !p.isDeleted && !p.isDiscontinued && !scheduledPatientIds.has(p.id)) {
+      // 使用 statusMap 來產生提示文字，如果狀態不存在，則顯示原始狀態或'未知狀態'
+      const statusText = statusMap[p.status] || p.status || '未知狀態'
+      validationResult.unassignedCrucial.push(`${p.name} (${statusText})`)
     }
   })
 
+  // 返回檢查結果
   return validationResult
 }
 

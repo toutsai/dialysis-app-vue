@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (最終完整版) -->
+<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (最終修正與優化版) -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="emit('close')">
@@ -13,7 +13,6 @@
             <div class="column patient-column">
               <div class="column-header">
                 <h4>{{ patientListTitle }}</h4>
-                <!-- 頻率篩選 (僅在基礎智慧排床模式下顯示) -->
                 <select v-if="context.mode === 'base'" v-model="selectedFreqFilter">
                   <option value="all">所有頻率</option>
                   <option v-for="(days, freq) in freqMap" :key="freq" :value="freq">
@@ -74,13 +73,14 @@
                   <span v-if="currentPatient"> ({{ currentPatient.name }})</span>
                 </h4>
                 <div class="filters-container">
-                  <!-- 變更頻率下拉選單 (僅在特定模式下顯示) -->
+                  <!-- ✨ [核心修正] 重新加入變更頻率的下拉選單 -->
                   <select v-if="context.mode === 'change_freq_and_bed'" v-model="editableFreq">
                     <option disabled value="">請選擇新頻率</option>
                     <option v-for="(days, freq) in freqMap" :key="freq" :value="freq">
                       {{ freq }}
                     </option>
                   </select>
+
                   <!-- 班別篩選 -->
                   <select v-model="selectedShiftFilter">
                     <option value="all">所有班別</option>
@@ -134,6 +134,7 @@
 </template>
 
 <script setup>
+// 請將 BedAssignmentDialog.vue 的 <script setup> 區塊完全替換為此版本
 import { ref, computed, watch } from 'vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 
@@ -153,24 +154,28 @@ const emit = defineEmits(['close', 'assign-bed'])
 // --- Local State ---
 const selectedPatientId = ref(null)
 const selectedShiftFilter = ref('all')
-const selectedFreqFilter = ref('all') // For base mode filter
-const editableFreq = ref('') // For changing frequency
+const selectedFreqFilter = ref('all')
+const editableFreq = ref('')
 const alertInfo = ref({ isVisible: false, title: '', message: '' })
 
 // --- Watchers ---
+// ✨ [核心修正 #1] 讓 Watcher 在對話框打開時，能正確處理來自 context 的病人資料
 watch(
   () => props.isVisible,
   (newValue) => {
     if (newValue) {
-      // Reset state when dialog opens
+      // 重置篩選器
       selectedShiftFilter.value = 'all'
       selectedFreqFilter.value = 'all'
 
-      // Initialize state based on context
+      // 根據傳入的 context 初始化狀態
       if (props.context.patient) {
+        // 如果 context 中直接帶了病人物件 (來自"變更頻率/床位"等操作)
+        // 就直接將其設定為當前選中的病人
         selectedPatientId.value = props.context.patient.id
         editableFreq.value = props.context.patient.freq
       } else {
+        // 否則，清空選擇 (來自"智慧排床"等操作)
         selectedPatientId.value = null
         editableFreq.value = ''
       }
@@ -191,52 +196,65 @@ const dialogTitle = computed(() => {
 })
 
 const patientListTitle = computed(() => {
-  return props.context.mode === 'base' ? '選擇病人' : '目前病人'
+  if (props.context.mode === 'base') return '選擇病人'
+  return '目前病人'
 })
 
 const currentPatient = computed(() => {
+  // 優先使用 context 中傳入的 patient 物件
   if (props.context.patient) return props.context.patient
+  // 否則，根據 selectedPatientId 從總列表中尋找
   return props.allPatients.find((p) => p.id === selectedPatientId.value)
 })
 
 const currentFrequency = computed(() => {
-  // In modes where frequency can be changed, use the editable value
+  // 在「變更頻率」模式下，使用可編輯的頻率值
   if (props.context.mode === 'change_freq_and_bed') {
     return editableFreq.value
   }
-  // Otherwise, use the patient's fixed frequency
+  // 在其他模式下，使用當前病人的固定頻率
   return currentPatient.value?.freq || ''
 })
 
+// ✨ [核心修正 #2] 讓 patientGroups 正確處理 change_... 模式
 const patientGroups = computed(() => {
-  if (props.context.mode !== 'base') {
-    if (currentPatient.value) {
-      return { 目前操作: [currentPatient.value] }
-    }
-    return { 目前操作: [] }
+  const mode = props.context.mode
+
+  // 模式一: 變更床位/頻率，左側只顯示當前操作的病人
+  if (mode === 'change_freq_and_bed' || mode === 'change_bed_only') {
+    return currentPatient.value ? { 目前操作: [currentPatient.value] } : { 目前操作: [] }
   }
 
-  // Logic for 'base' mode (general smart assignment)
-  const groups = { 可排班病人: [] }
-  const scheduledIds = new Set(Object.values(props.scheduleData).map((slot) => slot.patientId))
+  // 模式二: 總表智慧排床，顯示所有未排入規則的病人
+  if (mode === 'base') {
+    const scheduledIds = new Set(
+      Object.values(props.scheduleData)
+        .filter((s) => s?.patientId)
+        .map((s) => s.patientId),
+    )
+    const unassignedPatients = props.allPatients.filter((p) => {
+      const baseCondition = !p.isDeleted && !p.isDiscontinued && p.freq && !scheduledIds.has(p.id)
+      if (!baseCondition) return false
+      return selectedFreqFilter.value === 'all' || p.freq === selectedFreqFilter.value
+    })
+    return { 可排班病人: unassignedPatients }
+  }
 
-  const unassignedPatients = props.allPatients.filter((p) => {
-    const baseCondition = !p.isDeleted && !p.isDiscontinued && p.freq && !scheduledIds.has(p.id)
-    if (!baseCondition) return false
-    if (selectedFreqFilter.value === 'all') return true
-    return p.freq === selectedFreqFilter.value
-  })
-
-  groups['可排班病人'] = unassignedPatients
-  return groups
+  // 其他模式或預設回退
+  return { 無符合條件的病人: [] }
 })
 
+// ✨ [核心修正 #3] 讓 availableBeds 在所有頻率模式下都正確運作
 const availableBeds = computed(() => {
+  // 必須先有一個當前病人
   if (!currentPatient.value) return {}
+
+  // 必須要有有效的頻率才能計算
   const patientFreq = currentFrequency.value
   if (!patientFreq || !props.freqMap[patientFreq]) return {}
 
   const dayIndices = props.freqMap[patientFreq]
+
   const results = {}
   props.shifts.forEach((shiftCode) => {
     if (selectedShiftFilter.value === 'all' || selectedShiftFilter.value === shiftCode) {
@@ -244,19 +262,19 @@ const availableBeds = computed(() => {
     }
   })
 
-  // bedLayout from props might contain strings like 'peripheral-1'
-  const mainBedLayout = props.bedLayout.filter((b) => typeof b === 'number')
-
-  mainBedLayout.forEach((bedNum) => {
+  // 遍歷所有床位和班別，進行嚴格的頻率檢查
+  props.bedLayout.forEach((bedIdentifier) => {
     props.shifts.forEach((shiftCode, shiftIndex) => {
       if (!results[shiftCode]) return
 
       let isFullyAvailable = true
       for (const dayIndex of dayIndices) {
-        const weeklySlotIdToCheck = `${bedNum}-${shiftIndex}-${dayIndex}`
+        // scheduleData 的 key 格式是統一的 `bed-shift-dayIndex`
+        const weeklySlotIdToCheck = `${bedIdentifier}-${shiftIndex}-${dayIndex}`
         const occupyingPatientId = props.scheduleData[weeklySlotIdToCheck]?.patientId
-        // A slot is considered occupied if another patient is in it.
-        // The current patient's own schedule is ignored, allowing them to be re-assigned.
+
+        // 如果該時段被佔用，且不是病人自己，則此床位不可用
+        // (允許將病人排回自己原來的位置)
         if (occupyingPatientId && occupyingPatientId !== currentPatient.value.id) {
           isFullyAvailable = false
           break
@@ -264,7 +282,7 @@ const availableBeds = computed(() => {
       }
 
       if (isFullyAvailable) {
-        results[shiftCode].push(bedNum)
+        results[shiftCode].push(bedIdentifier)
       }
     })
   })
@@ -278,11 +296,11 @@ function isHepatitisBed(bedNum) {
 }
 
 function handlePatientClick(patient) {
+  // 在非固定病人的模式下，允許點擊選擇
   if (props.context.mode === 'base') {
     selectedPatientId.value = patient.id
     editableFreq.value = patient.freq
   }
-  // In other modes, the patient is fixed and cannot be clicked.
 }
 
 function handleBedClick(bedNum, shiftCode) {
@@ -295,7 +313,7 @@ function handleBedClick(bedNum, shiftCode) {
     patientId: currentPatient.value.id,
     bedNum: bedNum,
     shiftCode: shiftCode,
-    newFreq: currentFrequency.value, // Always emit the current frequency
+    newFreq: currentFrequency.value, // 永遠發送當前選擇的頻率
   })
 }
 
@@ -307,6 +325,7 @@ const shiftDisplayNames = {
 </script>
 
 <style scoped>
+/* Dialog Overlay and Content */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -320,7 +339,6 @@ const shiftDisplayNames = {
   z-index: 1000;
   transition: opacity 0.3s ease;
 }
-
 .dialog-content {
   background: white;
   padding: 1.5rem 2rem;
@@ -333,7 +351,6 @@ const shiftDisplayNames = {
   max-height: 90vh;
   overflow: hidden;
 }
-
 .dialog-header {
   display: flex;
   justify-content: space-between;
@@ -343,13 +360,11 @@ const shiftDisplayNames = {
   margin-bottom: 1.5rem;
   flex-shrink: 0;
 }
-
 .dialog-header h2 {
   margin: 0;
   font-size: 1.8rem;
   color: #333;
 }
-
 .close-btn {
   background: none;
   border: none;
@@ -363,19 +378,16 @@ const shiftDisplayNames = {
 .close-btn:hover {
   color: #000;
 }
-
 .dialog-body {
   overflow: hidden;
   display: flex;
 }
-
 .assignment-grid {
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 2rem;
   width: 100%;
 }
-
 .column {
   display: flex;
   flex-direction: column;
@@ -386,7 +398,6 @@ const shiftDisplayNames = {
   min-height: 50vh;
   max-height: calc(90vh - 120px);
 }
-
 .column-header {
   display: flex;
   justify-content: space-between;
@@ -400,23 +411,16 @@ const shiftDisplayNames = {
   margin: 0;
   font-size: 1.2rem;
 }
-.column-header select,
-.filters-container select {
+.column-header select {
   padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid #ced4da;
 }
-.filters-container {
-  display: flex;
-  gap: 0.5rem;
-}
-
 .item-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-
 .patient-groups-container {
   overflow-y: auto;
   flex-grow: 1;
@@ -427,7 +431,6 @@ const shiftDisplayNames = {
 .patient-group:last-child {
   margin-bottom: 0;
 }
-
 .group-title {
   margin: 0 0 0.8rem 0;
   padding-bottom: 0.5rem;
@@ -439,7 +442,6 @@ const shiftDisplayNames = {
   background-color: #f8f9fa;
   z-index: 1;
 }
-
 .patient-list li {
   padding: 10px 12px;
   margin-bottom: 8px;
@@ -488,7 +490,6 @@ const shiftDisplayNames = {
   font-size: 0.8em;
   font-weight: 500;
 }
-
 .bed-results-grid {
   display: flex;
   flex-direction: column;
@@ -496,12 +497,10 @@ const shiftDisplayNames = {
   overflow-y: auto;
   flex-grow: 1;
 }
-
 .shift-group h5 {
   margin: 0 0 0.5rem 0;
   color: #343a40;
 }
-
 .bed-list {
   display: flex;
   flex-wrap: wrap;
@@ -533,7 +532,6 @@ const shiftDisplayNames = {
   background-color: #fff59d;
   border-color: #ffeb3b;
 }
-
 .empty-state,
 .empty-state-full {
   display: flex;
