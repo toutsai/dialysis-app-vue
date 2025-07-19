@@ -413,6 +413,7 @@ import { useNotification } from '@/composables/useNotification.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
+import { getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 
 // --- [核心修正] 回歸使用舊版、獨立的 ApiManager ---
 const schedulesApi = ApiManager('schedules')
@@ -636,24 +637,36 @@ const effectiveStatsData = computed(() => {
       manualNote: manualNote || '',
       wardNumber: wardNumber || '',
       classes: 'patient-item',
-      dialysisOrders: patient.dialysisOrders || {}, // ✨ 直接使用 patient 物件上的醫囑
+      dialysisOrders: patient.dialysisOrders || {},
     }
 
-    if (patient.status === 'er') detail.classes += ' status-er'
-    else if (patient.status === 'ipd') detail.classes += ' status-ipd'
-    else detail.classes += ' status-opd'
+    // 🔥 【修正】使用統一的顏色邏輯來設定 CSS 類名
+    const colorClasses = getUnifiedCellStyle(shiftDetails, patient)
+
+    // 將顏色類名轉換為 StatsView 需要的格式
+    let cssClasses = 'patient-item'
+
+    if (colorClasses['status-opd']) cssClasses += ' status-opd'
+    if (colorClasses['status-ipd']) cssClasses += ' status-ipd'
+    if (colorClasses['status-er']) cssClasses += ' status-er'
+    if (colorClasses['status-biweekly']) cssClasses += ' status-biweekly' // ✅ 新增橘色兩班
+    if (colorClasses['tag-chou']) cssClasses += ' tag-chou'
+    if (colorClasses['tag-new']) cssClasses += ' tag-new'
+
+    // 🔥 【向後兼容】保留 StatsView 特有的標籤類名
     const combinedNote = [
       ...new Set([
         ...(autoNote || '').split(' ').filter(Boolean),
         ...(manualNote || '').split(' ').filter(Boolean),
       ]),
     ].join(' ')
-    if (combinedNote) detail.classes += ' has-note-highlight'
-    if (combinedNote.includes('抽')) detail.classes += ' tag-chou'
-    if (combinedNote.includes('新')) detail.classes += ' tag-new'
-    if (combinedNote.includes('兩')) detail.classes += ' tag-liang'
-    if (combinedNote.includes('換')) detail.classes += ' tag-huan'
-    if (combinedNote.includes('B')) detail.classes += ' tag-b'
+
+    if (combinedNote) cssClasses += ' has-note-highlight'
+    if (combinedNote.includes('兩')) cssClasses += ' tag-liang'
+    if (combinedNote.includes('換')) cssClasses += ' tag-huan'
+    if (combinedNote.includes('B')) cssClasses += ' tag-b'
+
+    detail.classes = cssClasses
 
     const assignAndCount = (group, patientDetail) => {
       group.patients.push(patientDetail)
@@ -682,7 +695,7 @@ const effectiveStatsData = computed(() => {
     }
   }
 
-  // 3. 排序和計算總數
+  // 3. 排序和計算總數 (保持原有邏輯)
   const sortPatientsByBed = (a, b) => {
     const getSortKey = (shiftId) => {
       if (!shiftId || typeof shiftId !== 'string') return 999
@@ -1000,6 +1013,7 @@ watch(currentDate, (newDate) => {
 })
 </script>
 
+<!-- 將 StatsView.vue 文件最末尾的 CSS 部分替換為這個 -->
 <style scoped>
 .loading-overlay {
   position: absolute;
@@ -1264,38 +1278,45 @@ watch(currentDate, (newDate) => {
   opacity: 0.8;
   transform: scale(1.02);
 }
+
+/* 🔥 統一顏色系統 - 修正後的樣式 */
 .patient-item.status-opd {
-  background-color: var(--green-bg, #e8f5e9);
+  background-color: var(--green-bg, #e8f5e9); /* 門診 - 綠色 */
   border-color: #a5d6a7;
 }
 .patient-item.status-ipd {
-  background-color: var(--red-bg, #ffebee);
+  background-color: var(--red-bg, #ffebee); /* 住院 - 紅色 */
   border-color: #ef9a9a;
 }
 .patient-item.status-er {
-  background-color: var(--purple-bg, #f3e5f5);
+  background-color: var(--purple-bg, #f3e5f5); /* 急診 - 紫色 */
   border-color: #ce93d8;
 }
-.patient-item.tag-b {
-  background-color: #fff9c4;
-  border-color: #fff59d;
-}
-.patient-item.tag-liang {
-  background-color: #fff3e0;
-  border-color: #ffe0b2;
-}
-.patient-item.tag-huan {
-  background-color: #e0f7fa;
-  border-color: #b2ebf2;
-}
-.patient-item.tag-new {
-  background-color: #f5ec8e;
-  border-color: #e0d567;
+.patient-item.status-biweekly {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
+  border-color: #ffb74d;
 }
 .patient-item.tag-chou {
-  background-color: #8cbdf6;
+  background-color: #658ee0; /* 抽血 - 藍色 */
   border-color: #42a5f5;
 }
+.patient-item.tag-new {
+  background-color: #f5ec8e; /* 新診 - 金黃 */
+  border-color: #e0d567;
+}
+.patient-item.tag-huan {
+  background-color: #e0f7fa; /* 換 - 淺青 */
+  border-color: #b2ebf2;
+}
+.patient-item.tag-liang {
+  background-color: #fff3e0; /* 兩 - 淺橙 */
+  border-color: #ffe0b2;
+}
+.patient-item.tag-b {
+  background-color: #fff9c4; /* B - 淺黃 */
+  border-color: #fff59d;
+}
+
 .patient-item.has-note-highlight :deep(.patient-line-one) {
   color: #c62828;
 }
@@ -1661,5 +1682,34 @@ watch(currentDate, (newDate) => {
   :global(.notification-close:hover) {
     color: #cbd5e1;
   }
+}
+
+/* 🔥 使用 :deep() 確保樣式生效 */
+:deep(.patient-item.status-opd) {
+  background-color: #e8f5e9; /* 門診 - 綠色 */
+}
+:deep(.patient-item.status-ipd) {
+  background-color: #ffebee; /* 住院 - 紅色 */
+}
+:deep(.patient-item.status-er) {
+  background-color: #f3e5f5; /* 急診 - 紫色 */
+}
+:deep(.patient-item.status-biweekly) {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
+}
+:deep(.patient-item.tag-chou) {
+  background-color: #658ee0; /* 抽血 - 藍色 */
+}
+:deep(.patient-item.tag-new) {
+  background-color: #f5ec8e; /* 新診 - 金黃 */
+}
+:deep(.patient-item.tag-huan) {
+  background-color: #e0f7fa; /* 換 - 淺青 */
+}
+:deep(.patient-item.tag-liang) {
+  background-color: #fff3e0; /* 兩 - 淺橙 */
+}
+:deep(.patient-item.tag-b) {
+  background-color: #fff9c4; /* B - 淺黃 */
 }
 </style>

@@ -1,4 +1,4 @@
-// 檔案: src/utils/scheduleUtils.js (最終版)
+// 檔案: src/utils/scheduleUtils.js (增強最終版)
 
 /**
  * 創建一個用於存入 Firestore 的、標準化的空白 Schedule 文件物件。
@@ -33,8 +33,45 @@ export function createEmptySlotData(shiftId) {
   }
 }
 
+// 【新增】頻率與星期的對應關係
+const FREQ_TO_DAYS_MAP = {
+  一三五: [1, 3, 5],
+  二四六: [2, 4, 6],
+  一四: [1, 4],
+  二五: [2, 5],
+  三六: [3, 6],
+  一五: [1, 5],
+  二六: [2, 6],
+  每日: [1, 2, 3, 4, 5, 6, 7],
+  // 根據您的系統需求，可以添加更多頻率
+}
+
+// 🔥 【新增】兩班頻率定義（一週兩次）
+export const BIWEEKLY_FREQUENCIES = ['一四', '二五', '三六', '一五', '二六']
+
+// 🔥 【新增】頻率數字對應表（用於自動備註）
+const FREQ_NUMBER_MAP = {
+  一四: '14',
+  二五: '25',
+  三六: '36',
+  一五: '15',
+  二六: '26',
+}
+
+// 🔥 【新增】統一的優先級標籤配置
+export const PRIORITY_TAGS = {
+  抽: { priority: 1, class: 'tag-chou', color: '#658ee0' }, // 藍色 (最高優先級)
+  新: { priority: 2, class: 'tag-new', color: '#f5ec8e' }, // 金黃
+  住: { priority: 3, class: 'status-ipd', color: '#ffebee' }, // 紅色
+  急: { priority: 3, class: 'status-er', color: '#f3e5f5' }, // 紫色 (同等級)
+  隔: { priority: 3, class: 'status-ipd', color: '#ffebee' }, // 紅色 (隔離=住院)
+  R: { priority: 3, class: 'status-ipd', color: '#ffebee' }, // 紅色 (R=住院)
+  // 兩班 (橘色) 通過頻率判斷，不在標籤中
+  // 門診 (綠色) 是默認，不需要特殊標記
+}
+
 /**
- * 根據病人物件，生成標準化的自動備註字串。
+ * 🔥 【增強版】根據病人物件，生成標準化的自動備註字串。
  * 這是我們系統的 "唯一真理之源"，用於生成 autoNote。
  * @param {object} patient - 完整的病人物件。
  * @returns {string} - 自動生成的備註標籤，用空格分隔。
@@ -43,10 +80,17 @@ export function generateAutoNote(patient) {
   if (!patient) return ''
   const autoNotes = new Set()
 
+  // 🔥 【新增】兩班頻率自動備註 (優先處理)
+  if (patient.freq && BIWEEKLY_FREQUENCIES.includes(patient.freq)) {
+    const freqNumber = FREQ_NUMBER_MAP[patient.freq]
+    if (freqNumber) {
+      autoNotes.add(freqNumber) // 例如：一四 → 14
+    }
+  }
+
   // 核心狀態標籤
-  // 【修改】: 加入對 'er' 狀態的判斷
   if (patient.status === 'ipd') autoNotes.add('住')
-  if (patient.status === 'er') autoNotes.add('急') // 新增這一行
+  if (patient.status === 'er') autoNotes.add('急') // 急診標籤
   if (patient.isFirstDialysis) autoNotes.add('新')
 
   // 疾病相關標籤
@@ -57,23 +101,87 @@ export function generateAutoNote(patient) {
     if (patient.diseases.includes('RPR')) autoNotes.add('R')
     if (patient.diseases.includes('隔離')) autoNotes.add('隔')
     if (patient.diseases.includes('COVID')) autoNotes.add('冠')
+
+    // 🔥 【新增】抽血標籤（HBV 或 HCV 患者）
+    if (patient.diseases.includes('HBV') || patient.diseases.includes('HCV')) {
+      autoNotes.add('抽')
+    }
   }
 
   return Array.from(autoNotes).join(' ')
 }
 
-// 【新增】頻率與星期的對應關係
-const FREQ_TO_DAYS_MAP = {
-  一三五: [1, 3, 5],
-  二四六: [2, 4, 6],
-  一四: [1, 4],
-  二五: [2, 5],
-  三六: [2, 6],
-  一五: [1, 5],
-  二六: [2, 6],
-  每日: [1, 2, 3, 4, 5, 6, 7],
-  // 根據您的系統需求，可以添加更多頻率
-  // '每日': [1, 2, 3, 4, 5, 6, 7],
+/**
+ * 🔥 【新增】統一的細胞樣式計算函數
+ * 所有視圖都應該使用這個函數來確保顏色一致性
+ * @param {Object} slotData - 排程數據
+ * @param {Object} patient - 病人數據
+ * @param {string} freq - 頻率 (可從 slotData 或 patient 獲取)
+ * @returns {Object} - CSS 類名對象
+ */
+export function getUnifiedCellStyle(slotData, patient, freq = null) {
+  if (!slotData || !slotData.patientId || !patient) {
+    return {}
+  }
+
+  // 獲取頻率：優先使用 slotData 中的頻率，其次是 patient 的頻率
+  const finalFreq = freq || slotData.freq || patient.freq
+
+  // 合併所有備註文字用於檢查標籤
+  const autoNote = slotData.autoNote || ''
+  const manualNote = slotData.manualNote || ''
+  const combinedNote = `${autoNote} ${manualNote}`.trim()
+
+  // 🔥 按優先級檢查標籤 (抽>新>住=急>兩>門)
+  let highestPriorityTag = null
+  let highestPriority = 999
+
+  for (const [tag, config] of Object.entries(PRIORITY_TAGS)) {
+    if (combinedNote.includes(tag) && config.priority < highestPriority) {
+      highestPriorityTag = config
+      highestPriority = config.priority
+    }
+  }
+
+  // 如果找到高優先級標籤，直接返回
+  if (highestPriorityTag) {
+    return { [highestPriorityTag.class]: true }
+  }
+
+  // 🔥 關鍵修正：檢查兩班頻率 (在標籤檢查之後，病人狀態之前)
+  if (finalFreq && BIWEEKLY_FREQUENCIES.includes(finalFreq)) {
+    return { 'status-biweekly': true } // 橘色
+  }
+
+  // 最後根據病人狀態決定顏色
+  if (patient.status === 'er') {
+    return { 'status-er': true } // 紫色
+  }
+  if (patient.status === 'ipd') {
+    return { 'status-ipd': true } // 紅色
+  }
+  if (patient.status === 'opd') {
+    return { 'status-opd': true } // 綠色
+  }
+
+  return {}
+}
+
+/**
+ * 🔥 【新增】檢查兩個頻率是否有時間衝突
+ * @param {string} freq1 - 第一個頻率
+ * @param {string} freq2 - 第二個頻率
+ * @returns {boolean} - 如果有衝突返回 true
+ */
+export function hasFrequencyConflict(freq1, freq2) {
+  if (!freq1 || !freq2) return false
+  if (freq1 === freq2) return true // 相同頻率一定衝突
+
+  const days1 = FREQ_TO_DAYS_MAP[freq1] || []
+  const days2 = FREQ_TO_DAYS_MAP[freq2] || []
+
+  // 檢查是否有重疊的日期
+  return days1.some((day) => days2.includes(day))
 }
 
 /**
@@ -88,4 +196,14 @@ export function shouldPatientBeScheduled(patient, dayOfWeek) {
   }
   const scheduledDays = FREQ_TO_DAYS_MAP[patient.freq]
   return scheduledDays ? scheduledDays.includes(dayOfWeek) : false
+}
+
+// 🔥 【新增】便利函數：檢查是否為兩班頻率
+export function isBiweeklyFrequency(freq) {
+  return BIWEEKLY_FREQUENCIES.includes(freq)
+}
+
+// 🔥 【新增】便利函數：獲取頻率對應的數字
+export function getFrequencyNumber(freq) {
+  return FREQ_NUMBER_MAP[freq] || null
 }

@@ -172,6 +172,7 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import { getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 
 // --- Helper Functions ---
 function getStartOfWeek(date) {
@@ -200,6 +201,11 @@ function formatDateForQuery(date) {
   const month = (d.getMonth() + 1).toString().padStart(2, '0')
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+function getWeeklyCellStyle(slotId) {
+  const slotData = weekScheduleMap.value[slotId]
+  const patient = patientMap.value.get(slotData?.patientId)
+  return getUnifiedCellStyle(slotData, patient)
 }
 
 // --- Constants ---
@@ -903,30 +909,6 @@ function handleConflictCancel() {
   confirmAction.value = null
 }
 
-function getWeeklyCellStyle(slotId) {
-  const slotData = weekScheduleMap.value[slotId]
-  if (!slotData || !slotData.patientId) return {}
-  const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {}
-  const combinedNote = `${slotData.autoNote || ''} ${slotData.manualNote || ''}`.trim()
-  for (const key in STYLE_PRIORITY) {
-    if (combinedNote.includes(key)) {
-      if (key === '住' || key === '隔' || key === 'R') {
-        return { 'status-ipd': true }
-      }
-      return { [STYLE_PRIORITY[key].class]: true }
-    }
-  }
-  if (patient.status === 'er') return { 'status-er': true }
-  if (patient.status === 'ipd') {
-    return { 'status-ipd': true }
-  }
-  if (patient.status === 'opd') {
-    return { 'status-opd': true }
-  }
-  return {}
-}
-
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -1052,6 +1034,7 @@ onUnmounted(() => {
 })
 </script>
 
+<!-- 將 WeeklyView.vue 文件最末尾的 CSS 部分替換為這個 -->
 <style scoped>
 .search-container {
   position: relative;
@@ -1247,36 +1230,102 @@ button {
   border-color: #17a2b8;
 }
 
+/* 🔥 統一顏色系統 - 基本病人狀態 */
 :deep(.schedule-slot.status-opd) {
-  background-color: var(--green-bg, #e8f5e9);
+  background-color: var(--green-bg, #e8f5e9); /* 門診 - 綠色 */
 }
-
 :deep(.schedule-slot.status-ipd) {
-  background-color: var(--red-bg, #ffebee);
+  background-color: var(--red-bg, #ffebee); /* 住院 - 紅色 */
 }
-
 :deep(.schedule-slot.status-er) {
-  background-color: var(--purple-bg, #f3e5f5);
+  background-color: var(--purple-bg, #f3e5f5); /* 急診 - 紫色 */
+}
+:deep(.schedule-slot.status-biweekly) {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
 }
 
+/* 🔥 統一顏色系統 - 標籤樣式 */
 :deep(.schedule-slot.tag-chou) {
-  background-color: #658ee0;
+  background-color: #658ee0; /* 抽血 - 藍色 */
 }
-
 :deep(.schedule-slot.tag-new) {
-  background-color: #f5ec8e;
+  background-color: #f5ec8e; /* 新診 - 金黃 */
 }
-
 :deep(.schedule-slot.tag-huan) {
-  background-color: #e0f7fa;
+  background-color: #e0f7fa; /* 換 - 淺青 */
 }
-
 :deep(.schedule-slot.tag-liang) {
-  background-color: #fff3e0;
+  background-color: #fff3e0; /* 兩 - 淺橙 */
+}
+:deep(.schedule-slot.tag-b) {
+  background-color: #fff9c4; /* B - 淺黃 */
 }
 
-:deep(.schedule-slot.tag-b) {
-  background-color: #fff9c4;
+/* 🔥 週視圖特有樣式 - shift-row 系列 */
+:deep(.shift-row.status-opd),
+:deep(.peripheral-shift-row.status-opd) {
+  background-color: #e8f5e9; /* 門診 - 綠色 */
+}
+:deep(.shift-row.status-ipd),
+:deep(.peripheral-shift-row.status-ipd) {
+  background-color: #ffebee; /* 住院 - 紅色 */
+}
+:deep(.shift-row.status-er),
+:deep(.peripheral-shift-row.status-er) {
+  background-color: #f3e5f5; /* 急診 - 紫色 */
+}
+:deep(.shift-row.status-biweekly),
+:deep(.peripheral-shift-row.status-biweekly) {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
+}
+:deep(.shift-row.tag-chou),
+:deep(.peripheral-shift-row.tag-chou) {
+  background-color: #658ee0; /* 抽血 - 藍色 */
+}
+:deep(.shift-row.tag-new),
+:deep(.peripheral-shift-row.tag-new) {
+  background-color: #f5ec8e; /* 新診 - 金黃 */
+}
+:deep(.shift-row.tag-huan),
+:deep(.peripheral-shift-row.tag-huan) {
+  background-color: #e0f7fa; /* 換 - 淺青 */
+}
+:deep(.shift-row.tag-liang),
+:deep(.peripheral-shift-row.tag-liang) {
+  background-color: #fff3e0; /* 兩 - 淺橙 */
+}
+:deep(.shift-row.tag-b),
+:deep(.peripheral-shift-row.tag-b) {
+  background-color: #fff9c4; /* B - 淺黃 */
+}
+
+/* 🔥 病人項目樣式 */
+:deep(.patient-item.status-opd) {
+  background-color: #e8f5e9; /* 門診 - 綠色 */
+}
+:deep(.patient-item.status-ipd) {
+  background-color: #ffebee; /* 住院 - 紅色 */
+}
+:deep(.patient-item.status-er) {
+  background-color: #f3e5f5; /* 急診 - 紫色 */
+}
+:deep(.patient-item.status-biweekly) {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
+}
+:deep(.patient-item.tag-chou) {
+  background-color: #658ee0; /* 抽血 - 藍色 */
+}
+:deep(.patient-item.tag-new) {
+  background-color: #f5ec8e; /* 新診 - 金黃 */
+}
+:deep(.patient-item.tag-huan) {
+  background-color: #e0f7fa; /* 換 - 淺青 */
+}
+:deep(.patient-item.tag-liang) {
+  background-color: #fff3e0; /* 兩 - 淺橙 */
+}
+:deep(.patient-item.tag-b) {
+  background-color: #fff9c4; /* B - 淺黃 */
 }
 
 .main-actions button:disabled {

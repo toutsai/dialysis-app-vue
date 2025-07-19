@@ -393,6 +393,7 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 
 // --- Layout and Constants ---
 const layoutData = {
@@ -424,7 +425,7 @@ const allBedNumbers = [
 const hepatitisBeds = ['空', 31, 32, 33, 35, 36]
 const aisleSideBeds = [1, 7, 8, 15, 16, 22, 23, 29, 31, 36, 37, 53, 55, 61, 62, 65]
 const peripheralBedCount = 6
-const STYLE_CHECK_ORDER = [
+/*const STYLE_CHECK_ORDER = [
   { key: '住', class: 'status-ipd' },
   { key: '隔', class: 'status-ipd' },
   { key: 'R', class: 'status-ipd' },
@@ -434,6 +435,7 @@ const STYLE_CHECK_ORDER = [
   { key: '兩', class: 'tag-liang' },
   { key: 'B', class: 'tag-b' },
 ]
+  */
 const freqToDays = {
   一三五: [1, 3, 5],
   二四六: [2, 4, 6],
@@ -1054,18 +1056,12 @@ function getCombinedNote(shiftId) {
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
+
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
-  if (patient.status === 'ipd') return { 'status-ipd': true }
-  const combinedNote = getCombinedNote(shiftId)
-  for (const style of STYLE_CHECK_ORDER) {
-    if (combinedNote.includes(style.key)) {
-      return { [style.class]: true }
-    }
-  }
-  if (patient.status === 'er') return { 'status-er': true }
-  if (patient.status === 'opd') return { 'status-opd': true }
-  return {}
+
+  // 🔥 使用統一的顏色邏輯，而不是原本的 STYLE_CHECK_ORDER
+  return getUnifiedCellStyle(slotData, patient)
 }
 
 function triggerPrint() {
@@ -1607,38 +1603,45 @@ button:disabled {
 .bed.aisle-side.left-wing-bed {
   border-right: 5px solid #4caf50;
 }
+
+/* 🔥 統一顏色系統 - 新增的樣式 */
 .shift-row.status-opd,
 .peripheral-shift-row.status-opd {
-  background-color: var(--green-bg, #e8f5e9);
+  background-color: var(--green-bg, #e8f5e9); /* 門診 - 綠色 */
 }
 .shift-row.status-ipd,
 .peripheral-shift-row.status-ipd {
-  background-color: var(--red-bg, #ffebee);
+  background-color: var(--red-bg, #ffebee); /* 住院 - 紅色 */
 }
 .shift-row.status-er,
 .peripheral-shift-row.status-er {
-  background-color: var(--purple-bg, #f3e5f5);
+  background-color: var(--purple-bg, #f3e5f5); /* 急診 - 紫色 */
+}
+.shift-row.status-biweekly,
+.peripheral-shift-row.status-biweekly {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
 }
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou {
-  background-color: #8cbdf6;
+  background-color: #658ee0; /* 抽血 - 藍色 */
 }
 .shift-row.tag-new,
 .peripheral-shift-row.tag-new {
-  background-color: #f5ec8e;
+  background-color: #f5ec8e; /* 新診 - 金黃 */
 }
 .shift-row.tag-huan,
 .peripheral-shift-row.tag-huan {
-  background-color: #e0f7fa;
+  background-color: #e0f7fa; /* 換 - 淺青 */
 }
 .shift-row.tag-liang,
 .peripheral-shift-row.tag-liang {
-  background-color: #fff3e0;
+  background-color: #fff3e0; /* 兩 - 淺橙 */
 }
 .shift-row.tag-b,
 .peripheral-shift-row.tag-b {
-  background-color: #fff9c4;
+  background-color: #fff9c4; /* B - 淺黃 */
 }
+
 .patient-name,
 .peripheral-patient-name {
   font-size: 1.1em;

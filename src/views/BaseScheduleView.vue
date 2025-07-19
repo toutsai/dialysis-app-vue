@@ -85,7 +85,6 @@
       @select="handleActionSelect"
       @cancel="isActionDialogVisible = false"
     />
-
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
       :all-patients="allPatients"
@@ -98,7 +97,6 @@
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleBedAssigned"
     />
-
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
@@ -150,6 +148,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import { getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 
 // --- API and Constants ---
 const baseSchedulesApi = ApiManager('base_schedules')
@@ -355,7 +354,7 @@ const statsToolbarData = computed(() => {
 })
 
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
-
+const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 const searchResults = computed(() => {
   if (!searchQuery.value) {
     return []
@@ -371,6 +370,12 @@ const searchResults = computed(() => {
 })
 
 // --- Functions ---
+function getBaseCellStyle(slotId) {
+  const slotData = weekScheduleMap.value[slotId]
+  const patient = patientMap.value.get(slotData?.patientId)
+  return getUnifiedCellStyle(slotData, patient)
+}
+
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
@@ -385,7 +390,7 @@ function handleSearchBlur() {
   }, 200)
 }
 
-// 1. 新增頻率衝突檢測輔助函數
+// 1. 頻率衝突檢測函數
 function hasFrequencyConflict(freq1, freq2) {
   if (!freq1 || !freq2) return false
   if (freq1 === freq2) return true // 相同頻率一定衝突
@@ -650,29 +655,35 @@ function handleDeleteRule() {
   isConfirmDialogVisible.value = true
 }
 
+// 2. 修正 openChangeFreqAndBedDialog 函數
 function openChangeFreqAndBedDialog() {
   const patient = patientMap.value.get(actionTarget.value.patientId)
   if (!patient) return
+
+  // 🔥 關鍵修正：傳遞完整的病人信息
   assignmentContext.value = {
     mode: 'change_freq_and_bed',
-    patient: patient,
+    patient: patient, // 完整的病人對象
     originalRuleId: actionTarget.value.ruleId,
   }
   isAssignmentDialogVisible.value = true
 }
 
+// 3. 修正 openChangeBedOnlyDialog 函數
 function openChangeBedOnlyDialog() {
   const patient = patientMap.value.get(actionTarget.value.patientId)
   if (!patient) return
+
+  // 🔥 關鍵修正：傳遞完整的病人信息
   assignmentContext.value = {
     mode: 'change_bed_only',
-    patient: patient,
+    patient: patient, // 完整的病人對象
     originalRuleId: actionTarget.value.ruleId,
   }
   isAssignmentDialogVisible.value = true
 }
 
-// 3. 同樣修正 handleBedAssigned 函數中的衝突檢測
+// 4. 修正 handleBedAssigned 函數以處理新頻率
 async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -680,6 +691,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const newShiftIndex = SHIFTS.indexOf(shiftCode)
   if (newShiftIndex === -1) return
 
+  // 🔥 關鍵修正：支援新頻率
   const finalFreq = newFreq || patient.freq
   if (!finalFreq) {
     alertDialogTitle.value = '操作失敗'
@@ -688,7 +700,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     return
   }
 
-  // 🔥 新增：檢查頻率衝突
+  // 🔥 新增：檢查頻率衝突（重複之前的邏輯）
   let baseRulePrefix
   if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
     baseRulePrefix = `${bedNum}-${newShiftIndex}-`
@@ -701,6 +713,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
       ruleId.startsWith(baseRulePrefix) && ruleId !== assignmentContext.value.originalRuleId,
   )
 
+  // 檢查頻率衝突
   for (const existingRuleId of conflictingRules) {
     const existingRule = masterRecord.value.schedule[existingRuleId]
     if (existingRule?.freq && hasFrequencyConflict(finalFreq, existingRule.freq)) {
@@ -722,15 +735,18 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
 
   const originalRuleId = assignmentContext.value.originalRuleId
 
-  // 更新病人頻率（如果有變更）
+  // 🔥 關鍵修正：如果有新頻率，更新病人的頻率
   if (newFreq && patient.freq !== newFreq) {
     try {
       await updatePatient(patientId, { freq: newFreq })
+      // 更新本地病人列表中的頻率
       const patientInList = allPatients.value.find((p) => p.id === patientId)
       if (patientInList) {
         patientInList.freq = newFreq
       }
-      console.log(`🔄 [BaseScheduleView] 已更新病人 ${patient.name} 的頻率為 ${newFreq}`)
+      console.log(
+        `🔄 [BaseScheduleView] 已更新病人 ${patient.name} 的頻率從 ${patient.freq} 為 ${newFreq}`,
+      )
     } catch (error) {
       console.error('更新病人頻率失敗:', error)
       alertDialogTitle.value = '錯誤'
@@ -745,6 +761,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   // 刪除舊規則
   if (originalRuleId) {
     delete newScheduleRules[originalRuleId]
+    console.log(`🗑️ [BaseScheduleView] 已刪除舊規則: ${originalRuleId}`)
   }
 
   // 建立新規則
@@ -761,6 +778,15 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   isAssignmentDialogVisible.value = false
 
   console.log(`✅ [BaseScheduleView] 已建立新規則: ${newRuleId}`)
+
+  // 🔥 新增：成功提示
+  alertDialogTitle.value = '操作成功'
+  if (newFreq) {
+    alertDialogMessage.value = `已成功將 ${patient.name} 的頻率更新為 ${finalFreq}，並安排到床位 ${bedNum} ${shiftDisplayNames[shiftCode] || shiftCode}。`
+  } else {
+    alertDialogMessage.value = `已成功將 ${patient.name} 安排到床位 ${bedNum} ${shiftDisplayNames[shiftCode] || shiftCode}。`
+  }
+  isAlertDialogVisible.value = true
 }
 
 // 2. 修正後的 onDrop 函數
@@ -967,36 +993,6 @@ function handleConfirm() {
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
-}
-
-function getBaseCellStyle(slotId) {
-  const slotData = weekScheduleMap.value[slotId]
-  if (!slotData || !slotData.patientId) return {}
-
-  const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {}
-
-  // [核心修正] 直接檢查規則 (slotData) 中的 freq 屬性
-  const biweeklyFreqs = ['一四', '二五', '三六', '一五', '二六']
-
-  // 1. 最高優先級：直接檢查頻率是否為一週兩次
-  if (biweeklyFreqs.includes(slotData.freq)) {
-    return { 'status-biweekly': true } // 橘色
-  }
-
-  // 2. 如果不是兩次，再根據病人狀態決定顏色
-  if (patient.status === 'ipd') {
-    return { 'status-ipd': true } // 紅色
-  }
-  if (patient.status === 'er') {
-    return { 'status-er': true } // 紫色
-  }
-  if (patient.status === 'opd') {
-    return { 'status-opd': true } // 綠色
-  }
-
-  // 3. 如果沒有任何匹配，則無特殊背景色
-  return {}
 }
 
 function onDragOver(event) {
@@ -1262,5 +1258,68 @@ onMounted(loadAllData)
   height: 100%;
   font-size: 1.5rem;
   color: #6c757d;
+}
+
+:deep(.shift-row.status-opd),
+:deep(.peripheral-shift-row.status-opd),
+:deep(.patient-item.status-opd) {
+  background-color: #e8f5e9; /* 綠色 - 門診 */
+}
+
+:deep(.shift-row.status-ipd),
+:deep(.peripheral-shift-row.status-ipd),
+:deep(.patient-item.status-ipd) {
+  background-color: #ffebee; /* 紅色 - 住院 */
+}
+
+:deep(.shift-row.status-er),
+:deep(.peripheral-shift-row.status-er),
+:deep(.patient-item.status-er) {
+  background-color: #f3e5f5; /* 紫色 - 急診 */
+}
+
+:deep(.shift-row.status-biweekly),
+:deep(.peripheral-shift-row.status-biweekly),
+:deep(.patient-item.status-biweekly) {
+  background-color: #ffcc80; /* 橘色 - 兩班 (一週兩次) */
+}
+
+:deep(.shift-row.tag-chou),
+:deep(.peripheral-shift-row.tag-chou),
+:deep(.patient-item.tag-chou) {
+  background-color: #658ee0; /* 藍色 - 抽血 */
+}
+
+:deep(.shift-row.tag-new),
+:deep(.peripheral-shift-row.tag-new),
+:deep(.patient-item.tag-new) {
+  background-color: #f5ec8e; /* 金黃 - 新診 */
+}
+
+:deep(.shift-row.tag-huan),
+:deep(.peripheral-shift-row.tag-huan),
+:deep(.patient-item.tag-huan) {
+  background-color: #e0f7fa; /* 淺青 - 換 */
+}
+
+:deep(.shift-row.tag-liang),
+:deep(.peripheral-shift-row.tag-liang),
+:deep(.patient-item.tag-liang) {
+  background-color: #fff3e0; /* 淺橙 - 兩 */
+}
+
+:deep(.shift-row.tag-b),
+:deep(.peripheral-shift-row.tag-b),
+:deep(.patient-item.tag-b) {
+  background-color: #fff9c4; /* 淺黃 - B */
+}
+:deep(.schedule-slot.status-biweekly) {
+  background-color: #ffcc80; /* 橘色 - 兩班 */
+}
+:deep(.schedule-slot.tag-chou) {
+  background-color: #658ee0; /* 藍色 - 抽血 */
+}
+:deep(.schedule-slot.tag-new) {
+  background-color: #f5ec8e; /* 金黃 - 新診 */
 }
 </style>
