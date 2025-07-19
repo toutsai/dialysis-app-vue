@@ -60,14 +60,49 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
     const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
 
     if (freqDays.includes(systemDayIndex)) {
+      // 🔥 關鍵修正：支援新格式的 ruleId 解析
       const parts = ruleId.split('-')
-      const shiftIndex = parseInt(parts.pop(), 10)
-      const bedNum = parts.join('-')
+      let bedNum, shiftIndex
+
+      // 新格式解析邏輯
+      if (parts.length >= 3) {
+        const lastPart = parts[parts.length - 1]
+
+        // 檢查最後一個部分是否為頻率（包含中文字符）
+        if (/[一二三四五六]/.test(lastPart)) {
+          // 新格式：床號-班別索引-頻率 或 peripheral-床號-班別索引-頻率
+          if (parts[0] === 'peripheral') {
+            // peripheral-1-0-一三五
+            bedNum = `${parts[0]}-${parts[1]}` // peripheral-1
+            shiftIndex = parseInt(parts[2], 10) // 0
+          } else {
+            // 1-0-一三五
+            bedNum = parts[0] // 1
+            shiftIndex = parseInt(parts[1], 10) // 0
+          }
+        } else {
+          // 向後兼容舊格式：床號-班別索引
+          shiftIndex = parseInt(parts.pop(), 10)
+          bedNum = parts.join('-')
+        }
+      } else {
+        // 向後兼容舊格式：床號-班別索引
+        shiftIndex = parseInt(parts[1], 10)
+        bedNum = parts[0]
+      }
 
       const shiftCode = SHIFTS[shiftIndex]
 
-      if (bedNum && shiftCode) {
-        const dailyShiftId = `bed-${bedNum}-${shiftCode}`
+      if (bedNum && shiftCode && !isNaN(shiftIndex)) {
+        // 🔥 關鍵修正：支援外圍床位的 dailyShiftId 格式
+        let dailyShiftId
+        if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
+          // 外圍床位：peripheral-1-early
+          dailyShiftId = `${bedNum}-${shiftCode}`
+        } else {
+          // 一般床位：bed-1-early
+          dailyShiftId = `bed-${bedNum}-${shiftCode}`
+        }
 
         dailySchedule[dailyShiftId] = {
           patientId: rule.patientId,
@@ -79,6 +114,7 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
       }
     }
   }
+
   return dailySchedule
 }
 

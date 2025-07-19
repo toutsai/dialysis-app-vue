@@ -201,19 +201,39 @@ const patientGroups = computed(() => {
   }
 
   if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
-    const unassigned = props.allPatients.filter((p) => {
-      const baseCondition =
-        !p.isDeleted &&
-        !p.isDiscontinued &&
-        p.status === 'opd' &&
-        !localAssignedPatientIds.value.has(p.id)
-      if (!baseCondition) return false
-      return selectedFreq.value === 'all' ? !!p.freq : p.freq === selectedFreq.value
+    // 🔥 關鍵修正：顯示所有狀態的病人，不只是門診
+    const groups = {
+      '未排床 - 急診': [],
+      '未排床 - 住院': [],
+      '未排床 - 門診': [],
+    }
+
+    const unassignedPatients = props.allPatients.filter((p) => {
+      return !p.isDeleted && !p.isDiscontinued && !localAssignedPatientIds.value.has(p.id) && p.freq // 只顯示有頻率的病人
     })
-    return { 未排床門診: unassigned }
+
+    // 根據頻率篩選（如果有選擇特定頻率）
+    const filteredPatients =
+      selectedFreq.value === 'all'
+        ? unassignedPatients
+        : unassignedPatients.filter((p) => p.freq === selectedFreq.value)
+
+    // 按狀態分組
+    filteredPatients.forEach((patient) => {
+      if (patient.status === 'er') {
+        groups['未排床 - 急診'].push(patient)
+      } else if (patient.status === 'ipd') {
+        groups['未排床 - 住院'].push(patient)
+      } else if (patient.status === 'opd') {
+        groups['未排床 - 門診'].push(patient)
+      }
+    })
+
+    return groups
   }
 
   if (props.assignmentMode === 'singleDay') {
+    // singleDay 模式保持原有邏輯
     const groups = {
       '今日應排 - 急診': [],
       '今日應排 - 住院': [],

@@ -157,59 +157,9 @@ const baseSchedulesApi = ApiManager('base_schedules')
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const bedLayout = [
-  1,
-  2,
-  3,
-  5,
-  6,
-  7,
-  8,
-  9,
-  11,
-  12,
-  13,
-  15,
-  16,
-  17,
-  18,
-  19,
-  21,
-  22,
-  23,
-  25,
-  26,
-  27,
-  28,
-  29,
-  31,
-  32,
-  33,
-  35,
-  36,
-  37,
-  38,
-  39,
-  51,
-  52,
-  53,
-  55,
-  56,
-  57,
-  58,
-  59,
-  61,
-  62,
-  63,
-  65,
-  // ✅ 新增：外圍床位 1-6
-  ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
-].sort((a, b) => {
-  // ✅ 新增：更新排序邏輯以處理外圍床位
-  const numA = typeof a === 'number' ? a : Infinity
-  const numB = typeof b === 'number' ? b : Infinity
-  if (numA !== Infinity || numB !== Infinity) return numA - numB
-  return String(a).localeCompare(String(b))
-})
+  1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 13, 15, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 28, 29, 31, 32,
+  33, 35, 36, 37, 38, 39, 51, 52, 53, 55, 56, 57, 58, 59, 61, 62, 63, 65,
+].sort((a, b) => a - b)
 const hepatitisBeds = [31, 32, 33, 35, 36]
 const FREQ_MAP_TO_DAY_INDEX = {
   一三五: [0, 2, 4],
@@ -263,7 +213,7 @@ const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
 
-// 6. 確保 weekScheduleMap 正確計算
+// ✅ 修正 weekScheduleMap 計算邏輯以支援新格式
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   if (!masterRecord.value || !masterRecord.value.schedule) {
@@ -275,32 +225,16 @@ const weekScheduleMap = computed(() => {
     if (ruleData && ruleData.patientId && ruleData.freq) {
       const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
 
-      // 🔥 關鍵修正：正確解析新格式的 ruleId
+      // 🔥 關鍵修正：解析新格式的 ruleId
       const parts = ruleId.split('-')
       let bedNum, shiftIndex
 
       if (parts.length >= 3) {
-        const lastPart = parts[parts.length - 1]
-
-        // 檢查最後一部分是否為頻率
-        if (Object.keys(FREQ_MAP_TO_DAY_INDEX).includes(lastPart)) {
-          // 新格式
-          if (parts[0] === 'peripheral') {
-            // peripheral-1-0-一三五
-            bedNum = `${parts[0]}-${parts[1]}`
-            shiftIndex = parseInt(parts[2], 10)
-          } else {
-            // 1-0-一三五
-            bedNum = parts[0]
-            shiftIndex = parseInt(parts[1], 10)
-          }
-        } else {
-          // 舊格式：向後相容
-          bedNum = parts[0]
-          shiftIndex = parseInt(parts[1], 10)
-        }
+        // 新格式：床號-班別索引-頻率
+        bedNum = parts[0]
+        shiftIndex = parseInt(parts[1], 10)
       } else {
-        // 舊格式：向後相容
+        // 向後相容舊格式：床號-班別索引
         bedNum = parts[0]
         shiftIndex = parseInt(parts[1], 10)
       }
@@ -383,18 +317,6 @@ function handleSearchBlur() {
   setTimeout(() => {
     isSearchFocused.value = false
   }, 200)
-}
-
-// 1. 新增頻率衝突檢測輔助函數
-function hasFrequencyConflict(freq1, freq2) {
-  if (!freq1 || !freq2) return false
-  if (freq1 === freq2) return true // 相同頻率一定衝突
-
-  const days1 = FREQ_MAP_TO_DAY_INDEX[freq1] || []
-  const days2 = FREQ_MAP_TO_DAY_INDEX[freq2] || []
-
-  // 檢查是否有重疊的日期
-  return days1.some((day) => days2.includes(day))
 }
 
 function locatePatientOnGrid(patientId) {
@@ -498,21 +420,6 @@ async function saveChangesToCloud() {
   }
 }
 
-// 1. handleActionSelect 函數（Vue 警告中缺失的）
-function handleActionSelect(actionValue) {
-  isActionDialogVisible.value = false
-  const target = actionTarget.value
-  if (!target.ruleId) return
-
-  if (actionValue === 'delete_rule') {
-    handleDeleteRule()
-  } else if (actionValue === 'change_freq_and_bed') {
-    openChangeFreqAndBedDialog()
-  } else if (actionValue === 'change_bed_only') {
-    openChangeBedOnlyDialog()
-  }
-}
-
 function handleScheduleCheck() {
   console.log(`🔍 [BaseScheduleView] 執行床位檢查...`)
   const results = runBedCheck()
@@ -554,29 +461,9 @@ function handleGridClick(slotId) {
 
   if (patientId) {
     const parts = slotId.split('-')
-
-    // 🔥 修正：正確生成 actionTarget.ruleId
-    let ruleId
-    if (parts[0] === 'peripheral') {
-      // 外圍床位：peripheral-1-0-dayIndex -> peripheral-1-0
-      ruleId = `${parts[0]}-${parts[1]}-${parts[2]}`
-    } else {
-      // 一般床位：1-0-dayIndex -> 1-0
-      ruleId = `${parts[0]}-${parts[1]}`
-    }
-
-    // 🔥 關鍵修正：需要找到包含頻率的完整 ruleId
-    const completeRuleId = Object.keys(masterRecord.value.schedule || {}).find((fullRuleId) => {
-      if (parts[0] === 'peripheral') {
-        return fullRuleId.startsWith(`${parts[0]}-${parts[1]}-${parts[2]}-`)
-      } else {
-        return fullRuleId.startsWith(`${parts[0]}-${parts[1]}-`)
-      }
-    })
-
     actionTarget.value = {
       patientId: patientId,
-      ruleId: completeRuleId || ruleId, // 使用完整的 ruleId
+      ruleId: `${parts[0]}-${parts[1]}`,
       patientName: patientMap.value.get(patientId)?.name || '未知病人',
     }
     isActionDialogVisible.value = true
@@ -586,48 +473,18 @@ function handleGridClick(slotId) {
   }
 }
 
-// 2. 修正 handlePatientSelect 函數
-function handlePatientSelect({ patientId }) {
-  if (isPageLocked.value || !patientId || !currentSlotId.value) return
+function handleActionSelect(actionValue) {
+  isActionDialogVisible.value = false
+  const target = actionTarget.value
+  if (!target.ruleId) return
 
-  const patient = patientMap.value.get(patientId)
-  if (!patient || !patient.freq) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = `病人 ${patient?.name || '未知'} 沒有設定頻率，無法排入總表。`
-    isAlertDialogVisible.value = true
-    return
+  if (actionValue === 'delete_rule') {
+    handleDeleteRule()
+  } else if (actionValue === 'change_freq_and_bed') {
+    openChangeFreqAndBedDialog()
+  } else if (actionValue === 'change_bed_only') {
+    openChangeBedOnlyDialog()
   }
-
-  const parts = currentSlotId.value.split('-')
-
-  // 🔥 修正：正確生成包含頻率的 ruleId
-  let ruleId
-  if (parts[0] === 'peripheral') {
-    // 外圍床位：peripheral-1-0-dayIndex -> peripheral-1-0-一三五
-    ruleId = `${parts[0]}-${parts[1]}-${parts[2]}-${patient.freq}`
-  } else {
-    // 一般床位：1-0-dayIndex -> 1-0-一三五
-    ruleId = `${parts[0]}-${parts[1]}-${patient.freq}`
-  }
-
-  isPatientSelectDialogVisible.value = false
-
-  const newRuleData = {
-    patientId: patientId,
-    freq: patient.freq,
-    shiftId: SHIFTS[parseInt(parts[parts.length - 2], 10)], // 正確獲取 shiftId
-    manualNote: patient.baseNote || '',
-    autoNote: generateAutoNote(patient),
-  }
-
-  const newScheduleRules = { ...masterRecord.value.schedule }
-  newScheduleRules[ruleId] = newRuleData
-  masterRecord.value.schedule = newScheduleRules
-
-  setChange()
-  currentSlotId.value = null
-
-  console.log(`✅ [BaseScheduleView] 已建立新規則: ${ruleId}`)
 }
 
 function handleDeleteRule() {
@@ -635,17 +492,10 @@ function handleDeleteRule() {
   confirmDialogMessage.value = `您確定要將 ${actionTarget.value.patientName} 從總表中移除嗎？此操作將刪除其所有常規排班。`
   confirmAction.value = () => {
     const newScheduleRules = { ...masterRecord.value.schedule }
-
-    // 🔥 修正：確保刪除正確的 ruleId
-    const ruleIdToDelete = actionTarget.value.ruleId
-    if (newScheduleRules[ruleIdToDelete]) {
-      delete newScheduleRules[ruleIdToDelete]
-      masterRecord.value.schedule = newScheduleRules
-      setChange()
-      console.log(`🗑️ [BaseScheduleView] 已刪除規則: ${ruleIdToDelete}`)
-    } else {
-      console.warn(`⚠️ [BaseScheduleView] 找不到要刪除的規則: ${ruleIdToDelete}`)
-    }
+    delete newScheduleRules[actionTarget.value.ruleId]
+    masterRecord.value.schedule = newScheduleRules
+    setChange()
+    console.log(`🗑️ [BaseScheduleView] 已刪除規則: ${actionTarget.value.ruleId}`)
   }
   isConfirmDialogVisible.value = true
 }
@@ -672,7 +522,6 @@ function openChangeBedOnlyDialog() {
   isAssignmentDialogVisible.value = true
 }
 
-// 3. 同樣修正 handleBedAssigned 函數中的衝突檢測
 async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -680,6 +529,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const newShiftIndex = SHIFTS.indexOf(shiftCode)
   if (newShiftIndex === -1) return
 
+  // 🔥 關鍵修正：ruleId 現在包含頻率
   const finalFreq = newFreq || patient.freq
   if (!finalFreq) {
     alertDialogTitle.value = '操作失敗'
@@ -688,38 +538,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     return
   }
 
-  // 🔥 新增：檢查頻率衝突
-  let baseRulePrefix
-  if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-    baseRulePrefix = `${bedNum}-${newShiftIndex}-`
-  } else {
-    baseRulePrefix = `${bedNum}-${newShiftIndex}-`
-  }
-
-  const conflictingRules = Object.keys(masterRecord.value.schedule || {}).filter(
-    (ruleId) =>
-      ruleId.startsWith(baseRulePrefix) && ruleId !== assignmentContext.value.originalRuleId,
-  )
-
-  for (const existingRuleId of conflictingRules) {
-    const existingRule = masterRecord.value.schedule[existingRuleId]
-    if (existingRule?.freq && hasFrequencyConflict(finalFreq, existingRule.freq)) {
-      const conflictPatient = patientMap.value.get(existingRule.patientId)
-      alertDialogTitle.value = '排班衝突'
-      alertDialogMessage.value = `此床位已有 ${conflictPatient?.name || '其他病人'} (${existingRule.freq})，與您選擇的頻率 (${finalFreq}) 有時間衝突。`
-      isAlertDialogVisible.value = true
-      return
-    }
-  }
-
-  // ✅ 處理外圍床位的 ruleId 格式
-  let newRuleId
-  if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}` // peripheral-1-0-一三五
-  } else {
-    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}` // 1-0-一三五
-  }
-
+  const newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}` // ✅ 新格式
   const originalRuleId = assignmentContext.value.originalRuleId
 
   // 更新病人頻率（如果有變更）
@@ -742,9 +561,17 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
 
   const newScheduleRules = { ...masterRecord.value.schedule }
 
-  // 刪除舊規則
+  // 🔥 關鍵修正：刪除舊規則時要檢查所有可能的舊格式
   if (originalRuleId) {
+    // 刪除舊規則（可能是舊格式或新格式）
     delete newScheduleRules[originalRuleId]
+
+    // 🔧 額外清理：如果是從舊格式升級，清理可能衝突的舊規則
+    const [bedPart, shiftPart] = originalRuleId.split('-')
+    const oldFormatKey = `${bedPart}-${shiftPart}`
+    if (newScheduleRules[oldFormatKey]) {
+      delete newScheduleRules[oldFormatKey]
+    }
   }
 
   // 建立新規則
@@ -763,7 +590,42 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   console.log(`✅ [BaseScheduleView] 已建立新規則: ${newRuleId}`)
 }
 
-// 2. 修正後的 onDrop 函數
+// ✅ 修正 handlePatientSelect 函數
+function handlePatientSelect({ patientId }) {
+  if (isPageLocked.value || !patientId || !currentSlotId.value) return
+
+  const patient = patientMap.value.get(patientId)
+  if (!patient || !patient.freq) {
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `病人 ${patient.name} 沒有設定頻率，無法排入總表。`
+    isAlertDialogVisible.value = true
+    return
+  }
+
+  const parts = currentSlotId.value.split('-')
+  // 🔥 關鍵修正：生成包含頻率的 ruleId
+  const ruleId = `${parts[0]}-${parts[1]}-${patient.freq}` // ✅ 新格式
+
+  isPatientSelectDialogVisible.value = false
+
+  const newRuleData = {
+    patientId: patientId,
+    freq: patient.freq,
+    shiftId: SHIFTS[parts[1]],
+    manualNote: patient.baseNote || '',
+    autoNote: generateAutoNote(patient),
+  }
+
+  const newScheduleRules = { ...masterRecord.value.schedule }
+  newScheduleRules[ruleId] = newRuleData
+  masterRecord.value.schedule = newScheduleRules
+
+  setChange()
+  currentSlotId.value = null
+
+  console.log(`✅ [BaseScheduleView] 已建立新規則: ${ruleId}`)
+}
+
 function onDrop(event, targetSlotId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -773,89 +635,46 @@ function onDrop(event, targetSlotId) {
   if (!itemToDrop) return
 
   const targetParts = targetSlotId.split('-')
-  const sourceRuleId = itemToDrop.sourceRuleId
-
-  // 🔥 修正：生成目標位置的基礎 ruleId（不含頻率）
-  let targetBaseRuleId
-  if (targetParts[0] === 'peripheral') {
-    targetBaseRuleId = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}`
-  } else {
-    targetBaseRuleId = `${targetParts[0]}-${targetParts[1]}`
-  }
+  const targetRuleId = `${targetParts[0]}-${targetParts[1]}` // "bedNum-shiftIndex"
+  const sourceRuleId = itemToDrop.sourceRuleId // "bedNum-shiftIndex"
 
   // 不允許將規則拖放到自己身上
-  if (sourceRuleId && sourceRuleId.startsWith(targetBaseRuleId)) {
+  if (targetRuleId === sourceRuleId) {
     draggedItem.value = null
     return
   }
 
   const newScheduleRules = { ...masterRecord.value.schedule }
+  const targetRuleData = newScheduleRules[targetRuleId]
 
-  // 🔥 關鍵修正：檢查頻率衝突而非簡單的床位佔用
-  if (sourceRuleId && newScheduleRules[sourceRuleId]) {
-    const draggedPatientFreq = newScheduleRules[sourceRuleId].freq
+  // [核心修正] 檢查目標位置是否已被佔用
+  if (targetRuleData && targetRuleData.patientId) {
+    // 如果目標位置有病人，則彈出提示並中止操作
+    const existingPatient = patientMap.value.get(targetRuleData.patientId)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `目標床位已被 ${existingPatient?.name || '未知病人'} 佔用，無法放置。`
+    isAlertDialogVisible.value = true
 
-    // 找到目標床位的所有現有規則
-    const conflictingRuleIds = Object.keys(newScheduleRules).filter((ruleId) => {
-      if (targetParts[0] === 'peripheral') {
-        return ruleId.startsWith(`${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-`)
-      } else {
-        return ruleId.startsWith(`${targetParts[0]}-${targetParts[1]}-`)
-      }
-    })
-
-    // 檢查是否有頻率衝突
-    let hasConflict = false
-    let conflictPatientName = ''
-
-    for (const existingRuleId of conflictingRuleIds) {
-      const existingRule = newScheduleRules[existingRuleId]
-      if (existingRule?.patientId && existingRule.freq) {
-        if (hasFrequencyConflict(draggedPatientFreq, existingRule.freq)) {
-          hasConflict = true
-          const conflictPatient = patientMap.value.get(existingRule.patientId)
-          conflictPatientName = conflictPatient?.name || '未知病人'
-          break
-        }
-      }
-    }
-
-    if (hasConflict) {
-      alertDialogTitle.value = '排班衝突'
-      alertDialogMessage.value = `無法放置！目標床位的 ${conflictPatientName} (${newScheduleRules[conflictingRuleIds[0]]?.freq}) 與被拖拽病人的頻率 (${draggedPatientFreq}) 有時間衝突。`
-      isAlertDialogVisible.value = true
-      draggedItem.value = null
-      return
-    }
+    // 清理拖曳狀態
+    draggedItem.value = null
+    return // 中止函式執行
   }
 
-  // 如果沒有頻率衝突，則執行「移動」操作
-  console.log(`➡️ [BaseScheduleView] 移動規則: ${sourceRuleId} -> ${targetBaseRuleId}`)
+  // 如果目標位置是空的，則執行「移動」操作
+  console.log(`➡️ [BaseScheduleView] 移動規則: ${sourceRuleId} -> ${targetRuleId}`)
 
-  if (sourceRuleId && newScheduleRules[sourceRuleId]) {
-    // 複製來源規則的資料
-    const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
+  // 複製來源規則的資料
+  const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
 
-    // 🔥 修正：生成新的完整 ruleId（包含頻率）
-    let newTargetRuleId
-    if (targetParts[0] === 'peripheral') {
-      newTargetRuleId = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-${sourceRuleData.freq}`
-    } else {
-      newTargetRuleId = `${targetParts[0]}-${targetParts[1]}-${sourceRuleData.freq}`
-    }
+  // 在新位置建立規則
+  newScheduleRules[targetRuleId] = sourceRuleData
 
-    // 在新位置建立規則
-    newScheduleRules[newTargetRuleId] = sourceRuleData
+  // 從舊位置刪除規則
+  delete newScheduleRules[sourceRuleId]
 
-    // 從舊位置刪除規則
-    delete newScheduleRules[sourceRuleId]
-
-    // 更新最終的 schedule 物件
-    masterRecord.value.schedule = newScheduleRules
-    setChange()
-
-    console.log(`✅ [BaseScheduleView] 成功移動到新位置: ${newTargetRuleId}`)
-  }
+  // 更新最終的 schedule 物件
+  masterRecord.value.schedule = newScheduleRules
+  setChange()
 
   // 清理拖曳狀態
   draggedItem.value = null
@@ -873,25 +692,10 @@ function onDragStart(event, slotId) {
   }
 
   const parts = slotId.split('-')
+  const ruleId = `${parts[0]}-${parts[1]}`
 
-  // 🔥 修正：找到完整的 ruleId
-  let baseRuleId
-  if (parts[0] === 'peripheral') {
-    baseRuleId = `${parts[0]}-${parts[1]}-${parts[2]}`
-  } else {
-    baseRuleId = `${parts[0]}-${parts[1]}`
-  }
-
-  // 🔥 關鍵修正：找到包含頻率的完整 ruleId
-  const completeRuleId = Object.keys(masterRecord.value.schedule || {}).find((fullRuleId) => {
-    return fullRuleId.startsWith(baseRuleId + '-')
-  })
-
-  console.log(`🖱️ [BaseScheduleView] 開始拖拽規則: ${completeRuleId}`)
-  draggedItem.value = {
-    sourceRuleId: completeRuleId,
-    sourceSlotId: slotId,
-  }
+  console.log(`🖱️ [BaseScheduleView] 開始拖拽規則: ${ruleId}`)
+  draggedItem.value = { sourceRuleId: ruleId }
   event.dataTransfer.effectAllowed = 'move'
 }
 
