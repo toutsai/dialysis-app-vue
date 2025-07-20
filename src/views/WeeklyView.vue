@@ -212,9 +212,8 @@ function getWeeklyCellStyle(slotId) {
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const CLEAR_OPTIONS = [
-  { value: 'single', text: '僅刪除此床當次' },
-  { value: 'this_week_for_patient', text: '刪除此病人本週所有排程' },
-  { value: 'this_and_future_for_bed', text: '刪除此床此次與未來排程' },
+  { value: 'single', text: '僅清除此床' },
+  { value: 'this_week_for_patient', text: '刪除病人本週所有排程' },
 ]
 
 const bedLayout = [
@@ -634,6 +633,7 @@ function handleClearSelect(selectedValue) {
   const bed = parts.slice(0, -2).join('-')
   const shiftIndex = parseInt(parts[parts.length - 2], 10)
   const startDayIndex = parseInt(parts[parts.length - 1], 10)
+
   if (isDateInPast(startDayIndex) && selectedValue !== 'this_week_for_patient') {
     alertDialogTitle.value = '操作禁止'
     alertDialogMessage.value = '無法修改已過去的排程。'
@@ -641,9 +641,12 @@ function handleClearSelect(selectedValue) {
     isClearDialogVisible.value = false
     return
   }
+
   if (selectedValue === 'single') {
+    // 僅清除此床
     handleSlotUpdate(clearingSlotId.value, null)
   } else if (selectedValue === 'this_week_for_patient') {
+    // 刪除病人本週所有排程
     if (patientIdToClear) {
       for (const slotId in weekScheduleMap.value) {
         const currentDayIndex = parseInt(slotId.split('-').pop(), 10)
@@ -655,15 +658,8 @@ function handleClearSelect(selectedValue) {
         }
       }
     }
-  } else if (selectedValue === 'this_and_future_for_bed') {
-    for (let i = startDayIndex; i < 6; i++) {
-      if (!isDateInPast(i)) {
-        const weeklySlotId = `${bed}-${shiftIndex}-${i}`
-        if (weekScheduleMap.value[weeklySlotId]?.patientId === patientIdToClear)
-          handleSlotUpdate(weeklySlotId, null)
-      }
-    }
   }
+
   isClearDialogVisible.value = false
   clearingSlotId.value = null
 }
@@ -929,28 +925,148 @@ function onDragLeave(event) {
 }
 
 function runScheduleCheck() {
-  const validationResult = { freqMismatch: [], duplicates: [] }
-  const patientSchedules = {}
+  const validationResult = {
+    duplicates: [],
+    freqMismatch: [],
+    unassignedCrucial: [], // ✨ 新增：重要病人未排班
+    unassignedAll: [], // ✨ 新增：所有未排班病人
+  }
+
+  // === 1. 檢查同一天同一個姓名不能出現兩次 ===
+  for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
+    if (isDateInPast(dayIndex)) continue
+
+    const dayPatients = new Map() // patientName -> 出現的位置信息
+
+    // 收集這一天所有的排程
+    for (const slotId in weekScheduleMap.value) {
+      const parts = slotId.split('-')
+
+      // 解析 slotId 格式
+      let slotDayIndex, shiftIndex, bedInfo
+      if (parts[0] === 'peripheral') {
+        // peripheral-1-0-0 格式
+        bedInfo = `外圍床位${parts[1]}`
+        shiftIndex = parseInt(parts[2], 10)
+        slotDayIndex = parseInt(parts[3], 10)
+      } else {
+        // 1-0-0 格式
+        bedInfo = `${parts[0]}號床`
+        shiftIndex = parseInt(parts[1], 10)
+        slotDayIndex = parseInt(parts[2], 10)
+      }
+
+      // 只處理當前檢查的日期
+      if (slotDayIndex === dayIndex) {
+        const slotData = weekScheduleMap.value[slotId]
+        if (slotData?.patientId) {
+          const patient = patientMap.value.get(slotData.patientId)
+          if (patient) {
+            const shiftNames = { 0: '早班', 1: '午班', 2: '晚班' }
+            const shiftName = shiftNames[shiftIndex] || '未知班次'
+
+            if (!dayPatients.has(patient.name)) {
+              dayPatients.set(patient.name, [])
+            }
+
+            dayPatients.get(patient.name).push(`${bedInfo}${shiftName}`)
+          }
+        }
+      }
+    }
+
+    // 檢查重複
+    for (const [patientName, locations] of dayPatients.entries()) {
+      if (locations.length > 1) {
+        validationResult.duplicates.push(
+          `${WEEKDAYS[dayIndex]}: ${patientName} 重複排班 (${locations.join('、')})`,
+        )
+      }
+    }
+  }
+
+  // === 2. 收集本週已排程的病人ID ===
+  const scheduledPatientIds = new Set()
   for (const slotId in weekScheduleMap.value) {
     const slotData = weekScheduleMap.value[slotId]
     if (slotData?.patientId) {
-      if (!patientSchedules[slotData.patientId]) {
-        patientSchedules[slotData.patientId] = []
+      const dayIndex = parseInt(slotId.split('-').pop(), 10)
+      if (!isDateInPast(dayIndex)) {
+        // 只考慮未來的排程
+        scheduledPatientIds.add(slotData.patientId)
       }
-      patientSchedules[slotData.patientId].push(slotId)
     }
   }
-  for (const patientId in patientSchedules) {
+
+  console.log('🔍 [WeeklyView] 本週已排程病人ID:', Array.from(scheduledPatientIds))
+
+  // === 3. 檢查重要病人（住院/急診）是否未排班 ===
+  const unassignedCrucialPatients = allPatients.value.filter((p) => {
+    const isUnassigned = !scheduledPatientIds.has(p.id)
+    const isCrucial = (p.status === 'ipd' || p.status === 'er') && !p.isDeleted && !p.isDiscontinued
+
+    if (isCrucial && isUnassigned) {
+      console.log(`⚠️ [WeeklyView] 未排班的重要病人: ${p.name} (${p.status})`)
+    }
+
+    return isCrucial && isUnassigned
+  })
+
+  unassignedCrucialPatients.forEach((p) => {
+    validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
+  })
+
+  // === 4. 檢查所有完全沒排到班的病人 ===
+  const unassignedAllPatients = allPatients.value.filter((p) => {
+    const isUnassigned = !scheduledPatientIds.has(p.id)
+    const isActivePatient = !p.isDeleted && !p.isDiscontinued // 排除已刪除或已停止的病人
+
+    if (isActivePatient && isUnassigned) {
+      console.log(`📋 [WeeklyView] 未排班的病人: ${p.name} (${p.status || '未知狀態'})`)
+    }
+
+    return isActivePatient && isUnassigned
+  })
+
+  unassignedAllPatients.forEach((p) => {
+    const statusText =
+      p.status === 'opd'
+        ? '門診'
+        : p.status === 'ipd'
+          ? '住院'
+          : p.status === 'er'
+            ? '急診'
+            : '未知'
+    validationResult.unassignedAll.push(`${p.name} (${statusText})`)
+  })
+
+  // === 5. 檢查同一周是否有依照頻率排入 ===
+  const patientSchedules = new Map() // patientId -> 排程的日期索引
+
+  // 收集每個病人的排程日期
+  for (const slotId in weekScheduleMap.value) {
+    const slotData = weekScheduleMap.value[slotId]
+    if (slotData?.patientId) {
+      const dayIndex = parseInt(slotId.split('-').pop(), 10)
+      if (!isDateInPast(dayIndex)) {
+        if (!patientSchedules.has(slotData.patientId)) {
+          patientSchedules.set(slotData.patientId, new Set())
+        }
+        patientSchedules.get(slotData.patientId).add(dayIndex)
+      }
+    }
+  }
+
+  // 檢查頻率是否符合
+  for (const [patientId, scheduledDays] of patientSchedules.entries()) {
     const patient = patientMap.value.get(patientId)
     if (!patient || !patient.freq || patient.status !== 'opd') continue
-    const scheduledDays = new Set(
-      patientSchedules[patientId]
-        .map((slotId) => parseInt(slotId.split('-').pop(), 10))
-        .filter((dayIndex) => !isDateInPast(dayIndex)),
-    )
+
     const expectedDays = new Set(
       (FREQ_MAP_TO_DAY_INDEX[patient.freq] || []).filter((dayIndex) => !isDateInPast(dayIndex)),
     )
+
+    // 比較實際排程和期望排程
     if (
       scheduledDays.size !== expectedDays.size ||
       ![...scheduledDays].every((day) => expectedDays.has(day))
@@ -959,58 +1075,59 @@ function runScheduleCheck() {
         .sort()
         .map((d) => WEEKDAYS[d].replace('星期', ''))
         .join('')
+
       const expectedDaysText = [...expectedDays]
         .sort()
         .map((d) => WEEKDAYS[d].replace('星期', ''))
         .join('')
-      if (actualDaysText !== expectedDaysText) {
-        validationResult.freqMismatch.push(
-          `病人 ${patient.name} (應排 ${patient.freq})，在未來排程為週 ${actualDaysText || '無'}，與預期不符。`,
-        )
-      }
-    }
-  }
-  for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
-    if (isDateInPast(dayIndex)) continue
-    const dailyPatientSet = new Set()
-    const dailyDuplicates = new Set()
-    for (const slotId in weekScheduleMap.value) {
-      const slotDayIndex = parseInt(slotId.split('-')[2], 10)
-      if (slotDayIndex === dayIndex) {
-        const slotData = weekScheduleMap.value[slotId]
-        if (slotData?.patientId) {
-          const patientName = patientMap.value.get(slotData.patientId)?.name
-          if (patientName) {
-            if (dailyPatientSet.has(patientName)) {
-              dailyDuplicates.add(patientName)
-            } else {
-              dailyPatientSet.add(patientName)
-            }
-          }
-        }
-      }
-    }
-    if (dailyDuplicates.size > 0) {
-      validationResult.duplicates.push(
-        `${WEEKDAYS[dayIndex]}: ${[...dailyDuplicates].join(', ')} 重複排班。`,
+
+      validationResult.freqMismatch.push(
+        `${patient.name} (頻率: ${patient.freq}) - 實際排程: 週${actualDaysText || '無'}, 應排程: 週${expectedDaysText}`,
       )
     }
   }
+
+  // === 6. 顯示結果 ===
   let issueMessage = ''
-  if (validationResult.freqMismatch.length > 0) {
+
+  // ✨ 優先顯示重要病人未排班
+  if (validationResult.unassignedCrucial.length > 0) {
     issueMessage +=
-      '【未來排班頻率不符】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
+      '【重要病人未排班】:\n- ' + validationResult.unassignedCrucial.join('\n- ') + '\n\n'
   }
+
   if (validationResult.duplicates.length > 0) {
-    issueMessage += '【未來同日重複排班】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
+    issueMessage += '【重複排班問題】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
   }
+
+  if (validationResult.freqMismatch.length > 0) {
+    issueMessage += '【頻率不符問題】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
+  }
+
+  // ✨ 顯示所有未排班病人
+  if (validationResult.unassignedAll.length > 0) {
+    issueMessage +=
+      '【本週完全未排班病人】:\n- ' + validationResult.unassignedAll.join('\n- ') + '\n\n'
+  }
+
+  // === 7. 輸出檢查統計 ===
+  console.log('🔍 [WeeklyView] 檢查結果:', {
+    總病人數: allPatients.value.length,
+    本週已排程病人數: scheduledPatientIds.size,
+    重要病人未排班: validationResult.unassignedCrucial.length,
+    所有病人未排班: validationResult.unassignedAll.length,
+    重複排班: validationResult.duplicates.length,
+    頻率不符: validationResult.freqMismatch.length,
+  })
+
   if (issueMessage) {
-    alertDialogTitle.value = '排班問題檢查結果 (僅未來日期)'
+    alertDialogTitle.value = '排班檢查結果 (僅未來日期)'
     alertDialogMessage.value = issueMessage
   } else {
     alertDialogTitle.value = '排程檢視完畢'
-    alertDialogMessage.value = '太棒了！未來排程未發現重複排班或頻率不符的問題。'
+    alertDialogMessage.value = '✅ 太棒了！未來排程沒有發現問題。'
   }
+
   isAlertDialogVisible.value = true
 }
 

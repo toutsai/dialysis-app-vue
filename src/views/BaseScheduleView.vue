@@ -522,18 +522,30 @@ function handleScheduleCheck() {
   console.log(`🔍 [BaseScheduleView] 執行床位檢查...`)
   const results = runBedCheck()
   let issueMessage = ''
+
   if (results.unassignedCrucial.length > 0) {
     issueMessage += '【重要病人未排床】:\n- ' + results.unassignedCrucial.join('\n- ') + '\n\n'
   }
+
   if (results.duplicates.length > 0) {
     issueMessage += '【床位規則重複】:\n- ' + results.duplicates.join('\n- ') + '\n\n'
   }
+
+  if (results.freqMismatch.length > 0) {
+    issueMessage += '【頻率不符問題】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
+  }
+
+  // ✨ 新增：顯示所有未排班病人
+  if (results.unassignedAll.length > 0) {
+    issueMessage += '【完全未排班病人】:\n- ' + results.unassignedAll.join('\n- ') + '\n\n'
+  }
+
   if (issueMessage) {
     alertDialogTitle.value = '排班問題檢查結果'
     alertDialogMessage.value = issueMessage
   } else {
     alertDialogTitle.value = '排程檢視完畢'
-    alertDialogMessage.value = '太棒了！未發現明顯的排班問題。'
+    alertDialogMessage.value = '✅ 太棒了！未發現明顯的排班問題。'
   }
   isAlertDialogVisible.value = true
 }
@@ -560,28 +572,20 @@ function handleGridClick(slotId) {
   if (patientId) {
     const parts = slotId.split('-')
 
-    // 🔥 修正：正確生成 actionTarget.ruleId
-    let ruleId
-    if (parts[0] === 'peripheral') {
-      // 外圍床位：peripheral-1-0-dayIndex -> peripheral-1-0
-      ruleId = `${parts[0]}-${parts[1]}-${parts[2]}`
-    } else {
-      // 一般床位：1-0-dayIndex -> 1-0
-      ruleId = `${parts[0]}-${parts[1]}`
-    }
-
-    // 🔥 關鍵修正：需要找到包含頻率的完整 ruleId
-    const completeRuleId = Object.keys(masterRecord.value.schedule || {}).find((fullRuleId) => {
-      if (parts[0] === 'peripheral') {
-        return fullRuleId.startsWith(`${parts[0]}-${parts[1]}-${parts[2]}-`)
-      } else {
-        return fullRuleId.startsWith(`${parts[0]}-${parts[1]}-`)
-      }
+    // 🔥 關鍵修正：直接使用 patientId 來查找正確的 ruleId
+    const correctRuleId = Object.keys(masterRecord.value.schedule || {}).find((ruleId) => {
+      const ruleData = masterRecord.value.schedule[ruleId]
+      return ruleData?.patientId === patientId
     })
+
+    if (!correctRuleId) {
+      console.warn(`⚠️ [BaseScheduleView] 找不到病人 ${patientId} 對應的規則`)
+      return
+    }
 
     actionTarget.value = {
       patientId: patientId,
-      ruleId: completeRuleId || ruleId, // 使用完整的 ruleId
+      ruleId: correctRuleId, // 使用通過 patientId 找到的正確 ruleId
       patientName: patientMap.value.get(patientId)?.name || '未知病人',
     }
     isActionDialogVisible.value = true
@@ -683,7 +687,7 @@ function openChangeBedOnlyDialog() {
   isAssignmentDialogVisible.value = true
 }
 
-// 4. 修正 handleBedAssigned 函數以處理新頻率
+// 修正後的 handleBedAssigned 函數 - 移除單個排床的成功提示
 async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -700,7 +704,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     return
   }
 
-  // 🔥 新增：檢查頻率衝突（重複之前的邏輯）
+  // 🔥 新增：檢查頻率衝突
   let baseRulePrefix
   if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
     baseRulePrefix = `${bedNum}-${newShiftIndex}-`
@@ -779,14 +783,8 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
 
   console.log(`✅ [BaseScheduleView] 已建立新規則: ${newRuleId}`)
 
-  // 🔥 新增：成功提示
-  alertDialogTitle.value = '操作成功'
-  if (newFreq) {
-    alertDialogMessage.value = `已成功將 ${patient.name} 的頻率更新為 ${finalFreq}，並安排到床位 ${bedNum} ${shiftDisplayNames[shiftCode] || shiftCode}。`
-  } else {
-    alertDialogMessage.value = `已成功將 ${patient.name} 安排到床位 ${bedNum} ${shiftDisplayNames[shiftCode] || shiftCode}。`
-  }
-  isAlertDialogVisible.value = true
+  // ❌ 移除：單個排床的成功提示
+  // 只保留批量排床的成功提示，移除單個排床的"操作成功"提示
 }
 
 // 2. 修正後的 onDrop 函數
@@ -954,7 +952,12 @@ async function loadAllData() {
 }
 
 function runBedCheck() {
-  const validationResult = { duplicates: [], unassignedCrucial: [] }
+  const validationResult = {
+    duplicates: [],
+    unassignedCrucial: [],
+    unassignedAll: [], // ✨ 新增：所有未排班病人
+    freqMismatch: [],
+  }
   const scheduledPatientIds = new Set()
 
   if (!masterRecord.value || !masterRecord.value.schedule) {
@@ -962,9 +965,11 @@ function runBedCheck() {
     return validationResult
   }
 
+  // 🔥 修正：正確收集已排床的病人ID
   for (const ruleId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData?.patientId) {
+      // 檢查重複排班
       if (scheduledPatientIds.has(ruleData.patientId)) {
         const patient = patientMap.value.get(ruleData.patientId)
         validationResult.duplicates.push(`病人 ${patient?.name || '未知'} 被重複排入多個規則中。`)
@@ -973,10 +978,72 @@ function runBedCheck() {
     }
   }
 
-  allPatients.value.forEach((p) => {
-    if ((p.status === 'ipd' || p.status === 'er') && !scheduledPatientIds.has(p.id)) {
-      validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
+  console.log('🔍 [BaseScheduleView] 已排床病人ID:', Array.from(scheduledPatientIds))
+
+  // 🔥 修正：檢查重要病人（住院/急診）是否未排床
+  const unassignedCrucialPatients = allPatients.value.filter((p) => {
+    const isUnassigned = !scheduledPatientIds.has(p.id)
+    const isCrucial = (p.status === 'ipd' || p.status === 'er') && !p.isDeleted && !p.isDiscontinued
+
+    if (isCrucial && isUnassigned) {
+      console.log(`⚠️ [BaseScheduleView] 未排床的重要病人: ${p.name} (${p.status})`)
     }
+
+    return isCrucial && isUnassigned
+  })
+
+  unassignedCrucialPatients.forEach((p) => {
+    validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
+  })
+
+  // ✨ 新增：檢查所有完全沒排到班的病人
+  const unassignedAllPatients = allPatients.value.filter((p) => {
+    const isUnassigned = !scheduledPatientIds.has(p.id)
+    const isActivePatient = !p.isDeleted && !p.isDiscontinued // 排除已刪除或已停止的病人
+
+    if (isActivePatient && isUnassigned) {
+      console.log(`📋 [BaseScheduleView] 未排班的病人: ${p.name} (${p.status || '未知狀態'})`)
+    }
+
+    return isActivePatient && isUnassigned
+  })
+
+  unassignedAllPatients.forEach((p) => {
+    const statusText =
+      p.status === 'opd'
+        ? '門診'
+        : p.status === 'ipd'
+          ? '住院'
+          : p.status === 'er'
+            ? '急診'
+            : '未知'
+    validationResult.unassignedAll.push(`${p.name} (${statusText})`)
+  })
+
+  // ✨ 新增：檢查頻率是否符合病人設定
+  for (const ruleId in masterRecord.value.schedule) {
+    const ruleData = masterRecord.value.schedule[ruleId]
+    if (ruleData?.patientId && ruleData.freq) {
+      const patient = patientMap.value.get(ruleData.patientId)
+      if (patient && patient.status === 'opd') {
+        // 只檢查門診病人
+        // 比較規則中的頻率與病人實際設定的頻率
+        if (patient.freq && patient.freq !== ruleData.freq) {
+          validationResult.freqMismatch.push(
+            `${patient.name} - 規則頻率: ${ruleData.freq}, 病人設定頻率: ${patient.freq}`,
+          )
+        }
+      }
+    }
+  }
+
+  console.log('🔍 [BaseScheduleView] 檢查結果:', {
+    總病人數: allPatients.value.length,
+    已排床病人數: scheduledPatientIds.size,
+    未排床重要病人: validationResult.unassignedCrucial.length,
+    未排床所有病人: validationResult.unassignedAll.length, // ✨ 新增
+    重複排班: validationResult.duplicates.length,
+    頻率不符: validationResult.freqMismatch.length,
   })
 
   return validationResult
