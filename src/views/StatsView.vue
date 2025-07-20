@@ -398,7 +398,6 @@
   </div>
 </template>
 
-<!-- 檔案路徑: src/views/StatsView.vue -->
 <script setup>
 import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -497,6 +496,7 @@ const alertDialogMessage = ref('')
 const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
+// ✨ 新增：撞床處理狀態
 const pendingChangeInfo = ref(null)
 const bedChangeTargetShift = ref(null)
 const isPrepPopoverVisible = ref(false)
@@ -512,6 +512,7 @@ const isPageLocked = computed(() => {
   currentDay.setHours(0, 0, 0, 0)
   return currentDay < today
 })
+
 // --- Helper Functions & 計算屬性 ---
 const formatDate = (date) => {
   if (!date) return ''
@@ -755,6 +756,7 @@ async function getEffectiveOrdersForDate(patientId, targetDate) {
     return {}
   }
 }
+
 // ✨ --- 核心修正：修改 loadData 來預先處理醫囑 --- ✨
 async function loadData(date) {
   hasUnsavedChanges.value = false
@@ -853,49 +855,76 @@ async function saveChangesToCloud() {
   }
 }
 
+// ✨ --- 增強的 onDrop 函數：處理撞床情況 --- ✨
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
+
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error(`拖曳失敗: 找不到原始紀錄 ${oldShiftId}`)
     return
   }
+
   const oldShiftIdParts = oldShiftId.split('-')
   const bedPart = oldShiftIdParts.slice(0, -1).join('-')
+
   let newShiftCode
   if (newResponsibility === 'earlyShift') newShiftCode = SHIFT_CODES.EARLY
   else if (newResponsibility === 'lateShift') newShiftCode = SHIFT_CODES.LATE
   else newShiftCode = SHIFT_CODES.NOON
+
   const newShiftId = `${bedPart}-${newShiftCode}`
+
+  // 🔥 關鍵改進：如果目標床位被佔用，觸發換床對話框而不是直接報錯
   if (newShiftId !== oldShiftId && currentRecord.schedule[newShiftId]) {
-    alertDialogTitle.value = '操作錯誤'
-    alertDialogMessage.value = `錯誤：目標床位 ${newShiftId.replace('bed-', '')} 在目標班次已被佔用！操作取消。`
-    isAlertDialogVisible.value = true
+    // 儲存待處理的變更信息
+    pendingChangeInfo.value = {
+      patientDetail: patientDetail,
+      newTeam: newTeam,
+      newResponsibility: newResponsibility,
+    }
+    bedChangeTargetShift.value = newShiftCode
+    openBedChangeDialog(patientDetail)
     return
   }
+
+  // 🎯 直接移動病人（沒有撞床的情況）
+  performDirectMove(oldShiftId, newShiftId, newTeam, newResponsibility, event)
+}
+
+// ✨ --- 新增：執行直接移動的輔助函數 --- ✨
+function performDirectMove(oldShiftId, newShiftId, newTeam, newResponsibility, event) {
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
   movingSlotData.shiftId = newShiftId
+
+  // 清除舊的護理組別
   delete movingSlotData.nurseTeam
   delete movingSlotData.nurseTeamIn
   delete movingSlotData.nurseTeamOut
+
+  // 設定新的護理組別
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     movingSlotData.nurseTeam = newTeam
   } else if (newResponsibility === 'noonShiftOn') {
     movingSlotData.nurseTeamIn = newTeam
-    const oldResp = event.dataTransfer.getData('text/plain')
-    if (oldResp.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamOut) {
+    // 如果原本是午班，保留 nurseTeamOut
+    const oldResp = event?.dataTransfer?.getData('text/plain')
+    if (oldResp === 'noonShiftOff' && currentRecord.schedule[oldShiftId].nurseTeamOut) {
       movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
     }
   } else if (newResponsibility === 'noonShiftOff') {
     movingSlotData.nurseTeamOut = newTeam
-    const oldResp = event.dataTransfer.getData('text/plain')
-    if (oldResp.startsWith('noon') && currentRecord.schedule[oldShiftId].nurseTeamIn) {
+    // 如果原本是午班，保留 nurseTeamIn
+    const oldResp = event?.dataTransfer?.getData('text/plain')
+    if (oldResp === 'noonShiftOn' && currentRecord.schedule[oldShiftId].nurseTeamIn) {
       movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
     }
   }
+
+  // 執行移動
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
   setChange()
@@ -917,17 +946,69 @@ function openBedChangeDialog(patientDetail) {
   isBedChangeDialogVisible.value = true
 }
 
+// ✨ --- 增強的 handleBedChange 函數：處理護理組別變更 --- ✨
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value) return
   if (!oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     console.error('換床失敗，參數無效或找不到舊床位資料。')
+    isBedChangeDialogVisible.value = false
     return
   }
-  const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
-  delete currentRecord.schedule[oldShiftId]
-  currentRecord.schedule[newShiftId] = patientData
+
+  // 🔥 關鍵：如果有待處理的護理組別變更，一併處理
+  if (pendingChangeInfo.value) {
+    const { newTeam, newResponsibility } = pendingChangeInfo.value
+    const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+    movingSlotData.shiftId = newShiftId
+
+    // 清除舊的護理組別
+    delete movingSlotData.nurseTeam
+    delete movingSlotData.nurseTeamIn
+    delete movingSlotData.nurseTeamOut
+
+    // 🎯 設定新的護理組別（來自拖曳目標）
+    if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
+      movingSlotData.nurseTeam = newTeam
+    } else if (newResponsibility === 'noonShiftOn') {
+      movingSlotData.nurseTeamIn = newTeam
+      // 如果目標班次是午班，可能需要保留原有的 nurseTeamOut
+      if (
+        bedChangeTargetShift.value === SHIFT_CODES.NOON &&
+        currentRecord.schedule[oldShiftId].nurseTeamOut
+      ) {
+        movingSlotData.nurseTeamOut = currentRecord.schedule[oldShiftId].nurseTeamOut
+      }
+    } else if (newResponsibility === 'noonShiftOff') {
+      movingSlotData.nurseTeamOut = newTeam
+      // 如果目標班次是午班，可能需要保留原有的 nurseTeamIn
+      if (
+        bedChangeTargetShift.value === SHIFT_CODES.NOON &&
+        currentRecord.schedule[oldShiftId].nurseTeamIn
+      ) {
+        movingSlotData.nurseTeamIn = currentRecord.schedule[oldShiftId].nurseTeamIn
+      }
+    }
+
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = movingSlotData
+
+    console.log(
+      `🔄 [StatsView] 完成換班+換床+護理組別調整: ${oldShiftId} → ${newShiftId}, 組別: ${newTeam}`,
+    )
+  } else {
+    // 🔄 純換床（不涉及護理組別變更）
+    const patientData = { ...currentRecord.schedule[oldShiftId], shiftId: newShiftId }
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = patientData
+    console.log(`🔄 [StatsView] 完成純換床: ${oldShiftId} → ${newShiftId}`)
+  }
+
   setChange()
   isBedChangeDialogVisible.value = false
+
+  // 清理待處理狀態
+  pendingChangeInfo.value = null
+  bedChangeTargetShift.value = null
 }
 
 function updateNurseName(teamId, event) {
@@ -993,8 +1074,13 @@ function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
 
+// ✨ --- 增強的 handleDialogCancel 函數：清理待處理狀態 --- ✨
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
+
+  // 🧹 清理待處理狀態
+  pendingChangeInfo.value = null
+  bedChangeTargetShift.value = null
 }
 
 function triggerPrint() {
