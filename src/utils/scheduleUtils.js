@@ -64,8 +64,6 @@ export const PRIORITY_TAGS = {
   新: { priority: 2, class: 'tag-new', color: '#f5ec8e' }, // 金黃
   住: { priority: 3, class: 'status-ipd', color: '#ffebee' }, // 紅色
   急: { priority: 3, class: 'status-er', color: '#f3e5f5' }, // 紫色 (同等級)
-  隔: { priority: 3, class: 'status-ipd', color: '#ffebee' }, // 紅色 (隔離=住院)
-  R: { priority: 3, class: 'status-ipd', color: '#ffebee' }, // 紅色 (R=住院)
   // 兩班 (橘色) 通過頻率判斷，不在標籤中
   // 門診 (綠色) 是默認，不需要特殊標記
 }
@@ -101,11 +99,6 @@ export function generateAutoNote(patient) {
     if (patient.diseases.includes('RPR')) autoNotes.add('R')
     if (patient.diseases.includes('隔離')) autoNotes.add('隔')
     if (patient.diseases.includes('COVID')) autoNotes.add('冠')
-
-    // 🔥 【新增】抽血標籤（HBV 或 HCV 患者）
-    if (patient.diseases.includes('HBV') || patient.diseases.includes('HCV')) {
-      autoNotes.add('抽')
-    }
   }
 
   return Array.from(autoNotes).join(' ')

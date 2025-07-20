@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (修改後，確保刪除/復原時同步清除未來排程) -->
+<!-- 檔案路徑: src/views/PatientsView.vue - 簡化後的 script 部分 -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -11,11 +11,9 @@ import {
   saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
 
-// ✨ 確保引入 clearFutureSchedulesForPatient
-import {
-  clearFutureSchedulesForPatient,
-  cleanTemporaryDataInFutureSchedules,
-} from '@/services/scheduleService.js'
+// ✨ 只引入必要的總床位表操作
+import { removePatientFromBaseSchedule } from '@/services/baseScheduleService.js'
+
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
@@ -225,9 +223,10 @@ async function handleSavePatient(patientData) {
     const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
     const isNowDiscontinued = patientData.isDiscontinued
 
+    // ✅ 保留：中止透析時從總床位表移除
     if (!wasDiscontinuedBefore && isNowDiscontinued) {
       confirmDialogTitle.value = '確認中止透析'
-      confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
+      confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並從總床位表中移除其排班規則嗎？此操作會自動清除所有未來排程。`
       confirmAction.value = async () => {
         try {
           closeModal()
@@ -237,14 +236,14 @@ async function handleSavePatient(patientData) {
               patientData.discontinuedDate || new Date().toISOString().split('T')[0],
           }
           await optimizedUpdatePatient(patientData.id, updateData)
-          await clearFutureSchedulesForPatient(patientData.id)
+          await removePatientFromBaseSchedule(patientData.id)
           await fetchAllPatients()
 
           addNotification(`中止透析：${patientData.name}`, 'patient')
 
-          alertDialogTitle.value = '操作成功'
-          alertDialogMessage.value = `${patientData.name} 已標記為中止透析，相關排程已清除。`
-          isAlertDialogVisible.value = true
+          //alertDialogTitle.value = '操作成功'
+          //alertDialogMessage.value = `${patientData.name} 已標記為中止透析，已從總床位表移除，未來排程將自動清除。`
+          //isAlertDialogVisible.value = true
         } catch (err) {
           console.error('中止透析操作失敗:', err)
           alertDialogTitle.value = '操作失敗'
@@ -253,29 +252,41 @@ async function handleSavePatient(patientData) {
         }
       }
       isConfirmDialogVisible.value = true
-    } else {
-      try {
-        const dataToUpdate = { ...patientData }
-        delete dataToUpdate.id
-        await optimizedUpdatePatient(patientData.id, dataToUpdate)
-        closeModal()
-        await fetchAllPatients()
+      return
+    }
 
-        addNotification(`編輯病人：${patientData.name}`, 'patient')
+    // ✅ 簡化：一般更新只處理病人資料，不自動更新總床位表
+    try {
+      const dataToUpdate = { ...patientData }
+      delete dataToUpdate.id
+      await optimizedUpdatePatient(patientData.id, dataToUpdate)
+      closeModal()
+      await fetchAllPatients()
 
-        alertDialogTitle.value = '儲存成功'
+      addNotification(`編輯病人：${patientData.name}`, 'patient')
+
+      // 🔥 新增提示：如果頻率有變更，提醒用戶到總床位表調整
+      const originalFreq = originalPatient?.freq
+      const newFreq = patientData.freq
+      const freqChanged = originalFreq !== newFreq
+
+      alertDialogTitle.value = '儲存成功'
+      if (freqChanged) {
+        alertDialogMessage.value = `病人資料已更新。\n\n📋 頻率已從「${originalFreq || '未設定'}」變更為「${newFreq || '未設定'}」。\n\n⚠️ 如該病人已排床，請記得到「門住總床位表」調整排床，以避免衝突。`
+      } else {
         alertDialogMessage.value = '病人資料已成功更新。'
-        isAlertDialogVisible.value = true
-      } catch (err) {
-        console.error('更新病人資料失敗:', err)
-        alertDialogTitle.value = '操作失敗'
-        alertDialogMessage.value = '更新病人資料失敗！'
-        isAlertDialogVisible.value = true
       }
+      isAlertDialogVisible.value = true
+    } catch (err) {
+      console.error('更新病人資料失敗:', err)
+      alertDialogTitle.value = '操作失敗'
+      alertDialogMessage.value = '更新病人資料失敗！'
+      isAlertDialogVisible.value = true
     }
     return
   }
 
+  // 新增病人邏輯
   if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
     alertDialogTitle.value = '資料不完整'
     alertDialogMessage.value = '請務必填寫病歷號。'
@@ -326,9 +337,9 @@ async function handleSavePatient(patientData) {
         modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
       addNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
 
-      alertDialogTitle.value = '新增成功'
-      alertDialogMessage.value = '病人資料已成功新增。'
-      isAlertDialogVisible.value = true
+      //alertDialogTitle.value = '新增成功'
+      //alertDialogMessage.value = '病人資料已成功新增。'
+      //isAlertDialogVisible.value = true
     } catch (err) {
       console.error('新增病人失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -370,10 +381,6 @@ async function handleConflictSelected() {
 
     await optimizedSavePatientHistory(historyEntry)
 
-    if (!existingPatient.isDeleted) {
-      await cleanTemporaryDataInFutureSchedules(existingPatient.id, dataToUpdate)
-    }
-
     closeModal()
     await fetchAllPatients()
 
@@ -408,7 +415,7 @@ async function transferPatient(patientId, newStatus) {
   const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
 
   confirmDialogTitle.value = `確認轉為${targetStatusText}`
-  confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`
+  confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n💡 如果該病人已排床，建議完成轉移後到「門住總床位表」檢查並調整排床。`
   confirmAction.value = async () => {
     try {
       const originalPatientData = allPatients.value.find((p) => p.id === patientId)
@@ -427,15 +434,12 @@ async function transferPatient(patientId, newStatus) {
       }
 
       await optimizedSavePatientHistory(historyEntry)
-
-      const updatedPatient = { ...originalPatientData, status: newStatus }
-      await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
       await fetchAllPatients()
 
       addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
 
       alertDialogTitle.value = '轉移成功'
-      alertDialogMessage.value = `${patientName} 已成功轉至${targetStatusText}。`
+      alertDialogMessage.value = `${patientName} 已成功轉至${targetStatusText}。\n\n📋 如有排床，請到「門住總床位表」確認自動標籤是否正確。`
       isAlertDialogVisible.value = true
     } catch (err) {
       console.error('轉床失敗:', err)
@@ -481,14 +485,16 @@ async function handleDeleteReasonSelected(reason) {
       }
 
       await optimizedSavePatientHistory(historyEntry)
-      // ✨ 這裡的呼叫是正確的，無需修改
-      await clearFutureSchedulesForPatient(patientToDeleteId.value)
+
+      // ✅ 保留：從總床位表移除病人
+      await removePatientFromBaseSchedule(patientToDeleteId.value)
+
       await fetchAllPatients()
 
       addNotification(`刪除病人：${patient.name} (${reason})`, 'patient')
 
-      alertDialogTitle.value = '刪除成功'
-      alertDialogMessage.value = `${patient.name} 已刪除，相關排程已清除。`
+      //alertDialogTitle.value = '刪除成功'
+      alertDialogMessage.value = `${patient.name} 已刪除，已從總床位表中移除，未來排程將自動清除。`
       isAlertDialogVisible.value = true
     }
   } catch (err) {
@@ -502,7 +508,6 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
-// ✨ [修改] 復原病人時，也加入清除未來排程的邏輯
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -536,17 +541,16 @@ async function restorePatient(patientId) {
 
     await optimizedSavePatientHistory(historyEntry)
 
-    // ✨ [修改] 新增呼叫：清除可能殘存的未來排程
-    await clearFutureSchedulesForPatient(patientId)
+    // ✅ 保留：確保總床位表中沒有殘留規則
+    await removePatientFromBaseSchedule(patientId)
 
     await fetchAllPatients()
 
     addNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
 
-    // ✨ [修改] 更新提示文字，告知使用者排程已清除
-    alertDialogTitle.value = '復原成功'
-    alertDialogMessage.value = `${patient.name} 已復原至${statusText}清單，其未來排程已被清除，請至總床位表重新安排。`
-    isAlertDialogVisible.value = true
+    //alertDialogTitle.value = '復原成功'
+    //alertDialogMessage.value = `${patient.name} 已復原至${statusText}清單，如需重新排班請至總床位表設定。`
+    //isAlertDialogVisible.value = true
   } catch (err) {
     console.error('復原失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -673,11 +677,6 @@ function handleConfirm() {
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
-  if (existingPatientForConflict.value) {
-    //
-  } else {
-    console.log('使用者取消了操作。')
-  }
 }
 
 function openOrderModal(patient) {
@@ -737,9 +736,9 @@ async function handleSaveOrder(orderDataFromModal) {
 
     addNotification(`更新醫囑：${patientName}`, 'patient')
 
-    alertDialogTitle.value = '儲存成功'
-    alertDialogMessage.value = '透析醫囑已成功儲存。'
-    isAlertDialogVisible.value = true
+    //alertDialogTitle.value = '儲存成功'
+    //alertDialogMessage.value = '透析醫囑已成功儲存。'
+    //isAlertDialogVisible.value = true
   } catch (error) {
     console.error('❌ [PatientsView] 儲存醫囑失敗:', error)
     alertDialogTitle.value = '操作失敗'
@@ -875,6 +874,13 @@ onMounted(() => {
                 <div class="flex-cell col-actions">
                   <div class="action-buttons">
                     <button
+                      class="btn btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                    >
+                      編輯
+                    </button>
+                    <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
@@ -895,6 +901,7 @@ onMounted(() => {
                     >
                       轉門診
                     </button>
+                    <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
                         class="btn-icon btn-history"
@@ -902,14 +909,6 @@ onMounted(() => {
                         title="動向歷史"
                       >
                         🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-edit"
-                        @click="openEditPatientModal(p)"
-                        :disabled="isPageLocked"
-                        title="編輯"
-                      >
-                        ✏️
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -1017,6 +1016,13 @@ onMounted(() => {
                 <div class="flex-cell col-actions">
                   <div class="action-buttons">
                     <button
+                      class="btn btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                    >
+                      編輯
+                    </button>
+                    <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
@@ -1037,6 +1043,7 @@ onMounted(() => {
                     >
                       轉門診
                     </button>
+                    <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
                         class="btn-icon btn-history"
@@ -1044,14 +1051,6 @@ onMounted(() => {
                         title="動向歷史"
                       >
                         🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-edit"
-                        @click="openEditPatientModal(p)"
-                        :disabled="isPageLocked"
-                        title="編輯"
-                      >
-                        ✏️
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -1147,6 +1146,13 @@ onMounted(() => {
                 <div class="flex-cell col-actions">
                   <div class="action-buttons">
                     <button
+                      class="btn btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                    >
+                      編輯
+                    </button>
+                    <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
@@ -1167,6 +1173,7 @@ onMounted(() => {
                     >
                       轉住院
                     </button>
+                    <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
                         class="btn-icon btn-history"
@@ -1174,14 +1181,6 @@ onMounted(() => {
                         title="動向歷史"
                       >
                         🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-edit"
-                        @click="openEditPatientModal(p)"
-                        :disabled="isPageLocked"
-                        title="編輯"
-                      >
-                        ✏️
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -1313,6 +1312,7 @@ onMounted(() => {
   --blue-bg: #eff6ff;
   --purple-bg: #e9d5ff;
   --orange-bg: #fff7ed;
+  --red-bg: #fef2f2;
   --grey-bg: #f8f9fa;
   --grey-text: #6c757d;
 }
@@ -1548,7 +1548,7 @@ onMounted(() => {
   flex: 0 0 110px;
 }
 .col-actions {
-  flex: 0 0 390px;
+  flex: 0 0 400px;
   justify-content: flex-start;
 }
 
@@ -1608,6 +1608,14 @@ onMounted(() => {
   transition: background-color 0.2s;
 }
 
+.btn.btn-edit {
+  background-color: #007bff;
+}
+
+.btn.btn-edit:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
 .btn.btn-order {
   background-color: #ff9c07;
   color: #212529;
@@ -1638,10 +1646,16 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
+.action-divider {
+  width: 1px;
+  height: 24px;
+  background-color: #dee2e6;
+  margin: 0 0.25rem;
+}
+
 .icon-buttons {
   display: flex;
   gap: 0.25rem;
-  margin-left: auto;
 }
 
 .btn-icon {
@@ -1665,9 +1679,6 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.btn-icon.btn-edit {
-  color: #007bff;
-}
 .btn-icon.btn-delete {
   color: #dc3545;
 }
@@ -1675,9 +1686,6 @@ onMounted(() => {
   color: #6c757d;
 }
 
-.btn-icon.btn-edit:hover:not(:disabled) {
-  background-color: #e0e7ff;
-}
 .btn-icon.btn-delete:hover:not(:disabled) {
   background-color: #fee2e2;
 }
@@ -1689,7 +1697,7 @@ onMounted(() => {
   background-color: var(--green-bg);
 }
 .flex-table-row.status-ipd {
-  background-color: var(--blue-bg);
+  background-color: var(--red-bg);
 }
 .flex-table-row.status-er {
   background-color: #f3e8ff;
@@ -1798,7 +1806,7 @@ onMounted(() => {
 
 @media (max-width: 1200px) {
   .col-actions {
-    flex: 0 0 300px;
+    flex: 0 0 350px;
   }
 }
 

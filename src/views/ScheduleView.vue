@@ -1144,8 +1144,8 @@ function executeAutoAssignment() {
   const earlyRules = {
     priorityTeams: {
       hepatitis: '早G',
-      inPatientTeams: ['早H', '早I', '早J', '早K'],
-      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4, 早K: 4 },
+      inPatientTeams: ['早H', '早I', '早J'], // 移除早K
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4 }, // 移除早K的容量設定
     },
     mainDistribution: {
       specialTeam: useEarlyTeamA ? { name: '早A', capacity: 2 } : null,
@@ -1163,8 +1163,8 @@ function executeAutoAssignment() {
   const noonRules = {
     priorityTeams: {
       hepatitis: '早G',
-      inPatientTeams: ['早H', '早I', '早J', '早K'],
-      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4, 早K: 4 },
+      inPatientTeams: ['早H', '早I', '早J'], // 移除早K
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4 }, // 移除早K的容量設定
     },
     mainDistribution: {
       specialTeam: useNoonTeamA ? { name: '早A', capacity: 2 } : null,
@@ -1180,7 +1180,7 @@ function executeAutoAssignment() {
   const lateRules = {
     priorityTeams: {
       hepatitis: '晚G',
-      inPatientTeams: ['晚H', '晚I'],
+      inPatientTeams: ['晚H', '晚I'], // 本來就沒有晚K，保持不變
       inPatientCapacity: { 晚H: 2, 晚I: 2 },
     },
     mainDistribution: {
@@ -1193,21 +1193,21 @@ function executeAutoAssignment() {
 
   const earlyAssignments = distributePatients(
     sort(earlyMain),
-    ['早A', ...earlyTeamsForDistribution, '早H', '早I', '早J', '早K'].filter(Boolean),
+    ['早A', ...earlyTeamsForDistribution, '早H', '早I', '早J'].filter(Boolean), // 移除早K
     earlyRules,
   )
   earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
 
   const noonOnAssignments = distributePatients(
     sort(noonMain),
-    ['早A', ...noonTeamsForDistribution, '早H', '早I', '早J', '早K'].filter(Boolean),
+    ['早A', ...noonTeamsForDistribution, '早H', '早I', '早J'].filter(Boolean), // 移除早K
     noonRules,
   )
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
   const lateAssignments = distributePatients(
     sort(lateMainOnly),
-    [...lateTeamsForDistribution, '晚H', '晚I'],
+    [...lateTeamsForDistribution, '晚H', '晚I'], // 本來就沒有晚K，保持不變
     lateRules,
   )
   lateAssignments['晚外圍'] = peripheral(allLatePatients)
