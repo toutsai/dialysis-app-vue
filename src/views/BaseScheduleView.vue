@@ -787,7 +787,7 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   // 只保留批量排床的成功提示，移除單個排床的"操作成功"提示
 }
 
-// 2. 修正後的 onDrop 函數
+// === 簡化的 onDrop 函數 ===
 function onDrop(event, targetSlotId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -799,121 +799,102 @@ function onDrop(event, targetSlotId) {
   const targetParts = targetSlotId.split('-')
   const sourceRuleId = itemToDrop.sourceRuleId
 
-  // 🔥 修正：生成目標位置的基礎 ruleId（不含頻率）
-  let targetBaseRuleId
+  // 🔥 修正：正確生成目標床位+班次前綴
+  let targetBedShiftPrefix
   if (targetParts[0] === 'peripheral') {
-    targetBaseRuleId = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}`
+    targetBedShiftPrefix = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-`
   } else {
-    targetBaseRuleId = `${targetParts[0]}-${targetParts[1]}`
+    targetBedShiftPrefix = `${targetParts[0]}-${targetParts[1]}-`
   }
 
-  // 不允許將規則拖放到自己身上
-  if (sourceRuleId && sourceRuleId.startsWith(targetBaseRuleId)) {
+  // 不允許拖拽到自己位置
+  if (sourceRuleId && sourceRuleId.startsWith(targetBedShiftPrefix)) {
     draggedItem.value = null
     return
   }
 
   const newScheduleRules = { ...masterRecord.value.schedule }
 
-  // 🔥 關鍵修正：檢查頻率衝突而非簡單的床位佔用
+  // 🔥 關鍵修正：精確的頻率衝突檢查
   if (sourceRuleId && newScheduleRules[sourceRuleId]) {
-    const draggedPatientFreq = newScheduleRules[sourceRuleId].freq
+    const draggedRuleData = newScheduleRules[sourceRuleId]
+    const draggedPatientFreq = draggedRuleData.freq
 
-    // 找到目標床位的所有現有規則
-    const conflictingRuleIds = Object.keys(newScheduleRules).filter((ruleId) => {
-      if (targetParts[0] === 'peripheral') {
-        return ruleId.startsWith(`${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-`)
-      } else {
-        return ruleId.startsWith(`${targetParts[0]}-${targetParts[1]}-`)
-      }
+    // 找到目標床位的現有規則（排除自己）
+    const existingRulesAtTarget = Object.entries(newScheduleRules).filter(([ruleId, ruleData]) => {
+      return ruleId !== sourceRuleId && ruleId.startsWith(targetBedShiftPrefix)
     })
 
-    // 檢查是否有頻率衝突
-    let hasConflict = false
-    let conflictPatientName = ''
+    // 檢查頻率衝突
+    for (const [existingRuleId, existingRuleData] of existingRulesAtTarget) {
+      if (
+        existingRuleData?.freq &&
+        hasFrequencyConflict(draggedPatientFreq, existingRuleData.freq)
+      ) {
+        const conflictPatient = patientMap.value.get(existingRuleData.patientId)
+        const draggedPatient = patientMap.value.get(draggedRuleData.patientId)
 
-    for (const existingRuleId of conflictingRuleIds) {
-      const existingRule = newScheduleRules[existingRuleId]
-      if (existingRule?.patientId && existingRule.freq) {
-        if (hasFrequencyConflict(draggedPatientFreq, existingRule.freq)) {
-          hasConflict = true
-          const conflictPatient = patientMap.value.get(existingRule.patientId)
-          conflictPatientName = conflictPatient?.name || '未知病人'
-          break
-        }
+        alertDialogTitle.value = '排班衝突'
+        alertDialogMessage.value = `無法放置！目標床位的 ${conflictPatient?.name || '未知病人'} (${existingRuleData.freq}) 與 ${draggedPatient?.name || '未知病人'} 的頻率 (${draggedPatientFreq}) 有時間衝突。`
+        isAlertDialogVisible.value = true
+        draggedItem.value = null
+        return
       }
-    }
-
-    if (hasConflict) {
-      alertDialogTitle.value = '排班衝突'
-      alertDialogMessage.value = `無法放置！目標床位的 ${conflictPatientName} (${newScheduleRules[conflictingRuleIds[0]]?.freq}) 與被拖拽病人的頻率 (${draggedPatientFreq}) 有時間衝突。`
-      isAlertDialogVisible.value = true
-      draggedItem.value = null
-      return
     }
   }
 
-  // 如果沒有頻率衝突，則執行「移動」操作
-  console.log(`➡️ [BaseScheduleView] 移動規則: ${sourceRuleId} -> ${targetBaseRuleId}`)
-
+  // 執行移動
   if (sourceRuleId && newScheduleRules[sourceRuleId]) {
-    // 複製來源規則的資料
     const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
+    const newTargetRuleId = `${targetBedShiftPrefix}${sourceRuleData.freq}`
 
-    // 🔥 修正：生成新的完整 ruleId（包含頻率）
-    let newTargetRuleId
-    if (targetParts[0] === 'peripheral') {
-      newTargetRuleId = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-${sourceRuleData.freq}`
-    } else {
-      newTargetRuleId = `${targetParts[0]}-${targetParts[1]}-${sourceRuleData.freq}`
+    // 建立新規則
+    newScheduleRules[newTargetRuleId] = {
+      ...sourceRuleData,
+      shiftId: SHIFTS[parseInt(targetParts[targetParts.length - 2], 10)],
     }
 
-    // 在新位置建立規則
-    newScheduleRules[newTargetRuleId] = sourceRuleData
-
-    // 從舊位置刪除規則
+    // 刪除舊規則
     delete newScheduleRules[sourceRuleId]
 
-    // 更新最終的 schedule 物件
     masterRecord.value.schedule = newScheduleRules
     setChange()
 
-    console.log(`✅ [BaseScheduleView] 成功移動到新位置: ${newTargetRuleId}`)
+    console.log(`✅ [BaseScheduleView] 成功移動: ${sourceRuleId} -> ${newTargetRuleId}`)
   }
 
-  // 清理拖曳狀態
   draggedItem.value = null
 }
 
+// === 關鍵修復：正確的 onDragStart 函數 ===
 function onDragStart(event, slotId) {
   if (isPageLocked.value) {
     event.preventDefault()
     return
   }
+
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
 
-  const parts = slotId.split('-')
-
-  // 🔥 修正：找到完整的 ruleId
-  let baseRuleId
-  if (parts[0] === 'peripheral') {
-    baseRuleId = `${parts[0]}-${parts[1]}-${parts[2]}`
-  } else {
-    baseRuleId = `${parts[0]}-${parts[1]}`
-  }
-
-  // 🔥 關鍵修正：找到包含頻率的完整 ruleId
-  const completeRuleId = Object.keys(masterRecord.value.schedule || {}).find((fullRuleId) => {
-    return fullRuleId.startsWith(baseRuleId + '-')
+  // 🔥 關鍵修正：直接用 patientId 找到正確的 ruleId
+  const correctRuleId = Object.keys(masterRecord.value.schedule || {}).find((ruleId) => {
+    const ruleData = masterRecord.value.schedule[ruleId]
+    return ruleData?.patientId === slotData.patientId
   })
 
-  console.log(`🖱️ [BaseScheduleView] 開始拖拽規則: ${completeRuleId}`)
+  if (!correctRuleId) {
+    console.error(`❌ 找不到病人 ${slotData.patientId} 對應的規則`)
+    event.preventDefault()
+    return
+  }
+
+  console.log(`🖱️ [BaseScheduleView] 開始拖拽: ${slotId} (規則: ${correctRuleId})`)
+
   draggedItem.value = {
-    sourceRuleId: completeRuleId,
+    sourceRuleId: correctRuleId,
     sourceSlotId: slotId,
   }
   event.dataTransfer.effectAllowed = 'move'
