@@ -51,6 +51,7 @@
             :weekdays="statsToolbarWeekdays"
             :column-widths="columnWidths"
             size="normal"
+            :show-patient-numbers="true"
           />
         </div>
         <ScheduleTable
