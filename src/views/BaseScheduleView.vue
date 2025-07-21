@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (修正顏色顯示優先級 - 完整無省略) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (修正自動重新載入 - 完整版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -9,6 +9,7 @@
           <button class="btn btn-info" @click="openBaseAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
+
           <div class="search-container">
             <input
               type="text"
@@ -129,7 +130,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, provide, nextTick } from 'vue'
+// 🔥 修正：加入 onUnmounted
+import { ref, onMounted, computed, provide, nextTick, onUnmounted } from 'vue'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   updatePatient,
@@ -200,10 +202,8 @@ const bedLayout = [
   62,
   63,
   65,
-  // ✅ 新增：外圍床位 1-6
   ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
 ].sort((a, b) => {
-  // ✅ 新增：更新排序邏輯以處理外圍床位
   const numA = typeof a === 'number' ? a : Infinity
   const numB = typeof b === 'number' ? b : Infinity
   if (numA !== Infinity || numB !== Infinity) return numA - numB
@@ -262,7 +262,6 @@ const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
 
-// 6. 確保 weekScheduleMap 正確計算
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   if (!masterRecord.value || !masterRecord.value.schedule) {
@@ -274,32 +273,25 @@ const weekScheduleMap = computed(() => {
     if (ruleData && ruleData.patientId && ruleData.freq) {
       const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
 
-      // 🔥 關鍵修正：正確解析新格式的 ruleId
       const parts = ruleId.split('-')
       let bedNum, shiftIndex
 
       if (parts.length >= 3) {
         const lastPart = parts[parts.length - 1]
 
-        // 檢查最後一部分是否為頻率
         if (Object.keys(FREQ_MAP_TO_DAY_INDEX).includes(lastPart)) {
-          // 新格式
           if (parts[0] === 'peripheral') {
-            // peripheral-1-0-一三五
             bedNum = `${parts[0]}-${parts[1]}`
             shiftIndex = parseInt(parts[2], 10)
           } else {
-            // 1-0-一三五
             bedNum = parts[0]
             shiftIndex = parseInt(parts[1], 10)
           }
         } else {
-          // 舊格式：向後相容
           bedNum = parts[0]
           shiftIndex = parseInt(parts[1], 10)
         }
       } else {
-        // 舊格式：向後相容
         bedNum = parts[0]
         shiftIndex = parseInt(parts[1], 10)
       }
@@ -390,15 +382,31 @@ function handleSearchBlur() {
   }, 200)
 }
 
-// 1. 頻率衝突檢測函數
+// 🔥 新增：單獨載入病人資料函數
+async function loadPatientData() {
+  try {
+    console.log('🔄 [BaseScheduleView] 重新載入病人資料...')
+    const patients = await optimizedFetchAllPatients()
+    allPatients.value = patients
+    console.log('✅ [BaseScheduleView] 病人資料已更新')
+  } catch (error) {
+    console.error('❌ [BaseScheduleView] 更新病人資料失敗:', error)
+  }
+}
+
+// 🔥 新增：事件監聽器（與週排班保持一致）
+function handleScheduleUpdate(event) {
+  console.log(`🔄 [BaseScheduleView] 監聽到排程變更，重新載入病人資料...`)
+  loadPatientData()
+}
+
 function hasFrequencyConflict(freq1, freq2) {
   if (!freq1 || !freq2) return false
-  if (freq1 === freq2) return true // 相同頻率一定衝突
+  if (freq1 === freq2) return true
 
   const days1 = FREQ_MAP_TO_DAY_INDEX[freq1] || []
   const days2 = FREQ_MAP_TO_DAY_INDEX[freq2] || []
 
-  // 檢查是否有重疊的日期
   return days1.some((day) => days2.includes(day))
 }
 
@@ -459,6 +467,7 @@ function setChange() {
   statusText.value = '有未儲存的變更'
 }
 
+// 🔥 修正：儲存後自動重新載入病人資料
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -494,6 +503,10 @@ async function saveChangesToCloud() {
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '門住總床位表已成功儲存！'
     isAlertDialogVisible.value = true
+
+    // 🔥 新增：儲存後重新載入病人資料（就像週排班一樣）
+    console.log('🔄 [BaseScheduleView] 儲存完成，重新載入病人資料...')
+    await loadPatientData()
   } catch (error) {
     console.error('❌ [BaseScheduleView] 儲存失敗:', error)
     statusText.value = '儲存失敗'
@@ -503,7 +516,6 @@ async function saveChangesToCloud() {
   }
 }
 
-// 1. handleActionSelect 函數（Vue 警告中缺失的）
 function handleActionSelect(actionValue) {
   isActionDialogVisible.value = false
   const target = actionTarget.value
@@ -535,7 +547,6 @@ function handleScheduleCheck() {
     issueMessage += '【頻率不符問題】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
   }
 
-  // ✨ 新增：顯示所有未排班病人
   if (results.unassignedAll.length > 0) {
     issueMessage += '【完全未排班病人】:\n- ' + results.unassignedAll.join('\n- ') + '\n\n'
   }
@@ -570,9 +581,6 @@ function handleGridClick(slotId) {
   }
 
   if (patientId) {
-    const parts = slotId.split('-')
-
-    // 🔥 關鍵修正：直接使用 patientId 來查找正確的 ruleId
     const correctRuleId = Object.keys(masterRecord.value.schedule || {}).find((ruleId) => {
       const ruleData = masterRecord.value.schedule[ruleId]
       return ruleData?.patientId === patientId
@@ -585,7 +593,7 @@ function handleGridClick(slotId) {
 
     actionTarget.value = {
       patientId: patientId,
-      ruleId: correctRuleId, // 使用通過 patientId 找到的正確 ruleId
+      ruleId: correctRuleId,
       patientName: patientMap.value.get(patientId)?.name || '未知病人',
     }
     isActionDialogVisible.value = true
@@ -595,7 +603,6 @@ function handleGridClick(slotId) {
   }
 }
 
-// 2. 修正 handlePatientSelect 函數
 function handlePatientSelect({ patientId }) {
   if (isPageLocked.value || !patientId || !currentSlotId.value) return
 
@@ -609,13 +616,10 @@ function handlePatientSelect({ patientId }) {
 
   const parts = currentSlotId.value.split('-')
 
-  // 🔥 修正：正確生成包含頻率的 ruleId
   let ruleId
   if (parts[0] === 'peripheral') {
-    // 外圍床位：peripheral-1-0-dayIndex -> peripheral-1-0-一三五
     ruleId = `${parts[0]}-${parts[1]}-${parts[2]}-${patient.freq}`
   } else {
-    // 一般床位：1-0-dayIndex -> 1-0-一三五
     ruleId = `${parts[0]}-${parts[1]}-${patient.freq}`
   }
 
@@ -624,7 +628,7 @@ function handlePatientSelect({ patientId }) {
   const newRuleData = {
     patientId: patientId,
     freq: patient.freq,
-    shiftId: SHIFTS[parseInt(parts[parts.length - 2], 10)], // 正確獲取 shiftId
+    shiftId: SHIFTS[parseInt(parts[parts.length - 2], 10)],
     manualNote: patient.baseNote || '',
     autoNote: generateAutoNote(patient),
   }
@@ -645,7 +649,6 @@ function handleDeleteRule() {
   confirmAction.value = () => {
     const newScheduleRules = { ...masterRecord.value.schedule }
 
-    // 🔥 修正：確保刪除正確的 ruleId
     const ruleIdToDelete = actionTarget.value.ruleId
     if (newScheduleRules[ruleIdToDelete]) {
       delete newScheduleRules[ruleIdToDelete]
@@ -659,35 +662,30 @@ function handleDeleteRule() {
   isConfirmDialogVisible.value = true
 }
 
-// 2. 修正 openChangeFreqAndBedDialog 函數
 function openChangeFreqAndBedDialog() {
   const patient = patientMap.value.get(actionTarget.value.patientId)
   if (!patient) return
 
-  // 🔥 關鍵修正：傳遞完整的病人信息
   assignmentContext.value = {
     mode: 'change_freq_and_bed',
-    patient: patient, // 完整的病人對象
+    patient: patient,
     originalRuleId: actionTarget.value.ruleId,
   }
   isAssignmentDialogVisible.value = true
 }
 
-// 3. 修正 openChangeBedOnlyDialog 函數
 function openChangeBedOnlyDialog() {
   const patient = patientMap.value.get(actionTarget.value.patientId)
   if (!patient) return
 
-  // 🔥 關鍵修正：傳遞完整的病人信息
   assignmentContext.value = {
     mode: 'change_bed_only',
-    patient: patient, // 完整的病人對象
+    patient: patient,
     originalRuleId: actionTarget.value.ruleId,
   }
   isAssignmentDialogVisible.value = true
 }
 
-// 修正後的 handleBedAssigned 函數 - 移除單個排床的成功提示
 async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -695,7 +693,6 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   const newShiftIndex = SHIFTS.indexOf(shiftCode)
   if (newShiftIndex === -1) return
 
-  // 🔥 關鍵修正：支援新頻率
   const finalFreq = newFreq || patient.freq
   if (!finalFreq) {
     alertDialogTitle.value = '操作失敗'
@@ -704,7 +701,6 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     return
   }
 
-  // 🔥 新增：檢查頻率衝突
   let baseRulePrefix
   if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
     baseRulePrefix = `${bedNum}-${newShiftIndex}-`
@@ -717,7 +713,6 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
       ruleId.startsWith(baseRulePrefix) && ruleId !== assignmentContext.value.originalRuleId,
   )
 
-  // 檢查頻率衝突
   for (const existingRuleId of conflictingRules) {
     const existingRule = masterRecord.value.schedule[existingRuleId]
     if (existingRule?.freq && hasFrequencyConflict(finalFreq, existingRule.freq)) {
@@ -729,21 +724,18 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     }
   }
 
-  // ✅ 處理外圍床位的 ruleId 格式
   let newRuleId
   if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}` // peripheral-1-0-一三五
+    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}`
   } else {
-    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}` // 1-0-一三五
+    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}`
   }
 
   const originalRuleId = assignmentContext.value.originalRuleId
 
-  // 🔥 關鍵修正：如果有新頻率，更新病人的頻率
   if (newFreq && patient.freq !== newFreq) {
     try {
       await updatePatient(patientId, { freq: newFreq })
-      // 更新本地病人列表中的頻率
       const patientInList = allPatients.value.find((p) => p.id === patientId)
       if (patientInList) {
         patientInList.freq = newFreq
@@ -762,13 +754,11 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
 
   const newScheduleRules = { ...masterRecord.value.schedule }
 
-  // 刪除舊規則
   if (originalRuleId) {
     delete newScheduleRules[originalRuleId]
     console.log(`🗑️ [BaseScheduleView] 已刪除舊規則: ${originalRuleId}`)
   }
 
-  // 建立新規則
   newScheduleRules[newRuleId] = {
     patientId: patientId,
     freq: finalFreq,
@@ -782,12 +772,8 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   isAssignmentDialogVisible.value = false
 
   console.log(`✅ [BaseScheduleView] 已建立新規則: ${newRuleId}`)
-
-  // ❌ 移除：單個排床的成功提示
-  // 只保留批量排床的成功提示，移除單個排床的"操作成功"提示
 }
 
-// === 簡化的 onDrop 函數 ===
 function onDrop(event, targetSlotId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -799,7 +785,6 @@ function onDrop(event, targetSlotId) {
   const targetParts = targetSlotId.split('-')
   const sourceRuleId = itemToDrop.sourceRuleId
 
-  // 🔥 修正：正確生成目標床位+班次前綴
   let targetBedShiftPrefix
   if (targetParts[0] === 'peripheral') {
     targetBedShiftPrefix = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-`
@@ -807,7 +792,6 @@ function onDrop(event, targetSlotId) {
     targetBedShiftPrefix = `${targetParts[0]}-${targetParts[1]}-`
   }
 
-  // 不允許拖拽到自己位置
   if (sourceRuleId && sourceRuleId.startsWith(targetBedShiftPrefix)) {
     draggedItem.value = null
     return
@@ -815,17 +799,14 @@ function onDrop(event, targetSlotId) {
 
   const newScheduleRules = { ...masterRecord.value.schedule }
 
-  // 🔥 關鍵修正：精確的頻率衝突檢查
   if (sourceRuleId && newScheduleRules[sourceRuleId]) {
     const draggedRuleData = newScheduleRules[sourceRuleId]
     const draggedPatientFreq = draggedRuleData.freq
 
-    // 找到目標床位的現有規則（排除自己）
     const existingRulesAtTarget = Object.entries(newScheduleRules).filter(([ruleId, ruleData]) => {
       return ruleId !== sourceRuleId && ruleId.startsWith(targetBedShiftPrefix)
     })
 
-    // 檢查頻率衝突
     for (const [existingRuleId, existingRuleData] of existingRulesAtTarget) {
       if (
         existingRuleData?.freq &&
@@ -843,18 +824,15 @@ function onDrop(event, targetSlotId) {
     }
   }
 
-  // 執行移動
   if (sourceRuleId && newScheduleRules[sourceRuleId]) {
     const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
     const newTargetRuleId = `${targetBedShiftPrefix}${sourceRuleData.freq}`
 
-    // 建立新規則
     newScheduleRules[newTargetRuleId] = {
       ...sourceRuleData,
       shiftId: SHIFTS[parseInt(targetParts[targetParts.length - 2], 10)],
     }
 
-    // 刪除舊規則
     delete newScheduleRules[sourceRuleId]
 
     masterRecord.value.schedule = newScheduleRules
@@ -866,7 +844,6 @@ function onDrop(event, targetSlotId) {
   draggedItem.value = null
 }
 
-// === 關鍵修復：正確的 onDragStart 函數 ===
 function onDragStart(event, slotId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -879,7 +856,6 @@ function onDragStart(event, slotId) {
     return
   }
 
-  // 🔥 關鍵修正：直接用 patientId 找到正確的 ruleId
   const correctRuleId = Object.keys(masterRecord.value.schedule || {}).find((ruleId) => {
     const ruleData = masterRecord.value.schedule[ruleId]
     return ruleData?.patientId === slotData.patientId
@@ -936,7 +912,7 @@ function runBedCheck() {
   const validationResult = {
     duplicates: [],
     unassignedCrucial: [],
-    unassignedAll: [], // ✨ 新增：所有未排班病人
+    unassignedAll: [],
     freqMismatch: [],
   }
   const scheduledPatientIds = new Set()
@@ -946,11 +922,9 @@ function runBedCheck() {
     return validationResult
   }
 
-  // 🔥 修正：正確收集已排床的病人ID
   for (const ruleId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData?.patientId) {
-      // 檢查重複排班
       if (scheduledPatientIds.has(ruleData.patientId)) {
         const patient = patientMap.value.get(ruleData.patientId)
         validationResult.duplicates.push(`病人 ${patient?.name || '未知'} 被重複排入多個規則中。`)
@@ -961,7 +935,6 @@ function runBedCheck() {
 
   console.log('🔍 [BaseScheduleView] 已排床病人ID:', Array.from(scheduledPatientIds))
 
-  // 🔥 修正：檢查重要病人（住院/急診）是否未排床
   const unassignedCrucialPatients = allPatients.value.filter((p) => {
     const isUnassigned = !scheduledPatientIds.has(p.id)
     const isCrucial = (p.status === 'ipd' || p.status === 'er') && !p.isDeleted && !p.isDiscontinued
@@ -977,10 +950,9 @@ function runBedCheck() {
     validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
   })
 
-  // ✨ 新增：檢查所有完全沒排到班的病人
   const unassignedAllPatients = allPatients.value.filter((p) => {
     const isUnassigned = !scheduledPatientIds.has(p.id)
-    const isActivePatient = !p.isDeleted && !p.isDiscontinued // 排除已刪除或已停止的病人
+    const isActivePatient = !p.isDeleted && !p.isDiscontinued
 
     if (isActivePatient && isUnassigned) {
       console.log(`📋 [BaseScheduleView] 未排班的病人: ${p.name} (${p.status || '未知狀態'})`)
@@ -1001,14 +973,11 @@ function runBedCheck() {
     validationResult.unassignedAll.push(`${p.name} (${statusText})`)
   })
 
-  // ✨ 新增：檢查頻率是否符合病人設定
   for (const ruleId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData?.patientId && ruleData.freq) {
       const patient = patientMap.value.get(ruleData.patientId)
       if (patient && patient.status === 'opd') {
-        // 只檢查門診病人
-        // 比較規則中的頻率與病人實際設定的頻率
         if (patient.freq && patient.freq !== ruleData.freq) {
           validationResult.freqMismatch.push(
             `${patient.name} - 規則頻率: ${ruleData.freq}, 病人設定頻率: ${patient.freq}`,
@@ -1022,7 +991,7 @@ function runBedCheck() {
     總病人數: allPatients.value.length,
     已排床病人數: scheduledPatientIds.size,
     未排床重要病人: validationResult.unassignedCrucial.length,
-    未排床所有病人: validationResult.unassignedAll.length, // ✨ 新增
+    未排床所有病人: validationResult.unassignedAll.length,
     重複排班: validationResult.duplicates.length,
     頻率不符: validationResult.freqMismatch.length,
   })
@@ -1059,7 +1028,17 @@ function onDragLeave(event) {
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
-onMounted(loadAllData)
+// 🔥 修正：加入事件監聽器
+onMounted(() => {
+  loadAllData()
+  // 監聽排程更新事件（與週排班保持一致）
+  window.addEventListener('schedule-updated', handleScheduleUpdate)
+})
+
+// 🔥 新增：清理事件監聽器
+onUnmounted(() => {
+  window.removeEventListener('schedule-updated', handleScheduleUpdate)
+})
 </script>
 
 <style scoped>
@@ -1261,7 +1240,6 @@ onMounted(loadAllData)
 :deep(.schedule-slot.status-biweekly) {
   background-color: var(--orange-bg, #ffcc80);
 }
-/* 其他 tag class 可以保留，以防未來需要 */
 :deep(.schedule-slot.tag-chou) {
   background-color: #e3f2fd;
 }
@@ -1311,63 +1289,63 @@ onMounted(loadAllData)
 :deep(.shift-row.status-opd),
 :deep(.peripheral-shift-row.status-opd),
 :deep(.patient-item.status-opd) {
-  background-color: #e8f5e9; /* 綠色 - 門診 */
+  background-color: #e8f5e9;
 }
 
 :deep(.shift-row.status-ipd),
 :deep(.peripheral-shift-row.status-ipd),
 :deep(.patient-item.status-ipd) {
-  background-color: #ffebee; /* 紅色 - 住院 */
+  background-color: #ffebee;
 }
 
 :deep(.shift-row.status-er),
 :deep(.peripheral-shift-row.status-er),
 :deep(.patient-item.status-er) {
-  background-color: #f3e5f5; /* 紫色 - 急診 */
+  background-color: #f3e5f5;
 }
 
 :deep(.shift-row.status-biweekly),
 :deep(.peripheral-shift-row.status-biweekly),
 :deep(.patient-item.status-biweekly) {
-  background-color: #ffcc80; /* 橘色 - 兩班 (一週兩次) */
+  background-color: #ffcc80;
 }
 
 :deep(.shift-row.tag-chou),
 :deep(.peripheral-shift-row.tag-chou),
 :deep(.patient-item.tag-chou) {
-  background-color: #658ee0; /* 藍色 - 抽血 */
+  background-color: #658ee0;
 }
 
 :deep(.shift-row.tag-new),
 :deep(.peripheral-shift-row.tag-new),
 :deep(.patient-item.tag-new) {
-  background-color: #f5ec8e; /* 金黃 - 新診 */
+  background-color: #f5ec8e;
 }
 
 :deep(.shift-row.tag-huan),
 :deep(.peripheral-shift-row.tag-huan),
 :deep(.patient-item.tag-huan) {
-  background-color: #e0f7fa; /* 淺青 - 換 */
+  background-color: #e0f7fa;
 }
 
 :deep(.shift-row.tag-liang),
 :deep(.peripheral-shift-row.tag-liang),
 :deep(.patient-item.tag-liang) {
-  background-color: #fff3e0; /* 淺橙 - 兩 */
+  background-color: #fff3e0;
 }
 
 :deep(.shift-row.tag-b),
 :deep(.peripheral-shift-row.tag-b),
 :deep(.patient-item.tag-b) {
-  background-color: #fff9c4; /* 淺黃 - B */
+  background-color: #fff9c4;
 }
 :deep(.schedule-slot.status-biweekly) {
-  background-color: #ffcc80; /* 橘色 - 兩班 */
+  background-color: #ffcc80;
 }
 :deep(.schedule-slot.tag-chou) {
-  background-color: #658ee0; /* 藍色 - 抽血 */
+  background-color: #658ee0;
 }
 :deep(.schedule-slot.tag-new) {
-  background-color: #f5ec8e; /* 金黃 - 新診 */
+  background-color: #f5ec8e;
 }
 </style>

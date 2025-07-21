@@ -542,20 +542,35 @@ const patientGroupsForDialog = computed(() => {
 })
 
 const statsToolbarData = computed(() => {
+  // 🔥 修正：動態生成 counts 對象，而不是硬編碼
+  const counts = {}
+  ORDERED_SHIFT_CODES.forEach((shiftCode) => {
+    counts[shiftCode] = { total: 0, opd: 0, ipd: 0, er: 0 }
+  })
+
   const dailyData = {
-    counts: {
-      early: { total: 0, opd: 0, ipd: 0, er: 0 },
-      noon: { total: 0, opd: 0, ipd: 0, er: 0 },
-      late: { total: 0, opd: 0, ipd: 0, er: 0 },
-    },
+    counts: counts, // 🔥 使用動態生成的 counts
     total: 0,
   }
+
   if (currentRecord.schedule) {
     for (const slotData of Object.values(currentRecord.schedule)) {
       if (slotData && slotData.patientId) {
         const patient = patientMap.value.get(slotData.patientId)
         if (!patient) continue
-        const shiftCode = slotData.shiftId?.split('-')[2]
+
+        // 🔥 修正：智能解析 shiftCode
+        let shiftCode
+        if (slotData.shiftId?.includes('-')) {
+          // 格式如: "bed-1-early" -> 取最後一部分
+          shiftCode = slotData.shiftId.split('-').pop()
+        } else {
+          // 格式如: "early" -> 直接使用
+          shiftCode = slotData.shiftId
+        }
+
+        console.log(`🔍 [DEBUG] shiftId: ${slotData.shiftId}, shiftCode: ${shiftCode}`) // 除錯用
+
         if (shiftCode && dailyData.counts[shiftCode]) {
           const shiftStats = dailyData.counts[shiftCode]
           shiftStats.total++
@@ -563,12 +578,20 @@ const statsToolbarData = computed(() => {
           if (patient.status === 'opd') shiftStats.opd++
           else if (patient.status === 'ipd') shiftStats.ipd++
           else if (patient.status === 'er') shiftStats.er++
+        } else {
+          console.warn(
+            `⚠️ [DEBUG] 無法匹配的 shiftCode: ${shiftCode}, 可用的: ${Object.keys(dailyData.counts)}`,
+          )
         }
       }
     }
   }
+
+  console.log(`📊 [DEBUG] 統計結果:`, dailyData) // 除錯用
+
   return [dailyData]
 })
+
 const statsToolbarWeekdays = computed(() => ['本日'])
 
 // --- [新增] 新的清除功能 ---
