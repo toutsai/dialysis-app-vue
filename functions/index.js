@@ -364,7 +364,7 @@ exports.ensureFutureSchedules = onCall(
 
 /**
  * @name syncMasterScheduleToFuture
- * @description 當總表更新時，同步未來60天的排程 (修正版)
+ * @description 當總表更新時，同步未來60天的排程 (智能合併今日排程的修正版)
  */
 exports.syncMasterScheduleToFuture = onDocumentUpdated(
   'base_schedules/MASTER_SCHEDULE',
@@ -382,24 +382,83 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
     const latestRules = afterSchedule
     const batch = db.batch()
 
+    // 🔥【核心修正 1】: 獲取當前台北時間，用於判斷今日班次
+    const nowInTaipei = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }))
+    const currentHour = nowInTaipei.getHours() // 0-23
+    const todayStrForCheck = formatDateForQuery(nowInTaipei)
+
     for (let i = 0; i < 60; i++) {
-      const targetDate = new Date()
+      const targetDate = new Date() // 每次迴圈都從真實的今天開始計算
       targetDate.setHours(0, 0, 0, 0)
       targetDate.setDate(targetDate.getDate() + i)
       const dateStr = formatDateForQuery(targetDate)
+
       const newDailySchedule = generateDailyScheduleFromRules(latestRules, targetDate)
       const dailyDocRef = db.collection('schedules').doc(dateStr)
 
-      // 🔥【核心修正】: 使用 set 和 merge:true 實現 "upsert" (更新或創建)
-      // 這使得函式不再依賴於文件是否已存在，變得更加健壯。
-      batch.set(
-        dailyDocRef,
-        {
-          schedule: newDailySchedule,
-          lastSynced: FieldValue.serverTimestamp(),
-        },
-        { merge: true }, // 如果文件已存在，則合併欄位；如果不存在，則創建文件。
-      )
+      // 🔥【核心修正 2】: 判斷是否為今天，並執行不同邏輯
+      if (dateStr === todayStrForCheck) {
+        // --- 如果是今天，執行智能合併 ---
+        logger.info(`🔄 今天是 ${dateStr}，執行智能合併... (當前小時: ${currentHour})`)
+
+        // 獲取今天已存在的排程文件
+        const todayDoc = await dailyDocRef.get()
+        const existingTodaySchedule = todayDoc.exists ? todayDoc.data().schedule : {}
+
+        const finalTodaySchedule = {}
+
+        // 決定班次的分割點 (例如，13點前早班算過去，18點前午班算過去)
+        const isEarlyShiftPast = currentHour >= 13
+        const isNoonShiftPast = currentHour >= 18
+
+        // 1. 保留已過去的班次
+        for (const shiftId in existingTodaySchedule) {
+          if (shiftId.endsWith('early') && isEarlyShiftPast) {
+            finalTodaySchedule[shiftId] = existingTodaySchedule[shiftId]
+          }
+          if (shiftId.endsWith('noon') && isNoonShiftPast) {
+            finalTodaySchedule[shiftId] = existingTodaySchedule[shiftId]
+          }
+        }
+
+        // 2. 應用新規則中未來的班次
+        for (const shiftId in newDailySchedule) {
+          if (shiftId.endsWith('early') && !isEarlyShiftPast) {
+            finalTodaySchedule[shiftId] = newDailySchedule[shiftId]
+          }
+          if (shiftId.endsWith('noon') && !isNoonShiftPast) {
+            finalTodaySchedule[shiftId] = newDailySchedule[shiftId]
+          }
+          if (shiftId.endsWith('late')) {
+            // 晚班總是未來
+            finalTodaySchedule[shiftId] = newDailySchedule[shiftId]
+          }
+        }
+
+        logger.info(
+          `📊 合併結果: 保留 ${Object.keys(existingTodaySchedule).filter((k) => finalTodaySchedule[k] === existingTodaySchedule[k]).length} 筆舊資料, 更新 ${Object.keys(newDailySchedule).filter((k) => finalTodaySchedule[k] === newDailySchedule[k]).length} 筆新資料`,
+        )
+
+        // 使用合併後的結果進行更新
+        batch.set(
+          dailyDocRef,
+          {
+            schedule: finalTodaySchedule,
+            lastSynced: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        )
+      } else {
+        // --- 如果不是今天（是未來），直接覆蓋 ---
+        batch.set(
+          dailyDocRef,
+          {
+            schedule: newDailySchedule,
+            lastSynced: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        )
+      }
     }
 
     try {
@@ -407,7 +466,6 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       logger.info('✅ 同步完成！已使用最新規則更新或創建了未來60天的排程。')
     } catch (error) {
       logger.error('❌ 同步未來排程時發生錯誤:', error)
-      // 這個 catch 區塊現在不太可能因為 NOT_FOUND 錯誤而被觸發了。
     }
     return null
   },
