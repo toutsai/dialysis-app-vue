@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/StatsToolbar.vue (已修正) -->
+<!-- 檔案路徑: src/components/StatsToolbar.vue (條件式修改版) -->
 <script setup>
 import { computed } from 'vue'
 import { ORDERED_SHIFT_CODES, SHIFT_DISPLAY_NAMES } from '@/constants/scheduleConstants'
@@ -16,10 +16,14 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  // ✨ 1. (已存在) 接收 size prop
   size: {
     type: String,
     default: 'normal', // 'normal' 或 'compact'
+  },
+  // 🔥 新增：控制顯示模式的 prop
+  showPatientNumbers: {
+    type: Boolean,
+    default: false, // 預設為 false，保持原有樣式
   },
 })
 
@@ -51,10 +55,23 @@ const getBarStyles = (shiftCount) => {
     erStyle: { width: `${erPercent}%` },
   }
 }
+
+// 🔥 新增：格式化急住門數字顯示（返回分段數據）
+const formatPatientCounts = (shiftCount) => {
+  if (!shiftCount || shiftCount.total === 0) {
+    return []
+  }
+
+  const parts = []
+  if (shiftCount.er > 0) parts.push({ text: `急${shiftCount.er}`, type: 'er' })
+  if (shiftCount.ipd > 0) parts.push({ text: `住${shiftCount.ipd}`, type: 'ipd' })
+  if (shiftCount.opd > 0) parts.push({ text: `門${shiftCount.opd}`, type: 'opd' })
+
+  return parts
+}
 </script>
 
 <template>
-  <!-- ✨ 2. (已存在) 動態綁定 class ✨ -->
   <div class="stats-toolbar" :class="`size-${size}`">
     <div
       v-for="(dayData, index) in statsData"
@@ -64,7 +81,8 @@ const getBarStyles = (shiftCount) => {
     >
       <div class="day-summary">
         <strong>{{ weekdays[index] }}</strong>
-        <span class="day-total-count">{{ dayData.total }}</span>
+        <!-- 🔥 條件顯示：只有不是數字模式才顯示總人數 -->
+        <span v-if="!showPatientNumbers" class="day-total-count">{{ dayData.total }}</span>
       </div>
 
       <div class="stat-shift-group">
@@ -72,7 +90,24 @@ const getBarStyles = (shiftCount) => {
           <div class="shift-info">
             {{ shift.display }} {{ dayData.counts[shift.code]?.total || 0 }}
           </div>
-          <div class="ratio-bar">
+
+          <!-- 🔥 條件顯示：數字模式 vs 色條模式 -->
+          <div
+            v-if="showPatientNumbers"
+            class="patient-counts"
+            v-show="dayData.counts[shift.code]?.total > 0"
+          >
+            <span
+              v-for="(item, idx) in formatPatientCounts(dayData.counts[shift.code])"
+              :key="idx"
+              :class="{ 'opd-number': item.type === 'opd' }"
+            >
+              {{ item.text
+              }}{{ idx < formatPatientCounts(dayData.counts[shift.code]).length - 1 ? ' ' : '' }}
+            </span>
+          </div>
+
+          <div v-else class="ratio-bar">
             <div
               class="bar-segment er-bar"
               :style="getBarStyles(dayData.counts[shift.code]).erStyle"
@@ -99,7 +134,7 @@ const getBarStyles = (shiftCount) => {
 .stats-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px; /* 這裡的 gap 會對應表格欄位間的 border 寬度 */
+  gap: 8px;
 }
 
 .stat-item {
@@ -109,8 +144,7 @@ const getBarStyles = (shiftCount) => {
   padding: 6px 8px;
   border-radius: 6px;
   background-color: #f8f9fa;
-  /* border: 1px solid #e9ecef; */
-  transition: width 0.2s ease-in-out; /* 讓寬度變化更平滑 */
+  transition: width 0.2s ease-in-out;
   box-sizing: border-box;
 }
 
@@ -136,8 +170,8 @@ const getBarStyles = (shiftCount) => {
 .stat-shift-group {
   display: flex;
   gap: 6px;
-  flex-grow: 1; /* 【新增】讓此區塊佔滿剩餘空間 */
-  justify-content: space-between; /* 【新增】將內部項目分散對齊 */
+  flex-grow: 1;
+  justify-content: space-between;
 }
 
 .shift-tag {
@@ -146,6 +180,7 @@ const getBarStyles = (shiftCount) => {
   align-items: center;
   min-width: 45px;
 }
+
 .shift-info {
   padding: 3px 8px;
   border-radius: 12px;
@@ -158,17 +193,19 @@ const getBarStyles = (shiftCount) => {
   box-sizing: border-box;
   white-space: nowrap;
 }
+
 .shift-tag:nth-child(1) .shift-info {
-  background-color: var(--success-color);
+  background-color: var(--success-color, #28a745);
 }
 .shift-tag:nth-child(2) .shift-info {
-  background-color: var(--warning-color);
+  background-color: var(--warning-color, #ffc107);
   color: #212529;
 }
 .shift-tag:nth-child(3) .shift-info {
-  background-color: var(--info-color);
+  background-color: var(--info-color, #17a2b8);
 }
 
+/* 原有的色條樣式 */
 .ratio-bar {
   display: flex;
   width: 100%;
@@ -196,7 +233,24 @@ const getBarStyles = (shiftCount) => {
   background-color: var(--purple-main, #9a34ff);
 }
 
-/* ✨ 3. (已存在) 新增/修改 compact 與 normal 樣式 ✨ */
+/* 🔥 新增：急住門數字顯示樣式 */
+.patient-counts {
+  font-size: 0.7em;
+  color: #495057;
+  margin-top: 2px;
+  text-align: center;
+  font-weight: 600;
+  white-space: nowrap;
+  min-height: 12px;
+}
+
+/* 🔥 新增：門診數字特殊樣式（粗體紅字） */
+.patient-counts .opd-number {
+  color: #dc3545;
+  font-weight: 900;
+}
+
+/* size 相關樣式 */
 .stats-toolbar.size-normal .day-summary strong,
 .stats-toolbar.size-normal .day-total-count {
   font-size: 1.1em;
@@ -204,6 +258,12 @@ const getBarStyles = (shiftCount) => {
 .stats-toolbar.size-normal .shift-info {
   font-size: 0.9em;
   padding: 4px 10px;
+}
+.stats-toolbar.size-normal .patient-counts {
+  font-size: 0.75em;
+}
+.stats-toolbar.size-normal .patient-counts .opd-number {
+  font-weight: 900;
 }
 
 .stats-toolbar.size-compact .stat-item {
@@ -226,5 +286,12 @@ const getBarStyles = (shiftCount) => {
 }
 .stats-toolbar.size-compact .ratio-bar {
   height: 3px;
+}
+.stats-toolbar.size-compact .patient-counts {
+  font-size: 0.65em;
+  margin-top: 1px;
+}
+.stats-toolbar.size-compact .patient-counts .opd-number {
+  font-weight: 900;
 }
 </style>

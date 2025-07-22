@@ -106,7 +106,6 @@ async function processBatch(operation, collection, items) {
 function sanitizePatientData(patientData) {
   const cleaned = { ...patientData }
 
-  // 🔧 只做基本的去空白處理，不做格式驗證
   if (cleaned.medicalRecordNumber) {
     cleaned.medicalRecordNumber = cleaned.medicalRecordNumber.toString().trim()
   }
@@ -125,7 +124,6 @@ function sanitizePatientData(patientData) {
 function validatePatientData(patientData) {
   const errors = []
 
-  // 🔧 只檢查必填欄位，不檢查格式
   if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
     errors.push('病歷號不能為空')
   }
@@ -147,30 +145,23 @@ function validatePatientData(patientData) {
 // ============================================
 
 /**
- * 優化的排程資料載入
+ * 優化的排程資料載入 - [核心修改] 移除快取，並支援查詢條件
  */
-export async function fetchAllSchedules() {
-  const cacheKey = getCacheKey('fetchAll', 'schedules')
-  const cached = getCache(cacheKey)
-
-  if (cached) {
-    console.log('📦 [Cache Hit] 使用快取的排程資料')
-    return cached
-  }
-
+export async function fetchAllSchedules(queries = []) {
   const startTime = performance.now()
-  console.log('🔄 [API] 開始載入排程資料...')
+  console.log('🔄 [API] 直接從 Firestore 載入排程資料...')
 
   try {
     const api = ApiManager('schedules')
-    const data = await api.fetchAll()
+    // 直接傳遞查詢條件給底層 API
+    const data = await api.fetchAll(queries)
 
     const endTime = performance.now()
     console.log(
       `✅ [API] 排程載入完成，共 ${data.length} 筆，耗時 ${(endTime - startTime).toFixed(2)}ms`,
     )
 
-    setCache(cacheKey, data)
+    // 不再設定快取
     return data
   } catch (error) {
     console.error('❌ [API] 排程載入失敗:', error)
@@ -192,7 +183,7 @@ export async function saveSchedule(scheduleData) {
     const endTime = performance.now()
     console.log(`✅ [API] 排程儲存完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除排程相關快取
+    // 清除排程相關快取 (保留以防萬一有其他地方使用)
     clearCacheByPattern('schedules')
 
     return result
@@ -216,7 +207,7 @@ export async function updateSchedule(scheduleId, updateData) {
     const endTime = performance.now()
     console.log(`✅ [API] 排程更新完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除排程相關快取
+    // 清除排程相關快取 (保留以防萬一有其他地方使用)
     clearCacheByPattern('schedules')
   } catch (error) {
     console.error('❌ [API] 排程更新失敗:', error)
@@ -269,7 +260,6 @@ export async function savePatient(patientData) {
   console.log('🔧 [API] 病歷號:', patientData.medicalRecordNumber, '(無格式限制)')
 
   try {
-    // 🔧 只做基礎清理和驗證，移除所有格式檢查
     const cleanedData = sanitizePatientData(patientData)
     validatePatientData(cleanedData)
 
@@ -279,7 +269,6 @@ export async function savePatient(patientData) {
     const endTime = performance.now()
     console.log(`✅ [API] 患者儲存完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除患者相關快取
     clearCacheByPattern('patients')
 
     return result
@@ -298,7 +287,6 @@ export async function updatePatient(patientId, updateData) {
   console.log('🔧 [API] 更新資料:', updateData)
 
   try {
-    // 🔧 如果更新資料包含病歷號，只做基礎清理，不做格式檢查
     const cleanedData = { ...updateData }
 
     if (cleanedData.medicalRecordNumber) {
@@ -312,7 +300,6 @@ export async function updatePatient(patientId, updateData) {
     const endTime = performance.now()
     console.log(`✅ [API] 患者更新完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除患者相關快取
     clearCacheByPattern('patients')
   } catch (error) {
     console.error('❌ [API] 患者更新失敗:', error)
@@ -372,7 +359,6 @@ export async function saveMemo(memoData) {
     const endTime = performance.now()
     console.log(`✅ [API] 備忘錄儲存完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除備忘錄相關快取
     clearCacheByPattern('memos')
 
     return result
@@ -396,7 +382,6 @@ export async function updateMemo(memoId, updateData) {
     const endTime = performance.now()
     console.log(`✅ [API] 備忘錄更新完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除備忘錄相關快取
     clearCacheByPattern('memos')
   } catch (error) {
     console.error('❌ [API] 備忘錄更新失敗:', error)
@@ -418,7 +403,6 @@ export async function deleteMemo(memoId) {
     const endTime = performance.now()
     console.log(`✅ [API] 備忘錄刪除完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
 
-    // 清除備忘錄相關快取
     clearCacheByPattern('memos')
   } catch (error) {
     console.error('❌ [API] 備忘錄刪除失敗:', error)
@@ -463,7 +447,6 @@ export async function saveDialysisOrderHistory(historyData) {
   try {
     const api = ApiManager('dialysis_orders_history')
 
-    // 確保資料結構完整
     const completeData = {
       ...historyData,
       createdAt: historyData.createdAt || new Date().toISOString(),
@@ -493,7 +476,6 @@ export async function deleteDialysisOrderHistory(historyId) {
   try {
     const api = ApiManager('dialysis_orders_history')
 
-    // 先檢查記錄是否存在且有權限
     console.log('🔍 [API] 檢查刪除權限...')
 
     await api.delete(historyId)
@@ -503,7 +485,6 @@ export async function deleteDialysisOrderHistory(historyId) {
   } catch (error) {
     console.error('❌ [API] 透析醫囑歷史刪除失敗:', error)
 
-    // 提供更詳細的錯誤資訊
     if (error.code === 'permission-denied') {
       throw new Error('權限不足：無法刪除此透析醫囑歷史記錄')
     } else if (error.code === 'not-found') {

@@ -1,6 +1,8 @@
 <!-- 檔案路徑: src/components/PreparationPopover.vue -->
+// 檔案路徑: src/components/PreparationPopover.vue
+
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { ref, watch, onUnmounted, nextTick, computed } from 'vue'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -14,6 +16,7 @@ const popoverRef = ref(null)
 const popoverStyle = ref({})
 
 const calculatePosition = () => {
+  // 保留這個檢查是個好習慣，以防萬一
   if (!props.targetElement || !popoverRef.value) return
 
   const targetRect = props.targetElement.getBoundingClientRect()
@@ -43,18 +46,6 @@ const calculatePosition = () => {
   }
 }
 
-watch(
-  () => props.isVisible,
-  (newValue) => {
-    if (newValue) {
-      // 使用 nextTick 確保 DOM 已更新，然後再計算位置
-      nextTick(() => {
-        calculatePosition()
-      })
-    }
-  },
-)
-
 const handleClickOutside = (event) => {
   if (
     popoverRef.value &&
@@ -65,14 +56,35 @@ const handleClickOutside = (event) => {
   }
 }
 
-onMounted(() => {
-  document.addEventListener('mousedown', handleClickOutside)
-  window.addEventListener('resize', calculatePosition)
-})
+// ✨ --- 核心修正 --- ✨
+// 使用 watch 來動態管理事件監聽器
+watch(
+  () => props.isVisible,
+  (newValue, oldValue) => {
+    if (newValue) {
+      // 當彈出框變為可見時
+      nextTick(() => {
+        calculatePosition() // 先計算一次位置
+        // 新增監聽器
+        window.addEventListener('resize', calculatePosition)
+        document.addEventListener('mousedown', handleClickOutside)
+      })
+    } else if (oldValue) {
+      // 當彈出框從「可見」變為「不可見」時
+      // 立刻移除監聽器
+      window.removeEventListener('resize', calculatePosition)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  },
+  { immediate: true }, // ✨ 新增 immediate: true，確保元件初始顯示時也能正確加上監聽器
+)
 
+// ✨ --- 核心修正 --- ✨
+// onMounted 被移除，因為邏輯已經移到 watch 中
+// onUnmounted 仍然保留，作為最後的保險，確保元件銷毀時徹底清除監聽器
 onUnmounted(() => {
-  document.removeEventListener('mousedown', handleClickOutside)
   window.removeEventListener('resize', calculatePosition)
+  document.removeEventListener('mousedown', handleClickOutside)
 })
 
 const hasPatients = computed(() => props.patients && props.patients.length > 0)
