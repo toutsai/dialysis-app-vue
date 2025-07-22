@@ -1113,6 +1113,7 @@ function autoAssignNurseTeams() {
     isAlertDialogVisible.value = true
     return
   }
+
   confirmDialogMessage.value = '此操作將會覆蓋現有的護理師分組，您確定要繼續嗎？'
   onConfirmAction.value = () => {
     executeAutoAssignment()
@@ -1123,6 +1124,7 @@ function autoAssignNurseTeams() {
 function executeAutoAssignment() {
   const scheduleCopy = JSON.parse(JSON.stringify(currentRecord.schedule))
 
+  // 收集病人資料的輔助函數
   const getRichPatientList = (shiftCode) => {
     return Object.entries(scheduleCopy)
       .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(shiftCode))
@@ -1146,8 +1148,11 @@ function executeAutoAssignment() {
   const allNoonPatients = getRichPatientList(SHIFT_CODES.NOON)
   const allLatePatients = getRichPatientList(SHIFT_CODES.LATE)
 
+  // 分離主院區和外圍
   const mainArea = (list) => list.filter((p) => !p.isPeripheral)
   const peripheral = (list) => list.filter((p) => p.isPeripheral)
+
+  // 排序函數
   const sort = (list) => {
     const getSortKey = (shiftId) => {
       if (!shiftId || typeof shiftId !== 'string') return 999
@@ -1159,82 +1164,98 @@ function executeAutoAssignment() {
     return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId))
   }
 
+  // === 早班分配 ===
   const earlyMain = mainArea(allEarlyPatients)
   const useEarlyTeamA = earlyMain.length > 36
-  const earlyTeamsForDistribution = (
-    useEarlyTeamA ? baseTeams.slice(0, 11) : baseTeams.slice(1, 11)
-  ).map((t) => `早${t}`)
+
+  console.log(`🌅 早班分析: 主院區 ${earlyMain.length} 人，使用A組: ${useEarlyTeamA}`)
+
+  // 🔥 關鍵修正：明確定義參與分配的組別
+  const earlyParticipatingTeams = useEarlyTeamA
+    ? baseTeams.slice(0, 11).map((t) => `早${t}`) // A-K組 (>36人)
+    : baseTeams.slice(1, 11).map((t) => `早${t}`) // B-K組 (<=36人)
+
   const earlyRules = {
     priorityTeams: {
       hepatitis: '早G',
-      inPatientTeams: ['早H', '早I', '早J'], // 移除早K
-      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4 }, // 移除早K的容量設定
+      inPatientTeams: ['早H', '早I', '早J'],
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 2 }, // 🔥 J組改為2人
     },
     mainDistribution: {
       specialTeam: useEarlyTeamA ? { name: '早A', capacity: 2 } : null,
-      regularTeams: earlyTeamsForDistribution,
+      regularTeams: earlyParticipatingTeams,
       primaryCapacity: 4,
       fillMethod: useEarlyTeamA ? 'block' : 'average',
     },
   }
 
+  const earlyAssignments = distributePatients(sort(earlyMain), earlyParticipatingTeams, earlyRules)
+  earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
+
+  // === 午班上針分配 ===
   const noonMain = mainArea(allNoonPatients)
   const useNoonTeamA = noonMain.length > 36
-  const noonTeamsForDistribution = (
-    useNoonTeamA ? baseTeams.slice(0, 11) : baseTeams.slice(1, 11)
-  ).map((t) => `早${t}`)
+
+  console.log(`🌞 午班分析: 主院區 ${noonMain.length} 人，使用A組: ${useNoonTeamA}`)
+
+  const noonParticipatingTeams = useNoonTeamA
+    ? baseTeams.slice(0, 11).map((t) => `早${t}`) // A-K組 (>36人)
+    : baseTeams.slice(1, 11).map((t) => `早${t}`) // B-K組 (<=36人)
+
   const noonRules = {
     priorityTeams: {
       hepatitis: '早G',
-      inPatientTeams: ['早H', '早I', '早J'], // 移除早K
-      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 4 }, // 移除早K的容量設定
+      inPatientTeams: ['早H', '早I', '早J'],
+      inPatientCapacity: { 早H: 2, 早I: 2, 早J: 2 }, // 🔥 J組改為2人
     },
     mainDistribution: {
       specialTeam: useNoonTeamA ? { name: '早A', capacity: 2 } : null,
-      regularTeams: noonTeamsForDistribution,
+      regularTeams: noonParticipatingTeams,
       primaryCapacity: 4,
       fillMethod: useNoonTeamA ? 'block' : 'average',
     },
   }
 
-  const lateMainOnly = mainArea(allLatePatients)
+  const noonOnAssignments = distributePatients(sort(noonMain), noonParticipatingTeams, noonRules)
+  noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  const lateTeamsForDistribution = baseTeams.slice(0, 8).map((t) => `晚${t}`)
+  // === 晚班分配（包含午班收針）===
+  const lateMainOnly = mainArea(allLatePatients)
+  const noonMainForOut = mainArea(allNoonPatients) // 午班收針
+  const lateCombinedMain = [...lateMainOnly, ...noonMainForOut]
+
+  console.log(
+    `🌙 晚班分析: 晚班 ${lateMainOnly.length} 人 + 午班收針 ${noonMainForOut.length} 人 = 總計 ${lateCombinedMain.length} 人`,
+  )
+
+  const lateParticipatingTeams = baseTeams.slice(0, 8).map((t) => `晚${t}`) // A-H組
+
   const lateRules = {
     priorityTeams: {
       hepatitis: '晚G',
-      inPatientTeams: ['晚H', '晚I'], // 本來就沒有晚K，保持不變
-      inPatientCapacity: { 晚H: 2, 晚I: 2 },
+      inPatientTeams: ['晚H'], // 🔥 只有H組照顧住院+急診
+      inPatientCapacity: { 晚H: 4 }, // 🔥 H組容量調整為4人
     },
     mainDistribution: {
-      specialTeam: null,
-      regularTeams: lateTeamsForDistribution,
+      specialTeam: null, // 晚班沒有特殊組
+      regularTeams: lateParticipatingTeams,
       primaryCapacity: 4,
-      fillMethod: 'average',
+      fillMethod: 'average', // 晚班始終使用平均分配
     },
   }
 
-  const earlyAssignments = distributePatients(
-    sort(earlyMain),
-    ['早A', ...earlyTeamsForDistribution, '早H', '早I', '早J'].filter(Boolean), // 移除早K
-    earlyRules,
-  )
-  earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
-
-  const noonOnAssignments = distributePatients(
-    sort(noonMain),
-    ['早A', ...noonTeamsForDistribution, '早H', '早I', '早J'].filter(Boolean), // 移除早K
-    noonRules,
-  )
-  noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
-
-  const lateAssignments = distributePatients(
-    sort(lateMainOnly),
-    [...lateTeamsForDistribution, '晚H', '晚I'], // 本來就沒有晚K，保持不變
+  const lateCombinedAssignments = distributePatients(
+    sort(lateCombinedMain),
+    lateParticipatingTeams,
     lateRules,
   )
-  lateAssignments['晚外圍'] = peripheral(allLatePatients)
+  lateCombinedAssignments['晚外圍'] = [
+    ...peripheral(allLatePatients),
+    ...peripheral(allNoonPatients),
+  ]
 
+  // === 應用分配結果到排程 ===
+  // 清空現有分組
   Object.values(scheduleCopy).forEach((slot) => {
     if (slot) {
       slot.nurseTeam = null
@@ -1243,6 +1264,7 @@ function executeAutoAssignment() {
     }
   })
 
+  // 應用分配結果的輔助函數
   const applyToSchedule = (assignments, prop) => {
     for (const team in assignments) {
       for (const patient of assignments[team]) {
@@ -1253,10 +1275,28 @@ function executeAutoAssignment() {
     }
   }
 
+  // 應用早班分組
   applyToSchedule(earlyAssignments, 'nurseTeam')
-  applyToSchedule(noonOnAssignments, 'nurseTeamIn')
-  applyToSchedule(lateAssignments, 'nurseTeam')
 
+  // 應用午班上針分組
+  applyToSchedule(noonOnAssignments, 'nurseTeamIn')
+
+  // 應用晚班分組（包含午班收針）
+  for (const team in lateCombinedAssignments) {
+    for (const patient of lateCombinedAssignments[team]) {
+      const slot = scheduleCopy[patient.shiftId]
+      if (slot) {
+        const shiftCode = patient.shiftId.split('-')[2]
+        if (shiftCode === SHIFT_CODES.LATE) {
+          slot.nurseTeam = team
+        } else if (shiftCode === SHIFT_CODES.NOON) {
+          slot.nurseTeamOut = team
+        }
+      }
+    }
+  }
+
+  // 更新主要排程資料
   currentRecord.schedule = scheduleCopy
 
   setChange()

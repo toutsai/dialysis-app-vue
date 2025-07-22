@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PatientsView.vue - 簡化後的 script 部分 -->
+<!-- 檔案路徑: src/views/PatientsView.vue (整合搜尋/新增/復原功能) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { where } from 'firebase/firestore'
@@ -29,10 +29,14 @@ const allPatients = ref([])
 const activeTab = ref('er')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
 
-const erSearchTerm = ref('')
-const ipdSearchTerm = ref('')
-const opdSearchTerm = ref('')
-const deletedSearchTerm = ref('')
+// --- 舊的搜尋框 ref 改為列表內篩選 ---
+const erListFilter = ref('')
+const ipdListFilter = ref('')
+const opdListFilter = ref('')
+const deletedSearchTerm = ref('') // 已刪除列表的搜尋保持不變
+
+// ✨ 新增: 全局搜尋/新增/復原功能的輸入框 ref
+const globalSearchTerm = ref('')
 
 const isModalVisible = ref(false)
 const editingPatient = ref(null)
@@ -94,13 +98,13 @@ const displayedPatients = computed(() => {
 
   if (activeTab.value === 'er') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
-    searchTerm = erSearchTerm.value.toLowerCase()
+    searchTerm = erListFilter.value.toLowerCase() // ✨ 改用列表篩選 ref
   } else if (activeTab.value === 'ipd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
-    searchTerm = ipdSearchTerm.value.toLowerCase()
+    searchTerm = ipdListFilter.value.toLowerCase() // ✨ 改用列表篩選 ref
   } else if (activeTab.value === 'opd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
-    searchTerm = opdSearchTerm.value.toLowerCase()
+    searchTerm = opdListFilter.value.toLowerCase() // ✨ 改用列表篩選 ref
   } else if (activeTab.value === 'deleted') {
     patientsToDisplay = allPatients.value.filter((p) => p.isDeleted)
     searchTerm = deletedSearchTerm.value.toLowerCase()
@@ -186,6 +190,161 @@ const patientStats = computed(() => {
   return stats
 })
 
+// ✨ ==========================================================
+// ✨ 新增：全局智慧搜尋與新增/復原功能
+// ✨ ==========================================================
+
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
+}
+
+function showConfirm(title, message, onConfirm) {
+  confirmDialogTitle.value = title
+  confirmDialogMessage.value = message
+  confirmAction.value = onConfirm
+  isConfirmDialogVisible.value = true
+}
+
+async function handleGlobalSearch(query) {
+  if (!query || !query.trim()) {
+    showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
+    return
+  }
+
+  const searchTerm = query.trim()
+  const searchTermLower = searchTerm.toLowerCase()
+
+  // ✨ 1. 使用模糊搜尋 (filter) 來找出所有可能的結果
+  const searchResults = allPatients.value.filter(
+    (p) =>
+      (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)) ||
+      (p.name && p.name.toLowerCase().includes(searchTermLower)),
+  )
+
+  let foundPatient = null
+
+  // ✨ 2. 判斷搜尋結果的數量
+  if (searchResults.length > 1) {
+    // === 情況 A: 找到多於一位病人，提示使用者 ===
+    const patientList = searchResults
+      .map((p) => `- ${p.name} (${p.medicalRecordNumber})`)
+      .slice(0, 10) // 最多顯示10筆，避免列表過長
+      .join('\n')
+
+    showAlert(
+      '找到多位病人',
+      `符合 "${query}" 的病人不只一位，請輸入更完整的姓名或病歷號以精確查找。\n\n找到的病人列表：\n${patientList}`,
+    )
+    return // 中斷函式執行，等待使用者輸入更精確的條件
+  } else if (searchResults.length === 1) {
+    // === 情況 B: 只找到唯一一位病人，認定為目標 ===
+    foundPatient = searchResults[0]
+  }
+
+  // ✨ 3. 根據是否找到病人，執行後續邏輯 (這部分與您原有的程式碼類似)
+  if (foundPatient) {
+    // === 情況 1: 找到了唯一的現存病人 ===
+    const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
+
+    if (foundPatient.isDeleted) {
+      // 病人已被刪除，詢問是否復原到當前分頁
+      const targetStatusText = statusMap[activeTab.value] || '列表'
+      showConfirm(
+        '找到已刪除病人',
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原因: ${foundPatient.deleteReason || '未知'})。\n\n您是否要將其復原到目前的「${targetStatusText}」清單中？`,
+        () => {
+          restoreAndTransferPatient(foundPatient.id, activeTab.value)
+        },
+      )
+    } else {
+      // 病人存在於某個列表中
+      const currentStatusText = statusMap[foundPatient.status] || '未知'
+      showAlert(
+        '病人已存在',
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前已在「${currentStatusText}」清單中。`,
+      )
+    }
+  } else {
+    // === 情況 2: 找不到任何病人，開啟新增對話框 ===
+    showConfirm(
+      '找不到病人',
+      `資料庫中找不到符合 "${query}" 的病人。\n\n您是否要新增一位病人？`,
+      () => {
+        const newPatientTemplate = { diseases: [] }
+        // 智慧判斷輸入的是姓名還是病歷號
+        if (/^\d{6,}$/.test(searchTerm)) {
+          // 如果是6位以上純數字，當作病歷號
+          newPatientTemplate.medicalRecordNumber = searchTerm
+        } else {
+          newPatientTemplate.name = searchTerm
+        }
+
+        editingPatient.value = newPatientTemplate
+        modalType.value = activeTab.value // 使用當前分頁的類型
+        isModalVisible.value = true
+      },
+    )
+  }
+}
+
+// ✨ 新增一個輔助函式，用於處理「復原並轉移」的邏輯
+async function restoreAndTransferPatient(patientId, targetStatus) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
+
+  try {
+    const patient = allPatients.value.find((p) => p.id === patientId)
+    if (!patient) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
+    }
+
+    const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
+    const targetStatusText = statusMap[targetStatus] || '未知'
+
+    // 更新病人狀態
+    await optimizedUpdatePatient(patientId, {
+      isDeleted: false,
+      status: targetStatus,
+      originalStatus: patient.originalStatus, // 保留原始狀態以備不時之需
+      deleteReason: null,
+      deletedAt: null,
+    })
+
+    // 記錄歷史
+    const historyEntry = {
+      patientId: patientId,
+      patientName: patient.name,
+      timestamp: new Date().toISOString(),
+      eventType: 'RESTORE_AND_TRANSFER',
+      eventDetails: {
+        restoredTo: targetStatus,
+        fromReason: patient.deleteReason,
+      },
+    }
+    await optimizedSavePatientHistory(historyEntry)
+
+    // 確保總床位表中沒有該病人的殘留規則
+    await removePatientFromBaseSchedule(patientId)
+
+    // 重新載入資料並顯示成功訊息
+    await fetchAllPatients()
+    addNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
+    showAlert(
+      '復原成功',
+      `${patient.name} 已成功復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
+    )
+    globalSearchTerm.value = '' // 清空搜尋框
+  } catch (err) {
+    console.error('復原並轉移失敗:', err)
+    showAlert('操作失敗', '復原病人時發生錯誤！')
+  }
+}
+
 function exportDeletedPatients() {
   const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
   if (deletedPatients.length === 0) {
@@ -240,10 +399,6 @@ async function handleSavePatient(patientData) {
           await fetchAllPatients()
 
           addNotification(`中止透析：${patientData.name}`, 'patient')
-
-          //alertDialogTitle.value = '操作成功'
-          //alertDialogMessage.value = `${patientData.name} 已標記為中止透析，已從總床位表移除，未來排程將自動清除。`
-          //isAlertDialogVisible.value = true
         } catch (err) {
           console.error('中止透析操作失敗:', err)
           alertDialogTitle.value = '操作失敗'
@@ -336,10 +491,6 @@ async function handleSavePatient(patientData) {
       const statusText =
         modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
       addNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
-
-      //alertDialogTitle.value = '新增成功'
-      //alertDialogMessage.value = '病人資料已成功新增。'
-      //isAlertDialogVisible.value = true
     } catch (err) {
       console.error('新增病人失敗:', err)
       alertDialogTitle.value = '操作失敗'
@@ -493,7 +644,6 @@ async function handleDeleteReasonSelected(reason) {
 
       addNotification(`刪除病人：${patient.name} (${reason})`, 'patient')
 
-      //alertDialogTitle.value = '刪除成功'
       alertDialogMessage.value = `${patient.name} 已刪除，已從總床位表中移除，未來排程將自動清除。`
       isAlertDialogVisible.value = true
     }
@@ -547,10 +697,6 @@ async function restorePatient(patientId) {
     await fetchAllPatients()
 
     addNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
-
-    //alertDialogTitle.value = '復原成功'
-    //alertDialogMessage.value = `${patient.name} 已復原至${statusText}清單，如需重新排班請至總床位表設定。`
-    //isAlertDialogVisible.value = true
   } catch (err) {
     console.error('復原失敗:', err)
     alertDialogTitle.value = '操作失敗'
@@ -614,6 +760,7 @@ async function fetchAllPatients() {
 
 function changeTab(tabName) {
   activeTab.value = tabName
+  globalSearchTerm.value = '' // ✨ 切換分頁時清空全局搜尋框
 }
 
 function handleSort(key) {
@@ -628,6 +775,7 @@ function handleSort(key) {
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
+  globalSearchTerm.value = '' // ✨ 關閉 Modal 後清空搜尋框
 }
 
 function cancelDelete() {
@@ -735,10 +883,6 @@ async function handleSaveOrder(orderDataFromModal) {
     await fetchAllPatients()
 
     addNotification(`更新醫囑：${patientName}`, 'patient')
-
-    //alertDialogTitle.value = '儲存成功'
-    //alertDialogMessage.value = '透析醫囑已成功儲存。'
-    //isAlertDialogVisible.value = true
   } catch (error) {
     console.error('❌ [PatientsView] 儲存醫囑失敗:', error)
     alertDialogTitle.value = '操作失敗'
@@ -789,11 +933,21 @@ onMounted(() => {
       <div v-if="activeTab === 'er'" class="tab-content active">
         <div class="view-header">
           <div class="controls-left">
-            <button @click="openAddPatientModal('er')" :disabled="isPageLocked" class="btn-add">
-              新增病人
-            </button>
-            <div class="search-group">
-              <input type="text" v-model="erSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            <!-- ✨ [修改] 整合的搜尋/新增/復原框 -->
+            <div class="search-group global-search">
+              <input
+                type="text"
+                v-model="globalSearchTerm"
+                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
+                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+              />
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                搜尋/新增
+              </button>
+            </div>
+            <!-- ✨ [新增] 列表內篩選框 -->
+            <div class="search-group list-filter">
+              <input type="text" v-model="erListFilter" placeholder="篩選目前列表..." />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -931,11 +1085,21 @@ onMounted(() => {
       <div v-if="activeTab === 'ipd'" class="tab-content active">
         <div class="view-header">
           <div class="controls-left">
-            <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked" class="btn-add">
-              新增病人
-            </button>
-            <div class="search-group">
-              <input type="text" v-model="ipdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            <!-- ✨ [修改] 整合的搜尋/新增/復原框 -->
+            <div class="search-group global-search">
+              <input
+                type="text"
+                v-model="globalSearchTerm"
+                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
+                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+              />
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                搜尋/新增
+              </button>
+            </div>
+            <!-- ✨ [新增] 列表內篩選框 -->
+            <div class="search-group list-filter">
+              <input type="text" v-model="ipdListFilter" placeholder="篩選目前列表..." />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -1073,11 +1237,21 @@ onMounted(() => {
       <div v-if="activeTab === 'opd'" class="tab-content active">
         <div class="view-header">
           <div class="controls-left">
-            <button @click="openAddPatientModal('opd')" :disabled="isPageLocked" class="btn-add">
-              新增病人
-            </button>
-            <div class="search-group">
-              <input type="text" v-model="opdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            <!-- ✨ [修改] 整合的搜尋/新增/復原框 -->
+            <div class="search-group global-search">
+              <input
+                type="text"
+                v-model="globalSearchTerm"
+                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
+                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+              />
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                搜尋/新增
+              </button>
+            </div>
+            <!-- ✨ [新增] 列表內篩選框 -->
+            <div class="search-group list-filter">
+              <input type="text" v-model="opdListFilter" placeholder="篩選目前列表..." />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -1409,9 +1583,37 @@ onMounted(() => {
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 5px;
-  min-width: 250px;
   height: 40px;
   font-size: 1rem;
+}
+
+/* ✨ 新增: 全局搜尋框和列表篩選框的樣式 */
+.search-group.global-search input {
+  min-width: 280px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+.search-group.global-search .btn-search {
+  padding: 8px 15px;
+  font-size: 1em;
+  background-color: var(--primary-color);
+  color: white;
+  border: 1px solid var(--primary-color);
+  border-radius: 5px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  cursor: pointer;
+  height: 40px;
+  transition: background-color 0.2s;
+}
+.search-group.global-search .btn-search:hover:not(:disabled) {
+  background-color: #00457c;
+}
+
+.search-group.list-filter input {
+  min-width: 200px;
+  background-color: #f8f9fa;
 }
 
 .controls-left input:focus {

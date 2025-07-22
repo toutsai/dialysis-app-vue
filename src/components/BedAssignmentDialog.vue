@@ -1,4 +1,4 @@
-<!-- 完整修正後的 BedAssignmentDialog.vue - 修復重複排床問題 -->
+<!-- 完整修正後的 BedAssignmentDialog.vue - 支持僅按頻率查詢空床 -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="isComponentMounted && emit('close')">
@@ -109,7 +109,10 @@
               <div class="column-header">
                 <h4>
                   可用空床
-                  <span v-if="targetFrequency"> ({{ targetFrequency }}) </span>
+                  <!-- ✨ 修改: 即使只選頻率也能顯示 -->
+                  <span v-if="targetFrequency && targetFrequency !== 'all'">
+                    ({{ targetFrequency }})
+                  </span>
                 </h4>
                 <select v-model="selectedShiftFilter">
                   <option value="all">所有班別</option>
@@ -272,49 +275,53 @@ const showFreqSelector = computed(() => {
   )
 })
 
-// 計算屬性：目標頻率
+// ✨ [修改] 計算屬性：目標頻率
 const targetFrequency = computed(() => {
+  // 編輯模式的邏輯保持不變
   if (isEditMode.value) {
     if (props.context?.mode === 'change_freq_and_bed') {
-      return newFreqSelection.value || currentPatient.value?.freq || '請先選擇新頻率'
+      return newFreqSelection.value || currentPatient.value?.freq || null
     }
     if (props.context?.mode === 'change_bed_only') {
-      return currentPatient.value?.freq || '未知頻率'
+      return currentPatient.value?.freq || null
     }
   }
 
+  // 一般模式下，優先使用已選病人的頻率
   if (selectedPatientId.value) {
     const patient = props.allPatients.find((p) => p.id === selectedPatientId.value)
-    return patient?.freq || '請選擇病人'
+    return patient?.freq || null
   }
 
-  return '請選擇病人'
+  // ✨ 如果沒有選病人，但選了特定頻率，就使用下拉選單的頻率
+  if (selectedFreq.value !== 'all') {
+    return selectedFreq.value
+  }
+
+  // 預設情況
+  return null
 })
 
-// 計算屬性：是否可以顯示床位
+// ✨ [修改] 計算屬性：是否可以顯示床位
 const canShowBeds = computed(() => {
+  // 編輯模式下，必須有有效的目標頻率
   if (isEditMode.value) {
-    if (props.context?.mode === 'change_freq_and_bed') {
-      return !!newFreqSelection.value
-    }
-    if (props.context?.mode === 'change_bed_only') {
-      return !!currentPatient.value?.freq
-    }
+    return !!targetFrequency.value
   }
-  return !!selectedPatientId.value
+
+  // 一般模式下，選了病人或選了特定頻率都可以
+  return !!selectedPatientId.value || selectedFreq.value !== 'all'
 })
 
-// 計算屬性：床位空訊息
+// ✨ [修改] 計算屬性：床位空訊息
 const bedEmptyMessage = computed(() => {
   if (isEditMode.value) {
     if (props.context?.mode === 'change_freq_and_bed') {
       return '請先選擇新頻率以查詢空床。'
     }
-    if (props.context?.mode === 'change_bed_only') {
-      return currentPatient.value?.freq ? '載入中...' : '病人頻率資訊不完整。'
-    }
+    return currentPatient.value?.freq ? '正在查詢...' : '病人頻率資訊不完整。'
   }
-  return '請先從左側選擇一位病人以查詢空床。'
+  return '請從左側選擇病人，或從上方選擇一個頻率來查詢空床。'
 })
 
 const patientGroups = computed(() => {
@@ -380,29 +387,13 @@ const patientGroups = computed(() => {
 })
 
 const availableBeds = computed(() => {
-  // 決定要查詢的病人和頻率
-  let targetPatient, targetFreq
+  // ✨ 使用新的 targetFrequency 來獲取目標頻率
+  const targetFreq = targetFrequency.value
 
-  if (isEditMode.value) {
-    targetPatient = currentPatient.value
-    if (props.context?.mode === 'change_freq_and_bed') {
-      targetFreq = newFreqSelection.value
-    } else if (props.context?.mode === 'change_bed_only') {
-      targetFreq = currentPatient.value?.freq
-    }
-  } else {
-    targetPatient = props.allPatients.find((p) => p.id === selectedPatientId.value)
-    targetFreq = targetPatient?.freq
+  // ✨ 如果沒有目標頻率，直接返回空物件
+  if (!targetFreq) {
+    return {}
   }
-
-  if (!targetPatient || !targetFreq) return {}
-
-  // 🔥 新增：收集已被暫時分配的床位 (樂觀更新)
-  const temporarilyAssignedBeds = new Set()
-  pendingAssignments.value.forEach((assignment) => {
-    const bedKey = `${assignment.bedNum}-${assignment.shiftCode}`
-    temporarilyAssignedBeds.add(bedKey)
-  })
 
   const results = {}
   props.shifts.forEach((shiftCode) => {
@@ -411,12 +402,20 @@ const availableBeds = computed(() => {
     }
   })
 
+  const temporarilyAssignedBeds = new Set()
+  pendingAssignments.value.forEach((assignment) => {
+    const bedKey = `${assignment.bedNum}-${assignment.shiftCode}`
+    temporarilyAssignedBeds.add(bedKey)
+  })
+
+  // 編輯模式的目標病人 ID
+  const targetPatientId = isEditMode.value ? currentPatient.value?.id : null
+
   if (props.assignmentMode === 'singleDay') {
     props.bedLayout.forEach((bedNum) => {
       props.shifts.forEach((shiftCode) => {
         if (!results[shiftCode]) return
 
-        // 🔥 樂觀更新：檢查床位是否已被暫時分配
         const bedKey = `${bedNum}-${shiftCode}`
         if (temporarilyAssignedBeds.has(bedKey)) return
 
@@ -429,6 +428,7 @@ const availableBeds = computed(() => {
       })
     })
   } else {
+    // 'frequency' or 'base'
     const dayIndices = props.freqMap[targetFreq]
     if (!dayIndices || dayIndices.length === 0) return {}
 
@@ -436,18 +436,18 @@ const availableBeds = computed(() => {
       props.shifts.forEach((shiftCode, shiftIndex) => {
         if (!results[shiftCode]) return
 
-        // 🔥 樂觀更新：檢查床位是否已被暫時分配
         const bedKey = `${bedNum}-${shiftCode}`
         if (temporarilyAssignedBeds.has(bedKey)) return
 
         let isFullyAvailable = true
         for (const dayIndex of dayIndices) {
           const slotIdToCheck = `${bedNum}-${shiftIndex}-${dayIndex}`
-          // 編輯模式時，排除當前病人已佔用的床位
           const currentSlotData = props.scheduleData[slotIdToCheck]
+
           if (
             currentSlotData?.patientId &&
-            !(isEditMode.value && currentSlotData.patientId === targetPatient.id)
+            // 如果是編輯模式，當前病人佔用的床位不算衝突
+            !(isEditMode.value && currentSlotData.patientId === targetPatientId)
           ) {
             isFullyAvailable = false
             break
@@ -462,43 +462,31 @@ const availableBeds = computed(() => {
   return results
 })
 
-// 🔥 修改：scheduleData 監聽器，添加調試
 watch(
   () => props.scheduleData,
-  (newSchedule, oldSchedule) => {
+  (newSchedule) => {
     const ids = new Set()
     if (newSchedule) {
       for (const slotData of Object.values(newSchedule)) {
         if (slotData?.patientId) ids.add(slotData.patientId)
       }
     }
-
-    // 調試日誌：追蹤狀態變化
-    console.log('📊 [BedAssignmentDialog] scheduleData 更新:', {
-      已排床病人數: ids.size,
-      已排床病人: Array.from(ids),
-      變更: newSchedule !== oldSchedule,
-    })
-
     localAssignedPatientIds.value = ids
   },
   { immediate: true, deep: true },
 )
 
 watch(selectedFreq, () => {
-  if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
-    selectedPatientId.value = null
-  }
+  // 當只改變頻率選擇時，清空已選病人，以觸發僅按頻率查詢
+  selectedPatientId.value = null
 })
 
-// 🔥 修改：isVisible 監聽器，優化狀態管理
 watch(
   () => props.isVisible,
   (newValue) => {
     if (newValue) {
       isComponentMounted.value = true
 
-      // 🔥 對話框打開時，立即同步最新的已排床狀態
       const ids = new Set()
       if (props.scheduleData) {
         for (const slotData of Object.values(props.scheduleData)) {
@@ -507,15 +495,11 @@ watch(
       }
       localAssignedPatientIds.value = ids
 
-      console.log('🔄 [BedAssignmentDialog] 對話框打開，同步已排床狀態:', Array.from(ids))
-
       if (isEditMode.value) {
         selectedPatientId.value = currentPatient.value?.id || null
         newFreqSelection.value = ''
       } else {
-        if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
-          selectedFreq.value = 'all'
-        }
+        selectedFreq.value = 'all'
         selectedPatientId.value = null
       }
     } else {
@@ -523,8 +507,6 @@ watch(
       selectedShiftFilter.value = 'all'
       newFreqSelection.value = ''
       pendingAssignments.value = []
-      // 🔥 不要清空 localAssignedPatientIds，保持狀態同步
-      // localAssignedPatientIds.value.clear()  // 註解掉這行
     }
   },
 )
@@ -545,11 +527,25 @@ function handleFreqChange() {
 
 function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
+  // ✨ 點選病人時，自動將頻率選擇器設為 "all"，以病人的頻率為主
+  selectedFreq.value = 'all'
 }
 
-// 🔥 修改：handleBedClick 函數，添加立即狀態更新
+// ✨ [修改] handleBedClick 函數
 function handleBedClick(bedNum, shiftCode) {
   if (!isComponentMounted.value) return
+
+  // 如果沒有選擇病人，就彈出提示
+  if (!selectedPatientId.value && !isEditMode.value) {
+    if (isComponentMounted.value) {
+      alertInfo.value = {
+        isVisible: true,
+        title: '操作提示',
+        message: '請先從左側選擇一位病人才能排床！',
+      }
+    }
+    return
+  }
 
   let patientId, finalFreq
 
@@ -566,16 +562,11 @@ function handleBedClick(bedNum, shiftCode) {
     finalFreq = patient?.freq
   }
 
-  if (!patientId) {
-    if (isComponentMounted.value) {
-      alertInfo.value = { isVisible: true, title: '操作提示', message: '請先選擇一位病人！' }
-    }
-    return
-  }
-
+  // 驗證最終頻率
   if (!finalFreq) {
     if (isComponentMounted.value) {
-      alertInfo.value = { isVisible: true, title: '操作提示', message: '請先選擇有效的頻率！' }
+      const message = isEditMode.value ? '病人頻率資訊不完整！' : '請先選擇有效的頻率！'
+      alertInfo.value = { isVisible: true, title: '操作提示', message: message }
     }
     return
   }
@@ -584,7 +575,6 @@ function handleBedClick(bedNum, shiftCode) {
     typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
   const shiftId = `${bedIdPart}-${shiftCode}`
 
-  // 編輯模式：直接排床
   if (isEditMode.value) {
     emit('assign-bed', {
       patientId,
@@ -596,7 +586,6 @@ function handleBedClick(bedNum, shiftCode) {
     return
   }
 
-  // 一般模式：加入待排床列表
   const patient = props.allPatients.find((p) => p.id === patientId)
   if (!patient) return
 
@@ -605,7 +594,6 @@ function handleBedClick(bedNum, shiftCode) {
   )
 
   if (existingIndex !== -1) {
-    // 更新現有的排床安排
     pendingAssignments.value[existingIndex] = {
       patientId,
       patientName: patient.name,
@@ -614,7 +602,6 @@ function handleBedClick(bedNum, shiftCode) {
       shiftId,
     }
   } else {
-    // 添加新的排床安排
     pendingAssignments.value.push({
       patientId,
       patientName: patient.name,
@@ -624,10 +611,7 @@ function handleBedClick(bedNum, shiftCode) {
     })
   }
 
-  // 🔥 立即更新本地狀態，讓病人從列表中消失
   localAssignedPatientIds.value.add(patientId)
-  console.log('🎯 [BedAssignmentDialog] 添加到待排床:', patient.name, '本地狀態已更新')
-
   selectedPatientId.value = null
 }
 
@@ -648,29 +632,19 @@ function getPendingBedInfo(patientId) {
   return `${bedDisplay}床 ${shiftDisplayNames[assignment.shiftCode]}`
 }
 
-// 🔥 修改：removePendingAssignment 函數
 function removePendingAssignment(index) {
   const assignment = pendingAssignments.value[index]
-
-  // 🔥 從本地狀態中移除，讓病人重新出現在列表中
   localAssignedPatientIds.value.delete(assignment.patientId)
   pendingAssignments.value.splice(index, 1)
-
-  console.log('❌ [BedAssignmentDialog] 移除待排床:', assignment.patientName, '本地狀態已更新')
 }
 
-// 🔥 修改：clearPendingAssignments 函數
 function clearPendingAssignments() {
-  // 🔥 從本地狀態中移除所有待排床的病人
   pendingAssignments.value.forEach((assignment) => {
     localAssignedPatientIds.value.delete(assignment.patientId)
   })
   pendingAssignments.value = []
-
-  console.log('🧹 [BedAssignmentDialog] 清空所有待排床，本地狀態已重置')
 }
 
-// 🔥 修改：confirmAllAssignments 函數
 function confirmAllAssignments() {
   if (pendingAssignments.value.length === 0 || !isComponentMounted.value) return
 
@@ -688,10 +662,8 @@ function confirmAllAssignments() {
 
   try {
     if (isComponentMounted.value) {
-      // 🔥 關鍵修改：先記錄要排床的病人ID
       const assignedPatientIds = new Set(pendingAssignments.value.map((a) => a.patientId))
 
-      // 發送排床事件
       pendingAssignments.value.forEach((assignment) => {
         emit('assign-bed', {
           patientId: assignment.patientId,
@@ -701,15 +673,9 @@ function confirmAllAssignments() {
         })
       })
 
-      // 🔥 立即更新本地狀態，確保病人從未排床列表中消失
       assignedPatientIds.forEach((patientId) => {
         localAssignedPatientIds.value.add(patientId)
       })
-
-      console.log(
-        '✅ [BedAssignmentDialog] 批量排床完成，已更新本地狀態:',
-        Array.from(assignedPatientIds),
-      )
 
       alertInfo.value = {
         isVisible: true,
@@ -727,7 +693,6 @@ function confirmAllAssignments() {
       }
     }
   } finally {
-    // 清空待排床列表
     pendingAssignments.value = []
   }
 }
