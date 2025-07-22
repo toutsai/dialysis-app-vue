@@ -364,12 +364,11 @@ exports.ensureFutureSchedules = onCall(
 
 /**
  * @name syncMasterScheduleToFuture
- * @description 當總表更新時，同步未來60天的排程
+ * @description 當總表更新時，同步未來60天的排程 (修正版)
  */
 exports.syncMasterScheduleToFuture = onDocumentUpdated(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
-    // ... (此函式邏輯不變)
     logger.info('🚀 [syncMasterSchedule] 觸發器成功啟動！')
     const beforeSchedule = event.data.before.data().schedule || {}
     const afterSchedule = event.data.after.data().schedule || {}
@@ -390,20 +389,25 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       const dateStr = formatDateForQuery(targetDate)
       const newDailySchedule = generateDailyScheduleFromRules(latestRules, targetDate)
       const dailyDocRef = db.collection('schedules').doc(dateStr)
-      batch.update(dailyDocRef, {
-        schedule: newDailySchedule,
-        lastSynced: FieldValue.serverTimestamp(),
-      })
+
+      // 🔥【核心修正】: 使用 set 和 merge:true 實現 "upsert" (更新或創建)
+      // 這使得函式不再依賴於文件是否已存在，變得更加健壯。
+      batch.set(
+        dailyDocRef,
+        {
+          schedule: newDailySchedule,
+          lastSynced: FieldValue.serverTimestamp(),
+        },
+        { merge: true }, // 如果文件已存在，則合併欄位；如果不存在，則創建文件。
+      )
     }
 
     try {
       await batch.commit()
-      logger.info('✅ 同步完成！已使用最新規則更新未來60天的排程。')
+      logger.info('✅ 同步完成！已使用最新規則更新或創建了未來60天的排程。')
     } catch (error) {
       logger.error('❌ 同步未來排程時發生錯誤:', error)
-      logger.error(
-        '⚠️ 錯誤可能原因：某個日期的排程文件不存在，導致 update 操作失敗。請檢查 initializeFutureSchedules 是否正常運作。',
-      )
+      // 這個 catch 區塊現在不太可能因為 NOT_FOUND 錯誤而被觸發了。
     }
     return null
   },
