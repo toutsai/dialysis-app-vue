@@ -51,66 +51,87 @@ const SHIFTS = ['early', 'noon', 'late']
 function generateDailyScheduleFromRules(masterRules, targetDate) {
   const dailySchedule = {}
   const dayOfWeek = targetDate.getDay()
+  // 星期日 (0) -> 6, 星期一 (1) -> 0, ..., 星期六 (6) -> 5
   const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
 
   for (const ruleId in masterRules) {
     const rule = masterRules[ruleId]
-    if (!rule || !rule.freq) continue
+    if (!rule || !rule.patientId || !rule.freq) continue
 
     const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
 
+    // 檢查今天的星期是否符合該規則的頻率
     if (freqDays.includes(systemDayIndex)) {
-      // 🔥 關鍵修正：支援新格式的 ruleId 解析
+      // 🔥【核心修正】: 重新設計 ruleId 的解析邏輯
       const parts = ruleId.split('-')
       let bedNum, shiftIndex
 
-      // 新格式解析邏輯
-      if (parts.length >= 3) {
-        const lastPart = parts[parts.length - 1]
+      // 預期格式:
+      // 1-2-二四六 (一般床)
+      // peripheral-1-2-二四六 (外圍床)
 
-        // 檢查最後一個部分是否為頻率（包含中文字符）
-        if (/[一二三四五六]/.test(lastPart)) {
-          // 新格式：床號-班別索引-頻率 或 peripheral-床號-班別索引-頻率
-          if (parts[0] === 'peripheral') {
-            // peripheral-1-0-一三五
-            bedNum = `${parts[0]}-${parts[1]}` // peripheral-1
-            shiftIndex = parseInt(parts[2], 10) // 0
-          } else {
-            // 1-0-一三五
-            bedNum = parts[0] // 1
-            shiftIndex = parseInt(parts[1], 10) // 0
-          }
-        } else {
-          // 向後兼容舊格式：床號-班別索引
-          shiftIndex = parseInt(parts.pop(), 10)
-          bedNum = parts.join('-')
-        }
-      } else {
-        // 向後兼容舊格式：床號-班別索引
-        shiftIndex = parseInt(parts[1], 10)
-        bedNum = parts[0]
+      if (parts.length < 3) {
+        logger.warn(
+          `[generateDailyScheduleFromRules] 偵測到格式不正確的 ruleId: ${ruleId}，已跳過。`,
+        )
+        continue // 跳過格式不正確的規則
       }
 
-      const shiftCode = SHIFTS[shiftIndex]
-
-      if (bedNum && shiftCode && !isNaN(shiftIndex)) {
-        // 🔥 關鍵修正：支援外圍床位的 dailyShiftId 格式
-        let dailyShiftId
-        if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-          // 外圍床位：peripheral-1-early
-          dailyShiftId = `${bedNum}-${shiftCode}`
-        } else {
-          // 一般床位：bed-1-early
-          dailyShiftId = `bed-${bedNum}-${shiftCode}`
+      if (parts[0] === 'peripheral') {
+        // 處理外圍床: peripheral-1-2-二四六
+        if (parts.length < 4) {
+          logger.warn(
+            `[generateDailyScheduleFromRules] 偵測到格式不正確的外圍床 ruleId: ${ruleId}，已跳過。`,
+          )
+          continue
         }
+        bedNum = `${parts[0]}-${parts[1]}` // "peripheral-1"
+        shiftIndex = parseInt(parts[2], 10) // 2
+      } else {
+        // 處理一般床: 1-2-二四六
+        bedNum = parts[0] // "1"
+        shiftIndex = parseInt(parts[1], 10) // 2
+      }
 
-        dailySchedule[dailyShiftId] = {
-          patientId: rule.patientId,
-          shiftId: shiftCode,
-          autoNote: rule.autoNote || '',
-          manualNote: rule.manualNote || '',
-          baseRuleId: ruleId,
-        }
+      // 驗證解析結果
+      if (!bedNum || isNaN(shiftIndex) || shiftIndex < 0 || shiftIndex >= SHIFTS.length) {
+        logger.warn(
+          `[generateDailyScheduleFromRules] 解析 ruleId (${ruleId}) 失敗，bedNum 或 shiftIndex 無效。`,
+        )
+        continue
+      }
+
+      // 🔥【核心修正】: 使用規則內容中的 shiftId，而不是從 ruleId 推斷
+      // 這確保了資料來源的唯一性，避免了您截圖中的班別錯亂問題。
+      const shiftCode = rule.shiftId
+
+      if (!shiftCode || !SHIFTS.includes(shiftCode)) {
+        logger.warn(
+          `[generateDailyScheduleFromRules] 規則 ${ruleId} 中的 shiftId ("${shiftCode}") 無效，已跳過。`,
+        )
+        continue
+      }
+
+      let dailyShiftId
+      if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
+        dailyShiftId = `${bedNum}-${shiftCode}` // peripheral-1-late
+      } else {
+        dailyShiftId = `bed-${bedNum}-${shiftCode}` // bed-1-late
+      }
+
+      // 檢查是否已存在排程，避免重複（雖然理論上不應發生）
+      if (dailySchedule[dailyShiftId]) {
+        logger.warn(
+          `[generateDailyScheduleFromRules] 偵測到重複排程於 ${dailyShiftId}，舊有資料將被覆蓋。規則ID: ${ruleId}`,
+        )
+      }
+
+      dailySchedule[dailyShiftId] = {
+        patientId: rule.patientId,
+        shiftId: shiftCode,
+        autoNote: rule.autoNote || '',
+        manualNote: rule.manualNote || '',
+        baseRuleId: ruleId,
       }
     }
   }
