@@ -17,8 +17,8 @@
     "deploy:functions": "firebase deploy --only functions",
     "deploy:rules": "firebase deploy --only firestore:rules",
     "// --- 推薦使用的一鍵部署套餐 ---": "",
-    "deploy:prod": "run-s build deploy:hosting:prod deploy:functions",
-    "deploy:dev": "run-s build:dev deploy:hosting:dev"
+    "deploy:prod": "npm-run-all build deploy:rules deploy:functions deploy:hosting:prod",
+    "deploy:dev": "npm-run-all build:dev deploy:rules deploy:functions deploy:hosting:dev"
   },
   "dependencies": {
     "firebase": "^11.9.1",
