@@ -29,7 +29,6 @@ const db = getFirestore(app)
 const functions = getFunctions(app)
 
 // 檢查是否處於開發模式 (Vite 預設會設定 import.meta.env.DEV 為 true)
-/*
 if (import.meta.env.DEV) {
   console.log('👨‍💻 Running in development mode, attempting to connect to Firebase Emulators...')
 
@@ -55,6 +54,5 @@ if (import.meta.env.DEV) {
 } else {
   console.log('🌍 Running in production mode, connecting to live Firebase services.')
 }
-*/
 
 export { app, auth, db, functions }

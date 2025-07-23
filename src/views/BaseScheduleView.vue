@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (修正自動重新載入 - 完整版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終清理版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -9,6 +9,8 @@
           <button class="btn btn-info" @click="openBaseAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
+
+          <!-- ✨ 已移除：衝突處理按鈕 -->
 
           <div class="search-container">
             <input
@@ -80,6 +82,7 @@
       </div>
     </main>
 
+    <!-- 原有的 Dialogs -->
     <SelectionDialog
       :is-visible="isActionDialogVisible"
       :title="`操作病人：${actionTarget.patientName}`"
@@ -127,11 +130,13 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
+
+    <!-- ✨ 已移除: 衝突總覽 Dialog -->
+    <!-- ✨ 已移除: 單日排床 Dialog -->
   </div>
 </template>
 
 <script setup>
-// 🔥 修正：加入 onUnmounted
 import { ref, onMounted, computed, provide, nextTick, onUnmounted } from 'vue'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
@@ -142,7 +147,7 @@ import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
-import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
+import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
@@ -273,25 +278,12 @@ const weekScheduleMap = computed(() => {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData && ruleData.patientId && ruleData.freq) {
       const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
-
       const parts = ruleId.split('-')
       let bedNum, shiftIndex
 
-      if (parts.length >= 3) {
-        const lastPart = parts[parts.length - 1]
-
-        if (Object.keys(FREQ_MAP_TO_DAY_INDEX).includes(lastPart)) {
-          if (parts[0] === 'peripheral') {
-            bedNum = `${parts[0]}-${parts[1]}`
-            shiftIndex = parseInt(parts[2], 10)
-          } else {
-            bedNum = parts[0]
-            shiftIndex = parseInt(parts[1], 10)
-          }
-        } else {
-          bedNum = parts[0]
-          shiftIndex = parseInt(parts[1], 10)
-        }
+      if (parts[0] === 'peripheral') {
+        bedNum = `${parts[0]}-${parts[1]}`
+        shiftIndex = parseInt(parts[2], 10)
       } else {
         bedNum = parts[0]
         shiftIndex = parseInt(parts[1], 10)
@@ -327,8 +319,16 @@ const statsToolbarData = computed(() => {
       const patient = localPatientMap.get(ruleData.patientId)
       if (!patient) continue
       const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
-      const [, shiftIndexStr] = ruleId.split('-')
+
+      const parts = ruleId.split('-')
+      let shiftIndexStr
+      if (parts[0] === 'peripheral') {
+        shiftIndexStr = parts[2]
+      } else {
+        shiftIndexStr = parts[1]
+      }
       const shiftCode = SHIFTS[parseInt(shiftIndexStr, 10)]
+
       dayIndices.forEach((dayIndex) => {
         if (dayIndex >= 0 && dayIndex < 6 && shiftCode) {
           const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
@@ -347,7 +347,7 @@ const statsToolbarData = computed(() => {
 })
 
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
-const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
+
 const searchResults = computed(() => {
   if (!searchQuery.value) {
     return []
@@ -383,7 +383,6 @@ function handleSearchBlur() {
   }, 200)
 }
 
-// 🔥 新增：單獨載入病人資料函數
 async function loadPatientData() {
   try {
     console.log('🔄 [BaseScheduleView] 重新載入病人資料...')
@@ -395,8 +394,7 @@ async function loadPatientData() {
   }
 }
 
-// 🔥 新增：事件監聽器（與週排班保持一致）
-function handleScheduleUpdate(event) {
+function handleScheduleUpdate() {
   console.log(`🔄 [BaseScheduleView] 監聽到排程變更，重新載入病人資料...`)
   loadPatientData()
 }
@@ -431,7 +429,16 @@ function locatePatientOnGrid(patientId) {
   const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
   if (dayIndices.length === 0) return
 
-  const [bedNum, shiftIndex] = targetRuleId.split('-')
+  const parts = targetRuleId.split('-')
+  let bedNum, shiftIndex
+  if (parts[0] === 'peripheral') {
+    bedNum = `${parts[0]}-${parts[1]}`
+    shiftIndex = parts[2]
+  } else {
+    bedNum = parts[0]
+    shiftIndex = parts[1]
+  }
+
   const firstDayIndex = dayIndices[0]
   const targetSlotId = `${bedNum}-${shiftIndex}-${firstDayIndex}`
 
@@ -468,7 +475,6 @@ function setChange() {
   statusText.value = '有未儲存的變更'
 }
 
-// 🔥 修正：儲存後自動重新載入病人資料
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -502,10 +508,9 @@ async function saveChangesToCloud() {
     statusText.value = '總表規則儲存成功！'
 
     alertDialogTitle.value = '操作成功'
-    alertDialogMessage.value = '門住總床位表已成功儲存！'
+    alertDialogMessage.value = '門住總床位表已成功儲存！未來60天(從明天起)的排程將自動更新。'
     isAlertDialogVisible.value = true
 
-    // 🔥 新增：儲存後重新載入病人資料（就像週排班一樣）
     console.log('🔄 [BaseScheduleView] 儲存完成，重新載入病人資料...')
     await loadPatientData()
   } catch (error) {
@@ -539,17 +544,11 @@ function handleScheduleCheck() {
   if (results.unassignedCrucial.length > 0) {
     issueMessage += '【重要病人未排床】:\n- ' + results.unassignedCrucial.join('\n- ') + '\n\n'
   }
-
   if (results.duplicates.length > 0) {
     issueMessage += '【床位規則重複】:\n- ' + results.duplicates.join('\n- ') + '\n\n'
   }
-
   if (results.freqMismatch.length > 0) {
     issueMessage += '【頻率不符問題】:\n- ' + results.freqMismatch.join('\n- ') + '\n\n'
-  }
-
-  if (results.unassignedAll.length > 0) {
-    issueMessage += '【完全未排班病人】:\n- ' + results.unassignedAll.join('\n- ') + '\n\n'
   }
 
   if (issueMessage) {
@@ -616,20 +615,22 @@ function handlePatientSelect({ patientId }) {
   }
 
   const parts = currentSlotId.value.split('-')
-
-  let ruleId
+  let bedNum, shiftIndex
   if (parts[0] === 'peripheral') {
-    ruleId = `${parts[0]}-${parts[1]}-${parts[2]}-${patient.freq}`
+    bedNum = `${parts[0]}-${parts[1]}`
+    shiftIndex = parts[2]
   } else {
-    ruleId = `${parts[0]}-${parts[1]}-${patient.freq}`
+    bedNum = parts[0]
+    shiftIndex = parts[1]
   }
 
+  const ruleId = `${bedNum}-${shiftIndex}-${patient.freq}`
   isPatientSelectDialogVisible.value = false
 
   const newRuleData = {
     patientId: patientId,
     freq: patient.freq,
-    shiftId: SHIFTS[parseInt(parts[parts.length - 2], 10)],
+    shiftId: SHIFTS[parseInt(shiftIndex, 10)],
     manualNote: patient.baseNote || '',
     autoNote: generateAutoNote(patient),
   }
@@ -640,7 +641,6 @@ function handlePatientSelect({ patientId }) {
 
   setChange()
   currentSlotId.value = null
-
   console.log(`✅ [BaseScheduleView] 已建立新規則: ${ruleId}`)
 }
 
@@ -649,7 +649,6 @@ function handleDeleteRule() {
   confirmDialogMessage.value = `您確定要將 ${actionTarget.value.patientName} 從總表中移除嗎？此操作將刪除其所有常規排班。`
   confirmAction.value = () => {
     const newScheduleRules = { ...masterRecord.value.schedule }
-
     const ruleIdToDelete = actionTarget.value.ruleId
     if (newScheduleRules[ruleIdToDelete]) {
       delete newScheduleRules[ruleIdToDelete]
@@ -666,7 +665,6 @@ function handleDeleteRule() {
 function openChangeFreqAndBedDialog() {
   const patient = patientMap.value.get(actionTarget.value.patientId)
   if (!patient) return
-
   assignmentContext.value = {
     mode: 'change_freq_and_bed',
     patient: patient,
@@ -678,7 +676,6 @@ function openChangeFreqAndBedDialog() {
 function openChangeBedOnlyDialog() {
   const patient = patientMap.value.get(actionTarget.value.patientId)
   if (!patient) return
-
   assignmentContext.value = {
     mode: 'change_bed_only',
     patient: patient,
@@ -702,12 +699,8 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     return
   }
 
-  let baseRulePrefix
-  if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-    baseRulePrefix = `${bedNum}-${newShiftIndex}-`
-  } else {
-    baseRulePrefix = `${bedNum}-${newShiftIndex}-`
-  }
+  const bedIdPart = typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : bedNum
+  const baseRulePrefix = `${bedIdPart}-${newShiftIndex}-`
 
   const conflictingRules = Object.keys(masterRecord.value.schedule || {}).filter(
     (ruleId) =>
@@ -725,22 +718,14 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
     }
   }
 
-  let newRuleId
-  if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}`
-  } else {
-    newRuleId = `${bedNum}-${newShiftIndex}-${finalFreq}`
-  }
-
+  const newRuleId = `${baseRulePrefix}${finalFreq}`
   const originalRuleId = assignmentContext.value.originalRuleId
 
   if (newFreq && patient.freq !== newFreq) {
     try {
       await updatePatient(patientId, { freq: newFreq })
       const patientInList = allPatients.value.find((p) => p.id === patientId)
-      if (patientInList) {
-        patientInList.freq = newFreq
-      }
+      if (patientInList) patientInList.freq = newFreq
       console.log(
         `🔄 [BaseScheduleView] 已更新病人 ${patient.name} 的頻率從 ${patient.freq} 為 ${newFreq}`,
       )
@@ -754,12 +739,9 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   }
 
   const newScheduleRules = { ...masterRecord.value.schedule }
-
   if (originalRuleId) {
     delete newScheduleRules[originalRuleId]
-    console.log(`🗑️ [BaseScheduleView] 已刪除舊規則: ${originalRuleId}`)
   }
-
   newScheduleRules[newRuleId] = {
     patientId: patientId,
     freq: finalFreq,
@@ -771,7 +753,6 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   masterRecord.value.schedule = newScheduleRules
   setChange()
   isAssignmentDialogVisible.value = false
-
   console.log(`✅ [BaseScheduleView] 已建立新規則: ${newRuleId}`)
 }
 
@@ -786,62 +767,66 @@ function onDrop(event, targetSlotId) {
   const targetParts = targetSlotId.split('-')
   const sourceRuleId = itemToDrop.sourceRuleId
 
-  let targetBedShiftPrefix
-  if (targetParts[0] === 'peripheral') {
-    targetBedShiftPrefix = `${targetParts[0]}-${targetParts[1]}-${targetParts[2]}-`
-  } else {
-    targetBedShiftPrefix = `${targetParts[0]}-${targetParts[1]}-`
-  }
-
-  if (sourceRuleId && sourceRuleId.startsWith(targetBedShiftPrefix)) {
+  if (!sourceRuleId) {
+    console.error('拖曳失敗: 找不到來源規則 ID。')
     draggedItem.value = null
     return
   }
 
   const newScheduleRules = { ...masterRecord.value.schedule }
+  if (!newScheduleRules[sourceRuleId]) {
+    console.error(`拖曳失敗: 在 masterRecord 中找不到規則 ${sourceRuleId}。`)
+    draggedItem.value = null
+    return
+  }
 
-  if (sourceRuleId && newScheduleRules[sourceRuleId]) {
-    const draggedRuleData = newScheduleRules[sourceRuleId]
-    const draggedPatientFreq = draggedRuleData.freq
+  const draggedRuleData = newScheduleRules[sourceRuleId]
+  const draggedPatientFreq = draggedRuleData.freq
 
-    const existingRulesAtTarget = Object.entries(newScheduleRules).filter(([ruleId, ruleData]) => {
-      return ruleId !== sourceRuleId && ruleId.startsWith(targetBedShiftPrefix)
-    })
+  let bedNum, shiftIndex
+  if (targetParts[0] === 'peripheral') {
+    bedNum = `${targetParts[0]}-${targetParts[1]}`
+    shiftIndex = targetParts[2]
+  } else {
+    bedNum = targetParts[0]
+    shiftIndex = targetParts[1]
+  }
+  const targetBedShiftPrefix = `${bedNum}-${shiftIndex}-`
 
-    for (const [existingRuleId, existingRuleData] of existingRulesAtTarget) {
-      if (
-        existingRuleData?.freq &&
-        hasFrequencyConflict(draggedPatientFreq, existingRuleData.freq)
-      ) {
-        const conflictPatient = patientMap.value.get(existingRuleData.patientId)
-        const draggedPatient = patientMap.value.get(draggedRuleData.patientId)
+  const existingRulesAtTarget = Object.entries(newScheduleRules).filter(([ruleId, ruleData]) => {
+    return ruleId !== sourceRuleId && ruleId.startsWith(targetBedShiftPrefix)
+  })
 
-        alertDialogTitle.value = '排班衝突'
-        alertDialogMessage.value = `無法放置！目標床位的 ${conflictPatient?.name || '未知病人'} (${existingRuleData.freq}) 與 ${draggedPatient?.name || '未知病人'} 的頻率 (${draggedPatientFreq}) 有時間衝突。`
-        isAlertDialogVisible.value = true
-        draggedItem.value = null
-        return
-      }
+  for (const [existingRuleId, existingRuleData] of existingRulesAtTarget) {
+    if (existingRuleData?.freq && hasFrequencyConflict(draggedPatientFreq, existingRuleData.freq)) {
+      const conflictPatient = patientMap.value.get(existingRuleData.patientId)
+      const draggedPatient = patientMap.value.get(draggedRuleData.patientId)
+      alertDialogTitle.value = '排班衝突'
+      alertDialogMessage.value = `無法放置！目標床位的 ${conflictPatient?.name || '未知病人'} (${existingRuleData.freq}) 與 ${draggedPatient?.name || '未知病人'} 的頻率 (${draggedPatientFreq}) 有時間衝突。`
+      isAlertDialogVisible.value = true
+      draggedItem.value = null
+      return
     }
   }
 
-  if (sourceRuleId && newScheduleRules[sourceRuleId]) {
-    const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
-    const newTargetRuleId = `${targetBedShiftPrefix}${sourceRuleData.freq}`
+  const sourceRuleData = { ...newScheduleRules[sourceRuleId] }
+  const newTargetRuleId = `${targetBedShiftPrefix}${sourceRuleData.freq}`
 
-    newScheduleRules[newTargetRuleId] = {
-      ...sourceRuleData,
-      shiftId: SHIFTS[parseInt(targetParts[targetParts.length - 2], 10)],
-    }
-
-    delete newScheduleRules[sourceRuleId]
-
-    masterRecord.value.schedule = newScheduleRules
-    setChange()
-
-    console.log(`✅ [BaseScheduleView] 成功移動: ${sourceRuleId} -> ${newTargetRuleId}`)
+  if (newTargetRuleId === sourceRuleId) {
+    draggedItem.value = null
+    return
   }
 
+  newScheduleRules[newTargetRuleId] = {
+    ...sourceRuleData,
+    shiftId: SHIFTS[parseInt(shiftIndex, 10)],
+  }
+
+  delete newScheduleRules[sourceRuleId]
+
+  masterRecord.value.schedule = newScheduleRules
+  setChange()
+  console.log(`✅ [BaseScheduleView] 成功移動: ${sourceRuleId} -> ${newTargetRuleId}`)
   draggedItem.value = null
 }
 
@@ -850,30 +835,21 @@ function onDragStart(event, slotId) {
     event.preventDefault()
     return
   }
-
   const slotData = weekScheduleMap.value[slotId]
   if (!slotData || !slotData.patientId) {
     event.preventDefault()
     return
   }
-
   const correctRuleId = Object.keys(masterRecord.value.schedule || {}).find((ruleId) => {
     const ruleData = masterRecord.value.schedule[ruleId]
     return ruleData?.patientId === slotData.patientId
   })
-
   if (!correctRuleId) {
     console.error(`❌ 找不到病人 ${slotData.patientId} 對應的規則`)
     event.preventDefault()
     return
   }
-
-  console.log(`🖱️ [BaseScheduleView] 開始拖拽: ${slotId} (規則: ${correctRuleId})`)
-
-  draggedItem.value = {
-    sourceRuleId: correctRuleId,
-    sourceSlotId: slotId,
-  }
+  draggedItem.value = { sourceRuleId: correctRuleId }
   event.dataTransfer.effectAllowed = 'move'
 }
 
@@ -891,15 +867,11 @@ async function loadAllData() {
     activeMemos.value = memos
 
     if (baseScheduleDoc && baseScheduleDoc.schedule) {
-      console.log(
-        `📊 [BaseScheduleView] 已載入 ${Object.keys(baseScheduleDoc.schedule).length} 條排班規則`,
-      )
       masterRecord.value = {
         id: baseScheduleDoc.id,
         schedule: baseScheduleDoc.schedule,
       }
     } else {
-      console.log(`📝 [BaseScheduleView] 初始化空白總床位表`)
       masterRecord.value = { schedule: {} }
     }
     statusText.value = '總床位表已載入'
@@ -917,12 +889,9 @@ function runBedCheck() {
     freqMismatch: [],
   }
   const scheduledPatientIds = new Set()
-
   if (!masterRecord.value || !masterRecord.value.schedule) {
-    console.log('無排程資料可檢查')
     return validationResult
   }
-
   for (const ruleId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData?.patientId) {
@@ -934,69 +903,29 @@ function runBedCheck() {
     }
   }
 
-  console.log('🔍 [BaseScheduleView] 已排床病人ID:', Array.from(scheduledPatientIds))
-
   const unassignedCrucialPatients = allPatients.value.filter((p) => {
-    const isUnassigned = !scheduledPatientIds.has(p.id)
-    const isCrucial = (p.status === 'ipd' || p.status === 'er') && !p.isDeleted && !p.isDiscontinued
-
-    if (isCrucial && isUnassigned) {
-      console.log(`⚠️ [BaseScheduleView] 未排床的重要病人: ${p.name} (${p.status})`)
-    }
-
-    return isCrucial && isUnassigned
+    return (
+      !scheduledPatientIds.has(p.id) &&
+      (p.status === 'ipd' || p.status === 'er') &&
+      !p.isDeleted &&
+      !p.isDiscontinued
+    )
   })
-
   unassignedCrucialPatients.forEach((p) => {
     validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
-  })
-
-  const unassignedAllPatients = allPatients.value.filter((p) => {
-    const isUnassigned = !scheduledPatientIds.has(p.id)
-    const isActivePatient = !p.isDeleted && !p.isDiscontinued
-
-    if (isActivePatient && isUnassigned) {
-      console.log(`📋 [BaseScheduleView] 未排班的病人: ${p.name} (${p.status || '未知狀態'})`)
-    }
-
-    return isActivePatient && isUnassigned
-  })
-
-  unassignedAllPatients.forEach((p) => {
-    const statusText =
-      p.status === 'opd'
-        ? '門診'
-        : p.status === 'ipd'
-          ? '住院'
-          : p.status === 'er'
-            ? '急診'
-            : '未知'
-    validationResult.unassignedAll.push(`${p.name} (${statusText})`)
   })
 
   for (const ruleId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[ruleId]
     if (ruleData?.patientId && ruleData.freq) {
       const patient = patientMap.value.get(ruleData.patientId)
-      if (patient && patient.status === 'opd') {
-        if (patient.freq && patient.freq !== ruleData.freq) {
-          validationResult.freqMismatch.push(
-            `${patient.name} - 規則頻率: ${ruleData.freq}, 病人設定頻率: ${patient.freq}`,
-          )
-        }
+      if (patient && patient.status === 'opd' && patient.freq && patient.freq !== ruleData.freq) {
+        validationResult.freqMismatch.push(
+          `${patient.name} - 規則頻率: ${ruleData.freq}, 病人設定頻率: ${patient.freq}`,
+        )
       }
     }
   }
-
-  console.log('🔍 [BaseScheduleView] 檢查結果:', {
-    總病人數: allPatients.value.length,
-    已排床病人數: scheduledPatientIds.size,
-    未排床重要病人: validationResult.unassignedCrucial.length,
-    未排床所有病人: validationResult.unassignedAll.length,
-    重複排班: validationResult.duplicates.length,
-    頻率不符: validationResult.freqMismatch.length,
-  })
-
   return validationResult
 }
 
@@ -1029,20 +958,18 @@ function onDragLeave(event) {
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
-// 🔥 修正：加入事件監聽器
 onMounted(() => {
   loadAllData()
-  // 監聽排程更新事件（與週排班保持一致）
   window.addEventListener('schedule-updated', handleScheduleUpdate)
 })
 
-// 🔥 新增：清理事件監聽器
 onUnmounted(() => {
   window.removeEventListener('schedule-updated', handleScheduleUpdate)
 })
 </script>
 
 <style scoped>
+/* ✨ 已移除衝突按鈕的樣式 */
 .search-container {
   position: relative;
   display: inline-block;
