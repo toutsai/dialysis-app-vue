@@ -425,13 +425,13 @@ async function handleSavePatient(patientData) {
       const newFreq = patientData.freq
       const freqChanged = originalFreq !== newFreq
 
-      alertDialogTitle.value = '儲存成功'
+      /* alertDialogTitle.value = '儲存成功'
       if (freqChanged) {
         alertDialogMessage.value = `病人資料已更新。\n\n📋 頻率已從「${originalFreq || '未設定'}」變更為「${newFreq || '未設定'}」。\n\n⚠️ 如該病人已排床，請記得到「門住總床位表」調整排床，以避免衝突。`
       } else {
         alertDialogMessage.value = '病人資料已成功更新。'
       }
-      isAlertDialogVisible.value = true
+      isAlertDialogVisible.value = true */
     } catch (err) {
       console.error('更新病人資料失敗:', err)
       alertDialogTitle.value = '操作失敗'
