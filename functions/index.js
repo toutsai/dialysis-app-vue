@@ -385,12 +385,12 @@ exports.ensureFutureSchedules = onCall(
 
 /**
  * @name syncMasterScheduleToFuture
- * @description 當總表更新時，同步未來60天的排程 (精確更新版，解決覆蓋問題)
+ * @description 當總表更新時，同步未來60天的排程 (修正時區問題，真正保護歷史資料)
  */
 exports.syncMasterScheduleToFuture = onDocumentUpdated(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
-    logger.info('🚀 [syncMasterSchedule] 精確更新版觸發器啟動！')
+    logger.info('🚀 [syncMasterSchedule] 精確更新版觸發器啟動！(已修正時區)')
     const beforeRules = event.data.before.data().schedule || {}
     const afterRules = event.data.after.data().schedule || {}
 
@@ -400,17 +400,13 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
     }
 
     // --- 1. 找出變更的規則 ---
-    const changedRules = {} // 新增或修改的規則
-    const deletedRuleIds = [] // 被刪除的規則ID
-
-    // 找出被刪除的規則
+    const changedRules = {}
+    const deletedRuleIds = []
     for (const ruleId in beforeRules) {
       if (!afterRules[ruleId]) {
         deletedRuleIds.push(ruleId)
       }
     }
-
-    // 找出新增或修改的規則
     for (const ruleId in afterRules) {
       if (!beforeRules[ruleId] || !_.isEqual(beforeRules[ruleId], afterRules[ruleId])) {
         changedRules[ruleId] = afterRules[ruleId]
@@ -418,7 +414,7 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
     }
 
     if (Object.keys(changedRules).length === 0 && deletedRuleIds.length === 0) {
-      logger.info('✅ 總表規則變動，但無須同步到每日排程 (可能只是meta-data變更)。')
+      logger.info('✅ 總表規則變動，但無須同步到每日排程。')
       return null
     }
 
@@ -426,13 +422,21 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       `📝 偵測到變動：${Object.keys(changedRules).length} 條新增/修改，${deletedRuleIds.length} 條刪除。`,
     )
 
-    // --- 2. 準備批次更新 ---
+    // --- 2. 準備批次更新，並以台北時區為基準 ---
     const batch = db.batch()
+
+    // 🔥【核心修正 1】: 獲取台北時區的當前日期和時間，並將其作為所有計算的基準
     const nowInTaipei = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }))
-    const currentHour = nowInTaipei.getHours()
+    const currentHourInTaipei = nowInTaipei.getHours()
+    const todayStrInTaipei = formatDateForQuery(nowInTaipei)
+
+    logger.info(
+      `🌏 當前台北時間: ${nowInTaipei.toISOString()}, 小時: ${currentHourInTaipei}, 日期字串: ${todayStrInTaipei}`,
+    )
 
     for (let i = 0; i < 60; i++) {
-      const targetDate = new Date()
+      // 🔥【核心修正 2】: 從台北的“今天”開始計算未來的日期
+      const targetDate = new Date(nowInTaipei) // 每次都從 nowInTaipei 複製一份新的日期物件
       targetDate.setHours(0, 0, 0, 0)
       targetDate.setDate(targetDate.getDate() + i)
       const dateStr = formatDateForQuery(targetDate)
@@ -440,38 +444,34 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       const dayOfWeek = targetDate.getDay()
       const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
 
-      // 決定今天的時間分割點
-      const isToday = i === 0
-      const isEarlyShiftPast = isToday && currentHour >= 13
-      const isNoonShiftPast = isToday && currentHour >= 18
+      // 判斷是否為台北的“今天”
+      const isTodayInTaipei = dateStr === todayStrInTaipei
+      const isEarlyShiftPast = isTodayInTaipei && currentHourInTaipei >= 13
+      const isNoonShiftPast = isTodayInTaipei && currentHourInTaipei >= 18
 
       const dailyDocRef = db.collection('schedules').doc(dateStr)
       const updates = {}
 
       // --- 3. 處理被刪除的規則 ---
       for (const ruleId of deletedRuleIds) {
-        const ruleData = beforeRules[ruleId] // 使用刪除前的規則資料
+        const ruleData = beforeRules[ruleId]
         if (!ruleData || !ruleData.freq) continue
 
         const freqDays = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
         if (freqDays.includes(systemDayIndex)) {
-          // 解析出 dailyShiftId
           const parts = ruleId.split('-')
           if (parts.length < 2) continue
           let bedNum = parts[0] === 'peripheral' ? `${parts[0]}-${parts[1]}` : parts[0]
           const shiftCode = ruleData.shiftId
-
           if (!bedNum || !shiftCode) continue
 
           const dailyShiftId = bedNum.startsWith('peripheral')
             ? `${bedNum}-${shiftCode}`
             : `bed-${bedNum}-${shiftCode}`
 
-          // 檢查是否是過去的班次，如果是則不刪除
           const isPastShift =
             (shiftCode === 'early' && isEarlyShiftPast) || (shiftCode === 'noon' && isNoonShiftPast)
           if (!isPastShift) {
-            // 使用 FieldValue.delete() 來移除 map 中的一個 key
             updates[`schedule.${dailyShiftId}`] = FieldValue.delete()
           }
         }
@@ -483,11 +483,9 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
         const shiftData = newDailySchedule[dailyShiftId]
         const shiftCode = shiftData.shiftId
 
-        // 檢查是否是過去的班次，如果是則不更新
         const isPastShift =
           (shiftCode === 'early' && isEarlyShiftPast) || (shiftCode === 'noon' && isNoonShiftPast)
         if (!isPastShift) {
-          // 使用點記法來更新 map 中的一個 key
           updates[`schedule.${dailyShiftId}`] = shiftData
         }
       }
@@ -495,13 +493,7 @@ exports.syncMasterScheduleToFuture = onDocumentUpdated(
       // --- 5. 如果有變動，才加入批次 ---
       if (Object.keys(updates).length > 0) {
         updates.lastSynced = FieldValue.serverTimestamp()
-        // 這裡我們使用 update，因為我們只想更新特定欄位。
-        // 但為了防止文件不存在，我們需要先確保文件存在。
-        // 最簡單的方法還是用 set + merge，但只合併最外層。
-        // 這裡我們採用一個混合策略：
-        // 先用 set + merge 確保文件和 lastSynced 欄位存在
         batch.set(dailyDocRef, { lastSynced: FieldValue.serverTimestamp() }, { merge: true })
-        // 再用 update 更新巢狀物件內的欄位
         batch.update(dailyDocRef, updates)
       }
     }
