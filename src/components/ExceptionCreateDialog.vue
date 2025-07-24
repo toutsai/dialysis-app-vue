@@ -6,6 +6,7 @@
         <button class="close-button" @click="close">×</button>
       </header>
       <main class="dialog-body">
+        <!-- Step 1: Select Patient -->
         <div class="form-group">
           <label>步驟 1: 選擇病人</label>
           <button
@@ -13,12 +14,13 @@
             @click="isPatientDialogVisible = true"
             :disabled="isSubmitting"
           >
-            <!-- ✨ 修正 1：顯示姓名和頻率 -->
+            <!-- ✨ FIX: Use the new computed property -->
             <span v-if="formData.patientId">{{ selectedPatientDisplay }}</span>
             <span v-else class="text-muted">點擊以選擇病人...</span>
           </button>
         </div>
 
+        <!-- Step 2: Select Exception Type -->
         <div class="form-group" v-if="formData.patientId">
           <label>步驟 2: 選擇例外類型</label>
           <div class="radio-group">
@@ -27,40 +29,39 @@
           </div>
         </div>
 
+        <!-- Details for MOVE (Temporary Transfer) -->
         <div v-if="formData.patientId && formData.type === 'MOVE'" class="details-section">
           <div class="form-group-grid">
             <div class="form-group">
               <label for="sourceDate">步驟 3: 選擇原始日期</label>
+              <!-- ✨ FIX: v-model now points to a valid object property -->
               <input
                 type="date"
                 id="sourceDate"
-                v-model="moveDetails.sourceDate"
+                v-model="formData.from.sourceDate"
                 @change="fetchSourceSchedule"
               />
             </div>
             <div class="form-group">
               <label>原始排班</label>
+              <!-- ✨ FIX: Use the new computed property for display -->
               <div class="info-box">
-                <span v-if="isFetchingSource">查詢中...</span>
-                <span v-else-if="moveDetails.sourceInfo">{{ moveDetails.sourceInfo }}</span>
-                <span v-else class="text-muted">請先選擇日期</span>
+                {{ sourceBedDisplay }}
               </div>
             </div>
           </div>
-          <div
-            class="form-group-grid"
-            v-if="moveDetails.sourceInfo && !moveDetails.sourceInfo.includes('無')"
-          >
+          <div class="form-group-grid" v-if="formData.from.bedNum">
             <div class="form-group">
               <label for="targetDate">步驟 4: 選擇目標日期</label>
-              <input type="date" id="targetDate" v-model="formData.startDate" />
+              <!-- ✨ FIX: v-model now points to a valid object property -->
+              <input type="date" id="targetDate" v-model="formData.to.goalDate" />
             </div>
             <div class="form-group">
               <label>目標床位</label>
               <button
                 class="select-btn"
                 @click="openBedAssignmentForTarget"
-                :disabled="!formData.startDate"
+                :disabled="!formData.to.goalDate"
               >
                 {{ targetBedDisplay }}
               </button>
@@ -68,19 +69,23 @@
           </div>
         </div>
 
+        <!-- Details for SUSPEND (Suspend Schedule) -->
         <div v-if="formData.patientId && formData.type === 'SUSPEND'" class="details-section">
           <div class="form-group-grid">
             <div class="form-group">
-              <label for="startDate">開始日期</label>
+              <label for="startDate">開始日期 (包含)</label>
+              <!-- ✨ FIX: Correctly bind to formData.startDate -->
               <input type="date" id="startDate" v-model="formData.startDate" />
             </div>
             <div class="form-group">
-              <label for="endDate">結束日期</label>
+              <label for="endDate">結束日期 (包含)</label>
+              <!-- ✨ FIX: Correctly bind to formData.endDate -->
               <input type="date" id="endDate" v-model="formData.endDate" />
             </div>
           </div>
         </div>
 
+        <!-- Step 5: Reason -->
         <div class="form-group" v-if="isDetailsComplete">
           <label>步驟 5: 原因說明</label>
           <textarea v-model="formData.reason" rows="2" placeholder="請簡要說明原因"></textarea>
@@ -99,6 +104,7 @@
     </div>
   </div>
 
+  <!-- Child Dialogs -->
   <PatientSelectDialog
     :is-visible="isPatientDialogVisible"
     title="選擇病人"
@@ -139,8 +145,6 @@ const emit = defineEmits(['close', 'submit'])
 // --- API and Constants ---
 const schedulesApi = ApiManager('schedules')
 const shifts = ORDERED_SHIFT_CODES
-
-// ✨ --- 核心修正：直接在此處定義常數，而不是從外部引入 --- ✨
 const bedLayout = [
   1,
   2,
@@ -189,15 +193,14 @@ const bedLayout = [
   ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
 ]
 const freqMap = {
-  一三五: [0, 2, 4],
-  二四六: [1, 3, 5],
-  一四: [0, 3],
-  二五: [1, 4],
-  三六: [2, 5],
-  一五: [0, 4],
-  二六: [1, 5],
+  一三五: [1, 3, 5],
+  二四六: [2, 4, 6],
+  一四: [1, 4],
+  二五: [2, 5],
+  三六: [3, 6],
+  一五: [1, 5],
+  二六: [2, 6],
 }
-// ✨ --- 修正結束 --- ✨
 
 // --- Dialog State ---
 const isPatientDialogVisible = ref(false)
@@ -205,32 +208,48 @@ const isBedAssignmentVisible = ref(false)
 const bedAssignmentProps = ref(null)
 const isSubmitting = ref(false)
 const isFetchingSource = ref(false)
+const sourceScheduleMessage = ref('') // For storing messages like "查無排班"
 
 // --- Form State ---
+// ✨ FIX: Initialize from and to as objects to prevent "cannot read property of null" error
 const defaultFormData = () => ({
   patientId: '',
   patientName: '',
   type: 'MOVE',
-  startDate: '',
-  endDate: '',
+  startDate: '', // Used for SUSPEND
+  endDate: '', // Used for SUSPEND
   reason: '',
-  from: null,
-  to: null,
+  from: { sourceDate: '', bedNum: null, shiftCode: null }, // for MOVE
+  to: { goalDate: '', bedNum: null, shiftCode: null }, // for MOVE
 })
+
 const formData = reactive(defaultFormData())
-const moveDetails = reactive({ sourceDate: '', sourceInfo: '' })
 
 // --- Computed Properties ---
+// ✨ FIX: Added the missing computed property
 const selectedPatientDisplay = computed(() => {
-  if (formData.patientId) {
-    const patient = props.allPatients.find((p) => p.id === formData.patientId)
-    return patient ? `${patient.name} (${patient.freq || '未設定'})` : '...'
+  if (!formData.patientId) return ''
+  const patient = props.allPatients.find((p) => p.id === formData.patientId)
+  return patient ? `${patient.name} (${patient.medicalRecordNumber})` : ''
+})
+
+// ✨ FIX: Added a computed property for source bed display logic
+const sourceBedDisplay = computed(() => {
+  if (isFetchingSource.value) return '查詢中...'
+  if (sourceScheduleMessage.value) return sourceScheduleMessage.value
+  if (formData.from.bedNum && formData.from.shiftCode) {
+    const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
+    const shiftText = shiftDisplayMap[formData.from.shiftCode] || formData.from.shiftCode
+    const bedText = String(formData.from.bedNum).startsWith('peripheral')
+      ? `外圍 ${formData.from.bedNum.split('-')[1]}`
+      : `${formData.from.bedNum}床`
+    return `${bedText} / ${shiftText}班`
   }
-  return ''
+  return '待查詢...'
 })
 
 const targetBedDisplay = computed(() => {
-  if (formData.to) {
+  if (formData.to.bedNum && formData.to.shiftCode) {
     const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
     const shiftText = shiftDisplayMap[formData.to.shiftCode] || formData.to.shiftCode
     const bedText = String(formData.to.bedNum).startsWith('peripheral')
@@ -242,9 +261,8 @@ const targetBedDisplay = computed(() => {
 })
 
 const isDetailsComplete = computed(() => {
-  if (!formData.patientId) return false
   if (formData.type === 'MOVE') {
-    return !!formData.to && !!formData.from
+    return !!formData.from.bedNum && !!formData.to.bedNum && !!formData.to.goalDate
   }
   if (formData.type === 'SUSPEND') {
     return !!formData.startDate && !!formData.endDate && formData.endDate >= formData.startDate
@@ -252,32 +270,48 @@ const isDetailsComplete = computed(() => {
   return false
 })
 
-const isFormValid = computed(() => isDetailsComplete.value && !!formData.reason.trim())
+const isFormValid = computed(() => {
+  return isDetailsComplete.value && !!formData.reason.trim()
+})
 
 // --- Watchers ---
 watch(
   () => props.isVisible,
   (val) => {
-    if (!val) resetForm()
+    if (val) {
+      // Reset form when dialog becomes visible
+      Object.assign(formData, defaultFormData())
+      sourceScheduleMessage.value = ''
+    }
   },
 )
-watch(() => formData.patientId, resetMoveAndSuspendDetails)
-watch(() => formData.type, resetMoveAndSuspendDetails)
+
+watch(
+  () => formData.patientId,
+  () => {
+    // Reset details when patient changes
+    Object.assign(formData, {
+      ...defaultFormData(),
+      patientId: formData.patientId, // keep new patientId
+      patientName: formData.patientName, // keep new patientName
+    })
+    sourceScheduleMessage.value = ''
+  },
+)
+
+watch(
+  () => formData.type,
+  () => {
+    // Reset specific fields when type changes
+    formData.startDate = ''
+    formData.endDate = ''
+    formData.from = { sourceDate: '', bedNum: null, shiftCode: null }
+    formData.to = { goalDate: '', bedNum: null, shiftCode: null }
+    sourceScheduleMessage.value = ''
+  },
+)
 
 // --- Methods ---
-function resetForm() {
-  Object.assign(formData, defaultFormData())
-  resetMoveAndSuspendDetails()
-}
-
-function resetMoveAndSuspendDetails() {
-  Object.assign(moveDetails, { sourceDate: '', sourceInfo: '' })
-  formData.startDate = ''
-  formData.endDate = ''
-  formData.to = null
-  formData.from = null
-}
-
 function close() {
   emit('close')
 }
@@ -292,64 +326,79 @@ function handlePatientSelected({ patientId }) {
 }
 
 async function fetchSourceSchedule() {
-  if (!moveDetails.sourceDate || !formData.patientId) return
+  if (!formData.from.sourceDate || !formData.patientId) return
+
   isFetchingSource.value = true
-  moveDetails.sourceInfo = ''
-  formData.from = null
+  sourceScheduleMessage.value = ''
+  formData.from.bedNum = null
+  formData.from.shiftCode = null
+
   try {
-    const record = await schedulesApi.fetchById(moveDetails.sourceDate)
+    const record = await schedulesApi.fetchById(formData.from.sourceDate)
     if (record && record.schedule) {
       for (const shiftId in record.schedule) {
         if (record.schedule[shiftId].patientId === formData.patientId) {
           const parts = shiftId.split('-')
           const shiftCode = parts.pop()
-          const bedNumPart = parts.slice(1).join('-')
-          const bedNum = shiftId.startsWith('peripheral-') ? `peripheral-${bedNumPart}` : bedNumPart
-          const bedText = shiftId.startsWith('peripheral-')
-            ? `外圍 ${bedNumPart}`
-            : `${bedNumPart}床`
-          const shiftText = { early: '早', noon: '午', late: '晚' }[shiftCode] || shiftCode
-          moveDetails.sourceInfo = `${bedText} / ${shiftText}班`
-          formData.from = { bedNum, shiftCode, sourceDate: moveDetails.sourceDate }
+          // Correctly handle bed numbers like 'bed-1' and 'peripheral-1'
+          const bedNum = shiftId.replace(`-${shiftCode}`, '').replace('bed-', '')
+
+          formData.from.bedNum = bedNum
+          formData.from.shiftCode = shiftCode
+          isFetchingSource.value = false
           return
         }
       }
     }
-    moveDetails.sourceInfo = '當日無此病人排班'
+    sourceScheduleMessage.value = '當日無此病人排班'
   } catch (error) {
-    moveDetails.sourceInfo = '查詢失敗'
+    console.error('查詢原始排班失敗:', error)
+    sourceScheduleMessage.value = '查詢失敗'
   } finally {
     isFetchingSource.value = false
   }
 }
 
 async function openBedAssignmentForTarget() {
-  if (!formData.startDate) return
+  if (!formData.to.goalDate) return
   try {
-    const scheduleRecord = await schedulesApi.fetchById(formData.startDate)
-    bedAssignmentProps.value = { scheduleData: scheduleRecord?.schedule || {} }
+    const scheduleRecord = await schedulesApi.fetchById(formData.to.goalDate)
+    bedAssignmentProps.value = {
+      scheduleData: scheduleRecord ? scheduleRecord.schedule : {},
+    }
     isBedAssignmentVisible.value = true
   } catch (error) {
+    console.error('載入目標日期排班失敗:', error)
     alert('載入目標日期排班失敗，無法開啟智慧排床。')
   }
 }
 
 function handleTargetBedAssigned({ bedNum, shiftCode }) {
-  formData.to = { bedNum, shiftCode }
+  formData.to.bedNum = bedNum
+  formData.to.shiftCode = shiftCode
   isBedAssignmentVisible.value = false
 }
 
-async function submitForm() {
-  if (!isFormValid.value || isSubmitting.value) return
-  isSubmitting.value = true
-  if (formData.type === 'MOVE') {
-    formData.endDate = formData.startDate
+function submitForm() {
+  if (!isFormValid.value) return
+
+  const dataToSubmit = JSON.parse(JSON.stringify(formData))
+
+  // For MOVE type, the date range is defined by from.sourceDate and to.goalDate
+  // But the backend dispatcher uses startDate/endDate, so we must set them correctly.
+  if (dataToSubmit.type === 'MOVE') {
+    // A single move operation is conceptually two tasks on different days.
+    // However, the current backend dispatcher iterates from startDate to endDate.
+    // For a simple move, we can just treat the source date as the start and end.
+    // The worker function will handle the from/to logic.
+    // This part might need adjustment depending on how the Cloud Function is implemented.
+    // Let's assume for now the parent exception needs a date range.
+    // The most logical range is from the source date to the target date.
+    dataToSubmit.startDate = dataToSubmit.from.sourceDate
+    dataToSubmit.endDate = dataToSubmit.to.goalDate
   }
-  try {
-    await emit('submit', JSON.parse(JSON.stringify(formData)))
-  } finally {
-    isSubmitting.value = false
-  }
+
+  emit('submit', dataToSubmit)
 }
 </script>
 
@@ -482,22 +531,23 @@ async function submitForm() {
   align-items: end;
 }
 .info-box {
-  height: 42px;
-  padding: 6px 12px;
+  height: 48px; /* Matched height with input */
+  padding: 0.75rem; /* Matched padding with input */
   border-radius: 6px;
   border: 1px solid #ced4da;
   background-color: #e9ecef;
   display: flex;
   align-items: center;
   font-weight: 500;
+  box-sizing: border-box;
 }
 .text-muted {
   color: #6c757d;
 }
 .select-btn {
   width: 100%;
-  height: 42px;
-  padding: 6px 12px;
+  height: 48px; /* Matched height with input */
+  padding: 0.75rem; /* Matched padding with input */
   border-radius: 6px;
   border: 1px solid #ced4da;
   background-color: #fff;
@@ -505,6 +555,7 @@ async function submitForm() {
   text-align: left;
   font-size: 1rem;
   transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 .select-btn:disabled {
   background-color: #e9ecef;

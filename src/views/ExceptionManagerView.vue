@@ -52,12 +52,16 @@
                 <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
               </td>
               <td class="reason-cell">
-                <!-- ✨ 修改 MOVE 類型的顯示方式 -->
                 <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                  從: <strong>{{ ex.from.bedNum }}床 / {{ ex.from.shiftCode }}班</strong>
-                  <br />
-                  移至: <strong>{{ ex.to.bedNum }}床 / {{ ex.to.shiftCode }}班</strong>
-                  <br />
+                  <div>
+                    <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
+                    {{ ex.from.shiftCode }}班)
+                  </div>
+                  <div>
+                    <!-- ✨ 核心修正：讀取 'to' 物件中的 'goalDate' -->
+                    <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
+                    {{ ex.to.shiftCode }}班)
+                  </div>
                   <small>原因: {{ ex.reason }}</small>
                 </div>
                 <div v-else>
@@ -223,7 +227,6 @@ onUnmounted(() => {
 <style scoped>
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
 .page-container {
-  padding: 2rem;
   height: 100vh;
   box-sizing: border-box;
   display: flex;
@@ -240,7 +243,7 @@ onUnmounted(() => {
   align-items: center;
 }
 .page-title {
-  font-size: 2.5rem;
+  font-size: 32px;
   font-weight: 700;
   color: #343a40;
   margin: 0;
@@ -286,7 +289,7 @@ button:disabled {
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
-  padding: 2rem;
+  padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow-y: auto;
@@ -302,7 +305,7 @@ button:disabled {
 }
 .exceptions-table th,
 .exceptions-table td {
-  padding: 1rem;
+  padding: 0.5rem;
   text-align: left;
   border-bottom: 1px solid #e9ecef;
   vertical-align: middle;
