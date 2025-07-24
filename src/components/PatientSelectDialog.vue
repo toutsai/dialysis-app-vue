@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/PatientSelectDialog.vue (支援急診病人最終版) -->
+<!-- 檔案路徑: src/components/PatientSelectDialog.vue (顯示頻率標籤版) -->
 <script setup>
 import { ref, computed, watch } from 'vue'
 
@@ -28,7 +28,6 @@ const filteredPatients = computed(() => {
     return []
   }
   return props.patients.filter((p) => {
-    // 確保 isDeleted 不為 true 的病人才會被顯示
     if (p.isDeleted) return false
 
     const term = searchTerm.value.toLowerCase()
@@ -114,7 +113,6 @@ function resetDialog() {
           <button :class="{ active: patientStatusFilter === '' }" @click="patientStatusFilter = ''">
             全部
           </button>
-          <!-- 【核心修改點】: 新增一個「急診」的篩選按鈕 -->
           <button
             :class="{ active: patientStatusFilter === 'er' }"
             @click="patientStatusFilter = 'er'"
@@ -156,14 +154,14 @@ function resetDialog() {
           <span class="patient-mrn">({{ p.medicalRecordNumber || 'N/A' }})</span>
         </div>
         <div class="patient-meta">
+          <!-- ✨ 核心修改：在最前面顯示原始頻率 -->
+          <span class="freq-tag-small" :class="`freq-bg-${p.freq}`">{{ p.freq || '未設定' }}</span>
           <span v-if="p.diseases && p.diseases.length" class="disease-tag-small">{{
             p.diseases.join(', ')
           }}</span>
-          <!-- 新增病人狀態的顯示，讓使用者更清楚 -->
           <span class="status-tag-small" :class="`status-${p.status}`">{{
             p.status === 'er' ? '急' : p.status === 'ipd' ? '住' : '門'
           }}</span>
-          <span>{{ p.freq || '未設定' }}</span>
         </div>
       </div>
     </div>
@@ -189,7 +187,8 @@ function resetDialog() {
   </dialog>
 </template>
 
-<style>
+<style scoped>
+/* ✨ 核心修改：新增 scoped 關鍵字，並增加頻率標籤樣式 */
 dialog {
   z-index: 1000;
   border: 1px solid #ccc;
@@ -327,7 +326,6 @@ dialog h3 {
   justify-content: flex-end;
   gap: 10px;
 }
-
 .modal-footer button {
   border: 1px solid #ccc;
   border-radius: 5px;
@@ -340,24 +338,20 @@ dialog h3 {
     background-color 0.2s,
     border-color 0.2s;
 }
-
 .modal-footer button.btn-primary:not(:disabled) {
   background-color: var(--primary-color);
   color: white;
   border-color: var(--primary-color);
 }
-
 .modal-footer button.btn-primary:not(:disabled):hover {
   background-color: #0056b3;
   border-color: #0056b3;
 }
-
 .modal-footer button:disabled {
   background-color: #e0e0e0;
   color: #9e9e9e;
   cursor: not-allowed;
 }
-/* 新增 status tag 的樣式 */
 .status-tag-small {
   font-size: 0.8em;
   font-weight: bold;
@@ -373,5 +367,35 @@ dialog h3 {
 }
 .status-tag-small.status-er {
   background-color: #8e24aa;
+}
+
+.freq-tag-small {
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.8em;
+  color: #333;
+}
+.freq-bg-一三五 {
+  background-color: #cfe2ff;
+}
+.freq-bg-二四六 {
+  background-color: #d1e7dd;
+}
+.freq-bg-一四,
+.freq-bg-二五,
+.freq-bg-三六,
+.freq-bg-一五,
+.freq-bg-二六 {
+  background-color: #ffe5b0;
+}
+.freq-bg-每周一次 {
+  background-color: #d1f7ea;
+}
+.freq-bg-臨時 {
+  background-color: #f8d7da;
+}
+.freq-bg-未設定 {
+  background-color: #e9ecef;
 }
 </style>

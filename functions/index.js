@@ -37,54 +37,46 @@ const SHIFTS = ['early', 'noon', 'late']
 function generateDailyScheduleFromRules(masterRules, targetDate) {
   const dailySchedule = {}
   const dayOfWeek = targetDate.getDay()
+  // 星期日 (0) -> 6, 星期一 (1) -> 0, ..., 星期六 (6) -> 5
   const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
 
-  for (const ruleId in masterRules) {
-    const rule = masterRules[ruleId]
-    if (!rule || !rule.patientId || !rule.freq) continue
+  // ✨ --- 核心修改：現在 masterRules 的 key 是 patientId --- ✨
+  // 我們不再遍歷 "床號-班別-頻率" 這種不穩定的 key
+  for (const patientId in masterRules) {
+    const rule = masterRules[patientId]
+    if (!rule || !rule.freq) continue
 
     const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
 
+    // 檢查今天的星期是否符合該規則的頻率
     if (freqDays.includes(systemDayIndex)) {
-      const parts = ruleId.split('-')
-      let bedNum
+      // ✨ --- 核心修改：直接從規則的「內容」讀取排班資訊 --- ✨
+      const { bedNum, shiftIndex } = rule
+      const shiftCode = SHIFTS[shiftIndex]
 
-      if (parts[0] === 'peripheral') {
-        if (parts.length < 4) {
-          logger.warn(`[generateDaily] Skipping malformed peripheral ruleId: ${ruleId}`)
-          continue
-        }
-        bedNum = `${parts[0]}-${parts[1]}`
-      } else {
-        if (parts.length < 3) {
-          logger.warn(`[generateDaily] Skipping malformed ruleId: ${ruleId}`)
-          continue
-        }
-        bedNum = parts[0]
-      }
-
-      const shiftCode = rule.shiftId
-      if (!shiftCode || !SHIFTS.includes(shiftCode)) {
-        logger.warn(`[generateDaily] Invalid shiftId in rule ${ruleId}: "${shiftCode}", skipping.`)
+      // 進行必要的驗證
+      if (bedNum === undefined || shiftCode === undefined) {
+        logger.warn(
+          `[generateDaily] Rule for patient ${patientId} is missing bedNum or shiftIndex, skipping.`,
+        )
         continue
       }
 
-      const dailyShiftId = bedNum.startsWith('peripheral')
+      // ✨ --- 核心修改：根據讀取到的內容，組合出每日排班的 key --- ✨
+      // 例如 bedNum 是 "1", shiftCode 是 "early" -> "bed-1-early"
+      const dailyShiftId = String(bedNum).startsWith('peripheral')
         ? `${bedNum}-${shiftCode}`
         : `bed-${bedNum}-${shiftCode}`
 
-      if (dailySchedule[dailyShiftId]) {
-        logger.warn(
-          `[generateDaily] Duplicate schedule detected at ${dailyShiftId}. Rule ${ruleId} will overwrite.`,
-        )
-      }
-
+      // 建立每日排班的資料
       dailySchedule[dailyShiftId] = {
-        patientId: rule.patientId,
+        patientId: patientId,
         shiftId: shiftCode,
+        // 假設您的規則物件中可能包含 autoNote/manualNote
         autoNote: rule.autoNote || '',
         manualNote: rule.manualNote || '',
-        baseRuleId: ruleId,
+        // 來源追溯的 baseRuleId 現在就是永不改變的 patientId
+        baseRuleId: patientId,
       }
     }
   }
@@ -317,58 +309,69 @@ exports.ensureFutureSchedules = onCall(
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
-    logger.info('🚀 [syncMasterSchedule - Set/Merge最終版] 觸發器啟動！')
+    logger.info('🚀 [syncMasterSchedule - Re-fetch版] 觸發器啟動！')
 
-    // 處理文件被刪除的情況
+    // 步驟 1: 基礎檢查 (保持不變)
     if (!event.data.after.exists) {
       logger.info('✅ MASTER_SCHEDULE 文件已被刪除，無需執行同步。')
       return null
     }
 
-    const beforeRules = event.data.before?.data()?.schedule || {}
-    const afterRules = event.data.after.data().schedule || {}
-
-    if (_.isEqual(beforeRules, afterRules)) {
-      logger.info('✅ 規則無實質變化，無需同步。')
-      return null
-    }
-
-    logger.info(`📝 總表規則已更新，開始對「明天起」的60天排程進行全面覆蓋...`)
-
-    const batch = db.batch()
-
-    for (let i = 1; i <= 60; i++) {
-      const targetDate = new Date()
-      targetDate.setHours(0, 0, 0, 0)
-      targetDate.setDate(targetDate.getDate() + i)
-
-      const dateStr = formatDateForQuery(targetDate)
-
-      const dailySchedule = generateDailyScheduleFromRules(afterRules, targetDate)
-
-      const dailyDocRef = db.collection('schedules').doc(dateStr)
-
-      // ✨ --- 正確的寫法 --- ✨
-      // 這個寫法會處理所有情況：
-      // 1. 如果 schedules/${dateStr} 文件不存在，它會「創建」它。
-      // 2. 如果文件已存在，它會用全新的 dailySchedule 物件「完整替換」掉舊的 schedule 欄位。
-      // 3. { merge: true } 確保了如果文件上還有 createdAt 等其他頂層欄位，它們會被保留。
-      batch.set(
-        dailyDocRef,
-        {
-          date: dateStr,
-          schedule: dailySchedule,
-          lastSynced: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      )
-    }
-
+    // ✨ --- 核心修正：不再信任 event 物件，直接重新讀取 --- ✨
     try {
-      await batch.commit()
-      logger.info('✅ 總表規則 set/merge 同步完成！')
+      logger.info('🕵️‍♂️ 正在從資料庫重新讀取 MASTER_SCHEDULE 的最新狀態...')
+      const masterScheduleRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
+      const masterScheduleDoc = await masterScheduleRef.get()
+
+      if (!masterScheduleDoc.exists) {
+        logger.warn('⚠️ MASTER_SCHEDULE 文件不存在，同步中止。')
+        return null
+      }
+
+      // 使用我們自己讀取到的、100% 乾淨的最新規則
+      const masterRules = masterScheduleDoc.data().schedule || {}
+      logger.info(`✅ 成功讀取 ${Object.keys(masterRules).length} 條最新規則。`)
+
+      logger.info(`📝 開始根據最新規則，對「明天起」的60天排程進行交易式覆蓋...`)
+
+      const promises = []
+
+      for (let i = 1; i <= 60; i++) {
+        const targetDate = new Date()
+        targetDate.setHours(0, 0, 0, 0)
+        targetDate.setDate(targetDate.getDate() + i)
+
+        const dateStr = formatDateForQuery(targetDate)
+
+        // 使用乾淨的 masterRules 來生成每日排班
+        const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+
+        const dailyDocRef = db.collection('schedules').doc(dateStr)
+
+        // ✨ 使用之前確認過的最穩健的「交易」寫入模式 ✨
+        const updatePromise = db.runTransaction(async (transaction) => {
+          const doc = await transaction.get(dailyDocRef)
+          if (!doc.exists) {
+            transaction.set(dailyDocRef, {
+              date: dateStr,
+              schedule: dailySchedule,
+              createdAt: FieldValue.serverTimestamp(),
+              lastSynced: FieldValue.serverTimestamp(),
+            })
+          } else {
+            transaction.update(dailyDocRef, {
+              schedule: dailySchedule,
+              lastSynced: FieldValue.serverTimestamp(),
+            })
+          }
+        })
+        promises.push(updatePromise)
+      }
+
+      await Promise.all(promises)
+      logger.info('✅ 所有每日排程交易式同步完成！')
     } catch (error) {
-      logger.error('❌ set/merge 同步時發生錯誤:', error)
+      logger.error('❌ 在重新讀取並同步 MASTER_SCHEDULE 時發生錯誤:', error)
     }
 
     return null
@@ -447,8 +450,7 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', async (event) => {
   const taskDoc = event.data
   if (!taskDoc) {
-    logger.error('[ExceptionWorker] 無法獲取任務文件資料。')
-    return
+    /* ... */ return
   }
   const taskData = taskDoc.data()
   const taskId = taskDoc.id
@@ -457,24 +459,28 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
     `👷 [ExceptionWorker] 開始執行任務 ${taskId} (日期: ${taskData.targetDate}, 病人: ${taskData.patientName})`,
   )
 
-  const { targetDate, patientId, type, to } = taskData
-  const dailyScheduleRef = db.collection('schedules').doc(targetDate)
+  // ✨ 現在 to 和 from 都是從 taskData 來的
+  const { targetDate, patientId, type, to, from } = taskData
+
+  // ✨ 對於 MOVE 類型，我們要操作的是 `from` 的日期
+  const dateToModify = type === 'MOVE' && from ? from.sourceDate : targetDate
+  const dailyScheduleRef = db.collection('schedules').doc(dateToModify)
 
   try {
     await db.runTransaction(async (transaction) => {
       const dailyDoc = await transaction.get(dailyScheduleRef)
-
-      // 如果那天的排程文件不存在，直接視為任務完成 (因為沒有東西可以修改)
       if (!dailyDoc.exists) {
-        logger.warn(`[ExceptionWorker] 日期 ${targetDate} 的排程文件不存在，任務 ${taskId} 跳過。`)
+        // 如果來源日期文件不存在，對於 MOVE 來說就是個錯誤
+        if (type === 'MOVE') throw new Error(`來源日期 ${dateToModify} 的排程文件不存在。`)
         transaction.update(taskDoc.ref, { status: 'skipped', message: '當日無排程文件' })
         return
       }
 
       const dailySchedule = dailyDoc.data().schedule || {}
-      let originalShiftId = null
 
-      // 在當天排程中找到這位病人原本在哪個床位
+      // ✨ 重新定義：對於 MOVE，originalShiftId 是指來源位置
+      // 對於 SUSPEND，是指在目標日期的位置
+      let originalShiftId = null
       for (const shiftId in dailySchedule) {
         if (dailySchedule[shiftId].patientId === patientId) {
           originalShiftId = shiftId
@@ -482,41 +488,48 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
         }
       }
 
-      // 如果那天本來就沒有這位病人的排班，對於 SUSPEND 來說任務已完成
       if (!originalShiftId) {
         if (type === 'SUSPEND') {
-          logger.info(
-            `[ExceptionWorker] 病人 ${patientId} 在 ${targetDate} 本無排班，暫停任務 ${taskId} 完成。`,
-          )
           transaction.update(taskDoc.ref, { status: 'applied', message: '當日無此病人排班' })
           return
-        } else if (type === 'MOVE') {
-          // 如果是 MOVE 且找不到原始排班，這是一個錯誤
-          throw new Error(`在 ${targetDate} 找不到病人 ${patientId} 的原始排班可供移動。`)
+        }
+        if (type === 'MOVE') {
+          throw new Error(`在來源日期 ${dateToModify} 找不到病人 ${patientId} 的原始排班。`)
         }
       }
 
-      // 根據類型執行操作
+      // --- 執行操作 ---
       if (type === 'SUSPEND') {
         delete dailySchedule[originalShiftId]
-        logger.info(
-          `[ExceptionWorker] 已從 ${targetDate} 移除病人 ${patientId} (原位置: ${originalShiftId})`,
-        )
+        transaction.update(dailyScheduleRef, { schedule: dailySchedule })
       } else if (type === 'MOVE') {
         const slotDataToMove = { ...dailySchedule[originalShiftId] }
-        delete slotDataToMove.baseRuleId // 重要！移動後視為手動例外
+        delete slotDataToMove.baseRuleId
 
-        delete dailySchedule[originalShiftId] // 從原位刪除
+        // 1. 刪除來源日期的排班
+        delete dailySchedule[originalShiftId]
+        transaction.update(dailyScheduleRef, { schedule: dailySchedule })
 
+        // 2. 在目標日期新增排班 (需要一個新的 transaction 或操作)
+        // 為了簡單起見，我們先在同一個函式處理，但這不是嚴格的原子操作
+        const targetScheduleRef = db.collection('schedules').doc(targetDate)
+        const targetDoc = await transaction.get(targetScheduleRef)
+        const targetSchedule = targetDoc.exists ? targetDoc.data().schedule : {}
         const newShiftId = `bed-${to.bedNum}-${to.shiftCode}`
-        dailySchedule[newShiftId] = slotDataToMove // 放入新位
-        logger.info(
-          `[ExceptionWorker] 已將病人 ${patientId} 從 ${originalShiftId} 移動至 ${newShiftId}`,
-        )
+
+        if (targetSchedule[newShiftId] && targetSchedule[newShiftId].patientId) {
+          throw new Error(`目標位置 ${targetDate} - ${newShiftId} 已被佔用。`)
+        }
+        targetSchedule[newShiftId] = slotDataToMove
+
+        if (targetDoc.exists) {
+          transaction.update(targetScheduleRef, { schedule: targetSchedule })
+        } else {
+          transaction.set(targetScheduleRef, { date: targetDate, schedule: targetSchedule })
+        }
       }
 
-      transaction.update(dailyScheduleRef, { schedule: dailySchedule })
-      transaction.update(taskDoc.ref, { status: 'applied' }) // 將子任務標記為完成
+      transaction.update(taskDoc.ref, { status: 'applied' })
     })
 
     logger.info(`✅ [ExceptionWorker] 成功執行任務 ${taskId}。`)

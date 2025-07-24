@@ -52,8 +52,11 @@
                 <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
               </td>
               <td class="reason-cell">
-                <div v-if="ex.type === 'MOVE'">
-                  移至: <strong>床位 {{ ex.to.bedNum }} / {{ ex.to.shiftCode }} 班</strong>
+                <!-- ✨ 修改 MOVE 類型的顯示方式 -->
+                <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
+                  從: <strong>{{ ex.from.bedNum }}床 / {{ ex.from.shiftCode }}班</strong>
+                  <br />
+                  移至: <strong>{{ ex.to.bedNum }}床 / {{ ex.to.shiftCode }}班</strong>
                   <br />
                   <small>原因: {{ ex.reason }}</small>
                 </div>
@@ -155,11 +158,16 @@ function openCreateDialog() {
 
 async function handleCreateException(formData) {
   try {
-    await exceptionsApi.save(null, {
+    const dataToSave = {
       ...formData,
       status: 'pending',
       createdAt: new Date(),
-    })
+    }
+
+    // ✨ --- 核心修正 --- ✨
+    // 將 save(null, dataToSave) 修改為 save(dataToSave)
+    await exceptionsApi.save(dataToSave)
+
     console.log('✅ 例外申請已成功提交！')
     isCreateDialogVisible.value = false
   } catch (error) {
