@@ -229,7 +229,7 @@ async function addMemo() {
     addNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
 
     // ✅ 操作狀態反饋用彈窗
-    showAlert('新增成功', '備忘錄已成功新增。')
+    //showAlert('新增成功', '備忘錄已成功新增。')//
     console.log('✅ [MemoView] 備忘新增成功')
   } catch (err) {
     console.error('❌ [MemoView] 新增備忘失敗:', err)
@@ -332,7 +332,7 @@ async function updateMemoStatus(id, resolve, isFromExpired = false) {
     addNotification(notificationMessage, 'memo')
 
     // ✅ 操作狀態反饋用彈窗
-    showAlert('操作成功', alertMessage)
+    // showAlert('操作成功', alertMessage)//
     console.log(`✅ [MemoView] 備忘狀態更新成功: ${id}`)
   } catch (err) {
     console.error('❌ [MemoView] 更新狀態失敗:', err)
@@ -371,7 +371,7 @@ async function deleteMemo(id) {
       addNotification(`刪除備忘：${contentPreview}${patientContext}`, 'memo')
 
       // ✅ 操作狀態反饋用彈窗
-      showAlert('刪除成功', '備忘錄已成功刪除。')
+      // showAlert('刪除成功', '備忘錄已成功刪除。') //
       console.log(`✅ [MemoView] 備忘刪除成功: ${id}`)
     } catch (err) {
       console.error('❌ [MemoView] 刪除失敗:', err)

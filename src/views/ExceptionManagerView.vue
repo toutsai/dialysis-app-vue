@@ -3,11 +3,15 @@
   <div class="page-container">
     <header class="page-header">
       <div class="header-toolbar">
-        <h1 class="page-title">排程例外管理中心</h1>
-        <!-- ✨ 權限修改: 加入 :disabled="isPageLocked" -->
-        <button class="btn btn-primary" @click="openCreateDialog" :disabled="isPageLocked">
-          <i class="fas fa-plus-circle"></i> 新增例外申請
-        </button>
+        <!-- 👇 新增一個 div 將標題和按鈕包裹起來 -->
+        <div class="toolbar-left">
+          <h1 class="page-title">排程例外管理中心</h1>
+          <!-- ✨ 權限修改: 加入 :disabled="isPageLocked" -->
+          <button class="btn btn-primary" @click="openCreateDialog" :disabled="isPageLocked">
+            <i class="fas fa-plus-circle"></i> 新增例外申請
+          </button>
+        </div>
+        <!-- 👆 結束新增的 div -->
       </div>
       <p class="page-description">
         此處用於處理「臨時調班」或「區間暫停排程」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
@@ -361,5 +365,10 @@ button:disabled {
   font-size: 3rem;
   color: #28a745;
   margin-bottom: 1rem;
+}
+.toolbar-left {
+  display: flex;
+  align-items: center; /* 讓標題和按鈕垂直置中對齊 */
+  gap: 1.5rem; /* 在標題和按鈕之間增加一些間距 */
 }
 </style>
