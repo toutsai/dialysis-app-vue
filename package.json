@@ -21,6 +21,7 @@
     "deploy:dev": "npm-run-all build:dev deploy:rules deploy:functions deploy:hosting:dev"
   },
   "dependencies": {
+    "@faker-js/faker": "^9.9.0",
     "firebase": "^11.9.1",
     "firebase-admin": "^13.4.0",
     "vue": "^3.5.13",
