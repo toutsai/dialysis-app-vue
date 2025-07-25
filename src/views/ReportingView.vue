@@ -176,7 +176,8 @@ function processDailyReport(schedulesData, patientMap) {
       if (!slotData?.patientId || !slotData.shiftId) continue
       const patient = patientMap.get(slotData.patientId)
       if (!patient) continue
-      const shiftCode = slotData.shiftId.split('-')[2]
+      const parts = slotData.shiftId.split('-')
+      const shiftCode = parts[parts.length - 1]
       if (!shiftCode) continue
       if (!shiftBreakdown[shiftCode]) shiftBreakdown[shiftCode] = {}
       const status = patient.status || 'unknown'
