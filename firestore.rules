@@ -1,70 +1,76 @@
+// 檔案路徑: firestore.rules (已加入例外管理權限)
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // --- Helper Functions (保持不變) ---
     function isAuthenticated() {
       return request.auth != null;
     }
-
     function getUserRole() {
-      // 從登入後產生的 token 中直接讀取角色
       return request.auth.token.role;
     }
-
     function isAdmin() {
       return isAuthenticated() && getUserRole() == 'admin';
     }
-
     function isEditor() {
       let role = getUserRole();
       return isAuthenticated() && (role == 'admin' || role == 'editor');
     }
-    
     function isContributor() {
       let role = getUserRole();
       return isAuthenticated() && (role == 'admin' || role == 'editor' || role == 'contributor');
     }
 
-    // --- 各個集合的規則 ---
+    // --- 各個集合的規則 (原有規則保持不變) ---
     match /users/{userId} {
       allow list: if isAdmin();
       allow get: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
       allow write: if isAdmin(); 
     }
-
     match /patients/{patientId} {
       allow read: if isAuthenticated();
       allow create, update: if isContributor();
       allow delete: if isEditor();
     }
-    
     match /schedules/{scheduleId} {
       allow read: if isAuthenticated();
       allow write: if isEditor();
     }
-
     match /base_schedules/{scheduleId} {
       allow read: if isAuthenticated();
       allow write: if isEditor();
     }
-    
     match /memos/{memoId} {
       allow read, write: if isAuthenticated();
     }
+    
+    // ✨ --- 新增：例外管理相關規則 --- ✨
+    match /schedule_exceptions/{exceptionId} {
+      // 只有 Editor(組長) 和 Admin 可以讀取、建立、刪除(撤銷)申請
+      allow read, create, delete: if isEditor();
+      // 不允許使用者直接更新申請狀態，狀態由後端 Cloud Functions 管理
+      allow update: if false; 
+    }
+    match /exception_tasks/{taskId} {
+      // 不允許任何客戶端直接讀寫這個集合 (後端專用)
+      allow read, write: if false;
+    }
+    // ✨ --- 結束新增 --- ✨
 
     match /dialysis_orders_history/{historyId} {
       allow read: if isAuthenticated();
       allow create: if isContributor();
-      allow update: if isEditor();  // ✅ 新的
-      allow delete: if isEditor();  // ✅ 新的
+      allow update: if isEditor();
+      allow delete: if isEditor();
     }
-
     match /patient_history/{historyId} {
       allow read: if isAuthenticated();
       allow create: if isContributor();
-      allow update: if isEditor();  // ✅ 新的
-      allow delete: if isEditor();  // ✅ 新的
+      allow update: if isEditor();
+      allow delete: if isEditor();
     }
   }
 }

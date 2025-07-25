@@ -5,7 +5,7 @@
       <header class="page-header">
         <div class="header-toolbar">
           <div class="toolbar-left">
-            <h1 class="page-title">週排班總表</h1>
+            <h1 class="page-title">週排班表</h1>
             <div class="date-navigator">
               <button @click="changeWeek(-7)">< 上一週</button>
               <span class="week-display-text">{{ weekDisplay }}</span>
