@@ -226,11 +226,15 @@ const defaultFormData = () => ({
 const formData = reactive(defaultFormData())
 
 // --- Computed Properties ---
-// ✨ FIX: Added the missing computed property
 const selectedPatientDisplay = computed(() => {
   if (!formData.patientId) return ''
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
-  return patient ? `${patient.name} (${patient.medicalRecordNumber})` : ''
+  if (!patient) return ''
+
+  // ✨ 核心修改：如果病人有頻率(freq)，就將其加入顯示字串中
+  const freqText = patient.freq ? ` - [${patient.freq}]` : ''
+
+  return `${patient.name} (${patient.medicalRecordNumber})${freqText}`
 })
 
 // ✨ FIX: Added a computed property for source bed display logic

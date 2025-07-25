@@ -194,6 +194,11 @@ import AlertDialog from '@/components/AlertDialog.vue'
 
 const props = defineProps({
   isVisible: Boolean,
+  title: {
+    // ✨ 1. 新增 title prop
+    type: String,
+    default: null, // 預設為 null
+  },
   allPatients: { type: Array, required: true },
   bedLayout: { type: Array, required: true },
   scheduleData: { type: Object, required: true },
@@ -234,6 +239,11 @@ const currentPatient = computed(() =>
 )
 
 const dialogTitle = computed(() => {
+  // ✨ 2. 核心修改：如果父層傳入了 title，就優先使用它
+  if (props.title) {
+    return props.title
+  }
+  // --- 以下是原始的標題邏輯，作為備用 ---
   if (props.hidePatientList) return '選擇目標床位'
   if (props.context?.mode === 'change_freq_and_bed')
     return `變更頻率與床位：${currentPatient.value?.name || ''}`
@@ -281,7 +291,6 @@ const targetFrequency = computed(() => {
 const canShowBeds = computed(() => {
   if (props.hidePatientList) {
     const patient = props.allPatients[0]
-    // 在單欄模式下，只有當病人有頻率時，才認為可以顯示床位
     return !!patient?.freq
   }
   if (isEditMode.value) return !!targetFrequency.value
@@ -349,7 +358,6 @@ const availableBeds = computed(() => {
     }
   })
 
-  // ✨ 核心修正：當 hidePatientList 為 true 時，我們強制採用 "singleDay" 邏輯來找空床
   const isSingleDayMode = props.hidePatientList || props.assignmentMode === 'singleDay'
 
   if (isSingleDayMode) {
@@ -367,7 +375,6 @@ const availableBeds = computed(() => {
     return results
   }
 
-  // --- 以下是原本的多日頻率檢查邏輯 ---
   const targetFreq = targetFrequency.value
   if (!targetFreq) return {}
 
@@ -467,7 +474,6 @@ function handleBedClick(bedNum, shiftCode) {
       : currentPatient.value?.freq
     : patient?.freq
 
-  // ✨ 在 hidePatientList 模式下，我們不需要檢查頻率
   if (!finalFreq && !props.hidePatientList && props.assignmentMode !== 'singleDay') {
     alertInfo.value = { isVisible: true, title: '操作提示', message: '病人頻率資訊不完整！' }
     return
@@ -477,7 +483,6 @@ function handleBedClick(bedNum, shiftCode) {
     typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
   const shiftId = `${bedIdPart}-${shiftCode}`
 
-  // 對於所有單次操作 (編輯、單欄模式)，都直接 emit
   if (isEditMode.value || props.hidePatientList) {
     emit('assign-bed', {
       patientId: patientIdToAssign,
