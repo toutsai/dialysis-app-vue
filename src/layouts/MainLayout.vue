@@ -13,8 +13,8 @@
         <ul class="sidebar-nav">
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
-          <li><RouterLink to="/weekly" class="nav-link">週排班總表</RouterLink></li>
-          <li><RouterLink to="/base-schedule" class="nav-link">門住總床位表</RouterLink></li>
+          <li><RouterLink to="/weekly" class="nav-link">週排班表</RouterLink></li>
+          <li><RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink></li>
 
           <!-- ✨ --- 權限修改 --- ✨ -->
           <li>

@@ -4,7 +4,7 @@
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">門住總床位表</h1>
+          <h1 class="page-title">門急住床位總表</h1>
           <button class="btn btn-warning" @click="handleScheduleCheck">排程檢視</button>
           <button class="btn btn-info" @click="openBaseAssignmentDialog" :disabled="isPageLocked">
             智慧排床
