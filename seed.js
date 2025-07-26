@@ -1,12 +1,12 @@
-// 檔案: seed.js (或 seed.cjs) - ✨ 生成中文姓名版本 ✨
+// 檔案: seed.js (或 seed.cjs) - ✨ 疾病機率 20:1 版本 ✨
 
-// ✨ 核心修改 1: 引入 Faker 主類別和繁體中文語系包
+// 引入必要的函式庫
 import { Faker, zh_TW, en } from '@faker-js/faker'
 import admin from 'firebase-admin'
 import serviceAccount from './serviceAccountKey.json' with { type: 'json' }
 
+// 建立一個使用繁體中文語系的 faker 實例
 const faker = new Faker({
-  // ✨ 核心修改 2: 告訴 Faker 使用一個語系鏈 [中文 -> 英文]
   locale: [zh_TW, en],
 })
 
@@ -37,26 +37,23 @@ function generateFakePatient(status) {
   const name = faker.person.fullName()
   const medicalRecordNumber = faker.string.numeric(7)
 
-  // --- ✨ 核心修改：建立一個帶有權重的頻率選項陣列 ---
   const freqOptions = [
-    // 三班選項 (每個都放 10 次來增加權重)
     ...Array(10).fill('一三五'),
     ...Array(10).fill('二四六'),
-
-    // 兩班選項 (每個只放 1 次)
     '一四',
     '二五',
     '三六',
     '一五',
     '二六',
   ]
-
-  // 從這個加權後的陣列中隨機抽取一個頻率
   const freq = getRandomElement(freqOptions)
-  // --- ✨ 修改結束 ---
 
   const physician = getRandomElement(['王醫師', '林醫師', '陳醫師', '李醫師'])
-  const diseases = Math.random() > 0.7 ? [getRandomElement(['DM', 'HTN', 'CAD', 'ESRD'])] : []
+
+  // --- ✨ 核心修改：將機率從 2% (0.98) 提高到 5% (0.95)，即約 20:1 ---
+  // Math.random() > 0.95 的意思是只有當隨機數落在 0.95 和 1.0 之間時條件才成立，機率約為 5%
+  const diseases =
+    Math.random() > 0.95 ? [getRandomElement(['HIV', 'RPR', 'HBV', 'HCV', 'COVID'])] : []
 
   return {
     name,
