@@ -1215,7 +1215,7 @@ function executeAutoAssignment() {
     priorityTeams: {
       hepatitis: '晚G',
       inPatientTeams: ['晚H'],
-      inPatientCapacity: { 晚H: 4 },
+      inPatientCapacity: { 晚H: 2 },
     },
     mainDistribution: {
       specialTeam: null, // 晚班規則沒有特殊A組
