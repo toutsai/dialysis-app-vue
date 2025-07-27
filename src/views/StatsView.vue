@@ -724,11 +724,10 @@ const effectiveStatsData = computed(() => {
       if (group.patients) group.patients.sort(sortPatientsByBed)
     })
     const teamData = lateShiftStats[team]
-    teamData.totalOpdCount =
-      (teamData.lateShift.opdCount || 0) + (teamData.noonShiftOff.opdCount || 0)
-    teamData.totalIpdCount =
-      (teamData.lateShift.ipdCount || 0) + (teamData.noonShiftOff.ipdCount || 0)
-    teamData.totalErCount = (teamData.lateShift.erCount || 0) + (teamData.noonShiftOff.erCount || 0)
+    // 只計算 lateShift 的人數，不再加上 noonShiftOff
+    teamData.totalOpdCount = teamData.lateShift.opdCount || 0
+    teamData.totalIpdCount = teamData.lateShift.ipdCount || 0
+    teamData.totalErCount = teamData.lateShift.erCount || 0
   }
 
   // 4. 返回最終結果
@@ -853,6 +852,16 @@ async function saveChangesToCloud() {
     alertDialogMessage.value = `儲存失敗: ${error.message}`
     isAlertDialogVisible.value = true
   }
+}
+
+// ✨ 新增：定義勤務分組標籤樣式的函式
+function getDutyTagClass(dutyName) {
+  if (dutyName.includes('指揮官')) return 'role-field-commander'
+  if (dutyName.includes('安全')) return 'role-safety'
+  if (dutyName.includes('引導')) return 'role-guide'
+  if (dutyName.includes('滅火')) return 'role-fire'
+  if (dutyName.includes('通報')) return 'role-reporter'
+  return 'role-default' // 提供一個預設樣式
 }
 
 // ✨ --- 增強的 onDrop 函數：處理撞床情況 --- ✨
