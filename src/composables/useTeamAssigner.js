@@ -13,6 +13,7 @@ export function useTeamAssigner() {
    * @returns {Object} 分配結果
    */
   const distributePatients = (allPatients, teams, rules) => {
+    console.log('--- 🚀 正在運行【v4 - 優先病人輪流分配版】的分配引擎！---')
     const assignments = {}
     teams.forEach((t) => {
       assignments[t] = []
@@ -20,13 +21,10 @@ export function useTeamAssigner() {
 
     const assignedPatientIds = new Set()
     const addPatient = (team, patient) => {
-      // 🔥 防護：拒絕K組分配
       if (team && team.includes('K')) {
-        console.warn(`⚠️ 嘗試分配到K組被阻止: ${patient?.id || '未知病人'} → ${team}`)
+        console.warn(`⚠️ 偵測到K組分配嘗試，已阻止: ${patient?.id} -> ${team}`)
         return false
       }
-
-      // 確保組別存在且病人未被分配
       if (patient && assignments[team] && !assignedPatientIds.has(patient.id)) {
         assignments[team].push(patient)
         assignedPatientIds.add(patient.id)
@@ -35,144 +33,100 @@ export function useTeamAssigner() {
       return false
     }
 
-    // 輔助函數：判斷是否為住院/急診病人
-    const isInPatientOrER = (patient) => {
-      return patient.status === 'ipd' || patient.status === 'er'
-    }
+    const isOpd = (p) => p.status === 'opd'
+    const isInPatientOrER = (p) => p.status === 'ipd' || p.status === 'er'
 
-    // --- 1. 優先分配 (Priority Pass) ---
+    // --- 步驟一：優先分配 ---
+    console.log('--- 步驟一：執行優先分配 (G, H, I, J)...')
     const { hepatitis, inPatientTeams, inPatientCapacity } = rules.priorityTeams
 
-    // G組: 肝炎
     if (hepatitis) {
       allPatients.filter((p) => p.isHepatitis).forEach((p) => addPatient(hepatitis, p))
     }
 
-    // H, I, J 組: 住院 + 急診（排除K組）
+    // 🔥↓↓↓【核心修正點：住院/急診病人輪流分配】↓↓↓
     if (inPatientTeams && inPatientCapacity) {
-      const validInPatientTeams = inPatientTeams.filter((team) => !team.includes('K'))
       const unassignedInPatients = allPatients.filter(
         (p) => isInPatientOrER(p) && !assignedPatientIds.has(p.id),
       )
-      unassignedInPatients.forEach((p) => {
-        for (const team of validInPatientTeams) {
-          if (assignments[team] && assignments[team].length < inPatientCapacity[team]) {
-            if (addPatient(team, p)) break
+
+      let priorityTeamIndex = 0 // 用一個索引來追蹤下一個要分配的優先組別
+      unassignedInPatients.forEach((patient) => {
+        // 從追蹤的索引開始，尋找一個有空位的優先組別
+        for (let i = 0; i < inPatientTeams.length; i++) {
+          const teamIndex = (priorityTeamIndex + i) % inPatientTeams.length
+          const team = inPatientTeams[teamIndex]
+
+          if (assignments[team].length < inPatientCapacity[team]) {
+            if (addPatient(team, patient)) {
+              // 分配成功後，更新索引，讓下一個病人從下一個組別開始找
+              priorityTeamIndex = (teamIndex + 1) % inPatientTeams.length
+              break // 病人已分配，跳出內層迴圈
+            }
           }
         }
       })
     }
+    // 🔥↑↑↑【核心修正點】↑↑↑
 
-    // --- 2. 主要分配 (平均分配 + 區塊填充) ---
-    const { specialTeam, regularTeams, fillMethod } = rules.mainDistribution
-
-    // 過濾掉K組
-    const filteredRegularTeams = regularTeams.filter((team) => !team.includes('K'))
-
-    // 計算總人數（排除外圍）
-    const mainAreaPatients = allPatients.filter((p) => !p.isPeripheral)
-    const totalMainAreaCount = mainAreaPatients.length
-
-    console.log(`📊 主區域總人數: ${totalMainAreaCount}`)
-
-    // 根據人數和班別決定參與分配的組別
-    let participatingTeams = []
-    let remainingPatients = allPatients.filter((p) => !assignedPatientIds.has(p.id))
-
-    if (fillMethod === 'block' && totalMainAreaCount > 36) {
-      // >36人：A組先分2人，剩下平均分給B-J組
-      if (specialTeam && !specialTeam.name.includes('K')) {
-        let aTeamCount = 0
-        while (aTeamCount < specialTeam.capacity && remainingPatients.length > 0) {
-          const patient = remainingPatients.shift()
-          addPatient(specialTeam.name, patient)
-          aTeamCount++
-        }
-        console.log(`🎯 A組分配: ${aTeamCount}人`)
-      }
-      participatingTeams = filteredRegularTeams.filter((t) => t !== specialTeam?.name)
-    } else if (fillMethod === 'average') {
-      // 晚班：A-H組都參與平均分配
-      participatingTeams = [specialTeam?.name, ...filteredRegularTeams]
-        .filter(Boolean)
-        .filter((team) => !team.includes('K'))
-    } else {
-      // ≤36人：A組不分，B-J組平均分配
-      participatingTeams = filteredRegularTeams.filter((t) => t !== specialTeam?.name)
+    // --- 步驟二：處理特殊組 (A組) ---
+    console.log('--- 步驟二：處理特殊A組...')
+    const { specialTeam, regularTeams } = rules.mainDistribution
+    if (specialTeam) {
+      const availableOpdPatients = allPatients.filter(
+        (p) => !assignedPatientIds.has(p.id) && isOpd(p) && !p.isHepatitis,
+      )
+      const patientsForSpecialTeam = availableOpdPatients.slice(0, specialTeam.capacity)
+      patientsForSpecialTeam.forEach((p) => addPatient(specialTeam.name, p))
     }
 
-    console.log(`🎯 參與平均分配的組別:`, participatingTeams)
+    // --- 步驟三：為常規組計算最終目標人數 ---
+    const participatingTeams = regularTeams.filter((team) => !team.includes('K'))
+    const remainingPatientsForRegularTeams = allPatients.filter(
+      (p) => !assignedPatientIds.has(p.id),
+    )
 
-    // 重新計算剩餘病人
-    remainingPatients = allPatients.filter((p) => !assignedPatientIds.has(p.id))
-    const remainingCount = remainingPatients.length
+    let totalWorkload = remainingPatientsForRegularTeams.length
+    participatingTeams.forEach((team) => {
+      totalWorkload += assignments[team]?.length || 0
+    })
 
-    if (remainingCount > 0 && participatingTeams.length > 0) {
-      // 📊 計算平均分配
-      const baseCount = Math.floor(remainingCount / participatingTeams.length)
-      const remainder = remainingCount % participatingTeams.length
+    if (totalWorkload > 0 && participatingTeams.length > 0) {
+      const baseSize = Math.floor(totalWorkload / participatingTeams.length)
+      const remainder = totalWorkload % participatingTeams.length
 
-      console.log(`📊 剩餘病人: ${remainingCount}人, 參與組別: ${participatingTeams.length}組`)
-      console.log(`📊 平均分配: 基數${baseCount}人/組, 餘數${remainder}人`)
-
-      // 🔍 檢查每組現有人數並計算目標人數
-      const targetCounts = {}
+      const finalTargetSize = {}
       participatingTeams.forEach((team, index) => {
-        const currentCount = assignments[team]?.length || 0
-        const extraOne = index < remainder ? 1 : 0
-        const targetCount = currentCount + baseCount + extraOne
-        targetCounts[team] = {
-          current: currentCount,
-          target: targetCount,
-          needed: Math.max(0, targetCount - currentCount),
-        }
+        finalTargetSize[team] = baseSize + (index < remainder ? 1 : 0)
       })
 
-      console.log(`📊 各組分配計畫:`, targetCounts)
+      const neededCounts = {}
+      participatingTeams.forEach((team) => {
+        const currentCount = assignments[team]?.length || 0
+        const target = finalTargetSize[team]
+        neededCounts[team] = Math.max(0, target - currentCount)
+      })
 
-      // 🏗️ 區塊填充：按順序補充到目標人數
       let patientIndex = 0
       for (const team of participatingTeams) {
-        const needed = targetCounts[team].needed
-        console.log(`🏗️ ${team}組需要補充: ${needed}人`)
-
-        let filled = 0
-        while (filled < needed && patientIndex < remainingPatients.length) {
-          const patient = remainingPatients[patientIndex++]
-          if (addPatient(team, patient)) {
-            filled++
-            console.log(`  → ${patient.id} 加入 ${team}組`)
-          }
-        }
-      }
-
-      // 🌊 處理剩餘病人（從B組開始+1）
-      if (patientIndex < remainingPatients.length) {
-        console.log(`🌊 還有 ${remainingPatients.length - patientIndex} 個剩餘病人，從B組開始+1`)
-        let teamIndex = 0
-        while (patientIndex < remainingPatients.length) {
-          const team = participatingTeams[teamIndex % participatingTeams.length]
-          const patient = remainingPatients[patientIndex++]
-          if (addPatient(team, patient)) {
-            console.log(`  → ${patient.id} 溢出到 ${team}組`)
-          }
-          teamIndex++
+        const needed = neededCounts[team]
+        if (needed > 0) {
+          const patientsToFill = remainingPatientsForRegularTeams.slice(
+            patientIndex,
+            patientIndex + needed,
+          )
+          patientsToFill.forEach((p) => addPatient(team, p))
+          patientIndex += needed
         }
       }
     }
-
-    // 🔥 最終檢查：確保K組為空
-    Object.keys(assignments).forEach((team) => {
-      if (team.includes('K') && assignments[team].length > 0) {
-        console.error(`❌ 錯誤：K組 ${team} 不應該有病人！`, assignments[team])
-        assignments[team] = [] // 強制清空K組
-      }
-    })
 
     console.log(
       '✅ 分配完成，最終結果:',
       Object.fromEntries(
-        Object.entries(assignments).map(([team, patients]) => [team, patients.length]),
+        Object.entries(assignments)
+          .filter(([_, patients]) => patients.length > 0)
+          .map(([team, patients]) => [team, patients.length]),
       ),
     )
 

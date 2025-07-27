@@ -148,3 +148,5 @@ dist
 .env.local
 .env.development
 .env.production
+
+serviceAccountKey.json

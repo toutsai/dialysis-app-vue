@@ -15,7 +15,11 @@
             :disabled="isSubmitting"
           >
             <!-- ✨ FIX: Use the new computed property -->
-            <span v-if="formData.patientId">{{ selectedPatientDisplay }}</span>
+            <div
+              v-if="formData.patientId"
+              class="patient-display-content"
+              v-html="selectedPatientDisplay"
+            ></div>
             <span v-else class="text-muted">點擊以選擇病人...</span>
           </button>
         </div>
@@ -231,10 +235,24 @@ const selectedPatientDisplay = computed(() => {
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
   if (!patient) return ''
 
-  // ✨ 核心修改：如果病人有頻率(freq)，就將其加入顯示字串中
-  const freqText = patient.freq ? ` - [${patient.freq}]` : ''
+  const nameAndMRN = `${patient.name} (${patient.medicalRecordNumber})`
+  const freqText = patient.freq
+    ? ` <span class="patient-info-tag freq-tag">[${patient.freq}]</span>`
+    : ''
 
-  return `${patient.name} (${patient.medicalRecordNumber})${freqText}`
+  // 🔥↓↓↓【核心修改點】↓↓↓
+  // 檢查病人是否有 diseases 陣列，並且陣列不為空
+  let diseasesText = ''
+  if (patient.diseases && patient.diseases.length > 0) {
+    // 將疾病陣列中的每個標籤都包裝在一個 span 中
+    diseasesText = patient.diseases
+      .map((disease) => `<span class="patient-info-tag disease-tag">${disease}</span>`)
+      .join(' ') // 用空格將多個疾病標籤分開
+  }
+  // 🔥↑↑↑【核心修改點】↑↑↑
+
+  // 返回組合好的 HTML 字串
+  return `${nameAndMRN}${freqText} ${diseasesText}`
 })
 
 // ✨ FIX: Added a computed property for source bed display logic

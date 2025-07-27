@@ -120,11 +120,11 @@ import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const exceptionsApi = ApiManager('schedule_exceptions')
+const memosApi = ApiManager('memos')
 const allPatients = ref([])
 const exceptions = ref([])
 const isLoading = ref(true)
 const isCreateDialogVisible = ref(false)
-
 const isConfirmDeleteVisible = ref(false)
 const exceptionToDeleteId = ref(null)
 
@@ -164,6 +164,7 @@ function openCreateDialog() {
   isCreateDialogVisible.value = true
 }
 
+// ✨↓↓↓【核心修改點：將 handleCreateException 替換為此版本】↓↓↓
 async function handleCreateException(formData) {
   try {
     const dataToSave = {
@@ -172,14 +173,52 @@ async function handleCreateException(formData) {
       createdAt: new Date(),
     }
 
-    // ✨ --- 核心修正 --- ✨
-    // 將 save(null, dataToSave) 修改為 save(dataToSave)
+    // --- 第一步：儲存例外申請 (與原本相同) ---
     await exceptionsApi.save(dataToSave)
-
     console.log('✅ 例外申請已成功提交！')
     isCreateDialogVisible.value = false
+
+    // --- 第二步：自動建立對應的備忘錄 ---
+    // 1. 產生備忘錄內容
+    let memoContent = ''
+    if (formData.type === 'MOVE') {
+      const fromShift =
+        formData.from.shiftCode === 'early'
+          ? '早'
+          : formData.from.shiftCode === 'noon'
+            ? '午'
+            : '晚'
+      const toShift =
+        formData.to.shiftCode === 'early' ? '早' : formData.to.shiftCode === 'noon' ? '午' : '晚'
+      memoContent = `【臨時調班】\n原排班: ${formData.from.sourceDate} (${fromShift}班)\n新排班: ${formData.to.goalDate} (${toShift}班)\n原因: ${formData.reason}`
+    } else if (formData.type === 'SUSPEND') {
+      memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}\n原因: ${formData.reason}`
+    }
+
+    // 2. 建立備忘錄物件
+    if (memoContent) {
+      const newMemo = {
+        content: memoContent,
+        patientId: formData.patientId,
+        patientName: formData.patientName,
+        targetDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate, // 使用目標日期或結束日期作為備忘的到期日
+        status: 'pending',
+        isResolved: false,
+        createdAt: new Date().toISOString(),
+      }
+
+      // 3. 儲存備忘錄
+      await memosApi.save(newMemo)
+      console.log('✅ 已同步建立對應的備忘錄！')
+
+      // (可選) 您可以在這裡加入一個成功的通知
+      // import { useNotification } from '@/composables/useNotification.js'
+      // const { addNotification } = useNotification()
+      // addNotification(`已為 ${formData.patientName} 新增例外備忘`, 'memo')
+    }
   } catch (error) {
-    console.error('❌ 提交例外申請失敗:', error)
+    console.error('❌ 提交例外申請或建立備忘失敗:', error)
+    // 在此處可以加入錯誤提示的彈窗
   }
 }
 
