@@ -403,12 +403,20 @@ async function fetchSourceSchedule() {
 }
 
 async function openBedAssignmentForTarget() {
+  // 1. 檢查目標日期是否存在 (保持不變)
   if (!formData.to.goalDate) return
+
   try {
+    // 2. 直接從 Firestore 獲取目標日期【當天最原始、最準確】的排班紀錄
     const scheduleRecord = await schedulesApi.fetchById(formData.to.goalDate)
+    const accurateScheduleData = scheduleRecord ? scheduleRecord.schedule : {}
+
+    // 3. 將這份【未經任何前端修改】的、最準確的排班資料，直接傳遞給智慧排床
     bedAssignmentProps.value = {
-      scheduleData: scheduleRecord ? scheduleRecord.schedule : {},
+      scheduleData: accurateScheduleData,
     }
+
+    // 4. 打開智慧排床對話框
     isBedAssignmentVisible.value = true
   } catch (error) {
     console.error('載入目標日期排班失敗:', error)

@@ -673,16 +673,22 @@ async function saveChangesToCloud() {
   }
   console.log('💾 [WeeklyView] 開始儲存週排班變更...')
   statusText.value = '儲存中...'
+
   try {
     const promises = []
     for (const date of weekDates.value.map((d) => d.queryDate)) {
       const dailyRecord = weekScheduleRecords.value.get(date)
+
       if (dailyRecord) {
         const scheduleToSave = {}
         for (const shiftId in dailyRecord.schedule) {
           const slotData = dailyRecord.schedule[shiftId]
+
           if (slotData && slotData.patientId) {
-            scheduleToSave[shiftId] = {
+            // 🔥↓↓↓【核心修正點：在這裡進行驗證】↓↓↓
+
+            // 1. 準備要儲存的資料
+            const cleanSlotData = {
               patientId: slotData.patientId,
               shiftId: slotData.shiftId,
               autoNote: slotData.autoNote || '',
@@ -692,9 +698,33 @@ async function saveChangesToCloud() {
               nurseTeamOut: slotData.nurseTeamOut || null,
               wardNumber: slotData.wardNumber || null,
             }
+
+            // 2. 檢查 shiftId 是否為 undefined
+            if (cleanSlotData.shiftId === undefined) {
+              // 如果發現錯誤，立即停止並報錯
+              console.error(
+                `❌ 儲存中止！在日期 ${date} 的排班格 ${shiftId} 中，shiftId 的值是 undefined。`,
+                slotData,
+              )
+
+              alertDialogTitle.value = '儲存失敗'
+              alertDialogMessage.value = `資料錯誤：在 ${date} 的排班中發現無效資料（shiftId 未定義），無法儲存。請重新整理頁面後，再進行操作。`
+              isAlertDialogVisible.value = true
+              statusText.value = '儲存失敗'
+
+              // 立即返回，終止整個儲存流程
+              return
+            }
+
+            // 3. 只有通過驗證的資料才能被加入
+            scheduleToSave[shiftId] = cleanSlotData
+
+            // 🔥↑↑↑【核心修正點】↑↑↑
           }
         }
+
         const dataToSave = { date, schedule: scheduleToSave, names: dailyRecord.names || {} }
+
         if (dailyRecord.id) {
           console.log(`🔄 [WeeklyView] 更新日期 ${date} 的排程資料`)
           promises.push(optimizedUpdateSchedule(dailyRecord.id, dataToSave))
@@ -706,6 +736,7 @@ async function saveChangesToCloud() {
     }
 
     await Promise.all(promises)
+
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
     alertDialogTitle.value = '操作成功'

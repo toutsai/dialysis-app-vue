@@ -118,6 +118,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { useRouter } from 'vue-router' // ✨ 1. 在頂部引入 useRouter
 import {
   collection,
   query,
@@ -138,6 +139,7 @@ import AlertDialog from '@/components/AlertDialog.vue' // 引入 AlertDialog
 
 const exceptionsApi = ApiManager('schedule_exceptions')
 const memosApi = ApiManager('memos')
+const router = useRouter() // ✨ 2. 在這裡定義 router 常數
 const allPatients = ref([])
 const exceptions = ref([])
 const isLoading = ref(true)
@@ -196,35 +198,35 @@ function closeCreateDialog() {
 
 async function handleCreateException(formData) {
   try {
-    let dataToSave
-    let isUpdating = !!formData.id // 判斷是新增還是更新
+    const isUpdating = !!formData.id // 判斷是新增還是解決衝突
 
+    // 🔥 核心修正：如果是解決衝突，我們先【刪除】舊的、有衝突的申請
+    // 這個操作是被您的 "allow delete: if isEditor()" 規則所允許的
     if (isUpdating) {
-      // 更新模式
-      const originalExceptionRef = doc(db, 'schedule_exceptions', formData.id)
-      dataToSave = {
-        ...formData,
-        status: 'pending', // 重置狀態為 pending，讓後端重新處理
-        updatedAt: new Date(),
-        conflictDetails: null, // 清除衝突標記
-        errorMessage: '',
-      }
-      await updateDoc(originalExceptionRef, dataToSave)
-      console.log(`✅ 衝突已解決並重新提交例外申請: ${formData.id}`)
-    } else {
-      // 新增模式
-      dataToSave = {
-        ...formData,
-        status: 'pending',
-        createdAt: new Date(),
-      }
-      await exceptionsApi.save(dataToSave)
-      console.log('✅ 新的例外申請已成功提交！')
+      await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
+      console.log(`[Re-Submit] 已刪除舊的衝突申請: ${formData.id}`)
     }
+
+    // 🔥 核心修正：無論是新增還是解決衝突，我們都執行【創建】一個全新的申請
+    // 這個操作是被您的 "allow create: if isEditor()" 規則所允許的
+    const dataToSave = {
+      patientId: formData.patientId,
+      patientName: formData.patientName,
+      type: formData.type,
+      reason: formData.reason,
+      startDate: formData.type === 'MOVE' ? formData.from.sourceDate : formData.startDate,
+      endDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
+      from: formData.type === 'MOVE' ? formData.from : null,
+      to: formData.type === 'MOVE' ? formData.to : null,
+      status: 'pending', // 總是從 pending 開始
+      createdAt: new Date(), // 總是創建一個新的時間戳
+    }
+    await exceptionsApi.save(dataToSave)
+    console.log('✅ 新的/已修正的例外申請已成功提交！')
 
     closeCreateDialog()
 
-    // 自動建立備忘錄 (無論新增或更新都執行)
+    // (自動建立備忘錄的邏輯保持不變)
     let memoContent = ''
     if (formData.type === 'MOVE') {
       const fromShift =
@@ -278,8 +280,24 @@ async function executeDeleteException() {
 }
 
 function isActionDisabled(exception) {
+  // 1. 如果是錯誤狀態，永遠可以被撤銷（以便修正）
+  //    除非我們定義錯誤狀態不能被撤銷，這裡假設可以
+  if (exception.status === 'error') {
+    return false // 允許撤銷錯誤的申請
+  }
+
+  // 2. 獲取一個有效的結束日期
+  //    無論是 MOVE 還是 SUSPEND，我們都以 endDate 為準
+  const endDateStr = exception.endDate
+
+  // 3. 如果連 endDate 都沒有，我們不禁用它，讓使用者可以刪除這筆可能有問題的資料
+  if (!endDateStr) {
+    return false
+  }
+
+  // 4. 只有當 endDate 明確存在，並且是過去的日期時，才禁用按鈕
   const today = new Date().toISOString().split('T')[0]
-  return exception.endDate < today
+  return endDateStr < today
 }
 
 // 🔥 新增：處理衝突的函式
@@ -291,33 +309,29 @@ function handleConflictAlertConfirm() {
   })
 }
 
+import { useRoute } from 'vue-router' // 引入 useRoute
+const route = useRoute() // 獲取路由實例
+
 onMounted(async () => {
   try {
     allPatients.value = await optimizedFetchAllPatients()
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
 
-    // 🔥 核心修改：增強 onSnapshot 監聽器
     unsubscribe = onSnapshot(q, (snapshot) => {
-      const newExceptions = []
-      let conflictFound = null
-
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'modified') {
-          const data = change.doc.data()
-          if (data.status === 'conflict_requires_resolution') {
-            conflictFound = { id: change.doc.id, ...data }
-          }
-        }
-      })
-
       exceptions.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       isLoading.value = false
 
-      if (conflictFound) {
-        console.log(`[ConflictDetector] 偵測到衝突: ${conflictFound.id}`)
-        exceptionToReEdit.value = conflictFound
-        conflictAlertMessage.value = `您為【${conflictFound.patientName}】申請的調班發生衝突！\n\n目標床位已被總表上的其他病人預定。\n\n請點擊「確定」為此病人重新選擇一個空床位。`
-        isConflictAlertVisible.value = true
+      // ✨ 核心：檢查 URL 中是否有需要解決的衝突
+      const conflictId = route.query.resolveConflict
+      if (conflictId) {
+        const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
+        if (conflictException) {
+          console.log(`[ExceptionManager] 接收到衝突解決指令: ${conflictId}`)
+          exceptionToReEdit.value = conflictException
+          isCreateDialogVisible.value = true
+          // (可選) 清除 URL query，避免重複觸發
+          router.replace({ query: {} })
+        }
       }
     })
   } catch (error) {

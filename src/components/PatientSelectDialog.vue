@@ -4,7 +4,7 @@
     <div v-if="isVisible" class="dialog-overlay" @click.self="onCancel">
       <div class="dialog-content">
         <header class="dialog-header">
-          <h2 style="color: red">【我是新版本 v2】{{ title }}</h2>
+          <h2 style="color: red">{{ title }}</h2>
           <button class="close-button" @click="onCancel">×</button>
         </header>
         <main class="dialog-body">
