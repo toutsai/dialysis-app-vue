@@ -1,8 +1,10 @@
+<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (智慧衝突處理版) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="close">
     <div class="dialog-content">
       <header class="dialog-header">
-        <h2>新增排程例外申請</h2>
+        <!-- 🔥 動態標題 -->
+        <h2>{{ isEditingMode ? '解決排程衝突' : '新增排程例外申請' }}</h2>
         <button class="close-button" @click="close">×</button>
       </header>
       <main class="dialog-body">
@@ -12,9 +14,8 @@
           <button
             class="select-btn"
             @click="isPatientDialogVisible = true"
-            :disabled="isSubmitting"
+            :disabled="isSubmitting || isEditingMode"
           >
-            <!-- ✨ FIX: Use the new computed property -->
             <div
               v-if="formData.patientId"
               class="patient-display-content"
@@ -28,8 +29,19 @@
         <div class="form-group" v-if="formData.patientId">
           <label>步驟 2: 選擇例外類型</label>
           <div class="radio-group">
-            <label><input type="radio" v-model="formData.type" value="MOVE" /> 臨時調班</label>
-            <label><input type="radio" v-model="formData.type" value="SUSPEND" /> 區間暫停</label>
+            <label
+              ><input type="radio" v-model="formData.type" value="MOVE" :disabled="isEditingMode" />
+              臨時調班</label
+            >
+            <label
+              ><input
+                type="radio"
+                v-model="formData.type"
+                value="SUSPEND"
+                :disabled="isEditingMode"
+              />
+              區間暫停</label
+            >
           </div>
         </div>
 
@@ -38,17 +50,16 @@
           <div class="form-group-grid">
             <div class="form-group">
               <label for="sourceDate">步驟 3: 選擇原始日期</label>
-              <!-- ✨ FIX: v-model now points to a valid object property -->
               <input
                 type="date"
                 id="sourceDate"
                 v-model="formData.from.sourceDate"
                 @change="fetchSourceSchedule"
+                :disabled="isEditingMode"
               />
             </div>
             <div class="form-group">
               <label>原始排班</label>
-              <!-- ✨ FIX: Use the new computed property for display -->
               <div class="info-box">
                 {{ sourceBedDisplay }}
               </div>
@@ -57,15 +68,19 @@
           <div class="form-group-grid" v-if="formData.from.bedNum">
             <div class="form-group">
               <label for="targetDate">步驟 4: 選擇目標日期</label>
-              <!-- ✨ FIX: v-model now points to a valid object property -->
-              <input type="date" id="targetDate" v-model="formData.to.goalDate" />
+              <input
+                type="date"
+                id="targetDate"
+                v-model="formData.to.goalDate"
+                :disabled="isEditingMode"
+              />
             </div>
             <div class="form-group">
               <label>目標床位</label>
               <button
                 class="select-btn"
                 @click="openBedAssignmentForTarget"
-                :disabled="!formData.to.goalDate"
+                :disabled="!formData.to.goalDate || isSubmitting"
               >
                 {{ targetBedDisplay }}
               </button>
@@ -78,13 +93,21 @@
           <div class="form-group-grid">
             <div class="form-group">
               <label for="startDate">開始日期 (包含)</label>
-              <!-- ✨ FIX: Correctly bind to formData.startDate -->
-              <input type="date" id="startDate" v-model="formData.startDate" />
+              <input
+                type="date"
+                id="startDate"
+                v-model="formData.startDate"
+                :disabled="isEditingMode"
+              />
             </div>
             <div class="form-group">
               <label for="endDate">結束日期 (包含)</label>
-              <!-- ✨ FIX: Correctly bind to formData.endDate -->
-              <input type="date" id="endDate" v-model="formData.endDate" />
+              <input
+                type="date"
+                id="endDate"
+                v-model="formData.endDate"
+                :disabled="isEditingMode"
+              />
             </div>
           </div>
         </div>
@@ -92,7 +115,12 @@
         <!-- Step 5: Reason -->
         <div class="form-group" v-if="isDetailsComplete">
           <label>步驟 5: 原因說明</label>
-          <textarea v-model="formData.reason" rows="2" placeholder="請簡要說明原因"></textarea>
+          <textarea
+            v-model="formData.reason"
+            rows="2"
+            placeholder="請簡要說明原因"
+            :disabled="isEditingMode"
+          ></textarea>
         </div>
       </main>
       <footer class="dialog-footer">
@@ -102,7 +130,7 @@
           @click="submitForm"
           :disabled="!isFormValid || isSubmitting"
         >
-          {{ isSubmitting ? '提交中...' : '提交申請' }}
+          {{ isSubmitting ? '提交中...' : isEditingMode ? '重新提交申請' : '提交申請' }}
         </button>
       </footer>
     </div>
@@ -139,10 +167,15 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 
+// 🔥 核心修改：新增 initialData prop
 const props = defineProps({
   isVisible: Boolean,
   allPatients: Array,
   isPageLocked: Boolean,
+  initialData: {
+    type: Object,
+    default: null,
+  },
 })
 const emit = defineEmits(['close', 'submit'])
 
@@ -212,50 +245,44 @@ const isBedAssignmentVisible = ref(false)
 const bedAssignmentProps = ref(null)
 const isSubmitting = ref(false)
 const isFetchingSource = ref(false)
-const sourceScheduleMessage = ref('') // For storing messages like "查無排班"
+const sourceScheduleMessage = ref('')
 
 // --- Form State ---
-// ✨ FIX: Initialize from and to as objects to prevent "cannot read property of null" error
 const defaultFormData = () => ({
+  id: null, // 🔥 新增 id 欄位
   patientId: '',
   patientName: '',
   type: 'MOVE',
-  startDate: '', // Used for SUSPEND
-  endDate: '', // Used for SUSPEND
+  startDate: '',
+  endDate: '',
   reason: '',
-  from: { sourceDate: '', bedNum: null, shiftCode: null }, // for MOVE
-  to: { goalDate: '', bedNum: null, shiftCode: null }, // for MOVE
+  from: { sourceDate: '', bedNum: null, shiftCode: null },
+  to: { goalDate: '', bedNum: null, shiftCode: null },
 })
 
 const formData = reactive(defaultFormData())
 
 // --- Computed Properties ---
+// 🔥 新增：判斷是否為編輯模式
+const isEditingMode = computed(() => !!props.initialData)
+
 const selectedPatientDisplay = computed(() => {
   if (!formData.patientId) return ''
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
   if (!patient) return ''
-
   const nameAndMRN = `${patient.name} (${patient.medicalRecordNumber})`
   const freqText = patient.freq
     ? ` <span class="patient-info-tag freq-tag">[${patient.freq}]</span>`
     : ''
-
-  // 🔥↓↓↓【核心修改點】↓↓↓
-  // 檢查病人是否有 diseases 陣列，並且陣列不為空
   let diseasesText = ''
   if (patient.diseases && patient.diseases.length > 0) {
-    // 將疾病陣列中的每個標籤都包裝在一個 span 中
     diseasesText = patient.diseases
       .map((disease) => `<span class="patient-info-tag disease-tag">${disease}</span>`)
-      .join(' ') // 用空格將多個疾病標籤分開
+      .join(' ')
   }
-  // 🔥↑↑↑【核心修改點】↑↑↑
-
-  // 返回組合好的 HTML 字串
   return `${nameAndMRN}${freqText} ${diseasesText}`
 })
 
-// ✨ FIX: Added a computed property for source bed display logic
 const sourceBedDisplay = computed(() => {
   if (isFetchingSource.value) return '查詢中...'
   if (sourceScheduleMessage.value) return sourceScheduleMessage.value
@@ -297,41 +324,37 @@ const isFormValid = computed(() => {
 })
 
 // --- Watchers ---
+// 🔥 核心修改：監聽 isVisible，並根據 initialData 決定如何初始化表單
 watch(
   () => props.isVisible,
-  (val) => {
-    if (val) {
-      // Reset form when dialog becomes visible
-      Object.assign(formData, defaultFormData())
-      sourceScheduleMessage.value = ''
+  (isVisible) => {
+    if (isVisible) {
+      if (props.initialData) {
+        // 編輯模式：用 initialData 填充表單
+        console.log('Dialog opened in EDIT mode with data:', props.initialData)
+        Object.assign(formData, {
+          ...props.initialData,
+          // 🔥 關鍵：清空目標床位，強制使用者重新選擇
+          to: {
+            ...props.initialData.to,
+            bedNum: null,
+            shiftCode: null,
+          },
+        })
+        sourceScheduleMessage.value = ''
+      } else {
+        // 新增模式：重置為空表單
+        console.log('Dialog opened in CREATE mode.')
+        Object.assign(formData, defaultFormData())
+        sourceScheduleMessage.value = ''
+      }
     }
   },
 )
 
-watch(
-  () => formData.patientId,
-  () => {
-    // Reset details when patient changes
-    Object.assign(formData, {
-      ...defaultFormData(),
-      patientId: formData.patientId, // keep new patientId
-      patientName: formData.patientName, // keep new patientName
-    })
-    sourceScheduleMessage.value = ''
-  },
-)
-
-watch(
-  () => formData.type,
-  () => {
-    // Reset specific fields when type changes
-    formData.startDate = ''
-    formData.endDate = ''
-    formData.from = { sourceDate: '', bedNum: null, shiftCode: null }
-    formData.to = { goalDate: '', bedNum: null, shiftCode: null }
-    sourceScheduleMessage.value = ''
-  },
-)
+// (以下兩個 watcher 在新的邏輯下可以移除，因為重置邏輯已合併到 isVisible watcher 中)
+// watch(() => formData.patientId, ...);
+// watch(() => formData.type, ...);
 
 // --- Methods ---
 function close() {
@@ -362,9 +385,7 @@ async function fetchSourceSchedule() {
         if (record.schedule[shiftId].patientId === formData.patientId) {
           const parts = shiftId.split('-')
           const shiftCode = parts.pop()
-          // Correctly handle bed numbers like 'bed-1' and 'peripheral-1'
           const bedNum = shiftId.replace(`-${shiftCode}`, '').replace('bed-', '')
-
           formData.from.bedNum = bedNum
           formData.from.shiftCode = shiftCode
           isFetchingSource.value = false
@@ -406,16 +427,7 @@ function submitForm() {
 
   const dataToSubmit = JSON.parse(JSON.stringify(formData))
 
-  // For MOVE type, the date range is defined by from.sourceDate and to.goalDate
-  // But the backend dispatcher uses startDate/endDate, so we must set them correctly.
   if (dataToSubmit.type === 'MOVE') {
-    // A single move operation is conceptually two tasks on different days.
-    // However, the current backend dispatcher iterates from startDate to endDate.
-    // For a simple move, we can just treat the source date as the start and end.
-    // The worker function will handle the from/to logic.
-    // This part might need adjustment depending on how the Cloud Function is implemented.
-    // Let's assume for now the parent exception needs a date range.
-    // The most logical range is from the source date to the target date.
     dataToSubmit.startDate = dataToSubmit.from.sourceDate
     dataToSubmit.endDate = dataToSubmit.to.goalDate
   }
@@ -425,7 +437,33 @@ function submitForm() {
 </script>
 
 <style scoped>
-/* 基本 Dialog 樣式 */
+/* 🔥 新增：病人資訊標籤樣式 */
+.patient-display-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+:deep(.patient-info-tag) {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:deep(.freq-tag) {
+  background-color: #e7f3ff;
+  color: #0056b3;
+  border: 1px solid #b3d7ff;
+}
+:deep(.disease-tag) {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+/* 其他樣式保持不變 */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -478,17 +516,10 @@ function submitForm() {
   justify-content: flex-end;
   gap: 1rem;
 }
-
-/* 表單元素樣式 */
 .form-group {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-.form-group-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 1rem;
 }
 .form-group label {
   font-weight: 500;
@@ -507,19 +538,10 @@ function submitForm() {
 .form-group textarea {
   resize: vertical;
 }
-.patient-info {
-  font-size: 0.9rem;
-  color: #007bff;
-  background-color: #e7f3ff;
-  padding: 0.5rem;
-  border-radius: 4px;
-}
 .radio-group {
   display: flex;
   gap: 2rem;
 }
-
-/* 按鈕樣式 (繼承或自定義) */
 .btn {
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -553,8 +575,8 @@ function submitForm() {
   align-items: end;
 }
 .info-box {
-  height: 48px; /* Matched height with input */
-  padding: 0.75rem; /* Matched padding with input */
+  height: 48px;
+  padding: 0.75rem;
   border-radius: 6px;
   border: 1px solid #ced4da;
   background-color: #e9ecef;
@@ -568,8 +590,8 @@ function submitForm() {
 }
 .select-btn {
   width: 100%;
-  height: 48px; /* Matched height with input */
-  padding: 0.75rem; /* Matched padding with input */
+  height: 48px;
+  padding: 0.75rem;
   border-radius: 6px;
   border: 1px solid #ced4da;
   background-color: #fff;

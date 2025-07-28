@@ -2,14 +2,14 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { onDocumentWritten, onDocumentCreated } = require('firebase-functions/v2/firestore')
-const { onMessagePublished } = require('firebase-functions/v2/pubsub') // ✨ 1. 引入 Pub/Sub 觸發器
+const { onMessagePublished } = require('firebase-functions/v2/pubsub')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
 const _ = require('lodash')
-const { PubSub } = require('@google-cloud/pubsub') // ✨ 2. 引入 Pub/Sub 客戶端
+const { PubSub } = require('@google-cloud/pubsub')
 
 admin.initializeApp()
-const pubsub = new PubSub() // ✨ 3. 初始化 Pub/Sub 客戶端
+const pubsub = new PubSub()
 
 const db = admin.firestore()
 const { FieldValue } = require('firebase-admin/firestore')
@@ -296,14 +296,13 @@ exports.ensureFutureSchedules = onCall(
 // ===================================================================
 
 /**
- * ✨ --- 階段一：總表同步器 --- ✨
- * @name syncMasterScheduleToFuture
- * @description 當總表被更新時觸發。簡單地用總表規則覆蓋未來排程，然後發布訊息觸發階段二。
+ * ✨ --- 流程一：總表同步器 (完全覆蓋版) --- ✨
+ * @description 當總表被更新時觸發。用總表規則【完全覆蓋】未來排程，然後發布訊息觸發流程三。
  */
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
-    logger.info('🚀 [Sync - Stage 1] 總表同步器啟動！')
+    logger.info('🚀 [Flow 1] 總表同步器啟動 (完全覆蓋模式)！')
 
     if (!event.data.after.exists) {
       logger.info('✅ MASTER_SCHEDULE 文件已被刪除，無需執行同步。')
@@ -311,15 +310,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     }
 
     try {
-      const masterScheduleRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
-      const masterScheduleDoc = await masterScheduleRef.get()
-
-      if (!masterScheduleDoc.exists) {
-        logger.warn('⚠️ MASTER_SCHEDULE 文件不存在，同步中止。')
-        return null
-      }
-
-      const masterRules = masterScheduleDoc.data().schedule || {}
+      const masterRules = event.data.after.data().schedule || {}
       logger.info(`[Sync] 成功讀取 ${Object.keys(masterRules).length} 條最新規則。`)
       logger.info(`[Sync] 開始對「明天起」的60天排程進行基礎覆蓋...`)
 
@@ -342,38 +333,41 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
               lastSynced: FieldValue.serverTimestamp(),
             })
           } else {
-            transaction.update(dailyDocRef, {
-              schedule: dailySchedule,
-              lastSynced: FieldValue.serverTimestamp(),
-            })
+            // 使用 set({ merge: true }) 來更新 schedule 欄位，同時保留其他欄位
+            // 這等效於 update，但在文件可能不存在時更安全
+            transaction.set(
+              dailyDocRef,
+              {
+                schedule: dailySchedule,
+                lastSynced: FieldValue.serverTimestamp(),
+              },
+              { merge: true },
+            )
           }
         })
         promises.push(updatePromise)
       }
 
       await Promise.all(promises)
-      logger.info('✅ [Sync - Stage 1] 總表基礎排程同步完成！')
+      logger.info('✅ [Flow 1] 總表基礎排程同步完成！')
 
-      // ✨ 核心：發布 Pub/Sub 訊息，觸發階段二
       const topicName = 'resync-exceptions'
       await pubsub.topic(topicName).publishMessage({
         data: Buffer.from(
           JSON.stringify({ reason: `Master schedule updated at ${new Date().toISOString()}` }),
         ),
       })
-      logger.info(`✅ [Sync - Stage 1] 已發布訊息到 ${topicName} 主題，觸發例外校正。`)
+      logger.info(`✅ [Flow 1] 已發布訊息，觸發流程三 (例外校正)。`)
     } catch (error) {
-      logger.error('❌ [Sync - Stage 1] 在同步 MASTER_SCHEDULE 時發生錯誤:', error)
+      logger.error('❌ [Flow 1] 在同步 MASTER_SCHEDULE 時發生錯誤:', error)
     }
     return null
   },
 )
 
-// --- 例外處理 (Dispatcher-Worker) 模式 ---
-
 /**
- * @name handleNewExceptionRequest (調度員)
- * @description 監聽新的例外申請，驗證後將其拆分為每日任務。
+ * ✨ --- 流程二 A：例外申請調度員 --- ✨
+ * @description 監聽【新的】例外申請，將其拆分為每日任務。
  */
 exports.handleNewExceptionRequest = onDocumentCreated(
   'schedule_exceptions/{exceptionId}',
@@ -457,8 +451,8 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 )
 
 /**
- * @name processExceptionTask (工人)
- * @description 監聽每日任務，執行具體的排班修改操作。
+ * ✨ --- 流程二 B：例外任務工人 --- ✨
+ * @description 監聽【新的】每日任務，執行具體的排班修改。
  */
 exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', async (event) => {
   const taskDoc = event.data
@@ -485,6 +479,7 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
     await db.runTransaction(async (transaction) => {
       if (taskData.type === 'MOVE') {
         const { from, to, patientId, patientName, targetDate } = taskData
+        // 移除來源
         const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
         const sourceScheduleKey = getScheduleKey(from.bedNum, from.shiftCode)
         transaction.update(sourceScheduleRef, {
@@ -492,12 +487,13 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
         })
         logger.info(`[MOVE] 準備從 ${from.sourceDate} 移除 ${sourceScheduleKey}`)
 
+        // 新增目標
         const targetScheduleRef = db.collection('schedules').doc(targetDate)
         const targetScheduleKey = getScheduleKey(to.bedNum, to.shiftCode)
         transaction.set(
           targetScheduleRef,
           {
-            schedule: { [targetScheduleKey]: { patientId, patientName } },
+            schedule: { [targetScheduleKey]: { patientId, patientName, manualNote: `(例外調班)` } },
           },
           { merge: true },
         )
@@ -557,17 +553,19 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 })
 
 /**
- * ✨ --- 階段二：例外校正器 --- ✨
+ * ✨ --- 流程三：例外校正器 (v4 - 修正交易讀寫順序版) --- ✨
  * @name reapplyAllActiveExceptions
- * @description 監聽 Pub/Sub 訊息，遍歷所有有效例外並重新應用它們，確保例外優先級。
+ * @description 監聽 Pub/Sub 訊息，智慧地重新應用所有有效例外，並遵守交易規則。
  */
 exports.reapplyAllActiveExceptions = onMessagePublished(
   { topic: 'resync-exceptions', timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
-    logger.info('🚀 [ExceptionRe-applier - Stage 2] 收到校正請求，開始重新應用所有有效例外...')
+    logger.info('🚀 [Flow 3 v4] 例外校正器啟動 (修正交易讀寫順序)！')
 
     try {
-      // 步驟 1: 查詢所有還在有效期內的例外
+      const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
+      const masterRules = masterScheduleDoc.exists ? masterScheduleDoc.data().schedule || {} : {}
+
       const today = formatDateForQuery(new Date())
       const exceptionsQuery = db
         .collection('schedule_exceptions')
@@ -575,69 +573,116 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
         .where('endDate', '>=', today)
 
       const exceptionsSnapshot = await exceptionsQuery.get()
+
       if (exceptionsSnapshot.empty) {
-        logger.info('✅ [ExceptionRe-applier] 沒有需要重新應用的有效例外。')
+        logger.info('✅ [Flow 3 v4] 沒有需要重新應用的有效例外。')
         return null
       }
 
       const exceptions = exceptionsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-      logger.info(`[ExceptionRe-applier] 找到 ${exceptions.length} 筆例外需要校正。`)
-
-      // 步驟 2: 遍歷每一個例外，並執行修改
-      // 這裡使用批量寫入(Batched Writes)來提高效率和可靠性
-      const batch = db.batch()
+      logger.info(`[Flow 3 v4] 找到 ${exceptions.length} 筆例外需要校正。`)
 
       for (const ex of exceptions) {
-        if (ex.type === 'MOVE') {
-          // 移除來源的操作實際上在工人函式執行時就已經完成了。
-          // 校正器的主要任務是確保「目標」存在。
-          // 為了冪等性，我們還是可以執行移除，即使它可能已經被移除了。
-          const sourceScheduleRef = db.collection('schedules').doc(ex.from.sourceDate)
-          const sourceKey = getScheduleKey(ex.from.bedNum, ex.from.shiftCode)
-          // 注意：批量更新不能讀取，所以我們不能像工人函式那樣動態找key。
-          // 這裡依賴於例外申請中的from資訊是準確的。
-          batch.update(sourceScheduleRef, { [`schedule.${sourceKey}`]: FieldValue.delete() })
+        // 🔥 核心修正：將 runTransaction 移到迴圈內部，確保每個例外的交易是獨立的
+        await db.runTransaction(async (transaction) => {
+          if (ex.type === 'MOVE') {
+            const { from, to, patientId, patientName } = ex
+            const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
+            const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
 
-          // 新增目標
-          const targetScheduleRef = db.collection('schedules').doc(ex.to.goalDate)
-          const targetKey = getScheduleKey(ex.to.bedNum, ex.to.shiftCode)
-          batch.set(
-            targetScheduleRef,
-            {
-              schedule: { [targetKey]: { patientId: ex.patientId, patientName: ex.patientName } },
-            },
-            { merge: true },
-          )
-        } else if (ex.type === 'SUSPEND') {
-          // 對於暫停，我們需要為區間內的每一天都執行操作。
-          // 這部分因為需要先讀取才能確定要刪除哪個key，所以不能用單一的batch。
-          // 我們將其保留為獨立的異步操作。
-          const start = new Date(ex.startDate + 'T00:00:00Z')
-          const end = new Date(ex.endDate + 'T00:00:00Z')
-          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const dateStr = formatDateForQuery(new Date(d))
-            const scheduleRef = db.collection('schedules').doc(dateStr)
+            let isConflictWithMaster = false
+            let conflictPatientId = null
 
-            const doc = await scheduleRef.get()
-            if (doc.exists) {
-              const scheduleData = doc.data().schedule || {}
-              for (const key in scheduleData) {
-                if (scheduleData[key].patientId === ex.patientId) {
-                  // 為了避免與上面的 batch 衝突，這裡我們直接執行 update
-                  await scheduleRef.update({ [`schedule.${key}`]: FieldValue.delete() })
-                  break
-                }
+            for (const masterPatientId in masterRules) {
+              if (masterPatientId === patientId) continue
+              const rule = masterRules[masterPatientId]
+              const ruleKey = getScheduleKey(rule.bedNum, SHIFTS[rule.shiftIndex])
+              const ruleFreqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
+              const targetDate = new Date(to.goalDate + 'T00:00:00Z')
+              const targetDayIndex = targetDate.getDay() === 0 ? 6 : targetDate.getDay() - 1
+
+              if (ruleKey === targetKey && ruleFreqDays.includes(targetDayIndex)) {
+                isConflictWithMaster = true
+                conflictPatientId = masterPatientId
+                break
               }
             }
+
+            if (isConflictWithMaster) {
+              logger.error(
+                `❌ [Flow 3 v4] 衝突！無法應用例外 ${ex.id}。目標床位已被 ${conflictPatientId} 預定。`,
+              )
+              const exceptionRef = db.collection('schedule_exceptions').doc(ex.id)
+              transaction.update(exceptionRef, {
+                status: 'error',
+                errorMessage: `與總表衝突：床位已被 ${conflictPatientId} 預定`,
+              })
+            } else {
+              const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
+              const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
+              transaction.update(sourceScheduleRef, {
+                [`schedule.${sourceKey}`]: FieldValue.delete(),
+              })
+
+              const newSlotData = { patientId, patientName, manualNote: `(例外調班)` }
+              transaction.set(
+                targetScheduleRef,
+                { schedule: { [targetKey]: newSlotData } },
+                { merge: true },
+              )
+            }
+          } else if (ex.type === 'SUSPEND') {
+            // 🔥 核心修正：分離 SUSPEND 的讀取和寫入階段
+
+            // --- 讀取階段 ---
+            const suspendRefsAndKeys = []
+            const start = new Date(ex.startDate + 'T00:00:00Z')
+            const end = new Date(ex.endDate + 'T00:00:00Z')
+
+            // 1. 先收集所有需要讀取的文件引用
+            const refsToGet = []
+            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+              const dateStr = formatDateForQuery(new Date(d))
+              refsToGet.push(db.collection('schedules').doc(dateStr))
+            }
+
+            // 2. 一次性讀取所有文件
+            const docs = await transaction.getAll(...refsToGet)
+
+            // 3. 處理讀取到的結果，找出需要刪除的 key
+            docs.forEach((doc, index) => {
+              if (doc.exists) {
+                const scheduleData = doc.data().schedule || {}
+                for (const key in scheduleData) {
+                  if (scheduleData[key].patientId === ex.patientId) {
+                    suspendRefsAndKeys.push({ ref: doc.ref, keyToDelete: key })
+                    break
+                  }
+                }
+              }
+            })
+
+            // --- 寫入階段 ---
+            // 4. 根據前面收集到的資訊，執行所有寫入操作
+            if (suspendRefsAndKeys.length > 0) {
+              logger.info(
+                `[Flow 3 v4] SUSPEND: 準備為病人 ${ex.patientId} 刪除 ${suspendRefsAndKeys.length} 筆排班。`,
+              )
+              suspendRefsAndKeys.forEach(({ ref, keyToDelete }) => {
+                transaction.update(ref, { [`schedule.${keyToDelete}`]: FieldValue.delete() })
+              })
+            } else {
+              logger.info(
+                `[Flow 3 v4] SUSPEND: 在指定區間內未找到病人 ${ex.patientId} 的排班，無需操作。`,
+              )
+            }
           }
-        }
+        })
       }
 
-      // 提交所有 MOVE 類型的批量寫入
-      await batch.commit()
-      logger.info('✅ [ExceptionRe-applier - Stage 2] 所有例外校正完成！')
+      logger.info('✅ [Flow 3 v4] 所有例外智慧校正完成！')
     } catch (error) {
-      logger.error('❌ [ExceptionRe-applier - Stage 2] 執行例外校正時發生嚴重錯誤:', error)
+      logger.error('❌ [Flow 3 v4] 執行例外校正時發生嚴重錯誤:', error)
     }
     return null
   },

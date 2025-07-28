@@ -1,17 +1,14 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (加入 isPageLocked 權限控制) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (智慧衝突處理版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
       <div class="header-toolbar">
-        <!-- 👇 新增一個 div 將標題和按鈕包裹起來 -->
         <div class="toolbar-left">
           <h1 class="page-title">排程例外管理中心</h1>
-          <!-- ✨ 權限修改: 加入 :disabled="isPageLocked" -->
           <button class="btn btn-primary" @click="openCreateDialog" :disabled="isPageLocked">
             <i class="fas fa-plus-circle"></i> 新增例外申請
           </button>
         </div>
-        <!-- 👆 結束新增的 div -->
       </div>
       <p class="page-description">
         此處用於處理「臨時調班」或「區間暫停排程」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
@@ -41,15 +38,15 @@
           <tbody>
             <tr v-for="ex in exceptions" :key="ex.id" :class="`status-${ex.status}`">
               <td>
-                <span class="status-badge" :class="`status-${ex.status}`">{{
-                  statusMap[ex.status] || '未知'
-                }}</span>
+                <span class="status-badge" :class="`status-${ex.status}`">
+                  {{ statusMap[ex.status] || '未知' }}
+                </span>
               </td>
               <td>{{ ex.patientName }}</td>
               <td>
-                <span class="type-badge" :class="`type-${ex.type}`">{{
-                  typeMap[ex.type] || '未知'
-                }}</span>
+                <span class="type-badge" :class="`type-${ex.type}`">
+                  {{ typeMap[ex.type] || '未知' }}
+                </span>
               </td>
               <td>
                 {{ ex.startDate }}
@@ -62,11 +59,14 @@
                     {{ ex.from.shiftCode }}班)
                   </div>
                   <div>
-                    <!-- ✨ 核心修正：讀取 'to' 物件中的 'goalDate' -->
                     <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
                     {{ ex.to.shiftCode }}班)
                   </div>
-                  <small>原因: {{ ex.reason }}</small>
+                  <!-- 🔥 新增：顯示錯誤訊息 -->
+                  <small v-if="ex.status === 'error'" class="error-message"
+                    >錯誤: {{ ex.errorMessage }}</small
+                  >
+                  <small v-else>原因: {{ ex.reason }}</small>
                 </div>
                 <div v-else>
                   {{ ex.reason }}
@@ -74,7 +74,6 @@
               </td>
               <td>{{ formatTimestamp(ex.createdAt) }}</td>
               <td>
-                <!-- ✨ 權限修改: 加入 :disabled="... || isPageLocked" -->
                 <button
                   class="btn btn-danger btn-sm"
                   @click="confirmDeleteException(ex.id)"
@@ -89,12 +88,13 @@
       </div>
     </main>
 
-    <!-- ✨ 權限修改: 傳遞 is-page-locked prop -->
+    <!-- 🔥 核心修改：傳遞 initial-data prop -->
     <ExceptionCreateDialog
       :is-visible="isCreateDialogVisible"
       :all-patients="allPatients"
       :is-page-locked="isPageLocked"
-      @close="isCreateDialogVisible = false"
+      :initial-data="exceptionToReEdit"
+      @close="closeCreateDialog"
       @submit="handleCreateException"
     />
 
@@ -105,12 +105,28 @@
       @confirm="executeDeleteException"
       @cancel="isConfirmDeleteVisible = false"
     />
+
+    <!-- 🔥 新增：衝突提示 Dialog -->
+    <AlertDialog
+      :is-visible="isConflictAlertVisible"
+      title="排班衝突！"
+      :message="conflictAlertMessage"
+      @confirm="handleConflictAlertConfirm"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  updateDoc,
+} from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
@@ -118,6 +134,7 @@ import { useAuth } from '@/composables/useAuth.js'
 
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue' // 引入 AlertDialog
 
 const exceptionsApi = ApiManager('schedule_exceptions')
 const memosApi = ApiManager('memos')
@@ -130,10 +147,13 @@ const exceptionToDeleteId = ref(null)
 
 let unsubscribe = null
 
-// ✨ --- 新增權限控制 --- ✨
 const auth = useAuth()
-// 使用和您其他頁面一樣的權限判斷 (canEditSchedules 內部是判斷 editor 或 admin)
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
+
+// 🔥 新增：衝突處理相關狀態
+const exceptionToReEdit = ref(null)
+const isConflictAlertVisible = ref(false)
+const conflictAlertMessage = ref('')
 
 const statusMap = {
   pending: '待處理',
@@ -141,6 +161,7 @@ const statusMap = {
   applied: '已生效',
   error: '錯誤',
   expired: '已過期',
+  conflict_requires_resolution: '衝突待解決', // 新增狀態
 }
 
 const typeMap = {
@@ -160,26 +181,50 @@ function formatTimestamp(ts) {
 }
 
 function openCreateDialog() {
-  if (isPageLocked.value) return // ✨ 增加一道防線
+  if (isPageLocked.value) return
+  exceptionToReEdit.value = null // 確保是新增模式
   isCreateDialogVisible.value = true
 }
 
-// ✨↓↓↓【核心修改點：將 handleCreateException 替換為此版本】↓↓↓
+function closeCreateDialog() {
+  isCreateDialogVisible.value = false
+  // 延遲一點時間再清理，避免 Dialog 在關閉動畫時內容突然消失
+  setTimeout(() => {
+    exceptionToReEdit.value = null
+  }, 300)
+}
+
 async function handleCreateException(formData) {
   try {
-    const dataToSave = {
-      ...formData,
-      status: 'pending',
-      createdAt: new Date(),
+    let dataToSave
+    let isUpdating = !!formData.id // 判斷是新增還是更新
+
+    if (isUpdating) {
+      // 更新模式
+      const originalExceptionRef = doc(db, 'schedule_exceptions', formData.id)
+      dataToSave = {
+        ...formData,
+        status: 'pending', // 重置狀態為 pending，讓後端重新處理
+        updatedAt: new Date(),
+        conflictDetails: null, // 清除衝突標記
+        errorMessage: '',
+      }
+      await updateDoc(originalExceptionRef, dataToSave)
+      console.log(`✅ 衝突已解決並重新提交例外申請: ${formData.id}`)
+    } else {
+      // 新增模式
+      dataToSave = {
+        ...formData,
+        status: 'pending',
+        createdAt: new Date(),
+      }
+      await exceptionsApi.save(dataToSave)
+      console.log('✅ 新的例外申請已成功提交！')
     }
 
-    // --- 第一步：儲存例外申請 (與原本相同) ---
-    await exceptionsApi.save(dataToSave)
-    console.log('✅ 例外申請已成功提交！')
-    isCreateDialogVisible.value = false
+    closeCreateDialog()
 
-    // --- 第二步：自動建立對應的備忘錄 ---
-    // 1. 產生備忘錄內容
+    // 自動建立備忘錄 (無論新增或更新都執行)
     let memoContent = ''
     if (formData.type === 'MOVE') {
       const fromShift =
@@ -190,40 +235,31 @@ async function handleCreateException(formData) {
             : '晚'
       const toShift =
         formData.to.shiftCode === 'early' ? '早' : formData.to.shiftCode === 'noon' ? '午' : '晚'
-      memoContent = `【臨時調班】\n原排班: ${formData.from.sourceDate} (${fromShift}班)\n新排班: ${formData.to.goalDate} (${toShift}班)\n原因: ${formData.reason}`
+      memoContent = `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromShift}班)\n新排班: ${formData.to.goalDate} (${toShift}班)\n原因: ${formData.reason}`
     } else if (formData.type === 'SUSPEND') {
       memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}\n原因: ${formData.reason}`
     }
 
-    // 2. 建立備忘錄物件
     if (memoContent) {
       const newMemo = {
         content: memoContent,
         patientId: formData.patientId,
         patientName: formData.patientName,
-        targetDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate, // 使用目標日期或結束日期作為備忘的到期日
+        targetDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
         status: 'pending',
         isResolved: false,
         createdAt: new Date().toISOString(),
       }
-
-      // 3. 儲存備忘錄
       await memosApi.save(newMemo)
       console.log('✅ 已同步建立對應的備忘錄！')
-
-      // (可選) 您可以在這裡加入一個成功的通知
-      // import { useNotification } from '@/composables/useNotification.js'
-      // const { addNotification } = useNotification()
-      // addNotification(`已為 ${formData.patientName} 新增例外備忘`, 'memo')
     }
   } catch (error) {
     console.error('❌ 提交例外申請或建立備忘失敗:', error)
-    // 在此處可以加入錯誤提示的彈窗
   }
 }
 
 function confirmDeleteException(id) {
-  if (isPageLocked.value) return // ✨ 增加一道防線
+  if (isPageLocked.value) return
   exceptionToDeleteId.value = id
   isConfirmDeleteVisible.value = true
 }
@@ -243,16 +279,46 @@ async function executeDeleteException() {
 
 function isActionDisabled(exception) {
   const today = new Date().toISOString().split('T')[0]
-  return exception.endDate < today || exception.status === 'error'
+  return exception.endDate < today
+}
+
+// 🔥 新增：處理衝突的函式
+function handleConflictAlertConfirm() {
+  isConflictAlertVisible.value = false
+  // 使用 nextTick 確保 alert dialog 關閉後再打開新的 dialog
+  nextTick(() => {
+    isCreateDialogVisible.value = true
+  })
 }
 
 onMounted(async () => {
   try {
     allPatients.value = await optimizedFetchAllPatients()
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
+
+    // 🔥 核心修改：增強 onSnapshot 監聽器
     unsubscribe = onSnapshot(q, (snapshot) => {
+      const newExceptions = []
+      let conflictFound = null
+
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'modified') {
+          const data = change.doc.data()
+          if (data.status === 'conflict_requires_resolution') {
+            conflictFound = { id: change.doc.id, ...data }
+          }
+        }
+      })
+
       exceptions.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
       isLoading.value = false
+
+      if (conflictFound) {
+        console.log(`[ConflictDetector] 偵測到衝突: ${conflictFound.id}`)
+        exceptionToReEdit.value = conflictFound
+        conflictAlertMessage.value = `您為【${conflictFound.patientName}】申請的調班發生衝突！\n\n目標床位已被總表上的其他病人預定。\n\n請點擊「確定」為此病人重新選擇一個空床位。`
+        isConflictAlertVisible.value = true
+      }
     })
   } catch (error) {
     console.error('❌ 載入資料失敗:', error)
@@ -384,6 +450,10 @@ button:disabled {
 .status-expired {
   background-color: #6c757d;
 }
+.status-conflict_requires_resolution {
+  background-color: #fd7e14; /* 醒目的橘色 */
+  color: white;
+}
 
 .type-MOVE {
   background-color: #17a2b8;
@@ -407,7 +477,12 @@ button:disabled {
 }
 .toolbar-left {
   display: flex;
-  align-items: center; /* 讓標題和按鈕垂直置中對齊 */
-  gap: 1.5rem; /* 在標題和按鈕之間增加一些間距 */
+  align-items: center;
+  gap: 1.5rem;
+}
+/* 🔥 新增錯誤訊息樣式 */
+.error-message {
+  color: #dc3545;
+  font-weight: bold;
 }
 </style>
