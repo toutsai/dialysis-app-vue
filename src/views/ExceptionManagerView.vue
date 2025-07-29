@@ -200,15 +200,11 @@ async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id // 判斷是新增還是解決衝突
 
-    // 🔥 核心修正：如果是解決衝突，我們先【刪除】舊的、有衝突的申請
-    // 這個操作是被您的 "allow delete: if isEditor()" 規則所允許的
     if (isUpdating) {
       await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
       console.log(`[Re-Submit] 已刪除舊的衝突申請: ${formData.id}`)
     }
 
-    // 🔥 核心修正：無論是新增還是解決衝突，我們都執行【創建】一個全新的申請
-    // 這個操作是被您的 "allow create: if isEditor()" 規則所允許的
     const dataToSave = {
       patientId: formData.patientId,
       patientName: formData.patientName,
@@ -218,15 +214,24 @@ async function handleCreateException(formData) {
       endDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
       from: formData.type === 'MOVE' ? formData.from : null,
       to: formData.type === 'MOVE' ? formData.to : null,
-      status: 'pending', // 總是從 pending 開始
-      createdAt: new Date(), // 總是創建一個新的時間戳
+      status: 'pending',
+      createdAt: new Date(),
     }
     await exceptionsApi.save(dataToSave)
     console.log('✅ 新的/已修正的例外申請已成功提交！')
 
     closeCreateDialog()
 
-    // (自動建立備忘錄的邏輯保持不變)
+    // --- ✨ 核心修正：自動建立備忘錄的邏輯 ---
+
+    // ✨ 1. 新增一個輔助函式，專門用來格式化床位顯示
+    const getBedDisplay = (bedNum) => {
+      if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
+        return `外圍 ${bedNum.split('-')[1]}`
+      }
+      return `${bedNum}床`
+    }
+
     let memoContent = ''
     if (formData.type === 'MOVE') {
       const fromShift =
@@ -237,7 +242,13 @@ async function handleCreateException(formData) {
             : '晚'
       const toShift =
         formData.to.shiftCode === 'early' ? '早' : formData.to.shiftCode === 'noon' ? '午' : '晚'
-      memoContent = `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromShift}班)\n新排班: ${formData.to.goalDate} (${toShift}班)\n原因: ${formData.reason}`
+
+      // ✨ 2. 使用輔助函式取得床位顯示文字
+      const fromBedDisplay = getBedDisplay(formData.from.bedNum)
+      const toBedDisplay = getBedDisplay(formData.to.bedNum)
+
+      // ✨ 3. 產生包含完整床位資訊的備忘錄內容
+      memoContent = `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay} / ${fromShift}班)\n新排班: ${formData.to.goalDate} (${toBedDisplay} / ${toShift}班)\n原因: ${formData.reason}`
     } else if (formData.type === 'SUSPEND') {
       memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}\n原因: ${formData.reason}`
     }

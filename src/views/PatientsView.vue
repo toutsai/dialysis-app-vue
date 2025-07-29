@@ -1,7 +1,8 @@
 <!-- 檔案路徑: src/views/PatientsView.vue (流程優化版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { where } from 'firebase/firestore'
+import { doc, getDoc, updateDoc } from 'firebase/firestore' // ✨ 1. 引入必要的 firestore 函式
+import { db } from '@/composables/useFirebase.js' // ✨ 2. 引入 db 實例
 
 import {
   fetchAllPatients as optimizedFetchAllPatients,
@@ -11,8 +12,8 @@ import {
   saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
 
-// ✨ 只引入必要的總床位表操作
-import { removePatientFromBaseSchedule } from '@/services/baseScheduleService.js'
+// ✨ 3. 不再使用這個函式，因為它的行為不符合我們的預期 (只清除了每日排程，未動總表)
+// import { removePatientFromBaseSchedule } from '@/services/baseScheduleService.js'
 
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
@@ -191,6 +192,49 @@ const patientStats = computed(() => {
 })
 
 // ==========================================================
+// 核心修正：新的、真正能修改總表的函式
+// ==========================================================
+/**
+ * 直接從 base_schedules/MASTER_SCHEDULE 文件中移除指定病人的排班規則。
+ * 這是觸發後端自動同步的唯一正確方法。
+ * @param {string} patientId 要移除的病人 ID
+ */
+async function removeRuleFromMasterSchedule(patientId) {
+  if (!patientId) {
+    console.error('[removeRuleFromMasterSchedule] 無效的 patientId')
+    return
+  }
+  const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
+  try {
+    const docSnap = await getDoc(masterScheduleRef)
+    if (!docSnap.exists()) {
+      console.warn('[removeRuleFromMasterSchedule] MASTER_SCHEDULE 文件不存在，無需操作。')
+      return
+    }
+    const scheduleData = docSnap.data()
+    // 確保 schedule 屬性存在
+    const masterRules = scheduleData.schedule || {}
+
+    // 檢查病人是否真的在總表規則中
+    if (masterRules[patientId]) {
+      // 從物件中刪除該病人的鍵值對
+      delete masterRules[patientId]
+      // 將修改後、不含該病人的物件寫回資料庫
+      await updateDoc(masterScheduleRef, {
+        schedule: masterRules,
+      })
+      console.log(`✅ [removeRuleFromMasterSchedule] 已成功從總表中移除病人 ${patientId} 的規則。`)
+    } else {
+      console.log(`[removeRuleFromMasterSchedule] 病人 ${patientId} 不在總表規則中，無需移除。`)
+    }
+  } catch (error) {
+    console.error(`❌ [removeRuleFromMasterSchedule] 從總表移除病人規則時失敗:`, error)
+    // 拋出錯誤，讓呼叫它的函式可以捕獲並處理
+    throw new Error('從總床位表移除規則失敗，請檢查權限或網路。')
+  }
+}
+
+// ==========================================================
 // 全局智慧搜尋與新增/復原功能
 // ==========================================================
 
@@ -259,21 +303,16 @@ async function handleGlobalSearch(query) {
       )
     }
   } else {
-    // ✨【核心修改】✨
-    // 原本：跳出確認對話框 showConfirm(...)
-    // 現在：直接準備資料並開啟 PatientFormModal
     console.log(`找不到病人 "${searchTerm}"，直接開啟新增視窗。`)
     const newPatientTemplate = { diseases: [] }
-    // 智慧判斷輸入的是姓名還是病歷號
     if (/^\d{6,}$/.test(searchTerm)) {
-      // 如果是6位以上純數字，當作病歷號
       newPatientTemplate.medicalRecordNumber = searchTerm
     } else {
       newPatientTemplate.name = searchTerm
     }
 
     editingPatient.value = newPatientTemplate
-    modalType.value = activeTab.value // 使用當前分頁的類型
+    modalType.value = activeTab.value
     isModalVisible.value = true
   }
 }
@@ -314,7 +353,8 @@ async function restoreAndTransferPatient(patientId, targetStatus) {
     }
     await optimizedSavePatientHistory(historyEntry)
 
-    await removePatientFromBaseSchedule(patientId)
+    // ✨ 核心修正：呼叫新的、正確的函式
+    await removeRuleFromMasterSchedule(patientId)
 
     await fetchAllPatients()
     addNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
@@ -355,43 +395,44 @@ function exportDeletedPatients() {
 
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
 
+  // --- 編輯現有病人 ---
   if (patientData.id) {
     const originalPatient = editingPatient.value
     const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
     const isNowDiscontinued = patientData.isDiscontinued
 
+    // 處理中止透析的特殊情況
     if (!wasDiscontinuedBefore && isNowDiscontinued) {
-      confirmDialogTitle.value = '確認中止透析'
-      confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並從總床位表中移除其排班規則嗎？此操作會自動清除所有未來排程。`
-      confirmAction.value = async () => {
-        try {
-          closeModal()
-          const updateData = {
-            isDiscontinued: true,
-            discontinuedDate:
-              patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+      showConfirm(
+        '確認中止透析',
+        `您確定要將「${patientData.name}」標記為中止透析，並從總床位表中移除其排班規則嗎？此操作會自動清除所有未來排程。`,
+        async () => {
+          try {
+            closeModal()
+            const updateData = {
+              isDiscontinued: true,
+              discontinuedDate:
+                patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+            }
+            await optimizedUpdatePatient(patientData.id, updateData)
+            // ✨ 核心修正：呼叫新的、正確的函式
+            await removeRuleFromMasterSchedule(patientData.id)
+            await fetchAllPatients()
+            addNotification(`中止透析：${patientData.name}`, 'patient')
+          } catch (err) {
+            console.error('中止透析操作失敗:', err)
+            showAlert('操作失敗', err.message || '中止透析操作失敗！')
           }
-          await optimizedUpdatePatient(patientData.id, updateData)
-          await removePatientFromBaseSchedule(patientData.id)
-          await fetchAllPatients()
-          addNotification(`中止透析：${patientData.name}`, 'patient')
-        } catch (err) {
-          console.error('中止透析操作失敗:', err)
-          alertDialogTitle.value = '操作失敗'
-          alertDialogMessage.value = err.message || '中止透析操作失敗！'
-          isAlertDialogVisible.value = true
-        }
-      }
-      isConfirmDialogVisible.value = true
+        },
+      )
       return
     }
 
+    // 一般編輯儲存
     try {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
@@ -401,17 +442,14 @@ async function handleSavePatient(patientData) {
       addNotification(`編輯病人：${patientData.name}`, 'patient')
     } catch (err) {
       console.error('更新病人資料失敗:', err)
-      alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = '更新病人資料失敗！'
-      isAlertDialogVisible.value = true
+      showAlert('操作失敗', '更新病人資料失敗！')
     }
     return
   }
 
+  // --- 新增病人 ---
   if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
-    alertDialogTitle.value = '資料不完整'
-    alertDialogMessage.value = '請務必填寫病歷號。'
-    isAlertDialogVisible.value = true
+    showAlert('資料不完整', '請務必填寫病歷號。')
     return
   }
 
@@ -420,18 +458,21 @@ async function handleSavePatient(patientData) {
   )
 
   if (existingPatient) {
+    // 處理病歷號重複
     const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
     const currentStatusText = existingPatient.isDeleted
       ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
       : statusMap[existingPatient.status] || '未知'
 
-    confirmDialogTitle.value = '病歷號重複'
-    confirmDialogMessage.value = `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`
+    showConfirm(
+      '病歷號重複',
+      `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`,
+      () => handleConflictSelected(),
+    )
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
-    isConfirmDialogVisible.value = true
-    confirmAction.value = () => handleConflictSelected()
   } else {
+    // 正常新增
     try {
       const dataToCreate = { ...patientData }
       dataToCreate.createdAt = new Date().toISOString()
@@ -445,9 +486,7 @@ async function handleSavePatient(patientData) {
         patientName: dataToCreate.name,
         timestamp: new Date().toISOString(),
         eventType: 'CREATE',
-        eventDetails: {
-          status: modalType.value,
-        },
+        eventDetails: { status: modalType.value },
       }
 
       await optimizedSavePatientHistory(historyEntry)
@@ -459,9 +498,7 @@ async function handleSavePatient(patientData) {
       addNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
     } catch (err) {
       console.error('新增病人失敗:', err)
-      alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = '新增病人失敗！'
-      isAlertDialogVisible.value = true
+      showAlert('操作失敗', '新增病人失敗！')
     }
   }
 }
@@ -505,14 +542,10 @@ async function handleConflictSelected() {
       modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
     addNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
 
-    alertDialogTitle.value = '操作成功'
-    alertDialogMessage.value = `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`
-    isAlertDialogVisible.value = true
+    showAlert('操作成功', `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`)
   } catch (err) {
     console.error('轉移更新病人失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '轉移更新病人失敗！'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '轉移更新病人失敗！')
   } finally {
     existingPatientForConflict.value = null
     newPatientDataForConflict.value = null
@@ -521,9 +554,7 @@ async function handleConflictSelected() {
 
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
 
@@ -531,92 +562,94 @@ async function transferPatient(patientId, newStatus) {
   const targetStatusMap = { ipd: '住院', opd: '門診', er: '急診' }
   const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
 
-  confirmDialogTitle.value = `確認轉為${targetStatusText}`
-  confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n💡 如果該病人已排床，建議完成轉移後到「門住總床位表」檢查並調整排床。`
-  confirmAction.value = async () => {
-    try {
-      const originalPatientData = allPatients.value.find((p) => p.id === patientId)
+  showConfirm(
+    `確認轉為${targetStatusText}`,
+    `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n💡 如果該病人已排床，建議完成轉移後到「門住總床位表」檢查並調整排床。`,
+    async () => {
+      try {
+        const originalPatientData = allPatients.value.find((p) => p.id === patientId)
 
-      await optimizedUpdatePatient(patientId, { status: newStatus })
+        await optimizedUpdatePatient(patientId, { status: newStatus })
 
-      const historyEntry = {
-        patientId: patientId,
-        patientName: originalPatientData.name,
-        timestamp: new Date().toISOString(),
-        eventType: 'TRANSFER',
-        eventDetails: {
-          from: originalPatientData.status,
-          to: newStatus,
-        },
+        const historyEntry = {
+          patientId: patientId,
+          patientName: originalPatientData.name,
+          timestamp: new Date().toISOString(),
+          eventType: 'TRANSFER',
+          eventDetails: {
+            from: originalPatientData.status,
+            to: newStatus,
+          },
+        }
+
+        await optimizedSavePatientHistory(historyEntry)
+        await fetchAllPatients()
+
+        addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
+
+        showAlert(
+          '轉移成功',
+          `${patientName} 已成功轉至${targetStatusText}。\n\n📋 如有排床，請到「門住總床位表」確認自動標籤是否正確。`,
+        )
+      } catch (err) {
+        console.error('轉床失敗:', err)
+        showAlert('操作失敗', err.message || '轉床失敗！')
       }
-
-      await optimizedSavePatientHistory(historyEntry)
-      await fetchAllPatients()
-
-      addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
-
-      alertDialogTitle.value = '轉移成功'
-      alertDialogMessage.value = `${patientName} 已成功轉至${targetStatusText}。\n\n📋 如有排床，請到「門住總床位表」確認自動標籤是否正確。`
-      isAlertDialogVisible.value = true
-    } catch (err) {
-      console.error('轉床失敗:', err)
-      alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = err.message || '轉床失敗！'
-      isAlertDialogVisible.value = true
-    }
-  }
-  isConfirmDialogVisible.value = true
+    },
+  )
 }
 
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
-
   if (!patientToDeleteId.value) return
 
   try {
     const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
-    if (patient) {
-      const deletedAt = new Date().toISOString()
-
-      await optimizedUpdatePatient(patientToDeleteId.value, {
-        isDeleted: true,
-        originalStatus: patient.status,
-        deleteReason: reason,
-        deletedAt: deletedAt,
-      })
-
-      const historyEntry = {
-        patientId: patientToDeleteId.value,
-        patientName: patient.name,
-        timestamp: deletedAt,
-        eventType: 'DELETE',
-        eventDetails: {
-          reason: reason,
-          fromStatus: patient.status,
-        },
-      }
-
-      await optimizedSavePatientHistory(historyEntry)
-
-      await removePatientFromBaseSchedule(patientToDeleteId.value)
-
-      await fetchAllPatients()
-
-      addNotification(`刪除病人：${patient.name} (${reason})`, 'patient')
-
-      alertDialogMessage.value = `${patient.name} 已刪除，已從總床位表中移除，未來排程將自動清除。`
-      isAlertDialogVisible.value = true
+    if (!patient) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
     }
+
+    const patientNameForNotification = patient.name
+    const patientIdForActions = patientToDeleteId.value
+
+    // 1. 將病人文件標記為已刪除
+    const deletedAt = new Date().toISOString()
+    await optimizedUpdatePatient(patientIdForActions, {
+      isDeleted: true,
+      originalStatus: patient.status,
+      deleteReason: reason,
+      deletedAt: deletedAt,
+    })
+
+    // 2. 儲存操作歷史
+    const historyEntry = {
+      patientId: patientIdForActions,
+      patientName: patientNameForNotification,
+      timestamp: deletedAt,
+      eventType: 'DELETE',
+      eventDetails: { reason: reason, fromStatus: patient.status },
+    }
+    await optimizedSavePatientHistory(historyEntry)
+
+    // 3. ✨ 核心修正：呼叫新的、正確的函式來修改總表，觸發後端同步
+    await removeRuleFromMasterSchedule(patientIdForActions)
+
+    // 4. 刷新前端列表
+    await fetchAllPatients()
+
+    // 5. 發送通知
+    addNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
+    showAlert(
+      '刪除成功',
+      `${patientNameForNotification} 已被刪除，其在「門急住床位總表」中的規則也已移除。未來排程將由系統自動更新。`,
+    )
   } catch (err) {
-    console.error('刪除失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = err.message || '刪除失敗！'
-    isAlertDialogVisible.value = true
+    console.error('刪除病人流程失敗:', err)
+    showAlert('操作失敗', err.message || '刪除病人時發生錯誤！')
   } finally {
     isDeleteDialogVisible.value = false
     patientToDeleteId.value = null
@@ -625,14 +658,16 @@ async function handleDeleteReasonSelected(reason) {
 
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
 
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
+    if (!patient) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
+    }
     const newStatus = patient.originalStatus || 'opd'
     const statusText = newStatus === 'ipd' ? '住院' : newStatus === 'er' ? '急診' : '門診'
 
@@ -648,32 +683,28 @@ async function restorePatient(patientId) {
       patientName: patient.name,
       timestamp: new Date().toISOString(),
       eventType: 'RESTORE',
-      eventDetails: {
-        restoredTo: newStatus,
-        fromReason: patient.deleteReason,
-      },
+      eventDetails: { restoredTo: newStatus, fromReason: patient.deleteReason },
     }
-
     await optimizedSavePatientHistory(historyEntry)
 
-    await removePatientFromBaseSchedule(patientId)
+    // ✨ 核心修正：復原病人時，也需要確保其規則已從總表移除，讓他回到乾淨的未排班狀態。
+    await removeRuleFromMasterSchedule(patientId)
 
     await fetchAllPatients()
-
     addNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
+    showAlert(
+      '復原成功',
+      `${patient.name} 已復原至 ${statusText} 清單，請至「門住總床位表」為其重新排班。`,
+    )
   } catch (err) {
     console.error('復原失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '復原失敗！'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '復原失敗！')
   }
 }
 
 function openAddPatientModal(type) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   editingPatient.value = { diseases: [] }
@@ -683,9 +714,7 @@ function openAddPatientModal(type) {
 
 function openEditPatientModal(patient) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   editingPatient.value = JSON.parse(JSON.stringify(patient))
@@ -700,9 +729,7 @@ function openHistoryModal(patient) {
 
 function deletePatient(patientId) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   patientToDeleteId.value = patientId
@@ -716,9 +743,7 @@ async function fetchAllPatients() {
     console.log(`✅ [PatientsView] 患者資料載入完成，共 ${allPatients.value.length} 位患者`)
   } catch (err) {
     console.error('❌ [PatientsView] 讀取病人資料失敗:', err)
-    alertDialogTitle.value = '讀取失敗'
-    alertDialogMessage.value = '讀取病人資料失敗！'
-    isAlertDialogVisible.value = true
+    showAlert('讀取失敗', '讀取病人資料失敗！')
   }
 }
 
@@ -798,9 +823,7 @@ function openOrderModal(patient) {
 
 async function handleSaveOrder(orderDataFromModal) {
   if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
-    alertDialogTitle.value = '儲存失敗'
-    alertDialogMessage.value = '找不到有效的病人資訊，請重新操作。'
-    isAlertDialogVisible.value = true
+    showAlert('儲存失敗', '找不到有效的病人資訊，請重新操作。')
     return
   }
 
@@ -849,9 +872,7 @@ async function handleSaveOrder(orderDataFromModal) {
     addNotification(`更新醫囑：${patientName}`, 'patient')
   } catch (error) {
     console.error('❌ [PatientsView] 儲存醫囑失敗:', error)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = `儲存醫囑時發生錯誤: ${error.message}`
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
   }
 }
 

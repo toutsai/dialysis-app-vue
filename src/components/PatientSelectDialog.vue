@@ -1,10 +1,10 @@
-<!-- 檔案路徑: src/components/PatientSelectDialog.vue (功能增強版) -->
+<!-- 檔案路徑: src/components/PatientSelectDialog.vue (最終修正版) -->
 <template>
   <Transition name="dialog-fade">
     <div v-if="isVisible" class="dialog-overlay" @click.self="onCancel">
       <div class="dialog-content">
         <header class="dialog-header">
-          <h2 style="color: red">{{ title }}</h2>
+          <h2>{{ title }}</h2>
           <button class="close-button" @click="onCancel">×</button>
         </header>
         <main class="dialog-body">
@@ -38,7 +38,6 @@
                   <span class="patient-name">{{ patient.name }}</span>
                   <span class="patient-mrn">({{ patient.medicalRecordNumber }})</span>
                 </div>
-                <!-- ✨ 核心修改：顯示頻率和狀態標籤 ✨ -->
                 <div class="patient-tags">
                   <span v-if="patient.freq" class="tag freq-tag">{{ patient.freq }}</span>
                   <span class="tag status-tag" :class="`status-${patient.status}`">
@@ -52,9 +51,32 @@
             </div>
           </div>
         </main>
+        <!-- ✨ 核心修正：修改 dialog 的 footer 按鈕 ✨ -->
         <footer class="dialog-footer">
           <button class="btn btn-secondary" @click="onCancel">取消</button>
-          <button class="btn btn-primary" @click="onConfirm" :disabled="!selectedPatientId">
+          <button
+            v-if="showFillOptions"
+            class="btn btn-info"
+            @click="onConfirm('single')"
+            :disabled="!selectedPatientId"
+          >
+            單次填入
+          </button>
+          <button
+            v-if="showFillOptions"
+            class="btn btn-primary"
+            @click="onConfirm('frequency')"
+            :disabled="!selectedPatientId"
+          >
+            依頻率填入
+          </button>
+          <!-- 如果不需要多選，則顯示原本的單一確認按鈕 -->
+          <button
+            v-if="!showFillOptions"
+            class="btn btn-primary"
+            @click="onConfirm()"
+            :disabled="!selectedPatientId"
+          >
             確認
           </button>
         </footer>
@@ -75,6 +97,11 @@ const props = defineProps({
   patients: {
     type: Array,
     required: true,
+  },
+  // ✨ 新增 prop，用來控制是否顯示「單次/頻率」按鈕
+  showFillOptions: {
+    type: Boolean,
+    default: false,
   },
 })
 
@@ -109,7 +136,7 @@ const statusMap = {
 }
 
 const filteredPatients = computed(() => {
-  let result = props.patients.filter((p) => !p.isDeleted) // 只顯示未刪除的
+  let result = props.patients.filter((p) => !p.isDeleted && !p.isDiscontinued) // 過濾已刪除和已中止
 
   if (filterStatus.value !== 'all') {
     result = result.filter((p) => p.status === filterStatus.value)
@@ -135,9 +162,15 @@ function selectPatient(patientId) {
   selectedPatientId.value = patientId
 }
 
-function onConfirm() {
+// ✨ 核心修正：讓 onConfirm 函式可以接收 fillType
+function onConfirm(fillType = null) {
   if (selectedPatientId.value) {
-    emit('confirm', { patientId: selectedPatientId.value })
+    const payload = { patientId: selectedPatientId.value }
+    // 如果有傳入 fillType，就加到回傳的物件中
+    if (fillType) {
+      payload.fillType = fillType
+    }
+    emit('confirm', payload)
   }
 }
 
@@ -149,7 +182,6 @@ watch(
   () => props.isVisible,
   (val) => {
     if (val) {
-      // 重置狀態
       searchTerm.value = ''
       filterFreq.value = ''
       filterStatus.value = 'all'
@@ -160,6 +192,39 @@ watch(
 </script>
 
 <style scoped>
+/* ✨ 核心修改的 CSS ✨ */
+.dialog-footer {
+  padding: 1.5rem;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+.btn {
+  padding: 0.5rem 1.5rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 1rem;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+.btn-info {
+  background-color: #17a2b8;
+  color: white;
+}
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+/* ... 其他 style 保持不變 ... */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -170,20 +235,18 @@ watch(
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1050; /* 比例外申請 dialog更高一層 */
+  z-index: 1050;
 }
-
 .dialog-content {
   background: white;
   border-radius: 8px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
   width: 90%;
-  max-width: 600px; /* 稍微加寬以容納更多資訊 */
+  max-width: 600px;
   display: flex;
   flex-direction: column;
   max-height: 80vh;
 }
-
 .dialog-header {
   padding: 1.5rem;
   border-bottom: 1px solid #e9ecef;
@@ -191,12 +254,10 @@ watch(
   justify-content: space-between;
   align-items: center;
 }
-
 .dialog-header h2 {
   margin: 0;
   font-size: 1.5rem;
 }
-
 .close-button {
   border: none;
   background: none;
@@ -204,7 +265,6 @@ watch(
   cursor: pointer;
   color: #6c757d;
 }
-
 .dialog-body {
   padding: 1.5rem;
   overflow-y: auto;
@@ -212,14 +272,12 @@ watch(
   flex-direction: column;
   gap: 1rem;
 }
-
 .search-controls {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1rem;
 }
-
 .search-controls input,
 .search-controls select {
   width: 100%;
@@ -229,7 +287,6 @@ watch(
   font-size: 1rem;
   box-sizing: border-box;
 }
-
 .status-filters {
   grid-column: 1 / -1;
   display: flex;
@@ -237,7 +294,6 @@ watch(
   border-radius: 6px;
   overflow: hidden;
 }
-
 .status-filters button {
   flex-grow: 1;
   padding: 0.75rem;
@@ -258,21 +314,18 @@ watch(
 .status-filters button:not(.active):hover {
   background-color: #f8f9fa;
 }
-
 .patient-list-container {
   border: 1px solid #e9ecef;
   border-radius: 6px;
   min-height: 200px;
-  max-height: 400px; /* 設定最大高度以滾動 */
+  max-height: 400px;
   overflow-y: auto;
 }
-
 .patient-list {
   list-style-type: none;
   margin: 0;
   padding: 0;
 }
-
 .patient-list-item {
   display: flex;
   justify-content: space-between;
@@ -282,27 +335,22 @@ watch(
   cursor: pointer;
   transition: background-color 0.2s;
 }
-
 .patient-list-item:last-child {
   border-bottom: none;
 }
-
 .patient-list-item:hover {
   background-color: #f8f9fa;
 }
-
 .patient-list-item.selected {
   background-color: #e7f3ff;
   font-weight: bold;
   color: #0056b3;
 }
-
 .patient-info {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-
 .patient-name {
   font-size: 1.1rem;
 }
@@ -310,8 +358,6 @@ watch(
   color: #6c757d;
   font-size: 0.9rem;
 }
-
-/* ✨ 核心修改的 CSS ✨ */
 .patient-tags {
   display: flex;
   align-items: center;
@@ -326,64 +372,30 @@ watch(
   white-space: nowrap;
 }
 .freq-tag {
-  background-color: #17a2b8; /* Info color */
+  background-color: #17a2b8;
 }
 .status-tag {
   min-width: 24px;
   text-align: center;
 }
 .status-tag.status-opd {
-  background-color: #28a745; /* Success */
+  background-color: #28a745;
 }
 .status-tag.status-ipd {
-  background-color: #dc3545; /* Danger */
+  background-color: #dc3545;
 }
 .status-tag.status-er {
-  background-color: #6f42c1; /* Purple */
+  background-color: #6f42c1;
 }
-
 .empty-state {
   padding: 2rem;
   text-align: center;
   color: #6c757d;
 }
-
-.dialog-footer {
-  padding: 1.5rem;
-  border-top: 1px solid #e9ecef;
-  display: flex;
-  justify-content: flex-end;
-  gap: 1rem;
-}
-
-.btn {
-  padding: 0.5rem 1.5rem;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 1rem;
-}
-
-.btn-primary {
-  background-color: #007bff;
-  color: white;
-}
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background-color: #6c757d;
-  color: white;
-}
-
 .dialog-fade-enter-active,
 .dialog-fade-leave-active {
   transition: opacity 0.3s ease;
 }
-
 .dialog-fade-enter-from,
 .dialog-fade-leave-to {
   opacity: 0;

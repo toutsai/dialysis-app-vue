@@ -65,6 +65,7 @@
               size="compact"
             />
           </div>
+          <!-- ✨ 核心修正 1：將 show-memos 事件綁定到對應的函式 -->
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -106,6 +107,7 @@
     />
     <BedAssignmentDialog
       :is-visible="isProblemSolverDialogVisible"
+      title="智慧排床助理"
       :all-patients="allPatients"
       :bed-layout="bedLayout"
       :schedule-data="weekScheduleMap"
@@ -117,6 +119,7 @@
       @close="isProblemSolverDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
+    <!-- ✨ 核心修正 2：傳入 show-fill-options="true" -->
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
       title="選擇病人排班"
@@ -143,14 +146,14 @@
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"
       :message="confirmDialogMessage"
-      @confirm="handleConflictConfirm"
-      @cancel="handleConflictCancel"
+      @confirm="handleConfirm"
+      @cancel="handleCancel"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue'
+import { ref, onMounted, computed, onUnmounted, provide, nextTick, watch } from 'vue' // ✨ DEBUG: 引入 watch
 import { where } from 'firebase/firestore'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
@@ -162,7 +165,11 @@ import {
 import { useAuth } from '@/composables/useAuth.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
-import { createEmptySlotData, generateAutoNote } from '@/utils/scheduleUtils.js'
+import {
+  createEmptySlotData,
+  generateAutoNote,
+  getUnifiedCellStyle,
+} from '@/utils/scheduleUtils.js'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
@@ -172,7 +179,6 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-import { getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 
 // --- Helper Functions ---
 function getStartOfWeek(date) {
@@ -181,7 +187,6 @@ function getStartOfWeek(date) {
   const diff = d.getDate() - day + (day === 0 ? -6 : 1)
   return new Date(new Date(d.setDate(diff)).setHours(0, 0, 0, 0))
 }
-
 function formatDate(date, withYear = false) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -193,7 +198,6 @@ function formatDate(date, withYear = false) {
   }
   return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
 }
-
 function formatDateForQuery(date) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
@@ -215,7 +219,6 @@ const CLEAR_OPTIONS = [
   { value: 'single', text: '僅清除此床' },
   { value: 'this_week_for_patient', text: '刪除病人本週所有排程' },
 ]
-
 const bedLayout = [
   1,
   2,
@@ -268,7 +271,6 @@ const bedLayout = [
   if (numA !== Infinity || numB !== Infinity) return numA - numB
   return String(a).localeCompare(String(b))
 })
-
 const hepatitisBeds = [31, 32, 33, 35, 36]
 const FREQ_MAP_TO_DAY_INDEX = {
   一三五: [0, 2, 4],
@@ -278,14 +280,6 @@ const FREQ_MAP_TO_DAY_INDEX = {
   三六: [2, 5],
   一五: [0, 4],
   二六: [1, 5],
-}
-const STYLE_PRIORITY = {
-  抽: { class: 'tag-chou' },
-  新: { class: 'tag-new' },
-  住: { class: 'tag-ip' },
-  換: { class: 'tag-huan' },
-  兩: { class: 'tag-liang' },
-  B: { class: 'tag-b' },
 }
 
 // --- Reactive State ---
@@ -315,17 +309,8 @@ const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 const searchQuery = ref('')
 const isSearchFocused = ref(false)
-
-// --- Auth ---
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
-// --- Helper functions for state ---
-function updateLeftOffset(newOffset) {
-  leftOffset.value = newOffset
-}
-function updateColumnWidths(newWidths) {
-  columnWidths.value = newWidths
-}
 
 // --- Computed Properties ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -345,6 +330,42 @@ const weekDates = computed(() =>
     return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateForQuery(d) }
   }),
 )
+const weekScheduleMap = computed(() => {
+  const combinedSchedule = {}
+  weekDates.value.forEach((day, dayIndex) => {
+    const dailyRecord = weekScheduleRecords.value.get(day.queryDate)
+    if (dailyRecord && dailyRecord.schedule) {
+      for (const idInDailySchedule in dailyRecord.schedule) {
+        const slotData = dailyRecord.schedule[idInDailySchedule]
+        if (slotData) {
+          const parts = idInDailySchedule.split('-')
+          let bedNumber, shiftCode
+          if (parts[0] === 'peripheral') {
+            bedNumber = `${parts[0]}-${parts[1]}`
+            shiftCode = parts[parts.length - 1]
+          } else {
+            bedNumber = parts[1]
+            shiftCode = parts[parts.length - 1]
+          }
+          const shiftIndex = SHIFTS.indexOf(shiftCode)
+          if (bedNumber !== undefined && shiftIndex !== -1) {
+            const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
+            combinedSchedule[weeklySlotId] = slotData
+          }
+        }
+      }
+    }
+  })
+  return combinedSchedule
+})
+const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
+  allPatients,
+  weekScheduleMap,
+  FREQ_MAP_TO_DAY_INDEX,
+)
+const problemsToSolve = computed(() => ({
+  '本週未排床病人 (有頻率)': globallyUnassignedPatients.value,
+}))
 const statsToolbarData = computed(() => {
   const baseData = WEEKDAYS.map(() => ({
     counts: {
@@ -364,8 +385,7 @@ const statsToolbarData = computed(() => {
           if (slotData && slotData.patientId && slotData.shiftId) {
             const patient = localPatientMap.get(slotData.patientId)
             if (!patient) continue
-            const shiftIdParts = slotData.shiftId.split('-')
-            const shiftCode = shiftIdParts.length > 0 ? shiftIdParts[shiftIdParts.length - 1] : null
+            const shiftCode = slotData.shiftId
             if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
               const shiftStats = baseData[dayIndex].counts[shiftCode]
               shiftStats.total++
@@ -381,47 +401,7 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
-const weekScheduleMap = computed(() => {
-  const combinedSchedule = {}
-  weekDates.value.forEach((day, dayIndex) => {
-    const dailyRecord = weekScheduleRecords.value.get(day.queryDate)
-    if (dailyRecord && dailyRecord.schedule) {
-      for (const idInDailySchedule in dailyRecord.schedule) {
-        const slotData = dailyRecord.schedule[idInDailySchedule]
-        if (slotData) {
-          const parts = idInDailySchedule.split('-')
-          let bedNumber, shiftCode, shiftIndex
-          if (parts[0] === 'bed' || parts[0] === 'peripheral') {
-            bedNumber = parts[0] === 'peripheral' ? `${parts[0]}-${parts[1]}` : parts[1]
-            shiftCode = parts[parts.length - 1]
-            shiftIndex = SHIFTS.indexOf(shiftCode)
-          } else if (!isNaN(parseInt(parts[0], 10))) {
-            bedNumber = parts[0]
-            shiftIndex = parseInt(parts[1], 10)
-          }
-          if (bedNumber !== undefined && shiftIndex !== -1 && shiftIndex !== undefined) {
-            const weeklySlotId = `${bedNumber}-${shiftIndex}-${dayIndex}`
-            combinedSchedule[weeklySlotId] = slotData
-          }
-        }
-      }
-    }
-  })
-  return combinedSchedule
-})
-
-const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
-  allPatients,
-  weekScheduleMap,
-  FREQ_MAP_TO_DAY_INDEX,
-)
-
-const problemsToSolve = computed(() => {
-  return { '本週未排床病人 (有頻率)': globallyUnassignedPatients.value }
-})
-
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
-
 const searchResults = computed(() => {
   if (!searchQuery.value) return []
   const query = searchQuery.value.toLowerCase()
@@ -434,7 +414,25 @@ const searchResults = computed(() => {
     .slice(0, 5)
 })
 
+// --- ✨ DEBUG STEP 2: 監控 patientWithMemoIds 的變化 ---
+watch(patientWithMemoIds, (newVal) => {
+  console.log('[WeeklyView DEBUG] 2. patientWithMemoIds computed property updated:', newVal)
+  if (newVal.size > 0) {
+    console.log('   ✅ The Set is not empty. Icons should be visible.')
+  } else {
+    console.log('   ⚠️ The Set is empty. No icons will be shown.')
+  }
+})
+
 // --- Functions ---
+function updateLeftOffset(newOffset) {
+  leftOffset.value = newOffset
+}
+
+function updateColumnWidths(newWidths) {
+  columnWidths.value = newWidths
+}
+
 function locatePatientOnGrid(patientId) {
   searchQuery.value = ''
   isSearchFocused.value = false
@@ -452,9 +450,7 @@ function locatePatientOnGrid(patientId) {
     if (targetElement) {
       targetElement.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
       targetElement.classList.add('highlight-flash')
-      setTimeout(() => {
-        targetElement.classList.remove('highlight-flash')
-      }, 2000)
+      setTimeout(() => targetElement.classList.remove('highlight-flash'), 2000)
     }
   })
 }
@@ -465,15 +461,32 @@ function handleSearchBlur() {
   }, 200)
 }
 
+// ✨ DEBUG STEP 3: 在 showPatientMemos 函式中加入日誌 ---
 function showPatientMemos(patientId) {
-  if (!patientId) return
+  console.log(
+    '[WeeklyView DEBUG] 3. showPatientMemos function TRIGGERED with patientId:',
+    patientId,
+  )
+  if (!patientId) {
+    console.error('   ❌ ERROR: patientId is missing!')
+    return
+  }
   const patient = patientMap.value.get(patientId)
-  if (!patient) return
+  if (!patient) {
+    console.error(`   ❌ ERROR: Cannot find patient with ID: ${patientId}`)
+    return
+  }
+
+  console.log(`   - Found patient: ${patient.name}`)
+
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && memo.status === 'pending',
   )
+  console.log(`   - Found ${memosForDialog.value.length} pending memos for this patient.`)
+
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
+  console.log('   ✅ Memo dialog should now be visible.')
 }
 
 function isDateInPast(dayIndex) {
@@ -489,7 +502,6 @@ function setChange() {
   hasUnsavedChanges.value = true
   statusText.value = '有未儲存的變更'
 }
-
 function getDailyShiftIdFromWeekly(weeklySlotId) {
   if (!weeklySlotId) return null
   const parts = weeklySlotId.split('-')
@@ -505,7 +517,6 @@ function getDailyShiftIdFromWeekly(weeklySlotId) {
     dailyShiftId: bed.startsWith('peripheral') ? `${bed}-${shiftCode}` : `bed-${bed}-${shiftCode}`,
   }
 }
-
 function handleSlotUpdate(weeklySlotId, slotData) {
   if (isPageLocked.value) return
   const targetInfo = getDailyShiftIdFromWeekly(weeklySlotId)
@@ -527,9 +538,11 @@ function handleSlotUpdate(weeklySlotId, slotData) {
   const newDailySchedule = { ...oldRecord.schedule }
   if (slotData && slotData.patientId) {
     const patient = patientMap.value.get(slotData.patientId)
+    const shiftCode = dailyShiftId.split('-').pop()
     newDailySchedule[dailyShiftId] = {
       ...createEmptySlotData(dailyShiftId),
       ...slotData,
+      shiftId: shiftCode,
       autoNote: patient ? generateAutoNote(patient) : '',
     }
   } else {
@@ -539,7 +552,6 @@ function handleSlotUpdate(weeklySlotId, slotData) {
   weekScheduleRecords.value = newWeekRecords
   setChange()
 }
-
 function handleGridClick(slotId) {
   const dayIndex = parseInt(slotId.split('-').pop(), 10)
   if (isPageLocked.value || isDateInPast(dayIndex)) {
@@ -556,7 +568,6 @@ function handleGridClick(slotId) {
     isPatientSelectDialogVisible.value = true
   }
 }
-
 function handlePatientSelect({ patientId, fillType }) {
   if (isPageLocked.value || !patientId || !currentSlotId.value) return
   const patient = patientMap.value.get(patientId)
@@ -603,7 +614,6 @@ function handlePatientSelect({ patientId, fillType }) {
   }
   currentSlotId.value = null
 }
-
 function handleAssignBed({ patientId, bedNum, shiftCode }) {
   if (isPageLocked.value) return
   const patient = patientMap.value.get(patientId)
@@ -623,17 +633,12 @@ function handleAssignBed({ patientId, bedNum, shiftCode }) {
         handleSlotUpdate(weeklySlotId, newPatientData)
     }
   })
-  isProblemSolverDialogVisible.value = false // Close dialog after assignment
+  isProblemSolverDialogVisible.value = false
 }
-
 function handleClearSelect(selectedValue) {
   if (isPageLocked.value || !clearingSlotId.value) return
   const patientIdToClear = weekScheduleMap.value[clearingSlotId.value]?.patientId
-  const parts = clearingSlotId.value.split('-')
-  const bed = parts.slice(0, -2).join('-')
-  const shiftIndex = parseInt(parts[parts.length - 2], 10)
-  const startDayIndex = parseInt(parts[parts.length - 1], 10)
-
+  const startDayIndex = parseInt(clearingSlotId.value.split('-').pop(), 10)
   if (isDateInPast(startDayIndex) && selectedValue !== 'this_week_for_patient') {
     alertDialogTitle.value = '操作禁止'
     alertDialogMessage.value = '無法修改已過去的排程。'
@@ -641,12 +646,9 @@ function handleClearSelect(selectedValue) {
     isClearDialogVisible.value = false
     return
   }
-
   if (selectedValue === 'single') {
-    // 僅清除此床
     handleSlotUpdate(clearingSlotId.value, null)
   } else if (selectedValue === 'this_week_for_patient') {
-    // 刪除病人本週所有排程
     if (patientIdToClear) {
       for (const slotId in weekScheduleMap.value) {
         const currentDayIndex = parseInt(slotId.split('-').pop(), 10)
@@ -659,11 +661,9 @@ function handleClearSelect(selectedValue) {
       }
     }
   }
-
   isClearDialogVisible.value = false
   clearingSlotId.value = null
 }
-
 async function saveChangesToCloud() {
   if (isPageLocked.value) {
     alertDialogTitle.value = '操作失敗'
@@ -671,88 +671,58 @@ async function saveChangesToCloud() {
     isAlertDialogVisible.value = true
     return
   }
-  console.log('💾 [WeeklyView] 開始儲存週排班變更...')
   statusText.value = '儲存中...'
-
   try {
     const promises = []
     for (const date of weekDates.value.map((d) => d.queryDate)) {
       const dailyRecord = weekScheduleRecords.value.get(date)
-
       if (dailyRecord) {
         const scheduleToSave = {}
         for (const shiftId in dailyRecord.schedule) {
           const slotData = dailyRecord.schedule[shiftId]
-
           if (slotData && slotData.patientId) {
-            // 🔥↓↓↓【核心修正點：在這裡進行驗證】↓↓↓
-
-            // 1. 準備要儲存的資料
             const cleanSlotData = {
               patientId: slotData.patientId,
               shiftId: slotData.shiftId,
               autoNote: slotData.autoNote || '',
               manualNote: slotData.manualNote || '',
-              nurseTeam: slotData.nurseTeam || null,
-              nurseTeamIn: slotData.nurseTeamIn || null,
-              nurseTeamOut: slotData.nurseTeamOut || null,
-              wardNumber: slotData.wardNumber || null,
             }
-
-            // 2. 檢查 shiftId 是否為 undefined
             if (cleanSlotData.shiftId === undefined) {
-              // 如果發現錯誤，立即停止並報錯
               console.error(
                 `❌ 儲存中止！在日期 ${date} 的排班格 ${shiftId} 中，shiftId 的值是 undefined。`,
                 slotData,
               )
-
               alertDialogTitle.value = '儲存失敗'
               alertDialogMessage.value = `資料錯誤：在 ${date} 的排班中發現無效資料（shiftId 未定義），無法儲存。請重新整理頁面後，再進行操作。`
               isAlertDialogVisible.value = true
               statusText.value = '儲存失敗'
-
-              // 立即返回，終止整個儲存流程
               return
             }
-
-            // 3. 只有通過驗證的資料才能被加入
             scheduleToSave[shiftId] = cleanSlotData
-
-            // 🔥↑↑↑【核心修正點】↑↑↑
           }
         }
-
-        const dataToSave = { date, schedule: scheduleToSave, names: dailyRecord.names || {} }
-
+        const dataToSave = { date, schedule: scheduleToSave }
         if (dailyRecord.id) {
-          console.log(`🔄 [WeeklyView] 更新日期 ${date} 的排程資料`)
           promises.push(optimizedUpdateSchedule(dailyRecord.id, dataToSave))
         } else if (Object.keys(scheduleToSave).length > 0) {
-          console.log(`💾 [WeeklyView] 新增日期 ${date} 的排程資料`)
           promises.push(optimizedSaveSchedule(dataToSave))
         }
       }
     }
-
     await Promise.all(promises)
-
     hasUnsavedChanges.value = false
     statusText.value = '變更已儲存！'
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '週排班已成功儲存！'
     isAlertDialogVisible.value = true
-    console.log('✅ [WeeklyView] 週排班儲存完成')
     await loadAllData()
   } catch (error) {
     console.error('❌ [WeeklyView] 儲存失敗:', error)
     statusText.value = '儲存失敗'
-    alertDialogTitle.value = '操作失敗'
     alertDialogMessage.value = `儲存失敗：${error.message}`
     isAlertDialogVisible.value = true
   }
 }
-
 function onDrop(event, targetWeeklySlotId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -792,7 +762,6 @@ function onDrop(event, targetWeeklySlotId) {
   }
   draggedItem.value = null
 }
-
 function onDragStart(event, slotId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -811,7 +780,6 @@ function onDragStart(event, slotId) {
   draggedItem.value = { source: slotId, data: { ...slotData } }
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function onSidebarDragStart(event, patient) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -827,14 +795,12 @@ function onSidebarDragStart(event, patient) {
   }
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function showConfirmDialog(title, message, onConfirm) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
   confirmAction.value = onConfirm
   isConfirmDialogVisible.value = true
 }
-
 function changeWeek(days) {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換日期嗎？', () => {
@@ -850,7 +816,6 @@ function changeWeek(days) {
     loadAllData()
   }
 }
-
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換到本週嗎？', () => {
@@ -862,7 +827,6 @@ function goToToday() {
     loadAllData()
   }
 }
-
 async function loadAllData() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
@@ -871,23 +835,22 @@ async function loadAllData() {
     const tempDate = new Date(currentWeekStartDate.value)
     tempDate.setDate(tempDate.getDate() + 5)
     const endDate = formatDateForQuery(tempDate)
-
     const [patients, schedules, memos] = await Promise.all([
       optimizedFetchAllPatients(),
       optimizedFetchAllSchedules([where('date', '>=', startDate), where('date', '<=', endDate)]),
       optimizedFetchAllMemos([where('status', '==', 'pending')]),
     ])
-
     allPatients.value = patients.filter((p) => !p.isDeleted)
     activeMemos.value = memos
 
+    // ✨ DEBUG STEP 1: 驗證 Memos 是否已成功載入 ---
+    console.log('[WeeklyView DEBUG] 1. Memos Loaded from Database:', activeMemos.value)
+
     const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
     const newWeekRecords = new Map()
-
     weekDates.value.forEach((day) => {
-      newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {}, names: {} })
+      newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {} })
     })
-
     schedules.forEach((record) => {
       if (record.schedule) {
         for (const shiftId in record.schedule) {
@@ -906,7 +869,6 @@ async function loadAllData() {
       }
       newWeekRecords.set(record.date, record)
     })
-
     weekScheduleRecords.value = newWeekRecords
     statusText.value = '資料已載入'
   } catch (error) {
@@ -914,7 +876,6 @@ async function loadAllData() {
     statusText.value = '讀取失敗'
   }
 }
-
 function handleScheduleUpdate(event) {
   const { date } = event.detail
   if (weekDates.value.some((d) => d.queryDate === date)) {
@@ -922,20 +883,17 @@ function handleScheduleUpdate(event) {
     loadAllData()
   }
 }
-
-function handleConflictConfirm() {
+function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
   }
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
-function handleConflictCancel() {
+function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -950,44 +908,32 @@ function onDragOver(event) {
     }
   }
 }
-
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
-
 function runScheduleCheck() {
   const validationResult = {
     duplicates: [],
     freqMismatch: [],
-    unassignedCrucial: [], // ✨ 新增：重要病人未排班
-    unassignedAll: [], // ✨ 新增：所有未排班病人
+    unassignedCrucial: [],
+    unassignedAll: [],
   }
 
-  // === 1. 檢查同一天同一個姓名不能出現兩次 ===
   for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
     if (isDateInPast(dayIndex)) continue
-
-    const dayPatients = new Map() // patientName -> 出現的位置信息
-
-    // 收集這一天所有的排程
+    const dayPatients = new Map()
     for (const slotId in weekScheduleMap.value) {
       const parts = slotId.split('-')
-
-      // 解析 slotId 格式
       let slotDayIndex, shiftIndex, bedInfo
       if (parts[0] === 'peripheral') {
-        // peripheral-1-0-0 格式
         bedInfo = `外圍床位${parts[1]}`
         shiftIndex = parseInt(parts[2], 10)
         slotDayIndex = parseInt(parts[3], 10)
       } else {
-        // 1-0-0 格式
         bedInfo = `${parts[0]}號床`
         shiftIndex = parseInt(parts[1], 10)
         slotDayIndex = parseInt(parts[2], 10)
       }
-
-      // 只處理當前檢查的日期
       if (slotDayIndex === dayIndex) {
         const slotData = weekScheduleMap.value[slotId]
         if (slotData?.patientId) {
@@ -995,18 +941,14 @@ function runScheduleCheck() {
           if (patient) {
             const shiftNames = { 0: '早班', 1: '午班', 2: '晚班' }
             const shiftName = shiftNames[shiftIndex] || '未知班次'
-
             if (!dayPatients.has(patient.name)) {
               dayPatients.set(patient.name, [])
             }
-
             dayPatients.get(patient.name).push(`${bedInfo}${shiftName}`)
           }
         }
       }
     }
-
-    // 檢查重複
     for (const [patientName, locations] of dayPatients.entries()) {
       if (locations.length > 1) {
         validationResult.duplicates.push(
@@ -1016,49 +958,30 @@ function runScheduleCheck() {
     }
   }
 
-  // === 2. 收集本週已排程的病人ID ===
   const scheduledPatientIds = new Set()
   for (const slotId in weekScheduleMap.value) {
     const slotData = weekScheduleMap.value[slotId]
     if (slotData?.patientId) {
       const dayIndex = parseInt(slotId.split('-').pop(), 10)
       if (!isDateInPast(dayIndex)) {
-        // 只考慮未來的排程
         scheduledPatientIds.add(slotData.patientId)
       }
     }
   }
 
-  console.log('🔍 [WeeklyView] 本週已排程病人ID:', Array.from(scheduledPatientIds))
-
-  // === 3. 檢查重要病人（住院/急診）是否未排班 ===
-  const unassignedCrucialPatients = allPatients.value.filter((p) => {
-    const isUnassigned = !scheduledPatientIds.has(p.id)
-    const isCrucial = (p.status === 'ipd' || p.status === 'er') && !p.isDeleted && !p.isDiscontinued
-
-    if (isCrucial && isUnassigned) {
-      console.log(`⚠️ [WeeklyView] 未排班的重要病人: ${p.name} (${p.status})`)
-    }
-
-    return isCrucial && isUnassigned
-  })
-
-  unassignedCrucialPatients.forEach((p) => {
-    validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`)
-  })
-
-  // === 4. 檢查所有完全沒排到班的病人 ===
-  const unassignedAllPatients = allPatients.value.filter((p) => {
-    const isUnassigned = !scheduledPatientIds.has(p.id)
-    const isActivePatient = !p.isDeleted && !p.isDiscontinued // 排除已刪除或已停止的病人
-
-    if (isActivePatient && isUnassigned) {
-      console.log(`📋 [WeeklyView] 未排班的病人: ${p.name} (${p.status || '未知狀態'})`)
-    }
-
-    return isActivePatient && isUnassigned
-  })
-
+  const unassignedCrucialPatients = allPatients.value.filter(
+    (p) =>
+      !scheduledPatientIds.has(p.id) &&
+      (p.status === 'ipd' || p.status === 'er') &&
+      !p.isDeleted &&
+      !p.isDiscontinued,
+  )
+  unassignedCrucialPatients.forEach((p) =>
+    validationResult.unassignedCrucial.push(`${p.name} (${p.status === 'ipd' ? '住院' : '急診'})`),
+  )
+  const unassignedAllPatients = allPatients.value.filter(
+    (p) => !scheduledPatientIds.has(p.id) && !p.isDeleted && !p.isDiscontinued,
+  )
   unassignedAllPatients.forEach((p) => {
     const statusText =
       p.status === 'opd'
@@ -1071,10 +994,7 @@ function runScheduleCheck() {
     validationResult.unassignedAll.push(`${p.name} (${statusText})`)
   })
 
-  // === 5. 檢查同一周是否有依照頻率排入 ===
-  const patientSchedules = new Map() // patientId -> 排程的日期索引
-
-  // 收集每個病人的排程日期
+  const patientSchedules = new Map()
   for (const slotId in weekScheduleMap.value) {
     const slotData = weekScheduleMap.value[slotId]
     if (slotData?.patientId) {
@@ -1087,17 +1007,12 @@ function runScheduleCheck() {
       }
     }
   }
-
-  // 檢查頻率是否符合
   for (const [patientId, scheduledDays] of patientSchedules.entries()) {
     const patient = patientMap.value.get(patientId)
     if (!patient || !patient.freq || patient.status !== 'opd') continue
-
     const expectedDays = new Set(
       (FREQ_MAP_TO_DAY_INDEX[patient.freq] || []).filter((dayIndex) => !isDateInPast(dayIndex)),
     )
-
-    // 比較實際排程和期望排程
     if (
       scheduledDays.size !== expectedDays.size ||
       ![...scheduledDays].every((day) => expectedDays.has(day))
@@ -1106,50 +1021,31 @@ function runScheduleCheck() {
         .sort()
         .map((d) => WEEKDAYS[d].replace('星期', ''))
         .join('')
-
       const expectedDaysText = [...expectedDays]
         .sort()
         .map((d) => WEEKDAYS[d].replace('星期', ''))
         .join('')
-
       validationResult.freqMismatch.push(
         `${patient.name} (頻率: ${patient.freq}) - 實際排程: 週${actualDaysText || '無'}, 應排程: 週${expectedDaysText}`,
       )
     }
   }
 
-  // === 6. 顯示結果 ===
   let issueMessage = ''
-
-  // ✨ 優先顯示重要病人未排班
   if (validationResult.unassignedCrucial.length > 0) {
     issueMessage +=
       '【重要病人未排班】:\n- ' + validationResult.unassignedCrucial.join('\n- ') + '\n\n'
   }
-
   if (validationResult.duplicates.length > 0) {
     issueMessage += '【重複排班問題】:\n- ' + validationResult.duplicates.join('\n- ') + '\n\n'
   }
-
   if (validationResult.freqMismatch.length > 0) {
     issueMessage += '【頻率不符問題】:\n- ' + validationResult.freqMismatch.join('\n- ') + '\n\n'
   }
-
-  // ✨ 顯示所有未排班病人
   if (validationResult.unassignedAll.length > 0) {
     issueMessage +=
       '【本週完全未排班病人】:\n- ' + validationResult.unassignedAll.join('\n- ') + '\n\n'
   }
-
-  // === 7. 輸出檢查統計 ===
-  console.log('🔍 [WeeklyView] 檢查結果:', {
-    總病人數: allPatients.value.length,
-    本週已排程病人數: scheduledPatientIds.size,
-    重要病人未排班: validationResult.unassignedCrucial.length,
-    所有病人未排班: validationResult.unassignedAll.length,
-    重複排班: validationResult.duplicates.length,
-    頻率不符: validationResult.freqMismatch.length,
-  })
 
   if (issueMessage) {
     alertDialogTitle.value = '排班檢查結果 (僅未來日期)'
@@ -1158,16 +1054,14 @@ function runScheduleCheck() {
     alertDialogTitle.value = '排程檢視完畢'
     alertDialogMessage.value = '✅ 太棒了！未來排程沒有發現問題。'
   }
-
   isAlertDialogVisible.value = true
 }
-
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
   isProblemSolverDialogVisible.value = true
 }
 
-// --- Provide / Lifecycle Hooks ---
+// --- ✨ 核心修正：確保 provide 在頂層被同步呼叫 ---
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
@@ -1176,13 +1070,11 @@ onMounted(() => {
   loadAllData()
   window.addEventListener('schedule-updated', handleScheduleUpdate)
 })
-
 onUnmounted(() => {
   window.removeEventListener('schedule-updated', handleScheduleUpdate)
 })
 </script>
 
-<!-- 將 WeeklyView.vue 文件最末尾的 CSS 部分替換為這個 -->
 <style scoped>
 .search-container {
   position: relative;
