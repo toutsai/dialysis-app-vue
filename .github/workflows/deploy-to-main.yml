@@ -46,4 +46,7 @@ jobs:
           entryPoint: . # 指向專案根目錄
           target: production
           # 您可以根據需要調整要部署的項目，例如 'firestore,hosting'
-          args: --only firestore,functions,hosting
+          args:
+            --only firestore,functions,hosting
+            # 【關鍵修正】: 在這裡加上 channelId
+          channelId: live
