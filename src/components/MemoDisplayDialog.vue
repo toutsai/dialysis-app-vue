@@ -1,7 +1,8 @@
-<!-- 檔案路徑: src/components/MemoDisplayDialog.vue (完整修正版) -->
+<!-- 檔案路徑: src/components/MemoDisplayDialog.vue (最終修正版) -->
 <script setup>
-// 【修正】確保 defineProps 包含了所有從父層傳入的屬性
-defineProps({
+import { ref, watch, onMounted } from 'vue'
+
+const props = defineProps({
   isVisible: Boolean,
   patientName: String,
   memos: {
@@ -9,14 +10,48 @@ defineProps({
     default: () => [],
   },
 })
+
 const emit = defineEmits(['close'])
+
+// 1. 創建一個 ref 來引用 <dialog> 元素
+const dialogRef = ref(null)
+
+// 2. 使用 watch 來監聽 isVisible prop 的變化
+watch(
+  () => props.isVisible,
+  (newValue) => {
+    // 確保 dialogRef.value (即 <dialog> 元素) 已經存在
+    if (dialogRef.value) {
+      if (newValue) {
+        // 當 isVisible 變為 true 時，呼叫 showModal() 來顯示對話框
+        dialogRef.value.showModal()
+      } else {
+        // 當 isVisible 變為 false 時，呼叫 close() 來關閉對話框
+        dialogRef.value.close()
+      }
+    }
+  },
+)
+
+// 當使用者按下 Esc 鍵或點擊背景關閉 dialog 時，
+// <dialog> 元素會觸發一個 'close' 事件。
+// 我們需要監聽這個事件，並通知父元件更新 isVisible 狀態。
+function handleDialogClose() {
+  emit('close')
+}
+
+// 確保在元件掛載後再操作 DOM
+onMounted(() => {
+  if (dialogRef.value) {
+    dialogRef.value.addEventListener('close', handleDialogClose)
+  }
+})
 </script>
 
 <template>
-  <!-- 使用 dialog 元素，並通過 :open 綁定 isVisible prop -->
-  <dialog :open="isVisible" class="memo-dialog" @close="emit('close')">
-    <!-- 增加一個 v-if="isVisible"，確保 dialog 內部只在可見時渲染，
-         這可以避免在 isVisible 為 false 時訪問 patientName 等可能為空的數據 -->
+  <!-- 3. 將 ref 綁定到 <dialog> 元素上，並移除 :open 綁定 -->
+  <dialog ref="dialogRef" class="memo-dialog">
+    <!-- 增加一個 v-if="isVisible"，確保內容只在需要時渲染 -->
     <div v-if="isVisible">
       <header class="dialog-header">
         <h3>{{ patientName }} 的待辦事項</h3>
@@ -44,6 +79,7 @@ const emit = defineEmits(['close'])
 </template>
 
 <style scoped>
+/* style 區塊保持不變 */
 .memo-dialog {
   border: 1px solid #dee2e6;
   border-radius: 12px;
