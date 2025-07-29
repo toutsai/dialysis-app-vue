@@ -1,4 +1,4 @@
-# 檔案路徑: .github/workflows/deploy-to-main.yml (完整修正版)
+# 檔案路徑: .github/workflows/deploy-to-main.yml (最終修正版)
 
 name: Deploy to Production Environment
 
@@ -10,15 +10,12 @@ on:
 jobs:
   build_and_deploy_to_prod:
     runs-on: ubuntu-latest
-    # 【關鍵修正 1】: 將服務帳戶密鑰設定在 Job 層級，讓所有步驟都能使用
+    # 【關鍵修正 1】: 將服務帳戶密鑰設定在 Job 層級
+    # 這個 Secret 必須是「原始 JSON 內容」，而不是 Base64 編碼！
     env:
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}
       VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_PROD }}
-      VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
-      VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID_PROD }}
-      VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_PROD }}
-      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_PROD }}
-      VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_PROD }}
+      # ... 其他 VITE 環境變數 ...
 
     steps:
       - name: Checkout Code
@@ -35,25 +32,18 @@ jobs:
           npm ci
           npm run build
 
-      # 【關鍵修正 2】: 新增部署 Firestore 規則的步驟
-      - name: Deploy Firestore Rules (Production)
-        uses: w9jds/firebase-action@master
-        with:
-          # 這裡我們只部署 Firestore 規則
-          args: deploy --only firestore:rules --project dialysis-schedule-cd36c
-        env:
-          # 這個 action 會自動使用 GOOGLE_APPLICATION_CREDENTIALS 進行驗證
-          # 我們將服務帳戶的 JSON 內容傳遞給它
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}
-          PROJECT_ID: dialysis-schedule-cd36c
-
-      # 【關鍵修正 3】: 修正並簡化部署 Firebase Hosting 的步驟
-      - name: Deploy to Firebase Hosting (Production)
+      # 【關鍵修正 2】: 使用單一的官方 Action 來部署所有東西
+      - name: Deploy to Firebase (Rules, Functions, and Hosting)
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
+          # 將 JSON 內容直接傳遞給這個 Action
+          firebaseServiceAccount: '${{ env.FIREBASE_SERVICE_ACCOUNT }}'
           projectId: dialysis-schedule-cd36c
-          # 使用 target 來指定要部署到 firebase.json 中定義的 'production' 站點
-          # 'channelId: live' 是預設行為，且與 target 一起用可能造成混淆，因此移除
+          # 【重要】: 在這裡指定你要部署的所有東西！
+          # target: 'production' 是指 firebase.json 中 hosting 的 target 名稱
+          # deploy: 'firestore,functions,hosting' 是要執行的部署命令
+          entryPoint: . # 指向專案根目錄
           target: production
+          # 您可以根據需要調整要部署的項目，例如 'firestore,hosting'
+          args: --only firestore,functions,hosting
