@@ -10,7 +10,6 @@ on:
 jobs:
   build_and_deploy_to_prod:
     runs-on: ubuntu-latest
-    # ✨ 步驟 1: 設定生產環境的 VITE 變數
     env:
       VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_PROD }}
       VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
@@ -18,6 +17,8 @@ jobs:
       VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_PROD }}
       VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_PROD }}
       VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_PROD }}
+      # ✨ 核心修正 1：將驗證資訊設定為全局環境變數
+      GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
 
     steps:
       - name: Checkout Code
@@ -29,23 +30,24 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      # ✨ 步驟 2: 同時安裝主專案和 functions 的依賴，並打包前端
-      - name: Install Dependencies and Build
+      - name: Install Dependencies and Build for Production
         run: |
           npm ci
           npm ci --prefix functions
           npm run build
 
-      # ✨ 步驟 3: 將生產環境的服務帳號 secret 寫入一個暫存的 JSON 檔案
-      # 確保您在 GitHub Secrets 中有一個名為 FIREBASE_SERVICE_ACCOUNT_PROD 的 secret
       - name: Authenticate with Firebase Service Account
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}' > /tmp/google-credentials.json
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      # ✨ 步驟 4: 執行生產環境的部署指令，並告訴 CLI 去哪裡找驗證檔案
-      - name: Build and Deploy All to Firebase (Production)
-        run: npm run deploy:prod
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
+      # ✨ 核心修正 2：將 npm-run-all 的指令拆分成獨立的步驟
+      - name: Deploy Firestore Rules (Production)
+        run: firebase deploy --only firestore:rules --project production
+
+      - name: Deploy Cloud Functions (Production)
+        run: firebase deploy --only functions --project production
+
+      - name: Deploy Firebase Hosting (Production)
+        run: firebase deploy --only hosting:production --project production
