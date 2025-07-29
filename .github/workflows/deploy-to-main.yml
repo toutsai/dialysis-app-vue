@@ -37,7 +37,7 @@ jobs:
           npm ci --prefix functions
           npm run build
 
-      # ✨ 核心修正 2：將憑證寫入工作區的檔案中，而不是 /tmp
+      # ✨ 核心修正 2：將憑證寫入工作區的檔案中，而不是/tmp
       - name: Authenticate with Firebase Service Account
         run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}' > ${{ github.workspace }}/google-credentials.json
 
