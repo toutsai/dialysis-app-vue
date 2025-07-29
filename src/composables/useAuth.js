@@ -1,9 +1,18 @@
-// src/composables/useAuth.js (加固、增強日誌、完整無省略版)
+// 檔案路徑: src/composables/useAuth.js (最終修正版 - 實現 Session-Only 登入)
 
 import { ref, computed, readonly, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, functions } from '@/composables/useFirebase.js'
-import { signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth'
+
+// ✨ 1. 從 firebase/auth 引入必要的函式
+import {
+  signInWithCustomToken,
+  onAuthStateChanged,
+  signOut,
+  setPersistence,
+  browserSessionPersistence,
+} from 'firebase/auth'
+
 import { httpsCallable } from 'firebase/functions'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
@@ -15,6 +24,8 @@ const loginLoading = ref(false)
 const logoutLoading = ref(false)
 
 // --- 安全的 localStorage 操作 ---
+// 注意：即使我們改用 sessionStorage，這裡的 currentUser 備份機制可以保留，
+// 作為一種輔助手段，但登入的權威來源將是 Firebase 的 session 狀態。
 const safeLocalStorage = {
   getItem: (key) => {
     try {
@@ -75,11 +86,10 @@ export function useAuth() {
   const router = useRouter()
   const { handleApiCall, validateInput, validationRules } = useErrorHandler()
 
-  // ✨ --- 登入函式 (增強日誌與錯誤處理) --- ✨
+  // ✨ --- 登入函式 (核心修改處) --- ✨
   const login = async (username, password) => {
     loginLoading.value = true
 
-    // 嚴格輸入驗證
     const usernameValidation = validateInput(username, [
       validationRules.required('使用者名稱為必填'),
     ])
@@ -94,9 +104,14 @@ export function useAuth() {
     }
 
     try {
-      // 使用 handleApiCall 包裹整個登入流程
       const result = await handleApiCall(
         async () => {
+          // ✨ 2. 在所有登入操作之前，設定身份驗證的持久性為 SESSION
+          // 這會告訴 Firebase 將登入狀態儲存在 sessionStorage 中。
+          console.log("[Auth] Setting persistence to 'session'...")
+          await setPersistence(auth, browserSessionPersistence)
+          console.log('[Auth] Persistence set successfully.')
+
           // 步驟 1: 呼叫後端 Cloud Function
           console.log(`[Auth] Step 1: Calling 'customLogin' function for user: ${username}`)
           const customLoginFunction = httpsCallable(functions, 'customLogin')
@@ -126,20 +141,19 @@ export function useAuth() {
           errorPrefix: '登入失敗',
           retryCount: 2,
           retryDelay: 1000,
-          showNotification: false, // 不顯示成功或失敗的通知
+          showNotification: false,
         },
       )
       return result
     } catch (error) {
-      // 確保即使 handleApiCall 內部拋錯，也能在這裡捕捉
       console.error('[Auth] Login process failed:', error)
-      throw error // 將錯誤繼續拋出，讓呼叫方(LoginView)可以處理
+      throw error
     } finally {
       loginLoading.value = false
     }
   }
 
-  // ✨ --- 登出函式 (使用 handleApiCall) --- ✨
+  // --- 登出函式 (保持不變) ---
   const logout = async () => {
     logoutLoading.value = true
     try {
@@ -154,7 +168,7 @@ export function useAuth() {
           successMessage: '已安全登出',
           errorPrefix: '登出失敗',
           retryCount: 1,
-          showNotification: false, // 不顯示成功或失敗的通知
+          showNotification: false,
         },
       )
     } finally {
@@ -162,7 +176,7 @@ export function useAuth() {
     }
   }
 
-  // --- 其他輔助函式 ---
+  // --- 其他所有輔助函式 (保持不變) ---
 
   const refreshUser = async () => {
     if (!auth.currentUser) return null
