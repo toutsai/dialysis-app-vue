@@ -1,4 +1,4 @@
-# 檔案路徑: .github/workflows/deploy-to-main.yml
+# 檔案路徑: .github/workflows/deploy-to-main.yml (完整修正版)
 
 name: Deploy to Production Environment
 
@@ -10,16 +10,15 @@ on:
 jobs:
   build_and_deploy_to_prod:
     runs-on: ubuntu-latest
+    # 【關鍵修正 1】: 將服務帳戶密鑰設定在 Job 層級，讓所有步驟都能使用
     env:
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}
       VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_PROD }}
       VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
       VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID_PROD }}
       VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_PROD }}
       VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_PROD }}
       VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_PROD }}
-      # ✨ 核心修正 1：設定一個絕對可靠的憑證檔案路徑
-      # GITHUB_WORKSPACE 是 GitHub Actions 提供的預設環境變數，指向當前專案的根目錄
-      GOOGLE_APPLICATION_CREDENTIALS: ${{ github.workspace }}/google-credentials.json
 
     steps:
       - name: Checkout Code
@@ -31,26 +30,30 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install Dependencies and Build for Production
+      - name: Install Dependencies and Build
         run: |
           npm ci
-          npm ci --prefix functions
           npm run build
 
-      # ✨ 核心修正 2：將憑證寫入工作區的檔案中，而不是 /tmp
-      - name: Authenticate with Firebase Service Account
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}' > ${{ github.workspace }}/google-credentials.json
-
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      # ✨ 核心修正 3：拆分指令，確保每個指令都能讀取到環境變數
-      # 這裡我們直接使用 firebase deploy 指令，以獲得最清晰的日誌輸出
+      # 【關鍵修正 2】: 新增部署 Firestore 規則的步驟
       - name: Deploy Firestore Rules (Production)
-        run: firebase deploy --only firestore:rules --project production
+        uses: w9jds/firebase-action@master
+        with:
+          # 這裡我們只部署 Firestore 規則
+          args: deploy --only firestore:rules --project dialysis-schedule-cd36c
+        env:
+          # 這個 action 會自動使用 GOOGLE_APPLICATION_CREDENTIALS 進行驗證
+          # 我們將服務帳戶的 JSON 內容傳遞給它
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}
+          PROJECT_ID: dialysis-schedule-cd36c
 
-      - name: Deploy Cloud Functions (Production)
-        run: firebase deploy --only functions --project production
-
-      - name: Deploy Firebase Hosting (Production)
-        run: firebase deploy --only hosting:production --project production
+      # 【關鍵修正 3】: 修正並簡化部署 Firebase Hosting 的步驟
+      - name: Deploy to Firebase Hosting (Production)
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
+          projectId: dialysis-schedule-cd36c
+          # 使用 target 來指定要部署到 firebase.json 中定義的 'production' 站點
+          # 'channelId: live' 是預設行為，且與 target 一起用可能造成混淆，因此移除
+          target: production
