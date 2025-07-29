@@ -153,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, provide, nextTick, watch } from 'vue' // ✨ DEBUG: 引入 watch
+import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
@@ -414,25 +414,13 @@ const searchResults = computed(() => {
     .slice(0, 5)
 })
 
-// --- ✨ DEBUG STEP 2: 監控 patientWithMemoIds 的變化 ---
-watch(patientWithMemoIds, (newVal) => {
-  console.log('[WeeklyView DEBUG] 2. patientWithMemoIds computed property updated:', newVal)
-  if (newVal.size > 0) {
-    console.log('   ✅ The Set is not empty. Icons should be visible.')
-  } else {
-    console.log('   ⚠️ The Set is empty. No icons will be shown.')
-  }
-})
-
 // --- Functions ---
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
-
 function updateColumnWidths(newWidths) {
   columnWidths.value = newWidths
 }
-
 function locatePatientOnGrid(patientId) {
   searchQuery.value = ''
   isSearchFocused.value = false
@@ -454,41 +442,21 @@ function locatePatientOnGrid(patientId) {
     }
   })
 }
-
 function handleSearchBlur() {
   setTimeout(() => {
     isSearchFocused.value = false
   }, 200)
 }
-
-// ✨ DEBUG STEP 3: 在 showPatientMemos 函式中加入日誌 ---
 function showPatientMemos(patientId) {
-  console.log(
-    '[WeeklyView DEBUG] 3. showPatientMemos function TRIGGERED with patientId:',
-    patientId,
-  )
-  if (!patientId) {
-    console.error('   ❌ ERROR: patientId is missing!')
-    return
-  }
+  if (!patientId) return
   const patient = patientMap.value.get(patientId)
-  if (!patient) {
-    console.error(`   ❌ ERROR: Cannot find patient with ID: ${patientId}`)
-    return
-  }
-
-  console.log(`   - Found patient: ${patient.name}`)
-
+  if (!patient) return
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && memo.status === 'pending',
   )
-  console.log(`   - Found ${memosForDialog.value.length} pending memos for this patient.`)
-
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
-  console.log('   ✅ Memo dialog should now be visible.')
 }
-
 function isDateInPast(dayIndex) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -496,7 +464,6 @@ function isDateInPast(dayIndex) {
   scheduleDate.setDate(scheduleDate.getDate() + dayIndex)
   return scheduleDate.getTime() < today.getTime()
 }
-
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -842,10 +809,6 @@ async function loadAllData() {
     ])
     allPatients.value = patients.filter((p) => !p.isDeleted)
     activeMemos.value = memos
-
-    // ✨ DEBUG STEP 1: 驗證 Memos 是否已成功載入 ---
-    console.log('[WeeklyView DEBUG] 1. Memos Loaded from Database:', activeMemos.value)
-
     const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
     const newWeekRecords = new Map()
     weekDates.value.forEach((day) => {
