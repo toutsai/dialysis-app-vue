@@ -1,4 +1,4 @@
-# 檔案路徑: .github/workflows/deploy-to-main.yml (最終修正版)
+# 檔案路徑: .github/workflows/deploy-to-main.yml (修正版)
 
 name: Deploy to Production Environment
 
@@ -10,12 +10,13 @@ on:
 jobs:
   build_and_deploy_to_prod:
     runs-on: ubuntu-latest
-    # 【關鍵修正 1】: 將服務帳戶密鑰設定在 Job 層級
-    # 這個 Secret 必須是「原始 JSON 內容」，而不是 Base64 編碼！
     env:
-      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}
       VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY_PROD }}
-      # ... 其他 VITE 環境變數 ...
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN_PROD }}
+      VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID_PROD }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET_PROD }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID_PROD }}
+      VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID_PROD }}
 
     steps:
       - name: Checkout Code
@@ -27,26 +28,24 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install Dependencies and Build
+      - name: Install Dependencies
         run: |
           npm ci
-          npm run build
+          npm ci --prefix functions
 
-      # 【關鍵修正 2】: 使用單一的官方 Action 來部署所有東西
-      - name: Deploy to Firebase (Rules, Functions, and Hosting)
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          # 將 JSON 內容直接傳遞給這個 Action
-          firebaseServiceAccount: '${{ env.FIREBASE_SERVICE_ACCOUNT }}'
-          projectId: dialysis-schedule-cd36c
-          # 【重要】: 在這裡指定你要部署的所有東西！
-          # target: 'production' 是指 firebase.json 中 hosting 的 target 名稱
-          # deploy: 'firestore,functions,hosting' 是要執行的部署命令
-          entryPoint: . # 指向專案根目錄
-          target: production
-          # 您可以根據需要調整要部署的項目，例如 'firestore,hosting'
-          args:
-            --only firestore,functions,hosting
-            # 【關鍵修正】: 在這裡加上 channelId
+      # 🔥 使用與開發環境相同的認證方式
+      - name: Authenticate with Firebase Service Account
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}' > /tmp/google-credentials.json
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      # 🔥 改為使用 npm script，與開發環境保持一致，並明確指定專案 ID
+      - name: Build and Deploy All to Firebase (Production)
+        run: |
+          # 明確指定專案 ID 而非別名
+          firebase use dialysis-schedule-cd36c
+          npm run deploy:prod
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
           channelId: live
