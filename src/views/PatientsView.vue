@@ -1,9 +1,9 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (移除ID驗證版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (流程優化版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { where } from 'firebase/firestore'
+import { doc, getDoc, updateDoc } from 'firebase/firestore' // ✨ 1. 引入必要的 firestore 函式
+import { db } from '@/composables/useFirebase.js' // ✨ 2. 引入 db 實例
 
-// ✅ 導入優化後的函式
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   updatePatient as optimizedUpdatePatient,
@@ -12,10 +12,9 @@ import {
   saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
 
-import {
-  clearFutureSchedulesForPatient,
-  cleanTemporaryDataInFutureSchedules,
-} from '@/services/scheduleService.js'
+// ✨ 3. 不再使用這個函式，因為它的行為不符合我們的預期 (只清除了每日排程，未動總表)
+// import { removePatientFromBaseSchedule } from '@/services/baseScheduleService.js'
+
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
@@ -31,10 +30,14 @@ const allPatients = ref([])
 const activeTab = ref('er')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
 
-const erSearchTerm = ref('')
-const ipdSearchTerm = ref('')
-const opdSearchTerm = ref('')
-const deletedSearchTerm = ref('')
+// --- 舊的搜尋框 ref 改為列表內篩選 ---
+const erListFilter = ref('')
+const ipdListFilter = ref('')
+const opdListFilter = ref('')
+const deletedSearchTerm = ref('') // 已刪除列表的搜尋保持不變
+
+// ✨ 新增: 全局搜尋/新增/復原功能的輸入框 ref
+const globalSearchTerm = ref('')
 
 const isModalVisible = ref(false)
 const editingPatient = ref(null)
@@ -63,7 +66,6 @@ const selectedPatientForHistory = ref(null)
 
 const { addNotification } = useNotification()
 
-// ✨ 安全的權限狀態獲取
 const auth = useAuth()
 const { isLoggedIn } = auth
 const isPageLocked = computed(() => auth.isReadOnly.value)
@@ -97,13 +99,13 @@ const displayedPatients = computed(() => {
 
   if (activeTab.value === 'er') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
-    searchTerm = erSearchTerm.value.toLowerCase()
+    searchTerm = erListFilter.value.toLowerCase()
   } else if (activeTab.value === 'ipd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
-    searchTerm = ipdSearchTerm.value.toLowerCase()
+    searchTerm = ipdListFilter.value.toLowerCase()
   } else if (activeTab.value === 'opd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
-    searchTerm = opdSearchTerm.value.toLowerCase()
+    searchTerm = opdListFilter.value.toLowerCase()
   } else if (activeTab.value === 'deleted') {
     patientsToDisplay = allPatients.value.filter((p) => p.isDeleted)
     searchTerm = deletedSearchTerm.value.toLowerCase()
@@ -189,6 +191,184 @@ const patientStats = computed(() => {
   return stats
 })
 
+// ==========================================================
+// 核心修正：新的、真正能修改總表的函式
+// ==========================================================
+/**
+ * 直接從 base_schedules/MASTER_SCHEDULE 文件中移除指定病人的排班規則。
+ * 這是觸發後端自動同步的唯一正確方法。
+ * @param {string} patientId 要移除的病人 ID
+ */
+async function removeRuleFromMasterSchedule(patientId) {
+  if (!patientId) {
+    console.error('[removeRuleFromMasterSchedule] 無效的 patientId')
+    return
+  }
+  const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
+  try {
+    const docSnap = await getDoc(masterScheduleRef)
+    if (!docSnap.exists()) {
+      console.warn('[removeRuleFromMasterSchedule] MASTER_SCHEDULE 文件不存在，無需操作。')
+      return
+    }
+    const scheduleData = docSnap.data()
+    // 確保 schedule 屬性存在
+    const masterRules = scheduleData.schedule || {}
+
+    // 檢查病人是否真的在總表規則中
+    if (masterRules[patientId]) {
+      // 從物件中刪除該病人的鍵值對
+      delete masterRules[patientId]
+      // 將修改後、不含該病人的物件寫回資料庫
+      await updateDoc(masterScheduleRef, {
+        schedule: masterRules,
+      })
+      console.log(`✅ [removeRuleFromMasterSchedule] 已成功從總表中移除病人 ${patientId} 的規則。`)
+    } else {
+      console.log(`[removeRuleFromMasterSchedule] 病人 ${patientId} 不在總表規則中，無需移除。`)
+    }
+  } catch (error) {
+    console.error(`❌ [removeRuleFromMasterSchedule] 從總表移除病人規則時失敗:`, error)
+    // 拋出錯誤，讓呼叫它的函式可以捕獲並處理
+    throw new Error('從總床位表移除規則失敗，請檢查權限或網路。')
+  }
+}
+
+// ==========================================================
+// 全局智慧搜尋與新增/復原功能
+// ==========================================================
+
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
+}
+
+function showConfirm(title, message, onConfirm) {
+  confirmDialogTitle.value = title
+  confirmDialogMessage.value = message
+  confirmAction.value = onConfirm
+  isConfirmDialogVisible.value = true
+}
+
+async function handleGlobalSearch(query) {
+  if (!query || !query.trim()) {
+    showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
+    return
+  }
+
+  const searchTerm = query.trim()
+  const searchTermLower = searchTerm.toLowerCase()
+
+  const searchResults = allPatients.value.filter(
+    (p) =>
+      (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)) ||
+      (p.name && p.name.toLowerCase().includes(searchTermLower)),
+  )
+
+  let foundPatient = null
+
+  if (searchResults.length > 1) {
+    const patientList = searchResults
+      .map((p) => `- ${p.name} (${p.medicalRecordNumber})`)
+      .slice(0, 10)
+      .join('\n')
+
+    showAlert(
+      '找到多位病人',
+      `符合 "${query}" 的病人不只一位，請輸入更完整的姓名或病歷號以精確查找。\n\n找到的病人列表：\n${patientList}`,
+    )
+    return
+  } else if (searchResults.length === 1) {
+    foundPatient = searchResults[0]
+  }
+
+  if (foundPatient) {
+    const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
+
+    if (foundPatient.isDeleted) {
+      const targetStatusText = statusMap[activeTab.value] || '列表'
+      showConfirm(
+        '找到已刪除病人',
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原因: ${foundPatient.deleteReason || '未知'})。\n\n您是否要將其復原到目前的「${targetStatusText}」清單中？`,
+        () => {
+          restoreAndTransferPatient(foundPatient.id, activeTab.value)
+        },
+      )
+    } else {
+      const currentStatusText = statusMap[foundPatient.status] || '未知'
+      showAlert(
+        '病人已存在',
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前已在「${currentStatusText}」清單中。`,
+      )
+    }
+  } else {
+    console.log(`找不到病人 "${searchTerm}"，直接開啟新增視窗。`)
+    const newPatientTemplate = { diseases: [] }
+    if (/^\d{6,}$/.test(searchTerm)) {
+      newPatientTemplate.medicalRecordNumber = searchTerm
+    } else {
+      newPatientTemplate.name = searchTerm
+    }
+
+    editingPatient.value = newPatientTemplate
+    modalType.value = activeTab.value
+    isModalVisible.value = true
+  }
+}
+
+async function restoreAndTransferPatient(patientId, targetStatus) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
+
+  try {
+    const patient = allPatients.value.find((p) => p.id === patientId)
+    if (!patient) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
+    }
+
+    const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
+    const targetStatusText = statusMap[targetStatus] || '未知'
+
+    await optimizedUpdatePatient(patientId, {
+      isDeleted: false,
+      status: targetStatus,
+      originalStatus: patient.originalStatus,
+      deleteReason: null,
+      deletedAt: null,
+    })
+
+    const historyEntry = {
+      patientId: patientId,
+      patientName: patient.name,
+      timestamp: new Date().toISOString(),
+      eventType: 'RESTORE_AND_TRANSFER',
+      eventDetails: {
+        restoredTo: targetStatus,
+        fromReason: patient.deleteReason,
+      },
+    }
+    await optimizedSavePatientHistory(historyEntry)
+
+    // ✨ 核心修正：呼叫新的、正確的函式
+    await removeRuleFromMasterSchedule(patientId)
+
+    await fetchAllPatients()
+    addNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
+    showAlert(
+      '復原成功',
+      `${patient.name} 已成功復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
+    )
+    globalSearchTerm.value = ''
+  } catch (err) {
+    console.error('復原並轉移失敗:', err)
+    showAlert('操作失敗', '復原病人時發生錯誤！')
+  }
+}
+
 function exportDeletedPatients() {
   const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
   if (deletedPatients.length === 0) {
@@ -215,77 +395,61 @@ function exportDeletedPatients() {
 
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
 
+  // --- 編輯現有病人 ---
   if (patientData.id) {
     const originalPatient = editingPatient.value
     const wasDiscontinuedBefore = originalPatient ? originalPatient.isDiscontinued : false
     const isNowDiscontinued = patientData.isDiscontinued
 
+    // 處理中止透析的特殊情況
     if (!wasDiscontinuedBefore && isNowDiscontinued) {
-      confirmDialogTitle.value = '確認中止透析'
-      confirmDialogMessage.value = `您確定要將「${patientData.name}」標記為中止透析，並清除其所有未來的排班嗎？此操作無法復原排程。`
-      confirmAction.value = async () => {
-        try {
-          closeModal()
-          const updateData = {
-            isDiscontinued: true,
-            discontinuedDate:
-              patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+      showConfirm(
+        '確認中止透析',
+        `您確定要將「${patientData.name}」標記為中止透析，並從總床位表中移除其排班規則嗎？此操作會自動清除所有未來排程。`,
+        async () => {
+          try {
+            closeModal()
+            const updateData = {
+              isDiscontinued: true,
+              discontinuedDate:
+                patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+            }
+            await optimizedUpdatePatient(patientData.id, updateData)
+            // ✨ 核心修正：呼叫新的、正確的函式
+            await removeRuleFromMasterSchedule(patientData.id)
+            await fetchAllPatients()
+            addNotification(`中止透析：${patientData.name}`, 'patient')
+          } catch (err) {
+            console.error('中止透析操作失敗:', err)
+            showAlert('操作失敗', err.message || '中止透析操作失敗！')
           }
-          await optimizedUpdatePatient(patientData.id, updateData)
-          await clearFutureSchedulesForPatient(patientData.id)
-          await fetchAllPatients()
+        },
+      )
+      return
+    }
 
-          // ✅ 具體的業務事件通知
-          addNotification(`中止透析：${patientData.name}`, 'patient')
-
-          // ✅ 操作狀態反饋用彈窗
-          alertDialogTitle.value = '操作成功'
-          alertDialogMessage.value = `${patientData.name} 已標記為中止透析，相關排程已清除。`
-          isAlertDialogVisible.value = true
-        } catch (err) {
-          console.error('中止透析操作失敗:', err)
-          alertDialogTitle.value = '操作失敗'
-          alertDialogMessage.value = err.message || '中止透析操作失敗！'
-          isAlertDialogVisible.value = true
-        }
-      }
-      isConfirmDialogVisible.value = true
-    } else {
-      try {
-        const dataToUpdate = { ...patientData }
-        delete dataToUpdate.id
-        await optimizedUpdatePatient(patientData.id, dataToUpdate)
-        closeModal()
-        await fetchAllPatients()
-
-        // ✅ 具體的業務事件通知
-        addNotification(`編輯病人：${patientData.name}`, 'patient')
-
-        // ✅ 操作狀態反饋用彈窗
-        alertDialogTitle.value = '儲存成功'
-        alertDialogMessage.value = '病人資料已成功更新。'
-        isAlertDialogVisible.value = true
-      } catch (err) {
-        console.error('更新病人資料失敗:', err)
-        alertDialogTitle.value = '操作失敗'
-        alertDialogMessage.value = '更新病人資料失敗！'
-        isAlertDialogVisible.value = true
-      }
+    // 一般編輯儲存
+    try {
+      const dataToUpdate = { ...patientData }
+      delete dataToUpdate.id
+      await optimizedUpdatePatient(patientData.id, dataToUpdate)
+      closeModal()
+      await fetchAllPatients()
+      addNotification(`編輯病人：${patientData.name}`, 'patient')
+    } catch (err) {
+      console.error('更新病人資料失敗:', err)
+      showAlert('操作失敗', '更新病人資料失敗！')
     }
     return
   }
 
-  // 🔧 只保留基本的必填驗證，移除格式驗證
+  // --- 新增病人 ---
   if (!patientData.medicalRecordNumber || !patientData.medicalRecordNumber.trim()) {
-    alertDialogTitle.value = '資料不完整'
-    alertDialogMessage.value = '請務必填寫病歷號。'
-    isAlertDialogVisible.value = true
+    showAlert('資料不完整', '請務必填寫病歷號。')
     return
   }
 
@@ -294,18 +458,21 @@ async function handleSavePatient(patientData) {
   )
 
   if (existingPatient) {
+    // 處理病歷號重複
     const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
     const currentStatusText = existingPatient.isDeleted
       ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
       : statusMap[existingPatient.status] || '未知'
 
-    confirmDialogTitle.value = '病歷號重複'
-    confirmDialogMessage.value = `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`
+    showConfirm(
+      '病歷號重複',
+      `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`,
+      () => handleConflictSelected(),
+    )
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
-    isConfirmDialogVisible.value = true
-    confirmAction.value = () => handleConflictSelected()
   } else {
+    // 正常新增
     try {
       const dataToCreate = { ...patientData }
       dataToCreate.createdAt = new Date().toISOString()
@@ -319,29 +486,19 @@ async function handleSavePatient(patientData) {
         patientName: dataToCreate.name,
         timestamp: new Date().toISOString(),
         eventType: 'CREATE',
-        eventDetails: {
-          status: modalType.value,
-        },
+        eventDetails: { status: modalType.value },
       }
 
       await optimizedSavePatientHistory(historyEntry)
       closeModal()
       await fetchAllPatients()
 
-      // ✅ 具體的業務事件通知
       const statusText =
         modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
       addNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
-
-      // ✅ 操作狀態反饋用彈窗
-      alertDialogTitle.value = '新增成功'
-      alertDialogMessage.value = '病人資料已成功新增。'
-      isAlertDialogVisible.value = true
     } catch (err) {
       console.error('新增病人失敗:', err)
-      alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = '新增病人失敗！'
-      isAlertDialogVisible.value = true
+      showAlert('操作失敗', '新增病人失敗！')
     }
   }
 }
@@ -378,27 +535,17 @@ async function handleConflictSelected() {
 
     await optimizedSavePatientHistory(historyEntry)
 
-    if (!existingPatient.isDeleted) {
-      await cleanTemporaryDataInFutureSchedules(existingPatient.id, dataToUpdate)
-    }
-
     closeModal()
     await fetchAllPatients()
 
-    // ✅ 具體的業務事件通知
     const statusText =
       modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
     addNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
 
-    // ✅ 操作狀態反饋用彈窗
-    alertDialogTitle.value = '操作成功'
-    alertDialogMessage.value = `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`
-    isAlertDialogVisible.value = true
+    showAlert('操作成功', `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`)
   } catch (err) {
     console.error('轉移更新病人失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '轉移更新病人失敗！'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '轉移更新病人失敗！')
   } finally {
     existingPatientForConflict.value = null
     newPatientDataForConflict.value = null
@@ -407,9 +554,7 @@ async function handleConflictSelected() {
 
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
 
@@ -417,98 +562,94 @@ async function transferPatient(patientId, newStatus) {
   const targetStatusMap = { ipd: '住院', opd: '門診', er: '急診' }
   const targetStatusText = targetStatusMap[newStatus] || '未知狀態'
 
-  confirmDialogTitle.value = `確認轉為${targetStatusText}`
-  confirmDialogMessage.value = `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n注意：此操作將會清除該病人在未來排程中的所有手動備註和護理師分配，並更新自動狀態標籤。`
-  confirmAction.value = async () => {
-    try {
-      const originalPatientData = allPatients.value.find((p) => p.id === patientId)
+  showConfirm(
+    `確認轉為${targetStatusText}`,
+    `您確定要將「${patientName}」轉為${targetStatusText}嗎？\n\n💡 如果該病人已排床，建議完成轉移後到「門住總床位表」檢查並調整排床。`,
+    async () => {
+      try {
+        const originalPatientData = allPatients.value.find((p) => p.id === patientId)
 
-      await optimizedUpdatePatient(patientId, { status: newStatus })
+        await optimizedUpdatePatient(patientId, { status: newStatus })
 
-      const historyEntry = {
-        patientId: patientId,
-        patientName: originalPatientData.name,
-        timestamp: new Date().toISOString(),
-        eventType: 'TRANSFER',
-        eventDetails: {
-          from: originalPatientData.status,
-          to: newStatus,
-        },
+        const historyEntry = {
+          patientId: patientId,
+          patientName: originalPatientData.name,
+          timestamp: new Date().toISOString(),
+          eventType: 'TRANSFER',
+          eventDetails: {
+            from: originalPatientData.status,
+            to: newStatus,
+          },
+        }
+
+        await optimizedSavePatientHistory(historyEntry)
+        await fetchAllPatients()
+
+        addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
+
+        showAlert(
+          '轉移成功',
+          `${patientName} 已成功轉至${targetStatusText}。\n\n📋 如有排床，請到「門住總床位表」確認自動標籤是否正確。`,
+        )
+      } catch (err) {
+        console.error('轉床失敗:', err)
+        showAlert('操作失敗', err.message || '轉床失敗！')
       }
-
-      await optimizedSavePatientHistory(historyEntry)
-
-      const updatedPatient = { ...originalPatientData, status: newStatus }
-      await cleanTemporaryDataInFutureSchedules(patientId, updatedPatient)
-      await fetchAllPatients()
-
-      // ✅ 具體的業務事件通知
-      addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
-
-      // ✅ 操作狀態反饋用彈窗
-      alertDialogTitle.value = '轉移成功'
-      alertDialogMessage.value = `${patientName} 已成功轉至${targetStatusText}。`
-      isAlertDialogVisible.value = true
-    } catch (err) {
-      console.error('轉床失敗:', err)
-      alertDialogTitle.value = '操作失敗'
-      alertDialogMessage.value = err.message || '轉床失敗！'
-      isAlertDialogVisible.value = true
-    }
-  }
-  isConfirmDialogVisible.value = true
+    },
+  )
 }
 
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
-
   if (!patientToDeleteId.value) return
 
   try {
     const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
-    if (patient) {
-      const deletedAt = new Date().toISOString()
-
-      await optimizedUpdatePatient(patientToDeleteId.value, {
-        isDeleted: true,
-        originalStatus: patient.status,
-        deleteReason: reason,
-        deletedAt: deletedAt,
-      })
-
-      const historyEntry = {
-        patientId: patientToDeleteId.value,
-        patientName: patient.name,
-        timestamp: deletedAt,
-        eventType: 'DELETE',
-        eventDetails: {
-          reason: reason,
-          fromStatus: patient.status,
-        },
-      }
-
-      await optimizedSavePatientHistory(historyEntry)
-      await clearFutureSchedulesForPatient(patientToDeleteId.value)
-      await fetchAllPatients()
-
-      // ✅ 具體的業務事件通知
-      addNotification(`刪除病人：${patient.name} (${reason})`, 'patient')
-
-      // ✅ 操作狀態反饋用彈窗
-      alertDialogTitle.value = '刪除成功'
-      alertDialogMessage.value = `${patient.name} 已刪除，相關排程已清除。`
-      isAlertDialogVisible.value = true
+    if (!patient) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
     }
+
+    const patientNameForNotification = patient.name
+    const patientIdForActions = patientToDeleteId.value
+
+    // 1. 將病人文件標記為已刪除
+    const deletedAt = new Date().toISOString()
+    await optimizedUpdatePatient(patientIdForActions, {
+      isDeleted: true,
+      originalStatus: patient.status,
+      deleteReason: reason,
+      deletedAt: deletedAt,
+    })
+
+    // 2. 儲存操作歷史
+    const historyEntry = {
+      patientId: patientIdForActions,
+      patientName: patientNameForNotification,
+      timestamp: deletedAt,
+      eventType: 'DELETE',
+      eventDetails: { reason: reason, fromStatus: patient.status },
+    }
+    await optimizedSavePatientHistory(historyEntry)
+
+    // 3. ✨ 核心修正：呼叫新的、正確的函式來修改總表，觸發後端同步
+    await removeRuleFromMasterSchedule(patientIdForActions)
+
+    // 4. 刷新前端列表
+    await fetchAllPatients()
+
+    // 5. 發送通知
+    addNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
+    showAlert(
+      '刪除成功',
+      `${patientNameForNotification} 已被刪除，其在「門急住床位總表」中的規則也已移除。未來排程將由系統自動更新。`,
+    )
   } catch (err) {
-    console.error('刪除失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = err.message || '刪除失敗！'
-    isAlertDialogVisible.value = true
+    console.error('刪除病人流程失敗:', err)
+    showAlert('操作失敗', err.message || '刪除病人時發生錯誤！')
   } finally {
     isDeleteDialogVisible.value = false
     patientToDeleteId.value = null
@@ -517,14 +658,16 @@ async function handleDeleteReasonSelected(reason) {
 
 async function restorePatient(patientId) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
 
   try {
     const patient = allPatients.value.find((p) => p.id === patientId)
+    if (!patient) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
+    }
     const newStatus = patient.originalStatus || 'opd'
     const statusText = newStatus === 'ipd' ? '住院' : newStatus === 'er' ? '急診' : '門診'
 
@@ -540,35 +683,28 @@ async function restorePatient(patientId) {
       patientName: patient.name,
       timestamp: new Date().toISOString(),
       eventType: 'RESTORE',
-      eventDetails: {
-        restoredTo: newStatus,
-        fromReason: patient.deleteReason,
-      },
+      eventDetails: { restoredTo: newStatus, fromReason: patient.deleteReason },
     }
-
     await optimizedSavePatientHistory(historyEntry)
+
+    // ✨ 核心修正：復原病人時，也需要確保其規則已從總表移除，讓他回到乾淨的未排班狀態。
+    await removeRuleFromMasterSchedule(patientId)
+
     await fetchAllPatients()
-
-    // ✅ 具體的業務事件通知
     addNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
-
-    // ✅ 操作狀態反饋用彈窗
-    alertDialogTitle.value = '復原成功'
-    alertDialogMessage.value = `${patient.name} 已復原至${statusText}清單。`
-    isAlertDialogVisible.value = true
+    showAlert(
+      '復原成功',
+      `${patient.name} 已復原至 ${statusText} 清單，請至「門住總床位表」為其重新排班。`,
+    )
   } catch (err) {
     console.error('復原失敗:', err)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '復原失敗！'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '復原失敗！')
   }
 }
 
 function openAddPatientModal(type) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   editingPatient.value = { diseases: [] }
@@ -578,9 +714,7 @@ function openAddPatientModal(type) {
 
 function openEditPatientModal(patient) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   editingPatient.value = JSON.parse(JSON.stringify(patient))
@@ -595,16 +729,13 @@ function openHistoryModal(patient) {
 
 function deletePatient(patientId) {
   if (isPageLocked.value) {
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = '操作被鎖定：權限不足。'
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
 
-// ✅ 使用優化函式載入患者資料
 async function fetchAllPatients() {
   try {
     console.log('🔄 [PatientsView] 開始載入患者資料...')
@@ -612,14 +743,13 @@ async function fetchAllPatients() {
     console.log(`✅ [PatientsView] 患者資料載入完成，共 ${allPatients.value.length} 位患者`)
   } catch (err) {
     console.error('❌ [PatientsView] 讀取病人資料失敗:', err)
-    alertDialogTitle.value = '讀取失敗'
-    alertDialogMessage.value = '讀取病人資料失敗！'
-    isAlertDialogVisible.value = true
+    showAlert('讀取失敗', '讀取病人資料失敗！')
   }
 }
 
 function changeTab(tabName) {
   activeTab.value = tabName
+  globalSearchTerm.value = ''
 }
 
 function handleSort(key) {
@@ -634,6 +764,7 @@ function handleSort(key) {
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
+  globalSearchTerm.value = ''
 }
 
 function cancelDelete() {
@@ -683,11 +814,6 @@ function handleConfirm() {
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
-  if (existingPatientForConflict.value) {
-    //
-  } else {
-    console.log('使用者取消了操作。')
-  }
 }
 
 function openOrderModal(patient) {
@@ -695,12 +821,9 @@ function openOrderModal(patient) {
   isOrderModalVisible.value = true
 }
 
-// ✅ 修正透析醫囑儲存功能
 async function handleSaveOrder(orderDataFromModal) {
   if (!editingPatientForOrder.value || !editingPatientForOrder.value.id) {
-    alertDialogTitle.value = '儲存失敗'
-    alertDialogMessage.value = '找不到有效的病人資訊，請重新操作。'
-    isAlertDialogVisible.value = true
+    showAlert('儲存失敗', '找不到有效的病人資訊，請重新操作。')
     return
   }
 
@@ -746,18 +869,10 @@ async function handleSaveOrder(orderDataFromModal) {
     isOrderModalVisible.value = false
     await fetchAllPatients()
 
-    // ✅ 具體的業務事件通知
     addNotification(`更新醫囑：${patientName}`, 'patient')
-
-    // ✅ 操作狀態反饋用彈窗
-    alertDialogTitle.value = '儲存成功'
-    alertDialogMessage.value = '透析醫囑已成功儲存。'
-    isAlertDialogVisible.value = true
   } catch (error) {
     console.error('❌ [PatientsView] 儲存醫囑失敗:', error)
-    alertDialogTitle.value = '操作失敗'
-    alertDialogMessage.value = `儲存醫囑時發生錯誤: ${error.message}`
-    isAlertDialogVisible.value = true
+    showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
   }
 }
 
@@ -768,7 +883,6 @@ onMounted(() => {
 </script>
 
 <template>
-  <!-- ✨ 安全門：只有登入後才渲染內容 -->
   <div v-if="isLoggedIn">
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理</h1>
@@ -804,11 +918,19 @@ onMounted(() => {
       <div v-if="activeTab === 'er'" class="tab-content active">
         <div class="view-header">
           <div class="controls-left">
-            <button @click="openAddPatientModal('er')" :disabled="isPageLocked" class="btn-add">
-              新增病人
-            </button>
-            <div class="search-group">
-              <input type="text" v-model="erSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            <div class="search-group global-search">
+              <input
+                type="text"
+                v-model="globalSearchTerm"
+                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
+                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+              />
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                搜尋/新增
+              </button>
+            </div>
+            <div class="search-group list-filter">
+              <input type="text" v-model="erListFilter" placeholder="篩選目前列表..." />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -889,6 +1011,13 @@ onMounted(() => {
                 <div class="flex-cell col-actions">
                   <div class="action-buttons">
                     <button
+                      class="btn btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                    >
+                      編輯
+                    </button>
+                    <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
@@ -909,6 +1038,7 @@ onMounted(() => {
                     >
                       轉門診
                     </button>
+                    <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
                         class="btn-icon btn-history"
@@ -916,14 +1046,6 @@ onMounted(() => {
                         title="動向歷史"
                       >
                         🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-edit"
-                        @click="openEditPatientModal(p)"
-                        :disabled="isPageLocked"
-                        title="編輯"
-                      >
-                        ✏️
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -946,11 +1068,19 @@ onMounted(() => {
       <div v-if="activeTab === 'ipd'" class="tab-content active">
         <div class="view-header">
           <div class="controls-left">
-            <button @click="openAddPatientModal('ipd')" :disabled="isPageLocked" class="btn-add">
-              新增病人
-            </button>
-            <div class="search-group">
-              <input type="text" v-model="ipdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            <div class="search-group global-search">
+              <input
+                type="text"
+                v-model="globalSearchTerm"
+                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
+                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+              />
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                搜尋/新增
+              </button>
+            </div>
+            <div class="search-group list-filter">
+              <input type="text" v-model="ipdListFilter" placeholder="篩選目前列表..." />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -1031,6 +1161,13 @@ onMounted(() => {
                 <div class="flex-cell col-actions">
                   <div class="action-buttons">
                     <button
+                      class="btn btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                    >
+                      編輯
+                    </button>
+                    <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
@@ -1051,6 +1188,7 @@ onMounted(() => {
                     >
                       轉門診
                     </button>
+                    <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
                         class="btn-icon btn-history"
@@ -1058,14 +1196,6 @@ onMounted(() => {
                         title="動向歷史"
                       >
                         🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-edit"
-                        @click="openEditPatientModal(p)"
-                        :disabled="isPageLocked"
-                        title="編輯"
-                      >
-                        ✏️
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -1088,11 +1218,19 @@ onMounted(() => {
       <div v-if="activeTab === 'opd'" class="tab-content active">
         <div class="view-header">
           <div class="controls-left">
-            <button @click="openAddPatientModal('opd')" :disabled="isPageLocked" class="btn-add">
-              新增病人
-            </button>
-            <div class="search-group">
-              <input type="text" v-model="opdSearchTerm" placeholder="搜尋病人姓名/病歷號..." />
+            <div class="search-group global-search">
+              <input
+                type="text"
+                v-model="globalSearchTerm"
+                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
+                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+              />
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                搜尋/新增
+              </button>
+            </div>
+            <div class="search-group list-filter">
+              <input type="text" v-model="opdListFilter" placeholder="篩選目前列表..." />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -1161,6 +1299,13 @@ onMounted(() => {
                 <div class="flex-cell col-actions">
                   <div class="action-buttons">
                     <button
+                      class="btn btn-edit"
+                      @click="openEditPatientModal(p)"
+                      :disabled="isPageLocked"
+                    >
+                      編輯
+                    </button>
+                    <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
@@ -1181,6 +1326,7 @@ onMounted(() => {
                     >
                       轉住院
                     </button>
+                    <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
                         class="btn-icon btn-history"
@@ -1188,14 +1334,6 @@ onMounted(() => {
                         title="動向歷史"
                       >
                         🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-edit"
-                        @click="openEditPatientModal(p)"
-                        :disabled="isPageLocked"
-                        title="編輯"
-                      >
-                        ✏️
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -1317,7 +1455,6 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* CSS 變數 */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -1328,22 +1465,21 @@ onMounted(() => {
   --blue-bg: #eff6ff;
   --purple-bg: #e9d5ff;
   --orange-bg: #fff7ed;
+  --red-bg: #fef2f2;
   --grey-bg: #f8f9fa;
   --grey-text: #6c757d;
 }
 
-/* 基礎佈局 */
 .page-container {
   padding: 1.5rem;
 }
 
 .page-title {
   margin-bottom: 1.5rem;
-  color: #333; /* ✅ 黑色 */
+  color: #333;
   font-weight: bold;
 }
 
-/* 分頁標籤 */
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
@@ -1380,7 +1516,6 @@ onMounted(() => {
   color: #555;
 }
 
-/* 視圖標題區 */
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -1427,9 +1562,36 @@ onMounted(() => {
   padding: 8px;
   border: 1px solid #ccc;
   border-radius: 5px;
-  min-width: 250px;
   height: 40px;
   font-size: 1rem;
+}
+
+.search-group.global-search input {
+  min-width: 280px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+}
+.search-group.global-search .btn-search {
+  padding: 8px 15px;
+  font-size: 1em;
+  background-color: var(--primary-color);
+  color: white;
+  border: 1px solid var(--primary-color);
+  border-radius: 5px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  cursor: pointer;
+  height: 40px;
+  transition: background-color 0.2s;
+}
+.search-group.global-search .btn-search:hover:not(:disabled) {
+  background-color: #00457c;
+}
+
+.search-group.list-filter input {
+  min-width: 200px;
+  background-color: #f8f9fa;
 }
 
 .controls-left input:focus {
@@ -1438,7 +1600,6 @@ onMounted(() => {
   box-shadow: 0 0 0 2px rgba(0, 90, 156, 0.1);
 }
 
-/* 統計摘要 */
 .stats-summary {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
@@ -1491,7 +1652,6 @@ onMounted(() => {
   background-color: #64748b;
 }
 
-/* Flexbox 表格樣式 */
 .table-wrapper {
   max-height: calc(100vh - 250px);
   overflow-y: auto;
@@ -1535,7 +1695,6 @@ onMounted(() => {
   border-right: none;
 }
 
-/* 欄位寬度設定 */
 .col-name {
   flex: 0 0 140px;
 }
@@ -1569,7 +1728,7 @@ onMounted(() => {
   flex: 0 0 110px;
 }
 .col-actions {
-  flex: 0 0 390px;
+  flex: 0 0 400px;
   justify-content: flex-start;
 }
 
@@ -1583,7 +1742,6 @@ onMounted(() => {
   background-color: #e8e8e8;
 }
 
-/* 姓名欄位特殊樣式 */
 .name-cell-content {
   display: flex;
   align-items: center;
@@ -1611,7 +1769,6 @@ onMounted(() => {
   border-radius: 4px;
 }
 
-/* 操作按鈕樣式 */
 .action-buttons {
   display: flex;
   flex-wrap: nowrap;
@@ -1629,6 +1786,14 @@ onMounted(() => {
   color: white;
   white-space: nowrap;
   transition: background-color 0.2s;
+}
+
+.btn.btn-edit {
+  background-color: #007bff;
+}
+
+.btn.btn-edit:hover:not(:disabled) {
+  background-color: #0056b3;
 }
 
 .btn.btn-order {
@@ -1661,10 +1826,16 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
+.action-divider {
+  width: 1px;
+  height: 24px;
+  background-color: #dee2e6;
+  margin: 0 0.25rem;
+}
+
 .icon-buttons {
   display: flex;
   gap: 0.25rem;
-  margin-left: auto;
 }
 
 .btn-icon {
@@ -1688,9 +1859,6 @@ onMounted(() => {
   cursor: not-allowed;
 }
 
-.btn-icon.btn-edit {
-  color: #007bff;
-}
 .btn-icon.btn-delete {
   color: #dc3545;
 }
@@ -1698,9 +1866,6 @@ onMounted(() => {
   color: #6c757d;
 }
 
-.btn-icon.btn-edit:hover:not(:disabled) {
-  background-color: #e0e7ff;
-}
 .btn-icon.btn-delete:hover:not(:disabled) {
   background-color: #fee2e2;
 }
@@ -1708,15 +1873,14 @@ onMounted(() => {
   background-color: #f1f3f5;
 }
 
-/* 行背景色 */
 .flex-table-row.status-opd {
   background-color: var(--green-bg);
 }
 .flex-table-row.status-ipd {
-  background-color: var(--blue-bg);
+  background-color: var(--red-bg);
 }
 .flex-table-row.status-er {
-  background-color: #f3e8ff; /* ✅ 改為淡紫色 */
+  background-color: #f3e8ff;
 }
 .flex-table-row.status-biweekly {
   background-color: var(--orange-bg);
@@ -1751,13 +1915,11 @@ onMounted(() => {
   color: #999;
 }
 
-/* 鎖定狀態 */
 .is-locked .flex-table-wrapper {
   pointer-events: none;
   opacity: 0.65;
 }
 
-/* 已刪除病人的表格樣式 */
 .toolbar {
   display: flex;
   justify-content: flex-start;
@@ -1822,10 +1984,9 @@ onMounted(() => {
   background-color: #e8e8e8;
 }
 
-/* 響應式設計 */
 @media (max-width: 1200px) {
   .col-actions {
-    flex: 0 0 300px;
+    flex: 0 0 350px;
   }
 }
 

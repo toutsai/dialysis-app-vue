@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/layouts/MainLayout.vue (修正執行順序版) -->
 <template>
   <div class="dashboard-container">
     <aside class="sidebar">
@@ -12,16 +13,19 @@
         <ul class="sidebar-nav">
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
-          <li><RouterLink to="/weekly" class="nav-link">週排班總表</RouterLink></li>
-          <li><RouterLink to="/base-schedule" class="nav-link">常規門診床位</RouterLink></li>
+          <li><RouterLink to="/weekly" class="nav-link">週排班表</RouterLink></li>
+          <li><RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink></li>
+          <li>
+            <RouterLink to="/exception-manager" class="nav-link"> 排程例外管理 </RouterLink>
+          </li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
       </div>
 
-      <!-- 底部功能區塊 (包含通知、管理、登出) -->
+      <!-- 底部功能區塊 -->
       <div class="footer-section">
-        <!-- 通知區域 - 緊湊版 -->
+        <!-- 通知區域 -->
         <div class="notification-area">
           <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
           <transition-group name="notification-list" tag="div" class="notification-list">
@@ -29,7 +33,8 @@
               v-for="notif in notifications"
               :key="notif.id"
               class="notification-item"
-              :class="`notification-type-${notif.type}`"
+              :class="[`notification-type-${notif.type}`, { 'is-clickable': !!notif.action }]"
+              @click="handleNotificationClick(notif)"
             >
               <div class="notification-content">
                 <span class="notification-icon">{{ notif.config.icon }}</span>
@@ -37,7 +42,9 @@
               </div>
               <div class="notification-footer-item">
                 <span class="notification-time">{{ notif.time }}</span>
-                <button class="notification-close" @click="removeNotification(notif.id)">×</button>
+                <button class="notification-close" @click.stop="removeNotification(notif.id)">
+                  ×
+                </button>
               </div>
             </div>
           </transition-group>
@@ -80,33 +87,38 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useNotification } from '@/composables/useNotification.js'
+import { useConflictWatcher } from '@/composables/useConflictWatcher.js'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 
 const router = useRouter()
 const { currentUser, logout, isAdmin } = useAuth()
 const { notifications, removeNotification } = useNotification()
+const { startWatching } = useConflictWatcher()
 
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
-    return {
-      text: '(開發版)',
-      class: 'env-tag-dev',
-    }
+    return { text: '(開發版)', class: 'env-tag-dev' }
   } else if (import.meta.env.MODE === 'production') {
-    return {
-      text: '(正式版)',
-      class: 'env-tag-prod',
-    }
+    return { text: '(正式版)', class: 'env-tag-prod' }
   }
   return null
 })
+
+// ✨↓↓↓【核心修正點：將所有函式定義，移到 watch 監聽器之前】↓↓↓
+
+function handleNotificationClick(notif) {
+  if (notif.action) {
+    notif.action()
+    removeNotification(notif.id)
+  }
+}
 
 function handleLogout() {
   logout()
 }
 
-// 【更新】取得通知類型文字 - 配合改良版通知
 const getTypeText = (type) => {
   switch (type) {
     case 'patient':
@@ -121,14 +133,55 @@ const getTypeText = (type) => {
       return '系統'
   }
 }
+
+const triggerScheduleCheck = async () => {
+  if (sessionStorage.getItem('hasCheckedSchedules')) {
+    console.log('🗓️ [MainLayout] 本次登入階段已檢查過排程，跳過。')
+    return
+  }
+  console.log('🚀 [MainLayout] 準備觸發雲端函式 ensureFutureSchedules...')
+  try {
+    const functions = getFunctions()
+    const ensureSchedules = httpsCallable(functions, 'ensureFutureSchedules')
+    const result = await ensureSchedules()
+    console.log('✅ [MainLayout] 雲端函式 ensureFutureSchedules 執行成功:', result.data)
+    sessionStorage.setItem('hasCheckedSchedules', 'true')
+  } catch (error) {
+    console.error('❌ [MainLayout] 呼叫 ensureFutureSchedules 失敗:', error)
+  }
+}
+
+// ✨↑↑↑【核心修正點】↑↑↑
+
+// ✨ 核心修正：合併兩個 watch 為一個，並確保在函式定義後執行
+watch(
+  () => currentUser.value,
+  (newUser) => {
+    if (newUser) {
+      triggerScheduleCheck()
+      startWatching()
+    } else {
+      console.log('🚪 [MainLayout] 使用者已登出，清除排程檢查標記。')
+      sessionStorage.removeItem('hasCheckedSchedules')
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
+/* 🔥 新增：讓可點擊的通知有手型游標 */
+.notification-item.is-clickable {
+  cursor: pointer;
+}
+.notification-item.is-clickable:hover {
+  background-color: #e9ecef; /* 或其他您喜歡的高亮顏色 */
+}
+/* 其他 CSS 樣式保持不變 */
 .dashboard-container {
   display: flex;
   height: 100vh;
 }
-
 .sidebar {
   width: 220px;
   background-color: #2c3e50;
@@ -138,18 +191,15 @@ const getTypeText = (type) => {
   flex-direction: column;
   height: 100vh;
 }
-
 .main-nav-section {
   padding: 20px 0;
 }
-
 .footer-section {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
   min-height: 0;
 }
-
 .sidebar-header {
   padding: 0 20px 20px 20px;
   border-bottom: 1px solid #34495e;
@@ -159,12 +209,10 @@ const getTypeText = (type) => {
   align-items: center;
   gap: 4px;
 }
-
 .platform-title {
   font-size: 1.5em;
   font-weight: bold;
 }
-
 .environment-tag {
   align-self: flex-end;
   font-size: 0.7rem;
@@ -181,13 +229,11 @@ const getTypeText = (type) => {
   background-color: #28a745;
   color: white;
 }
-
 .sidebar-nav {
   list-style: none;
   padding: 20px 0;
   margin: 0;
 }
-
 .nav-link {
   display: flex;
   align-items: center;
@@ -201,29 +247,24 @@ const getTypeText = (type) => {
     padding-left 0.2s;
   white-space: nowrap;
 }
-
 .nav-link:hover {
   background-color: #34495e;
 }
-
 .nav-link.router-link-exact-active {
   background-color: var(--primary-color, #1abc9c);
   color: white;
   font-weight: bold;
   padding-left: 25px;
 }
-
 .content-area {
   flex-grow: 1;
   overflow: auto;
   background-color: #f4f7f9;
 }
-
 .management-section {
   padding-top: 15px;
   border-top: 1px solid #34495e;
 }
-
 .section-title {
   font-size: 0.8em;
   font-weight: bold;
@@ -240,7 +281,6 @@ const getTypeText = (type) => {
   font-size: 1.1em;
   padding: 8px 20px;
 }
-
 .nav-footer {
   padding: 15px 20px;
   border-top: 1px solid #4a627a;
@@ -249,22 +289,18 @@ const getTypeText = (type) => {
   flex-direction: column;
   gap: 10px;
 }
-
 .user-info {
   margin-bottom: 0;
   font-size: 1em;
   line-height: 1.4;
 }
-
 .user-info span {
   display: block;
 }
-
 .button-group {
   display: flex;
   gap: 8px;
 }
-
 .action-button {
   flex: 1;
   text-align: center;
@@ -277,7 +313,6 @@ const getTypeText = (type) => {
   font-size: 0.85em;
   transition: background-color 0.2s;
 }
-
 .btn-logout {
   background: #e74c3c;
   color: white;
@@ -285,7 +320,6 @@ const getTypeText = (type) => {
 .btn-logout:hover {
   background: #c0392b;
 }
-
 .btn-secondary {
   background-color: #4a5568;
   color: white;
@@ -293,10 +327,6 @@ const getTypeText = (type) => {
 .btn-secondary:hover {
   background-color: #2d3748;
 }
-
-/* ============================================ */
-/* 【更新】緊湊版通知區域樣式 */
-/* ============================================ */
 .notification-area {
   padding: 10px;
   overflow-y: auto;
@@ -304,12 +334,10 @@ const getTypeText = (type) => {
   flex-grow: 1;
   min-height: 0;
 }
-
 .notification-area .section-title {
   padding: 0 10px 8px 10px;
   margin: 0;
 }
-
 .notification-area::-webkit-scrollbar {
   width: 6px;
 }
@@ -323,14 +351,11 @@ const getTypeText = (type) => {
 .notification-area::-webkit-scrollbar-thumb:hover {
   background-color: #4a5568;
 }
-
 .notification-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
-
-/* 緊湊版通知卡片樣式 */
 .notification-item {
   border-radius: 8px;
   padding: 12px;
@@ -338,19 +363,16 @@ const getTypeText = (type) => {
   border-left: 4px solid transparent;
   transition: all 0.3s ease;
 }
-
 .notification-content {
   display: flex;
   align-items: flex-start;
   margin-bottom: 8px;
 }
-
 .notification-icon {
   font-size: 16px;
   margin-right: 8px;
   flex-shrink: 0;
 }
-
 .notification-message {
   flex: 1;
   margin: 0;
@@ -359,19 +381,16 @@ const getTypeText = (type) => {
   color: #333;
   font-weight: 500;
 }
-
 .notification-footer-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
 .notification-time {
   font-size: 12px;
   color: #666;
   font-weight: 400;
 }
-
 .notification-close {
   background: none;
   border: none;
@@ -387,49 +406,43 @@ const getTypeText = (type) => {
   border-radius: 50%;
   transition: all 0.2s ease;
 }
-
 .notification-close:hover {
   color: #666;
   background-color: rgba(0, 0, 0, 0.1);
 }
-
-/* 不同類型的通知樣式 */
 .notification-type-schedule {
   border-left-color: #3498db;
   background: linear-gradient(135deg, #e3f2fd 0%, #f8fbff 100%);
 }
-
 .notification-type-team {
   border-left-color: #27ae60;
   background: linear-gradient(135deg, #e8f5e8 0%, #f8fff8 100%);
 }
-
 .notification-type-patient {
   border-left-color: #f39c12;
   background: linear-gradient(135deg, #fef3e2 0%, #fffaf5 100%);
 }
-
 .notification-type-memo {
   border-left-color: #9b59b6;
   background: linear-gradient(135deg, #f3e8ff 0%, #faf8ff 100%);
 }
-
-/* 動畫效果 */
+/* 🔥 新增：衝突通知樣式 */
+.notification-type-conflict {
+  border-left-color: #e74c3c;
+  background: linear-gradient(135deg, #ffebee 0%, #fff8f8 100%);
+}
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.3s ease;
 }
-
 .notification-list-enter-from {
   opacity: 0;
   transform: translateY(-20px);
 }
-
 .notification-list-leave-to {
   opacity: 0;
   transform: translateX(100%);
 }
-
 .notification-list-move {
   transition: transform 0.3s ease;
 }

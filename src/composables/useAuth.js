@@ -1,24 +1,31 @@
-// src/composables/useAuth.js (修正版)
+// 檔案路徑: src/composables/useAuth.js (最終修正版 - 實現 Session-Only 登入)
 
 import { ref, computed, readonly, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, functions } from '@/composables/useFirebase.js'
-import { signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth'
-import { httpsCallable } from 'firebase/functions'
 
-// ✅ 只導入，不在此處調用
+// ✨ 1. 從 firebase/auth 引入必要的函式
+import {
+  signInWithCustomToken,
+  onAuthStateChanged,
+  signOut,
+  setPersistence,
+  browserSessionPersistence,
+} from 'firebase/auth'
+
+import { httpsCallable } from 'firebase/functions'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
-// Global State
+// --- 全局狀態 ---
 const currentUser = ref(null)
 const isLoggedIn = computed(() => !!currentUser.value)
 const authLoading = ref(true)
-
-// ✨ 新增：操作載入狀態
 const loginLoading = ref(false)
 const logoutLoading = ref(false)
 
-// 安全的 localStorage 操作
+// --- 安全的 localStorage 操作 ---
+// 注意：即使我們改用 sessionStorage，這裡的 currentUser 備份機制可以保留，
+// 作為一種輔助手段，但登入的權威來源將是 Firebase 的 session 狀態。
 const safeLocalStorage = {
   getItem: (key) => {
     try {
@@ -44,12 +51,11 @@ const safeLocalStorage = {
   },
 }
 
-// 認證狀態監聽
+// --- 認證狀態監聽 ---
 onAuthStateChanged(auth, async (user) => {
   authLoading.value = true
-
-  try {
-    if (user) {
+  if (user) {
+    try {
       const idTokenResult = await user.getIdTokenResult()
       const userData = {
         id: user.uid,
@@ -59,67 +65,71 @@ onAuthStateChanged(auth, async (user) => {
         email: user.email,
         lastLogin: new Date().toISOString(),
       }
-
       currentUser.value = userData
       safeLocalStorage.setItem('currentUser', JSON.stringify(userData))
-
-      console.log('✅ User authenticated:', userData.name, `(${userData.role})`)
-    } else {
+      console.log('✅ Auth state changed: User is logged in.', currentUser.value)
+    } catch (error) {
+      console.error('❌ Error getting user token result:', error)
       currentUser.value = null
-      safeLocalStorage.removeItem('currentUser')
-      console.log('🚪 User signed out')
+      await signOut(auth)
     }
-  } catch (error) {
-    console.error('❌ Auth state change error:', error)
+  } else {
     currentUser.value = null
     safeLocalStorage.removeItem('currentUser')
-  } finally {
-    authLoading.value = false
+    console.log('🚪 Auth state changed: User is logged out.')
   }
+  authLoading.value = false
 })
 
+// --- 主要的 Composable 函式 ---
 export function useAuth() {
   const router = useRouter()
-
-  // ✅ 修正：在函數內部調用 useErrorHandler
   const { handleApiCall, validateInput, validationRules } = useErrorHandler()
 
-  // ✨ 完全重構：使用 handleApiCall 的登入函式
+  // ✨ --- 登入函式 (核心修改處) --- ✨
   const login = async (username, password) => {
-    // 🔍 嚴格輸入驗證
+    loginLoading.value = true
+
     const usernameValidation = validateInput(username, [
       validationRules.required('使用者名稱為必填'),
     ])
-
     const passwordValidation = validateInput(password, [validationRules.required('密碼為必填')])
-
     if (!usernameValidation.isValid) {
+      loginLoading.value = false
       throw new Error(usernameValidation.errors[0])
     }
-
     if (!passwordValidation.isValid) {
+      loginLoading.value = false
       throw new Error(passwordValidation.errors[0])
     }
 
-    loginLoading.value = true
-
     try {
-      const customLoginFunction = httpsCallable(functions, 'customLogin')
-
       const result = await handleApiCall(
         async () => {
-          // 🔥 呼叫後端認證
+          // ✨ 2. 在所有登入操作之前，設定身份驗證的持久性為 SESSION
+          // 這會告訴 Firebase 將登入狀態儲存在 sessionStorage 中。
+          console.log("[Auth] Setting persistence to 'session'...")
+          await setPersistence(auth, browserSessionPersistence)
+          console.log('[Auth] Persistence set successfully.')
+
+          // 步驟 1: 呼叫後端 Cloud Function
+          console.log(`[Auth] Step 1: Calling 'customLogin' function for user: ${username}`)
+          const customLoginFunction = httpsCallable(functions, 'customLogin')
           const response = await customLoginFunction({ username, password })
-          const token = response.data.token
 
+          const token = response?.data?.token
           if (!token) {
-            throw new Error('從伺服器獲取登入憑證失敗')
+            throw new Error('從伺服器獲取登入憑證(token)失敗。')
           }
+          console.log('[Auth] Step 1: Successfully received custom token.')
 
-          // 🔐 使用自訂令牌登入
+          // 步驟 2: 使用 custom token 登入 Firebase Auth
+          console.log('[Auth] Step 2: Signing in with custom token...')
           await signInWithCustomToken(auth, token)
+          console.log('[Auth] Step 2: Successfully signed in with custom token.')
 
-          // 🎯 導航到目標頁面
+          // 步驟 3: 導航到目標頁面
+          console.log('[Auth] Step 3: Navigating to the destination page...')
           const redirectPath = router.currentRoute.value.query.redirect || '/schedule'
           await router.replace(redirectPath)
 
@@ -127,24 +137,25 @@ export function useAuth() {
         },
         {
           loadingMessage: '登入中...',
-          successMessage: '',
+          successMessage: '登入成功！',
           errorPrefix: '登入失敗',
-          retryCount: 2, // 重試2次
+          retryCount: 2,
           retryDelay: 1000,
-          showNotification: true,
+          showNotification: false,
         },
       )
-
       return result
+    } catch (error) {
+      console.error('[Auth] Login process failed:', error)
+      throw error
     } finally {
       loginLoading.value = false
     }
   }
 
-  // ✨ 完全重構：使用 handleApiCall 的登出函式
+  // --- 登出函式 (保持不變) ---
   const logout = async () => {
     logoutLoading.value = true
-
     try {
       return await handleApiCall(
         async () => {
@@ -156,8 +167,8 @@ export function useAuth() {
           loadingMessage: '登出中...',
           successMessage: '已安全登出',
           errorPrefix: '登出失敗',
-          retryCount: 1, // 登出只重試1次
-          showNotification: false, // 登出成功不需要通知
+          retryCount: 1,
+          showNotification: false,
         },
       )
     } finally {
@@ -165,11 +176,11 @@ export function useAuth() {
     }
   }
 
-  // ✨ 新增：重新整理使用者資訊
+  // --- 其他所有輔助函式 (保持不變) ---
+
   const refreshUser = async () => {
     if (!auth.currentUser) return null
-
-    return await handleApiCall(
+    return handleApiCall(
       async () => {
         const idTokenResult = await auth.currentUser.getIdTokenResult(true) // 強制刷新
         const userData = {
@@ -180,29 +191,23 @@ export function useAuth() {
           email: auth.currentUser.email,
           lastRefresh: new Date().toISOString(),
         }
-
         currentUser.value = userData
         safeLocalStorage.setItem('currentUser', JSON.stringify(userData))
-
         return userData
       },
       {
         errorPrefix: '重新整理使用者資訊失敗',
         showNotification: false,
-        retryCount: 2,
       },
     )
   }
 
-  // 檢查認證狀態
   const checkAuthState = () => {
     return new Promise((resolve) => {
       if (!authLoading.value) {
         resolve(currentUser.value)
         return
       }
-
-      // 等待認證狀態確定
       const stopWatcher = watch(authLoading, (loading) => {
         if (!loading) {
           stopWatcher()
@@ -212,24 +217,19 @@ export function useAuth() {
     })
   }
 
-  // 權限檢查函式
   const hasPermission = (requiredRole) => {
     if (!currentUser.value) return false
-
     const roleHierarchy = {
       viewer: 1,
       contributor: 2,
       editor: 3,
       admin: 4,
     }
-
     const userLevel = roleHierarchy[currentUser.value.role] || 0
     const requiredLevel = roleHierarchy[requiredRole] || 999
-
     return userLevel >= requiredLevel
   }
 
-  // ✨ 新增：批量權限檢查
   const checkPermissions = (permissions) => {
     const results = {}
     for (const [key, role] of Object.entries(permissions)) {
@@ -238,13 +238,11 @@ export function useAuth() {
     return results
   }
 
-  // 暫時保持的 changePassword
   async function changePassword(oldPassword, newPassword) {
     console.warn('changePassword 功能需要重構以配合新的認證系統。')
     throw new Error('此功能暫時停用，請聯繫管理員重設密碼。')
   }
 
-  // 權限計算
   const canManageUsers = computed(() => hasPermission('admin'))
   const canEditSchedules = computed(() => hasPermission('editor'))
   const canEditPatients = computed(() => hasPermission('contributor'))
@@ -254,30 +252,24 @@ export function useAuth() {
   const isAdmin = computed(() => hasPermission('admin'))
   const isReadOnly = computed(() => !hasPermission('contributor'))
 
-  // ✨ 新增：載入狀態計算
   const isAnyLoading = computed(
     () => authLoading.value || loginLoading.value || logoutLoading.value,
   )
 
   return {
-    // 狀態
     isLoggedIn: readonly(isLoggedIn),
     currentUser: readonly(currentUser),
     authLoading: readonly(authLoading),
-    loginLoading: readonly(loginLoading), // ✨ 新增
-    logoutLoading: readonly(logoutLoading), // ✨ 新增
-    isAnyLoading: readonly(isAnyLoading), // ✨ 新增
-
-    // 方法
+    loginLoading: readonly(loginLoading),
+    logoutLoading: readonly(logoutLoading),
+    isAnyLoading: readonly(isAnyLoading),
     login,
     logout,
     changePassword,
     checkAuthState,
     hasPermission,
-    checkPermissions, // ✨ 新增
-    refreshUser, // ✨ 新增
-
-    // 權限
+    checkPermissions,
+    refreshUser,
     canManageUsers,
     canEditSchedules,
     canEditPatients,

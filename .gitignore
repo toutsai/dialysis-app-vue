@@ -148,3 +148,15 @@ dist
 .env.local
 .env.development
 .env.production
+
+serviceAccountKey.json
+
+# Firebase Emulator Data
+# 忽略由 --export-on-shutdown 產生的暫存資料夾
+firebase-export-*/
+
+# 忽略由 --export-on-shutdown 產生的目標資料夾
+saved-data/
+
+# 忽略 Firebase 的除錯日誌檔案
+firebase-debug.log

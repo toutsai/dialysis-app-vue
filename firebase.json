@@ -1,11 +1,30 @@
 {
-  // ✨ --- 新增這個區塊 --- ✨
-  // 告訴 Firebase CLI 您的 Firestore 規則檔案在哪裡
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-
+  "emulators": {
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "hosting": {
+      "port": 5000
+    },
+    // ✨ 確保 pubsub 模擬器已啟用 ✨
+    "pubsub": {
+      "port": 8085
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    }
+  },
   "hosting": [
     {
       "target": "production",

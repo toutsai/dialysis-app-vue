@@ -1,19 +1,14 @@
 {
   "projects": {
-    "default": "my-dialysis-app-develop",
-    "develop": "my-dialysis-app-develop",
-    "production": "dialysis-schedule-cd36c"
+    "production": "dialysis-schedule-cd36c",
+    "develop": "my-dialysis-app-develop"
   },
   "targets": {
-    "dialysis-schedule-cd36c": {
+    "my-dialysis-app-develop": {
       "hosting": {
         "production": [
           "dialysis-schedule-cd36c"
-        ]
-      }
-    },
-    "my-dialysis-app-develop": {
-      "hosting": {
+        ],
         "develop": [
           "my-dialysis-app-develop"
         ]
