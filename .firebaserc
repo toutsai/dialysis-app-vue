@@ -13,6 +13,13 @@
           "my-dialysis-app-develop"
         ]
       }
+    },
+    "dialysis-schedule-cd36c": {
+      "hosting": {
+        "production": [
+          "dialysis-schedule-cd36c"
+        ]
+      }
     }
   },
   "etags": {}
