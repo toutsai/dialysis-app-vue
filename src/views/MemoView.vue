@@ -4,7 +4,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
@@ -39,7 +39,7 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 
 // --- 路由實例 ---
 const route = useRoute()
@@ -226,7 +226,7 @@ async function addMemo() {
     }
 
     // ✅ 具體的業務事件通知
-    addNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
+    createGlobalNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
 
     // ✅ 操作狀態反饋用彈窗
     //showAlert('新增成功', '備忘錄已成功新增。')//
@@ -329,7 +329,7 @@ async function updateMemoStatus(id, resolve, isFromExpired = false) {
     await memosApi.update(id, { status: newStatus, isResolved: resolve })
 
     // ✅ 具體的業務事件通知
-    addNotification(notificationMessage, 'memo')
+    createGlobalNotification(notificationMessage, 'memo')
 
     // ✅ 操作狀態反饋用彈窗
     // showAlert('操作成功', alertMessage)//
@@ -368,7 +368,7 @@ async function deleteMemo(id) {
       await memosApi.delete(id)
 
       // ✅ 具體的業務事件通知
-      addNotification(`刪除備忘：${contentPreview}${patientContext}`, 'memo')
+      createGlobalNotification(`刪除備忘：${contentPreview}${patientContext}`, 'memo')
 
       // ✅ 操作狀態反饋用彈窗
       // showAlert('刪除成功', '備忘錄已成功刪除。') //

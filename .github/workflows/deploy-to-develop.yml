@@ -1,4 +1,4 @@
-# 檔案路徑: .github/workflows/deploy-to-develop.yml
+# 檔案路徑: .github/workflows/deploy-to-develop.yml (最終修正版)
 
 name: Deploy to Development Environment
 
@@ -33,15 +33,21 @@ jobs:
           npm ci
           npm ci --prefix functions
 
-      # 🔥【關鍵修正 1】: 將服務帳號的 secret 寫入一個暫存的 JSON 檔案
-      - name: Authenticate with Firebase Service Account
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' > /tmp/google-credentials.json
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      - name: Build and Deploy All to Firebase (Develop)
-        run: npm run deploy:dev
-        env:
-          # 🔥【關鍵修正 2】: 告訴 Firebase CLI 去哪裡找驗證檔案
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
+      # ✨ 核心修正：不再執行 npm script，而是直接執行完整的 firebase 指令
+      - name: Build and Deploy to Firebase (Develop)
+        run: |
+          # 1. 執行 Vue 的打包程序
+          npm run build
+
+          # 2. 執行 Firebase 部署指令，並明確傳入專案ID
+          # --non-interactive: 確保在 CI/CD 環境中不會有任何互動提示卡住流程
+          # --force: 強制部署，覆蓋現有部署
+          firebase deploy --project ${{ env.VITE_FIREBASE_PROJECT_ID_DEV }} --non-interactive --force --only hosting,functions,firestore:rules

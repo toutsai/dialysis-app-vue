@@ -3,7 +3,7 @@
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import UserFormModal from '@/components/UserFormModal.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -41,7 +41,7 @@ const confirmInfo = ref({
 
 // --- 權限控制 ---
 const { isAdmin } = useAuth()
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 
 // --- Helper Functions ---
 function formatDate(timestamp) {

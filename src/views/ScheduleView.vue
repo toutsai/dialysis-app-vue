@@ -373,7 +373,7 @@ import {
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js' // ✨ [核心修正] 引入 Composable
 
 import {
@@ -484,7 +484,7 @@ const isPageLocked = computed(() => {
   return currentDay < today
 })
 
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 
 function formatDate(date) {
   const year = date.getFullYear()
@@ -614,7 +614,7 @@ function clearInpatients() {
     if (clearedCount > 0) {
       currentRecord.schedule = newSchedule
       setChange()
-      addNotification(`已清除 ${clearedCount} 位住院/急診病人`, 'schedule')
+      createGlobalNotification(`已清除 ${clearedCount} 位住院/急診病人`, 'schedule')
     } else {
       alertDialogTitle.value = '提示'
       alertDialogMessage.value = '畫面上沒有住院或急診病人可供清除。'
@@ -644,7 +644,7 @@ function clearNurseTeams() {
     if (cleared) {
       currentRecord.schedule = newSchedule
       setChange()
-      addNotification(`已清除所有護理分組`, 'team')
+      createGlobalNotification(`已清除所有護理分組`, 'team')
     } else {
       alertDialogTitle.value = '提示'
       alertDialogMessage.value = '畫面上沒有護理分組可供清除。'
@@ -744,7 +744,7 @@ async function saveDataToCloud() {
     })
     window.dispatchEvent(updateEvent)
 
-    addNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
+    createGlobalNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
 
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'

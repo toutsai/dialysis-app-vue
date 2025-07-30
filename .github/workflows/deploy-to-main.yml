@@ -1,3 +1,5 @@
+# 檔案路徑: .github/workflows/deploy-to-main.yml (最終修正版)
+
 name: Deploy to Production Environment
 
 on:
@@ -39,18 +41,11 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      - name: Set Firebase Project and Deploy
+      # ✨ 核心修正：同樣改為直接執行完整的 firebase 指令
+      - name: Build and Deploy to Firebase (Production)
         run: |
-          # 列出可用的項目以確認認證成功
-          firebase projects:list
+          # 1. 執行 Vue 的打包程序
+          npm run build
 
-          # 使用項目別名
-          firebase use production
-
-          # 確認當前使用的項目
-          firebase use
-
-          # 執行部署
-          npm run deploy:prod
-        env:
-          channelId: live
+          # 2. 執行 Firebase 部署指令，並明確傳入專案ID
+          firebase deploy --project ${{ env.VITE_FIREBASE_PROJECT_ID_PROD }} --non-interactive --force --only hosting,functions,firestore:rules

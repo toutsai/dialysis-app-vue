@@ -29,30 +29,24 @@ const db = getFirestore(app)
 const functions = getFunctions(app)
 
 // 檢查是否處於開發模式 (Vite 預設會設定 import.meta.env.DEV 為 true)
+
+/*  <-- 使用區塊註解將整個 if 區塊包起來 -->
 if (import.meta.env.DEV) {
   console.log('👨‍💻 Running in development mode, attempting to connect to Firebase Emulators...')
-
-  // --- 核心修正：將所有端口號與您的 firebase.json 檔案同步 ---
-
-  // 修正 Auth 端口：從 9199 -> 9099
-  // 參考 firebase.json: "auth": { "port": 9099 }
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', {
     disableAppCheck: true,
   })
-
-  // 修正 Firestore 端口：從 8180 -> 8080
-  // 參考 firebase.json: "firestore": { "port": 8080 }
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
-
-  // 修正 Functions 端口：從 5101 -> 5001 (這是您登入失敗的直接原因)
-  // 參考 firebase.json: "functions": { "port": 5001 }
   connectFunctionsEmulator(functions, '127.0.0.1', 5001)
-
   console.log(
     '✅ Firebase Emulators connection configured. Auth:9099, Firestore:8080, Functions:5001',
   )
 } else {
   console.log('🌍 Running in production mode, connecting to live Firebase services.')
 }
+  */ // <-- 註解結束
+
+// ✨ (可選，但推薦) 加上一行日誌，讓您清楚知道現在的連接狀態
+console.log(`🌍 Connecting to LIVE Firebase project: ${firebaseConfig.projectId}`)
 
 export { app, auth, db, functions }
