@@ -88,13 +88,20 @@
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { computed, watch } from 'vue'
-import { useNotification } from '@/composables/useNotification.js'
+// ⛔ 移除舊的通知系統
+// import { useNotification } from '@/composables/useNotification.js'
+// ✨ 新增：引入即時通知系統
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import { useConflictWatcher } from '@/composables/useConflictWatcher.js'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
 const router = useRouter()
 const { currentUser, logout, isAdmin } = useAuth()
-const { notifications, removeNotification } = useNotification()
+// ⛔ 移除舊的通知解構
+// const { notifications, removeNotification } = useNotification()
+// ✨ 新增：使用新的即時通知系統
+const { notifications, startListening, stopListening, removeNotification } =
+  useRealtimeNotifications()
 const { startWatching } = useConflictWatcher()
 
 const environmentTag = computed(() => {
@@ -106,11 +113,11 @@ const environmentTag = computed(() => {
   return null
 })
 
-// ✨↓↓↓【核心修正點：將所有函式定義，移到 watch 監聽器之前】↓↓↓
-
 function handleNotificationClick(notif) {
+  // 點擊通知的行為（例如跳轉）已在 useRealtimeNotifications 中定義
   if (notif.action) {
     notif.action()
+    // 點擊後可以選擇是否移除，這裡保留移除的邏輯
     removeNotification(notif.id)
   }
 }
@@ -119,6 +126,8 @@ function handleLogout() {
   logout()
 }
 
+// 這個函式現在可能不再需要，因為通知類型已在 useRealtimeNotifications 中處理
+// 但暫時保留以防萬一
 const getTypeText = (type) => {
   switch (type) {
     case 'patient':
@@ -129,6 +138,8 @@ const getTypeText = (type) => {
       return '分組'
     case 'memo':
       return '備忘'
+    case 'conflict':
+      return '衝突'
     default:
       return '系統'
   }
@@ -151,21 +162,25 @@ const triggerScheduleCheck = async () => {
   }
 }
 
-// ✨↑↑↑【核心修正點】↑↑↑
-
-// ✨ 核心修正：合併兩個 watch 為一個，並確保在函式定義後執行
+// 監聽使用者登入/登出狀態，並控制相關服務的啟動與停止
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      triggerScheduleCheck()
-      startWatching()
+      // --- 用戶登入時執行的操作 ---
+      console.log('🟢 [MainLayout] User logged in. Starting services...')
+      triggerScheduleCheck() // 觸發排程檢查
+      startWatching() // 啟動衝突監聽
+      startListening() // ✨ 啟動全局即時通知監聽
     } else {
-      console.log('🚪 [MainLayout] 使用者已登出，清除排程檢查標記。')
+      // --- 用戶登出時執行的操作 ---
+      console.log('🚪 [MainLayout] User logged out. Stopping services...')
       sessionStorage.removeItem('hasCheckedSchedules')
+      stopListening() // ✨ 停止全局即時通知監聽，並清空通知
+      // 如果 useConflictWatcher 也有 stopWatching, 可以在這裡呼叫
     }
   },
-  { immediate: true },
+  { immediate: true }, // immediate: true 確保在組件加載時立即執行一次
 )
 </script>
 

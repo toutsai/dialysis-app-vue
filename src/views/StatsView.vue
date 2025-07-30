@@ -408,7 +408,7 @@ import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
@@ -502,7 +502,7 @@ const bedChangeTargetShift = ref(null)
 const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({ patients: [], targetElement: null })
 
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
 const isPageLocked = computed(() => {
   if (!auth.canEditSchedules.value) return true
@@ -840,7 +840,7 @@ async function saveChangesToCloud() {
     }
     hasUnsavedChanges.value = false
     statusIndicator.value = '變更已儲存！'
-    addNotification(`修改護理分組: ${currentRecord.date}`, 'team')
+    createGlobalNotification(`修改護理分組: ${currentRecord.date}`, 'team')
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '變更儲存成功！'
     isAlertDialogVisible.value = true
