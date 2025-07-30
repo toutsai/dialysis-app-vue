@@ -1,3 +1,5 @@
+# 檔案路徑: .github/workflows/deploy-to-main.yml (修正後)
+
 name: Deploy to Production Environment
 
 on:
@@ -26,31 +28,17 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install Dependencies
+      - name: Install Dependencies and Build for Production
         run: |
           npm ci
-          npm ci --prefix functions
+          npm run build
 
-      - name: Authenticate with Google Cloud
-        uses: google-github-actions/auth@v2
+      - name: Deploy to Firebase Hosting (Production)
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
-
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-
-      - name: Set Firebase Project and Deploy
-        run: |
-          # 列出可用的項目以確認認證成功
-          firebase projects:list
-
-          # 使用項目別名
-          firebase use production
-
-          # 確認當前使用的項目
-          firebase use
-
-          # 執行部署
-          npm run deploy:prod
-        env:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
+          # 【關鍵修正】: 移除 channelId: live，改用 target
+          projectId: dialysis-schedule-cd36c
+          target: production
           channelId: live
