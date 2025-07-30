@@ -1,11 +1,9 @@
-// 檔案路徑: firestore.rules (已加入例外管理權限)
-
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helper Functions (保持不變) ---
+    // --- Helper Functions (保持您原有的，非常棒！) ---
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -47,16 +45,34 @@ service cloud.firestore {
       allow read, write: if isAuthenticated();
     }
     
-    // ✨ --- 新增：例外管理相關規則 --- ✨
+    // ✨ --- 核心修正點 1：修改例外管理規則 --- ✨
     match /schedule_exceptions/{exceptionId} {
-      // 只有 Editor(組長) 和 Admin 可以讀取、建立、刪除(撤銷)申請
-      allow read, create, delete: if isEditor();
-      // 不允許使用者直接更新申請狀態，狀態由後端 Cloud Functions 管理
+      // ✅ 修正：允許所有已登入的使用者讀取此集合，以便 useConflictWatcher 正常工作
+      allow read: if isAuthenticated();
+      
+      // 保持原有的嚴格寫入權限
+      allow create, delete: if isEditor();
+
+      // 保持不允許客戶端直接更新
       allow update: if false; 
     }
+    
     match /exception_tasks/{taskId} {
-      // 不允許任何客戶端直接讀寫這個集合 (後端專用)
+      // 保持後端專用
       allow read, write: if false;
+    }
+    // ✨ --- 結束修正 --- ✨
+
+    // ✨ --- 核心修正點 2：新增 notifications 集合規則 --- ✨
+    match /notifications/{notificationId} {
+      // 允許所有已登入的使用者讀取（接收）通知
+      allow read: if isAuthenticated();
+
+      // 允許所有已登入的使用者創建（發送）通知
+      allow create: if isAuthenticated();
+      
+      // 不允許任何人從前端修改或刪除通知（刪除由後台 TTL 政策處理）
+      allow update, delete: if false;
     }
     // ✨ --- 結束新增 --- ✨
 

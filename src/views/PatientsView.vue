@@ -24,7 +24,7 @@ import PatientHistoryModal from '@/components/PatientHistoryModal.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import * as XLSX from 'xlsx'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 
 const allPatients = ref([])
 const activeTab = ref('er')
@@ -64,7 +64,7 @@ const existingPatientForConflict = ref(null)
 const isHistoryModalVisible = ref(false)
 const selectedPatientForHistory = ref(null)
 
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 
 const auth = useAuth()
 const { isLoggedIn } = auth
@@ -357,7 +357,7 @@ async function restoreAndTransferPatient(patientId, targetStatus) {
     await removeRuleFromMasterSchedule(patientId)
 
     await fetchAllPatients()
-    addNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
+    createGlobalNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
     showAlert(
       '復原成功',
       `${patient.name} 已成功復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
@@ -422,7 +422,7 @@ async function handleSavePatient(patientData) {
             // ✨ 核心修正：呼叫新的、正確的函式
             await removeRuleFromMasterSchedule(patientData.id)
             await fetchAllPatients()
-            addNotification(`中止透析：${patientData.name}`, 'patient')
+            createGlobalNotification(`中止透析：${patientData.name}`, 'patient')
           } catch (err) {
             console.error('中止透析操作失敗:', err)
             showAlert('操作失敗', err.message || '中止透析操作失敗！')
@@ -439,7 +439,7 @@ async function handleSavePatient(patientData) {
       await optimizedUpdatePatient(patientData.id, dataToUpdate)
       closeModal()
       await fetchAllPatients()
-      addNotification(`編輯病人：${patientData.name}`, 'patient')
+      createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
     } catch (err) {
       console.error('更新病人資料失敗:', err)
       showAlert('操作失敗', '更新病人資料失敗！')
@@ -495,7 +495,7 @@ async function handleSavePatient(patientData) {
 
       const statusText =
         modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
-      addNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
+      createGlobalNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
     } catch (err) {
       console.error('新增病人失敗:', err)
       showAlert('操作失敗', '新增病人失敗！')
@@ -540,7 +540,7 @@ async function handleConflictSelected() {
 
     const statusText =
       modalType.value === 'ipd' ? '住院' : modalType.value === 'er' ? '急診' : '門診'
-    addNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
+    createGlobalNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
 
     showAlert('操作成功', `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`)
   } catch (err) {
@@ -585,7 +585,7 @@ async function transferPatient(patientId, newStatus) {
         await optimizedSavePatientHistory(historyEntry)
         await fetchAllPatients()
 
-        addNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
+        createGlobalNotification(`轉移病人：${patientName} 至 ${targetStatusText}`, 'patient')
 
         showAlert(
           '轉移成功',
@@ -642,7 +642,7 @@ async function handleDeleteReasonSelected(reason) {
     await fetchAllPatients()
 
     // 5. 發送通知
-    addNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
+    createGlobalNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
     showAlert(
       '刪除成功',
       `${patientNameForNotification} 已被刪除，其在「門急住床位總表」中的規則也已移除。未來排程將由系統自動更新。`,
@@ -691,7 +691,7 @@ async function restorePatient(patientId) {
     await removeRuleFromMasterSchedule(patientId)
 
     await fetchAllPatients()
-    addNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
+    createGlobalNotification(`復原病人：${patient.name} 至 ${statusText}`, 'patient')
     showAlert(
       '復原成功',
       `${patient.name} 已復原至 ${statusText} 清單，請至「門住總床位表」為其重新排班。`,
@@ -869,7 +869,7 @@ async function handleSaveOrder(orderDataFromModal) {
     isOrderModalVisible.value = false
     await fetchAllPatients()
 
-    addNotification(`更新醫囑：${patientName}`, 'patient')
+    createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
   } catch (error) {
     console.error('❌ [PatientsView] 儲存醫囑失敗:', error)
     showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)

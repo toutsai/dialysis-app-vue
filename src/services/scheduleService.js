@@ -7,11 +7,11 @@ import { generateAutoNote } from '@/utils/scheduleUtils.js'
 // ✨ 整合優化系統
 import { useCache } from '@/composables/useCache.js'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 
 const { getCachedData, invalidateCache } = useCache()
 const { handleApiCall, validateInput, validationRules, performanceMonitor } = useErrorHandler()
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 
 // ✨ 直接使用 Firestore 操作，替代 ApiManager
 const schedulesCollection = collection(db, 'schedules')
@@ -253,7 +253,7 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
         // 📝 顯示通知
         if (showNotifications) {
           if (result.success) {
-            addNotification('排程資料已清除', 'schedule')
+            createGlobalNotification('排程資料已清除', 'schedule')
           } else {
             addNotification('清除排程時發生錯誤', 'error')
           }
