@@ -1,4 +1,4 @@
-# 檔案路徑: .github/workflows/deploy-to-main.yml (修正後)
+# 檔案路徑: .github/workflows/deploy-to-main.yml (修正版)
 
 name: Deploy to Production Environment
 
@@ -28,17 +28,24 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install Dependencies and Build for Production
+      - name: Install Dependencies
         run: |
           npm ci
-          npm run build
+          npm ci --prefix functions
 
-      - name: Deploy to Firebase Hosting (Production)
-        uses: FirebaseExtended/action-hosting-deploy@v0
+      # ✨ 修正 1：保持這個現代化的驗證方式，這是正確的
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          repoToken: '${{ secrets.GITHUB_TOKEN }}'
-          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DIALYSIS_SCHEDULE_CD36C }}'
-          # 【關鍵修正】: 移除 channelId: live，改用 target
-          projectId: dialysis-schedule-cd36c
-          target: production
-          channelId: live
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      # ✨ 修正 2：移除所有 'firebase use' 指令，改用 --project 旗標直接部署
+      - name: Deploy to Firebase (Production)
+        run: |
+          # 我們直接在 deploy 指令中明確指定專案 ID
+          # 這樣就不需要依賴任何本地狀態，非常適合 CI/CD 環境
+          # 提示: --only 後面的參數請根據您實際需要部署的服務調整
+          firebase deploy --project ${{ env.VITE_FIREBASE_PROJECT_ID_PROD }} --only hosting,functions,firestore,rules

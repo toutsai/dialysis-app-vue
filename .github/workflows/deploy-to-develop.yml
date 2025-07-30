@@ -1,4 +1,4 @@
-# 檔案路徑: .github/workflows/deploy-to-develop.yml
+# 檔案路徑: .github/workflows/deploy-to-develop.yml (優化版)
 
 name: Deploy to Development Environment
 
@@ -33,15 +33,16 @@ jobs:
           npm ci
           npm ci --prefix functions
 
-      # 🔥【關鍵修正 1】: 將服務帳號的 secret 寫入一個暫存的 JSON 檔案
-      - name: Authenticate with Firebase Service Account
-        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}' > /tmp/google-credentials.json
+      # ✨ 優化 1：使用與正式版相同的 google-github-actions/auth@v2
+      - name: Authenticate with Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEV }}
 
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      - name: Build and Deploy All to Firebase (Develop)
-        run: npm run deploy:dev
-        env:
-          # 🔥【關鍵修正 2】: 告訴 Firebase CLI 去哪裡找驗證檔案
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/google-credentials.json
+      # ✨ 優化 2：同樣使用 --project 旗標進行明確部署
+      - name: Deploy to Firebase (Develop)
+        run: |
+          firebase deploy --project ${{ env.VITE_FIREBASE_PROJECT_ID_DEV }} --only hosting,functions,firestore,rules
