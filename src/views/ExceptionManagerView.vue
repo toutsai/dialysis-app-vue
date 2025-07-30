@@ -1,11 +1,15 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (智慧衝突處理版) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (最終修正版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">排程例外管理中心</h1>
-          <button class="btn btn-primary" @click="openCreateDialog" :disabled="isPageLocked">
+          <button
+            class="btn btn-primary desktop-only"
+            @click="openCreateDialog"
+            :disabled="isPageLocked"
+          >
             <i class="fas fa-plus-circle"></i> 新增例外申請
           </button>
         </div>
@@ -23,72 +27,144 @@
           <i class="fas fa-check-circle"></i>
           <p>目前沒有任何待處理或已生效的例外申請。</p>
         </div>
-        <table v-else class="exceptions-table">
-          <thead>
-            <tr>
-              <th>狀態</th>
-              <th>病患姓名</th>
-              <th>類型</th>
-              <th>日期區間</th>
-              <th>原因 / 目的</th>
-              <th>申請時間</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="ex in exceptions" :key="ex.id" :class="`status-${ex.status}`">
-              <td>
-                <span class="status-badge" :class="`status-${ex.status}`">
-                  {{ statusMap[ex.status] || '未知' }}
-                </span>
-              </td>
-              <td>{{ ex.patientName }}</td>
-              <td>
-                <span class="type-badge" :class="`type-${ex.type}`">
-                  {{ typeMap[ex.type] || '未知' }}
-                </span>
-              </td>
-              <td>
-                {{ ex.startDate }}
-                <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
-              </td>
-              <td class="reason-cell">
-                <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                  <div>
-                    <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
-                    {{ ex.from.shiftCode }}班)
+
+        <!-- ‼️‼️‼️ 這裡是核心修正：用一個 v-else 容器包裹兩個版本 ‼️‼️‼️ -->
+        <div v-else>
+          <!-- 桌機版表格 -->
+          <table class="exceptions-table desktop-only">
+            <thead>
+              <tr>
+                <th>狀態</th>
+                <th>病患姓名</th>
+                <th>類型</th>
+                <th>日期區間</th>
+                <th>原因 / 目的</th>
+                <th>申請時間</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="ex in exceptions" :key="ex.id" :class="`status-${ex.status}`">
+                <td>
+                  <span class="status-badge" :class="`status-${ex.status}`">
+                    {{ statusMap[ex.status] || '未知' }}
+                  </span>
+                </td>
+                <td>{{ ex.patientName }}</td>
+                <td>
+                  <span class="type-badge" :class="`type-${ex.type}`">
+                    {{ typeMap[ex.type] || '未知' }}
+                  </span>
+                </td>
+                <td>
+                  {{ ex.startDate }}
+                  <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
+                </td>
+                <td class="reason-cell">
+                  <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
+                    <div>
+                      <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
+                      {{ ex.from.shiftCode }}班)
+                    </div>
+                    <div>
+                      <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
+                      {{ ex.to.shiftCode }}班)
+                    </div>
+                    <small v-if="ex.status === 'error'" class="error-message"
+                      >錯誤: {{ ex.errorMessage }}</small
+                    >
+                    <small v-else>原因: {{ ex.reason }}</small>
                   </div>
-                  <div>
-                    <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
-                    {{ ex.to.shiftCode }}班)
+                  <div v-else>
+                    {{ ex.reason }}
                   </div>
-                  <!-- 🔥 新增：顯示錯誤訊息 -->
-                  <small v-if="ex.status === 'error'" class="error-message"
-                    >錯誤: {{ ex.errorMessage }}</small
+                </td>
+                <td>{{ formatTimestamp(ex.createdAt) }}</td>
+                <td>
+                  <button
+                    class="btn btn-danger btn-sm"
+                    @click="confirmDeleteException(ex.id)"
+                    :disabled="isActionDisabled(ex) || isPageLocked"
                   >
-                  <small v-else>原因: {{ ex.reason }}</small>
+                    <i class="fas fa-trash-alt"></i> 撤銷
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- 手機版卡片列表 -->
+          <div class="exception-cards-container mobile-only">
+            <div
+              v-for="ex in exceptions"
+              :key="ex.id"
+              class="exception-card"
+              :class="`status-border-${ex.status}`"
+            >
+              <div class="card-header">
+                <div class="header-left">
+                  <span class="patient-name">{{ ex.patientName }}</span>
+                  <span class="type-badge" :class="`type-${ex.type}`">{{
+                    typeMap[ex.type] || '未知'
+                  }}</span>
                 </div>
-                <div v-else>
-                  {{ ex.reason }}
+                <span class="status-badge" :class="`status-${ex.status}`">{{
+                  statusMap[ex.status] || '未知'
+                }}</span>
+              </div>
+              <div class="card-body">
+                <div class="info-row">
+                  <strong class="info-label">日期區間:</strong>
+                  <span class="info-value">
+                    {{ ex.startDate
+                    }}<span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
+                  </span>
                 </div>
-              </td>
-              <td>{{ formatTimestamp(ex.createdAt) }}</td>
-              <td>
+                <div class="info-row details">
+                  <strong class="info-label">詳細內容:</strong>
+                  <div class="info-value">
+                    <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
+                      <div>
+                        <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
+                        {{ ex.from.shiftCode }}班)
+                      </div>
+                      <div>
+                        <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
+                        {{ ex.to.shiftCode }}班)
+                      </div>
+                      <small v-if="ex.status === 'error'" class="error-message"
+                        >錯誤: {{ ex.errorMessage }}</small
+                      >
+                      <small v-else>原因: {{ ex.reason }}</small>
+                    </div>
+                    <div v-else>{{ ex.reason }}</div>
+                  </div>
+                </div>
+                <div class="info-row">
+                  <strong class="info-label">申請時間:</strong>
+                  <span class="info-value">{{ formatTimestamp(ex.createdAt) }}</span>
+                </div>
+              </div>
+              <div class="card-footer">
                 <button
                   class="btn btn-danger btn-sm"
                   @click="confirmDeleteException(ex.id)"
                   :disabled="isActionDisabled(ex) || isPageLocked"
                 >
-                  <i class="fas fa-trash-alt"></i> 撤銷
+                  <i class="fas fa-trash-alt"></i> 撤銷申請
                 </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
-    <!-- 🔥 核心修改：傳遞 initial-data prop -->
+    <!-- 手機版新增按鈕 (FAB - Floating Action Button) -->
+    <button class="fab mobile-only" @click="openCreateDialog" :disabled="isPageLocked">
+      <i class="fas fa-plus"></i>
+    </button>
+
     <ExceptionCreateDialog
       :is-visible="isCreateDialogVisible"
       :all-patients="allPatients"
@@ -97,7 +173,6 @@
       @close="closeCreateDialog"
       @submit="handleCreateException"
     />
-
     <ConfirmDialog
       :is-visible="isConfirmDeleteVisible"
       title="確認撤銷"
@@ -105,8 +180,6 @@
       @confirm="executeDeleteException"
       @cancel="isConfirmDeleteVisible = false"
     />
-
-    <!-- 🔥 新增：衝突提示 Dialog -->
     <AlertDialog
       :is-visible="isConflictAlertVisible"
       title="排班衝突！"
@@ -118,16 +191,8 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import { useRouter } from 'vue-router' // ✨ 1. 在頂部引入 useRouter
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  updateDoc,
-} from 'firebase/firestore'
+import { useRouter, useRoute } from 'vue-router'
+import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
@@ -135,27 +200,25 @@ import { useAuth } from '@/composables/useAuth.js'
 
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue' // 引入 AlertDialog
+import AlertDialog from '@/components/AlertDialog.vue'
 
 const exceptionsApi = ApiManager('schedule_exceptions')
 const memosApi = ApiManager('memos')
-const router = useRouter() // ✨ 2. 在這裡定義 router 常數
+const router = useRouter()
+const route = useRoute()
 const allPatients = ref([])
 const exceptions = ref([])
 const isLoading = ref(true)
 const isCreateDialogVisible = ref(false)
 const isConfirmDeleteVisible = ref(false)
 const exceptionToDeleteId = ref(null)
-
-let unsubscribe = null
-
-const auth = useAuth()
-const isPageLocked = computed(() => !auth.canEditSchedules.value)
-
-// 🔥 新增：衝突處理相關狀態
 const exceptionToReEdit = ref(null)
 const isConflictAlertVisible = ref(false)
 const conflictAlertMessage = ref('')
+
+let unsubscribe = null
+const auth = useAuth()
+const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
 const statusMap = {
   pending: '待處理',
@@ -163,7 +226,7 @@ const statusMap = {
   applied: '已生效',
   error: '錯誤',
   expired: '已過期',
-  conflict_requires_resolution: '衝突待解決', // 新增狀態
+  conflict_requires_resolution: '衝突待解決',
 }
 
 const typeMap = {
@@ -184,13 +247,12 @@ function formatTimestamp(ts) {
 
 function openCreateDialog() {
   if (isPageLocked.value) return
-  exceptionToReEdit.value = null // 確保是新增模式
+  exceptionToReEdit.value = null
   isCreateDialogVisible.value = true
 }
 
 function closeCreateDialog() {
   isCreateDialogVisible.value = false
-  // 延遲一點時間再清理，避免 Dialog 在關閉動畫時內容突然消失
   setTimeout(() => {
     exceptionToReEdit.value = null
   }, 300)
@@ -198,13 +260,10 @@ function closeCreateDialog() {
 
 async function handleCreateException(formData) {
   try {
-    const isUpdating = !!formData.id // 判斷是新增還是解決衝突
-
+    const isUpdating = !!formData.id
     if (isUpdating) {
       await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
-      console.log(`[Re-Submit] 已刪除舊的衝突申請: ${formData.id}`)
     }
-
     const dataToSave = {
       patientId: formData.patientId,
       patientName: formData.patientName,
@@ -218,20 +277,12 @@ async function handleCreateException(formData) {
       createdAt: new Date(),
     }
     await exceptionsApi.save(dataToSave)
-    console.log('✅ 新的/已修正的例外申請已成功提交！')
-
     closeCreateDialog()
 
-    // --- ✨ 核心修正：自動建立備忘錄的邏輯 ---
-
-    // ✨ 1. 新增一個輔助函式，專門用來格式化床位顯示
-    const getBedDisplay = (bedNum) => {
-      if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
-        return `外圍 ${bedNum.split('-')[1]}`
-      }
-      return `${bedNum}床`
-    }
-
+    const getBedDisplay = (bedNum) =>
+      typeof bedNum === 'string' && bedNum.startsWith('peripheral-')
+        ? `外圍 ${bedNum.split('-')[1]}`
+        : `${bedNum}床`
     let memoContent = ''
     if (formData.type === 'MOVE') {
       const fromShift =
@@ -242,12 +293,8 @@ async function handleCreateException(formData) {
             : '晚'
       const toShift =
         formData.to.shiftCode === 'early' ? '早' : formData.to.shiftCode === 'noon' ? '午' : '晚'
-
-      // ✨ 2. 使用輔助函式取得床位顯示文字
       const fromBedDisplay = getBedDisplay(formData.from.bedNum)
       const toBedDisplay = getBedDisplay(formData.to.bedNum)
-
-      // ✨ 3. 產生包含完整床位資訊的備忘錄內容
       memoContent = `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay} / ${fromShift}班)\n新排班: ${formData.to.goalDate} (${toBedDisplay} / ${toShift}班)\n原因: ${formData.reason}`
     } else if (formData.type === 'SUSPEND') {
       memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}\n原因: ${formData.reason}`
@@ -264,10 +311,9 @@ async function handleCreateException(formData) {
         createdAt: new Date().toISOString(),
       }
       await memosApi.save(newMemo)
-      console.log('✅ 已同步建立對應的備忘錄！')
     }
   } catch (error) {
-    console.error('❌ 提交例外申請或建立備忘失敗:', error)
+    console.error('提交例外申請或建立備忘失敗:', error)
   }
 }
 
@@ -281,9 +327,8 @@ async function executeDeleteException() {
   if (!exceptionToDeleteId.value) return
   try {
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
-    console.log(`✅ 已撤銷例外申請: ${exceptionToDeleteId.value}`)
   } catch (error) {
-    console.error('❌ 撤銷失敗:', error)
+    console.error('撤銷失敗:', error)
   } finally {
     isConfirmDeleteVisible.value = false
     exceptionToDeleteId.value = null
@@ -291,85 +336,66 @@ async function executeDeleteException() {
 }
 
 function isActionDisabled(exception) {
-  // 1. 如果是錯誤狀態，永遠可以被撤銷（以便修正）
-  //    除非我們定義錯誤狀態不能被撤銷，這裡假設可以
-  if (exception.status === 'error') {
-    return false // 允許撤銷錯誤的申請
-  }
-
-  // 2. 獲取一個有效的結束日期
-  //    無論是 MOVE 還是 SUSPEND，我們都以 endDate 為準
+  if (exception.status === 'error') return false
   const endDateStr = exception.endDate
-
-  // 3. 如果連 endDate 都沒有，我們不禁用它，讓使用者可以刪除這筆可能有問題的資料
-  if (!endDateStr) {
-    return false
-  }
-
-  // 4. 只有當 endDate 明確存在，並且是過去的日期時，才禁用按鈕
+  if (!endDateStr) return false
   const today = new Date().toISOString().split('T')[0]
   return endDateStr < today
 }
 
-// 🔥 新增：處理衝突的函式
 function handleConflictAlertConfirm() {
   isConflictAlertVisible.value = false
-  // 使用 nextTick 確保 alert dialog 關閉後再打開新的 dialog
   nextTick(() => {
     isCreateDialogVisible.value = true
   })
 }
 
-import { useRoute } from 'vue-router' // 引入 useRoute
-const route = useRoute() // 獲取路由實例
-
 onMounted(async () => {
   try {
     allPatients.value = await optimizedFetchAllPatients()
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-
     unsubscribe = onSnapshot(q, (snapshot) => {
-      exceptions.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       isLoading.value = false
-
-      // ✨ 核心：檢查 URL 中是否有需要解決的衝突
       const conflictId = route.query.resolveConflict
       if (conflictId) {
         const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
         if (conflictException) {
-          console.log(`[ExceptionManager] 接收到衝突解決指令: ${conflictId}`)
           exceptionToReEdit.value = conflictException
           isCreateDialogVisible.value = true
-          // (可選) 清除 URL query，避免重複觸發
           router.replace({ query: {} })
         }
       }
     })
   } catch (error) {
-    console.error('❌ 載入資料失敗:', error)
+    console.error('載入資料失敗:', error)
     isLoading.value = false
   }
 })
 
 onUnmounted(() => {
-  if (unsubscribe) {
-    unsubscribe()
-  }
+  if (unsubscribe) unsubscribe()
 })
 </script>
 
 <style scoped>
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+/* ================================== */
+/*         通用及桌面版樣式            */
+/* ================================== */
 .page-container {
+  padding: 1.5rem;
   height: 100vh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  background-color: #f8f9fa;
 }
 .page-header {
   border-bottom: 2px solid #dee2e6;
   padding-bottom: 1.5rem;
   margin-bottom: 2rem;
+  flex-shrink: 0;
 }
 .header-toolbar {
   display: flex;
@@ -395,6 +421,9 @@ onUnmounted(() => {
   font-weight: 500;
   transition: all 0.2s;
   font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .btn-primary {
   background-color: #007bff;
@@ -423,7 +452,7 @@ button:disabled {
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
-  padding: 1rem;
+  padding: 1.5rem;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow-y: auto;
@@ -431,6 +460,7 @@ button:disabled {
 .section-title {
   font-size: 1.5rem;
   margin-bottom: 1.5rem;
+  color: #495057;
 }
 .exceptions-table {
   width: 100%;
@@ -439,7 +469,7 @@ button:disabled {
 }
 .exceptions-table th,
 .exceptions-table td {
-  padding: 0.5rem;
+  padding: 0.75rem 1rem;
   text-align: left;
   border-bottom: 1px solid #e9ecef;
   vertical-align: middle;
@@ -460,6 +490,7 @@ button:disabled {
   font-size: 0.8em;
   text-transform: uppercase;
   color: white;
+  white-space: nowrap;
 }
 .status-pending,
 .status-processing {
@@ -476,10 +507,9 @@ button:disabled {
   background-color: #6c757d;
 }
 .status-conflict_requires_resolution {
-  background-color: #fd7e14; /* 醒目的橘色 */
+  background-color: #fd7e14;
   color: white;
 }
-
 .type-MOVE {
   background-color: #17a2b8;
 }
@@ -505,9 +535,174 @@ button:disabled {
   align-items: center;
   gap: 1.5rem;
 }
-/* 🔥 新增錯誤訊息樣式 */
 .error-message {
   color: #dc3545;
   font-weight: bold;
+  display: block;
+  margin-top: 4px;
+}
+
+/* ================================== */
+/*         響應式樣式 (核心)         */
+/* ================================== */
+
+/* 預設情況下 (桌面版): 顯示表格，隱藏卡片 */
+.exceptions-table.desktop-only {
+  display: table;
+}
+.exception-cards-container.mobile-only {
+  display: none;
+}
+.fab.mobile-only {
+  display: none;
+}
+.btn.desktop-only {
+  display: inline-flex;
+}
+
+@media (max-width: 992px) {
+  /* 在平板和手機上: 隱藏表格，顯示卡片 */
+  .exceptions-table.desktop-only {
+    display: none;
+  }
+  .exception-cards-container.mobile-only {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .fab.mobile-only {
+    display: flex;
+  }
+  .btn.desktop-only {
+    display: none;
+  }
+
+  .page-container {
+    padding: 1rem;
+  }
+  .page-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+  }
+  .page-title {
+    font-size: 28px;
+  }
+  .page-description {
+    font-size: 0.9rem;
+  }
+  .page-main-content {
+    padding: 1rem;
+  }
+  .section-title {
+    font-size: 1.3rem;
+    margin-bottom: 1rem;
+  }
+
+  /* 卡片樣式 */
+  .exception-card {
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-left: 5px solid #ccc;
+    overflow: hidden;
+  }
+  .status-border-pending,
+  .status-border-processing {
+    border-left-color: #ffc107;
+  }
+  .status-border-applied {
+    border-left-color: #28a745;
+  }
+  .status-border-error {
+    border-left-color: #dc3545;
+  }
+  .status-border-expired {
+    border-left-color: #6c757d;
+  }
+  .status-border-conflict_requires_resolution {
+    border-left-color: #fd7e14;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .patient-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+  .card-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .info-row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 0.5rem;
+    align-items: start;
+  }
+  .info-label {
+    color: #6c757d;
+    font-weight: bold;
+  }
+  .info-value {
+    font-weight: 500;
+  }
+  .info-row.details .info-value {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .card-footer {
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  /* 浮動操作按鈕 (FAB) */
+  .fab {
+    position: fixed;
+    bottom: 2rem;
+    right: 1.5rem;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    font-size: 1.5rem;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-title {
+    font-size: 24px;
+  }
+  .page-header {
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+  }
+  .info-row {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+  }
+  .info-label {
+    font-size: 0.8rem;
+  }
 }
 </style>

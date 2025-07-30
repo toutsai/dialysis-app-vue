@@ -479,16 +479,20 @@ function getComparisonClass(currentValue, previousValue) {
 </template>
 
 <style scoped>
+/* ================================== */
+/*         通用及桌面版樣式            */
+/* ================================== */
+
 /* ✨ CSS 核心修改點：使用 Flexbox 佈局 ✨ */
 .dialog-content {
   background: white;
   border-radius: 8px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
   width: 90%;
-  max-width: 900px; /* 稍微加寬以容納新欄位 */
+  max-width: 900px;
   display: flex;
   flex-direction: column;
-  max-height: 90vh;
+  max-height: 90vh; /* 確保 Modal 不會超出視窗高度 */
 }
 .dialog-header,
 .dialog-footer {
@@ -544,7 +548,6 @@ function getComparisonClass(currentValue, previousValue) {
   cursor: pointer;
   color: #aaa;
 }
-
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -576,7 +579,6 @@ function getComparisonClass(currentValue, previousValue) {
   border-color: #007bff;
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
-
 .history-title {
   margin-top: 0;
   margin-bottom: 0.5rem;
@@ -624,7 +626,6 @@ function getComparisonClass(currentValue, previousValue) {
   background-color: #e53e3e;
   color: white;
 }
-
 .status-tag {
   padding: 2px 8px;
   border-radius: 12px;
@@ -633,13 +634,13 @@ function getComparisonClass(currentValue, previousValue) {
   color: white;
 }
 .status-tag.active {
-  background-color: #38a169; /* 綠色 */
+  background-color: #38a169;
 }
 .status-tag.pending {
-  background-color: #f97316; /* 橘色 */
+  background-color: #f97316;
 }
 .status-tag.history {
-  background-color: #718096; /* 灰色 */
+  background-color: #718096;
 }
 tr.active-order {
   background-color: #f0fff4;
@@ -657,14 +658,12 @@ tr.pending-order {
 tr.pending-order td:nth-child(2) {
   border-left: 4px solid #f97316;
 }
-
 .loading-state,
 .empty-state {
   padding: 2rem;
   text-align: center;
   color: #6c757d;
 }
-
 .dialog-footer {
   padding: 1rem 1.5rem;
   border-top: 1px solid #e5e5e5;
@@ -689,9 +688,59 @@ tr.pending-order td:nth-child(2) {
   background-color: #007bff;
   color: white;
 }
-
 .is-changed {
-  color: #dc3545; /* 紅色 */
+  color: #dc3545;
   font-weight: bold;
+}
+
+/* ================================== */
+/* ‼️        新增的響應式樣式        ‼️ */
+/* ================================== */
+@media (max-width: 768px) {
+  /* 讓 Modal 幾乎佔滿全螢幕，並從頂部對齊 */
+  .dialog-overlay {
+    align-items: flex-start;
+    padding-top: 2.5vh; /* 距離頂部一點距離 */
+  }
+
+  .dialog-content {
+    width: 95%; /* 左右留一點邊距 */
+    max-height: 95vh; /* 確保上下也有邊距 */
+  }
+
+  .dialog-header h2 {
+    font-size: 1.2rem;
+  }
+
+  /* 將表單從兩欄改為單欄佈局 */
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  /* 歷史表格啟用水平滾動 */
+  .history-table-wrapper {
+    overflow-x: auto;
+  }
+
+  .history-table-wrapper table {
+    min-width: 700px; /* 給表格一個最小寬度，防止內容擠壓 */
+  }
+
+  .history-table-wrapper th,
+  .history-table-wrapper td {
+    padding: 6px 8px; /* 縮小一點 padding */
+    font-size: 0.9rem; /* 縮小一點字體 */
+  }
+
+  /* 底部按鈕垂直堆疊 */
+  .dialog-footer {
+    flex-direction: column-reverse; /* 讓儲存按鈕在上方 */
+    gap: 0.5rem;
+  }
+
+  .dialog-footer button {
+    width: 100%;
+  }
 }
 </style>

@@ -914,8 +914,9 @@ onMounted(() => {
         </button>
       </div>
 
-      <!-- 急診病人表格 -->
-      <div v-if="activeTab === 'er'" class="tab-content active">
+      <!-- 主要內容區 (急診, 住院, 門診) -->
+      <div v-if="activeTab !== 'deleted'" class="tab-content active">
+        <!-- 頂部控制列 -->
         <div class="view-header">
           <div class="controls-left">
             <div class="search-group global-search">
@@ -923,14 +924,29 @@ onMounted(() => {
                 type="text"
                 v-model="globalSearchTerm"
                 @keydown.enter="handleGlobalSearch(globalSearchTerm)"
-                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
+                placeholder="搜尋/新增病人..."
               />
-              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
-                搜尋/新增
-              </button>
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">搜尋</button>
             </div>
             <div class="search-group list-filter">
-              <input type="text" v-model="erListFilter" placeholder="篩選目前列表..." />
+              <input
+                v-if="activeTab === 'er'"
+                type="text"
+                v-model="erListFilter"
+                placeholder="篩選列表..."
+              />
+              <input
+                v-if="activeTab === 'ipd'"
+                type="text"
+                v-model="ipdListFilter"
+                placeholder="篩選列表..."
+              />
+              <input
+                v-if="activeTab === 'opd'"
+                type="text"
+                v-model="opdListFilter"
+                placeholder="篩選列表..."
+              />
             </div>
           </div>
           <div v-if="patientStats" class="stats-summary">
@@ -948,7 +964,8 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="table-wrapper">
+        <!-- 桌機版 Flex 表格 -->
+        <div class="table-wrapper desktop-only">
           <div class="flex-table-wrapper">
             <div class="flex-table-header">
               <div class="flex-cell col-name" @click="handleSort('name')">
@@ -959,21 +976,26 @@ onMounted(() => {
                 <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
               </div>
               <div class="flex-cell col-physician" @click="handleSort('physician')">
-                開單醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
+                {{
+                  activeTab === 'opd' ? '收案醫師' : activeTab === 'ipd' ? '會診醫師' : '開單醫師'
+                }}
+                <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
               </div>
               <div class="flex-cell col-freq" @click="handleSort('freq')">
                 頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
               </div>
               <div class="flex-cell col-mode">模式</div>
-              <div class="flex-cell col-first-dialysis">首透</div>
-              <div class="flex-cell col-discontinued">中止</div>
+              <div v-if="activeTab === 'opd'" class="flex-cell col-vasc-access">血管通路</div>
+              <template v-else>
+                <div class="flex-cell col-first-dialysis">首透</div>
+                <div class="flex-cell col-discontinued">中止</div>
+              </template>
               <div class="flex-cell col-remarks">備註</div>
               <div class="flex-cell col-created" @click="handleSort('createdAt')">
                 新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
               </div>
               <div class="flex-cell col-actions">操作</div>
             </div>
-
             <div class="flex-table-body">
               <div
                 v-for="p in displayedPatients"
@@ -994,18 +1016,23 @@ onMounted(() => {
                 <div class="flex-cell col-physician">{{ p.physician }}</div>
                 <div class="flex-cell col-freq">{{ p.freq }}</div>
                 <div class="flex-cell col-mode">{{ p.mode }}</div>
-                <div class="flex-cell col-first-dialysis">
-                  <div v-if="p.isFirstDialysis">✓</div>
-                  <div v-if="p.firstDialysisDate" class="date-subtext">
-                    {{ formatDate(p.firstDialysisDate) }}
-                  </div>
+                <div v-if="activeTab === 'opd'" class="flex-cell col-vasc-access">
+                  {{ p.vascAccess }}
                 </div>
-                <div class="flex-cell col-discontinued">
-                  <div v-if="p.isDiscontinued">✓</div>
-                  <div v-if="p.discontinuedDate" class="date-subtext">
-                    {{ formatDate(p.discontinuedDate) }}
+                <template v-else>
+                  <div class="flex-cell col-first-dialysis">
+                    <div v-if="p.isFirstDialysis">✓</div>
+                    <div v-if="p.firstDialysisDate" class="date-subtext">
+                      {{ formatDate(p.firstDialysisDate) }}
+                    </div>
                   </div>
-                </div>
+                  <div class="flex-cell col-discontinued">
+                    <div v-if="p.isDiscontinued">✓</div>
+                    <div v-if="p.discontinuedDate" class="date-subtext">
+                      {{ formatDate(p.discontinuedDate) }}
+                    </div>
+                  </div>
+                </template>
                 <div class="flex-cell col-remarks">{{ p.remarks }}</div>
                 <div class="flex-cell col-created">{{ formatDate(p.createdAt) }}</div>
                 <div class="flex-cell col-actions">
@@ -1022,9 +1049,10 @@ onMounted(() => {
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
                     >
-                      透析醫囑
+                      醫囑
                     </button>
                     <button
+                      v-if="activeTab !== 'ipd'"
                       class="btn btn-transfer"
                       @click="transferPatient(p.id, 'ipd')"
                       :disabled="isPageLocked"
@@ -1032,162 +1060,21 @@ onMounted(() => {
                       轉住院
                     </button>
                     <button
+                      v-if="activeTab !== 'opd'"
                       class="btn btn-transfer"
                       @click="transferPatient(p.id, 'opd')"
                       :disabled="isPageLocked"
                     >
                       轉門診
                     </button>
-                    <div class="action-divider"></div>
-                    <div class="icon-buttons">
-                      <button
-                        class="btn-icon btn-history"
-                        @click="openHistoryModal(p)"
-                        title="動向歷史"
-                      >
-                        🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-delete"
-                        @click="deletePatient(p.id)"
-                        :disabled="isPageLocked"
-                        title="刪除"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 住院病人表格 -->
-      <div v-if="activeTab === 'ipd'" class="tab-content active">
-        <div class="view-header">
-          <div class="controls-left">
-            <div class="search-group global-search">
-              <input
-                type="text"
-                v-model="globalSearchTerm"
-                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
-                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
-              />
-              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
-                搜尋/新增
-              </button>
-            </div>
-            <div class="search-group list-filter">
-              <input type="text" v-model="ipdListFilter" placeholder="篩選目前列表..." />
-            </div>
-          </div>
-          <div v-if="patientStats" class="stats-summary">
-            <span class="total-count">總人數：{{ patientStats.total }}</span>
-            <div class="freq-counts">
-              <span
-                v-for="(count, freq) in patientStats.byFrequency"
-                :key="freq"
-                class="freq-tag"
-                :class="FREQ_COLOR_MAP[freq]"
-              >
-                {{ freq }}: {{ count }}人
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="table-wrapper">
-          <div class="flex-table-wrapper">
-            <div class="flex-table-header">
-              <div class="flex-cell col-name" @click="handleSort('name')">
-                姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
-              </div>
-              <div class="flex-cell col-mrn" @click="handleSort('medicalRecordNumber')">
-                病歷號
-                <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
-              </div>
-              <div class="flex-cell col-physician" @click="handleSort('physician')">
-                會診醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
-              </div>
-              <div class="flex-cell col-freq" @click="handleSort('freq')">
-                頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
-              </div>
-              <div class="flex-cell col-mode">模式</div>
-              <div class="flex-cell col-first-dialysis">首透</div>
-              <div class="flex-cell col-discontinued">中止</div>
-              <div class="flex-cell col-remarks">備註</div>
-              <div class="flex-cell col-created" @click="handleSort('createdAt')">
-                新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
-              </div>
-              <div class="flex-cell col-actions">操作</div>
-            </div>
-
-            <div class="flex-table-body">
-              <div
-                v-for="p in displayedPatients"
-                :key="p.id"
-                class="flex-table-row"
-                :class="getRowClass(p)"
-              >
-                <div class="flex-cell col-name">
-                  <div class="name-cell-content">
-                    <span class="patient-name-text">{{ p.name }}</span>
-                    <div
-                      class="disease-tags-container"
-                      v-html="generateDiseaseTags(p.diseases)"
-                    ></div>
-                  </div>
-                </div>
-                <div class="flex-cell col-mrn">{{ p.medicalRecordNumber }}</div>
-                <div class="flex-cell col-physician">{{ p.physician }}</div>
-                <div class="flex-cell col-freq">{{ p.freq }}</div>
-                <div class="flex-cell col-mode">{{ p.mode }}</div>
-                <div class="flex-cell col-first-dialysis">
-                  <div v-if="p.isFirstDialysis">✓</div>
-                  <div v-if="p.firstDialysisDate" class="date-subtext">
-                    {{ formatDate(p.firstDialysisDate) }}
-                  </div>
-                </div>
-                <div class="flex-cell col-discontinued">
-                  <div v-if="p.isDiscontinued">✓</div>
-                  <div v-if="p.discontinuedDate" class="date-subtext">
-                    {{ formatDate(p.discontinuedDate) }}
-                  </div>
-                </div>
-                <div class="flex-cell col-remarks">{{ p.remarks }}</div>
-                <div class="flex-cell col-created">{{ formatDate(p.createdAt) }}</div>
-                <div class="flex-cell col-actions">
-                  <div class="action-buttons">
                     <button
-                      class="btn btn-edit"
-                      @click="openEditPatientModal(p)"
-                      :disabled="isPageLocked"
-                    >
-                      編輯
-                    </button>
-                    <button
-                      class="btn btn-order"
-                      @click="openOrderModal(p)"
-                      :disabled="isPageLocked"
-                    >
-                      透析醫囑
-                    </button>
-                    <button
+                      v-if="activeTab !== 'er'"
                       class="btn btn-transfer"
                       @click="transferPatient(p.id, 'er')"
                       :disabled="isPageLocked"
                     >
                       轉急診
                     </button>
-                    <button
-                      class="btn btn-transfer"
-                      @click="transferPatient(p.id, 'opd')"
-                      :disabled="isPageLocked"
-                    >
-                      轉門診
-                    </button>
                     <div class="action-divider"></div>
                     <div class="icon-buttons">
                       <button
@@ -1212,155 +1099,119 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- 門診常規表格 -->
-      <div v-if="activeTab === 'opd'" class="tab-content active">
-        <div class="view-header">
-          <div class="controls-left">
-            <div class="search-group global-search">
-              <input
-                type="text"
-                v-model="globalSearchTerm"
-                @keydown.enter="handleGlobalSearch(globalSearchTerm)"
-                placeholder="輸入姓名/病歷號後按 Enter 搜尋或新增..."
-              />
-              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
-                搜尋/新增
-              </button>
+        <!-- 手機版卡片列表 -->
+        <div class="cards-container mobile-only">
+          <div
+            v-for="p in displayedPatients"
+            :key="p.id"
+            class="patient-card"
+            :class="getRowClass(p)"
+          >
+            <div class="card-header">
+              <div class="patient-name-section">
+                <span class="patient-name-text">{{ p.name }}</span>
+                <span class="freq-tag-card" :class="FREQ_COLOR_MAP[p.freq || '未設定']">{{
+                  p.freq || '未設定'
+                }}</span>
+              </div>
+              <div class="card-actions-header">
+                <button class="btn-icon btn-history" @click="openHistoryModal(p)" title="動向歷史">
+                  🕒
+                </button>
+                <button
+                  class="btn-icon btn-delete"
+                  @click="deletePatient(p.id)"
+                  :disabled="isPageLocked"
+                  title="刪除"
+                >
+                  🗑️
+                </button>
+              </div>
             </div>
-            <div class="search-group list-filter">
-              <input type="text" v-model="opdListFilter" placeholder="篩選目前列表..." />
-            </div>
-          </div>
-          <div v-if="patientStats" class="stats-summary">
-            <span class="total-count">總人數：{{ patientStats.total }}</span>
-            <div class="freq-counts">
-              <span
-                v-for="(count, freq) in patientStats.byFrequency"
-                :key="freq"
-                class="freq-tag"
-                :class="FREQ_COLOR_MAP[freq]"
-              >
-                {{ freq }}: {{ count }}人
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div class="table-wrapper">
-          <div class="flex-table-wrapper">
-            <div class="flex-table-header">
-              <div class="flex-cell col-name" @click="handleSort('name')">
-                姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
+            <div class="card-body">
+              <div class="info-grid">
+                <div class="info-item">
+                  <span class="label">病歷號</span
+                  ><span class="value">{{ p.medicalRecordNumber }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">醫師</span><span class="value">{{ p.physician }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">模式</span><span class="value">{{ p.mode }}</span>
+                </div>
+                <div v-if="activeTab === 'opd'" class="info-item">
+                  <span class="label">血管通路</span><span class="value">{{ p.vascAccess }}</span>
+                </div>
+                <div v-if="activeTab !== 'opd'" class="info-item">
+                  <span class="label">首透</span
+                  ><span class="value">{{
+                    p.isFirstDialysis ? `✓ (${formatDate(p.firstDialysisDate)})` : '否'
+                  }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">新增日期</span
+                  ><span class="value">{{ formatDate(p.createdAt) }}</span>
+                </div>
               </div>
-              <div class="flex-cell col-mrn" @click="handleSort('medicalRecordNumber')">
-                病歷號
-                <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
+              <div v-if="p.remarks" class="remarks-section">
+                <span class="label">備註:</span> {{ p.remarks }}
               </div>
-              <div class="flex-cell col-physician" @click="handleSort('physician')">
-                收案醫師 <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
-              </div>
-              <div class="flex-cell col-freq" @click="handleSort('freq')">
-                頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
-              </div>
-              <div class="flex-cell col-mode">模式</div>
-              <div class="flex-cell col-vasc-access">血管通路</div>
-              <div class="flex-cell col-remarks">備註</div>
-              <div class="flex-cell col-created" @click="handleSort('createdAt')">
-                新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
-              </div>
-              <div class="flex-cell col-actions">操作</div>
-            </div>
-
-            <div class="flex-table-body">
               <div
-                v-for="p in displayedPatients"
-                :key="p.id"
-                class="flex-table-row"
-                :class="getRowClass(p)"
+                v-if="p.diseases && p.diseases.length"
+                class="disease-tags-container"
+                v-html="generateDiseaseTags(p.diseases)"
+              ></div>
+            </div>
+            <div class="card-footer">
+              <button
+                class="btn btn-edit"
+                @click="openEditPatientModal(p)"
+                :disabled="isPageLocked"
               >
-                <div class="flex-cell col-name">
-                  <div class="name-cell-content">
-                    <span class="patient-name-text">{{ p.name }}</span>
-                    <div
-                      class="disease-tags-container"
-                      v-html="generateDiseaseTags(p.diseases)"
-                    ></div>
-                  </div>
-                </div>
-                <div class="flex-cell col-mrn">{{ p.medicalRecordNumber }}</div>
-                <div class="flex-cell col-physician">{{ p.physician }}</div>
-                <div class="flex-cell col-freq">{{ p.freq }}</div>
-                <div class="flex-cell col-mode">{{ p.mode }}</div>
-                <div class="flex-cell col-vasc-access">{{ p.vascAccess }}</div>
-                <div class="flex-cell col-remarks">{{ p.remarks }}</div>
-                <div class="flex-cell col-created">{{ formatDate(p.createdAt) }}</div>
-                <div class="flex-cell col-actions">
-                  <div class="action-buttons">
-                    <button
-                      class="btn btn-edit"
-                      @click="openEditPatientModal(p)"
-                      :disabled="isPageLocked"
-                    >
-                      編輯
-                    </button>
-                    <button
-                      class="btn btn-order"
-                      @click="openOrderModal(p)"
-                      :disabled="isPageLocked"
-                    >
-                      透析醫囑
-                    </button>
-                    <button
-                      class="btn btn-transfer"
-                      @click="transferPatient(p.id, 'er')"
-                      :disabled="isPageLocked"
-                    >
-                      轉急診
-                    </button>
-                    <button
-                      class="btn btn-transfer"
-                      @click="transferPatient(p.id, 'ipd')"
-                      :disabled="isPageLocked"
-                    >
-                      轉住院
-                    </button>
-                    <div class="action-divider"></div>
-                    <div class="icon-buttons">
-                      <button
-                        class="btn-icon btn-history"
-                        @click="openHistoryModal(p)"
-                        title="動向歷史"
-                      >
-                        🕒
-                      </button>
-                      <button
-                        class="btn-icon btn-delete"
-                        @click="deletePatient(p.id)"
-                        :disabled="isPageLocked"
-                        title="刪除"
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                編輯
+              </button>
+              <button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                醫囑
+              </button>
+              <button
+                v-if="activeTab !== 'ipd'"
+                class="btn btn-transfer"
+                @click="transferPatient(p.id, 'ipd')"
+                :disabled="isPageLocked"
+              >
+                轉住院
+              </button>
+              <button
+                v-if="activeTab !== 'opd'"
+                class="btn btn-transfer"
+                @click="transferPatient(p.id, 'opd')"
+                :disabled="isPageLocked"
+              >
+                轉門診
+              </button>
+              <button
+                v-if="activeTab !== 'er'"
+                class="btn btn-transfer"
+                @click="transferPatient(p.id, 'er')"
+                :disabled="isPageLocked"
+              >
+                轉急診
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 已刪除病人表格 -->
-      <div v-if="activeTab === 'deleted'" class="tab-content active">
+      <div v-else class="tab-content active">
         <div class="toolbar">
           <div class="search-group">
             <input type="text" v-model="deletedSearchTerm" placeholder="搜尋已刪除病人..." />
           </div>
           <button @click="exportDeletedPatients" class="btn-export">轉出已刪除清單</button>
         </div>
-
         <div class="table-wrapper">
           <table class="patient-table">
             <thead>
@@ -1406,7 +1257,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Modal 組件 -->
+    <!-- Modal 組件 (保持不變) -->
     <PatientFormModal
       :is-modal-visible="isModalVisible"
       :patient-data="editingPatient"
@@ -1414,7 +1265,6 @@ onMounted(() => {
       @close="closeModal"
       @save="handleSavePatient"
     />
-
     <SelectionDialog
       :is-visible="isDeleteDialogVisible"
       title="請選擇刪除原因"
@@ -1422,14 +1272,12 @@ onMounted(() => {
       @select="handleDeleteReasonSelected"
       @cancel="cancelDelete"
     />
-
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
-
     <ConfirmDialog
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"
@@ -1437,14 +1285,12 @@ onMounted(() => {
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-
     <DialysisOrderModal
       :is-visible="isOrderModalVisible"
       :patient-data="editingPatientForOrder"
       @close="isOrderModalVisible = false"
       @save="handleSaveOrder"
     />
-
     <PatientHistoryModal
       :is-visible="isHistoryModalVisible"
       :patient-id="selectedPatientForHistory?.id"
@@ -1455,6 +1301,9 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* ================================== */
+/*         通用及桌面版樣式            */
+/* ================================== */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -1469,23 +1318,19 @@ onMounted(() => {
   --grey-bg: #f8f9fa;
   --grey-text: #6c757d;
 }
-
 .page-container {
   padding: 1.5rem;
 }
-
 .page-title {
   margin-bottom: 1.5rem;
   color: #333;
   font-weight: bold;
 }
-
 .tabs {
   display: flex;
   border-bottom: 2px solid #ddd;
   margin-bottom: 20px;
 }
-
 .tab-button {
   padding: 10px 20px;
   border: none;
@@ -1496,12 +1341,10 @@ onMounted(() => {
   color: #666;
   transition: color 0.2s;
 }
-
 .tab-button.active {
   color: var(--primary-color);
   font-weight: bold;
 }
-
 .tab-button.active::after {
   content: '';
   position: absolute;
@@ -1511,11 +1354,9 @@ onMounted(() => {
   height: 2px;
   background-color: var(--primary-color);
 }
-
 .tab-button:hover:not(.active) {
   color: #555;
 }
-
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -1524,40 +1365,16 @@ onMounted(() => {
   flex-wrap: wrap;
   margin-bottom: 15px;
 }
-
 .controls-left {
   display: flex;
   align-items: center;
   gap: 15px;
   flex-wrap: wrap;
 }
-
-.controls-left .btn-add {
-  padding: 8px 15px;
-  font-size: 1em;
-  background-color: var(--success-color);
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color 0.2s;
-}
-
-.controls-left .btn-add:hover:not(:disabled) {
-  background-color: #15803d;
-}
-
-.controls-left .btn-add:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .controls-left .search-group {
   display: flex;
   align-items: center;
 }
-
 .controls-left input {
   padding: 8px;
   border: 1px solid #ccc;
@@ -1565,7 +1382,6 @@ onMounted(() => {
   height: 40px;
   font-size: 1rem;
 }
-
 .search-group.global-search input {
   min-width: 280px;
   border-top-right-radius: 0;
@@ -1588,18 +1404,15 @@ onMounted(() => {
 .search-group.global-search .btn-search:hover:not(:disabled) {
   background-color: #00457c;
 }
-
 .search-group.list-filter input {
   min-width: 200px;
   background-color: #f8f9fa;
 }
-
 .controls-left input:focus {
   outline: none;
   border-color: var(--primary-color);
   box-shadow: 0 0 0 2px rgba(0, 90, 156, 0.1);
 }
-
 .stats-summary {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
@@ -1610,20 +1423,17 @@ onMounted(() => {
   gap: 20px;
   flex-wrap: wrap;
 }
-
 .total-count {
   font-size: 1.1em;
   font-weight: bold;
   color: var(--primary-color);
   white-space: nowrap;
 }
-
 .freq-counts {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
 }
-
 .freq-tag {
   color: #fff;
   padding: 4px 10px;
@@ -1632,7 +1442,6 @@ onMounted(() => {
   font-weight: 500;
   white-space: nowrap;
 }
-
 .freq-tag.freq-blue {
   background-color: #2563eb;
 }
@@ -1651,28 +1460,23 @@ onMounted(() => {
 .freq-tag.freq-grey {
   background-color: #64748b;
 }
-
 .table-wrapper {
   max-height: calc(100vh - 250px);
   overflow-y: auto;
 }
-
 .flex-table-wrapper {
   border: 1px solid #ddd;
   border-radius: 4px;
   overflow: hidden;
 }
-
 .flex-table-header,
 .flex-table-row {
   display: flex;
   border-bottom: 1px solid #ddd;
 }
-
 .flex-table-body .flex-table-row:last-child {
   border-bottom: none;
 }
-
 .flex-table-header {
   background-color: #f2f2f2;
   font-weight: bold;
@@ -1680,7 +1484,6 @@ onMounted(() => {
   top: 0;
   z-index: 2;
 }
-
 .flex-cell {
   padding: 10px 12px;
   display: flex;
@@ -1689,12 +1492,10 @@ onMounted(() => {
   white-space: nowrap;
   border-right: 1px solid #ddd;
 }
-
 .flex-table-header .flex-cell:last-child,
 .flex-table-row .flex-cell:last-child {
   border-right: none;
 }
-
 .col-name {
   flex: 0 0 140px;
 }
@@ -1731,34 +1532,28 @@ onMounted(() => {
   flex: 0 0 400px;
   justify-content: flex-start;
 }
-
 .flex-table-header .flex-cell {
   cursor: pointer;
   user-select: none;
   transition: background-color 0.2s;
 }
-
 .flex-table-header .flex-cell:hover {
   background-color: #e8e8e8;
 }
-
 .name-cell-content {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
 }
-
 .patient-name-text {
   font-weight: bold;
 }
-
 .disease-tags-container {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-
 :deep(.disease-tag) {
   display: inline-block;
   padding: 2px 6px;
@@ -1768,7 +1563,6 @@ onMounted(() => {
   border: 1px solid var(--danger-color);
   border-radius: 4px;
 }
-
 .action-buttons {
   display: flex;
   flex-wrap: nowrap;
@@ -1776,7 +1570,6 @@ onMounted(() => {
   align-items: center;
   width: 100%;
 }
-
 .action-buttons .btn {
   padding: 5px 10px;
   font-size: 0.9em;
@@ -1787,57 +1580,45 @@ onMounted(() => {
   white-space: nowrap;
   transition: background-color 0.2s;
 }
-
 .btn.btn-edit {
   background-color: #007bff;
 }
-
 .btn.btn-edit:hover:not(:disabled) {
   background-color: #0056b3;
 }
-
 .btn.btn-order {
   background-color: #ff9c07;
   color: #212529;
 }
-
 .btn.btn-order:hover:not(:disabled) {
   background-color: #e0a800;
 }
-
 .btn.btn-transfer {
   background-color: #17a2b8;
 }
-
 .btn.btn-transfer:hover:not(:disabled) {
   background-color: #138496;
 }
-
 .btn.btn-restore {
   background-color: var(--success-color);
 }
-
 .btn.btn-restore:hover:not(:disabled) {
   background-color: #15803d;
 }
-
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 .action-divider {
   width: 1px;
   height: 24px;
   background-color: #dee2e6;
   margin: 0 0.25rem;
 }
-
 .icon-buttons {
   display: flex;
   gap: 0.25rem;
 }
-
 .btn-icon {
   background: none;
   border: none;
@@ -1853,26 +1634,22 @@ onMounted(() => {
   justify-content: center;
   transition: background-color 0.2s;
 }
-
 .btn-icon:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
-
 .btn-icon.btn-delete {
   color: #dc3545;
 }
 .btn-icon.btn-history {
   color: #6c757d;
 }
-
 .btn-icon.btn-delete:hover:not(:disabled) {
   background-color: #fee2e2;
 }
 .btn-icon.btn-history:hover:not(:disabled) {
   background-color: #f1f3f5;
 }
-
 .flex-table-row.status-opd {
   background-color: var(--green-bg);
 }
@@ -1898,28 +1675,23 @@ onMounted(() => {
 .flex-table-row.status-discontinued button {
   text-decoration: none;
 }
-
 .date-subtext {
   font-size: 0.8em;
   color: #666;
   margin-top: 2px;
 }
-
 .flex-table-row.status-discontinued .date-subtext {
   color: #991b1b;
 }
-
 .sort-indicator {
   display: inline-block;
   margin-left: 5px;
   color: #999;
 }
-
 .is-locked .flex-table-wrapper {
   pointer-events: none;
   opacity: 0.65;
 }
-
 .toolbar {
   display: flex;
   justify-content: flex-start;
@@ -1928,7 +1700,6 @@ onMounted(() => {
   flex-wrap: wrap;
   gap: 15px;
 }
-
 .toolbar button {
   padding: 8px 15px;
   font-size: 1em;
@@ -1938,12 +1709,10 @@ onMounted(() => {
   cursor: pointer;
   transition: background-color 0.2s;
 }
-
 .toolbar .search-group {
   display: flex;
   gap: 5px;
 }
-
 .toolbar input {
   padding: 8px;
   border: 1px solid #ccc;
@@ -1951,20 +1720,16 @@ onMounted(() => {
   min-width: 250px;
   height: 40px;
 }
-
 .toolbar .btn-export {
   background-color: var(--info-color);
 }
-
 .toolbar .btn-export:hover {
   background-color: #0284c7;
 }
-
 .patient-table {
   width: 100%;
   border-collapse: collapse;
 }
-
 .patient-table th,
 .patient-table td {
   border: 1px solid #ddd;
@@ -1972,38 +1737,212 @@ onMounted(() => {
   text-align: left;
   vertical-align: middle;
 }
-
 .patient-table th {
   background-color: #f2f2f2;
   cursor: pointer;
   user-select: none;
   font-weight: 600;
 }
-
 .patient-table th:hover {
   background-color: #e8e8e8;
 }
 
+/* ================================== */
+/* ‼️        新增的響應式樣式        ‼️ */
+/* ================================== */
+
+/* 預設隱藏手機版卡片，顯示桌面版表格 */
+.mobile-only {
+  display: none;
+}
+.desktop-only {
+  display: block;
+}
+
 @media (max-width: 1200px) {
-  .col-actions {
-    flex: 0 0 350px;
+  .desktop-only .flex-table-wrapper {
+    min-width: 1200px;
+  }
+  .desktop-only.table-wrapper {
+    overflow-x: auto;
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 992px) {
+  /* 螢幕小於 992px 時，隱藏表格，顯示卡片 */
+  .desktop-only {
+    display: none;
+  }
+  .mobile-only {
+    display: block;
+  }
+
+  .page-container {
+    padding: 0;
+    background-color: #f8f9fa;
+  }
+  .page-title {
+    padding: 1rem;
+    margin-bottom: 0;
+    border-bottom: 1px solid #dee2e6;
+    background-color: #fff;
+  }
+  .tabs {
+    background-color: #fff;
+    margin-bottom: 0;
+    padding: 0 1rem;
+  }
+  .tab-content {
+    padding: 1rem;
+  }
+
   .view-header {
     flex-direction: column;
     align-items: stretch;
+    gap: 1rem;
   }
-
+  .controls-left {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  .search-group input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .search-group.global-search {
+    display: flex;
+  }
+  .search-group.global-search input {
+    flex-grow: 1;
+    border-right: none;
+  }
+  .search-group.global-search .btn-search {
+    flex-shrink: 0;
+  }
   .stats-summary {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
   }
 
-  .controls-left input {
-    min-width: 200px;
+  /* 卡片列表容器 */
+  .cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* 單張卡片 */
+  .patient-card {
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+  }
+  .patient-card.status-opd {
+    border-top: 4px solid var(--green-bg);
+  }
+  .patient-card.status-ipd {
+    border-top: 4px solid var(--red-bg);
+  }
+  .patient-card.status-er {
+    border-top: 4px solid var(--purple-bg);
+  }
+  .patient-card.status-biweekly {
+    border-top: 4px solid var(--orange-bg);
+  }
+  .patient-card.status-discontinued {
+    text-decoration: line-through;
+    opacity: 0.8;
+  }
+  .patient-card.status-discontinued button {
+    text-decoration: none;
+  }
+
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+  }
+  .patient-name-section {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .patient-name-text {
+    font-size: 1.2rem;
+    font-weight: bold;
+  }
+  .freq-tag-card {
+    color: #fff;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 500;
+  }
+  .card-actions-header {
+    display: flex;
+    align-items: center;
+  }
+
+  .card-body {
+    padding: 1rem;
+  }
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .info-item {
+    display: flex;
+    flex-direction: column;
+  }
+  .info-item .label {
+    font-size: 0.8rem;
+    color: #6c757d;
+  }
+  .info-item .value {
+    font-weight: 500;
+  }
+  .remarks-section {
+    background-color: #f8f9fa;
+    padding: 0.5rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    margin: 0.75rem 0;
+  }
+  .remarks-section .label {
+    font-weight: bold;
+    margin-right: 0.5rem;
+  }
+
+  .card-footer {
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .card-footer .btn {
+    flex-grow: 1;
+  }
+
+  /* 已刪除頁面在手機上的調整 */
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar input {
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .toolbar .btn-export {
+    width: 100%;
   }
 }
 </style>

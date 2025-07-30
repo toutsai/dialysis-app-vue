@@ -682,54 +682,29 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ✨ 基礎樣式保持不變 ✨ */
-.memo-content p {
-  margin: 0 0 10px 0;
-  white-space: pre-wrap;
-  color: #212529;
-  font-size: 1.05rem;
-  font-weight: 500;
+/* ================================== */
+/*         通用及桌面版樣式            */
+/* ================================== */
+.memo-view {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
-
-:deep(.memo-patient-name) {
-  font-weight: 700;
-  color: #0056b3;
-  margin-right: 0.5em;
+.page-container {
+  padding: 1.5rem;
 }
-
-.memo-meta {
-  font-size: 0.85rem;
-  color: #6c757d;
+.page-title {
+  margin-bottom: 0;
+  color: #2c3e50;
+  display: flex;
+  align-items: baseline;
 }
-.memo-meta strong {
-  color: #495057;
-}
-.memo-meta .date-highlight {
-  color: #c82333;
-  font-weight: bold;
-}
-
-/* --- 🆕 新增的樣式 --- */
-
-/* 標題統計 */
 .title-stats {
   font-size: 0.9rem;
   font-weight: 400;
   color: #6c757d;
   margin-left: 12px;
 }
-
-.title-count {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: white; /* 🆕 白色文字 */
-  background-color: #dc3545; /* 🆕 實心紅色背景 */
-  margin-left: 8px;
-  padding: 2px 8px;
-  border-radius: 12px;
-}
-
-/* 錯誤橫幅 */
 .error-banner {
   background-color: #f8d7da;
   color: #721c24;
@@ -741,7 +716,6 @@ onMounted(() => {
   align-items: center;
   border: 1px solid #f5c6cb;
 }
-
 .retry-btn {
   background-color: #dc3545;
   color: white;
@@ -751,21 +725,10 @@ onMounted(() => {
   cursor: pointer;
   font-size: 0.9rem;
 }
-
 .retry-btn:hover {
   background-color: #c82333;
 }
-
-/* 加載容器 */
-.loading-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-  color: #6c757d;
-}
-
+.loading-container,
 .card-loading {
   display: flex;
   flex-direction: column;
@@ -774,7 +737,6 @@ onMounted(() => {
   min-height: 200px;
   color: #6c757d;
 }
-
 .tab-loading {
   display: flex;
   align-items: center;
@@ -783,8 +745,6 @@ onMounted(() => {
   color: #6c757d;
   gap: 8px;
 }
-
-/* 加載動畫 */
 .loading-spinner {
   width: 40px;
   height: 40px;
@@ -794,14 +754,12 @@ onMounted(() => {
   animation: spin 1s linear infinite;
   margin-bottom: 12px;
 }
-
 .loading-spinner.small {
   width: 20px;
   height: 20px;
   border-width: 2px;
   margin-bottom: 0;
 }
-
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -811,82 +769,18 @@ onMounted(() => {
   }
 }
 
-/* 輸入區域改進 */
-.textarea-wrapper {
-  position: relative;
-}
-
-.char-count {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  font-size: 0.8rem;
-  color: #6c757d;
-  background-color: rgba(255, 255, 255, 0.9);
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* Tab 計數 */
-.tab-count {
-  font-size: 0.8rem;
-  padding: 2px 6px;
-  border-radius: 10px;
-  margin-left: 6px;
-  min-width: 18px;
-  display: inline-block;
-  text-align: center;
-  font-weight: 600;
-}
-
-/* 🆕 已到期數量 - 藍色資訊 */
-.tab-count.expired-count {
-  background-color: #007bff;
-  color: white;
-}
-
-/* 🆕 已處理數量 - 綠色完成 */
-.tab-count.resolved-count {
-  background-color: #28a745;
-  color: white;
-}
-
-/* 禁用狀態 */
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-textarea:disabled,
-input:disabled {
-  background-color: #f8f9fa;
-  opacity: 0.8;
-}
-
-/* 原有樣式 */
-.memo-view {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-.page-title {
-  margin-bottom: 0;
-  color: #2c3e50;
-  display: flex;
-  align-items: baseline;
-}
+/* 佈局網格 (桌面) */
 .memo-layout-grid {
   display: grid;
   grid-template-columns: 1fr 1.5fr;
   gap: 24px;
   align-items: start;
-  height: calc(100vh - 120px);
+  /* ✨ 移除固定高度，讓其自適應 */
 }
 .left-column {
   display: flex;
   flex-direction: column;
   gap: 24px;
-  height: 100%;
 }
 .memo-card {
   background-color: #ffffff;
@@ -908,6 +802,15 @@ input:disabled {
   display: flex;
   align-items: center;
 }
+.title-count {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: white;
+  background-color: #dc3545;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
 .form-card {
   flex-shrink: 0;
 }
@@ -915,6 +818,9 @@ input:disabled {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.textarea-wrapper {
+  position: relative;
 }
 .form-card textarea {
   width: 100%;
@@ -925,6 +831,16 @@ input:disabled {
   font-size: 1rem;
   line-height: 1.6;
   resize: vertical;
+}
+.char-count {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  font-size: 0.8rem;
+  color: #6c757d;
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 .form-card .form-actions {
   display: grid;
@@ -993,9 +909,6 @@ input:disabled {
 .form-card .add-btn:hover:not(:disabled) {
   background-color: #0056b3;
 }
-.pending-card {
-  height: 100%;
-}
 .history-card {
   flex-grow: 1;
   min-height: 0;
@@ -1027,6 +940,24 @@ input:disabled {
 .tab-btn:hover:not(.active) {
   color: #495057;
 }
+.tab-count {
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+  min-width: 18px;
+  display: inline-block;
+  text-align: center;
+  font-weight: 600;
+}
+.tab-count.expired-count {
+  background-color: #007bff;
+  color: white;
+}
+.tab-count.resolved-count {
+  background-color: #28a745;
+  color: white;
+}
 .tab-content {
   flex-grow: 1;
   min-height: 0;
@@ -1056,6 +987,29 @@ input:disabled {
 .memo-content {
   flex-grow: 1;
   min-width: 0;
+}
+.memo-content p {
+  margin: 0 0 10px 0;
+  white-space: pre-wrap;
+  color: #212529;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+:deep(.memo-patient-name) {
+  font-weight: 700;
+  color: #0056b3;
+  margin-right: 0.5em;
+}
+.memo-meta {
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+.memo-meta strong {
+  color: #495057;
+}
+.memo-meta .date-highlight {
+  color: #c82333;
+  font-weight: bold;
 }
 .memo-actions {
   display: flex;
@@ -1114,5 +1068,77 @@ input:disabled {
 }
 .revert-btn:hover {
   background-color: #0056b3;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+textarea:disabled,
+input:disabled {
+  background-color: #f8f9fa;
+  opacity: 0.8;
+}
+
+/* ================================== */
+/* ‼️        新增的響應式樣式        ‼️ */
+/* ================================== */
+@media (max-width: 1024px) {
+  /* 核心修改：將兩欄網格改為單欄 */
+  .memo-layout-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* 讓卡片有最小高度，避免在內容很少時看起來太空 */
+  .pending-card,
+  .history-card {
+    min-height: 400px;
+  }
+
+  /* 讓頁面在小螢幕上有邊距 */
+  .memo-view {
+    padding: 1rem;
+  }
+
+  .page-title {
+    font-size: 1.8rem;
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #dee2e6;
+  }
+
+  .card-title {
+    font-size: 1.4rem;
+  }
+
+  /* 讓手機上的操作按鈕文字更簡潔 */
+  .memo-actions .resolve-btn {
+    content: '完成';
+  }
+}
+
+@media (max-width: 768px) {
+  /* 在最小的螢幕上，將新增表單的兩個選項垂直堆疊 */
+  .form-card .form-actions {
+    grid-template-columns: 1fr;
+  }
+
+  /* 縮小卡片 padding */
+  .memo-card {
+    padding: 1rem;
+  }
+
+  /* 讓 Tab 按鈕文字換行 */
+  .tab-btn {
+    white-space: normal;
+    text-align: center;
+    font-size: 0.9rem;
+    padding: 8px 10px;
+  }
+
+  /* 讓備忘錄列表的操作按鈕更緊湊 */
+  .memo-actions {
+    flex-direction: column;
+    align-items: flex-end;
+  }
 }
 </style>

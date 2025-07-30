@@ -1,7 +1,8 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (修正執行順序版) -->
 <template>
-  <div class="dashboard-container">
-    <aside class="sidebar">
+  <!-- 根據側邊欄狀態添加 class，方便 CSS 控制 -->
+  <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
+    <!-- 1. 側邊欄 (Sidebar) -->
+    <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
       <!-- 主要導航區塊 -->
       <div class="main-nav-section">
         <div class="sidebar-header">
@@ -15,9 +16,7 @@
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
           <li><RouterLink to="/weekly" class="nav-link">週排班表</RouterLink></li>
           <li><RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink></li>
-          <li>
-            <RouterLink to="/exception-manager" class="nav-link"> 排程例外管理 </RouterLink>
-          </li>
+          <li><RouterLink to="/exception-manager" class="nav-link">排程例外管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
@@ -78,31 +77,45 @@
       </div>
     </aside>
 
+    <!-- 2. 半透明遮罩層，點擊可關閉側邊欄 (新增的元素) -->
+    <div class="sidebar-overlay" @click="closeSidebar" v-if="isSidebarOpen"></div>
+
+    <!-- 3. 主要內容區 -->
     <main class="content-area">
-      <RouterView />
+      <!-- 頂部 Header，包含漢堡按鈕 (新增的元素) -->
+      <header class="main-header">
+        <button class="sidebar-toggle" @click="toggleSidebar">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <!-- 您可以在這裡放目前頁面的標題 -->
+        <h2 class="current-page-title">{{ route.meta.title || '透析管理' }}</h2>
+      </header>
+      <div class="content-wrapper">
+        <RouterView />
+      </div>
     </main>
   </div>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { ref, computed, watch } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
-import { computed, watch } from 'vue'
-// ⛔ 移除舊的通知系統
-// import { useNotification } from '@/composables/useNotification.js'
-// ✨ 新增：引入即時通知系統
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import { useConflictWatcher } from '@/composables/useConflictWatcher.js'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 
 const router = useRouter()
+const route = useRoute() // 取得當前路由資訊
 const { currentUser, logout, isAdmin } = useAuth()
-// ⛔ 移除舊的通知解構
-// const { notifications, removeNotification } = useNotification()
-// ✨ 新增：使用新的即時通知系統
 const { notifications, startListening, stopListening, removeNotification } =
   useRealtimeNotifications()
 const { startWatching } = useConflictWatcher()
+
+// ‼️ 新增: 控制側邊欄開關的狀態
+const isSidebarOpen = ref(false)
 
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
@@ -113,36 +126,24 @@ const environmentTag = computed(() => {
   return null
 })
 
+// ‼️ 新增: 開關側邊欄的函式
+function toggleSidebar() {
+  isSidebarOpen.value = !isSidebarOpen.value
+}
+
+function closeSidebar() {
+  isSidebarOpen.value = false
+}
+
 function handleNotificationClick(notif) {
-  // 點擊通知的行為（例如跳轉）已在 useRealtimeNotifications 中定義
   if (notif.action) {
     notif.action()
-    // 點擊後可以選擇是否移除，這裡保留移除的邏輯
     removeNotification(notif.id)
   }
 }
 
 function handleLogout() {
   logout()
-}
-
-// 這個函式現在可能不再需要，因為通知類型已在 useRealtimeNotifications 中處理
-// 但暫時保留以防萬一
-const getTypeText = (type) => {
-  switch (type) {
-    case 'patient':
-      return '病人'
-    case 'schedule':
-      return '排程'
-    case 'team':
-      return '分組'
-    case 'memo':
-      return '備忘'
-    case 'conflict':
-      return '衝突'
-    default:
-      return '系統'
-  }
 }
 
 const triggerScheduleCheck = async () => {
@@ -162,58 +163,63 @@ const triggerScheduleCheck = async () => {
   }
 }
 
-// 監聽使用者登入/登出狀態，並控制相關服務的啟動與停止
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      // --- 用戶登入時執行的操作 ---
       console.log('🟢 [MainLayout] User logged in. Starting services...')
-      triggerScheduleCheck() // 觸發排程檢查
-      startWatching() // 啟動衝突監聽
-      startListening() // ✨ 啟動全局即時通知監聽
+      triggerScheduleCheck()
+      startWatching()
+      startListening()
     } else {
-      // --- 用戶登出時執行的操作 ---
       console.log('🚪 [MainLayout] User logged out. Stopping services...')
       sessionStorage.removeItem('hasCheckedSchedules')
-      stopListening() // ✨ 停止全局即時通知監聽，並清空通知
-      // 如果 useConflictWatcher 也有 stopWatching, 可以在這裡呼叫
+      stopListening()
     }
   },
-  { immediate: true }, // immediate: true 確保在組件加載時立即執行一次
+  { immediate: true },
+)
+
+// ‼️ 新增: 監聽路由變化，在行動裝置上自動關閉側邊欄
+watch(
+  () => route.path,
+  () => {
+    if (window.innerWidth <= 992) {
+      // 只在行動裝置寬度下作用
+      closeSidebar()
+    }
+  },
 )
 </script>
 
 <style scoped>
-/* 🔥 新增：讓可點擊的通知有手型游標 */
-.notification-item.is-clickable {
-  cursor: pointer;
-}
-.notification-item.is-clickable:hover {
-  background-color: #e9ecef; /* 或其他您喜歡的高亮顏色 */
-}
-/* 其他 CSS 樣式保持不變 */
+/* ================================== */
+/*         原有樣式 (稍作調整)         */
+/* ================================== */
 .dashboard-container {
   display: flex;
   height: 100vh;
+  overflow: hidden; /* 防止主容器滾動 */
 }
 .sidebar {
-  width: 220px;
+  width: 240px; /* 增加寬度以容納通知 */
   background-color: #2c3e50;
   color: white;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  transition: width 0.3s ease; /* 為桌面版添加過渡效果 */
 }
 .main-nav-section {
   padding: 20px 0;
+  flex-shrink: 0; /* 防止此區塊被壓縮 */
 }
 .footer-section {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
-  min-height: 0;
+  min-height: 0; /* 讓 overflow-y 生效的關鍵 */
 }
 .sidebar-header {
   padding: 0 20px 20px 20px;
@@ -246,7 +252,7 @@ watch(
 }
 .sidebar-nav {
   list-style: none;
-  padding: 20px 0;
+  padding: 10px 0; /* 縮小一點 padding */
   margin: 0;
 }
 .nav-link {
@@ -255,12 +261,14 @@ watch(
   gap: 15px;
   color: #ecf0f1;
   text-decoration: none;
-  padding: 8px 20px;
-  font-size: 1.2em;
+  padding: 12px 20px; /* 增加上下 padding */
+  font-size: 1.1em; /* 縮小一點字體 */
   transition:
     background-color 0.2s,
     padding-left 0.2s;
   white-space: nowrap;
+  border-radius: 0 25px 25px 0; /* 添加圓角效果 */
+  margin-right: 10px; /* 給右邊一點空間 */
 }
 .nav-link:hover {
   background-color: #34495e;
@@ -269,16 +277,26 @@ watch(
   background-color: var(--primary-color, #1abc9c);
   color: white;
   font-weight: bold;
-  padding-left: 25px;
 }
 .content-area {
   flex-grow: 1;
-  overflow: auto;
+  display: flex; /* 改為 flex 以便控制 header 和 wrapper */
+  flex-direction: column;
+  overflow: hidden; /* 確保 content-area 本身不滾動 */
   background-color: #f4f7f9;
 }
+
+/* ‼️ 新增: 內容包裝器，真正滾動的區域 */
+.content-wrapper {
+  flex-grow: 1;
+  overflow-y: auto; /* 只有這個區域可以垂直滾動 */
+  padding: 1.5rem;
+}
+
 .management-section {
   padding-top: 15px;
   border-top: 1px solid #34495e;
+  flex-shrink: 0;
 }
 .section-title {
   font-size: 0.8em;
@@ -293,7 +311,7 @@ watch(
   padding-top: 0;
 }
 .management-section .nav-link {
-  font-size: 1.1em;
+  font-size: 1em;
   padding: 8px 20px;
 }
 .nav-footer {
@@ -303,6 +321,7 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex-shrink: 0;
 }
 .user-info {
   margin-bottom: 0;
@@ -378,6 +397,12 @@ watch(
   border-left: 4px solid transparent;
   transition: all 0.3s ease;
 }
+.notification-item.is-clickable {
+  cursor: pointer;
+}
+.notification-item.is-clickable:hover {
+  background-color: #34495e;
+}
 .notification-content {
   display: flex;
   align-items: flex-start;
@@ -393,7 +418,7 @@ watch(
   margin: 0;
   font-size: 14px;
   line-height: 1.4;
-  color: #333;
+  color: #ecf0f1;
   font-weight: 500;
 }
 .notification-footer-item {
@@ -403,14 +428,14 @@ watch(
 }
 .notification-time {
   font-size: 12px;
-  color: #666;
+  color: #bdc3c7;
   font-weight: 400;
 }
 .notification-close {
   background: none;
   border: none;
   font-size: 18px;
-  color: #999;
+  color: #95a5a6;
   cursor: pointer;
   padding: 0;
   width: 20px;
@@ -422,29 +447,28 @@ watch(
   transition: all 0.2s ease;
 }
 .notification-close:hover {
-  color: #666;
-  background-color: rgba(0, 0, 0, 0.1);
+  color: #ecf0f1;
+  background-color: rgba(0, 0, 0, 0.2);
 }
 .notification-type-schedule {
   border-left-color: #3498db;
-  background: linear-gradient(135deg, #e3f2fd 0%, #f8fbff 100%);
+  background: rgba(52, 152, 219, 0.1);
 }
 .notification-type-team {
   border-left-color: #27ae60;
-  background: linear-gradient(135deg, #e8f5e8 0%, #f8fff8 100%);
+  background: rgba(39, 174, 96, 0.1);
 }
 .notification-type-patient {
   border-left-color: #f39c12;
-  background: linear-gradient(135deg, #fef3e2 0%, #fffaf5 100%);
+  background: rgba(243, 156, 18, 0.1);
 }
 .notification-type-memo {
   border-left-color: #9b59b6;
-  background: linear-gradient(135deg, #f3e8ff 0%, #faf8ff 100%);
+  background: rgba(155, 89, 182, 0.1);
 }
-/* 🔥 新增：衝突通知樣式 */
 .notification-type-conflict {
   border-left-color: #e74c3c;
-  background: linear-gradient(135deg, #ffebee 0%, #fff8f8 100%);
+  background: rgba(231, 76, 60, 0.1);
 }
 .notification-list-enter-active,
 .notification-list-leave-active {
@@ -460,5 +484,121 @@ watch(
 }
 .notification-list-move {
   transition: transform 0.3s ease;
+}
+
+/* ================================== */
+/* ‼️        新增的響應式樣式        ‼️ */
+/* ================================== */
+
+/* 預設不顯示漢堡按鈕、遮罩、和頂部 Header */
+.sidebar-overlay,
+.main-header {
+  display: none;
+}
+
+/* 當螢幕寬度小於 992px 時 (適用於平板和手機) */
+@media (max-width: 992px) {
+  /* 1. 側邊欄改為固定定位，並移出畫面外 */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+    z-index: 1000;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.2);
+  }
+
+  /* 2. 當 is-open class 存在時，將側邊欄滑入畫面 */
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  /* 3. 主要內容區現在佔滿整個寬度 */
+  .content-area {
+    width: 100%;
+  }
+
+  /* 4. 顯示並設計頂部 Header */
+  .main-header {
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    height: 60px; /* 固定高度 */
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0; /* 防止被壓縮 */
+    z-index: 900;
+  }
+
+  /* 5. 設計漢堡按鈕 */
+  .sidebar-toggle {
+    display: block;
+    background: none;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .sidebar-toggle span {
+    display: block;
+    width: 25px;
+    height: 3px;
+    background-color: #333;
+    margin-bottom: 5px;
+    border-radius: 3px;
+    transition: all 0.3s;
+  }
+  .sidebar-toggle span:last-child {
+    margin-bottom: 0;
+  }
+
+  /* 6. 當側邊欄打開時，漢堡按鈕變為 "X" */
+  .sidebar-open .sidebar-toggle span:nth-child(1) {
+    transform: translateY(8px) rotate(45deg);
+  }
+  .sidebar-open .sidebar-toggle span:nth-child(2) {
+    opacity: 0;
+  }
+  .sidebar-open .sidebar-toggle span:nth-child(3) {
+    transform: translateY(-8px) rotate(-45deg);
+  }
+
+  /* 7. 當側邊欄打開時，顯示半透明遮罩 */
+  .sidebar-open .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    cursor: pointer;
+  }
+
+  /* 8. 顯示目前頁面標題 */
+  .current-page-title {
+    margin-left: 1rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #333;
+  }
+
+  /* 9. 調整 content wrapper 的 padding */
+  .content-wrapper {
+    padding: 1rem;
+  }
+}
+
+/* 針對更小的手機螢幕微調 */
+@media (max-width: 768px) {
+  .content-wrapper {
+    padding: 0.75rem;
+  }
+  .sidebar {
+    width: 280px; /* 在手機上可以讓側邊欄寬一點 */
+  }
 }
 </style>
