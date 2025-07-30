@@ -239,4 +239,41 @@ async function handleLogin() {
   font-size: 0.9em;
   color: #888;
 }
+
+/* ‼️‼️‼️ 以下是新增的響應式樣式 ‼️‼️‼️ */
+/* 當螢幕寬度小於或等於 768px 時 (適用於大多數手機) */
+@media (max-width: 768px) {
+  /* 讓背景容器在手機上從頂部對齊，而不是置中 */
+  .login-container {
+    align-items: flex-start;
+  }
+
+  /* 核心修改：讓登入框佔滿整個螢幕 */
+  .login-box {
+    max-width: none; /* 移除最大寬度限制 */
+    width: 100%; /* 確保寬度為 100% */
+    min-height: 100vh; /* 讓它至少和螢幕一樣高 */
+    border-radius: 0; /* 移除圓角，使其邊緣與螢幕對齊 */
+    box-shadow: none; /* 移除陰影，因為它已經是全螢幕了 */
+
+    /* 減少邊距，避免內容太擠 */
+    padding: 40px 25px;
+
+    /* 使用 flex 讓內容在垂直方向上更居中，體驗更好 */
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  /* 適當縮小標題字體，使其在手機上更和諧 */
+  .login-title {
+    font-size: 1.6rem;
+    margin-bottom: 24px;
+  }
+
+  /* 縮小表單元素之間的間距 */
+  .login-form {
+    gap: 15px;
+  }
+}
 </style>

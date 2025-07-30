@@ -445,33 +445,9 @@ function submitForm() {
 </script>
 
 <style scoped>
-/* 🔥 新增：病人資訊標籤樣式 */
-.patient-display-content {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 1rem;
-  line-height: 1.5;
-}
-:deep(.patient-info-tag) {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-:deep(.freq-tag) {
-  background-color: #e7f3ff;
-  color: #0056b3;
-  border: 1px solid #b3d7ff;
-}
-:deep(.disease-tag) {
-  background-color: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
-}
-/* 其他樣式保持不變 */
+/* ================================== */
+/*         通用及桌面版樣式            */
+/* ================================== */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -483,15 +459,17 @@ function submitForm() {
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  padding: 1rem;
 }
 .dialog-content {
   background: white;
   border-radius: 8px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-  width: 90%;
-  max-width: 500px;
+  width: 100%;
+  max-width: 500px; /* 稍微縮小寬度，更適合表單 */
   display: flex;
   flex-direction: column;
+  max-height: 90vh; /* 確保 Modal 不會超出視窗高度 */
 }
 .dialog-header {
   padding: 1.5rem;
@@ -499,6 +477,7 @@ function submitForm() {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 .dialog-header h2 {
   margin: 0;
@@ -516,6 +495,7 @@ function submitForm() {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+  overflow-y: auto; /* 讓 body 內部可以滾動 */
 }
 .dialog-footer {
   padding: 1.5rem;
@@ -523,6 +503,7 @@ function submitForm() {
   display: flex;
   justify-content: flex-end;
   gap: 1rem;
+  flex-shrink: 0;
 }
 .form-group {
   display: flex;
@@ -573,8 +554,10 @@ function submitForm() {
   border: 1px solid #e9ecef;
   border-radius: 8px;
   padding: 1rem;
-  margin-top: 1rem;
   background-color: #f8f9fa;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 .form-group-grid {
   display: grid;
@@ -592,6 +575,10 @@ function submitForm() {
   align-items: center;
   font-weight: 500;
   box-sizing: border-box;
+  font-size: 0.9rem; /* 稍微縮小字體 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .text-muted {
   color: #6c757d;
@@ -608,6 +595,8 @@ function submitForm() {
   font-size: 1rem;
   transition: border-color 0.2s;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
 }
 .select-btn:disabled {
   background-color: #e9ecef;
@@ -615,5 +604,77 @@ function submitForm() {
 }
 .select-btn:not(:disabled):hover {
   border-color: #007bff;
+}
+
+/* 病人資訊標籤樣式 */
+.patient-display-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  flex-wrap: wrap; /* 允許標籤換行 */
+}
+:deep(.patient-info-tag) {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:deep(.freq-tag) {
+  background-color: #e7f3ff;
+  color: #0056b3;
+  border: 1px solid #b3d7ff;
+}
+:deep(.disease-tag) {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+/* ================================== */
+/* ‼️        新增的響應式樣式        ‼️ */
+/* ================================== */
+@media (max-width: 768px) {
+  /* 在手機上，讓 Modal 從頂部對齊 */
+  .dialog-overlay {
+    align-items: flex-start;
+  }
+
+  .dialog-content {
+    padding: 0; /* 移除外層 padding，交由 header/body/footer 控制 */
+    margin-top: 5vh;
+  }
+  .dialog-header,
+  .dialog-body,
+  .dialog-footer {
+    padding: 1rem;
+  }
+  .dialog-header h2 {
+    font-size: 1.25rem;
+  }
+
+  /* 核心修改：將兩欄的 Grid 佈局改為單欄 */
+  .form-group-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .info-box {
+    height: auto; /* 高度自動 */
+    min-height: 48px;
+  }
+
+  /* 讓底部按鈕垂直堆疊，並且主要按鈕在上方 */
+  .dialog-footer {
+    flex-direction: column-reverse;
+    gap: 0.75rem;
+  }
+
+  .dialog-footer .btn {
+    width: 100%;
+  }
 }
 </style>
