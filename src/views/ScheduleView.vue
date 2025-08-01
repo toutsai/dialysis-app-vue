@@ -40,6 +40,12 @@
           </button>
         </div>
         <div class="toolbar-right">
+          <!-- 統計數據元件已移至此處 -->
+          <StatsToolbar
+            :stats-data="statsToolbarData"
+            :weekdays="statsToolbarWeekdays"
+            class="desktop-only"
+          />
           <span class="status-indicator">{{ statusIndicator }}</span>
           <!-- 儲存按鈕僅在桌面版顯示，因為行動版是純查閱 -->
           <button
@@ -52,7 +58,7 @@
           <button class="btn btn-info" @click="triggerPrint">列印</button>
         </div>
       </div>
-      <!-- 控制面板僅在桌面版顯示 -->
+      <!-- 控制面板 (第二列) 僅在桌面版顯示 -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
           <button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
@@ -61,8 +67,6 @@
           <button class="btn btn-secondary" @click="clearNurseTeams" :disabled="isPageLocked">
             清除護理分組
           </button>
-        </div>
-        <div class="controls-right">
           <div class="team-highlight-container">
             <div class="team-group">
               <span class="team-group-label">早</span>
@@ -97,8 +101,8 @@
               </div>
             </div>
           </div>
-          <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
         </div>
+        <!-- 原本的 controls-right 已清空，因為統計元件已上移 -->
       </div>
     </header>
 
@@ -321,10 +325,10 @@
           <div v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode" class="stat-item">
             <span class="stat-label">{{ getShiftDisplayName(shiftCode) }}</span>
             <span class="stat-value">
-              門{{ statsToolbarData[0]?.counts[shiftCode]?.opd || 0 }} | 住{{
-                statsToolbarData[0]?.counts[shiftCode]?.ipd || 0
+              門{{ statsToolbarData?.counts?.[shiftCode]?.opd || 0 }} | 住{{
+                statsToolbarData?.counts?.[shiftCode]?.ipd || 0
               }}
-              | 急{{ statsToolbarData[0]?.counts[shiftCode]?.er || 0 }}
+              | 急{{ statsToolbarData?.counts?.[shiftCode]?.er || 0 }}
             </span>
           </div>
         </div>
@@ -464,7 +468,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, reactive, watch, provide } from 'vue'
+import { ref, onMounted, computed, reactive, watch } from 'vue'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   fetchAllSchedules as optimizedFetchAllSchedules,
@@ -476,7 +480,7 @@ import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
-import { useNotification } from '@/composables/useNotification.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 
 import {
@@ -585,7 +589,7 @@ const isPageLocked = computed(() => {
   return currentDay < today
 })
 
-const { addNotification } = useNotification()
+const { createGlobalNotification } = useGlobalNotifier()
 
 // ‼️‼️‼️ 在這裡新增 showAlert 函式 ‼️‼️‼️
 function showAlert(title, message) {
@@ -716,7 +720,10 @@ async function handleSaveConditionRecord(recordData) {
     }
     await conditionRecordsApi.save(dataToSave)
     isConditionModalVisible.value = false
-    addNotification(`已為 ${selectedPatientForRecord.value.name} 新增一筆病情紀錄`, 'schedule')
+    createGlobalNotification(
+      `已為 ${selectedPatientForRecord.value.name} 新增一筆病情紀錄`,
+      'schedule',
+    )
   } catch (error) {
     console.error('儲存病情紀錄失敗:', error)
     showAlert('儲存失敗', `儲存病情紀錄時發生錯誤: ${error.message}`)
@@ -742,7 +749,7 @@ function clearInpatients() {
     if (clearedCount > 0) {
       currentRecord.schedule = newSchedule
       setChange()
-      addNotification(`已清除 ${clearedCount} 位住院/急診病人`, 'schedule')
+      createGlobalNotification(`已清除 ${clearedCount} 位住院/急診病人`, 'schedule')
     } else {
       alertDialogTitle.value = '提示'
       alertDialogMessage.value = '畫面上沒有住院或急診病人可供清除。'
@@ -769,7 +776,7 @@ function clearNurseTeams() {
     if (cleared) {
       currentRecord.schedule = newSchedule
       setChange()
-      addNotification(`已清除所有護理分組`, 'team')
+      createGlobalNotification(`已清除所有護理分組`, 'team')
     } else {
       alertDialogTitle.value = '提示'
       alertDialogMessage.value = '畫面上沒有護理分組可供清除。'
@@ -857,7 +864,7 @@ async function saveDataToCloud() {
       detail: { date: currentRecord.date },
     })
     window.dispatchEvent(updateEvent)
-    addNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
+    createGlobalNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '排程已成功儲存！'
     isAlertDialogVisible.value = true
@@ -1279,9 +1286,6 @@ function executeAutoAssignment() {
   isAlertDialogVisible.value = true
 }
 
-provide('patientWithMemoIds', patientWithMemoIds)
-provide('showPatientMemos', showPatientMemos)
-
 onMounted(async () => {
   isLoading.value = true
   await loadAllData()
@@ -1340,7 +1344,7 @@ watch(currentDate, (newDate, oldDate) => {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-  padding: 0.5rem 1rem;
+  padding: 0.5rem;
 }
 .page-header {
   flex-shrink: 0;
@@ -1357,7 +1361,7 @@ watch(currentDate, (newDate, oldDate) => {
   flex-grow: 1;
   overflow-y: auto;
   min-width: 0;
-  padding: 0.5rem;
+  padding: 0.5rem 0 0.5rem 0;
 }
 .inpatient-sidebar {
   flex-shrink: 0;
@@ -1382,7 +1386,7 @@ watch(currentDate, (newDate, oldDate) => {
   gap: 10px;
 }
 .page-title {
-  font-size: 24px;
+  font-size: 32px;
   margin: 0;
   white-space: nowrap;
 }
@@ -1393,7 +1397,7 @@ watch(currentDate, (newDate, oldDate) => {
 }
 .current-date-text,
 .weekday-display {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: bold;
 }
 .weekday-display {
@@ -1424,7 +1428,7 @@ watch(currentDate, (newDate, oldDate) => {
 .btn,
 button {
   padding: 6px 12px;
-  font-size: 0.9em;
+  font-size: 1.1em;
   border: 1px solid #ccc;
   border-radius: 5px;
   cursor: pointer;
@@ -1697,7 +1701,7 @@ button:disabled {
 .team-highlight-container {
   display: flex;
   gap: 0.5rem;
-  padding: 6px;
+  padding: 8px;
   background-color: #e9ecef;
   border-radius: 8px;
 }

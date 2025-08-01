@@ -1319,7 +1319,7 @@ onMounted(() => {
   --grey-text: #6c757d;
 }
 .page-container {
-  padding: 1.5rem;
+  padding: 10px;
 }
 .page-title {
   margin-bottom: 1.5rem;

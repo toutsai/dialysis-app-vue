@@ -4,13 +4,13 @@
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">排程例外管理中心</h1>
+          <h1 class="page-title">調班管理</h1>
           <button
             class="btn btn-primary desktop-only"
             @click="openCreateDialog"
             :disabled="isPageLocked"
           >
-            <i class="fas fa-plus-circle"></i> 新增例外申請
+            <i class="fas fa-plus-circle"></i> 新增調班申請
           </button>
         </div>
       </div>
@@ -21,8 +21,8 @@
 
     <main class="page-main-content">
       <div class="exceptions-list-container">
-        <h2 class="section-title">目前的例外申請列表</h2>
-        <div v-if="isLoading" class="loading-state">正在載入例外申請資料...</div>
+        <h2 class="section-title">目前的調班申請列表</h2>
+        <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
         <div v-else-if="exceptions.length === 0" class="empty-state">
           <i class="fas fa-check-circle"></i>
           <p>目前沒有任何待處理或已生效的例外申請。</p>
@@ -176,7 +176,7 @@
     <ConfirmDialog
       :is-visible="isConfirmDeleteVisible"
       title="確認撤銷"
-      message="您確定要撤銷這筆例外申請嗎？此操作可能會導致相關日期的排班恢復為總表預設值。"
+      message="您確定要撤銷這筆調班申請嗎？此操作可能會導致相關日期的排班恢復為總表預設值。"
       @confirm="executeDeleteException"
       @cancel="isConfirmDeleteVisible = false"
     />
@@ -197,6 +197,9 @@ import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
+
+// ✨ 1. 引入 useGlobalNotifier
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -219,6 +222,9 @@ const conflictAlertMessage = ref('')
 let unsubscribe = null
 const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
+
+// ✨ 2. 初始化 createGlobalNotification
+const { createGlobalNotification } = useGlobalNotifier()
 
 const statusMap = {
   pending: '待處理',
@@ -279,6 +285,12 @@ async function handleCreateException(formData) {
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
 
+    // ✨ 3. 在這裡發送通知
+    const actionText = isUpdating ? '更新' : '新增'
+    const typeText = formData.type === 'MOVE' ? '臨時調班' : '區間暫停'
+    const message = `${actionText}調班申請: ${formData.patientName} (${typeText})`
+    createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
+
     const getBedDisplay = (bedNum) =>
       typeof bedNum === 'string' && bedNum.startsWith('peripheral-')
         ? `外圍 ${bedNum.split('-')[1]}`
@@ -313,7 +325,7 @@ async function handleCreateException(formData) {
       await memosApi.save(newMemo)
     }
   } catch (error) {
-    console.error('提交例外申請或建立備忘失敗:', error)
+    console.error('提交調班申請或建立備忘失敗:', error)
   }
 }
 
@@ -326,7 +338,17 @@ function confirmDeleteException(id) {
 async function executeDeleteException() {
   if (!exceptionToDeleteId.value) return
   try {
+    // ✨ 為了發送通知，我們先在刪除前獲取這筆資料
+    const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
+
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
+
+    // ✨ 3. 在成功刪除後發送通知
+    if (exceptionData) {
+      const typeText = exceptionData.type === 'MOVE' ? '臨時調班' : '區間暫停'
+      const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
+      createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
+    }
   } catch (error) {
     console.error('撤銷失敗:', error)
   } finally {
@@ -384,12 +406,12 @@ onUnmounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .page-container {
-  padding: 1.5rem;
   height: 100vh;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   background-color: #f8f9fa;
+  padding: 10px;
 }
 .page-header {
   border-bottom: 2px solid #dee2e6;
@@ -452,7 +474,7 @@ button:disabled {
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
-  padding: 1.5rem;
+  padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow-y: auto;

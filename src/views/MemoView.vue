@@ -691,7 +691,7 @@ onMounted(() => {
   gap: 24px;
 }
 .page-container {
-  padding: 1.5rem;
+  padding: 10px;
 }
 .page-title {
   margin-bottom: 0;

@@ -137,7 +137,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, provide, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   updatePatient,
@@ -864,8 +864,8 @@ function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 
-provide('patientWithMemoIds', patientWithMemoIds)
-provide('showPatientMemos', showPatientMemos)
+// provide('patientWithMemoIds', patientWithMemoIds)
+// provide('showPatientMemos', showPatientMemos)
 
 onMounted(() => {
   loadAllData()
@@ -952,6 +952,7 @@ onUnmounted(() => {
   height: 100vh;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 10px;
 }
 .page-header {
   flex-shrink: 0;

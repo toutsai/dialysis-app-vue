@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/layouts/MainLayout.vue (最終完整修正版) -->
 <template>
   <!-- 根據側邊欄狀態添加 class，方便 CSS 控制 -->
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
@@ -16,7 +17,7 @@
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
           <li><RouterLink to="/weekly" class="nav-link">週排班表</RouterLink></li>
           <li><RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink></li>
-          <li><RouterLink to="/exception-manager" class="nav-link">排程例外管理</RouterLink></li>
+          <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
@@ -32,7 +33,8 @@
               v-for="notif in notifications"
               :key="notif.id"
               class="notification-item"
-              :class="[`notification-type-${notif.type}`, { 'is-clickable': !!notif.action }]"
+              :class="{ 'is-clickable': !!notif.action }"
+              :style="{ backgroundColor: notif.config.bgColor, color: notif.config.textColor }"
               @click="handleNotificationClick(notif)"
             >
               <div class="notification-content">
@@ -77,46 +79,98 @@
       </div>
     </aside>
 
-    <!-- 2. 半透明遮罩層，點擊可關閉側邊欄 (新增的元素) -->
+    <!-- 2. 半透明遮罩層，點擊可關閉側邊欄 -->
     <div class="sidebar-overlay" @click="closeSidebar" v-if="isSidebarOpen"></div>
 
     <!-- 3. 主要內容區 -->
     <main class="content-area">
-      <!-- 頂部 Header，包含漢堡按鈕 (新增的元素) -->
+      <!-- 頂部 Header，包含漢堡按鈕 -->
       <header class="main-header">
         <button class="sidebar-toggle" @click="toggleSidebar">
           <span></span>
           <span></span>
           <span></span>
         </button>
-        <!-- 您可以在這裡放目前頁面的標題 -->
         <h2 class="current-page-title">{{ route.meta.title || '透析管理' }}</h2>
       </header>
       <div class="content-wrapper">
         <RouterView />
       </div>
     </main>
+
+    <!-- ✨ 將 MemoDisplayDialog 放在這裡，使其成為全局可用的組件 ✨ -->
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-name="patientNameForDialog"
+      :memos="memosForDialog"
+      @close="isMemoDialogVisible = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import { useConflictWatcher } from '@/composables/useConflictWatcher.js'
 import { getFunctions, httpsCallable } from 'firebase/functions'
+import ApiManager from '@/services/api_manager.js'
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import { where, onSnapshot, collection, query } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
 
+const patientsApi = ApiManager('patients')
 const router = useRouter()
-const route = useRoute() // 取得當前路由資訊
+const route = useRoute()
 const { currentUser, logout, isAdmin } = useAuth()
 const { notifications, startListening, stopListening, removeNotification } =
   useRealtimeNotifications()
-const { startWatching } = useConflictWatcher()
+const { startWatching: startConflictWatching, stopWatching: stopConflictWatching } =
+  useConflictWatcher()
 
-// ‼️ 新增: 控制側邊欄開關的狀態
+// --- 響應式佈局狀態 ---
 const isSidebarOpen = ref(false)
 
+// --- 備忘錄相關的全域狀態 ---
+const allPatients = ref([])
+const activeMemos = ref([])
+const isMemoDialogVisible = ref(false)
+const patientNameForDialog = ref('')
+const memosForDialog = ref([])
+
+// --- 全域 Provide/Inject 所需的計算屬性和函式 ---
+const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+const patientWithMemoIds = computed(
+  () =>
+    new Set(
+      activeMemos.value
+        .filter((memo) => memo.patientId && memo.status === 'pending')
+        .map((memo) => memo.patientId),
+    ),
+)
+
+function showPatientMemos(patientId) {
+  if (!patientId) return
+  const patient = patientMap.value.get(patientId)
+  const memoPatientName = activeMemos.value.find((m) => m.patientId === patientId)?.patientName
+
+  if (!patient && !memoPatientName) {
+    console.warn(`[MainLayout] Cannot find patient name for ID: ${patientId}`)
+    return
+  }
+
+  memosForDialog.value = activeMemos.value.filter(
+    (memo) => memo.patientId === patientId && memo.status === 'pending',
+  )
+  patientNameForDialog.value = patient ? patient.name : memoPatientName
+  isMemoDialogVisible.value = true
+}
+
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
+
+// --- 其他輔助函式 ---
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
     return { text: '(開發版)', class: 'env-tag-dev' }
@@ -126,7 +180,6 @@ const environmentTag = computed(() => {
   return null
 })
 
-// ‼️ 新增: 開關側邊欄的函式
 function toggleSidebar() {
   isSidebarOpen.value = !isSidebarOpen.value
 }
@@ -146,80 +199,144 @@ function handleLogout() {
   logout()
 }
 
+// --- 核心業務邏輯 ---
+async function loadSharedData() {
+  try {
+    console.log('🔄 [MainLayout] Loading shared data (patients & memos)...')
+    const [patientsData, memosData] = await Promise.all([
+      // 只獲取未刪除的病人
+      patientsApi.fetchAll([where('isDeleted', '==', false)]),
+      memosApi.fetchAll([where('status', '==', 'pending')]),
+    ])
+    allPatients.value = patientsData
+    activeMemos.value = memosData
+    console.log(
+      `✅ [MainLayout] Shared data loaded: ${patientsData.length} patients, ${memosData.length} memos.`,
+    )
+  } catch (error) {
+    console.error('❌ [MainLayout] Failed to load shared data:', error)
+  }
+}
+
 const triggerScheduleCheck = async () => {
   if (sessionStorage.getItem('hasCheckedSchedules')) {
-    console.log('🗓️ [MainLayout] 本次登入階段已檢查過排程，跳過。')
     return
   }
-  console.log('🚀 [MainLayout] 準備觸發雲端函式 ensureFutureSchedules...')
+  console.log('🚀 [MainLayout] Triggering cloud function ensureFutureSchedules...')
   try {
     const functions = getFunctions()
     const ensureSchedules = httpsCallable(functions, 'ensureFutureSchedules')
     const result = await ensureSchedules()
-    console.log('✅ [MainLayout] 雲端函式 ensureFutureSchedules 執行成功:', result.data)
+    console.log('✅ [MainLayout] Cloud function executed successfully:', result.data)
     sessionStorage.setItem('hasCheckedSchedules', 'true')
   } catch (error) {
-    console.error('❌ [MainLayout] 呼叫 ensureFutureSchedules 失敗:', error)
+    console.error('❌ [MainLayout] Calling ensureFutureSchedules failed:', error)
   }
 }
 
+// --- 核心業務邏輯：實時監聽備忘錄 ---
+let memoUnsubscribe = null // 用於停止備忘錄監聽
+let patientUnsubscribe = null // 為病人數據也加上監聽
+
+function startSharedDataListeners() {
+  // 監聽備忘錄
+  if (memoUnsubscribe) return
+  console.log('🔄 [MainLayout] Starting to listen for active memos...')
+  const memoQuery = query(collection(db, 'memos'), where('status', '==', 'pending'))
+  memoUnsubscribe = onSnapshot(memoQuery, (snapshot) => {
+    activeMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    console.log(`✅ [MainLayout] Active memos updated: ${activeMemos.value.length} items.`)
+  })
+
+  // 監聽病人（只在需要時更新）
+  if (patientUnsubscribe) return
+  console.log('🔄 [MainLayout] Starting to listen for patient data...')
+  const patientQuery = query(collection(db, 'patients'), where('isDeleted', '==', false))
+  patientUnsubscribe = onSnapshot(patientQuery, (snapshot) => {
+    allPatients.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    console.log(`✅ [MainLayout] Patient data updated: ${allPatients.value.length} patients.`)
+  })
+}
+function stopSharedDataListeners() {
+  if (memoUnsubscribe) {
+    console.log('🛑 [MainLayout] Stopping memo listener.')
+    memoUnsubscribe()
+    memoUnsubscribe = null
+  }
+  if (patientUnsubscribe) {
+    console.log('🛑 [MainLayout] Stopping patient listener.')
+    patientUnsubscribe()
+    patientUnsubscribe = null
+  }
+}
+
+// --- 生命週期與監聽器 ---
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      console.log('🟢 [MainLayout] User logged in. Starting services...')
+      console.log('✅ [MainLayout] User logged in, starting services.')
+      startSharedDataListeners()
       triggerScheduleCheck()
-      startWatching()
+      startConflictWatching()
       startListening()
     } else {
-      console.log('🚪 [MainLayout] User logged out. Stopping services...')
+      console.log('🚪 [MainLayout] User logged out, stopping services.')
+      activeMemos.value = []
+      allPatients.value = []
+      stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
+      stopConflictWatching()
       stopListening()
     }
   },
   { immediate: true },
 )
 
-// ‼️ 新增: 監聽路由變化，在行動裝置上自動關閉側邊欄
 watch(
   () => route.path,
   () => {
     if (window.innerWidth <= 992) {
-      // 只在行動裝置寬度下作用
       closeSidebar()
     }
   },
 )
+
+onUnmounted(() => {
+  stopListening()
+  stopConflictWatching()
+  stopSharedDataListeners()
+})
 </script>
 
 <style scoped>
 /* ================================== */
-/*         原有樣式 (稍作調整)         */
+/*         通用及桌面版樣式         */
 /* ================================== */
 .dashboard-container {
   display: flex;
   height: 100vh;
-  overflow: hidden; /* 防止主容器滾動 */
+  overflow: hidden;
 }
 .sidebar {
-  width: 240px; /* 增加寬度以容納通知 */
+  width: 240px;
   background-color: #2c3e50;
   color: white;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   height: 100vh;
-  transition: width 0.3s ease; /* 為桌面版添加過渡效果 */
+  transition: width 0.3s ease;
 }
 .main-nav-section {
   padding: 20px 0;
-  flex-shrink: 0; /* 防止此區塊被壓縮 */
+  flex-shrink: 0;
 }
 .footer-section {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
-  min-height: 0; /* 讓 overflow-y 生效的關鍵 */
+  min-height: 0;
 }
 .sidebar-header {
   padding: 0 20px 20px 20px;
@@ -252,7 +369,7 @@ watch(
 }
 .sidebar-nav {
   list-style: none;
-  padding: 10px 0; /* 縮小一點 padding */
+  padding: 10px 0;
   margin: 0;
 }
 .nav-link {
@@ -261,14 +378,14 @@ watch(
   gap: 15px;
   color: #ecf0f1;
   text-decoration: none;
-  padding: 12px 20px; /* 增加上下 padding */
-  font-size: 1.1em; /* 縮小一點字體 */
+  padding: 12px 20px;
+  font-size: 1.1em;
   transition:
     background-color 0.2s,
     padding-left 0.2s;
   white-space: nowrap;
-  border-radius: 0 25px 25px 0; /* 添加圓角效果 */
-  margin-right: 10px; /* 給右邊一點空間 */
+  border-radius: 0 25px 25px 0;
+  margin-right: 10px;
 }
 .nav-link:hover {
   background-color: #34495e;
@@ -280,19 +397,16 @@ watch(
 }
 .content-area {
   flex-grow: 1;
-  display: flex; /* 改為 flex 以便控制 header 和 wrapper */
+  display: flex;
   flex-direction: column;
-  overflow: hidden; /* 確保 content-area 本身不滾動 */
+  overflow: hidden;
   background-color: #f4f7f9;
 }
-
-/* ‼️ 新增: 內容包裝器，真正滾動的區域 */
 .content-wrapper {
   flex-grow: 1;
-  overflow-y: auto; /* 只有這個區域可以垂直滾動 */
+  overflow-y: auto;
   padding: 1.5rem;
 }
-
 .management-section {
   padding-top: 15px;
   border-top: 1px solid #34495e;
@@ -361,6 +475,10 @@ watch(
 .btn-secondary:hover {
   background-color: #2d3748;
 }
+
+/* ================================== */
+/*         通知區域樣式             */
+/* ================================== */
 .notification-area {
   padding: 10px;
   overflow-y: auto;
@@ -372,70 +490,69 @@ watch(
   padding: 0 10px 8px 10px;
   margin: 0;
 }
-.notification-area::-webkit-scrollbar {
-  width: 6px;
-}
-.notification-area::-webkit-scrollbar-track {
-  background: transparent;
-}
-.notification-area::-webkit-scrollbar-thumb {
-  background-color: #5a6a7a;
-  border-radius: 20px;
-}
-.notification-area::-webkit-scrollbar-thumb:hover {
-  background-color: #4a5568;
-}
 .notification-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 .notification-item {
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.2);
   transition: all 0.3s ease;
+  position: relative;
+}
+.notification-item,
+.notification-item .notification-message,
+.notification-item .notification-icon,
+.notification-item .notification-time,
+.notification-item .notification-close {
+  color: inherit;
 }
 .notification-item.is-clickable {
   cursor: pointer;
 }
 .notification-item.is-clickable:hover {
-  background-color: #34495e;
+  filter: brightness(1.1);
+  transform: translateY(-1px);
 }
 .notification-content {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 8px;
+  display: block;
+  margin-bottom: 4px;
 }
 .notification-icon {
-  font-size: 16px;
-  margin-right: 8px;
-  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 1.1em;
+  margin-right: 6px;
 }
 .notification-message {
-  flex: 1;
+  display: inline;
   margin: 0;
-  font-size: 14px;
+  font-size: 0.95rem;
   line-height: 1.4;
-  color: #ecf0f1;
   font-weight: 500;
+  white-space: normal;
+  word-break: break-word;
 }
 .notification-footer-item {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
+  padding-left: 24px;
 }
 .notification-time {
-  font-size: 12px;
-  color: #bdc3c7;
-  font-weight: 400;
+  font-size: 0.8rem;
+  opacity: 0.85;
 }
 .notification-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   background: none;
   border: none;
-  font-size: 18px;
-  color: #95a5a6;
+  font-size: 1.2rem;
   cursor: pointer;
   padding: 0;
   width: 20px;
@@ -444,31 +561,12 @@ watch(
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  opacity: 0.7;
   transition: all 0.2s ease;
 }
 .notification-close:hover {
-  color: #ecf0f1;
+  opacity: 1;
   background-color: rgba(0, 0, 0, 0.2);
-}
-.notification-type-schedule {
-  border-left-color: #3498db;
-  background: rgba(52, 152, 219, 0.1);
-}
-.notification-type-team {
-  border-left-color: #27ae60;
-  background: rgba(39, 174, 96, 0.1);
-}
-.notification-type-patient {
-  border-left-color: #f39c12;
-  background: rgba(243, 156, 18, 0.1);
-}
-.notification-type-memo {
-  border-left-color: #9b59b6;
-  background: rgba(155, 89, 182, 0.1);
-}
-.notification-type-conflict {
-  border-left-color: #e74c3c;
-  background: rgba(231, 76, 60, 0.1);
 }
 .notification-list-enter-active,
 .notification-list-leave-active {
@@ -485,20 +583,28 @@ watch(
 .notification-list-move {
   transition: transform 0.3s ease;
 }
+.notification-area::-webkit-scrollbar {
+  width: 6px;
+}
+.notification-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notification-area::-webkit-scrollbar-thumb {
+  background-color: #5a6a7a;
+  border-radius: 20px;
+}
+.notification-area::-webkit-scrollbar-thumb:hover {
+  background-color: #4a5568;
+}
 
 /* ================================== */
-/* ‼️        新增的響應式樣式        ‼️ */
+/*         響應式樣式               */
 /* ================================== */
-
-/* 預設不顯示漢堡按鈕、遮罩、和頂部 Header */
 .sidebar-overlay,
 .main-header {
   display: none;
 }
-
-/* 當螢幕寬度小於 992px 時 (適用於平板和手機) */
 @media (max-width: 992px) {
-  /* 1. 側邊欄改為固定定位，並移出畫面外 */
   .sidebar {
     position: fixed;
     top: 0;
@@ -509,30 +615,22 @@ watch(
     z-index: 1000;
     box-shadow: 4px 0 15px rgba(0, 0, 0, 0.2);
   }
-
-  /* 2. 當 is-open class 存在時，將側邊欄滑入畫面 */
   .sidebar.is-open {
     transform: translateX(0);
   }
-
-  /* 3. 主要內容區現在佔滿整個寬度 */
   .content-area {
     width: 100%;
   }
-
-  /* 4. 顯示並設計頂部 Header */
   .main-header {
     display: flex;
     align-items: center;
     padding: 0 1rem;
-    height: 60px; /* 固定高度 */
+    height: 60px;
     background-color: #fff;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    flex-shrink: 0; /* 防止被壓縮 */
+    flex-shrink: 0;
     z-index: 900;
   }
-
-  /* 5. 設計漢堡按鈕 */
   .sidebar-toggle {
     display: block;
     background: none;
@@ -553,8 +651,6 @@ watch(
   .sidebar-toggle span:last-child {
     margin-bottom: 0;
   }
-
-  /* 6. 當側邊欄打開時，漢堡按鈕變為 "X" */
   .sidebar-open .sidebar-toggle span:nth-child(1) {
     transform: translateY(8px) rotate(45deg);
   }
@@ -564,8 +660,6 @@ watch(
   .sidebar-open .sidebar-toggle span:nth-child(3) {
     transform: translateY(-8px) rotate(-45deg);
   }
-
-  /* 7. 當側邊欄打開時，顯示半透明遮罩 */
   .sidebar-open .sidebar-overlay {
     display: block;
     position: fixed;
@@ -577,28 +671,22 @@ watch(
     z-index: 999;
     cursor: pointer;
   }
-
-  /* 8. 顯示目前頁面標題 */
   .current-page-title {
     margin-left: 1rem;
     font-size: 1.2rem;
     font-weight: 600;
     color: #333;
   }
-
-  /* 9. 調整 content wrapper 的 padding */
   .content-wrapper {
     padding: 1rem;
   }
 }
-
-/* 針對更小的手機螢幕微調 */
 @media (max-width: 768px) {
   .content-wrapper {
     padding: 0.75rem;
   }
   .sidebar {
-    width: 280px; /* 在手機上可以讓側邊欄寬一點 */
+    width: 280px;
   }
 }
 </style>
