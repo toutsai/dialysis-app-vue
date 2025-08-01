@@ -685,32 +685,44 @@ onMounted(() => {
 /* ================================== */
 /*         通用及桌面版樣式            */
 /* ================================== */
-.memo-view {
+
+/* ✨ 核心修正 1：約束頁面容器高度，並設為 Flex 佈局 */
+.page-container.memo-view {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px; /* 調整間距 */
+  padding: 10px; /* 統一內邊距 */
+  box-sizing: border-box;
 }
-.page-container {
-  padding: 10px;
-}
+
 .page-title {
-  margin-bottom: 0;
+  margin: 0;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #dee2e6;
   color: #2c3e50;
   display: flex;
   align-items: baseline;
+  flex-shrink: 0; /* 防止標題被壓縮 */
 }
+
 .title-stats {
   font-size: 0.9rem;
   font-weight: 400;
   color: #6c757d;
   margin-left: 12px;
 }
+
+.error-banner,
+.loading-container {
+  flex-shrink: 0;
+}
+
 .error-banner {
   background-color: #f8d7da;
   color: #721c24;
   padding: 12px 16px;
   border-radius: 8px;
-  margin-bottom: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -723,13 +735,10 @@ onMounted(() => {
   padding: 6px 12px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.9rem;
 }
-.retry-btn:hover {
-  background-color: #c82333;
-}
-.loading-container,
-.card-loading {
+
+.card-loading,
+.loading-container {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -742,8 +751,8 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   min-height: 150px;
-  color: #6c757d;
   gap: 8px;
+  color: #6c757d;
 }
 .loading-spinner {
   width: 40px;
@@ -769,19 +778,23 @@ onMounted(() => {
   }
 }
 
-/* 佈局網格 (桌面) */
+/* ✨ 核心修正 2：讓佈局網格填滿剩餘垂直空間 */
 .memo-layout-grid {
   display: grid;
   grid-template-columns: 1fr 1.5fr;
   gap: 24px;
-  align-items: start;
-  /* ✨ 移除固定高度，讓其自適應 */
+  align-items: stretch; /* 讓列等高 */
+  flex-grow: 1;
+  min-height: 0; /* 防止被內容撐開 */
 }
+
 .left-column {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-height: 0;
 }
+
 .memo-card {
   background-color: #ffffff;
   border-radius: 12px;
@@ -790,30 +803,50 @@ onMounted(() => {
   padding: 24px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden; /* 防止子元素溢出圓角 */
 }
+
 .card-title {
-  margin-top: 0;
-  margin-bottom: 20px;
+  margin: 0 0 20px 0;
   font-size: 1.6rem;
   color: #343a40;
   padding-bottom: 16px;
   border-bottom: 1px solid #f1f3f5;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
+
 .title-count {
   font-size: 0.9rem;
-  font-weight: 600;
-  color: white;
   background-color: #dc3545;
+  color: white;
   margin-left: 8px;
   padding: 2px 8px;
   border-radius: 12px;
 }
+
 .form-card {
-  flex-shrink: 0;
+  flex-shrink: 0; /* 新增表單高度固定 */
 }
+
+/* ✨ 核心修正 3：讓兩個目標卡片能處理內部滾動 */
+.pending-card,
+.history-card {
+  min-height: 0; /* 關鍵！允許卡片在 Flex/Grid 中縮小 */
+}
+
+/* ✨ 核心修正 4：右側卡片本身產生滾動條 */
+.pending-card {
+  overflow-y: auto;
+}
+
+/* ✨ 核心修正 5：左側歷史卡片由 flex-grow 填滿剩餘空間 */
+.history-card {
+  flex-grow: 1;
+}
+
+/* --- 表單樣式 (無大改) --- */
 .form-card .memo-form {
   display: flex;
   flex-direction: column;
@@ -829,7 +862,6 @@ onMounted(() => {
   border-radius: 8px;
   border: 1px solid #ced4da;
   font-size: 1rem;
-  line-height: 1.6;
   resize: vertical;
 }
 .char-count {
@@ -838,9 +870,6 @@ onMounted(() => {
   right: 8px;
   font-size: 0.8rem;
   color: #6c757d;
-  background-color: rgba(255, 255, 255, 0.9);
-  padding: 2px 6px;
-  border-radius: 4px;
 }
 .form-card .form-actions {
   display: grid;
@@ -850,7 +879,6 @@ onMounted(() => {
 .form-card .option-item {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 8px;
 }
 .form-card label {
@@ -871,10 +899,6 @@ onMounted(() => {
 .form-card .select-btn {
   background-color: #fff;
   cursor: pointer;
-  transition: border-color 0.2s;
-}
-.form-card .select-btn:hover:not(:disabled) {
-  border-color: #007bff;
 }
 .form-card .selected-patient-display {
   display: flex;
@@ -887,68 +911,46 @@ onMounted(() => {
   border: none;
   font-size: 1.2rem;
   cursor: pointer;
-  padding: 0 5px;
-  color: #6c757d;
-  transition: color 0.2s;
-}
-.form-card .clear-btn:hover:not(:disabled) {
-  color: #dc3545;
 }
 .form-card .add-btn {
-  grid-column: 1 / -1;
   padding: 12px 20px;
-  background-color: var(--primary-color);
+  background-color: #007bff;
   color: white;
   border: none;
   border-radius: 8px;
   cursor: pointer;
   font-size: 1.1rem;
-  font-weight: 600;
-  transition: background-color 0.2s;
 }
 .form-card .add-btn:hover:not(:disabled) {
   background-color: #0056b3;
 }
-.history-card {
-  flex-grow: 1;
-  min-height: 0;
-}
+
+/* --- Tab 和列表樣式 (無大改) --- */
 .tabs {
   display: flex;
   border-bottom: 1px solid #dee2e6;
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 .tab-btn {
   padding: 10px 16px;
   border: none;
   background: none;
-  font-size: 1rem;
   cursor: pointer;
-  position: relative;
   color: #6c757d;
   font-weight: 500;
   margin-bottom: -1px;
-  display: flex;
-  align-items: center;
-  transition: color 0.2s;
 }
 .tab-btn.active {
-  color: var(--primary-color);
+  color: #007bff;
   font-weight: 600;
-  border-bottom: 3px solid var(--primary-color);
-}
-.tab-btn:hover:not(.active) {
-  color: #495057;
+  border-bottom: 3px solid #007bff;
 }
 .tab-count {
   font-size: 0.8rem;
   padding: 2px 6px;
   border-radius: 10px;
   margin-left: 6px;
-  min-width: 18px;
-  display: inline-block;
-  text-align: center;
-  font-weight: 600;
 }
 .tab-count.expired-count {
   background-color: #007bff;
@@ -958,11 +960,14 @@ onMounted(() => {
   background-color: #28a745;
   color: white;
 }
-.tab-content {
+
+.tab-content,
+.memo-list-wrapper {
   flex-grow: 1;
+  overflow-y: auto; /* 內部滾動的實現 */
   min-height: 0;
-  overflow-y: auto;
 }
+
 .memo-list {
   list-style: none;
   padding: 0;
@@ -971,18 +976,13 @@ onMounted(() => {
 .memo-item {
   background-color: #f8f9fa;
   padding: 16px;
-  border: 1px solid #e9ecef;
-  border-left-width: 5px;
+  border-left: 5px solid #ffc107;
   border-radius: 8px;
   margin-bottom: 12px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
-  transition: box-shadow 0.2s;
-}
-.memo-item:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 .memo-content {
   flex-grow: 1;
@@ -991,21 +991,15 @@ onMounted(() => {
 .memo-content p {
   margin: 0 0 10px 0;
   white-space: pre-wrap;
-  color: #212529;
   font-size: 1.05rem;
-  font-weight: 500;
 }
 :deep(.memo-patient-name) {
   font-weight: 700;
   color: #0056b3;
-  margin-right: 0.5em;
 }
 .memo-meta {
   font-size: 0.85rem;
   color: #6c757d;
-}
-.memo-meta strong {
-  color: #495057;
 }
 .memo-meta .date-highlight {
   color: #c82333;
@@ -1019,21 +1013,14 @@ onMounted(() => {
 .memo-actions button {
   padding: 6px 12px;
   border-radius: 5px;
-  border: 1px solid transparent;
+  border: none;
   cursor: pointer;
-  font-weight: 500;
   color: white;
-  font-size: 0.9rem;
-  transition: background-color 0.2s;
 }
 .empty-state {
   text-align: center;
   color: #adb5bd;
   padding: 40px 20px;
-  font-style: italic;
-}
-.memo-item {
-  border-left-color: #ffc107;
 }
 .memo-item.resolved {
   border-left-color: #28a745;
@@ -1045,97 +1032,47 @@ onMounted(() => {
 .memo-item.expired {
   border-left-color: #6c757d;
 }
-.memo-item.expired p {
-  color: #6c757d;
-}
 .resolve-btn {
   background-color: #28a745;
-  border-color: #28a745;
-}
-.resolve-btn:hover {
-  background-color: #218838;
 }
 .delete-btn {
   background-color: #dc3545;
-  border-color: #dc3545;
-}
-.delete-btn:hover {
-  background-color: #c82333;
 }
 .revert-btn {
   background-color: #007bff;
-  border-color: #007bff;
-}
-.revert-btn:hover {
-  background-color: #0056b3;
 }
 button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-textarea:disabled,
-input:disabled {
-  background-color: #f8f9fa;
-  opacity: 0.8;
-}
 
-/* ================================== */
-/* ‼️        新增的響應式樣式        ‼️ */
-/* ================================== */
+/* --- 響應式樣式 --- */
 @media (max-width: 1024px) {
-  /* 核心修改：將兩欄網格改為單欄 */
   .memo-layout-grid {
     grid-template-columns: 1fr;
+    flex-grow: 1;
   }
-
-  /* 讓卡片有最小高度，避免在內容很少時看起來太空 */
   .pending-card,
   .history-card {
     min-height: 400px;
   }
-
-  /* 讓頁面在小螢幕上有邊距 */
   .memo-view {
     padding: 1rem;
+    gap: 1rem;
   }
-
   .page-title {
     font-size: 1.8rem;
     padding-bottom: 1rem;
-    margin-bottom: 1rem;
-    border-bottom: 1px solid #dee2e6;
-  }
-
-  .card-title {
-    font-size: 1.4rem;
-  }
-
-  /* 讓手機上的操作按鈕文字更簡潔 */
-  .memo-actions .resolve-btn {
-    content: '完成';
+    margin-bottom: 0;
   }
 }
-
 @media (max-width: 768px) {
-  /* 在最小的螢幕上，將新增表單的兩個選項垂直堆疊 */
   .form-card .form-actions {
     grid-template-columns: 1fr;
   }
-
-  /* 縮小卡片 padding */
   .memo-card {
     padding: 1rem;
   }
-
-  /* 讓 Tab 按鈕文字換行 */
-  .tab-btn {
-    white-space: normal;
-    text-align: center;
-    font-size: 0.9rem;
-    padding: 8px 10px;
-  }
-
-  /* 讓備忘錄列表的操作按鈕更緊湊 */
   .memo-actions {
     flex-direction: column;
     align-items: flex-end;
