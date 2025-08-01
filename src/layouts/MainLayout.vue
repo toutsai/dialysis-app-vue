@@ -318,8 +318,10 @@ onUnmounted(() => {
   height: 100vh;
   overflow: hidden;
 }
+
+/* [修正] 側邊欄寬度縮小 */
 .sidebar {
-  width: 240px;
+  width: 210px;
   background-color: #2c3e50;
   color: white;
   flex-shrink: 0;
@@ -328,18 +330,23 @@ onUnmounted(() => {
   height: 100vh;
   transition: width 0.3s ease;
 }
+
+/* [修正] 減少垂直間距 */
 .main-nav-section {
-  padding: 20px 0;
+  padding: 15px 0;
   flex-shrink: 0;
 }
+
 .footer-section {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
   min-height: 0;
 }
+
+/* [修正] 減少標頭 padding */
 .sidebar-header {
-  padding: 0 20px 20px 20px;
+  padding: 0 15px 15px 15px;
   border-bottom: 1px solid #34495e;
   white-space: nowrap;
   display: flex;
@@ -347,10 +354,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
 }
+
 .platform-title {
-  font-size: 1.5em;
+  font-size: 1.4em; /* 微調字體大小以適應較窄的寬度 */
   font-weight: bold;
 }
+
 .environment-tag {
   align-self: flex-end;
   font-size: 0.7rem;
@@ -359,6 +368,7 @@ onUnmounted(() => {
   border-radius: 4px;
   opacity: 0.9;
 }
+
 .env-tag-dev {
   background-color: #ffc107;
   color: #333;
@@ -367,19 +377,23 @@ onUnmounted(() => {
   background-color: #28a745;
   color: white;
 }
+
+/* [修正] 減少導航列表的 padding */
 .sidebar-nav {
   list-style: none;
-  padding: 10px 0;
+  padding: 8px 0;
   margin: 0;
 }
+
+/* [修正] 減少每個連結的 padding，使其更緊湊 */
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
   color: #ecf0f1;
   text-decoration: none;
-  padding: 12px 20px;
-  font-size: 1.1em;
+  padding: 10px 15px;
+  font-size: 1.05em;
   transition:
     background-color 0.2s,
     padding-left 0.2s;
@@ -387,14 +401,17 @@ onUnmounted(() => {
   border-radius: 0 25px 25px 0;
   margin-right: 10px;
 }
+
 .nav-link:hover {
   background-color: #34495e;
 }
+
 .nav-link.router-link-exact-active {
   background-color: var(--primary-color, #1abc9c);
   color: white;
   font-weight: bold;
 }
+
 .content-area {
   flex-grow: 1;
   display: flex;
@@ -402,34 +419,43 @@ onUnmounted(() => {
   overflow: hidden;
   background-color: #f4f7f9;
 }
+
+/* [修正] 減少主內容區域的 padding */
 .content-wrapper {
   flex-grow: 1;
   overflow-y: auto;
-  padding: 1.5rem;
+  padding: 1.2rem;
 }
+
+/* [修正] 減少上邊距 */
 .management-section {
-  padding-top: 15px;
+  padding-top: 12px;
   border-top: 1px solid #34495e;
   flex-shrink: 0;
 }
+
 .section-title {
   font-size: 0.8em;
   font-weight: bold;
   color: #95a5a6;
   text-transform: uppercase;
   letter-spacing: 1px;
-  padding: 0 20px;
-  margin-bottom: 10px;
+  padding: 0 15px; /* 統一側邊距 */
+  margin-bottom: 8px; /* 減少下邊距 */
 }
+
 .management-section .sidebar-nav {
   padding-top: 0;
 }
+
 .management-section .nav-link {
   font-size: 1em;
-  padding: 8px 20px;
+  padding: 8px 15px; /* 統一側邊距 */
 }
+
+/* [修正] 減少 footer 的 padding */
 .nav-footer {
-  padding: 15px 20px;
+  padding: 12px 15px;
   border-top: 1px solid #4a627a;
   text-align: center;
   display: flex;
@@ -437,18 +463,22 @@ onUnmounted(() => {
   gap: 10px;
   flex-shrink: 0;
 }
+
 .user-info {
   margin-bottom: 0;
   font-size: 1em;
   line-height: 1.4;
 }
+
 .user-info span {
   display: block;
 }
+
 .button-group {
   display: flex;
   gap: 8px;
 }
+
 .action-button {
   flex: 1;
   text-align: center;
@@ -461,6 +491,7 @@ onUnmounted(() => {
   font-size: 0.85em;
   transition: background-color 0.2s;
 }
+
 .btn-logout {
   background: #e74c3c;
   color: white;
@@ -468,6 +499,7 @@ onUnmounted(() => {
 .btn-logout:hover {
   background: #c0392b;
 }
+
 .btn-secondary {
   background-color: #4a5568;
   color: white;
@@ -477,24 +509,27 @@ onUnmounted(() => {
 }
 
 /* ================================== */
-/*         通知區域樣式             */
+/*         通知區域樣式 (緊湊版)      */
 /* ================================== */
 .notification-area {
-  padding: 10px;
+  padding: 8px; /* 減少 padding */
   overflow-y: auto;
   border-top: 1px solid #34495e;
   flex-grow: 1;
   min-height: 0;
 }
+
 .notification-area .section-title {
-  padding: 0 10px 8px 10px;
+  padding: 0 8px 6px 8px;
   margin: 0;
 }
+
 .notification-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px; /* 減少項目間距 */
 }
+
 .notification-item {
   border-radius: 6px;
   padding: 8px 10px;
@@ -503,6 +538,7 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   position: relative;
 }
+
 .notification-item,
 .notification-item .notification-message,
 .notification-item .notification-icon,
@@ -510,6 +546,7 @@ onUnmounted(() => {
 .notification-item .notification-close {
   color: inherit;
 }
+
 .notification-item.is-clickable {
   cursor: pointer;
 }
@@ -517,16 +554,19 @@ onUnmounted(() => {
   filter: brightness(1.1);
   transform: translateY(-1px);
 }
+
 .notification-content {
   display: block;
   margin-bottom: 4px;
 }
+
 .notification-icon {
   display: inline-block;
   vertical-align: middle;
   font-size: 1.1em;
   margin-right: 6px;
 }
+
 .notification-message {
   display: inline;
   margin: 0;
@@ -536,16 +576,19 @@ onUnmounted(() => {
   white-space: normal;
   word-break: break-word;
 }
+
 .notification-footer-item {
   display: flex;
   justify-content: flex-start;
   align-items: center;
   padding-left: 24px;
 }
+
 .notification-time {
   font-size: 0.8rem;
   opacity: 0.85;
 }
+
 .notification-close {
   position: absolute;
   top: 4px;
@@ -564,10 +607,12 @@ onUnmounted(() => {
   opacity: 0.7;
   transition: all 0.2s ease;
 }
+
 .notification-close:hover {
   opacity: 1;
   background-color: rgba(0, 0, 0, 0.2);
 }
+
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.3s ease;
@@ -604,6 +649,7 @@ onUnmounted(() => {
 .main-header {
   display: none;
 }
+
 @media (max-width: 992px) {
   .sidebar {
     position: fixed;
@@ -681,12 +727,14 @@ onUnmounted(() => {
     padding: 1rem;
   }
 }
+
 @media (max-width: 768px) {
   .content-wrapper {
-    padding: 0.75rem;
+    padding: 1rem; /* 統一手機版 padding */
   }
+  /* [修正] 手機版側邊欄寬度也縮小 */
   .sidebar {
-    width: 280px;
+    width: 260px;
   }
 }
 </style>

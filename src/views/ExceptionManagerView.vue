@@ -402,39 +402,46 @@ onUnmounted(() => {
 
 <style scoped>
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+
 /* ================================== */
 /*         通用及桌面版樣式            */
 /* ================================== */
+/* [修正] 容器應填滿父層高度 (100%)，而非視窗高度 (100vh)，並移除外層 padding */
 .page-container {
-  height: 100vh;
+  height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   background-color: #f8f9fa;
   padding: 10px;
 }
+
+/* [修正] 為 header 新增 padding，並減少邊距使其更緊湊 */
 .page-header {
   border-bottom: 2px solid #dee2e6;
-  padding-bottom: 1.5rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   flex-shrink: 0;
 }
+
 .header-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+
 .page-title {
   font-size: 32px;
   font-weight: 700;
   color: #343a40;
   margin: 0;
 }
+
 .page-description {
   margin-top: 0.5rem;
   font-size: 1rem;
   color: #6c757d;
 }
+
 .btn {
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -447,48 +454,60 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
 }
+
 .btn-primary {
   background-color: #007bff;
   color: white;
   border-color: #007bff;
 }
+
 .btn-primary:hover {
   background-color: #0069d9;
 }
+
 .btn-danger {
   background-color: #dc3545;
   color: white;
   border-color: #dc3545;
 }
+
 .btn-danger:hover {
   background-color: #c82333;
 }
+
 .btn-sm {
   padding: 0.25rem 0.5rem;
   font-size: 0.875rem;
 }
+
 button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+/* [修正] 為 main 內容區加上 min-height: 0，確保滾動條在此元素上 */
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
-  padding: 1rem;
+  padding: 0.5rem;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow-y: auto;
+  min-height: 0; /* ✨✨ 核心修正：約束 flex item 高度 ✨✨ */
 }
+
 .section-title {
   font-size: 1.5rem;
   margin-bottom: 1.5rem;
   color: #495057;
 }
+
 .exceptions-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.95rem;
 }
+
 .exceptions-table th,
 .exceptions-table td {
   padding: 0.75rem 1rem;
@@ -496,14 +515,17 @@ button:disabled {
   border-bottom: 1px solid #e9ecef;
   vertical-align: middle;
 }
+
 .exceptions-table th {
   background-color: #f8f9fa;
   font-weight: 600;
   color: #495057;
 }
+
 .exceptions-table tbody tr:hover {
   background-color: #f1f3f5;
 }
+
 .status-badge,
 .type-badge {
   padding: 0.25em 0.6em;
@@ -514,6 +536,7 @@ button:disabled {
   color: white;
   white-space: nowrap;
 }
+
 .status-pending,
 .status-processing {
   background-color: #ffc107;
@@ -532,31 +555,38 @@ button:disabled {
   background-color: #fd7e14;
   color: white;
 }
+
 .type-MOVE {
   background-color: #17a2b8;
 }
+
 .type-SUSPEND {
   background-color: #6610f2;
 }
+
 .reason-cell small {
   color: #6c757d;
 }
+
 .loading-state,
 .empty-state {
   text-align: center;
   padding: 4rem 0;
   color: #6c757d;
 }
+
 .empty-state i {
   font-size: 3rem;
   color: #28a745;
   margin-bottom: 1rem;
 }
+
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 1.5rem;
 }
+
 .error-message {
   color: #dc3545;
   font-weight: bold;
@@ -567,8 +597,6 @@ button:disabled {
 /* ================================== */
 /*         響應式樣式 (核心)         */
 /* ================================== */
-
-/* 預設情況下 (桌面版): 顯示表格，隱藏卡片 */
 .exceptions-table.desktop-only {
   display: table;
 }
@@ -583,7 +611,6 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
-  /* 在平板和手機上: 隱藏表格，顯示卡片 */
   .exceptions-table.desktop-only {
     display: none;
   }
@@ -599,22 +626,31 @@ button:disabled {
     display: none;
   }
 
+  /* [修正] 移除手機版的 page-container padding，因為內層已有 */
   .page-container {
-    padding: 1rem;
+    padding: 0;
   }
+
   .page-header {
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    padding: 1rem 1rem 0.75rem; /* 調整手機版 header padding */
+    border-radius: 0;
   }
+
   .page-title {
     font-size: 28px;
   }
+
   .page-description {
     font-size: 0.9rem;
   }
+
   .page-main-content {
     padding: 1rem;
+    border-radius: 0;
+    box-shadow: none;
   }
+
   .section-title {
     font-size: 1.3rem;
     margin-bottom: 1rem;
@@ -628,6 +664,7 @@ button:disabled {
     border-left: 5px solid #ccc;
     overflow: hidden;
   }
+
   .status-border-pending,
   .status-border-processing {
     border-left-color: #ffc107;
@@ -652,39 +689,47 @@ button:disabled {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
   }
+
   .header-left {
     display: flex;
     align-items: center;
     gap: 0.75rem;
   }
+
   .patient-name {
     font-size: 1.1rem;
     font-weight: 600;
   }
+
   .card-body {
     padding: 1rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
   }
+
   .info-row {
     display: grid;
     grid-template-columns: 100px 1fr;
     gap: 0.5rem;
     align-items: start;
   }
+
   .info-label {
     color: #6c757d;
     font-weight: bold;
   }
+
   .info-value {
     font-weight: 500;
   }
+
   .info-row.details .info-value {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
   }
+
   .card-footer {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
@@ -716,7 +761,7 @@ button:disabled {
     font-size: 24px;
   }
   .page-header {
-    padding-bottom: 1rem;
+    padding: 1rem 1rem 0.5rem;
     margin-bottom: 1rem;
   }
   .info-row {
