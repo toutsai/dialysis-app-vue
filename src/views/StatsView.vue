@@ -1508,6 +1508,7 @@ watch(currentDate, (newDate) => {
   transform: translateY(-5px);
   opacity: 0;
 }
+/*
 :global(.notification-item) {
   background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
   border: 1px solid #e2e8f0;
@@ -1658,7 +1659,7 @@ watch(currentDate, (newDate) => {
     color: #cbd5e1;
   }
 }
-
+*/
 /* 🔥 使用 :deep() 確保樣式生效 */
 :deep(.patient-item.status-opd) {
   background-color: #e8f5e9; /* 門診 - 綠色 */
