@@ -28,9 +28,7 @@ const routes = [
         path: 'exception-manager',
         name: 'ExceptionManager',
         component: () => import('../views/ExceptionManagerView.vue'),
-        // ✨ --- 權限修改 --- ✨
-        // 移除 roles 元數據，讓所有已登入的使用者都能訪問
-        meta: { requiresAuth: true },
+        meta: { requiresAuth: true }, // 所有已登入的使用者都能訪問
       },
       { path: 'patients', name: 'Patients', component: () => import('../views/PatientsView.vue') },
       { path: 'stats', name: 'Stats', component: () => import('../views/StatsView.vue') },
@@ -61,35 +59,34 @@ const router = createRouter({
   routes,
 })
 
-// 路由守衛保持不變，它會正確處理這個修改
+// ✨ --- 核心修正：更新路由守衛 --- ✨
 router.beforeEach(async (to, from, next) => {
-  const { isLoggedIn, isAdmin, userRole, checkAuthState } = useAuth()
+  // 從最新的 useAuth 中解構出需要的函式和計算屬性
+  const { isLoggedIn, isAdmin, waitForAuthInit, currentUser } = useAuth()
 
-  await checkAuthState()
+  // 等待 Firebase Auth 狀態初始化完成
+  await waitForAuthInit()
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
-  const requiredRoles = to.matched.flatMap((record) => record.meta.roles || [])
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
 
+  // 1. 如果路由需要認證，但使用者未登入
   if (requiresAuth && !isLoggedIn.value) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
+    // 2. 如果使用者已登入，但試圖訪問登入頁
   } else if (to.name === 'Login' && isLoggedIn.value) {
-    next({ name: 'Schedule' })
-  } else if (requiresAdmin || requiredRoles.length > 0) {
-    if (isLoggedIn.value) {
-      const hasRequiredRole = requiresAdmin ? isAdmin.value : requiredRoles.includes(userRole.value)
-
-      if (hasRequiredRole) {
-        next()
-      } else {
-        console.warn(`權限不足：用戶角色 (${userRole.value}) 無法訪問。`)
-        next({ name: 'Schedule' })
-      }
+    next({ name: 'Schedule' }) // 直接導向首頁
+    // 3. 如果路由需要管理員權限
+  } else if (requiresAdmin) {
+    if (isAdmin.value) {
+      next() // 有權限，放行
     } else {
-      next({ name: 'Login' })
+      console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問管理員頁面。`)
+      next({ name: 'Schedule' }) // 無權限，導向首頁
     }
+    // 4. 其他所有情況
   } else {
-    next()
+    next() // 不需要特殊權限，直接放行
   }
 })
 

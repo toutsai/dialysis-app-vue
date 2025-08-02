@@ -142,6 +142,9 @@ function handleSubmit() {
 </template>
 
 <style scoped>
+/* ================================== */
+/*         通用及桌面版樣式            */
+/* ================================== */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -153,15 +156,19 @@ function handleSubmit() {
   justify-content: center;
   align-items: center;
   z-index: 1000;
+  padding: 1rem; /* ✨ 新增: 給 overlay 一點邊距，避免內容緊貼螢幕邊緣 */
 }
 
 .modal-content {
   background: white;
   padding: 2rem;
   border-radius: 8px;
-  width: 90%;
+  width: 100%; /* ✨ 修改: 寬度設為 100% */
   max-width: 650px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  /* ✨ 新增: 讓 Modal 內部可以滾動，以應對小螢幕 */
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 .modal-header {
@@ -218,6 +225,8 @@ function handleSubmit() {
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 1rem;
+  width: 100%; /* ✨ 新增: 確保輸入框填滿容器 */
+  box-sizing: border-box; /* ✨ 新增: 確保 padding 不會讓寬度溢出 */
 }
 
 .modal-footer {
@@ -253,5 +262,40 @@ function handleSubmit() {
 }
 .btn-save:hover {
   background-color: #0056b3;
+}
+
+/* ================================== */
+/* ‼️        新增的響應式樣式        ‼️ */
+/* ================================== */
+@media (max-width: 768px) {
+  /* 在手機上，讓 Modal 從頂部對齊 */
+  .modal-overlay {
+    align-items: flex-start;
+  }
+
+  .modal-content {
+    padding: 1.5rem;
+    margin-top: 5vh; /* 距離頂部一點距離 */
+  }
+
+  /* 核心修改：將兩欄的 Grid 佈局改為單欄 */
+  .form-row {
+    grid-template-columns: 1fr;
+    gap: 1rem; /* 縮小垂直間距 */
+  }
+
+  /* 讓底部按鈕垂直堆疊，並且主要按鈕在上方 */
+  .modal-footer {
+    flex-direction: column-reverse;
+    gap: 0.75rem;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+  }
+
+  .modal-header h2 {
+    font-size: 1.25rem;
+  }
 }
 </style>

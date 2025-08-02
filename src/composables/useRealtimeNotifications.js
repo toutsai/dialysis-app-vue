@@ -1,87 +1,99 @@
-// 檔案路徑: src/composables/useRealtimeNotifications.js
+// 檔案路徑: src/composables/useRealtimeNotifications.js (最終統一版)
 
-import { ref, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import { useRouter } from 'vue-router'
 
-// 全局狀態
+// 這是我們【唯一】的通知狀態來源
 const notifications = ref([])
-let unsubscribe = null // 用來儲存取消監聽的函式
+let unsubscribe = null
+const MAX_NOTIFICATIONS = 10 // 您可以調整上限
 
-// 通知類型配置 (與舊版 useNotification.js 相同)
-const NOTIFICATION_TYPES = {
-  schedule: { icon: '📅' },
-  team: { icon: '👥' },
-  patient: { icon: '👤' },
-  memo: { icon: '📝' },
-  conflict: { icon: '⚠️' },
+const NOTIFICATION_CONFIG = {
+  schedule: { icon: '📅', bgColor: '#3498db', textColor: '#fff' },
+  team: { icon: '👥', bgColor: '#27ae60', textColor: '#fff' },
+  patient: { icon: '👤', bgColor: '#f39c12', textColor: '#fff' },
+  memo: { icon: '📝', bgColor: '#9b59b6', textColor: '#fff' },
+  conflict: { icon: '⚠️', bgColor: '#e74c3c', textColor: '#fff' },
+  exception: { icon: '⚡️', bgColor: '#c0392b', textColor: '#fff' },
+  default: { icon: '🔔', bgColor: '#7f8c8d', textColor: '#fff' },
+}
+
+const processDoc = (doc, router) => {
+  const data = doc.data()
+  const createdAt = data.createdAt?.toDate() || new Date()
+  const action = data.metadata?.routePath ? () => router.push(data.metadata.routePath) : null
+  return {
+    id: doc.id,
+    message: data.message,
+    type: data.type,
+    time: createdAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+    createdAt,
+    config: NOTIFICATION_CONFIG[data.type] || NOTIFICATION_CONFIG.default,
+    action,
+  }
 }
 
 export function useRealtimeNotifications() {
   const router = useRouter()
 
   const startListening = () => {
-    // 防止重複監聽
-    if (unsubscribe) {
-      console.log('👂 [RealtimeN] Listener already active.')
-      return
-    }
-
-    console.log('👂 [RealtimeN] Starting to listen for global notifications...')
-
+    if (unsubscribe) return
     const q = query(
       collection(db, 'notifications'),
       orderBy('createdAt', 'desc'),
-      limit(10), // 最多只抓取最新的 10 條
+      limit(MAX_NOTIFICATIONS),
     )
-
     unsubscribe = onSnapshot(q, (snapshot) => {
-      const newNotifications = []
-      snapshot.forEach((doc) => {
-        const data = doc.data()
-        const createdAt = data.createdAt?.toDate() || new Date()
-
-        // 點擊通知後的動作
-        const action = data.metadata?.routePath ? () => router.push(data.metadata.routePath) : null
-
-        newNotifications.push({
-          id: doc.id,
-          message: data.message,
-          type: data.type,
-          time: createdAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
-          config: NOTIFICATION_TYPES[data.type] || NOTIFICATION_TYPES.schedule,
-          action,
-        })
-      })
-      notifications.value = newNotifications
+      const serverNotifications = snapshot.docs.map((doc) => processDoc(doc, router))
+      // 合併伺服器通知和本地通知，並排序
+      const allNotifs = [...serverNotifications, ...notifications.value.filter((n) => n.isLocal)]
+      allNotifs.sort((a, b) => b.createdAt - a.createdAt)
+      notifications.value = allNotifs.slice(0, MAX_NOTIFICATIONS)
     })
   }
 
   const stopListening = () => {
     if (unsubscribe) {
-      console.log('🛑 [RealtimeN] Stopping notification listener.')
       unsubscribe()
       unsubscribe = null
-      notifications.value = [] // 登出後清空通知
+      notifications.value = []
+    }
+  }
+
+  // ✨✨✨ 新增的本地通知函式 ✨✨✨
+  const addLocalNotification = (message, type = 'default', options = {}) => {
+    const id = Date.now() + Math.random()
+    const now = new Date()
+    const newNotification = {
+      id,
+      message,
+      type,
+      time: now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: now,
+      config: NOTIFICATION_CONFIG[type] || NOTIFICATION_CONFIG.default,
+      action: options.action || null,
+      isLocal: true, // 標記為本地通知
+    }
+    notifications.value.unshift(newNotification)
+    if (notifications.value.length > MAX_NOTIFICATIONS) {
+      notifications.value.pop()
     }
   }
 
   const removeNotification = (id) => {
-    // 在全局模式下，我們不從客戶端手動刪除，讓它自然消失或被新通知擠掉
-    // 這裡保留空函式以防 UI 報錯，或者可以簡單地從陣列中移除
     const index = notifications.value.findIndex((n) => n.id === id)
     if (index !== -1) {
       notifications.value.splice(index, 1)
     }
   }
 
-  // onUnmounted(stopListening) // 在 composable 銷毀時自動停止監聽
-
   return {
     notifications,
     startListening,
     stopListening,
+    addLocalNotification, // ✨ 導出新函式
     removeNotification,
   }
 }

@@ -494,9 +494,9 @@ function processYearlyReport(schedulesData, patientMap) {
 
 <style scoped>
 .reporting-view-container {
-  padding: 1.5rem;
+  padding: 10px;
   background-color: #f8f9fa;
-  height: 100%;
+  min-height: 100vh;
   box-sizing: border-box;
 }
 .page-title {
@@ -516,16 +516,19 @@ function processYearlyReport(schedulesData, patientMap) {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
   margin-bottom: 2rem;
+  flex-wrap: wrap;
 }
 .control-group {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  flex-wrap: wrap;
 }
 .control-group label {
   font-size: 1.1rem;
   font-weight: 500;
   color: #495057;
+  white-space: nowrap;
 }
 .control-group select,
 .control-group input {
@@ -584,20 +587,23 @@ function processYearlyReport(schedulesData, patientMap) {
   height: 300px;
   color: #6c757d;
   font-size: 1.2rem;
+  text-align: center;
 }
 .results-table-container {
-  display: inline-block;
   max-width: 100%;
+  overflow-x: auto;
 }
 .results-table {
   width: 100%;
   border-collapse: collapse;
+  min-width: 600px;
 }
 .results-table th,
 .results-table td {
   border: 1px solid #dee2e6;
   padding: 0.8rem 0.5rem;
   text-align: center;
+  white-space: nowrap;
 }
 .results-table th {
   background-color: #f8f9fa;
@@ -615,38 +621,61 @@ function processYearlyReport(schedulesData, patientMap) {
   background-color: #e9ecef;
 }
 
+/* ================================== */
+/* ‼️        主要的修正區域         ‼️ */
+/* ================================== */
+
+/* 將凍結欄位的樣式改為標準 CSS，並應用到所有表格 */
 .daily-table th:first-child,
 .daily-table td:first-child,
-.daily-table th:nth-child(2),
-.daily-table td:nth-child(2),
 .yearly-table th:first-child,
 .yearly-table td:first-child,
-.yearly-table th:nth-child(2),
-.yearly-table td:nth-child(2) {
-  background-color: #f8f9fa;
+.monthly-table .first-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
   min-width: 90px;
+  border-right: 2px solid #ced4da;
 }
-.daily-table tbody tr:nth-child(even) td:first-child,
-.daily-table tbody tr:nth-child(even) td:nth-child(2),
-.yearly-table tbody tr:nth-child(even) td:first-child,
-.yearly-table tbody tr:nth-child(even) td:nth-child(2) {
+
+.daily-table th:nth-child(2),
+.daily-table td:nth-child(2),
+.yearly-table th:nth-child(2),
+.yearly-table td:nth-child(2),
+.monthly-table .second-col {
+  position: sticky;
+  left: 90px; /* 等於第一欄的寬度 */
+  z-index: 10;
+  min-width: 80px;
+  border-right: 2px solid #ced4da;
+}
+
+/* 統一 sticky 欄位的背景色 */
+.results-table th.sticky-col,
+.results-table thead th:first-child,
+.results-table thead th:nth-child(2) {
+  background-color: #f8f9fa;
+  z-index: 20; /* 確保表頭在最上層 */
+}
+
+.results-table tbody tr:nth-child(odd) td:first-child,
+.results-table tbody tr:nth-child(odd) td:nth-child(2) {
+  background-color: #ffffff;
+}
+.results-table tbody tr:nth-child(even) td:first-child,
+.results-table tbody tr:nth-child(even) td:nth-child(2) {
   background-color: #f0f3f5;
 }
-.daily-table .total-row td,
-.yearly-table .total-row td {
+
+.results-table .total-row td:first-child,
+.results-table .total-row td:nth-child(2),
+.results-table .total-row .sticky-col {
   background-color: #e9ecef;
 }
 
-.monthly-report {
-  overflow-x: auto;
-}
+/* 月報表特有樣式 */
 .monthly-table {
-  width: max-content;
-  min-width: 100%;
-}
-.monthly-table th,
-.monthly-table td {
-  white-space: nowrap;
+  min-width: 1200px;
 }
 .monthly-table .day-col {
   min-width: 35px;
@@ -654,30 +683,56 @@ function processYearlyReport(schedulesData, patientMap) {
 .monthly-table .total-col {
   min-width: 60px;
 }
-.monthly-table .sticky-col {
-  position: sticky;
-  left: 0;
-  z-index: 10;
-  border-right: 2px solid #ced4da;
-}
-.monthly-table .first-col {
-  width: 100px;
-}
-.monthly-table .second-col {
-  width: 80px;
-  left: 100px;
-}
-.monthly-table thead .sticky-col {
-  z-index: 20;
-  background-color: #f8f9fa;
-}
-.monthly-table .total-row .sticky-col {
-  background-color: #e9ecef;
-}
-.monthly-table tbody tr:nth-child(odd) .sticky-col {
-  background-color: #ffffff;
-}
-.monthly-table tbody tr:nth-child(even) .sticky-col {
-  background-color: #f8f9fa;
+
+/* ================================== */
+/*         響應式樣式 (不變)          */
+/* ================================== */
+@media (max-width: 768px) {
+  .reporting-view-container {
+    padding: 1rem;
+  }
+  .page-title {
+    font-size: 24px;
+    margin-bottom: 1.5rem;
+  }
+  .report-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+    padding: 1rem;
+  }
+  .control-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+  }
+  .control-group label {
+    font-size: 1rem;
+  }
+  .control-group select,
+  .control-group input {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .generate-btn,
+  .export-btn {
+    width: 100%;
+    font-size: 1.2rem;
+    padding: 0.8rem;
+  }
+  .report-results {
+    padding: 1rem;
+  }
+  .report-results h2 {
+    font-size: 1.5rem;
+  }
+  .results-table {
+    font-size: 0.9rem;
+  }
+  .results-table th,
+  .results-table td {
+    padding: 0.6rem 0.4rem;
+  }
 }
 </style>

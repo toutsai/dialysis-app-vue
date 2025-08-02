@@ -1,8 +1,8 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (修正執行順序版) -->
+<!-- 檔案路徑: src/layouts/MainLayout.vue (最終完整修正版) -->
 <template>
-  <div class="dashboard-container">
-    <aside class="sidebar">
-      <!-- 主要導航區塊 -->
+  <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
+    <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
+      <!-- 1. 固定的頂部導覽 -->
       <div class="main-nav-section">
         <div class="sidebar-header">
           <span class="platform-title">部北透析管理平台</span>
@@ -12,98 +12,159 @@
         </div>
         <ul class="sidebar-nav">
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
-          <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
-          <li><RouterLink to="/weekly" class="nav-link">週排班表</RouterLink></li>
-          <li><RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink></li>
-          <li>
-            <RouterLink to="/exception-manager" class="nav-link"> 排程例外管理 </RouterLink>
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink>
           </li>
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/weekly" class="nav-link">週排班表</RouterLink>
+          </li>
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink>
+          </li>
+          <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
       </div>
 
-      <!-- 底部功能區塊 -->
-      <div class="footer-section">
-        <!-- 通知區域 -->
-        <div class="notification-area">
-          <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
-          <transition-group name="notification-list" tag="div" class="notification-list">
-            <div
-              v-for="notif in notifications"
-              :key="notif.id"
-              class="notification-item"
-              :class="[`notification-type-${notif.type}`, { 'is-clickable': !!notif.action }]"
-              @click="handleNotificationClick(notif)"
-            >
-              <div class="notification-content">
-                <span class="notification-icon">{{ notif.config.icon }}</span>
-                <p class="notification-message">{{ notif.message }}</p>
-              </div>
-              <div class="notification-footer-item">
-                <span class="notification-time">{{ notif.time }}</span>
-                <button class="notification-close" @click.stop="removeNotification(notif.id)">
-                  ×
-                </button>
-              </div>
+      <!-- ✨ 核心修正 1：通知區域現在是獨立的可滾動容器 -->
+      <div class="notification-area">
+        <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
+        <transition-group name="notification-list" tag="div" class="notification-list">
+          <div
+            v-for="notif in notifications"
+            :key="notif.id"
+            class="notification-item"
+            :class="{ 'is-clickable': !!notif.action }"
+            :style="{ backgroundColor: notif.config.bgColor, color: notif.config.textColor }"
+            @click="handleNotificationClick(notif)"
+          >
+            <div class="notification-content">
+              <span class="notification-icon">{{ notif.config.icon }}</span>
+              <p class="notification-message">{{ notif.message }}</p>
             </div>
-          </transition-group>
-        </div>
+            <div class="notification-footer-item">
+              <span class="notification-time">{{ notif.time }}</span>
+              <button class="notification-close" @click.stop="removeNotification(notif.id)">
+                ×
+              </button>
+            </div>
+          </div>
+        </transition-group>
+      </div>
 
-        <!-- 後臺管理區塊 -->
+      <!-- ✨ 核心修正 2：將後台管理和使用者資訊包裹在一個固定的底部容器中 -->
+      <div class="bottom-fixed-section">
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
-              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
-                使用者管理
-              </RouterLink>
+              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link"
+                >使用者管理</RouterLink
+              >
             </li>
           </ul>
         </div>
-
-        <!-- 用戶資訊與操作按鈕 -->
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
           </div>
           <div class="button-group">
-            <RouterLink to="/account-settings" class="action-button btn-secondary">
-              更改密碼
-            </RouterLink>
+            <RouterLink to="/account-settings" class="action-button btn-secondary"
+              >更改密碼</RouterLink
+            >
             <button @click="handleLogout" class="action-button btn-logout">登出</button>
           </div>
         </div>
       </div>
     </aside>
 
+    <div class="sidebar-overlay" @click="closeSidebar" v-if="isSidebarOpen"></div>
+
     <main class="content-area">
-      <RouterView />
+      <header class="main-header">
+        <button class="sidebar-toggle" @click="toggleSidebar">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
+        <h2 class="current-page-title">{{ route.meta.title || '透析管理' }}</h2>
+      </header>
+      <div class="content-wrapper">
+        <RouterView />
+      </div>
     </main>
+
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-name="patientNameForDialog"
+      :memos="memosForDialog"
+      @close="isMemoDialogVisible = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { useRouter } from 'vue-router'
+import { ref, computed, watch, onUnmounted, provide } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
-import { computed, watch } from 'vue'
-// ⛔ 移除舊的通知系統
-// import { useNotification } from '@/composables/useNotification.js'
-// ✨ 新增：引入即時通知系統
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import { useConflictWatcher } from '@/composables/useConflictWatcher.js'
 import { getFunctions, httpsCallable } from 'firebase/functions'
+import ApiManager from '@/services/api_manager.js'
+import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import { where, onSnapshot, collection, query } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
 
+const patientsApi = ApiManager('patients')
 const router = useRouter()
+const route = useRoute()
 const { currentUser, logout, isAdmin } = useAuth()
-// ⛔ 移除舊的通知解構
-// const { notifications, removeNotification } = useNotification()
-// ✨ 新增：使用新的即時通知系統
 const { notifications, startListening, stopListening, removeNotification } =
   useRealtimeNotifications()
-const { startWatching } = useConflictWatcher()
 
+// --- 響應式佈局狀態 ---
+const isSidebarOpen = ref(false)
+
+// --- 備忘錄相關的全域狀態 ---
+const allPatients = ref([])
+const activeMemos = ref([])
+const isMemoDialogVisible = ref(false)
+const patientNameForDialog = ref('')
+const memosForDialog = ref([])
+
+// --- 全域 Provide/Inject 所需的計算屬性和函式 ---
+const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+const patientWithMemoIds = computed(
+  () =>
+    new Set(
+      activeMemos.value
+        .filter((memo) => memo.patientId && memo.status === 'pending')
+        .map((memo) => memo.patientId),
+    ),
+)
+
+function showPatientMemos(patientId) {
+  if (!patientId) return
+  const patient = patientMap.value.get(patientId)
+  const memoPatientName = activeMemos.value.find((m) => m.patientId === patientId)?.patientName
+
+  if (!patient && !memoPatientName) {
+    console.warn(`[MainLayout] Cannot find patient name for ID: ${patientId}`)
+    return
+  }
+
+  memosForDialog.value = activeMemos.value.filter(
+    (memo) => memo.patientId === patientId && memo.status === 'pending',
+  )
+  patientNameForDialog.value = patient ? patient.name : memoPatientName
+  isMemoDialogVisible.value = true
+}
+
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
+
+// --- 其他輔助函式 ---
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
     return { text: '(開發版)', class: 'env-tag-dev' }
@@ -113,11 +174,17 @@ const environmentTag = computed(() => {
   return null
 })
 
+function toggleSidebar() {
+  isSidebarOpen.value = !isSidebarOpen.value
+}
+
+function closeSidebar() {
+  isSidebarOpen.value = false
+}
+
 function handleNotificationClick(notif) {
-  // 點擊通知的行為（例如跳轉）已在 useRealtimeNotifications 中定義
   if (notif.action) {
     notif.action()
-    // 點擊後可以選擇是否移除，這裡保留移除的邏輯
     removeNotification(notif.id)
   }
 }
@@ -126,97 +193,172 @@ function handleLogout() {
   logout()
 }
 
-// 這個函式現在可能不再需要，因為通知類型已在 useRealtimeNotifications 中處理
-// 但暫時保留以防萬一
-const getTypeText = (type) => {
-  switch (type) {
-    case 'patient':
-      return '病人'
-    case 'schedule':
-      return '排程'
-    case 'team':
-      return '分組'
-    case 'memo':
-      return '備忘'
-    case 'conflict':
-      return '衝突'
-    default:
-      return '系統'
+// --- 核心業務邏輯 ---
+async function loadSharedData() {
+  try {
+    console.log('🔄 [MainLayout] Loading shared data (patients & memos)...')
+    const [patientsData, memosData] = await Promise.all([
+      // 只獲取未刪除的病人
+      patientsApi.fetchAll([where('isDeleted', '==', false)]),
+      memosApi.fetchAll([where('status', '==', 'pending')]),
+    ])
+    allPatients.value = patientsData
+    activeMemos.value = memosData
+    console.log(
+      `✅ [MainLayout] Shared data loaded: ${patientsData.length} patients, ${memosData.length} memos.`,
+    )
+  } catch (error) {
+    console.error('❌ [MainLayout] Failed to load shared data:', error)
   }
 }
 
 const triggerScheduleCheck = async () => {
   if (sessionStorage.getItem('hasCheckedSchedules')) {
-    console.log('🗓️ [MainLayout] 本次登入階段已檢查過排程，跳過。')
     return
   }
-  console.log('🚀 [MainLayout] 準備觸發雲端函式 ensureFutureSchedules...')
+  console.log('🚀 [MainLayout] Triggering cloud function ensureFutureSchedules...')
   try {
     const functions = getFunctions()
     const ensureSchedules = httpsCallable(functions, 'ensureFutureSchedules')
     const result = await ensureSchedules()
-    console.log('✅ [MainLayout] 雲端函式 ensureFutureSchedules 執行成功:', result.data)
+    console.log('✅ [MainLayout] Cloud function executed successfully:', result.data)
     sessionStorage.setItem('hasCheckedSchedules', 'true')
   } catch (error) {
-    console.error('❌ [MainLayout] 呼叫 ensureFutureSchedules 失敗:', error)
+    console.error('❌ [MainLayout] Calling ensureFutureSchedules failed:', error)
   }
 }
 
-// 監聽使用者登入/登出狀態，並控制相關服務的啟動與停止
+// --- 核心業務邏輯：實時監聽備忘錄 ---
+let memoUnsubscribe = null // 用於停止備忘錄監聽
+let patientUnsubscribe = null // 為病人數據也加上監聽
+
+function startSharedDataListeners() {
+  // 監聽備忘錄
+  if (memoUnsubscribe) return
+  console.log('🔄 [MainLayout] Starting to listen for active memos...')
+  const memoQuery = query(collection(db, 'memos'), where('status', '==', 'pending'))
+  memoUnsubscribe = onSnapshot(memoQuery, (snapshot) => {
+    activeMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    console.log(`✅ [MainLayout] Active memos updated: ${activeMemos.value.length} items.`)
+  })
+
+  // 監聽病人（只在需要時更新）
+  if (patientUnsubscribe) return
+  console.log('🔄 [MainLayout] Starting to listen for patient data...')
+  const patientQuery = query(collection(db, 'patients'), where('isDeleted', '==', false))
+  patientUnsubscribe = onSnapshot(patientQuery, (snapshot) => {
+    allPatients.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    console.log(`✅ [MainLayout] Patient data updated: ${allPatients.value.length} patients.`)
+  })
+}
+function stopSharedDataListeners() {
+  if (memoUnsubscribe) {
+    console.log('🛑 [MainLayout] Stopping memo listener.')
+    memoUnsubscribe()
+    memoUnsubscribe = null
+  }
+  if (patientUnsubscribe) {
+    console.log('🛑 [MainLayout] Stopping patient listener.')
+    patientUnsubscribe()
+    patientUnsubscribe = null
+  }
+}
+
+// --- 生命週期與監聽器 ---
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      // --- 用戶登入時執行的操作 ---
-      console.log('🟢 [MainLayout] User logged in. Starting services...')
-      triggerScheduleCheck() // 觸發排程檢查
-      startWatching() // 啟動衝突監聽
-      startListening() // ✨ 啟動全局即時通知監聽
+      console.log('✅ [MainLayout] User logged in, starting services.')
+      startSharedDataListeners()
+      triggerScheduleCheck()
+      startListening()
     } else {
-      // --- 用戶登出時執行的操作 ---
-      console.log('🚪 [MainLayout] User logged out. Stopping services...')
+      console.log('🚪 [MainLayout] User logged out, stopping services.')
+      activeMemos.value = []
+      allPatients.value = []
+      stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
-      stopListening() // ✨ 停止全局即時通知監聽，並清空通知
-      // 如果 useConflictWatcher 也有 stopWatching, 可以在這裡呼叫
+      stopListening()
     }
   },
-  { immediate: true }, // immediate: true 確保在組件加載時立即執行一次
+  { immediate: true },
 )
+
+watch(
+  () => route.path,
+  () => {
+    if (window.innerWidth <= 992) {
+      closeSidebar()
+    }
+  },
+)
+
+onUnmounted(() => {
+  stopListening()
+  stopConflictWatching()
+  stopSharedDataListeners()
+})
 </script>
 
 <style scoped>
-/* 🔥 新增：讓可點擊的通知有手型游標 */
-.notification-item.is-clickable {
-  cursor: pointer;
-}
-.notification-item.is-clickable:hover {
-  background-color: #e9ecef; /* 或其他您喜歡的高亮顏色 */
-}
-/* 其他 CSS 樣式保持不變 */
+/* ================================== */
+/*         通用及桌面版樣式         */
+/* ================================== */
 .dashboard-container {
   display: flex;
   height: 100vh;
+  overflow: hidden;
 }
+
 .sidebar {
-  width: 220px;
+  width: 210px;
   background-color: #2c3e50;
   color: white;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   height: 100vh;
+  transition: width 0.3s ease;
 }
+
 .main-nav-section {
-  padding: 20px 0;
+  padding: 15px 0;
+  flex-shrink: 0; /* 固定頂部 */
 }
-.footer-section {
-  display: flex;
-  flex-direction: column;
-  flex-grow: 1;
-  min-height: 0;
+
+/* ✨ 核心修正：讓中間的通知區域可以滾動 */
+.notification-area {
+  flex-grow: 1; /* 佔滿所有剩餘空間 */
+  min-height: 0; /* Flexbox 滾動的關鍵 */
+  overflow-y: auto; /* 產生垂直滾動條 */
+  padding: 8px;
+  border-top: 1px solid #34495e;
 }
+
+/* ✨ 核心修正：新的固定底部容器 */
+.bottom-fixed-section {
+  flex-shrink: 0; /* 固定底部 */
+  border-top: 1px solid #34495e;
+}
+
+/* 為滾動條美化 */
+.notification-area::-webkit-scrollbar {
+  width: 6px;
+}
+.notification-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notification-area::-webkit-scrollbar-thumb {
+  background-color: #5a6a7a;
+  border-radius: 20px;
+}
+.notification-area::-webkit-scrollbar-thumb:hover {
+  background-color: #4a5568;
+}
+
 .sidebar-header {
-  padding: 0 20px 20px 20px;
+  padding: 0 15px 15px 15px;
   border-bottom: 1px solid #34495e;
   white-space: nowrap;
   display: flex;
@@ -225,7 +367,7 @@ watch(
   gap: 4px;
 }
 .platform-title {
-  font-size: 1.5em;
+  font-size: 1.4em;
   font-weight: bold;
 }
 .environment-tag {
@@ -246,21 +388,23 @@ watch(
 }
 .sidebar-nav {
   list-style: none;
-  padding: 20px 0;
+  padding: 8px 0;
   margin: 0;
 }
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
   color: #ecf0f1;
   text-decoration: none;
-  padding: 8px 20px;
-  font-size: 1.2em;
+  padding: 10px 15px;
+  font-size: 1.05em;
   transition:
     background-color 0.2s,
     padding-left 0.2s;
   white-space: nowrap;
+  border-radius: 0 25px 25px 0;
+  margin-right: 10px;
 }
 .nav-link:hover {
   background-color: #34495e;
@@ -269,16 +413,23 @@ watch(
   background-color: var(--primary-color, #1abc9c);
   color: white;
   font-weight: bold;
-  padding-left: 25px;
 }
+
 .content-area {
   flex-grow: 1;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background-color: #f4f7f9;
 }
+.content-wrapper {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 1.2rem;
+}
+
 .management-section {
-  padding-top: 15px;
-  border-top: 1px solid #34495e;
+  padding-top: 12px;
 }
 .section-title {
   font-size: 0.8em;
@@ -286,18 +437,19 @@ watch(
   color: #95a5a6;
   text-transform: uppercase;
   letter-spacing: 1px;
-  padding: 0 20px;
-  margin-bottom: 10px;
+  padding: 0 15px;
+  margin-bottom: 8px;
 }
 .management-section .sidebar-nav {
   padding-top: 0;
 }
 .management-section .nav-link {
-  font-size: 1.1em;
-  padding: 8px 20px;
+  font-size: 1em;
+  padding: 8px 15px;
 }
+
 .nav-footer {
-  padding: 15px 20px;
+  padding: 12px 15px;
   border-top: 1px solid #4a627a;
   text-align: center;
   display: flex;
@@ -342,75 +494,75 @@ watch(
 .btn-secondary:hover {
   background-color: #2d3748;
 }
-.notification-area {
-  padding: 10px;
-  overflow-y: auto;
-  border-top: 1px solid #34495e;
-  flex-grow: 1;
-  min-height: 0;
-}
+
 .notification-area .section-title {
-  padding: 0 10px 8px 10px;
+  padding: 0 8px 6px 8px;
   margin: 0;
-}
-.notification-area::-webkit-scrollbar {
-  width: 6px;
-}
-.notification-area::-webkit-scrollbar-track {
-  background: transparent;
-}
-.notification-area::-webkit-scrollbar-thumb {
-  background-color: #5a6a7a;
-  border-radius: 20px;
-}
-.notification-area::-webkit-scrollbar-thumb:hover {
-  background-color: #4a5568;
 }
 .notification-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 .notification-item {
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  border-left: 4px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  border: 1px solid rgba(0, 0, 0, 0.2);
   transition: all 0.3s ease;
+  position: relative;
+}
+/* ... (其他通知樣式保持不變) ... */
+.notification-item,
+.notification-item .notification-message,
+.notification-item .notification-icon,
+.notification-item .notification-time,
+.notification-item .notification-close {
+  color: inherit;
+}
+.notification-item.is-clickable {
+  cursor: pointer;
+}
+.notification-item.is-clickable:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
 }
 .notification-content {
-  display: flex;
-  align-items: flex-start;
-  margin-bottom: 8px;
+  display: block;
+  margin-bottom: 4px;
 }
 .notification-icon {
-  font-size: 16px;
-  margin-right: 8px;
-  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 1.1em;
+  margin-right: 6px;
 }
 .notification-message {
-  flex: 1;
+  display: inline;
   margin: 0;
-  font-size: 14px;
+  font-size: 0.95rem;
   line-height: 1.4;
-  color: #333;
   font-weight: 500;
+  white-space: normal;
+  word-break: break-word;
 }
 .notification-footer-item {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
+  padding-left: 24px;
 }
 .notification-time {
-  font-size: 12px;
-  color: #666;
-  font-weight: 400;
+  font-size: 0.8rem;
+  opacity: 0.85;
 }
 .notification-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   background: none;
   border: none;
-  font-size: 18px;
-  color: #999;
+  font-size: 1.2rem;
   cursor: pointer;
   padding: 0;
   width: 20px;
@@ -419,32 +571,12 @@ watch(
   align-items: center;
   justify-content: center;
   border-radius: 50%;
+  opacity: 0.7;
   transition: all 0.2s ease;
 }
 .notification-close:hover {
-  color: #666;
-  background-color: rgba(0, 0, 0, 0.1);
-}
-.notification-type-schedule {
-  border-left-color: #3498db;
-  background: linear-gradient(135deg, #e3f2fd 0%, #f8fbff 100%);
-}
-.notification-type-team {
-  border-left-color: #27ae60;
-  background: linear-gradient(135deg, #e8f5e8 0%, #f8fff8 100%);
-}
-.notification-type-patient {
-  border-left-color: #f39c12;
-  background: linear-gradient(135deg, #fef3e2 0%, #fffaf5 100%);
-}
-.notification-type-memo {
-  border-left-color: #9b59b6;
-  background: linear-gradient(135deg, #f3e8ff 0%, #faf8ff 100%);
-}
-/* 🔥 新增：衝突通知樣式 */
-.notification-type-conflict {
-  border-left-color: #e74c3c;
-  background: linear-gradient(135deg, #ffebee 0%, #fff8f8 100%);
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.2);
 }
 .notification-list-enter-active,
 .notification-list-leave-active {
@@ -460,5 +592,104 @@ watch(
 }
 .notification-list-move {
   transition: transform 0.3s ease;
+}
+
+/* ================================== */
+/*         響應式樣式               */
+/* ================================== */
+.sidebar-overlay,
+.main-header {
+  display: none;
+}
+
+@media (max-width: 992px) {
+  .desktop-only-nav-item {
+    display: none;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease-in-out;
+    z-index: 1000;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.2);
+  }
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+  .content-area {
+    width: 100%;
+  }
+  .main-header {
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    height: 60px;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    flex-shrink: 0;
+    z-index: 900;
+  }
+  .sidebar-toggle {
+    display: block;
+    background: none;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .sidebar-toggle span {
+    display: block;
+    width: 25px;
+    height: 3px;
+    background-color: #333;
+    margin-bottom: 5px;
+    border-radius: 3px;
+    transition: all 0.3s;
+  }
+  .sidebar-toggle span:last-child {
+    margin-bottom: 0;
+  }
+  .sidebar-open .sidebar-toggle span:nth-child(1) {
+    transform: translateY(8px) rotate(45deg);
+  }
+  .sidebar-open .sidebar-toggle span:nth-child(2) {
+    opacity: 0;
+  }
+  .sidebar-open .sidebar-toggle span:nth-child(3) {
+    transform: translateY(-8px) rotate(-45deg);
+  }
+  .sidebar-open .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    cursor: pointer;
+  }
+  .current-page-title {
+    margin-left: 1rem;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #333;
+  }
+  .content-wrapper {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .content-wrapper {
+    padding: 1rem;
+  }
+  .sidebar {
+    width: 260px;
+  }
 }
 </style>

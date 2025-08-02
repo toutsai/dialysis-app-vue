@@ -299,4 +299,39 @@ function handleCancel() {
   background-color: #fee2e2;
   color: #991b1b;
 }
+/* ‼️‼️‼️ 新增的響應式樣式 ‼️‼️‼️ */
+@media (max-width: 768px) {
+  .page-wrapper {
+    /* 在手機上減少外邊距 */
+    padding: 1.5rem 1rem;
+  }
+
+  .settings-card {
+    /* 移除陰影和邊框，讓它看起來更原生 */
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .card-header,
+  .password-form {
+    /* 減少內邊距 */
+    padding: 1.5rem;
+  }
+
+  .card-header h1 {
+    font-size: 1.8rem;
+  }
+
+  .form-actions {
+    /* 讓按鈕堆疊 */
+    flex-direction: column-reverse;
+    gap: 0.75rem;
+  }
+
+  .submit-btn,
+  .btn-cancel {
+    /* 讓按鈕佔滿全寬 */
+    width: 100%;
+  }
+}
 </style>
