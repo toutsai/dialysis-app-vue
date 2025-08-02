@@ -494,7 +494,7 @@ function processYearlyReport(schedulesData, patientMap) {
 
 <style scoped>
 .reporting-view-container {
-  padding: 1.5rem;
+  padding: 10px;
   background-color: #f8f9fa;
   min-height: 100vh;
   box-sizing: border-box;

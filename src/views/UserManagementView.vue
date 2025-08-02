@@ -462,7 +462,7 @@ onMounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .user-management-container {
-  padding: 1.5rem;
+  padding: 10px;
   min-height: 100vh;
   background-color: #f8f9fa; /* 淺灰色背景 */
 }

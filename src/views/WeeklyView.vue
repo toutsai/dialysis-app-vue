@@ -153,7 +153,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, provide, nextTick } from 'vue'
+import { ref, onMounted, computed, onUnmounted, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
@@ -1024,10 +1024,6 @@ function openBedAssignmentDialog() {
   isProblemSolverDialogVisible.value = true
 }
 
-// --- ✨ 核心修正：確保 provide 在頂層被同步呼叫 ---
-provide('patientWithMemoIds', patientWithMemoIds)
-provide('showPatientMemos', showPatientMemos)
-
 onMounted(() => {
   console.log('🚀 [WeeklyView] 組件已掛載，開始初始化...')
   loadAllData()
@@ -1113,6 +1109,7 @@ onUnmounted(() => {
   height: 100vh;
   width: 100%;
   overflow: hidden;
+  padding: 10px;
 }
 
 .page-header {
@@ -1225,12 +1222,14 @@ button {
   background-color: #ffc107;
   color: #212529;
   border-color: #ffc107;
+  font-size: 1rem;
 }
 
 .btn.btn-info {
   background-color: #17a2b8;
   color: white;
   border-color: #17a2b8;
+  font-size: 1rem;
 }
 
 /* 🔥 統一顏色系統 - 基本病人狀態 */

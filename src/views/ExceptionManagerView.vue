@@ -4,13 +4,13 @@
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">排程例外管理中心</h1>
+          <h1 class="page-title">調班管理</h1>
           <button
             class="btn btn-primary desktop-only"
             @click="openCreateDialog"
             :disabled="isPageLocked"
           >
-            <i class="fas fa-plus-circle"></i> 新增例外申請
+            <i class="fas fa-plus-circle"></i> 新增調班申請
           </button>
         </div>
       </div>
@@ -21,8 +21,8 @@
 
     <main class="page-main-content">
       <div class="exceptions-list-container">
-        <h2 class="section-title">目前的例外申請列表</h2>
-        <div v-if="isLoading" class="loading-state">正在載入例外申請資料...</div>
+        <h2 class="section-title">目前的調班申請列表</h2>
+        <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
         <div v-else-if="exceptions.length === 0" class="empty-state">
           <i class="fas fa-check-circle"></i>
           <p>目前沒有任何待處理或已生效的例外申請。</p>
@@ -62,14 +62,10 @@
                 </td>
                 <td class="reason-cell">
                   <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                    <div>
-                      <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
-                      {{ ex.from.shiftCode }}班)
-                    </div>
-                    <div>
-                      <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
-                      {{ ex.to.shiftCode }}班)
-                    </div>
+                    <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
+                    <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
+                    <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
+
                     <small v-if="ex.status === 'error'" class="error-message"
                       >錯誤: {{ ex.errorMessage }}</small
                     >
@@ -124,14 +120,10 @@
                   <strong class="info-label">詳細內容:</strong>
                   <div class="info-value">
                     <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                      <div>
-                        <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
-                        {{ ex.from.shiftCode }}班)
-                      </div>
-                      <div>
-                        <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
-                        {{ ex.to.shiftCode }}班)
-                      </div>
+                      <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
+                      <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
+                      <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
+
                       <small v-if="ex.status === 'error'" class="error-message"
                         >錯誤: {{ ex.errorMessage }}</small
                       >
@@ -176,7 +168,7 @@
     <ConfirmDialog
       :is-visible="isConfirmDeleteVisible"
       title="確認撤銷"
-      message="您確定要撤銷這筆例外申請嗎？此操作可能會導致相關日期的排班恢復為總表預設值。"
+      message="您確定要撤銷這筆調班申請嗎？此操作可能會導致相關日期的排班恢復為總表預設值。"
       @confirm="executeDeleteException"
       @cancel="isConfirmDeleteVisible = false"
     />
@@ -190,22 +182,41 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  writeBatch,
+} from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 
+// --- API & Services ---
 const exceptionsApi = ApiManager('schedule_exceptions')
 const memosApi = ApiManager('memos')
 const router = useRouter()
 const route = useRoute()
+const { createGlobalNotification } = useGlobalNotifier()
+const { addLocalNotification } = useRealtimeNotifications()
+
+// --- Auth ---
+const { currentUser, canEditSchedules } = useAuth()
+const isPageLocked = computed(() => !canEditSchedules.value)
+
+// --- Component State ---
 const allPatients = ref([])
 const exceptions = ref([])
 const isLoading = ref(true)
@@ -217,9 +228,8 @@ const isConflictAlertVisible = ref(false)
 const conflictAlertMessage = ref('')
 
 let unsubscribe = null
-const auth = useAuth()
-const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
+// --- Data Maps ---
 const statusMap = {
   pending: '待處理',
   processing: '處理中',
@@ -228,12 +238,20 @@ const statusMap = {
   expired: '已過期',
   conflict_requires_resolution: '衝突待解決',
 }
-
 const typeMap = {
   MOVE: '臨時調班',
   SUSPEND: '區間暫停',
 }
 
+const shiftMap = {
+  early: '早班',
+  noon: '午班',
+  late: '晚班',
+}
+
+// --- Methods ---
+
+// ✨✨✨ --- 核心修正：將 formatTimestamp 函式加回來 --- ✨✨✨
 function formatTimestamp(ts) {
   if (!ts || !ts.toDate) return 'N/A'
   return ts.toDate().toLocaleString('zh-TW', {
@@ -243,6 +261,17 @@ function formatTimestamp(ts) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function formatShiftInfo(shiftData) {
+  if (!shiftData) return ''
+  const shiftName = shiftMap[shiftData.shiftCode] || shiftData.shiftCode
+  const bedDisplay = String(shiftData.bedNum).startsWith('peripheral-')
+    ? `外圍 ${String(shiftData.bedNum).split('-')[1]}`
+    : `${shiftData.bedNum}床`
+  // 注意：這裡我們使用 shiftData.date，而不是 shiftData.sourceDate 或 goalDate
+  // 這是因為我們在模板中呼叫時已經統一傳遞了 `date` 屬性
+  return `${shiftData.date || ''} (${shiftName} ${bedDisplay})`
 }
 
 function openCreateDialog() {
@@ -279,6 +308,11 @@ async function handleCreateException(formData) {
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
 
+    const actionText = isUpdating ? '更新' : '新增'
+    const typeText = formData.type === 'MOVE' ? '臨時調班' : '區間暫停'
+    const message = `${actionText}調班申請: ${formData.patientName} (${typeText})`
+    createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
+
     const getBedDisplay = (bedNum) =>
       typeof bedNum === 'string' && bedNum.startsWith('peripheral-')
         ? `外圍 ${bedNum.split('-')[1]}`
@@ -313,7 +347,7 @@ async function handleCreateException(formData) {
       await memosApi.save(newMemo)
     }
   } catch (error) {
-    console.error('提交例外申請或建立備忘失敗:', error)
+    console.error('提交調班申請或建立備忘失敗:', error)
   }
 }
 
@@ -326,7 +360,13 @@ function confirmDeleteException(id) {
 async function executeDeleteException() {
   if (!exceptionToDeleteId.value) return
   try {
+    const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
+    if (exceptionData) {
+      const typeText = exceptionData.type === 'MOVE' ? '臨時調班' : '區間暫停'
+      const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
+      createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
+    }
   } catch (error) {
     console.error('撤銷失敗:', error)
   } finally {
@@ -350,69 +390,178 @@ function handleConflictAlertConfirm() {
   })
 }
 
-onMounted(async () => {
+// --- Initialization Logic ---
+async function initializePageData() {
+  if (unsubscribe) {
+    unsubscribe()
+    unsubscribe = null
+  }
+  isLoading.value = true
+
   try {
     allPatients.value = await optimizedFetchAllPatients()
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-    unsubscribe = onSnapshot(q, (snapshot) => {
-      exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-      isLoading.value = false
-      const conflictId = route.query.resolveConflict
-      if (conflictId) {
-        const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
-        if (conflictException) {
-          exceptionToReEdit.value = conflictException
-          isCreateDialogVisible.value = true
-          router.replace({ query: {} })
+
+    unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const newExceptions = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+        const oldExceptionsMap = new Map(exceptions.value.map((ex) => [ex.id, ex]))
+
+        newExceptions.forEach((newEx) => {
+          if (newEx.status === 'conflict_requires_resolution') {
+            const oldEx = oldExceptionsMap.get(newEx.id)
+            if (!oldEx || oldEx.status !== 'conflict_requires_resolution') {
+              addLocalNotification(
+                `排程衝突：${newEx.patientName} 的申請失敗，請點此解決。`,
+                'conflict',
+                {
+                  action: () => {
+                    router.push({
+                      path: '/exception-manager',
+                      query: { resolveConflict: newEx.id },
+                    })
+                  },
+                },
+              )
+            }
+          }
+        })
+
+        exceptions.value = newExceptions
+
+        cleanupExpiredExceptions(newExceptions)
+
+        if (isLoading.value) {
+          isLoading.value = false
         }
-      }
-    })
+      },
+      (error) => {
+        console.error('❌ Firestore 監聽器發生錯誤:', error)
+        isLoading.value = false
+      },
+    )
   } catch (error) {
     console.error('載入資料失敗:', error)
     isLoading.value = false
   }
-})
+}
+
+// ✨ 新增的清理函式 ✨
+async function cleanupExpiredExceptions(currentExceptions) {
+  const todayStr = new Date().toISOString().split('T')[0]
+  const expiredExceptions = currentExceptions.filter((ex) => {
+    // 只有已生效(applied)的申請才需要檢查過期
+    return ex.status === 'applied' && ex.endDate && ex.endDate < todayStr
+  })
+
+  if (expiredExceptions.length > 0 && canEditSchedules.value) {
+    console.log(`發現 ${expiredExceptions.length} 筆過期的調班申請，正在進行清理...`)
+
+    try {
+      const batch = writeBatch(db)
+      expiredExceptions.forEach((ex) => {
+        const docRef = doc(db, 'schedule_exceptions', ex.id)
+        batch.delete(docRef)
+      })
+      await batch.commit()
+
+      createGlobalNotification(
+        `系統自動清理了 ${expiredExceptions.length} 筆過期的調班申請`,
+        'info',
+      )
+      console.log('過期申請清理完畢！')
+    } catch (error) {
+      console.error('自動清理過期申請失敗:', error)
+    }
+  }
+}
+
+// --- Watchers & Lifecycle Hooks ---
+watch(
+  currentUser,
+  (newUser) => {
+    if (newUser) {
+      initializePageData()
+    } else {
+      if (unsubscribe) {
+        unsubscribe()
+        unsubscribe = null
+      }
+      exceptions.value = []
+      isLoading.value = false
+    }
+  },
+  { immediate: true },
+)
+
+watch(
+  () => route.query.resolveConflict,
+  (conflictId) => {
+    if (conflictId) {
+      const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
+      if (conflictException) {
+        console.log(`正在打開衝突解決對話框 for ID: ${conflictId}`)
+        exceptionToReEdit.value = conflictException
+        isCreateDialogVisible.value = true
+        router.replace({ query: {} })
+      } else {
+        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的例外申請。`)
+      }
+    }
+  },
+  { immediate: true },
+)
 
 onUnmounted(() => {
-  if (unsubscribe) unsubscribe()
+  if (unsubscribe) {
+    unsubscribe()
+  }
 })
 </script>
 
 <style scoped>
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+
 /* ================================== */
 /*         通用及桌面版樣式            */
 /* ================================== */
+/* [修正] 容器應填滿父層高度 (100%)，而非視窗高度 (100vh)，並移除外層 padding */
 .page-container {
-  padding: 1.5rem;
-  height: 100vh;
+  height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   background-color: #f8f9fa;
+  padding: 10px;
 }
+
+/* [修正] 為 header 新增 padding，並減少邊距使其更緊湊 */
 .page-header {
   border-bottom: 2px solid #dee2e6;
-  padding-bottom: 1.5rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   flex-shrink: 0;
 }
+
 .header-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
+
 .page-title {
   font-size: 32px;
   font-weight: 700;
   color: #343a40;
   margin: 0;
 }
+
 .page-description {
   margin-top: 0.5rem;
   font-size: 1rem;
   color: #6c757d;
 }
+
 .btn {
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -425,48 +574,60 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
 }
+
 .btn-primary {
   background-color: #007bff;
   color: white;
   border-color: #007bff;
 }
+
 .btn-primary:hover {
   background-color: #0069d9;
 }
+
 .btn-danger {
   background-color: #dc3545;
   color: white;
   border-color: #dc3545;
 }
+
 .btn-danger:hover {
   background-color: #c82333;
 }
+
 .btn-sm {
   padding: 0.25rem 0.5rem;
   font-size: 0.875rem;
 }
+
 button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+/* [修正] 為 main 內容區加上 min-height: 0，確保滾動條在此元素上 */
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
-  padding: 1.5rem;
+  padding: 0.5rem;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow-y: auto;
+  min-height: 0; /* ✨✨ 核心修正：約束 flex item 高度 ✨✨ */
 }
+
 .section-title {
   font-size: 1.5rem;
   margin-bottom: 1.5rem;
   color: #495057;
 }
+
 .exceptions-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.95rem;
 }
+
 .exceptions-table th,
 .exceptions-table td {
   padding: 0.75rem 1rem;
@@ -474,14 +635,17 @@ button:disabled {
   border-bottom: 1px solid #e9ecef;
   vertical-align: middle;
 }
+
 .exceptions-table th {
   background-color: #f8f9fa;
   font-weight: 600;
   color: #495057;
 }
+
 .exceptions-table tbody tr:hover {
   background-color: #f1f3f5;
 }
+
 .status-badge,
 .type-badge {
   padding: 0.25em 0.6em;
@@ -492,6 +656,7 @@ button:disabled {
   color: white;
   white-space: nowrap;
 }
+
 .status-pending,
 .status-processing {
   background-color: #ffc107;
@@ -510,31 +675,38 @@ button:disabled {
   background-color: #fd7e14;
   color: white;
 }
+
 .type-MOVE {
   background-color: #17a2b8;
 }
+
 .type-SUSPEND {
   background-color: #6610f2;
 }
+
 .reason-cell small {
   color: #6c757d;
 }
+
 .loading-state,
 .empty-state {
   text-align: center;
   padding: 4rem 0;
   color: #6c757d;
 }
+
 .empty-state i {
   font-size: 3rem;
   color: #28a745;
   margin-bottom: 1rem;
 }
+
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 1.5rem;
 }
+
 .error-message {
   color: #dc3545;
   font-weight: bold;
@@ -545,8 +717,6 @@ button:disabled {
 /* ================================== */
 /*         響應式樣式 (核心)         */
 /* ================================== */
-
-/* 預設情況下 (桌面版): 顯示表格，隱藏卡片 */
 .exceptions-table.desktop-only {
   display: table;
 }
@@ -561,7 +731,6 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
-  /* 在平板和手機上: 隱藏表格，顯示卡片 */
   .exceptions-table.desktop-only {
     display: none;
   }
@@ -577,22 +746,31 @@ button:disabled {
     display: none;
   }
 
+  /* [修正] 移除手機版的 page-container padding，因為內層已有 */
   .page-container {
-    padding: 1rem;
+    padding: 0;
   }
+
   .page-header {
-    margin-bottom: 1.5rem;
-    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+    padding: 1rem 1rem 0.75rem; /* 調整手機版 header padding */
+    border-radius: 0;
   }
+
   .page-title {
     font-size: 28px;
   }
+
   .page-description {
     font-size: 0.9rem;
   }
+
   .page-main-content {
     padding: 1rem;
+    border-radius: 0;
+    box-shadow: none;
   }
+
   .section-title {
     font-size: 1.3rem;
     margin-bottom: 1rem;
@@ -606,6 +784,7 @@ button:disabled {
     border-left: 5px solid #ccc;
     overflow: hidden;
   }
+
   .status-border-pending,
   .status-border-processing {
     border-left-color: #ffc107;
@@ -630,39 +809,47 @@ button:disabled {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
   }
+
   .header-left {
     display: flex;
     align-items: center;
     gap: 0.75rem;
   }
+
   .patient-name {
     font-size: 1.1rem;
     font-weight: 600;
   }
+
   .card-body {
     padding: 1rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
   }
+
   .info-row {
     display: grid;
     grid-template-columns: 100px 1fr;
     gap: 0.5rem;
     align-items: start;
   }
+
   .info-label {
     color: #6c757d;
     font-weight: bold;
   }
+
   .info-value {
     font-weight: 500;
   }
+
   .info-row.details .info-value {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
   }
+
   .card-footer {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
@@ -694,7 +881,7 @@ button:disabled {
     font-size: 24px;
   }
   .page-header {
-    padding-bottom: 1rem;
+    padding: 1rem 1rem 0.5rem;
     margin-bottom: 1rem;
   }
   .info-row {

@@ -110,7 +110,7 @@ function handleSave() {
               />
             </div>
             <div class="form-field">
-              <label>{{ patientType === 'opd' ? '收案醫師' : '開單醫師' }}</label>
+              <label>{{ patientType === 'opd' ? '收案醫師' : '會診醫師' }}</label>
               <select v-model="form.physician">
                 <option disabled value="">請選擇</option>
                 <option v-for="p in PHYSICIANS" :key="p" :value="p">{{ p }}</option>

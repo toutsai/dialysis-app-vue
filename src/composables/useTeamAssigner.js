@@ -1,4 +1,4 @@
-// src/composables/useTeamAssigner.js
+// 檔案路徑: src/composables/useTeamAssigner.js (基於您的 v4 修正版)
 
 /**
  * 根據複雜的臨床規則分配病人到護理組別。
@@ -40,34 +40,33 @@ export function useTeamAssigner() {
     console.log('--- 步驟一：執行優先分配 (G, H, I, J)...')
     const { hepatitis, inPatientTeams, inPatientCapacity } = rules.priorityTeams
 
+    // B肝病人優先分配
     if (hepatitis) {
       allPatients.filter((p) => p.isHepatitis).forEach((p) => addPatient(hepatitis, p))
     }
 
-    // 🔥↓↓↓【核心修正點：住院/急診病人輪流分配】↓↓↓
+    // 住院/急診病人輪流分配
     if (inPatientTeams && inPatientCapacity) {
+      // 關鍵修正：只從尚未被分配的病人中篩選
       const unassignedInPatients = allPatients.filter(
         (p) => isInPatientOrER(p) && !assignedPatientIds.has(p.id),
       )
 
-      let priorityTeamIndex = 0 // 用一個索引來追蹤下一個要分配的優先組別
+      let priorityTeamIndex = 0
       unassignedInPatients.forEach((patient) => {
-        // 從追蹤的索引開始，尋找一個有空位的優先組別
         for (let i = 0; i < inPatientTeams.length; i++) {
           const teamIndex = (priorityTeamIndex + i) % inPatientTeams.length
           const team = inPatientTeams[teamIndex]
 
           if (assignments[team].length < inPatientCapacity[team]) {
             if (addPatient(team, patient)) {
-              // 分配成功後，更新索引，讓下一個病人從下一個組別開始找
               priorityTeamIndex = (teamIndex + 1) % inPatientTeams.length
-              break // 病人已分配，跳出內層迴圈
+              break
             }
           }
         }
       })
     }
-    // 🔥↑↑↑【核心修正點】↑↑↑
 
     // --- 步驟二：處理特殊組 (A組) ---
     console.log('--- 步驟二：處理特殊A組...')
@@ -80,7 +79,7 @@ export function useTeamAssigner() {
       patientsForSpecialTeam.forEach((p) => addPatient(specialTeam.name, p))
     }
 
-    // --- 步驟三：為常規組計算最終目標人數 ---
+    // --- 步驟三：為常規組計算最終目標人數並填充 ---
     const participatingTeams = regularTeams.filter((team) => !team.includes('K'))
     const remainingPatientsForRegularTeams = allPatients.filter(
       (p) => !assignedPatientIds.has(p.id),
@@ -122,14 +121,9 @@ export function useTeamAssigner() {
     }
 
     console.log(
-      '✅ 分配完成，最終結果:',
-      Object.fromEntries(
-        Object.entries(assignments)
-          .filter(([_, patients]) => patients.length > 0)
-          .map(([team, patients]) => [team, patients.length]),
-      ),
+      '✅ 分配完成!',
+      Object.fromEntries(Object.entries(assignments).map(([team, p]) => [team, p.length])),
     )
-
     return assignments
   }
 
