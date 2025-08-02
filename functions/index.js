@@ -13,11 +13,17 @@ const admin = require('firebase-admin')
 const _ = require('lodash')
 const { PubSub } = require('@google-cloud/pubsub')
 
-admin.initializeApp()
-const pubsub = new PubSub()
+// ===================================================================
+// Initialization (初始化)
+// ===================================================================
 
+admin.initializeApp()
 const db = admin.firestore()
 const { FieldValue } = require('firebase-admin/firestore')
+
+// ✨ 修正點 1: 不在全域範圍內實例化 PubSub。
+// 改為宣告一個變數，之後再延遲初始化。
+let pubsub
 
 // ===================================================================
 // Helper Functions (輔助函式)
@@ -294,10 +300,6 @@ exports.ensureFutureSchedules = onCall(
 // Firestore Triggers (資料庫觸發的函式)
 // ===================================================================
 
-/**
- * ✨ --- 流程一：總表同步器 (v3 - 手動完全覆蓋版) --- ✨
- * @description 當總表被更新時觸發。為確保完全覆蓋，對每一天使用獨立交易執行「刪除舊 schedule -> 寫入新 schedule」。
- */
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
@@ -307,6 +309,11 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       return null
     }
     try {
+      // ✨ 修正點 2: 在函式內部，第一次使用時才初始化 PubSub。
+      if (!pubsub) {
+        pubsub = new PubSub()
+      }
+
       const masterRules = event.data.after.data().schedule || {}
       logger.info(`[Sync] 成功讀取 ${Object.keys(masterRules).length} 條最新規則。`)
       logger.info(`[Sync] 開始對「明天起」的60天排程進行【手動完全覆蓋】...`)
