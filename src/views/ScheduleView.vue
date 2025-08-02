@@ -37,7 +37,13 @@
           </button>
         </div>
         <div class="toolbar-right">
-          <!-- 這裡只保留狀態、儲存和列印按鈕 -->
+          <!-- ✨ 核心修正 1：在這裡放置一個【專供行動版】的 StatsToolbar -->
+          <StatsToolbar
+            :stats-data="statsToolbarData"
+            :weekdays="statsToolbarWeekdays"
+            size="compact"
+            class="mobile-only"
+          />
           <span class="status-indicator">{{ statusIndicator }}</span>
           <button
             class="btn btn-success desktop-only"
@@ -46,11 +52,11 @@
           >
             儲存
           </button>
-          <button class="btn btn-info" @click="triggerPrint">列印</button>
+          <button class="btn btn-info desktop-only" @click="triggerPrint">列印</button>
         </div>
       </div>
 
-      <!-- 第二列：控制面板 -->
+      <!-- 第二列：控制面板 (整個面板只在桌面顯示) -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
           <button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
@@ -94,8 +100,7 @@
             </div>
           </div>
         </div>
-        <!-- ✨✨✨ 核心修正：將 StatsToolbar 放回到這裡 ✨✨✨ -->
-        <div class="controls-right desktop-only">
+        <div class="controls-right">
           <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
         </div>
       </div>
@@ -312,17 +317,6 @@
       </div>
 
       <div class="simplified-view mobile-and-print-only">
-        <div class="simplified-stats">
-          <div v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode" class="stat-item">
-            <span class="stat-label">{{ getShiftDisplayName(shiftCode) }}</span>
-            <span class="stat-value">
-              門{{ statsToolbarData?.counts?.[shiftCode]?.opd || 0 }} | 住{{
-                statsToolbarData?.counts?.[shiftCode]?.ipd || 0
-              }}
-              | 急{{ statsToolbarData?.counts?.[shiftCode]?.er || 0 }}
-            </span>
-          </div>
-        </div>
         <table class="simplified-table">
           <thead>
             <tr>
@@ -612,7 +606,7 @@ const patientWithMemoIds = computed(
 )
 const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
-  () => '星期' + ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
+  () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
 )
 const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
@@ -1913,19 +1907,21 @@ button:disabled {
 /* =================================================================== */
 
 /* --- 初始狀態：手機版/列印版相關元素預設隱藏 --- */
-.mobile-and-print-only {
-  display: none;
+.mobile-only {
+  display: none !important; /* 手機版元素預設強制隱藏 */
 }
 
 /* --- 手機螢幕 (小於等於 992px) 的媒體查詢 --- */
 @media screen and (max-width: 992px) {
-  /* 隱藏所有標記為 desktop-only 的元素 */
   .desktop-only {
     display: none !important;
   }
-  /* 顯示標記為 mobile-and-print-only 的元素 */
+  .mobile-only {
+    display: flex !important; /* 手機版元素強制顯示為 flex */
+    align-items: center;
+  }
   .mobile-and-print-only {
-    display: block;
+    display: block !important;
   }
 
   .page-container {
@@ -2056,9 +2052,10 @@ button:disabled {
 /* --- 列印時的媒體查詢 --- */
 @media print {
   .desktop-only,
+  .mobile-only,
   .page-header,
   .inpatient-sidebar {
-    display: none !important;
+    display: none !important; /* 列印時，桌面和手機版元素都隱藏 */
   }
   .mobile-and-print-only {
     display: block !important;

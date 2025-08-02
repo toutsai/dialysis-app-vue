@@ -1,10 +1,8 @@
 <!-- 檔案路徑: src/layouts/MainLayout.vue (最終完整修正版) -->
 <template>
-  <!-- 根據側邊欄狀態添加 class，方便 CSS 控制 -->
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
-    <!-- 1. 側邊欄 (Sidebar) -->
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
-      <!-- 主要導航區塊 -->
+      <!-- 1. 固定的頂部導覽 -->
       <div class="main-nav-section">
         <div class="sidebar-header">
           <span class="platform-title">部北透析管理平台</span>
@@ -14,77 +12,77 @@
         </div>
         <ul class="sidebar-nav">
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
-          <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
-          <li><RouterLink to="/weekly" class="nav-link">週排班表</RouterLink></li>
-          <li><RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink></li>
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink>
+          </li>
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/weekly" class="nav-link">週排班表</RouterLink>
+          </li>
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink>
+          </li>
           <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
       </div>
 
-      <!-- 底部功能區塊 -->
-      <div class="footer-section">
-        <!-- 通知區域 -->
-        <div class="notification-area">
-          <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
-          <transition-group name="notification-list" tag="div" class="notification-list">
-            <div
-              v-for="notif in notifications"
-              :key="notif.id"
-              class="notification-item"
-              :class="{ 'is-clickable': !!notif.action }"
-              :style="{ backgroundColor: notif.config.bgColor, color: notif.config.textColor }"
-              @click="handleNotificationClick(notif)"
-            >
-              <div class="notification-content">
-                <span class="notification-icon">{{ notif.config.icon }}</span>
-                <p class="notification-message">{{ notif.message }}</p>
-              </div>
-              <div class="notification-footer-item">
-                <span class="notification-time">{{ notif.time }}</span>
-                <button class="notification-close" @click.stop="removeNotification(notif.id)">
-                  ×
-                </button>
-              </div>
+      <!-- ✨ 核心修正 1：通知區域現在是獨立的可滾動容器 -->
+      <div class="notification-area">
+        <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
+        <transition-group name="notification-list" tag="div" class="notification-list">
+          <div
+            v-for="notif in notifications"
+            :key="notif.id"
+            class="notification-item"
+            :class="{ 'is-clickable': !!notif.action }"
+            :style="{ backgroundColor: notif.config.bgColor, color: notif.config.textColor }"
+            @click="handleNotificationClick(notif)"
+          >
+            <div class="notification-content">
+              <span class="notification-icon">{{ notif.config.icon }}</span>
+              <p class="notification-message">{{ notif.message }}</p>
             </div>
-          </transition-group>
-        </div>
+            <div class="notification-footer-item">
+              <span class="notification-time">{{ notif.time }}</span>
+              <button class="notification-close" @click.stop="removeNotification(notif.id)">
+                ×
+              </button>
+            </div>
+          </div>
+        </transition-group>
+      </div>
 
-        <!-- 後臺管理區塊 -->
+      <!-- ✨ 核心修正 2：將後台管理和使用者資訊包裹在一個固定的底部容器中 -->
+      <div class="bottom-fixed-section">
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
-              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
-                使用者管理
-              </RouterLink>
+              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link"
+                >使用者管理</RouterLink
+              >
             </li>
           </ul>
         </div>
-
-        <!-- 用戶資訊與操作按鈕 -->
         <div class="nav-footer">
           <div v-if="currentUser" class="user-info">
             <span>歡迎, {{ currentUser.name }}</span>
           </div>
           <div class="button-group">
-            <RouterLink to="/account-settings" class="action-button btn-secondary">
-              更改密碼
-            </RouterLink>
+            <RouterLink to="/account-settings" class="action-button btn-secondary"
+              >更改密碼</RouterLink
+            >
             <button @click="handleLogout" class="action-button btn-logout">登出</button>
           </div>
         </div>
       </div>
     </aside>
 
-    <!-- 2. 半透明遮罩層，點擊可關閉側邊欄 -->
     <div class="sidebar-overlay" @click="closeSidebar" v-if="isSidebarOpen"></div>
 
-    <!-- 3. 主要內容區 -->
     <main class="content-area">
-      <!-- 頂部 Header，包含漢堡按鈕 -->
       <header class="main-header">
         <button class="sidebar-toggle" @click="toggleSidebar">
           <span></span>
@@ -98,7 +96,6 @@
       </div>
     </main>
 
-    <!-- ✨ 將 MemoDisplayDialog 放在這裡，使其成為全局可用的組件 ✨ -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
@@ -314,7 +311,6 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* [修正] 側邊欄寬度縮小 */
 .sidebar {
   width: 210px;
   background-color: #2c3e50;
@@ -326,20 +322,41 @@ onUnmounted(() => {
   transition: width 0.3s ease;
 }
 
-/* [修正] 減少垂直間距 */
 .main-nav-section {
   padding: 15px 0;
-  flex-shrink: 0;
+  flex-shrink: 0; /* 固定頂部 */
 }
 
-.footer-section {
-  display: flex;
-  flex-direction: column;
-  flex-grow: 1;
-  min-height: 0;
+/* ✨ 核心修正：讓中間的通知區域可以滾動 */
+.notification-area {
+  flex-grow: 1; /* 佔滿所有剩餘空間 */
+  min-height: 0; /* Flexbox 滾動的關鍵 */
+  overflow-y: auto; /* 產生垂直滾動條 */
+  padding: 8px;
+  border-top: 1px solid #34495e;
 }
 
-/* [修正] 減少標頭 padding */
+/* ✨ 核心修正：新的固定底部容器 */
+.bottom-fixed-section {
+  flex-shrink: 0; /* 固定底部 */
+  border-top: 1px solid #34495e;
+}
+
+/* 為滾動條美化 */
+.notification-area::-webkit-scrollbar {
+  width: 6px;
+}
+.notification-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+.notification-area::-webkit-scrollbar-thumb {
+  background-color: #5a6a7a;
+  border-radius: 20px;
+}
+.notification-area::-webkit-scrollbar-thumb:hover {
+  background-color: #4a5568;
+}
+
 .sidebar-header {
   padding: 0 15px 15px 15px;
   border-bottom: 1px solid #34495e;
@@ -349,12 +366,10 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
 }
-
 .platform-title {
-  font-size: 1.4em; /* 微調字體大小以適應較窄的寬度 */
+  font-size: 1.4em;
   font-weight: bold;
 }
-
 .environment-tag {
   align-self: flex-end;
   font-size: 0.7rem;
@@ -363,7 +378,6 @@ onUnmounted(() => {
   border-radius: 4px;
   opacity: 0.9;
 }
-
 .env-tag-dev {
   background-color: #ffc107;
   color: #333;
@@ -372,15 +386,11 @@ onUnmounted(() => {
   background-color: #28a745;
   color: white;
 }
-
-/* [修正] 減少導航列表的 padding */
 .sidebar-nav {
   list-style: none;
   padding: 8px 0;
   margin: 0;
 }
-
-/* [修正] 減少每個連結的 padding，使其更緊湊 */
 .nav-link {
   display: flex;
   align-items: center;
@@ -396,11 +406,9 @@ onUnmounted(() => {
   border-radius: 0 25px 25px 0;
   margin-right: 10px;
 }
-
 .nav-link:hover {
   background-color: #34495e;
 }
-
 .nav-link.router-link-exact-active {
   background-color: var(--primary-color, #1abc9c);
   color: white;
@@ -414,41 +422,32 @@ onUnmounted(() => {
   overflow: hidden;
   background-color: #f4f7f9;
 }
-
-/* [修正] 減少主內容區域的 padding */
 .content-wrapper {
   flex-grow: 1;
   overflow-y: auto;
   padding: 1.2rem;
 }
 
-/* [修正] 減少上邊距 */
 .management-section {
   padding-top: 12px;
-  border-top: 1px solid #34495e;
-  flex-shrink: 0;
 }
-
 .section-title {
   font-size: 0.8em;
   font-weight: bold;
   color: #95a5a6;
   text-transform: uppercase;
   letter-spacing: 1px;
-  padding: 0 15px; /* 統一側邊距 */
-  margin-bottom: 8px; /* 減少下邊距 */
+  padding: 0 15px;
+  margin-bottom: 8px;
 }
-
 .management-section .sidebar-nav {
   padding-top: 0;
 }
-
 .management-section .nav-link {
   font-size: 1em;
-  padding: 8px 15px; /* 統一側邊距 */
+  padding: 8px 15px;
 }
 
-/* [修正] 減少 footer 的 padding */
 .nav-footer {
   padding: 12px 15px;
   border-top: 1px solid #4a627a;
@@ -456,24 +455,19 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex-shrink: 0;
 }
-
 .user-info {
   margin-bottom: 0;
   font-size: 1em;
   line-height: 1.4;
 }
-
 .user-info span {
   display: block;
 }
-
 .button-group {
   display: flex;
   gap: 8px;
 }
-
 .action-button {
   flex: 1;
   text-align: center;
@@ -486,7 +480,6 @@ onUnmounted(() => {
   font-size: 0.85em;
   transition: background-color 0.2s;
 }
-
 .btn-logout {
   background: #e74c3c;
   color: white;
@@ -494,7 +487,6 @@ onUnmounted(() => {
 .btn-logout:hover {
   background: #c0392b;
 }
-
 .btn-secondary {
   background-color: #4a5568;
   color: white;
@@ -503,28 +495,15 @@ onUnmounted(() => {
   background-color: #2d3748;
 }
 
-/* ================================== */
-/*         通知區域樣式 (緊湊版)      */
-/* ================================== */
-.notification-area {
-  padding: 8px; /* 減少 padding */
-  overflow-y: auto;
-  border-top: 1px solid #34495e;
-  flex-grow: 1;
-  min-height: 0;
-}
-
 .notification-area .section-title {
   padding: 0 8px 6px 8px;
   margin: 0;
 }
-
 .notification-list {
   display: flex;
   flex-direction: column;
-  gap: 6px; /* 減少項目間距 */
+  gap: 6px;
 }
-
 .notification-item {
   border-radius: 6px;
   padding: 8px 10px;
@@ -533,7 +512,7 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   position: relative;
 }
-
+/* ... (其他通知樣式保持不變) ... */
 .notification-item,
 .notification-item .notification-message,
 .notification-item .notification-icon,
@@ -541,7 +520,6 @@ onUnmounted(() => {
 .notification-item .notification-close {
   color: inherit;
 }
-
 .notification-item.is-clickable {
   cursor: pointer;
 }
@@ -549,19 +527,16 @@ onUnmounted(() => {
   filter: brightness(1.1);
   transform: translateY(-1px);
 }
-
 .notification-content {
   display: block;
   margin-bottom: 4px;
 }
-
 .notification-icon {
   display: inline-block;
   vertical-align: middle;
   font-size: 1.1em;
   margin-right: 6px;
 }
-
 .notification-message {
   display: inline;
   margin: 0;
@@ -571,19 +546,16 @@ onUnmounted(() => {
   white-space: normal;
   word-break: break-word;
 }
-
 .notification-footer-item {
   display: flex;
   justify-content: flex-start;
   align-items: center;
   padding-left: 24px;
 }
-
 .notification-time {
   font-size: 0.8rem;
   opacity: 0.85;
 }
-
 .notification-close {
   position: absolute;
   top: 4px;
@@ -602,12 +574,10 @@ onUnmounted(() => {
   opacity: 0.7;
   transition: all 0.2s ease;
 }
-
 .notification-close:hover {
   opacity: 1;
   background-color: rgba(0, 0, 0, 0.2);
 }
-
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.3s ease;
@@ -623,19 +593,6 @@ onUnmounted(() => {
 .notification-list-move {
   transition: transform 0.3s ease;
 }
-.notification-area::-webkit-scrollbar {
-  width: 6px;
-}
-.notification-area::-webkit-scrollbar-track {
-  background: transparent;
-}
-.notification-area::-webkit-scrollbar-thumb {
-  background-color: #5a6a7a;
-  border-radius: 20px;
-}
-.notification-area::-webkit-scrollbar-thumb:hover {
-  background-color: #4a5568;
-}
 
 /* ================================== */
 /*         響應式樣式               */
@@ -646,6 +603,10 @@ onUnmounted(() => {
 }
 
 @media (max-width: 992px) {
+  .desktop-only-nav-item {
+    display: none;
+  }
+
   .sidebar {
     position: fixed;
     top: 0;
@@ -725,9 +686,8 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .content-wrapper {
-    padding: 1rem; /* 統一手機版 padding */
+    padding: 1rem;
   }
-  /* [修正] 手機版側邊欄寬度也縮小 */
   .sidebar {
     width: 260px;
   }
