@@ -1,4 +1,4 @@
-// 檔案路徑: src/views/PatientsView.vue (流程優化版)
+<!-- 檔案路徑: src/views/PatientsView.vue (流程優化版) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
@@ -214,7 +214,7 @@ async function removeRuleFromMasterSchedule(patientId) {
   }
 }
 
-// --- ✨✨✨ 核心修正函式 ✨✨✨ ---
+// --- Smart Search/Add/Restore Function ---
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
@@ -243,14 +243,14 @@ async function handleGlobalSearch(query) {
   const targetStatusText = statusMap[activeTab.value] || '列表'
 
   if (foundPatient) {
-    // Case 1: Patient is deleted
+    // Case 1: Patient is deleted -> Confirm restore and transfer
     if (foundPatient.isDeleted) {
       showConfirm(
         '找到已刪除病人',
         `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原因: ${foundPatient.deleteReason || '未知'})。\n\n您是否要將其復原並移至目前的「${targetStatusText}」清單？`,
         () => restoreAndTransferPatient(foundPatient.id, activeTab.value),
       )
-      // Case 2: Patient is in a different active list
+      // Case 2: Patient is in a different active list -> Confirm transfer
     } else if (foundPatient.status !== activeTab.value) {
       const currentStatusText = statusMap[foundPatient.status] || '未知'
       showConfirm(
@@ -258,7 +258,7 @@ async function handleGlobalSearch(query) {
         `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前在「${currentStatusText}」清單中。\n\n您是否要將其移至目前的「${targetStatusText}」清單？`,
         () => transferPatient(foundPatient.id, activeTab.value),
       )
-      // Case 3: Patient is already in the current list
+      // Case 3: Patient is already in the current list -> Inform user
     } else {
       showAlert(
         '病人已存在',
@@ -266,7 +266,7 @@ async function handleGlobalSearch(query) {
       )
     }
   } else {
-    // Case 4: No patient found, open add modal
+    // Case 4: No patient found -> Open add modal
     const newPatientTemplate = { diseases: [] }
     if (/^\d{6,}$/.test(searchTerm)) {
       newPatientTemplate.medicalRecordNumber = searchTerm
@@ -280,7 +280,6 @@ async function handleGlobalSearch(query) {
 }
 
 // --- CRUD and Business Logic Functions ---
-
 async function fetchAllPatients() {
   try {
     allPatients.value = await optimizedFetchAllPatients()
@@ -493,9 +492,6 @@ async function restoreAndTransferPatient(patientId, targetStatus) {
   }
 }
 
-// ... (other functions like handleDeleteReasonSelected, restorePatient, open modals, etc., remain largely the same)
-// ... I'll include the rest of the script for completeness ...
-
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -535,7 +531,13 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
-// UI and minor helper functions
+// ✨✨✨ 修正後的函式 ✨✨✨
+function cancelDelete() {
+  isDeleteDialogVisible.value = false
+  patientToDeleteId.value = null
+}
+
+// --- Other UI and helper functions ---
 function openEditPatientModal(patient) {
   editingPatient.value = JSON.parse(JSON.stringify(patient))
   modalType.value = patient.status
@@ -705,9 +707,9 @@ onMounted(() => {
                 type="text"
                 v-model="globalSearchTerm"
                 @keydown.enter="handleGlobalSearch(globalSearchTerm)"
-                placeholder="搜尋/新增病人..."
+                placeholder="搜尋/新增/轉移病人..."
               />
-              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">搜尋</button>
+              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">執行</button>
             </div>
             <div class="search-group list-filter">
               <input
@@ -1038,7 +1040,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Modal 組件 (保持不變) -->
+    <!-- Modal 組件 -->
     <PatientFormModal
       :is-modal-visible="isModalVisible"
       :patient-data="editingPatient"
