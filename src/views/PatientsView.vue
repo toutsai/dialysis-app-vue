@@ -1,7 +1,7 @@
 <!-- 檔案路徑: src/views/PatientsView.vue -->
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, where } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
@@ -10,6 +10,7 @@ import {
   savePatientHistory as optimizedSavePatientHistory,
   saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
+import ApiManager from '@/services/api_manager.js'
 
 import PatientFormModal from '@/components/PatientFormModal.vue'
 import SelectionDialog from '@/components/SelectionDialog.vue'
@@ -23,15 +24,15 @@ import * as XLSX from 'xlsx'
 
 // --- Refs and State ---
 const allPatients = ref([])
+const patientHistory = ref([])
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
-
+const patientHistoryApi = ApiManager('patient_history')
 const erListFilter = ref('')
 const ipdListFilter = ref('')
 const opdListFilter = ref('')
 const deletedSearchTerm = ref('')
 const globalSearchTerm = ref('')
-
 const patientStats = ref({
   source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
   mode: {},
@@ -52,7 +53,6 @@ const patientStats = ref({
     },
   },
 })
-
 const activePopover = ref(null)
 const isModalVisible = ref(false)
 const editingPatient = ref(null)
@@ -72,6 +72,8 @@ const isHistoryModalVisible = ref(false)
 const selectedPatientForHistory = ref(null)
 const newPatientDataForConflict = ref(null)
 const existingPatientForConflict = ref(null)
+const isRestoreDialogVisible = ref(false)
+const patientToRestoreId = ref(null)
 
 const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
@@ -99,13 +101,17 @@ const DELETE_REASONS = [
   { value: '腎臟移植', text: '腎臟移植' },
   { value: '作廢', text: '作廢' },
 ]
+const RESTORE_OPTIONS = [
+  { value: 'opd', text: '復原至 門診' },
+  { value: 'ipd', text: '復原至 住院' },
+  { value: 'er', text: '復原至 急診' },
+]
 
 // --- Computed Properties ---
 const displayedPatients = computed(() => {
   let patientsToDisplay
   let searchTerm = ''
   if (!allPatients.value) return []
-
   if (activeTab.value === 'er') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
     searchTerm = erListFilter.value.toLowerCase()
@@ -121,7 +127,6 @@ const displayedPatients = computed(() => {
   } else {
     patientsToDisplay = []
   }
-
   if (searchTerm) {
     patientsToDisplay = patientsToDisplay.filter(
       (p) =>
@@ -129,7 +134,6 @@ const displayedPatients = computed(() => {
         (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)),
     )
   }
-
   return [...patientsToDisplay].sort((a, b) => {
     let valA, valB
     if (currentSort.value.column === 'freq') {
@@ -169,7 +173,6 @@ const calculateStats = () => {
       },
     },
   }
-
   const today = new Date()
   const currentYear = today.getFullYear()
   const currentMonth = today.getMonth()
@@ -177,7 +180,6 @@ const calculateStats = () => {
   const firstDayLastMonth = new Date(currentYear, currentMonth - 1, 1)
   const lastDayLastMonth = new Date(currentYear, currentMonth, 0)
   const transferOutReasons = ['轉外院透析', '轉PD', '腎臟移植']
-
   allPatients.value.forEach((p) => {
     if (p.isDeleted) {
       statsResult.source.deleted++
@@ -192,13 +194,6 @@ const calculateStats = () => {
           if (statsResult.disease.hasOwnProperty(d)) statsResult.disease[d]++
         })
       if (p.freq && statsResult.freq.hasOwnProperty(p.freq)) statsResult.freq[p.freq]++
-    }
-    const createdAt = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt)
-    if (!p.isDeleted && p.status === 'opd') {
-      if (createdAt >= firstDayLastMonth && createdAt <= lastDayLastMonth)
-        statsResult.opdChanges.lastMonth.new++
-      if (createdAt >= firstDayThisMonth && createdAt <= today)
-        statsResult.opdChanges.thisMonth.new++
     }
     if (p.isDeleted && p.originalStatus === 'opd') {
       const deletedAt = p.deletedAt?.toDate
@@ -226,10 +221,34 @@ const calculateStats = () => {
       }
     }
   })
+  patientHistory.value.forEach((history) => {
+    const eventTime = history.timestamp?.toDate
+      ? history.timestamp.toDate()
+      : new Date(history.timestamp)
+    const period =
+      eventTime >= firstDayLastMonth && eventTime <= lastDayLastMonth
+        ? 'lastMonth'
+        : eventTime >= firstDayThisMonth && eventTime <= today
+          ? 'thisMonth'
+          : null
+    if (period) {
+      if (history.eventType === 'CREATE' && history.eventDetails?.status === 'opd') {
+        statsResult.opdChanges[period].new++
+      } else if (history.eventType === 'TRANSFER' && history.eventDetails?.to === 'opd') {
+        statsResult.opdChanges[period].new++
+      } else if (
+        history.eventType === 'RESTORE_AND_TRANSFER' &&
+        history.eventDetails?.restoredTo === 'opd'
+      ) {
+        statsResult.opdChanges[period].new++
+      }
+    }
+  })
   patientStats.value = statsResult
 }
 
-watch(allPatients, calculateStats, { deep: true, immediate: true })
+watch(allPatients, calculateStats, { deep: true })
+watch(patientHistory, calculateStats, { deep: true })
 
 const togglePopover = (popoverName) => {
   if (activePopover.value === popoverName) {
@@ -244,20 +263,17 @@ const closePopovers = (event) => {
   }
   activePopover.value = null
 }
-
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
-
 function showConfirm(title, message, onConfirm) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
   confirmAction.value = onConfirm
   isConfirmDialogVisible.value = true
 }
-
 async function removeRuleFromMasterSchedule(patientId) {
   if (!patientId) {
     console.error('[PatientsView] 無效的 patientId，無法從總表移除。')
@@ -282,6 +298,31 @@ async function removeRuleFromMasterSchedule(patientId) {
   }
 }
 
+async function fetchAllPatients() {
+  try {
+    allPatients.value = await optimizedFetchAllPatients()
+  } catch (err) {
+    showAlert('讀取失敗', '讀取病人資料失敗！')
+  }
+}
+async function fetchPatientHistoryForStats() {
+  try {
+    const twoMonthsAgo = new Date()
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2)
+    twoMonthsAgo.setDate(1)
+    patientHistory.value = await patientHistoryApi.fetchAll([
+      where('timestamp', '>=', twoMonthsAgo.toISOString()),
+    ])
+  } catch (error) {
+    console.error('讀取病人歷史紀錄失敗:', error)
+    showAlert('讀取失敗', '讀取病人歷史統計資料失敗！')
+  }
+}
+
+async function refreshAllData() {
+  await Promise.all([fetchAllPatients(), fetchPatientHistoryForStats()])
+}
+
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
@@ -294,22 +335,19 @@ async function handleGlobalSearch(query) {
       (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)) ||
       (p.name && p.name.toLowerCase().includes(searchTermLower)),
   )
-
   if (searchResults.length > 1) {
     showAlert('找到多位病人', `符合 "${query}" 的病人不只一位，請用更完整的資料查找。`)
     return
   }
-
   const foundPatient = searchResults.length === 1 ? searchResults[0] : null
   const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
   const targetStatusText = statusMap[activeTab.value] || '列表'
-
   if (foundPatient) {
     if (foundPatient.isDeleted) {
       showConfirm(
         '找到已刪除病人',
         `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原因: ${foundPatient.deleteReason || '未知'})。\n\n是否要復原並移至「${targetStatusText}」清單？`,
-        () => restoreAndTransferPatient(foundPatient.id, activeTab.value),
+        () => restorePatient(foundPatient.id, activeTab.value),
       )
     } else if (foundPatient.status !== activeTab.value) {
       const currentStatusText = statusMap[foundPatient.status] || '未知'
@@ -334,14 +372,6 @@ async function handleGlobalSearch(query) {
   }
 }
 
-async function fetchAllPatients() {
-  try {
-    allPatients.value = await optimizedFetchAllPatients()
-  } catch (err) {
-    showAlert('讀取失敗', '讀取病人資料失敗！')
-  }
-}
-
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -361,9 +391,8 @@ async function handleSavePatient(patientData) {
               discontinuedDate:
                 patientData.discontinuedDate || new Date().toISOString().split('T')[0],
             })
-            // ✨ 核心修正：中止透析時，確保從總表移除規則
             await removeRuleFromMasterSchedule(patientData.id)
-            await fetchAllPatients()
+            await refreshAllData()
             createGlobalNotification(`中止透析：${patientData.name}`, 'patient')
             showAlert('操作成功', `已將 ${patientData.name} 標記為中止透析。`)
           } catch (err) {
@@ -377,7 +406,7 @@ async function handleSavePatient(patientData) {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
       await optimizedUpdatePatient(patientData.id, dataToUpdate)
-      await fetchAllPatients()
+      await refreshAllData()
       createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
       closeModal()
     } catch (err) {
@@ -385,12 +414,10 @@ async function handleSavePatient(patientData) {
     }
     return
   }
-
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
   }
-
   const existingPatient = allPatients.value.find(
     (p) => p.medicalRecordNumber === patientData.medicalRecordNumber,
   )
@@ -422,8 +449,8 @@ async function handleSavePatient(patientData) {
         eventType: 'CREATE',
         eventDetails: { status: modalType.value },
       })
-      await fetchAllPatients()
-      const statusText = statusMap[modalType.value] || '列表'
+      await refreshAllData()
+      const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
       createGlobalNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
       closeModal()
     } catch (err) {
@@ -436,7 +463,6 @@ async function handleConflictSelected() {
   const existingPatient = existingPatientForConflict.value
   const newPatientData = newPatientDataForConflict.value
   if (!existingPatient || !newPatientData) return
-
   try {
     const dataToUpdate = {
       ...newPatientData,
@@ -447,7 +473,6 @@ async function handleConflictSelected() {
       originalStatus: null,
     }
     delete dataToUpdate.id
-
     await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
     await optimizedSavePatientHistory({
       patientId: existingPatient.id,
@@ -456,7 +481,7 @@ async function handleConflictSelected() {
       eventType: 'TRANSFER',
       eventDetails: { from: existingPatient.status, to: modalType.value, note: `從衝突中解決` },
     })
-    await fetchAllPatients()
+    await refreshAllData()
     const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
     createGlobalNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
     showAlert('操作成功', `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`)
@@ -474,12 +499,9 @@ async function transferPatient(patientId, newStatus) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
-
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
-
   const targetStatusText = { ipd: '住院', opd: '門診', er: '急診' }[newStatus] || '未知'
-
   showConfirm(
     `確認轉為${targetStatusText}`,
     `您確定要將「${patient.name}」轉為${targetStatusText}嗎？`,
@@ -493,7 +515,7 @@ async function transferPatient(patientId, newStatus) {
           eventType: 'TRANSFER',
           eventDetails: { from: patient.status, to: newStatus },
         })
-        await fetchAllPatients()
+        await refreshAllData()
         createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
         showAlert('轉移成功', `${patient.name} 已成功轉至${targetStatusText}。`)
         globalSearchTerm.value = ''
@@ -504,74 +526,26 @@ async function transferPatient(patientId, newStatus) {
   )
 }
 
-async function restoreAndTransferPatient(patientId, targetStatus) {
-  if (isPageLocked.value) {
-    showAlert('操作失敗', '操作被鎖定：權限不足。')
-    return
-  }
-
-  const patient = allPatients.value.find((p) => p.id === patientId)
-  if (!patient) {
-    showAlert('錯誤', '找不到該病人資料。')
-    return
-  }
-
-  const targetStatusText = { ipd: '住院', opd: '門診', er: '急診' }[targetStatus] || '未知'
-
-  try {
-    await optimizedUpdatePatient(patientId, {
-      isDeleted: false,
-      status: targetStatus,
-      deleteReason: null,
-      deletedAt: null,
-    })
-    await optimizedSavePatientHistory({
-      patientId: patientId,
-      patientName: patient.name,
-      timestamp: new Date().toISOString(),
-      eventType: 'RESTORE_AND_TRANSFER',
-      eventDetails: { restoredTo: targetStatus, fromReason: patient.deleteReason },
-    })
-    await removeRuleFromMasterSchedule(patientId)
-    await fetchAllPatients()
-    createGlobalNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
-    showAlert(
-      '復原成功',
-      `${patient.name} 已復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
-    )
-    globalSearchTerm.value = ''
-  } catch (err) {
-    showAlert('操作失敗', '復原病人時發生錯誤！')
-  }
-}
-
-// ✨ 核心修正：確保刪除流程中包含 removeRuleFromMasterSchedule 的呼叫
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
   if (!patientToDeleteId.value) return
-
   try {
     const patient = allPatients.value.find((p) => p.id === patientToDeleteId.value)
     if (!patient) {
       showAlert('錯誤', '找不到該病人資料。')
       return
     }
-
     const patientIdForActions = patient.id
     const patientNameForNotification = patient.name
-
-    // 步驟 1: 將病人文件標記為已刪除
     await optimizedUpdatePatient(patientIdForActions, {
       isDeleted: true,
       originalStatus: patient.status,
       deleteReason: reason,
       deletedAt: new Date().toISOString(),
     })
-
-    // 步驟 2: 儲存操作歷史
     await optimizedSavePatientHistory({
       patientId: patientIdForActions,
       patientName: patientNameForNotification,
@@ -579,14 +553,8 @@ async function handleDeleteReasonSelected(reason) {
       eventType: 'DELETE',
       eventDetails: { reason: reason, fromStatus: patient.status },
     })
-
-    // **步驟 3 (關鍵)**: 從總表中移除該病人的規則，這會觸發後端的 syncMasterScheduleToFuture
     await removeRuleFromMasterSchedule(patientIdForActions)
-
-    // 步驟 4: 刷新前端列表
-    await fetchAllPatients()
-
-    // 步驟 5: 發送通知
+    await refreshAllData()
     createGlobalNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
     showAlert(
       '刪除成功',
@@ -601,32 +569,76 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
+function restorePatient(patientId) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
+  patientToRestoreId.value = patientId
+  isRestoreDialogVisible.value = true
+}
+
+async function handleRestoreSelected(targetStatus) {
+  isRestoreDialogVisible.value = false
+  const patientId = patientToRestoreId.value
+  if (!patientId || !targetStatus) return
+  const patient = allPatients.value.find((p) => p.id === patientId)
+  if (!patient) {
+    showAlert('錯誤', '找不到該病人資料。')
+    return
+  }
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+  const targetStatusText = statusMap[targetStatus] || '列表'
+  try {
+    await optimizedUpdatePatient(patientId, {
+      isDeleted: false,
+      status: targetStatus,
+      deleteReason: null,
+      deletedAt: null,
+      originalStatus: null,
+    })
+    await optimizedSavePatientHistory({
+      patientId: patientId,
+      patientName: patient.name,
+      timestamp: new Date().toISOString(),
+      eventType: 'RESTORE_AND_TRANSFER',
+      eventDetails: { restoredTo: targetStatus, fromReason: patient.deleteReason },
+    })
+    await removeRuleFromMasterSchedule(patientId)
+    await refreshAllData()
+    createGlobalNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
+    showAlert(
+      '復原成功',
+      `${patient.name} 已復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
+    )
+  } catch (err) {
+    showAlert('操作失敗', '復原病人時發生錯誤！')
+  } finally {
+    patientToRestoreId.value = null
+  }
+}
+
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
 }
-
 function openEditPatientModal(patient) {
   editingPatient.value = JSON.parse(JSON.stringify(patient))
   modalType.value = activeTab.value
   isModalVisible.value = true
 }
-
 function openHistoryModal(patient) {
   selectedPatientForHistory.value = patient
   isHistoryModalVisible.value = true
 }
-
 function deletePatient(patientId) {
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
-
 function changeTab(tabName) {
   activeTab.value = tabName
   globalSearchTerm.value = ''
 }
-
 function handleSort(key) {
   if (currentSort.value.column === key) {
     currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
@@ -635,25 +647,21 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
-
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
   globalSearchTerm.value = ''
 }
-
 function getSortIndicator(key) {
   if (currentSort.value.column === key) return currentSort.value.order === 'asc' ? '▲' : '▼'
   return ''
 }
-
 function formatDate(isoString) {
   if (!isoString) return ''
   const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
   if (isNaN(date.getTime())) return ''
   return date.toISOString().split('T')[0]
 }
-
 function getRowClass(p) {
   if (p.isDiscontinued) return 'status-discontinued'
   if (p.isDeleted) return 'status-deleted'
@@ -661,28 +669,23 @@ function getRowClass(p) {
   if (biweeklyFreq.includes(p.freq)) return 'status-biweekly'
   return `status-${p.status}`
 }
-
 function generateDiseaseTags(diseases) {
   if (!diseases?.length) return ''
   return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
 }
-
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') confirmAction.value()
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
-
 function openOrderModal(patient) {
   editingPatientForOrder.value = JSON.parse(JSON.stringify(patient))
   isOrderModalVisible.value = true
 }
-
 async function handleSaveOrder(orderData) {
   if (!editingPatientForOrder.value?.id) {
     showAlert('儲存失敗', '找不到有效的病人資訊。')
@@ -712,13 +715,12 @@ async function handleSaveOrder(orderData) {
       }),
     ])
     isOrderModalVisible.value = false
-    await fetchAllPatients()
+    await refreshAllData()
     createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
   } catch (error) {
     showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
   }
 }
-
 function exportDeletedPatients() {
   const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
   if (deletedPatients.length === 0) {
@@ -743,7 +745,7 @@ function exportDeletedPatients() {
 }
 
 onMounted(() => {
-  fetchAllPatients()
+  refreshAllData()
   window.addEventListener('click', closePopovers)
 })
 
@@ -1205,6 +1207,15 @@ onUnmounted(() => {
       :patient-name="selectedPatientForHistory?.name"
       @close="isHistoryModalVisible = false"
     />
+    <!-- ✨✨✨ --- 新增的對話框開始 --- ✨✨✨ -->
+    <SelectionDialog
+      :is-visible="isRestoreDialogVisible"
+      title="請選擇復原位置"
+      :options="RESTORE_OPTIONS"
+      @select="handleRestoreSelected"
+      @cancel="isRestoreDialogVisible = false"
+    />
+    <!-- ✨✨✨ --- 新增的對話框結束 --- ✨✨✨ -->
   </div>
 </template>
 

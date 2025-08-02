@@ -62,14 +62,10 @@
                 </td>
                 <td class="reason-cell">
                   <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                    <div>
-                      <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
-                      {{ ex.from.shiftCode }}班)
-                    </div>
-                    <div>
-                      <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
-                      {{ ex.to.shiftCode }}班)
-                    </div>
+                    <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
+                    <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
+                    <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
+
                     <small v-if="ex.status === 'error'" class="error-message"
                       >錯誤: {{ ex.errorMessage }}</small
                     >
@@ -124,14 +120,10 @@
                   <strong class="info-label">詳細內容:</strong>
                   <div class="info-value">
                     <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                      <div>
-                        <strong>從:</strong> {{ ex.from.sourceDate }} ({{ ex.from.bedNum }}床 /
-                        {{ ex.from.shiftCode }}班)
-                      </div>
-                      <div>
-                        <strong>移至:</strong> {{ ex.to.goalDate }} ({{ ex.to.bedNum }}床 /
-                        {{ ex.to.shiftCode }}班)
-                      </div>
+                      <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
+                      <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
+                      <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
+
                       <small v-if="ex.status === 'error'" class="error-message"
                         >錯誤: {{ ex.errorMessage }}</small
                       >
@@ -192,7 +184,15 @@
 <script setup>
 import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  writeBatch,
+} from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
@@ -243,7 +243,15 @@ const typeMap = {
   SUSPEND: '區間暫停',
 }
 
+const shiftMap = {
+  early: '早班',
+  noon: '午班',
+  late: '晚班',
+}
+
 // --- Methods ---
+
+// ✨✨✨ --- 核心修正：將 formatTimestamp 函式加回來 --- ✨✨✨
 function formatTimestamp(ts) {
   if (!ts || !ts.toDate) return 'N/A'
   return ts.toDate().toLocaleString('zh-TW', {
@@ -253,6 +261,17 @@ function formatTimestamp(ts) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function formatShiftInfo(shiftData) {
+  if (!shiftData) return ''
+  const shiftName = shiftMap[shiftData.shiftCode] || shiftData.shiftCode
+  const bedDisplay = String(shiftData.bedNum).startsWith('peripheral-')
+    ? `外圍 ${String(shiftData.bedNum).split('-')[1]}`
+    : `${shiftData.bedNum}床`
+  // 注意：這裡我們使用 shiftData.date，而不是 shiftData.sourceDate 或 goalDate
+  // 這是因為我們在模板中呼叫時已經統一傳遞了 `date` 屬性
+  return `${shiftData.date || ''} (${shiftName} ${bedDisplay})`
 }
 
 function openCreateDialog() {
@@ -373,7 +392,10 @@ function handleConflictAlertConfirm() {
 
 // --- Initialization Logic ---
 async function initializePageData() {
-  if (unsubscribe) return
+  if (unsubscribe) {
+    unsubscribe()
+    unsubscribe = null
+  }
   isLoading.value = true
 
   try {
@@ -395,7 +417,6 @@ async function initializePageData() {
                 'conflict',
                 {
                   action: () => {
-                    // 通知裡的 action 依然是 router.push，這沒有問題
                     router.push({
                       path: '/exception-manager',
                       query: { resolveConflict: newEx.id },
@@ -409,17 +430,11 @@ async function initializePageData() {
 
         exceptions.value = newExceptions
 
+        cleanupExpiredExceptions(newExceptions)
+
         if (isLoading.value) {
           isLoading.value = false
         }
-
-        // ‼️ 1. 從這裡【移除】檢查 URL 的邏輯
-        /*
-        const conflictId = route.query.resolveConflict;
-        if (conflictId) {
-          // ... 這整段邏輯都移到下面的 watch 中 ...
-        }
-        */
       },
       (error) => {
         console.error('❌ Firestore 監聽器發生錯誤:', error)
@@ -432,34 +447,63 @@ async function initializePageData() {
   }
 }
 
-// --- Watcher for Authentication State (保持不變) ---
+// ✨ 新增的清理函式 ✨
+async function cleanupExpiredExceptions(currentExceptions) {
+  const todayStr = new Date().toISOString().split('T')[0]
+  const expiredExceptions = currentExceptions.filter((ex) => {
+    // 只有已生效(applied)的申請才需要檢查過期
+    return ex.status === 'applied' && ex.endDate && ex.endDate < todayStr
+  })
+
+  if (expiredExceptions.length > 0 && canEditSchedules.value) {
+    console.log(`發現 ${expiredExceptions.length} 筆過期的調班申請，正在進行清理...`)
+
+    try {
+      const batch = writeBatch(db)
+      expiredExceptions.forEach((ex) => {
+        const docRef = doc(db, 'schedule_exceptions', ex.id)
+        batch.delete(docRef)
+      })
+      await batch.commit()
+
+      createGlobalNotification(
+        `系統自動清理了 ${expiredExceptions.length} 筆過期的調班申請`,
+        'info',
+      )
+      console.log('過期申請清理完畢！')
+    } catch (error) {
+      console.error('自動清理過期申請失敗:', error)
+    }
+  }
+}
+
+// --- Watchers & Lifecycle Hooks ---
 watch(
   currentUser,
   (newUser) => {
     if (newUser) {
       initializePageData()
     } else {
-      // ... 清理邏輯 ...
+      if (unsubscribe) {
+        unsubscribe()
+        unsubscribe = null
+      }
+      exceptions.value = []
+      isLoading.value = false
     }
   },
   { immediate: true },
 )
 
-// ✨✨✨ 2. 新增一個專門監聽 URL query 的 watch ✨✨✨
 watch(
   () => route.query.resolveConflict,
   (conflictId) => {
-    // 當 URL 中的 resolveConflict 參數出現時
     if (conflictId) {
-      // 從【已經載入好】的 exceptions 列表中尋找對應的項目
       const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
       if (conflictException) {
         console.log(`正在打開衝突解決對話框 for ID: ${conflictId}`)
-        // 將找到的資料傳給對話框
         exceptionToReEdit.value = conflictException
-        // 打開對話框
         isCreateDialogVisible.value = true
-        // 處理完畢後，立即清理 URL，避免重新整理時再次觸發
         router.replace({ query: {} })
       } else {
         console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的例外申請。`)
@@ -467,9 +511,8 @@ watch(
     }
   },
   { immediate: true },
-) // immediate: true 確保組件一掛載就檢查一次 URL
+)
 
-// --- Lifecycle Hooks (保持不變) ---
 onUnmounted(() => {
   if (unsubscribe) {
     unsubscribe()
