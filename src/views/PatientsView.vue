@@ -1,6 +1,6 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (流程優化版) -->
+<!-- 檔案路徑: src/views/PatientsView.vue -->
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import {
@@ -23,7 +23,7 @@ import * as XLSX from 'xlsx'
 
 // --- Refs and State ---
 const allPatients = ref([])
-const activeTab = ref('er')
+const activeTab = ref('opd')
 const currentSort = ref({ column: 'createdAt', order: 'desc' })
 
 const erListFilter = ref('')
@@ -32,28 +32,44 @@ const opdListFilter = ref('')
 const deletedSearchTerm = ref('')
 const globalSearchTerm = ref('')
 
+const patientStats = ref({
+  source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
+  mode: {},
+  disease: {},
+  freq: {},
+  opdChanges: {
+    lastMonth: {
+      new: 0,
+      transferOut: 0,
+      death: 0,
+      details: { 轉外院透析: 0, 轉PD: 0, 腎臟移植: 0 },
+    },
+    thisMonth: {
+      new: 0,
+      transferOut: 0,
+      death: 0,
+      details: { 轉外院透析: 0, 轉PD: 0, 腎臟移植: 0 },
+    },
+  },
+})
+
+const activePopover = ref(null)
 const isModalVisible = ref(false)
 const editingPatient = ref(null)
 const modalType = ref('ipd')
 const isDeleteDialogVisible = ref(false)
 const patientToDeleteId = ref(null)
-
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
-
 const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
-
 const isOrderModalVisible = ref(false)
 const editingPatientForOrder = ref(null)
-
 const isHistoryModalVisible = ref(false)
 const selectedPatientForHistory = ref(null)
-
-// For handling "MRN already exists" conflicts
 const newPatientDataForConflict = ref(null)
 const existingPatientForConflict = ref(null)
 
@@ -132,48 +148,103 @@ const displayedPatients = computed(() => {
   })
 })
 
-const patientStats = computed(() => {
-  if (activeTab.value === 'deleted' || !allPatients.value) return null
-
-  const patientsForStats = allPatients.value.filter(
-    (p) => p.status === activeTab.value && !p.isDeleted,
-  )
-
-  const stats = {
-    total: patientsForStats.length,
-    byFrequency: {},
+const calculateStats = () => {
+  const statsResult = {
+    source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
+    mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0 },
+    disease: { HBV: 0, HCV: 0, HIV: 0, RPR: 0, COVID: 0, 隔離: 0 },
+    freq: { 一三五: 0, 二四六: 0, 一四: 0, 二五: 0, 三六: 0, 一五: 0, 二六: 0, 臨時: 0 },
+    opdChanges: {
+      lastMonth: {
+        new: 0,
+        transferOut: 0,
+        death: 0,
+        details: { 轉外院透析: 0, 轉PD: 0, 腎臟移植: 0 },
+      },
+      thisMonth: {
+        new: 0,
+        transferOut: 0,
+        death: 0,
+        details: { 轉外院透析: 0, 轉PD: 0, 腎臟移植: 0 },
+      },
+    },
   }
-  patientsForStats.forEach((p) => {
-    const freq = p.freq || '未設定'
-    if (!stats.byFrequency[freq]) stats.byFrequency[freq] = 0
-    stats.byFrequency[freq]++
-  })
 
-  // Ensure consistent order for frequency stats
-  const sortedFrequencies = {}
-  const freqOrder = [
-    '一三五',
-    '二四六',
-    '一四',
-    '二五',
-    '三六',
-    '一五',
-    '二六',
-    '每周一次',
-    '臨時',
-    '未設定',
-  ]
-  freqOrder.forEach((key) => {
-    if (stats.byFrequency[key]) sortedFrequencies[key] = stats.byFrequency[key]
+  const today = new Date()
+  const currentYear = today.getFullYear()
+  const currentMonth = today.getMonth()
+  const firstDayThisMonth = new Date(currentYear, currentMonth, 1)
+  const firstDayLastMonth = new Date(currentYear, currentMonth - 1, 1)
+  const lastDayLastMonth = new Date(currentYear, currentMonth, 0)
+  const transferOutReasons = ['轉外院透析', '轉PD', '腎臟移植']
+
+  allPatients.value.forEach((p) => {
+    if (p.isDeleted) {
+      statsResult.source.deleted++
+    } else if (p.status) {
+      if (!statsResult.source[p.status]) statsResult.source[p.status] = 0
+      statsResult.source[p.status]++
+    }
+    if (!p.isDeleted) {
+      if (p.mode && statsResult.mode.hasOwnProperty(p.mode)) statsResult.mode[p.mode]++
+      if (p.diseases)
+        p.diseases.forEach((d) => {
+          if (statsResult.disease.hasOwnProperty(d)) statsResult.disease[d]++
+        })
+      if (p.freq && statsResult.freq.hasOwnProperty(p.freq)) statsResult.freq[p.freq]++
+    }
+    const createdAt = p.createdAt?.toDate ? p.createdAt.toDate() : new Date(p.createdAt)
+    if (!p.isDeleted && p.status === 'opd') {
+      if (createdAt >= firstDayLastMonth && createdAt <= lastDayLastMonth)
+        statsResult.opdChanges.lastMonth.new++
+      if (createdAt >= firstDayThisMonth && createdAt <= today)
+        statsResult.opdChanges.thisMonth.new++
+    }
+    if (p.isDeleted && p.originalStatus === 'opd') {
+      const deletedAt = p.deletedAt?.toDate
+        ? p.deletedAt.toDate()
+        : p.deletedAt
+          ? new Date(p.deletedAt)
+          : null
+      if (deletedAt) {
+        const period =
+          deletedAt >= firstDayLastMonth && deletedAt <= lastDayLastMonth
+            ? 'lastMonth'
+            : deletedAt >= firstDayThisMonth && deletedAt <= today
+              ? 'thisMonth'
+              : null
+        if (period) {
+          if (p.deleteReason === '死亡') {
+            statsResult.opdChanges[period].death++
+          } else if (transferOutReasons.includes(p.deleteReason)) {
+            statsResult.opdChanges[period].transferOut++
+            if (statsResult.opdChanges[period].details.hasOwnProperty(p.deleteReason)) {
+              statsResult.opdChanges[period].details[p.deleteReason]++
+            }
+          }
+        }
+      }
+    }
   })
-  for (const key in stats.byFrequency) {
-    if (!sortedFrequencies[key]) sortedFrequencies[key] = stats.byFrequency[key]
+  patientStats.value = statsResult
+}
+
+watch(allPatients, calculateStats, { deep: true, immediate: true })
+
+const togglePopover = (popoverName) => {
+  if (activePopover.value === popoverName) {
+    activePopover.value = null
+  } else {
+    activePopover.value = popoverName
   }
-  stats.byFrequency = sortedFrequencies
-  return stats
-})
+}
+const closePopovers = (event) => {
+  if (event && event.target.closest('.stats-popover-wrapper')) {
+    return
+  }
+  activePopover.value = null
+}
 
-// --- Helper Functions ---
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
@@ -189,7 +260,7 @@ function showConfirm(title, message, onConfirm) {
 
 async function removeRuleFromMasterSchedule(patientId) {
   if (!patientId) {
-    console.error('[removeRuleFromMasterSchedule] Invalid patientId')
+    console.error('[PatientsView] 無效的 patientId，無法從總表移除。')
     return
   }
   const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
@@ -200,30 +271,24 @@ async function removeRuleFromMasterSchedule(patientId) {
       if (masterRules[patientId]) {
         delete masterRules[patientId]
         await updateDoc(masterScheduleRef, { schedule: masterRules })
-        console.log(
-          `✅ [removeRuleFromMasterSchedule] Successfully removed patient ${patientId} rule from master schedule.`,
-        )
+        console.log(`✅ [PatientsView] 已成功從總表中移除病人 ${patientId} 的規則。`)
+      } else {
+        console.log(`[PatientsView] 病人 ${patientId} 不在總表規則中，無需移除。`)
       }
     }
   } catch (error) {
-    console.error(
-      `❌ [removeRuleFromMasterSchedule] Failed to remove rule from master schedule:`,
-      error,
-    )
+    console.error(`❌ [PatientsView] 從總表移除病人規則時失敗:`, error)
     throw new Error('從總床位表移除規則失敗，請檢查權限或網路。')
   }
 }
 
-// --- Smart Search/Add/Restore Function ---
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
     return
   }
-
   const searchTerm = query.trim()
   const searchTermLower = searchTerm.toLowerCase()
-
   const searchResults = allPatients.value.filter(
     (p) =>
       (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)) ||
@@ -231,10 +296,7 @@ async function handleGlobalSearch(query) {
   )
 
   if (searchResults.length > 1) {
-    showAlert(
-      '找到多位病人',
-      `符合 "${query}" 的病人不只一位，請輸入更完整的姓名或病歷號以精確查找。`,
-    )
+    showAlert('找到多位病人', `符合 "${query}" 的病人不只一位，請用更完整的資料查找。`)
     return
   }
 
@@ -243,30 +305,23 @@ async function handleGlobalSearch(query) {
   const targetStatusText = statusMap[activeTab.value] || '列表'
 
   if (foundPatient) {
-    // Case 1: Patient is deleted -> Confirm restore and transfer
     if (foundPatient.isDeleted) {
       showConfirm(
         '找到已刪除病人',
-        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原因: ${foundPatient.deleteReason || '未知'})。\n\n您是否要將其復原並移至目前的「${targetStatusText}」清單？`,
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原因: ${foundPatient.deleteReason || '未知'})。\n\n是否要復原並移至「${targetStatusText}」清單？`,
         () => restoreAndTransferPatient(foundPatient.id, activeTab.value),
       )
-      // Case 2: Patient is in a different active list -> Confirm transfer
     } else if (foundPatient.status !== activeTab.value) {
       const currentStatusText = statusMap[foundPatient.status] || '未知'
       showConfirm(
         '找到病人 (不同表單)',
-        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前在「${currentStatusText}」清單中。\n\n您是否要將其移至目前的「${targetStatusText}」清單？`,
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前在「${currentStatusText}」清單中。\n\n是否要移至「${targetStatusText}」清單？`,
         () => transferPatient(foundPatient.id, activeTab.value),
       )
-      // Case 3: Patient is already in the current list -> Inform user
     } else {
-      showAlert(
-        '病人已存在',
-        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已在目前的「${targetStatusText}」清單中。`,
-      )
+      showAlert('病人已存在', `病人 "${foundPatient.name}" 已在「${targetStatusText}」清單中。`)
     }
   } else {
-    // Case 4: No patient found -> Open add modal
     const newPatientTemplate = { diseases: [] }
     if (/^\d{6,}$/.test(searchTerm)) {
       newPatientTemplate.medicalRecordNumber = searchTerm
@@ -279,7 +334,6 @@ async function handleGlobalSearch(query) {
   }
 }
 
-// --- CRUD and Business Logic Functions ---
 async function fetchAllPatients() {
   try {
     allPatients.value = await optimizedFetchAllPatients()
@@ -293,25 +347,25 @@ async function handleSavePatient(patientData) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
-
-  // Edit existing patient
   if (patientData.id) {
     const originalPatient = editingPatient.value
-    if (!originalPatient.isDiscontinued && patientData.isDiscontinued) {
+    if (originalPatient && !originalPatient.isDiscontinued && patientData.isDiscontinued) {
       showConfirm(
         '確認中止透析',
         `您確定要將「${patientData.name}」標記為中止透析，並從總床位表中移除其排班規則嗎？`,
         async () => {
           try {
+            closeModal()
             await optimizedUpdatePatient(patientData.id, {
               isDiscontinued: true,
               discontinuedDate:
                 patientData.discontinuedDate || new Date().toISOString().split('T')[0],
             })
+            // ✨ 核心修正：中止透析時，確保從總表移除規則
             await removeRuleFromMasterSchedule(patientData.id)
             await fetchAllPatients()
             createGlobalNotification(`中止透析：${patientData.name}`, 'patient')
-            closeModal()
+            showAlert('操作成功', `已將 ${patientData.name} 標記為中止透析。`)
           } catch (err) {
             showAlert('操作失敗', err.message || '中止透析操作失敗！')
           }
@@ -332,7 +386,6 @@ async function handleSavePatient(patientData) {
     return
   }
 
-  // Add new patient
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
@@ -443,7 +496,7 @@ async function transferPatient(patientId, newStatus) {
         await fetchAllPatients()
         createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
         showAlert('轉移成功', `${patient.name} 已成功轉至${targetStatusText}。`)
-        globalSearchTerm.value = '' // Clear search after successful action
+        globalSearchTerm.value = ''
       } catch (err) {
         showAlert('操作失敗', err.message || '轉床失敗！')
       }
@@ -479,19 +532,20 @@ async function restoreAndTransferPatient(patientId, targetStatus) {
       eventType: 'RESTORE_AND_TRANSFER',
       eventDetails: { restoredTo: targetStatus, fromReason: patient.deleteReason },
     })
-    await removeRuleFromMasterSchedule(patientId) // Ensure clean slate
+    await removeRuleFromMasterSchedule(patientId)
     await fetchAllPatients()
     createGlobalNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
     showAlert(
       '復原成功',
       `${patient.name} 已復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
     )
-    globalSearchTerm.value = '' // Clear search after successful action
+    globalSearchTerm.value = ''
   } catch (err) {
     showAlert('操作失敗', '復原病人時發生錯誤！')
   }
 }
 
+// ✨ 核心修正：確保刪除流程中包含 removeRuleFromMasterSchedule 的呼叫
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -506,24 +560,40 @@ async function handleDeleteReasonSelected(reason) {
       return
     }
 
-    await optimizedUpdatePatient(patient.id, {
+    const patientIdForActions = patient.id
+    const patientNameForNotification = patient.name
+
+    // 步驟 1: 將病人文件標記為已刪除
+    await optimizedUpdatePatient(patientIdForActions, {
       isDeleted: true,
       originalStatus: patient.status,
       deleteReason: reason,
       deletedAt: new Date().toISOString(),
     })
+
+    // 步驟 2: 儲存操作歷史
     await optimizedSavePatientHistory({
-      patientId: patient.id,
-      patientName: patient.name,
+      patientId: patientIdForActions,
+      patientName: patientNameForNotification,
       timestamp: new Date().toISOString(),
       eventType: 'DELETE',
       eventDetails: { reason: reason, fromStatus: patient.status },
     })
-    await removeRuleFromMasterSchedule(patient.id)
+
+    // **步驟 3 (關鍵)**: 從總表中移除該病人的規則，這會觸發後端的 syncMasterScheduleToFuture
+    await removeRuleFromMasterSchedule(patientIdForActions)
+
+    // 步驟 4: 刷新前端列表
     await fetchAllPatients()
-    createGlobalNotification(`刪除病人：${patient.name} (${reason})`, 'patient')
-    showAlert('刪除成功', `${patient.name} 已被刪除，相關排班規則已移除。`)
+
+    // 步驟 5: 發送通知
+    createGlobalNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
+    showAlert(
+      '刪除成功',
+      `${patientNameForNotification} 已被刪除，其在「門急住床位總表」中的規則也已移除。後端將自動更新未來排程。`,
+    )
   } catch (err) {
+    console.error('刪除病人流程失敗:', err)
     showAlert('操作失敗', err.message || '刪除病人時發生錯誤！')
   } finally {
     isDeleteDialogVisible.value = false
@@ -531,30 +601,32 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
-// ✨✨✨ 修正後的函式 ✨✨✨
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
 }
 
-// --- Other UI and helper functions ---
 function openEditPatientModal(patient) {
   editingPatient.value = JSON.parse(JSON.stringify(patient))
-  modalType.value = patient.status
+  modalType.value = activeTab.value
   isModalVisible.value = true
 }
+
 function openHistoryModal(patient) {
   selectedPatientForHistory.value = patient
   isHistoryModalVisible.value = true
 }
+
 function deletePatient(patientId) {
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
+
 function changeTab(tabName) {
   activeTab.value = tabName
   globalSearchTerm.value = ''
 }
+
 function handleSort(key) {
   if (currentSort.value.column === key) {
     currentSort.value.order = currentSort.value.order === 'asc' ? 'desc' : 'asc'
@@ -563,21 +635,25 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
+
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
   globalSearchTerm.value = ''
 }
+
 function getSortIndicator(key) {
   if (currentSort.value.column === key) return currentSort.value.order === 'asc' ? '▲' : '▼'
   return ''
 }
+
 function formatDate(isoString) {
   if (!isoString) return ''
   const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
   if (isNaN(date.getTime())) return ''
   return date.toISOString().split('T')[0]
 }
+
 function getRowClass(p) {
   if (p.isDiscontinued) return 'status-discontinued'
   if (p.isDeleted) return 'status-deleted'
@@ -585,23 +661,28 @@ function getRowClass(p) {
   if (biweeklyFreq.includes(p.freq)) return 'status-biweekly'
   return `status-${p.status}`
 }
+
 function generateDiseaseTags(diseases) {
   if (!diseases?.length) return ''
   return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
 }
+
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') confirmAction.value()
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
+
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
+
 function openOrderModal(patient) {
   editingPatientForOrder.value = JSON.parse(JSON.stringify(patient))
   isOrderModalVisible.value = true
 }
+
 async function handleSaveOrder(orderData) {
   if (!editingPatientForOrder.value?.id) {
     showAlert('儲存失敗', '找不到有效的病人資訊。')
@@ -637,6 +718,7 @@ async function handleSaveOrder(orderData) {
     showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
   }
 }
+
 function exportDeletedPatients() {
   const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
   if (deletedPatients.length === 0) {
@@ -662,42 +744,138 @@ function exportDeletedPatients() {
 
 onMounted(() => {
   fetchAllPatients()
+  window.addEventListener('click', closePopovers)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('click', closePopovers)
 })
 </script>
 
 <template>
   <div v-if="isLoggedIn">
+    <!-- Font Awesome CDN for icons -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
+    />
+
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
       <h1 class="page-title">透析病人管理</h1>
 
-      <div class="tabs">
-        <button class="tab-button" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
-          急診
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'ipd' }"
-          @click="changeTab('ipd')"
-        >
-          住院
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'opd' }"
-          @click="changeTab('opd')"
-        >
-          門診
-        </button>
-        <button
-          class="tab-button"
-          :class="{ active: activeTab === 'deleted' }"
-          @click="changeTab('deleted')"
-        >
-          已刪除
-        </button>
+      <div class="main-stats-bar">
+        <div class="source-stats">
+          <button class="stat-tag" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
+            急診 <span class="count">{{ patientStats.source.er }}</span>
+          </button>
+          <button
+            class="stat-tag"
+            :class="{ active: activeTab === 'ipd' }"
+            @click="changeTab('ipd')"
+          >
+            住院 <span class="count">{{ patientStats.source.ipd }}</span>
+          </button>
+          <button
+            class="stat-tag"
+            :class="{ active: activeTab === 'opd' }"
+            @click="changeTab('opd')"
+          >
+            門診 <span class="count">{{ patientStats.source.opd }}</span>
+          </button>
+          <button
+            class="stat-tag"
+            :class="{ active: activeTab === 'deleted' }"
+            @click="changeTab('deleted')"
+          >
+            已刪除 <span class="count">{{ patientStats.source.deleted }}</span>
+          </button>
+        </div>
+        <div class="detailed-stats">
+          <div class="stats-popover-wrapper">
+            <button class="stat-popover-trigger" @click.stop="togglePopover('mode')">類型</button>
+            <div v-if="activePopover === 'mode'" class="stats-popover">
+              <div v-for="(count, key) in patientStats.mode" :key="key" class="popover-item">
+                <span>{{ key }}</span
+                ><span>{{ count }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="stats-popover-wrapper">
+            <button class="stat-popover-trigger" @click.stop="togglePopover('disease')">
+              疾病
+            </button>
+            <div v-if="activePopover === 'disease'" class="stats-popover">
+              <div v-for="(count, key) in patientStats.disease" :key="key" class="popover-item">
+                <span>{{ key }}</span
+                ><span>{{ count }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="stats-popover-wrapper">
+            <button class="stat-popover-trigger" @click.stop="togglePopover('freq')">頻率</button>
+            <div v-if="activePopover === 'freq'" class="stats-popover">
+              <div v-for="(count, key) in patientStats.freq" :key="key" class="popover-item">
+                <span>{{ key }}</span
+                ><span>{{ count }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="stats-popover-wrapper">
+            <button class="stat-popover-trigger" @click.stop="togglePopover('opdChanges')">
+              門診變動
+            </button>
+            <div v-if="activePopover === 'opdChanges'" class="stats-popover opd-changes-popover">
+              <div class="popover-section-title">上個月</div>
+              <div class="popover-item">
+                <span>新增</span><span>{{ patientStats.opdChanges.lastMonth.new }}</span>
+              </div>
+              <div class="popover-item">
+                <span>轉出</span><span>{{ patientStats.opdChanges.lastMonth.transferOut }}</span>
+              </div>
+              <div class="popover-sub-item">
+                <span>- 轉外院</span
+                ><span>{{ patientStats.opdChanges.lastMonth.details['轉外院透析'] }}</span>
+              </div>
+              <div class="popover-sub-item">
+                <span>- 轉 PD</span
+                ><span>{{ patientStats.opdChanges.lastMonth.details['轉PD'] }}</span>
+              </div>
+              <div class="popover-sub-item">
+                <span>- 腎移植</span
+                ><span>{{ patientStats.opdChanges.lastMonth.details['腎臟移植'] }}</span>
+              </div>
+              <div class="popover-item">
+                <span>死亡</span><span>{{ patientStats.opdChanges.lastMonth.death }}</span>
+              </div>
+              <hr class="popover-divider" />
+              <div class="popover-section-title">本月至今</div>
+              <div class="popover-item">
+                <span>新增</span><span>{{ patientStats.opdChanges.thisMonth.new }}</span>
+              </div>
+              <div class="popover-item">
+                <span>轉出</span><span>{{ patientStats.opdChanges.thisMonth.transferOut }}</span>
+              </div>
+              <div class="popover-sub-item">
+                <span>- 轉外院</span
+                ><span>{{ patientStats.opdChanges.thisMonth.details['轉外院透析'] }}</span>
+              </div>
+              <div class="popover-sub-item">
+                <span>- 轉 PD</span
+                ><span>{{ patientStats.opdChanges.thisMonth.details['轉PD'] }}</span>
+              </div>
+              <div class="popover-sub-item">
+                <span>- 腎移植</span
+                ><span>{{ patientStats.opdChanges.thisMonth.details['腎臟移植'] }}</span>
+              </div>
+              <div class="popover-item">
+                <span>死亡</span><span>{{ patientStats.opdChanges.thisMonth.death }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- 主要內容區 (急診, 住院, 門診) -->
+      <!-- 主要內容區 -->
       <div v-if="activeTab !== 'deleted'" class="tab-content active">
         <!-- 頂部控制列 -->
         <div class="view-header">
@@ -732,51 +910,22 @@ onMounted(() => {
               />
             </div>
           </div>
-          <div v-if="patientStats" class="stats-summary">
-            <span class="total-count">總人數：{{ patientStats.total }}</span>
-            <div class="freq-counts">
-              <span
-                v-for="(count, freq) in patientStats.byFrequency"
-                :key="freq"
-                class="freq-tag"
-                :class="FREQ_COLOR_MAP[freq]"
-              >
-                {{ freq }}: {{ count }}人
-              </span>
-            </div>
-          </div>
         </div>
 
         <!-- 桌機版 Flex 表格 -->
         <div class="table-wrapper desktop-only">
           <div class="flex-table-wrapper">
             <div class="flex-table-header">
-              <div class="flex-cell col-name" @click="handleSort('name')">
-                姓名 <span class="sort-indicator">{{ getSortIndicator('name') }}</span>
-              </div>
-              <div class="flex-cell col-mrn" @click="handleSort('medicalRecordNumber')">
-                病歷號
-                <span class="sort-indicator">{{ getSortIndicator('medicalRecordNumber') }}</span>
-              </div>
+              <div class="flex-cell col-name" @click="handleSort('name')">姓名</div>
+              <div class="flex-cell col-mrn" @click="handleSort('medicalRecordNumber')">病歷號</div>
               <div class="flex-cell col-physician" @click="handleSort('physician')">
-                {{
-                  activeTab === 'opd' ? '收案醫師' : activeTab === 'ipd' ? '會診醫師' : '開單醫師'
-                }}
-                <span class="sort-indicator">{{ getSortIndicator('physician') }}</span>
+                {{ activeTab === 'opd' ? '收案醫師' : '會診醫師' }}
               </div>
-              <div class="flex-cell col-freq" @click="handleSort('freq')">
-                頻率 <span class="sort-indicator">{{ getSortIndicator('freq') }}</span>
-              </div>
+              <div class="flex-cell col-freq" @click="handleSort('freq')">頻率</div>
               <div class="flex-cell col-mode">模式</div>
-              <div v-if="activeTab === 'opd'" class="flex-cell col-vasc-access">血管通路</div>
-              <template v-else>
-                <div class="flex-cell col-first-dialysis">首透</div>
-                <div class="flex-cell col-discontinued">中止</div>
-              </template>
+              <div class="flex-cell col-vasc-access">血管通路</div>
               <div class="flex-cell col-remarks">備註</div>
-              <div class="flex-cell col-created" @click="handleSort('createdAt')">
-                新增日期 <span class="sort-indicator">{{ getSortIndicator('createdAt') }}</span>
-              </div>
+              <div class="flex-cell col-created" @click="handleSort('createdAt')">新增日期</div>
               <div class="flex-cell col-actions">操作</div>
             </div>
             <div class="flex-table-body">
@@ -786,36 +935,12 @@ onMounted(() => {
                 class="flex-table-row"
                 :class="getRowClass(p)"
               >
-                <div class="flex-cell col-name">
-                  <div class="name-cell-content">
-                    <span class="patient-name-text">{{ p.name }}</span>
-                    <div
-                      class="disease-tags-container"
-                      v-html="generateDiseaseTags(p.diseases)"
-                    ></div>
-                  </div>
-                </div>
+                <div class="flex-cell col-name">{{ p.name }}</div>
                 <div class="flex-cell col-mrn">{{ p.medicalRecordNumber }}</div>
                 <div class="flex-cell col-physician">{{ p.physician }}</div>
                 <div class="flex-cell col-freq">{{ p.freq }}</div>
                 <div class="flex-cell col-mode">{{ p.mode }}</div>
-                <div v-if="activeTab === 'opd'" class="flex-cell col-vasc-access">
-                  {{ p.vascAccess }}
-                </div>
-                <template v-else>
-                  <div class="flex-cell col-first-dialysis">
-                    <div v-if="p.isFirstDialysis">✓</div>
-                    <div v-if="p.firstDialysisDate" class="date-subtext">
-                      {{ formatDate(p.firstDialysisDate) }}
-                    </div>
-                  </div>
-                  <div class="flex-cell col-discontinued">
-                    <div v-if="p.isDiscontinued">✓</div>
-                    <div v-if="p.discontinuedDate" class="date-subtext">
-                      {{ formatDate(p.discontinuedDate) }}
-                    </div>
-                  </div>
-                </template>
+                <div class="flex-cell col-vasc-access">{{ p.vascAccess }}</div>
                 <div class="flex-cell col-remarks">{{ p.remarks }}</div>
                 <div class="flex-cell col-created">{{ formatDate(p.createdAt) }}</div>
                 <div class="flex-cell col-actions">
@@ -825,14 +950,14 @@ onMounted(() => {
                       @click="openEditPatientModal(p)"
                       :disabled="isPageLocked"
                     >
-                      編輯
+                      <i class="fas fa-pencil-alt"></i> 編輯
                     </button>
                     <button
                       class="btn btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
                     >
-                      醫囑
+                      <i class="fas fa-notes-medical"></i> 醫囑
                     </button>
                     <button
                       v-if="activeTab !== 'ipd'"
@@ -840,7 +965,7 @@ onMounted(() => {
                       @click="transferPatient(p.id, 'ipd')"
                       :disabled="isPageLocked"
                     >
-                      轉住院
+                      <i class="fas fa-procedures"></i> 轉住院
                     </button>
                     <button
                       v-if="activeTab !== 'opd'"
@@ -848,7 +973,7 @@ onMounted(() => {
                       @click="transferPatient(p.id, 'opd')"
                       :disabled="isPageLocked"
                     >
-                      轉門診
+                      <i class="fas fa-clinic-medical"></i> 轉門診
                     </button>
                     <button
                       v-if="activeTab !== 'er'"
@@ -856,7 +981,7 @@ onMounted(() => {
                       @click="transferPatient(p.id, 'er')"
                       :disabled="isPageLocked"
                     >
-                      轉急診
+                      <i class="fas fa-ambulance"></i> 轉急診
                     </button>
                     <div class="action-divider"></div>
                     <div class="icon-buttons">
@@ -865,7 +990,7 @@ onMounted(() => {
                         @click="openHistoryModal(p)"
                         title="動向歷史"
                       >
-                        🕒
+                        <i class="fas fa-history"></i>
                       </button>
                       <button
                         class="btn-icon btn-delete"
@@ -873,7 +998,7 @@ onMounted(() => {
                         :disabled="isPageLocked"
                         title="刪除"
                       >
-                        🗑️
+                        <i class="fas fa-trash-alt"></i>
                       </button>
                     </div>
                   </div>
@@ -900,7 +1025,7 @@ onMounted(() => {
               </div>
               <div class="card-actions-header">
                 <button class="btn-icon btn-history" @click="openHistoryModal(p)" title="動向歷史">
-                  🕒
+                  <i class="fas fa-history"></i>
                 </button>
                 <button
                   class="btn-icon btn-delete"
@@ -908,7 +1033,7 @@ onMounted(() => {
                   :disabled="isPageLocked"
                   title="刪除"
                 >
-                  🗑️
+                  <i class="fas fa-trash-alt"></i>
                 </button>
               </div>
             </div>
@@ -953,10 +1078,10 @@ onMounted(() => {
                 @click="openEditPatientModal(p)"
                 :disabled="isPageLocked"
               >
-                編輯
+                <i class="fas fa-pencil-alt"></i> 編輯
               </button>
               <button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
-                醫囑
+                <i class="fas fa-notes-medical"></i> 醫囑
               </button>
               <button
                 v-if="activeTab !== 'ipd'"
@@ -964,7 +1089,7 @@ onMounted(() => {
                 @click="transferPatient(p.id, 'ipd')"
                 :disabled="isPageLocked"
               >
-                轉住院
+                <i class="fas fa-procedures"></i> 轉住院
               </button>
               <button
                 v-if="activeTab !== 'opd'"
@@ -972,7 +1097,7 @@ onMounted(() => {
                 @click="transferPatient(p.id, 'opd')"
                 :disabled="isPageLocked"
               >
-                轉門診
+                <i class="fas fa-clinic-medical"></i> 轉門診
               </button>
               <button
                 v-if="activeTab !== 'er'"
@@ -980,7 +1105,7 @@ onMounted(() => {
                 @click="transferPatient(p.id, 'er')"
                 :disabled="isPageLocked"
               >
-                轉急診
+                <i class="fas fa-ambulance"></i> 轉急診
               </button>
             </div>
           </div>
@@ -1103,50 +1228,141 @@ onMounted(() => {
 }
 .page-container {
   padding: 10px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 .page-title {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
   color: #333;
   font-weight: bold;
+  flex-shrink: 0;
 }
-.tabs {
+.main-stats-bar {
   display: flex;
-  border-bottom: 2px solid #ddd;
-  margin-bottom: 20px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #dee2e6;
+  flex-shrink: 0;
 }
-.tab-button {
-  padding: 10px 20px;
+.source-stats {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.stat-tag {
+  background-color: transparent;
   border: none;
-  background: none;
-  font-size: 1.2em;
+  padding: 8px 16px;
+  font-size: 1.1rem;
+  font-weight: 500;
   cursor: pointer;
-  position: relative;
-  color: #666;
-  transition: color 0.2s;
+  transition: all 0.2s;
+  border-bottom: 3px solid transparent;
+  border-radius: 4px 4px 0 0;
+  color: #495057;
 }
-.tab-button.active {
-  color: var(--primary-color);
+.stat-tag .count {
   font-weight: bold;
+  color: #e67700;
+  margin-left: 8px;
+  background-color: #f1f3f5;
+  padding: 2px 6px;
+  border-radius: 8px;
 }
-.tab-button.active::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
+.stat-tag:hover {
+  background-color: #f8f9fa;
+}
+.stat-tag.active {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+.stat-tag.active .count {
   background-color: var(--primary-color);
+  color: white;
 }
-.tab-button:hover:not(.active) {
-  color: #555;
+.detailed-stats {
+  display: flex;
+  gap: 0.5rem;
+}
+.stats-popover-wrapper {
+  position: relative;
+}
+.stat-popover-trigger {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.stats-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 5px;
+  background-color: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  width: 220px;
+  z-index: 10;
+  padding: 0.75rem;
+}
+.popover-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f1f3f5;
+}
+.popover-item:last-child {
+  border-bottom: none;
+}
+.popover-sub-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.2rem 0 0.2rem 1.5rem; /* Indentation via padding-left */
+  font-size: 0.85em; /* Smaller font */
+  color: #6c757d; /* Greyer text */
+}
+.opd-changes-popover {
+  width: 250px;
+}
+.popover-section-title {
+  font-weight: bold;
+  color: #333;
+  margin-top: 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.9em;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #eee;
+}
+.opd-changes-popover .popover-item {
+  padding: 0.25rem 0.5rem;
+}
+.popover-divider {
+  border: none;
+  border-top: 1px solid #e9ecef;
+  margin: 0.5rem 0;
+}
+.tab-content {
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .view-header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start; /* 改為靠左對齊 */
   align-items: center;
   gap: 20px;
   flex-wrap: wrap;
   margin-bottom: 15px;
+  flex-shrink: 0;
 }
 .controls-left {
   display: flex;
@@ -1174,9 +1390,9 @@ onMounted(() => {
 .search-group.global-search .btn-search {
   padding: 8px 15px;
   font-size: 1em;
-  background-color: var(--primary-color);
+  background-color: #17a2b8;
   color: white;
-  border: 1px solid var(--primary-color);
+  border: 1px solid #17a2b8;
   border-radius: 5px;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
@@ -1185,67 +1401,17 @@ onMounted(() => {
   transition: background-color 0.2s;
 }
 .search-group.global-search .btn-search:hover:not(:disabled) {
-  background-color: #00457c;
+  background-color: #138496;
 }
 .search-group.list-filter input {
   min-width: 200px;
   background-color: #f8f9fa;
 }
-.controls-left input:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(0, 90, 156, 0.1);
-}
-.stats-summary {
-  background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 8px;
-  padding: 8px 16px;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-.total-count {
-  font-size: 1.1em;
-  font-weight: bold;
-  color: var(--primary-color);
-  white-space: nowrap;
-}
-.freq-counts {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.freq-tag {
-  color: #fff;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 0.9em;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.freq-tag.freq-blue {
-  background-color: #2563eb;
-}
-.freq-tag.freq-green {
-  background-color: #16a34a;
-}
-.freq-tag.freq-orange {
-  background-color: #f97316;
-}
-.freq-tag.freq-teal {
-  background-color: #0d9488;
-}
-.freq-tag.freq-red {
-  background-color: #dc2626;
-}
-.freq-tag.freq-grey {
-  background-color: #64748b;
-}
+
 .table-wrapper {
-  max-height: calc(100vh - 250px);
+  flex-grow: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 .flex-table-wrapper {
   border: 1px solid #ddd;
@@ -1295,13 +1461,7 @@ onMounted(() => {
   flex: 0 0 80px;
 }
 .col-vasc-access {
-  flex: 0 0 90px;
-}
-.col-first-dialysis,
-.col-discontinued {
-  flex: 0 0 70px;
-  text-align: center;
-  justify-content: center;
+  flex: 0 0 110px;
 }
 .col-remarks {
   flex: 1 1 auto;
@@ -1311,17 +1471,14 @@ onMounted(() => {
 .col-created {
   flex: 0 0 110px;
 }
+/* ✨ 核心修正：增加操作欄位的寬度以容納所有按鈕 */
 .col-actions {
-  flex: 0 0 400px;
+  flex: 0 0 450px;
   justify-content: flex-start;
 }
 .flex-table-header .flex-cell {
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.2s;
-}
-.flex-table-header .flex-cell:hover {
-  background-color: #e8e8e8;
 }
 .name-cell-content {
   display: flex;
@@ -1353,15 +1510,25 @@ onMounted(() => {
   align-items: center;
   width: 100%;
 }
-.action-buttons .btn {
+.action-buttons .btn,
+.card-footer .btn {
   padding: 5px 10px;
   font-size: 0.9em;
-  border-radius: 4px;
+  border-radius: 6px;
   border: none;
   cursor: pointer;
   color: white;
   white-space: nowrap;
   transition: background-color 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+}
+.action-buttons .btn i,
+.card-footer .btn i {
+  font-size: 0.9em;
 }
 .btn.btn-edit {
   background-color: #007bff;
@@ -1370,7 +1537,7 @@ onMounted(() => {
   background-color: #0056b3;
 }
 .btn.btn-order {
-  background-color: #ff9c07;
+  background-color: #ffc107;
   color: #212529;
 }
 .btn.btn-order:hover:not(:disabled) {
@@ -1408,7 +1575,7 @@ onMounted(() => {
   cursor: pointer;
   padding: 6px;
   border-radius: 50%;
-  font-size: 1.2rem;
+  font-size: 1rem;
   line-height: 1;
   width: 34px;
   height: 34px;
@@ -1458,22 +1625,10 @@ onMounted(() => {
 .flex-table-row.status-discontinued button {
   text-decoration: none;
 }
-.date-subtext {
-  font-size: 0.8em;
-  color: #666;
-  margin-top: 2px;
-}
-.flex-table-row.status-discontinued .date-subtext {
-  color: #991b1b;
-}
 .sort-indicator {
   display: inline-block;
   margin-left: 5px;
   color: #999;
-}
-.is-locked .flex-table-wrapper {
-  pointer-events: none;
-  opacity: 0.65;
 }
 .toolbar {
   display: flex;
@@ -1522,19 +1677,9 @@ onMounted(() => {
 }
 .patient-table th {
   background-color: #f2f2f2;
-  cursor: pointer;
-  user-select: none;
   font-weight: 600;
 }
-.patient-table th:hover {
-  background-color: #e8e8e8;
-}
 
-/* ================================== */
-/* ‼️        新增的響應式樣式        ‼️ */
-/* ================================== */
-
-/* 預設隱藏手機版卡片，顯示桌面版表格 */
 .mobile-only {
   display: none;
 }
@@ -1552,17 +1697,16 @@ onMounted(() => {
 }
 
 @media (max-width: 992px) {
-  /* 螢幕小於 992px 時，隱藏表格，顯示卡片 */
   .desktop-only {
     display: none;
   }
   .mobile-only {
     display: block;
   }
-
   .page-container {
     padding: 0;
     background-color: #f8f9fa;
+    height: auto;
   }
   .page-title {
     padding: 1rem;
@@ -1570,15 +1714,26 @@ onMounted(() => {
     border-bottom: 1px solid #dee2e6;
     background-color: #fff;
   }
-  .tabs {
-    background-color: #fff;
+  .main-stats-bar {
+    flex-direction: column;
+    align-items: stretch;
     margin-bottom: 0;
-    padding: 0 1rem;
+    padding: 1rem;
+    border-bottom: none;
+  }
+  .source-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .detailed-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
   }
   .tab-content {
     padding: 1rem;
   }
-
   .view-header {
     flex-direction: column;
     align-items: stretch;
@@ -1604,45 +1759,17 @@ onMounted(() => {
   .search-group.global-search .btn-search {
     flex-shrink: 0;
   }
-  .stats-summary {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  /* 卡片列表容器 */
   .cards-container {
     display: flex;
     flex-direction: column;
     gap: 1rem;
   }
-
-  /* 單張卡片 */
   .patient-card {
     background-color: #fff;
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     overflow: hidden;
   }
-  .patient-card.status-opd {
-    border-top: 4px solid var(--green-bg);
-  }
-  .patient-card.status-ipd {
-    border-top: 4px solid var(--red-bg);
-  }
-  .patient-card.status-er {
-    border-top: 4px solid var(--purple-bg);
-  }
-  .patient-card.status-biweekly {
-    border-top: 4px solid var(--orange-bg);
-  }
-  .patient-card.status-discontinued {
-    text-decoration: line-through;
-    opacity: 0.8;
-  }
-  .patient-card.status-discontinued button {
-    text-decoration: none;
-  }
-
   .card-header {
     display: flex;
     justify-content: space-between;
@@ -1670,7 +1797,11 @@ onMounted(() => {
     display: flex;
     align-items: center;
   }
-
+  .card-actions-header .btn-icon {
+    font-size: 1rem;
+    width: 32px;
+    height: 32px;
+  }
   .card-body {
     padding: 1rem;
   }
@@ -1702,7 +1833,6 @@ onMounted(() => {
     font-weight: bold;
     margin-right: 0.5rem;
   }
-
   .card-footer {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
@@ -1712,20 +1842,7 @@ onMounted(() => {
   }
   .card-footer .btn {
     flex-grow: 1;
-  }
-
-  /* 已刪除頁面在手機上的調整 */
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .toolbar input {
-    min-width: 0;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .toolbar .btn-export {
-    width: 100%;
+    padding: 0.6rem 0.5rem;
   }
 }
 </style>

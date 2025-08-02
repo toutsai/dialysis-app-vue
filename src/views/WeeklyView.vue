@@ -1222,12 +1222,14 @@ button {
   background-color: #ffc107;
   color: #212529;
   border-color: #ffc107;
+  font-size: 1rem;
 }
 
 .btn.btn-info {
   background-color: #17a2b8;
   color: white;
   border-color: #17a2b8;
+  font-size: 1rem;
 }
 
 /* 🔥 統一顏色系統 - 基本病人狀態 */

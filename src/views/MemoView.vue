@@ -16,15 +16,16 @@ const patientsApi = ApiManager('patients')
 const memos = ref([])
 const allPatients = ref([])
 const contentInput = ref('')
-const dateInput = ref('') // 到期日
+const dateInput = ref('')
 
 // --- UI 狀態 ---
 const isPatientDialogVisible = ref(false)
 const selectedPatient = ref(null)
 const filterPatientId = ref(null)
 const activeTab = ref('expired')
+const isFormModalVisible = ref(false)
 
-// --- 🆕 加載狀態 ---
+// --- 加載狀態 ---
 const isLoading = ref(false)
 const isSubmitting = ref(false)
 const isMemosLoading = ref(false)
@@ -40,12 +41,8 @@ const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 
 const { createGlobalNotification } = useGlobalNotifier()
-
-// --- 路由實例 ---
 const route = useRoute()
 const router = useRouter()
-
-// --- 🆕 錯誤狀態 ---
 const error = ref(null)
 
 // --- 計算屬性 ---
@@ -87,7 +84,6 @@ const expiredList = computed(() =>
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
 )
 
-// --- 🆕 統計計算屬性 ---
 const memoStats = computed(() => ({
   total: memos.value.length,
   pending: pendingList.value.length,
@@ -104,23 +100,12 @@ const memoStats = computed(() => ({
 
 // --- 方法 ---
 async function fetchMemos() {
-  if (isMemosLoading.value) return // 防止重複請求
-
-  console.log('🔄 [MemoView] 開始載入備忘錄...')
+  if (isMemosLoading.value) return
   isMemosLoading.value = true
   error.value = null
-
   try {
-    const startTime = performance.now()
     memos.value = await memosApi.fetchAll()
-    const endTime = performance.now()
-
-    console.log(
-      `✅ [MemoView] 備忘錄載入完成: ${memos.value.length} 筆 (${Math.round(endTime - startTime)}ms)`,
-    )
-    // ❌ 移除載入通知
   } catch (err) {
-    console.error('❌ [MemoView] 讀取備忘錄失敗:', err)
     error.value = '載入備忘錄失敗，請重試'
     handleError('讀取備忘錄失敗', err)
   } finally {
@@ -129,51 +114,30 @@ async function fetchMemos() {
 }
 
 async function fetchAllPatients() {
-  if (isPatientsLoading.value) return // 防止重複請求
-
-  console.log('🔄 [MemoView] 開始載入患者列表...')
+  if (isPatientsLoading.value) return
   isPatientsLoading.value = true
-
   try {
-    const startTime = performance.now()
     allPatients.value = await patientsApi.fetchAll()
-    const endTime = performance.now()
-
-    console.log(
-      `✅ [MemoView] 患者列表載入完成: ${allPatients.value.length} 筆 (${Math.round(endTime - startTime)}ms)`,
-    )
-    // ❌ 移除載入通知
   } catch (err) {
-    console.error('❌ [MemoView] 獲取病人列表失敗:', err)
     handleError('獲取病人列表失敗', err)
   } finally {
     isPatientsLoading.value = false
   }
 }
 
-// --- 🆕 初始化函數 ---
 async function initializeData() {
-  console.log('🚀 [MemoView] 開始初始化資料...')
   isLoading.value = true
-
   try {
-    // 並行載入兩個 API
     await Promise.all([fetchMemos(), fetchAllPatients()])
-
-    // ❌ 不需要載入通知，處理 URL 參數
     const patientIdFromQuery = route.query.patientId
     if (patientIdFromQuery && allPatients.value.length > 0) {
       const patient = allPatients.value.find((p) => p.id === patientIdFromQuery)
       if (patient) {
         selectedPatient.value = patient
         filterPatientId.value = patientIdFromQuery
-        console.log(`🎯 [MemoView] 已選擇患者: ${patient.name}`)
       }
     }
-
-    console.log('✅ [MemoView] 初始化完成')
   } catch (err) {
-    console.error('❌ [MemoView] 初始化失敗:', err)
     error.value = '初始化失敗，請重新整理頁面'
   } finally {
     isLoading.value = false
@@ -185,16 +149,13 @@ async function addMemo() {
     showAlert('提示', '備忘內容不能為空！')
     return
   }
+  if (isSubmitting.value) return
 
-  if (isSubmitting.value) return // 防止重複提交
-
-  console.log('🔄 [MemoView] 開始新增備忘...')
   isSubmitting.value = true
-
   const newMemo = {
     content: contentInput.value.trim(),
-    patientId: selectedPatient.value ? selectedPatient.value.id : null,
-    patientName: selectedPatient.value ? selectedPatient.value.name : null,
+    patientId: selectedPatient.value?.id || null,
+    patientName: selectedPatient.value?.name || null,
     targetDate: dateInput.value || null,
     status: 'pending',
     isResolved: false,
@@ -202,45 +163,25 @@ async function addMemo() {
   }
 
   try {
-    // 🆕 樂觀更新：先更新 UI
     const tempId = `temp_${Date.now()}`
-    const optimisticMemo = { ...newMemo, id: tempId }
-    memos.value.unshift(optimisticMemo)
+    memos.value.unshift({ ...newMemo, id: tempId })
 
-    // 清空表單
     const contentPreview =
       contentInput.value.substring(0, 20) + (contentInput.value.length > 20 ? '...' : '')
+    const patientContext = selectedPatient.value ? ` (${selectedPatient.value.name})` : ''
     contentInput.value = ''
     dateInput.value = ''
-    const wasFiltered = !!selectedPatient.value
-    const patientContext = selectedPatient.value ? ` (${selectedPatient.value.name})` : ''
     clearPatientSelection()
 
-    // 實際保存到後端
     const savedMemo = await memosApi.save(newMemo)
-
-    // 替換樂觀更新的項目
     const tempIndex = memos.value.findIndex((m) => m.id === tempId)
-    if (tempIndex !== -1) {
-      memos.value[tempIndex] = savedMemo
-    }
+    if (tempIndex !== -1) memos.value[tempIndex] = savedMemo
 
-    // ✅ 具體的業務事件通知
     createGlobalNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
-
-    // ✅ 操作狀態反饋用彈窗
-    //showAlert('新增成功', '備忘錄已成功新增。')//
-    console.log('✅ [MemoView] 備忘新增成功')
+    closeFormModal()
   } catch (err) {
-    console.error('❌ [MemoView] 新增備忘失敗:', err)
-
-    // 回滾樂觀更新
-    const tempIndex = memos.value.findIndex((m) => m.id === tempId)
-    if (tempIndex !== -1) {
-      memos.value.splice(tempIndex, 1)
-    }
-
-    // 恢復表單內容
+    const tempIndex = memos.value.findIndex((m) => m.id === `temp_${Date.now()}`)
+    if (tempIndex !== -1) memos.value.splice(tempIndex, 1)
     contentInput.value = newMemo.content
     dateInput.value = newMemo.targetDate || ''
     if (newMemo.patientId) {
@@ -250,7 +191,6 @@ async function addMemo() {
         filterPatientId.value = patient.id
       }
     }
-
     handleError('新增備忘失敗', err)
   } finally {
     isSubmitting.value = false
@@ -262,123 +202,64 @@ function handlePatientSelected({ patientId }) {
   selectedPatient.value = patient
   filterPatientId.value = patient ? patient.id : null
   isPatientDialogVisible.value = false
-
-  if (patient) {
-    router.replace({ query: { patientId: patient.id } })
-    console.log(`🎯 [MemoView] 已篩選患者: ${patient.name}`)
-    // ❌ 不需要通知，這只是篩選操作
-  } else {
-    router.replace({ query: {} })
-    console.log('🔄 [MemoView] 已清除患者篩選')
-    // ❌ 不需要通知，這只是篩選操作
-  }
+  if (patient) router.replace({ query: { patientId: patient.id } })
+  else router.replace({ query: {} })
 }
 
 function clearPatientSelection() {
   selectedPatient.value = null
   filterPatientId.value = null
   router.replace({ query: {} })
-  console.log('🔄 [MemoView] 已清除病人選擇')
-  // ❌ 不需要通知，這只是清除選擇
 }
 
-// --- 🆕 優化的狀態更新函數 ---
+// ✨ 修正：補上通知邏輯
 async function updateMemoStatus(id, resolve, isFromExpired = false) {
-  console.log(`🔄 [MemoView] 更新備忘狀態: ${id} -> ${resolve ? 'resolved' : 'pending'}`)
-
-  // 🆕 樂觀更新：先更新 UI
   const memoIndex = memos.value.findIndex((m) => m.id === id)
-  if (memoIndex === -1) {
-    console.warn('⚠️ [MemoView] 找不到要更新的備忘錄:', id)
-    return
-  }
+  if (memoIndex === -1) return
 
   const originalMemo = { ...memos.value[memoIndex] }
   const newStatus = resolve ? 'resolved' : 'pending'
-
-  // 先更新 UI
-  memos.value[memoIndex] = {
-    ...originalMemo,
-    status: newStatus,
-    isResolved: resolve,
-  }
-
-  // 準備通知內容
-  const contentPreview =
-    originalMemo.content.substring(0, 15) + (originalMemo.content.length > 15 ? '...' : '')
-  const patientContext = originalMemo.patientName ? ` (${originalMemo.patientName})` : ''
-
-  let notificationMessage = ''
-  let alertMessage = ''
-
-  if (resolve) {
-    notificationMessage = `完成備忘：${contentPreview}${patientContext}`
-    alertMessage = '備忘已標記為處理完成。'
-  } else {
-    if (isFromExpired) {
-      notificationMessage = `復原備忘：${contentPreview}${patientContext} (從過期復原)`
-      alertMessage = '備忘已從過期清單移回待辦。'
-    } else {
-      notificationMessage = `復原備忘：${contentPreview}${patientContext}`
-      alertMessage = '備忘已移回待辦清單。'
-    }
-  }
+  memos.value[memoIndex] = { ...originalMemo, status: newStatus, isResolved: resolve }
 
   try {
-    // 實際更新後端
     await memosApi.update(id, { status: newStatus, isResolved: resolve })
 
-    // ✅ 具體的業務事件通知
-    createGlobalNotification(notificationMessage, 'memo')
+    const contentPreview =
+      originalMemo.content.substring(0, 20) + (originalMemo.content.length > 20 ? '...' : '')
+    const patientContext = originalMemo.patientName ? ` (${originalMemo.patientName})` : ''
 
-    // ✅ 操作狀態反饋用彈窗
-    // showAlert('操作成功', alertMessage)//
-    console.log(`✅ [MemoView] 備忘狀態更新成功: ${id}`)
+    if (resolve) {
+      createGlobalNotification(`已處理備忘：${contentPreview}${patientContext}`, 'success')
+    } else {
+      createGlobalNotification(`已移回待辦：${contentPreview}${patientContext}`, 'info')
+    }
   } catch (err) {
-    console.error('❌ [MemoView] 更新狀態失敗:', err)
-
-    // 🆕 回滾樂觀更新
     memos.value[memoIndex] = originalMemo
     handleError('更新狀態失敗', err)
   }
 }
 
-// --- 🆕 優化的刪除函數 ---
+// ✨ 修正：補上 deleteMemo 函式的完整實作
 async function deleteMemo(id) {
-  const memo = memos.value.find((m) => m.id === id)
-  if (!memo) return
-
-  const contentPreview = memo.content.substring(0, 20) + (memo.content.length > 20 ? '...' : '')
-
   confirmDialogTitle.value = '確認刪除'
-  confirmDialogMessage.value = `確定要永久刪除備忘「${contentPreview}」嗎？此操作無法復原。`
+  confirmDialogMessage.value = '您確定要刪除這筆備忘錄嗎？此操作無法復原。'
 
   confirmAction.value = async () => {
-    console.log(`🔄 [MemoView] 刪除備忘: ${id}`)
-
-    // 🆕 樂觀更新：先從 UI 移除
     const memoIndex = memos.value.findIndex((m) => m.id === id)
     if (memoIndex === -1) return
 
-    const removedMemo = memos.value.splice(memoIndex, 1)[0]
-    const patientContext = removedMemo.patientName ? ` (${removedMemo.patientName})` : ''
+    const memoToDelete = { ...memos.value[memoIndex] }
+    memos.value.splice(memoIndex, 1)
 
     try {
-      // 實際刪除
       await memosApi.delete(id)
-
-      // ✅ 具體的業務事件通知
-      createGlobalNotification(`刪除備忘：${contentPreview}${patientContext}`, 'memo')
-
-      // ✅ 操作狀態反饋用彈窗
-      // showAlert('刪除成功', '備忘錄已成功刪除。') //
-      console.log(`✅ [MemoView] 備忘刪除成功: ${id}`)
+      const contentPreview =
+        memoToDelete.content.substring(0, 20) + (memoToDelete.content.length > 20 ? '...' : '')
+      const patientContext = memoToDelete.patientName ? ` (${memoToDelete.patientName})` : ''
+      createGlobalNotification(`已刪除備忘：${contentPreview}${patientContext}`, 'info')
     } catch (err) {
-      console.error('❌ [MemoView] 刪除失敗:', err)
-
-      // 🆕 回滾：重新插入到原位置
-      memos.value.splice(memoIndex, 0, removedMemo)
-      handleError('刪除失敗', err)
+      memos.value.splice(memoIndex, 0, memoToDelete)
+      handleError('刪除備忘失敗', err)
     }
   }
 
@@ -390,9 +271,7 @@ function openPatientDialog() {
 }
 
 function handleConfirm() {
-  if (confirmAction.value) {
-    confirmAction.value()
-  }
+  if (confirmAction.value) confirmAction.value()
   isConfirmDialogVisible.value = false
   confirmAction.value = null
 }
@@ -402,7 +281,6 @@ function handleCancel() {
   confirmAction.value = null
 }
 
-// --- 🆕 統一錯誤處理 ---
 function handleError(title, error) {
   console.error(`❌ [MemoView] ${title}:`, error)
   showAlert('錯誤', `${title}！請稍後重試。`)
@@ -414,23 +292,25 @@ function showAlert(title, message) {
   isAlertDialogVisible.value = true
 }
 
-// --- 🆕 重試功能 ---
 async function retryLoadData() {
-  console.log('🔄 [MemoView] 用戶觸發重試載入')
   error.value = null
   await initializeData()
 }
 
-// ✨ 修改函式，讓它回傳包含 HTML 的字串 ✨
 function getMemoDisplayContent(memo) {
   if (memo.patientName) {
-    // 使用一個特殊的 class 來包裹病人姓名
     return `<span class="memo-patient-name">${memo.patientName}</span> ${memo.content}`
   }
   return memo.content
 }
 
-// --- 🆕 監聽器 ---
+function openFormModal() {
+  isFormModalVisible.value = true
+}
+function closeFormModal() {
+  isFormModalVisible.value = false
+}
+
 watch(
   () => route.query.patientId,
   (newPatientId) => {
@@ -439,18 +319,15 @@ watch(
       if (patient && (!selectedPatient.value || selectedPatient.value.id !== newPatientId)) {
         selectedPatient.value = patient
         filterPatientId.value = newPatientId
-        console.log(`🎯 [MemoView] URL 變更，已選擇患者: ${patient.name}`)
       }
     } else if (!newPatientId && selectedPatient.value) {
       selectedPatient.value = null
       filterPatientId.value = null
-      console.log('🔄 [MemoView] URL 變更，已清除患者選擇')
     }
   },
 )
 
 onMounted(() => {
-  console.log('🚀 [MemoView] 組件已掛載，開始初始化...')
   initializeData()
 })
 </script>
@@ -459,177 +336,86 @@ onMounted(() => {
   <div class="page-container memo-view">
     <h1 class="page-title">
       交班備忘錄
-      <!-- 🆕 統計資訊 -->
       <span v-if="!isLoading && memoStats.total > 0" class="title-stats">
         ({{ filterPatientId ? `${selectedPatient?.name}: ` : '' }}待辦{{ memoStats.pending }}筆)
       </span>
     </h1>
 
-    <!-- 🆕 全局錯誤提示 -->
     <div v-if="error" class="error-banner">
       <span>{{ error }}</span>
       <button @click="retryLoadData" class="retry-btn">重試</button>
     </div>
 
-    <!-- 🆕 全局加載狀態 -->
     <div v-if="isLoading" class="loading-container">
       <div class="loading-spinner"></div>
       <p>正在載入備忘錄資料...</p>
     </div>
 
     <div v-else class="memo-layout-grid">
-      <!-- 左欄 -->
-      <div class="left-column">
-        <div class="memo-card form-card">
-          <h2 class="card-title">
-            <span v-if="filterPatientId">{{ selectedPatient?.name }} 的備忘</span>
-            <span v-else>新增備忘</span>
-          </h2>
-          <div class="memo-form">
-            <div class="textarea-wrapper">
-              <textarea
-                v-model="contentInput"
-                placeholder="請輸入交班事項或備註..."
-                :disabled="isSubmitting"
-              ></textarea>
-              <!-- 🆕 字數統計 -->
-              <div class="char-count">{{ contentInput.length }}/500</div>
-            </div>
-
-            <div class="form-actions">
-              <div class="option-item">
-                <label>關聯病人</label>
-                <div v-if="selectedPatient" class="selected-patient-display">
-                  <span>{{ selectedPatient.name }}</span>
-                  <button
-                    @click="clearPatientSelection"
-                    class="clear-btn"
-                    title="清除選擇與篩選"
-                    :disabled="isSubmitting"
-                  >
-                    ×
-                  </button>
-                </div>
+      <!-- ✨ 修改/新增：新增備忘卡片只在桌面顯示 -->
+      <div class="memo-card form-card desktop-only">
+        <h2 class="card-title">
+          <span v-if="filterPatientId">{{ selectedPatient?.name }} 的備忘</span>
+          <span v-else>新增備忘</span>
+        </h2>
+        <div class="memo-form">
+          <div class="textarea-wrapper">
+            <textarea
+              v-model="contentInput"
+              placeholder="請輸入交班事項或備註..."
+              :disabled="isSubmitting"
+            ></textarea>
+            <div class="char-count">{{ contentInput.length }}/500</div>
+          </div>
+          <div class="form-actions">
+            <div class="option-item">
+              <label>關聯病人</label>
+              <div v-if="selectedPatient" class="selected-patient-display">
+                <span>{{ selectedPatient.name }}</span>
                 <button
-                  v-else
-                  @click="openPatientDialog"
-                  class="select-btn"
-                  :disabled="isSubmitting || isPatientsLoading"
+                  @click="clearPatientSelection"
+                  class="clear-btn"
+                  title="清除選擇與篩選"
+                  :disabled="isSubmitting"
                 >
-                  <span v-if="isPatientsLoading">載入中...</span>
-                  <span v-else>選擇病人</span>
+                  ×
                 </button>
               </div>
-              <div class="option-item">
-                <label for="memo-date-input">到期日</label>
-                <input
-                  v-model="dateInput"
-                  type="date"
-                  id="memo-date-input"
-                  :disabled="isSubmitting"
-                />
-              </div>
+              <button
+                v-else
+                @click="openPatientDialog"
+                class="select-btn"
+                :disabled="isSubmitting || isPatientsLoading"
+              >
+                <span>{{ isPatientsLoading ? '載入中...' : '選擇病人' }}</span>
+              </button>
             </div>
-
-            <button
-              @click="addMemo"
-              class="add-btn"
-              :disabled="isSubmitting || !contentInput.trim()"
-            >
-              <span v-if="isSubmitting">新增中...</span>
-              <span v-else>新增備忘</span>
-            </button>
-          </div>
-        </div>
-
-        <div class="memo-card history-card">
-          <div class="tabs">
-            <button
-              class="tab-btn"
-              :class="{ active: activeTab === 'expired' }"
-              @click="activeTab = 'expired'"
-            >
-              已到期事項
-              <span v-if="memoStats.expired > 0" class="tab-count expired-count">{{
-                memoStats.expired
-              }}</span>
-            </button>
-            <button
-              class="tab-btn"
-              :class="{ active: activeTab === 'resolved' }"
-              @click="activeTab = 'resolved'"
-            >
-              已處理事項 (最近7天)
-              <span v-if="memoStats.resolved > 0" class="tab-count resolved-count">{{
-                memoStats.resolved
-              }}</span>
-            </button>
-          </div>
-
-          <div class="tab-content">
-            <!-- 🆕 載入狀態 -->
-            <div v-if="isMemosLoading" class="tab-loading">
-              <div class="loading-spinner small"></div>
-              <span>載入中...</span>
+            <div class="option-item">
+              <label for="memo-date-input">到期日</label>
+              <input
+                v-model="dateInput"
+                type="date"
+                id="memo-date-input"
+                :disabled="isSubmitting"
+              />
             </div>
-
-            <ul v-else-if="activeTab === 'expired'" class="memo-list">
-              <li v-for="memo in expiredList" :key="memo.id" class="memo-item expired">
-                <div class="memo-content">
-                  <p v-html="getMemoDisplayContent(memo)"></p>
-                  <div class="memo-meta">
-                    <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
-                    <span v-if="memo.targetDate"
-                      >| 到期於: <strong>{{ memo.targetDate }}</strong></span
-                    >
-                  </div>
-                </div>
-                <div class="memo-actions">
-                  <button class="revert-btn" @click="updateMemoStatus(memo.id, false, true)">
-                    移回待辦
-                  </button>
-                  <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
-                </div>
-              </li>
-              <li v-if="expiredList.length === 0" class="empty-state">沒有已到期的事項。</li>
-            </ul>
-
-            <ul v-else-if="activeTab === 'resolved'" class="memo-list">
-              <li v-for="memo in resolvedList" :key="memo.id" class="memo-item resolved">
-                <div class="memo-content">
-                  <p v-html="getMemoDisplayContent(memo)"></p>
-                  <div class="memo-meta">
-                    <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
-                  </div>
-                </div>
-                <div class="memo-actions">
-                  <button class="revert-btn" @click="updateMemoStatus(memo.id, false)">
-                    移回待辦
-                  </button>
-                  <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
-                </div>
-              </li>
-              <li v-if="resolvedList.length === 0" class="empty-state">
-                {{ filterPatientId ? '最近7天該病人無已處理事項' : '最近7天沒有已處理事項。' }}
-              </li>
-            </ul>
           </div>
+          <button @click="addMemo" class="add-btn" :disabled="isSubmitting || !contentInput.trim()">
+            <span>{{ isSubmitting ? '新增中...' : '新增備忘' }}</span>
+          </button>
         </div>
       </div>
 
-      <!-- 右欄 -->
+      <!-- ✨ 修改/新增：待辦事項卡片 -->
       <div class="memo-card pending-card">
         <h2 class="card-title">
           {{ filterPatientId ? '待處理事項' : '所有待處理事項' }}
           <span v-if="memoStats.pending > 0" class="title-count">{{ memoStats.pending }}</span>
         </h2>
-
-        <!-- 🆕 載入狀態 -->
         <div v-if="isMemosLoading" class="card-loading">
           <div class="loading-spinner"></div>
           <p>載入待處理事項...</p>
         </div>
-
         <ul v-else class="memo-list">
           <li v-for="memo in pendingList" :key="memo.id" class="memo-item">
             <div class="memo-content">
@@ -652,6 +438,137 @@ onMounted(() => {
             {{ filterPatientId ? '該病人無待辦事項' : '太棒了，沒有待辦事項！' }}
           </li>
         </ul>
+      </div>
+
+      <!-- ✨ 修改/新增：歷史/已處理卡片 -->
+      <div class="memo-card history-card">
+        <div class="tabs">
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'expired' }"
+            @click="activeTab = 'expired'"
+          >
+            已到期事項
+            <span v-if="memoStats.expired > 0" class="tab-count expired-count">{{
+              memoStats.expired
+            }}</span>
+          </button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'resolved' }"
+            @click="activeTab = 'resolved'"
+          >
+            已處理事項 (最近7天)
+            <span v-if="memoStats.resolved > 0" class="tab-count resolved-count">{{
+              memoStats.resolved
+            }}</span>
+          </button>
+        </div>
+        <div class="tab-content">
+          <div v-if="isMemosLoading" class="tab-loading">
+            <div class="loading-spinner small"></div>
+            <span>載入中...</span>
+          </div>
+          <ul v-else-if="activeTab === 'expired'" class="memo-list">
+            <li v-for="memo in expiredList" :key="memo.id" class="memo-item expired">
+              <div class="memo-content">
+                <p v-html="getMemoDisplayContent(memo)"></p>
+                <div class="memo-meta">
+                  <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                  <span v-if="memo.targetDate"
+                    >| 到期於: <strong>{{ memo.targetDate }}</strong></span
+                  >
+                </div>
+              </div>
+              <div class="memo-actions">
+                <button class="revert-btn" @click="updateMemoStatus(memo.id, false, true)">
+                  移回待辦
+                </button>
+                <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
+              </div>
+            </li>
+            <li v-if="expiredList.length === 0" class="empty-state">沒有已到期的事項。</li>
+          </ul>
+          <ul v-else-if="activeTab === 'resolved'" class="memo-list">
+            <li v-for="memo in resolvedList" :key="memo.id" class="memo-item resolved">
+              <div class="memo-content">
+                <p v-html="getMemoDisplayContent(memo)"></p>
+                <div class="memo-meta">
+                  <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                </div>
+              </div>
+              <div class="memo-actions">
+                <button class="revert-btn" @click="updateMemoStatus(memo.id, false)">
+                  移回待辦
+                </button>
+                <button class="delete-btn" @click="deleteMemo(memo.id)">刪除</button>
+              </div>
+            </li>
+            <li v-if="resolvedList.length === 0" class="empty-state">
+              {{ filterPatientId ? '最近7天該病人無已處理事項' : '最近7天沒有已處理事項。' }}
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- ✨ 新增/修改：手機版專用的 FAB 按鈕 -->
+    <button class="fab mobile-only" @click="openFormModal">+</button>
+
+    <!-- ✨ 新增/修改：手機版專用的新增表單 Modal -->
+    <div v-if="isFormModalVisible" class="form-modal-overlay" @click.self="closeFormModal">
+      <div class="memo-card form-card">
+        <h2 class="card-title">
+          <span v-if="filterPatientId">{{ selectedPatient?.name }} 的備忘</span>
+          <span v-else>新增備忘</span>
+          <button @click="closeFormModal" class="close-modal-btn">×</button>
+        </h2>
+        <div class="memo-form">
+          <div class="textarea-wrapper">
+            <textarea
+              v-model="contentInput"
+              placeholder="請輸入交班事項或備註..."
+              :disabled="isSubmitting"
+            ></textarea>
+            <div class="char-count">{{ contentInput.length }}/500</div>
+          </div>
+          <div class="form-actions">
+            <div class="option-item">
+              <label>關聯病人</label>
+              <div v-if="selectedPatient" class="selected-patient-display">
+                <span>{{ selectedPatient.name }}</span>
+                <button
+                  @click="clearPatientSelection"
+                  class="clear-btn"
+                  title="清除選擇與篩選"
+                  :disabled="isSubmitting"
+                >
+                  ×
+                </button>
+              </div>
+              <button
+                v-else
+                @click="openPatientDialog"
+                class="select-btn"
+                :disabled="isSubmitting || isPatientsLoading"
+              >
+                <span>{{ isPatientsLoading ? '載入中...' : '選擇病人' }}</span>
+              </button>
+            </div>
+            <div class="option-item">
+              <label for="memo-date-input-mobile">到期日</label>
+              <input
+                v-model="dateInput"
+                type="date"
+                id="memo-date-input-mobile"
+                :disabled="isSubmitting"
+              />
+            </div>
+          </div>
+          <button @click="addMemo" class="add-btn" :disabled="isSubmitting || !contentInput.trim()">
+            <span>{{ isSubmitting ? '新增中...' : '新增備忘' }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -686,13 +603,12 @@ onMounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 
-/* ✨ 核心修正 1：約束頁面容器高度，並設為 Flex 佈局 */
 .page-container.memo-view {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px; /* 調整間距 */
-  padding: 10px; /* 統一內邊距 */
+  gap: 16px;
+  padding: 10px;
   box-sizing: border-box;
 }
 
@@ -703,7 +619,7 @@ onMounted(() => {
   color: #2c3e50;
   display: flex;
   align-items: baseline;
-  flex-shrink: 0; /* 防止標題被壓縮 */
+  flex-shrink: 0;
 }
 
 .title-stats {
@@ -778,21 +694,28 @@ onMounted(() => {
   }
 }
 
-/* ✨ 核心修正 2：讓佈局網格填滿剩餘垂直空間 */
 .memo-layout-grid {
   display: grid;
+  /* ✨ 修改/新增：定義網格區域名稱 */
+  grid-template-areas:
+    'form pending'
+    'history pending';
   grid-template-columns: 1fr 1.5fr;
+  grid-template-rows: auto 1fr; /* 讓歷史紀錄區塊可以伸展 */
   gap: 24px;
-  align-items: stretch; /* 讓列等高 */
   flex-grow: 1;
-  min-height: 0; /* 防止被內容撐開 */
+  min-height: 0;
 }
 
-.left-column {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  min-height: 0;
+/* ✨ 修改/新增：移除 left-column，直接用 grid-area 定位 */
+.form-card {
+  grid-area: form;
+}
+.pending-card {
+  grid-area: pending;
+}
+.history-card {
+  grid-area: history;
 }
 
 .memo-card {
@@ -803,7 +726,7 @@ onMounted(() => {
   padding: 24px;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* 防止子元素溢出圓角 */
+  overflow: hidden;
 }
 
 .card-title {
@@ -827,26 +750,20 @@ onMounted(() => {
 }
 
 .form-card {
-  flex-shrink: 0; /* 新增表單高度固定 */
+  flex-shrink: 0;
 }
 
-/* ✨ 核心修正 3：讓兩個目標卡片能處理內部滾動 */
 .pending-card,
 .history-card {
-  min-height: 0; /* 關鍵！允許卡片在 Flex/Grid 中縮小 */
+  min-height: 0;
 }
 
-/* ✨ 核心修正 4：右側卡片本身產生滾動條 */
-.pending-card {
+.pending-card,
+.tab-content {
   overflow-y: auto;
-}
-
-/* ✨ 核心修正 5：左側歷史卡片由 flex-grow 填滿剩餘空間 */
-.history-card {
   flex-grow: 1;
 }
 
-/* --- 表單樣式 (無大改) --- */
 .form-card .memo-form {
   display: flex;
   flex-direction: column;
@@ -921,11 +838,7 @@ onMounted(() => {
   cursor: pointer;
   font-size: 1.1rem;
 }
-.form-card .add-btn:hover:not(:disabled) {
-  background-color: #0056b3;
-}
 
-/* --- Tab 和列表樣式 (無大改) --- */
 .tabs {
   display: flex;
   border-bottom: 1px solid #dee2e6;
@@ -959,13 +872,6 @@ onMounted(() => {
 .tab-count.resolved-count {
   background-color: #28a745;
   color: white;
-}
-
-.tab-content,
-.memo-list-wrapper {
-  flex-grow: 1;
-  overflow-y: auto; /* 內部滾動的實現 */
-  min-height: 0;
 }
 
 .memo-list {
@@ -1046,26 +952,112 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* --- 響應式樣式 --- */
+/* ✨ 新增/修改：FAB 和手機版 Modal 樣式 */
+.fab {
+  position: fixed;
+  bottom: 2rem;
+  right: 1.5rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  font-size: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  cursor: pointer;
+}
+
+.form-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.form-modal-overlay .form-card {
+  width: 100%;
+  max-width: 500px;
+}
+
+.close-modal-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #6c757d;
+  margin-left: auto;
+}
+
+.mobile-only {
+  display: none;
+}
+.desktop-only {
+  display: flex; /* or block, depending on element */
+}
+
+/* ================================== */
+/*         響應式樣式 (核心修正)       */
+/* ================================== */
 @media (max-width: 1024px) {
-  .memo-layout-grid {
-    grid-template-columns: 1fr;
-    flex-grow: 1;
+  .desktop-only {
+    display: none !important;
   }
+  .mobile-only {
+    display: flex;
+  }
+
+  .page-container.memo-view {
+    height: auto;
+    display: block;
+    padding: 1rem;
+  }
+
+  .memo-layout-grid {
+    display: flex;
+    flex-direction: column;
+    grid-template-areas: none;
+    grid-template-columns: 1fr;
+    flex-grow: unset;
+    min-height: unset;
+  }
+
+  /* ✨ 新增/修改：在手機上，待辦事項排第一 */
+  .pending-card {
+    order: 1;
+  }
+  .history-card {
+    order: 2;
+  }
+
   .pending-card,
   .history-card {
-    min-height: 400px;
+    min-height: auto;
+    overflow-y: visible;
   }
-  .memo-view {
-    padding: 1rem;
-    gap: 1rem;
+  .tab-content {
+    overflow-y: visible;
   }
+
   .page-title {
     font-size: 1.8rem;
     padding-bottom: 1rem;
-    margin-bottom: 0;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #dee2e6;
   }
 }
+
 @media (max-width: 768px) {
   .form-card .form-actions {
     grid-template-columns: 1fr;

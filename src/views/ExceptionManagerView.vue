@@ -190,25 +190,33 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
+import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
-
-// ✨ 1. 引入 useGlobalNotifier
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 
+// --- API & Services ---
 const exceptionsApi = ApiManager('schedule_exceptions')
 const memosApi = ApiManager('memos')
 const router = useRouter()
 const route = useRoute()
+const { createGlobalNotification } = useGlobalNotifier()
+const { addLocalNotification } = useRealtimeNotifications()
+
+// --- Auth ---
+const { currentUser, canEditSchedules } = useAuth()
+const isPageLocked = computed(() => !canEditSchedules.value)
+
+// --- Component State ---
 const allPatients = ref([])
 const exceptions = ref([])
 const isLoading = ref(true)
@@ -220,12 +228,8 @@ const isConflictAlertVisible = ref(false)
 const conflictAlertMessage = ref('')
 
 let unsubscribe = null
-const auth = useAuth()
-const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
-// ✨ 2. 初始化 createGlobalNotification
-const { createGlobalNotification } = useGlobalNotifier()
-
+// --- Data Maps ---
 const statusMap = {
   pending: '待處理',
   processing: '處理中',
@@ -234,12 +238,12 @@ const statusMap = {
   expired: '已過期',
   conflict_requires_resolution: '衝突待解決',
 }
-
 const typeMap = {
   MOVE: '臨時調班',
   SUSPEND: '區間暫停',
 }
 
+// --- Methods ---
 function formatTimestamp(ts) {
   if (!ts || !ts.toDate) return 'N/A'
   return ts.toDate().toLocaleString('zh-TW', {
@@ -285,7 +289,6 @@ async function handleCreateException(formData) {
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
 
-    // ✨ 3. 在這裡發送通知
     const actionText = isUpdating ? '更新' : '新增'
     const typeText = formData.type === 'MOVE' ? '臨時調班' : '區間暫停'
     const message = `${actionText}調班申請: ${formData.patientName} (${typeText})`
@@ -338,12 +341,8 @@ function confirmDeleteException(id) {
 async function executeDeleteException() {
   if (!exceptionToDeleteId.value) return
   try {
-    // ✨ 為了發送通知，我們先在刪除前獲取這筆資料
     const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
-
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
-
-    // ✨ 3. 在成功刪除後發送通知
     if (exceptionData) {
       const typeText = exceptionData.type === 'MOVE' ? '臨時調班' : '區間暫停'
       const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
@@ -372,31 +371,109 @@ function handleConflictAlertConfirm() {
   })
 }
 
-onMounted(async () => {
+// --- Initialization Logic ---
+async function initializePageData() {
+  if (unsubscribe) return
+  isLoading.value = true
+
   try {
     allPatients.value = await optimizedFetchAllPatients()
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-    unsubscribe = onSnapshot(q, (snapshot) => {
-      exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-      isLoading.value = false
-      const conflictId = route.query.resolveConflict
-      if (conflictId) {
-        const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
-        if (conflictException) {
-          exceptionToReEdit.value = conflictException
-          isCreateDialogVisible.value = true
-          router.replace({ query: {} })
+
+    unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const newExceptions = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+        const oldExceptionsMap = new Map(exceptions.value.map((ex) => [ex.id, ex]))
+
+        newExceptions.forEach((newEx) => {
+          if (newEx.status === 'conflict_requires_resolution') {
+            const oldEx = oldExceptionsMap.get(newEx.id)
+            if (!oldEx || oldEx.status !== 'conflict_requires_resolution') {
+              addLocalNotification(
+                `排程衝突：${newEx.patientName} 的申請失敗，請點此解決。`,
+                'conflict',
+                {
+                  action: () => {
+                    // 通知裡的 action 依然是 router.push，這沒有問題
+                    router.push({
+                      path: '/exception-manager',
+                      query: { resolveConflict: newEx.id },
+                    })
+                  },
+                },
+              )
+            }
+          }
+        })
+
+        exceptions.value = newExceptions
+
+        if (isLoading.value) {
+          isLoading.value = false
         }
-      }
-    })
+
+        // ‼️ 1. 從這裡【移除】檢查 URL 的邏輯
+        /*
+        const conflictId = route.query.resolveConflict;
+        if (conflictId) {
+          // ... 這整段邏輯都移到下面的 watch 中 ...
+        }
+        */
+      },
+      (error) => {
+        console.error('❌ Firestore 監聽器發生錯誤:', error)
+        isLoading.value = false
+      },
+    )
   } catch (error) {
     console.error('載入資料失敗:', error)
     isLoading.value = false
   }
-})
+}
 
+// --- Watcher for Authentication State (保持不變) ---
+watch(
+  currentUser,
+  (newUser) => {
+    if (newUser) {
+      initializePageData()
+    } else {
+      // ... 清理邏輯 ...
+    }
+  },
+  { immediate: true },
+)
+
+// ✨✨✨ 2. 新增一個專門監聽 URL query 的 watch ✨✨✨
+watch(
+  () => route.query.resolveConflict,
+  (conflictId) => {
+    // 當 URL 中的 resolveConflict 參數出現時
+    if (conflictId) {
+      // 從【已經載入好】的 exceptions 列表中尋找對應的項目
+      const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
+      if (conflictException) {
+        console.log(`正在打開衝突解決對話框 for ID: ${conflictId}`)
+        // 將找到的資料傳給對話框
+        exceptionToReEdit.value = conflictException
+        // 打開對話框
+        isCreateDialogVisible.value = true
+        // 處理完畢後，立即清理 URL，避免重新整理時再次觸發
+        router.replace({ query: {} })
+      } else {
+        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的例外申請。`)
+      }
+    }
+  },
+  { immediate: true },
+) // immediate: true 確保組件一掛載就檢查一次 URL
+
+// --- Lifecycle Hooks (保持不變) ---
 onUnmounted(() => {
-  if (unsubscribe) unsubscribe()
+  if (unsubscribe) {
+    unsubscribe()
+  }
 })
 </script>
 

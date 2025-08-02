@@ -113,7 +113,6 @@ import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import { useConflictWatcher } from '@/composables/useConflictWatcher.js'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
@@ -126,8 +125,6 @@ const route = useRoute()
 const { currentUser, logout, isAdmin } = useAuth()
 const { notifications, startListening, stopListening, removeNotification } =
   useRealtimeNotifications()
-const { startWatching: startConflictWatching, stopWatching: stopConflictWatching } =
-  useConflictWatcher()
 
 // --- 響應式佈局狀態 ---
 const isSidebarOpen = ref(false)
@@ -278,7 +275,6 @@ watch(
       console.log('✅ [MainLayout] User logged in, starting services.')
       startSharedDataListeners()
       triggerScheduleCheck()
-      startConflictWatching()
       startListening()
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
@@ -286,7 +282,6 @@ watch(
       allPatients.value = []
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
-      stopConflictWatching()
       stopListening()
     }
   },
