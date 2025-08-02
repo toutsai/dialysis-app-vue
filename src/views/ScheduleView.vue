@@ -56,7 +56,7 @@
         </div>
       </div>
 
-      <!-- 第二列：控制面板 (整個面板只在桌面顯示) -->
+      <!-- 第二列：控制面板 -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
           <button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
@@ -1907,21 +1907,19 @@ button:disabled {
 /* =================================================================== */
 
 /* --- 初始狀態：手機版/列印版相關元素預設隱藏 --- */
-.mobile-only {
-  display: none !important; /* 手機版元素預設強制隱藏 */
+.mobile-and-print-only {
+  display: none;
 }
 
 /* --- 手機螢幕 (小於等於 992px) 的媒體查詢 --- */
 @media screen and (max-width: 992px) {
+  /* 隱藏所有標記為 desktop-only 的元素 */
   .desktop-only {
     display: none !important;
   }
-  .mobile-only {
-    display: flex !important; /* 手機版元素強制顯示為 flex */
-    align-items: center;
-  }
+  /* 顯示標記為 mobile-and-print-only 的元素 */
   .mobile-and-print-only {
-    display: block !important;
+    display: block;
   }
 
   .page-container {
@@ -2052,10 +2050,9 @@ button:disabled {
 /* --- 列印時的媒體查詢 --- */
 @media print {
   .desktop-only,
-  .mobile-only,
   .page-header,
   .inpatient-sidebar {
-    display: none !important; /* 列印時，桌面和手機版元素都隱藏 */
+    display: none !important;
   }
   .mobile-and-print-only {
     display: block !important;
