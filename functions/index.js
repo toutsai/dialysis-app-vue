@@ -1,5 +1,4 @@
 // 【最終確認版 - 請使用這個版本完整替換您的 functions/index.js】
-const XLSX = require('xlsx')
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const {
@@ -793,6 +792,7 @@ exports.processLabReport = onCall(
     logger.info(`接收到檔案 ${fileName}，開始使用「健壯模式+病歷號清理+Timestamp日期」進行解析...`)
 
     try {
+      const XLSX = require('xlsx')
       const buffer = Buffer.from(fileContent, 'base64')
       const workbook = XLSX.read(buffer, { type: 'buffer' })
       const sheetName = workbook.SheetNames[0]
