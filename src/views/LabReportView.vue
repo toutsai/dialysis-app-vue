@@ -220,69 +220,72 @@ const reportData = ref([])
 const reportColumns = ref([])
 
 const freqOptions = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六']
-const prioritizedLabItems = [
-  'BUN',
-  'Creatinine',
-  'Albumin',
-  'P',
-  'Ca',
-  'Hb',
-  'Hct',
-  'Platelet',
-  'WBC',
-  'RBC',
-  'Na',
-  'K',
-  'eGFR',
-  'GlucoseAC',
-  'Triglyceride',
-  'Cholesterol',
-  'HDL',
-  'LDL',
-  'TotalProtein',
-  'UricAcid',
-  'Iron',
-  'TIBC',
-  'Ferritin',
-  'iPTH',
-  'PostBUN',
-]
-const labItemDisplayNames = {
-  BUN: 'BUN',
-  Creatinine: '肌酸酐',
-  Albumin: '白蛋白',
-  P: '磷',
-  Ca: '鈣',
-  Hb: '血色素',
-  Hct: '血比容',
-  Platelet: '血小板',
-  WBC: '白血球',
-  RBC: '紅血球',
-  Na: '鈉',
-  K: '鉀',
-  eGFR: 'eGFR',
-  GlucoseAC: '飯前血糖',
-  Triglyceride: '三酸甘油酯',
-  Cholesterol: '總膽固醇',
-  HDL: '高密度脂蛋白',
-  LDL: '低密度脂蛋白',
-  TotalProtein: '總蛋白',
-  UricAcid: '尿酸',
-  Iron: '鐵',
-  TIBC: '總鐵結合能力',
-  Ferritin: '鐵蛋白',
-  iPTH: '副甲狀腺素',
-  PostBUN: '洗後BUN',
-}
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
 
-// --- 上傳邏輯 ---
+// ✨ 1. 調整顯示順序、省略項目、加入計算欄位鍵
+const prioritizedLabItems = [
+  'WBC',
+  'Platelet',
+  'Hb',
+  'Hct',
+  'Ferritin',
+  'Iron',
+  'TIBC',
+  'TSAT',
+  'GlucoseAC',
+  'Albumin',
+  'Na',
+  'K',
+  'P',
+  'Ca',
+  'CaXP',
+  'iPTH',
+  'BUN',
+  'PostBUN',
+  'Creatinine',
+  'Kt/V',
+  'URR',
+]
+
+// ✨ 2. 項目名稱英文化，並為計算欄位命名
+const labItemDisplayNames = {
+  BUN: 'BUN',
+  Creatinine: 'Creatinine',
+  Albumin: 'Albumin',
+  P: 'P',
+  Ca: 'Ca',
+  Hb: 'Hb',
+  Hct: 'Hct',
+  Platelet: 'Platelet',
+  WBC: 'WBC',
+  Na: 'Na',
+  K: 'K',
+  eGFR: 'eGFR',
+  GlucoseAC: 'Glucose AC',
+  TotalProtein: 'Total Protein',
+  Iron: 'Iron',
+  TIBC: 'TIBC',
+  Ferritin: 'Ferritin',
+  iPTH: 'iPTH',
+  PostBUN: 'Post-BUN',
+  // 計算欄位
+  CaXP: 'Ca x P',
+  'Kt/V': 'Kt/V',
+  URR: 'URR (%)',
+  TSAT: 'TSAT (%)',
+}
+
+// ‼️‼️‼️ 以下是完整的上傳邏輯函式 ‼️‼️‼️
 function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
   uploadResult.value = null
 }
+
 async function handleUpload() {
-  if (!selectedFile.value) return alert('請先選擇檔案！')
+  if (!selectedFile.value) {
+    alert('請先選擇一個檔案！')
+    return
+  }
   isUploading.value = true
   uploadResult.value = null
   try {
@@ -301,6 +304,7 @@ async function handleUpload() {
     isUploading.value = false
   }
 }
+
 function toBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -309,6 +313,7 @@ function toBase64(file) {
     reader.onerror = (error) => reject(error)
   })
 }
+// ‼️‼️‼️ 上傳邏輯函式結束 ‼️‼️‼️
 
 // --- 查詢邏輯 ---
 async function handleSearch() {
@@ -416,12 +421,23 @@ async function searchGroupReports() {
   })
 
   reportData.value = patientList
-    .map((p) => ({
-      patientId: p.patientId,
-      patientName: p.patientName,
-      bedNum: p.bedNum,
-      labData: latestReports.get(p.patientId)?.data || {},
-    }))
+    .map((p) => {
+      const report = latestReports.get(p.patientId)
+      const labData = report?.data || {}
+      if (labData.Ca && labData.P) labData.CaXP = (labData.Ca * labData.P).toFixed(2)
+      if (labData.Iron && labData.TIBC > 0)
+        labData.TSAT = ((labData.Iron / labData.TIBC) * 100).toFixed(1)
+      if (labData.BUN && labData.PostBUN > 0) {
+        labData.URR = (((labData.BUN - labData.PostBUN) / labData.BUN) * 100).toFixed(1)
+        labData['Kt/V'] = Math.log(labData.BUN / labData.PostBUN).toFixed(2)
+      }
+      return {
+        patientId: p.patientId,
+        patientName: p.patientName,
+        bedNum: p.bedNum,
+        labData: labData,
+      }
+    })
     .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
 }
 
@@ -439,7 +455,7 @@ async function searchIndividualReports() {
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year + 1, 0, 1)
 
-  const reports = []
+  const reportsRaw = []
   const reportsRef = collection(db, 'lab_reports')
   const q = firestoreQuery(
     reportsRef,
@@ -453,25 +469,65 @@ async function searchIndividualReports() {
     const data = doc.data()
     if (data.reportDate?.toDate)
       data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
-    reports.push({ id: doc.id, ...data })
+    reportsRaw.push({ id: doc.id, ...data })
   })
 
+  // ‼️‼️‼️ 核心修正：簡化數據處理與計算流程 ‼️‼️‼️
+
+  // 1. 準備最終的數據結構和月份欄位
   const processedData = {}
   const monthSet = new Set()
   for (let i = 1; i <= 12; i++) {
     monthSet.add(`${year}-${String(i).padStart(2, '0')}`)
   }
-  reports.forEach((report) => {
+
+  // 2. 遍歷從 Firestore 拿回來的報告
+  reportsRaw.forEach((report) => {
     const monthKey = report.reportDate.slice(0, 7)
-    for (const itemKey in report.data) {
-      if (!processedData[itemKey]) processedData[itemKey] = {}
+    const labData = report.data
+
+    // 3. 先將所有原始數據填入 processedData
+    for (const itemKey in labData) {
+      if (!processedData[itemKey]) {
+        processedData[itemKey] = {}
+      }
+      // 確保只填入該月份的最新一筆數據
       if (!processedData[itemKey][monthKey]) {
-        processedData[itemKey][monthKey] = report.data[itemKey]
+        processedData[itemKey][monthKey] = labData[itemKey]
       }
     }
   })
+
+  // 4. 在所有原始數據都就位後，再遍歷所有月份進行計算
+  for (const monthKey of monthSet) {
+    // 從 processedData 中反向取出該月份的數據，方便計算
+    const bun = processedData['BUN']?.[monthKey]
+    const postBun = processedData['PostBUN']?.[monthKey]
+    const ca = processedData['Ca']?.[monthKey]
+    const p = processedData['P']?.[monthKey]
+    const iron = processedData['Iron']?.[monthKey]
+    const tibc = processedData['TIBC']?.[monthKey]
+
+    // 進行計算，並將結果填回 processedData
+    if (ca && p) {
+      if (!processedData['CaXP']) processedData['CaXP'] = {}
+      processedData['CaXP'][monthKey] = (ca * p).toFixed(2)
+    }
+    if (iron && tibc > 0) {
+      if (!processedData['TSAT']) processedData['TSAT'] = {}
+      processedData['TSAT'][monthKey] = ((iron / tibc) * 100).toFixed(1)
+    }
+    if (bun && postBun > 0) {
+      if (!processedData['URR']) processedData['URR'] = {}
+      if (!processedData['Kt/V']) processedData['Kt/V'] = {}
+      processedData['URR'][monthKey] = (((bun - postBun) / bun) * 100).toFixed(1)
+      processedData['Kt/V'][monthKey] = Math.log(bun / postBun).toFixed(2)
+    }
+  }
+
+  // 5. 更新最終的 ref 狀態
   reportData.value = processedData
-  reportColumns.value = Array.from(monthSet).sort()
+  reportColumns.value = Array.from(monthSet).sort().reverse()
 }
 
 function changeYear(offset) {
