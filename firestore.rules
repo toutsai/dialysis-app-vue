@@ -73,16 +73,16 @@ service cloud.firestore {
       allow update: if isEditor();
       allow delete: if isEditor();
     }
-
-    // ‼️‼️‼️ 這裡是修改後的核心 ‼️‼️‼️
     match /condition_records/{recordId} {
-      // 允許所有已登入的使用者讀取病情紀錄
       allow read: if isAuthenticated();
-      
-      // 允許醫師/專師及以上權限的使用者創建、更新、刪除紀錄
       allow write: if isContributor();
     }
-    // ‼️‼️‼️ 修改結束 ‼️‼️‼️
+    match /lab_reports/{reportId} {
+      // 允許所有已登入的使用者讀取檢驗報告
+      allow read: if isAuthenticated();
+      // 只有後端函式可以寫入，前端不允許直接寫入
+      allow write: if false; 
+    }
 
   }
 }
