@@ -30,7 +30,6 @@ const functions = getFunctions(app)
 
 // 檢查是否處於開發模式 (Vite 預設會設定 import.meta.env.DEV 為 true)
 
-/*  <-- 使用區塊註解將整個 if 區塊包起來 -->
 if (import.meta.env.DEV) {
   console.log('👨‍💻 Running in development mode, attempting to connect to Firebase Emulators...')
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', {
@@ -44,7 +43,6 @@ if (import.meta.env.DEV) {
 } else {
   console.log('🌍 Running in production mode, connecting to live Firebase services.')
 }
-  */ // <-- 註解結束
 
 // ✨ (可選，但推薦) 加上一行日誌，讓您清楚知道現在的連接狀態
 console.log(`🌍 Connecting to LIVE Firebase project: ${firebaseConfig.projectId}`)

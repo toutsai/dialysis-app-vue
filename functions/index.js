@@ -1,5 +1,5 @@
 // 【最終確認版 - 請使用這個版本完整替換您的 functions/index.js】
-
+const XLSX = require('xlsx')
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const {
@@ -768,6 +768,156 @@ exports.onExceptionDeleted = onDocumentDeleted(
       )
     } catch (error) {
       logger.error(`❌ [Reverter v5] 恢復例外 ${exceptionId} 時發生錯誤:`, error)
+    }
+  },
+)
+// ===================================================================
+// Lab Report Functions (檢驗報告相關函式)
+// ===================================================================
+
+exports.processLabReport = onCall(
+  {
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async (request) => {
+    if (!request.auth || !['admin', 'editor'].includes(request.auth.token.role)) {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
+    }
+
+    const { fileName, fileContent } = request.data
+    if (!fileName || !fileContent) {
+      throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
+    }
+
+    logger.info(`接收到檔案 ${fileName}，開始使用「長格式」解析模式...`)
+
+    try {
+      const buffer = Buffer.from(fileContent, 'base64')
+      const workbook = XLSX.read(buffer, { type: 'buffer' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const jsonData = XLSX.utils.sheet_to_json(worksheet)
+
+      if (jsonData.length === 0) {
+        throw new HttpsError('invalid-argument', 'Excel 檔案中沒有數據。')
+      }
+
+      // ✨ 關鍵：這是 Excel 細項名稱到資料庫欄位的對應表
+      // 請根據您的實際需求調整此處
+      const labItemMapping = {
+        白血球: 'WBC',
+        紅血球: 'RBC',
+        血色素: 'Hb',
+        血球容積比: 'Hct',
+        平均紅血球容積: 'MCV',
+        平均紅血球血紅素量: 'MCH',
+        平均紅血球血紅素濃度: 'MCHC',
+        血小板: 'Platelet',
+        '總膽固醇(血)': 'Cholesterol',
+        'BUN(Blood)': 'BUN',
+        '三酸甘油酯(血)': 'Triglyceride',
+        飯前血糖: 'GlucoseAC',
+        'Calcium(Blood)': 'Ca',
+        磷: 'P', // 也加上引號
+        'Uric Acid (B)': 'UricAcid',
+        eGFR: 'eGFR', // 也加上引號
+        '肌酐、血(洗腎專用)': 'Creatinine',
+        血中鈉: 'Na',
+        血中鉀: 'K',
+        總鐵結合能力TIBC: 'TIBC',
+        Iron: 'Iron', // 也加上引號
+        '白蛋白(BCG法)': 'Albumin',
+        '總蛋白(血)': 'TotalProtein',
+        高密度脂蛋白: 'HDL',
+        低密度脂蛋白: 'LDL',
+        副甲狀腺素: 'iPTH',
+        '血中尿素氮(洗後專用)': 'PostBUN',
+        鐵蛋白: 'Ferritin',
+      }
+
+      // ✨ 核心邏輯：建立一個 Map 來聚合報告
+      const reports = new Map()
+      let errors = []
+
+      // 異步處理每一行，但確保病人查找是序列的
+      for (const row of jsonData) {
+        const medicalRecordNumber = String(row['病歷號'] || '').trim()
+        const reportDateStr = String(row['報告日'] || '').trim()
+        const labItemName = String(row['細項名稱'] || '').trim()
+        const labResult = row['結果']
+
+        if (!medicalRecordNumber || !reportDateStr || !labItemName || labResult === undefined) {
+          errors.push({
+            rowData: JSON.stringify(row),
+            reason: '該行缺少 病歷號/報告日/細項名稱/結果 中的一項',
+          })
+          continue
+        }
+
+        const reportKey = `${medicalRecordNumber}_${reportDateStr}`
+
+        if (!reports.has(reportKey)) {
+          const patientQuery = await db
+            .collection('patients')
+            .where('medicalRecordNumber', '==', medicalRecordNumber)
+            .limit(1)
+            .get()
+          if (patientQuery.empty) {
+            errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
+            continue // 跳過此病人後續所有項目
+          }
+          const patientDoc = patientQuery.docs[0]
+
+          // 解析報告日期 (YYYYMMDDHHMMSS -> YYYY-MM-DD)
+          const year = reportDateStr.substring(0, 4)
+          const month = reportDateStr.substring(4, 6)
+          const day = reportDateStr.substring(6, 8)
+          const parsedDate = new Date(`${year}-${month}-${day}`)
+
+          reports.set(reportKey, {
+            patientId: patientDoc.id,
+            patientName: patientDoc.data().name,
+            medicalRecordNumber: patientDoc.data().medicalRecordNumber,
+            reportDate: !isNaN(parsedDate)
+              ? formatDateForQuery(parsedDate)
+              : formatDateForQuery(new Date()),
+            sourceFile: fileName,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            data: {},
+          })
+        }
+
+        const report = reports.get(reportKey)
+        if (report) {
+          // 確保報告已成功初始化
+          const dbField = labItemMapping[labItemName]
+          if (dbField) {
+            const value = parseFloat(labResult)
+            report.data[dbField] = isNaN(value) ? null : value
+          }
+        }
+      }
+
+      if (reports.size > 0) {
+        const batch = db.batch()
+        for (const reportData of reports.values()) {
+          const newReportRef = db.collection('lab_reports').doc()
+          batch.set(newReportRef, reportData)
+        }
+        await batch.commit()
+      }
+
+      return {
+        success: true,
+        message: `處理完成！成功聚合並匯入 ${reports.size} 份報告，發現 ${errors.length} 個問題行。`,
+        processedCount: reports.size,
+        errorCount: errors.length,
+        errors: errors.slice(0, 50), // 最多顯示 50 條錯誤
+      }
+    } catch (error) {
+      logger.error(`處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
     }
   },
 )
