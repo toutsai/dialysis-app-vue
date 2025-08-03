@@ -95,6 +95,8 @@ exports.checkExpiredMemos = onSchedule(
   {
     schedule: 'every day 02:00',
     timeZone: 'Asia/Taipei',
+    timeoutSeconds: 540, // 增加超時時間到 9 分鐘
+    memory: '256MiB', // 設定記憶體限制
   },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired memos...')
