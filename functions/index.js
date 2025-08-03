@@ -790,21 +790,45 @@ exports.processLabReport = onCall(
       throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
     }
 
-    logger.info(`接收到檔案 ${fileName}，開始使用「長格式」解析模式...`)
+    logger.info(`接收到檔案 ${fileName}，開始使用「健壯模式+病歷號清理+Timestamp日期」進行解析...`)
 
     try {
       const buffer = Buffer.from(fileContent, 'base64')
       const workbook = XLSX.read(buffer, { type: 'buffer' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
-      const jsonData = XLSX.utils.sheet_to_json(worksheet)
 
-      if (jsonData.length === 0) {
-        throw new HttpsError('invalid-argument', 'Excel 檔案中沒有數據。')
+      const sheetAsArray = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+
+      if (sheetAsArray.length < 2) {
+        throw new HttpsError('invalid-argument', 'Excel 檔案內容行數不足。')
       }
 
-      // ✨ 關鍵：這是 Excel 細項名稱到資料庫欄位的對應表
-      // 請根據您的實際需求調整此處
+      let headerRowIndex = -1
+      let headers = []
+      for (let i = 0; i < sheetAsArray.length; i++) {
+        const row = sheetAsArray[i]
+        if (row.includes('病歷號') && row.includes('細項名稱')) {
+          headerRowIndex = i
+          headers = row
+          break
+        }
+      }
+
+      if (headerRowIndex === -1) {
+        throw new HttpsError(
+          'invalid-argument',
+          "在 Excel 中找不到有效的標題行 (需包含 '病歷號' 和 '細項名稱')。",
+        )
+      }
+
+      const dataRows = sheetAsArray.slice(headerRowIndex + 1)
+
+      const headerToIndex = {}
+      headers.forEach((header, index) => {
+        if (header) headerToIndex[String(header).trim()] = index
+      })
+
       const labItemMapping = {
         白血球: 'WBC',
         紅血球: 'RBC',
@@ -819,14 +843,14 @@ exports.processLabReport = onCall(
         '三酸甘油酯(血)': 'Triglyceride',
         飯前血糖: 'GlucoseAC',
         'Calcium(Blood)': 'Ca',
-        磷: 'P', // 也加上引號
+        磷: 'P',
         'Uric Acid (B)': 'UricAcid',
-        eGFR: 'eGFR', // 也加上引號
+        eGFR: 'eGFR',
         '肌酐、血(洗腎專用)': 'Creatinine',
         血中鈉: 'Na',
         血中鉀: 'K',
         總鐵結合能力TIBC: 'TIBC',
-        Iron: 'Iron', // 也加上引號
+        Iron: 'Iron',
         '白蛋白(BCG法)': 'Albumin',
         '總蛋白(血)': 'TotalProtein',
         高密度脂蛋白: 'HDL',
@@ -836,20 +860,36 @@ exports.processLabReport = onCall(
         鐵蛋白: 'Ferritin',
       }
 
-      // ✨ 核心邏輯：建立一個 Map 來聚合報告
       const reports = new Map()
       let errors = []
+      const patientCache = new Map()
 
-      // 異步處理每一行，但確保病人查找是序列的
-      for (const row of jsonData) {
-        const medicalRecordNumber = String(row['病歷號'] || '').trim()
-        const reportDateStr = String(row['報告日'] || '').trim()
-        const labItemName = String(row['細項名稱'] || '').trim()
-        const labResult = row['結果']
+      for (const rowArray of dataRows) {
+        let medicalRecordNumber = String(rowArray[headerToIndex['病歷號']] || '').trim()
 
-        if (!medicalRecordNumber || !reportDateStr || !labItemName || labResult === undefined) {
+        if (medicalRecordNumber) {
+          medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
+        }
+
+        const reportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
+        const labItemName = String(rowArray[headerToIndex['細項名稱']] || '').trim()
+        const labResult = rowArray[headerToIndex['結果']]
+
+        if (
+          !medicalRecordNumber ||
+          !reportDateStr ||
+          !labItemName ||
+          labResult === undefined ||
+          labResult === null
+        ) {
+          if (
+            rowArray.every(
+              (cell) => cell === null || cell === undefined || String(cell).trim() === '',
+            )
+          )
+            continue
           errors.push({
-            rowData: JSON.stringify(row),
+            rowData: JSON.stringify(rowArray),
             reason: '該行缺少 病歷號/報告日/細項名稱/結果 中的一項',
           })
           continue
@@ -858,43 +898,55 @@ exports.processLabReport = onCall(
         const reportKey = `${medicalRecordNumber}_${reportDateStr}`
 
         if (!reports.has(reportKey)) {
-          const patientQuery = await db
-            .collection('patients')
-            .where('medicalRecordNumber', '==', medicalRecordNumber)
-            .limit(1)
-            .get()
-          if (patientQuery.empty) {
-            errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
-            continue // 跳過此病人後續所有項目
+          let patientDoc
+          if (patientCache.has(medicalRecordNumber)) {
+            patientDoc = patientCache.get(medicalRecordNumber)
+          } else {
+            const patientQuery = await db
+              .collection('patients')
+              .where('medicalRecordNumber', '==', medicalRecordNumber)
+              .limit(1)
+              .get()
+            if (patientQuery.empty) {
+              patientCache.set(medicalRecordNumber, null)
+            } else {
+              patientDoc = patientQuery.docs[0]
+              patientCache.set(medicalRecordNumber, patientDoc)
+            }
           }
-          const patientDoc = patientQuery.docs[0]
 
-          // 解析報告日期 (YYYYMMDDHHMMSS -> YYYY-MM-DD)
+          if (!patientDoc) {
+            errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
+            continue
+          }
+
           const year = reportDateStr.substring(0, 4)
           const month = reportDateStr.substring(4, 6)
           const day = reportDateStr.substring(6, 8)
-          const parsedDate = new Date(`${year}-${month}-${day}`)
+          // 建立一個 JavaScript Date 物件
+          let parsedDate = new Date(`${year}-${month}-${day}`)
+          if (isNaN(parsedDate.getTime())) {
+            parsedDate = new Date() // 如果解析失敗，使用今天
+          }
 
           reports.set(reportKey, {
             patientId: patientDoc.id,
             patientName: patientDoc.data().name,
             medicalRecordNumber: patientDoc.data().medicalRecordNumber,
-            reportDate: !isNaN(parsedDate)
-              ? formatDateForQuery(parsedDate)
-              : formatDateForQuery(new Date()),
+            // ‼️‼️‼️ 核心修正：直接傳遞 Date 物件，SDK會自動轉為 Timestamp ‼️‼️‼️
+            reportDate: parsedDate,
             sourceFile: fileName,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             data: {},
           })
         }
 
         const report = reports.get(reportKey)
         if (report) {
-          // 確保報告已成功初始化
           const dbField = labItemMapping[labItemName]
           if (dbField) {
             const value = parseFloat(labResult)
-            report.data[dbField] = isNaN(value) ? null : value
+            report.data[dbField] = isNaN(value) ? String(labResult) : value
           }
         }
       }
@@ -913,7 +965,7 @@ exports.processLabReport = onCall(
         message: `處理完成！成功聚合並匯入 ${reports.size} 份報告，發現 ${errors.length} 個問題行。`,
         processedCount: reports.size,
         errorCount: errors.length,
-        errors: errors.slice(0, 50), // 最多顯示 50 條錯誤
+        errors: errors.slice(0, 50),
       }
     } catch (error) {
       logger.error(`處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
