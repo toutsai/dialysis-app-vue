@@ -136,26 +136,48 @@
 
       <!-- 資料上傳頁籤 -->
       <div v-show="activeTab === 'upload'" class="tab-panel upload-panel">
-        <div class="section-card upload-card">
-          <h2>步驟一：上傳 Excel 檔案</h2>
-          <div class="upload-controls">
-            <input
-              type="file"
-              @change="handleFileSelect"
-              accept=".xlsx, .xls"
-              :disabled="isUploading"
-            />
-            <button @click="handleUpload" :disabled="!selectedFile || isUploading">
-              {{ isUploading ? '處理中...' : '上傳並處理' }}
-            </button>
-          </div>
-          <div v-if="selectedFile" class="file-info">
+        <!-- 美化後的上傳介面 -->
+        <div
+          class="upload-drop-zone"
+          :class="{ 'is-dragover': isDragOver }"
+          @dragover.prevent="isDragOver = true"
+          @dragleave.prevent="isDragOver = false"
+          @drop.prevent="handleFileDrop"
+        >
+          <div class="upload-icon">📤</div>
+          <h3 v-if="!selectedFile">拖曳 Excel 檔案至此，或點擊按鈕選擇</h3>
+          <h3 v-else>
             已選擇檔案：<strong>{{ selectedFile.name }}</strong>
-          </div>
+          </h3>
+          <p class="upload-hint">支援 .xlsx, .xls 格式</p>
+
+          <!-- 隱藏的原始 input，透過 label 觸發 -->
+          <input
+            id="file-input"
+            type="file"
+            @change="handleFileSelect"
+            accept=".xlsx, .xls"
+            :disabled="isUploading"
+          />
+          <!-- 美化後的按鈕，點擊它等於點擊上面的 input -->
+          <label for="file-input" class="file-input-label">
+            {{ selectedFile ? '重新選擇檔案' : '選擇檔案' }}
+          </label>
+
+          <!-- 主要的上傳按鈕 -->
+          <button
+            class="upload-btn-main"
+            @click="handleUpload"
+            :disabled="!selectedFile || isUploading"
+          >
+            {{ isUploading ? '處理中...' : '開始上傳並處理' }}
+          </button>
         </div>
-        <div class="section-card results-card">
-          <h2>步驟二：檢視處理結果</h2>
-          <div v-if="uploadResult" class="upload-result">
+
+        <!-- 處理結果區塊 -->
+        <div v-if="uploadResult" class="results-card">
+          <h2>處理結果</h2>
+          <div class="upload-result">
             <p :class="uploadResult.errorCount > 0 ? 'has-error' : 'is-success'">
               {{ uploadResult.message }}
             </p>
@@ -169,7 +191,6 @@
               </ul>
             </div>
           </div>
-          <div v-else class="placeholder-text">上傳檔案後，這裡會顯示匯入的結果報告。</div>
         </div>
       </div>
     </main>
@@ -204,6 +225,7 @@ const activeTab = ref('query')
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
+const isDragOver = ref(false)
 
 // --- 查詢相關狀態 ---
 const searchType = ref('group')
@@ -371,17 +393,20 @@ async function searchGroupReports() {
     (id) =>
       masterRules[id].freq === groupSearchParams.freq && masterRules[id].shiftIndex === shiftIndex,
   )
+
   if (allPatientIdsInGroup.length === 0) {
     reportData.value = []
     return
   }
 
+  // 1. 建立唯一的、供所有後續查詢使用的病人 ID 批次
   const CHUNK_SIZE = 30
   const chunks = Array.from(
     { length: Math.ceil(allPatientIdsInGroup.length / CHUNK_SIZE) },
     (v, i) => allPatientIdsInGroup.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE),
   )
 
+  // 2. 查詢病人詳細資訊 (不變)
   const patientInfoMap = new Map()
   const patientsRef = collection(db, 'patients')
   for (const chunk of chunks) {
@@ -390,6 +415,7 @@ async function searchGroupReports() {
     querySnapshot.forEach((doc) => patientInfoMap.set(doc.id, { id: doc.id, ...doc.data() }))
   }
 
+  // 3. 組合出完整的「點名單」 (不變)
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -401,19 +427,16 @@ async function searchGroupReports() {
     return
   }
 
+  // 4. 準備日期範圍 (不變)
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
 
   const allReports = []
   const reportsRef = collection(db, 'lab_reports')
-  const patientIdsInList = patientList.map((p) => p.patientId)
-  const reportChunks = Array.from(
-    { length: Math.ceil(patientIdsInList.length / CHUNK_SIZE) },
-    (v, i) => patientIdsInList.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE),
-  )
 
-  for (const chunk of reportChunks) {
+  // ‼️‼️‼️ 核心修正：直接使用第 1 步建立的 `chunks` 進行查詢 ‼️‼️‼️
+  for (const chunk of chunks) {
     const q = firestoreQuery(
       reportsRef,
       where('patientId', 'in', chunk),
@@ -430,6 +453,7 @@ async function searchGroupReports() {
     })
   }
 
+  // 5. 聚合與組合數據 (不變)
   const latestReports = new Map()
   allReports.forEach((report) => {
     if (!latestReports.has(report.patientId)) latestReports.set(report.patientId, report)
@@ -439,10 +463,11 @@ async function searchGroupReports() {
     .map((p) => {
       const report = latestReports.get(p.patientId)
       const labData = report?.data || {}
+      // ... (計算邏輯不變) ...
       if (labData.Ca && labData.P) labData.CaXP = (labData.Ca * labData.P).toFixed(2)
       if (labData.Iron && labData.TIBC > 0)
         labData.TSAT = ((labData.Iron / labData.TIBC) * 100).toFixed(1)
-      if (labData.BUN && labData.PostBUN > 0) {
+      if (labData.BUN && labData.PostBUN > 0 && labData.BUN > 0) {
         labData.URR = (((labData.BUN - labData.PostBUN) / labData.BUN) * 100).toFixed(1)
         labData['Kt/V'] = Math.log(labData.BUN / labData.PostBUN).toFixed(2)
       }
@@ -550,6 +575,15 @@ function changeYear(offset) {
   if (individualSearchQuery.value.trim()) handleSearch()
 }
 
+function handleFileDrop(event) {
+  isDragOver.value = false
+  const files = event.dataTransfer.files
+  if (files.length > 0) {
+    selectedFile.value = files[0]
+    uploadResult.value = null
+  }
+}
+
 onMounted(() => {
   const patientIdFromQuery = route.query.patientId
   if (patientIdFromQuery) {
@@ -565,22 +599,20 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* 頁面主體 Flexbox 佈局，解決滾動條問題 */
+/* --- 頁面主體與頁籤 (不變) --- */
 .page-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 2rem); /* 假設外層有 1rem 的上下 padding */
+  height: calc(100vh - 2rem);
   padding: 1rem;
   background-color: #f8f9fa;
 }
-
 .page-header {
   flex-shrink: 0;
   padding-bottom: 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid #dee2e6;
 }
-
 h1 {
   font-size: 2rem;
   margin: 0;
@@ -589,8 +621,6 @@ h1 {
   font-size: 1rem;
   color: #6c757d;
 }
-
-/* 頁籤導覽樣式 */
 .tabs-navigation {
   display: flex;
   gap: 0.5rem;
@@ -614,15 +644,13 @@ h1 {
   color: #007bff;
   border-color: #dee2e6;
 }
-
-/* 主內容區與頁籤面板佈局 */
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
   border: 1px solid #dee2e6;
   border-radius: 0 8px 8px 8px;
-  overflow: hidden;
   display: flex;
+  overflow: hidden;
 }
 .tab-panel {
   width: 100%;
@@ -631,18 +659,131 @@ h1 {
   flex-direction: column;
   padding: 1.5rem;
 }
-.upload-panel {
+.query-panel {
   gap: 1.5rem;
 }
 
-.upload-card,
+/* --- 美化後的上傳頁籤樣式 --- */
+.upload-panel {
+  align-items: center;
+  justify-content: flex-start; /* 從置中改為從頂部開始 */
+  gap: 2rem;
+  overflow-y: auto;
+}
+.upload-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem;
+  border: 2px dashed #adb5bd;
+  border-radius: 12px;
+  background-color: #f8f9fa;
+  width: 100%;
+  max-width: 600px;
+  text-align: center;
+  transition: all 0.2s ease-in-out;
+}
+.upload-drop-zone.is-dragover {
+  border-color: #007bff;
+  background-color: #e7f1ff;
+}
+.upload-icon {
+  font-size: 3rem;
+  color: #007bff;
+  margin-bottom: 1rem;
+}
+.upload-drop-zone h3 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+}
+.upload-hint {
+  color: #6c757d;
+  margin: 0 0 1.5rem 0;
+}
+input[type='file'] {
+  display: none;
+}
+.file-input-label {
+  display: inline-block;
+  padding: 0.6rem 1.2rem;
+  background-color: #fff;
+  border: 1px solid #6c757d;
+  color: #495057;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  transition: all 0.2s;
+}
+.file-input-label:hover {
+  background-color: #e9ecef;
+}
+.upload-btn-main {
+  padding: 0.75rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.upload-btn-main:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+/* --- 處理結果區塊的樣式 --- */
 .results-card {
+  width: 100%;
+  max-width: 600px;
   padding: 1.5rem;
   border: 1px solid #e9ecef;
   border-radius: 8px;
+  background-color: #fff;
+}
+.results-card h2 {
+  margin-top: 0;
+}
+.upload-result {
+  padding: 0.75rem;
+  border-radius: 4px;
+}
+.upload-result .is-success {
+  color: #155724;
+  background-color: #d4edda;
+}
+.upload-result .has-error {
+  color: #721c24;
+  background-color: #f8d7da;
+}
+.error-details {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ffc107;
+  text-align: left;
+}
+.error-details h4 {
+  margin-top: 0;
+  color: #856404;
+}
+.error-details ul {
+  padding-left: 20px;
+  margin: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.error-details li {
+  margin-bottom: 0.5rem;
+}
+.error-data {
+  font-size: 0.85rem;
+  color: #666;
+  font-family: monospace;
 }
 
-/* 查詢控制項與結果顯示區的 Flexbox 佈局 */
+/* --- 查詢頁籤的樣式 (不變) --- */
 .search-controls {
   flex-shrink: 0;
   display: flex;
@@ -664,14 +805,7 @@ h1 {
   border: 1px solid #dee2e6;
   border-radius: 4px;
 }
-
-/* --- 其他元件的樣式 --- */
-.filter-wrapper {
-  display: flex;
-  gap: 1rem;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
+.filter-wrapper,
 .group-filters,
 .individual-filters {
   display: flex;
@@ -773,49 +907,115 @@ tbody tr:nth-child(even) {
 tbody tr:nth-child(even) .sticky-col {
   background-color: #f8f9fa;
 }
-.upload-controls {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.upload-result {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  border-radius: 4px;
-}
-.upload-result .is-success {
-  color: #155724;
-  background-color: #d4edda;
-}
-.upload-result .has-error {
-  color: #721c24;
-  background-color: #f8d7da;
-}
 .file-info {
   margin-top: 1rem;
 }
-.error-details {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #ffc107;
-  text-align: left;
+.abnormal-high,
+.abnormal-low {
+  font-weight: bold;
 }
-.error-details h4 {
-  margin-top: 0;
-  color: #856404;
+.abnormal-high {
+  color: #dc3545;
 }
-.error-details ul {
-  padding-left: 20px;
-  margin: 0;
-  max-height: 200px;
-  overflow-y: auto;
+.abnormal-low {
+  color: #007bff;
 }
-.error-details li {
-  margin-bottom: 0.5rem;
+.cell-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
 }
-.error-data {
-  font-size: 0.85rem;
-  color: #666;
-  font-family: monospace;
+.trend-up {
+  color: #dc3545;
+  font-size: 0.8em;
+}
+.trend-down {
+  color: #28a745;
+  font-size: 0.8em;
+}
+
+/* ‼️‼️‼️ 行動版響應式樣式 (已包含上傳頁籤優化) ‼️‼️‼️ */
+@media (max-width: 768px) {
+  .page-container {
+    height: auto;
+    padding: 0;
+  }
+  .page-header,
+  .tab-panel {
+    padding: 1rem;
+  }
+  .page-main-content {
+    border-radius: 0;
+    overflow: visible;
+  }
+  .tab-panel.query-panel {
+    overflow: visible;
+  }
+  .search-controls {
+    position: relative;
+    z-index: 40;
+  }
+  h1 {
+    font-size: 1.5rem;
+  }
+  .tabs-navigation button {
+    font-size: 1rem;
+    padding: 0.5rem 1rem;
+  }
+  .search-controls,
+  .filter-wrapper,
+  .group-filters,
+  .individual-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  .search-field input,
+  .search-field select {
+    min-width: 100%;
+  }
+  .search-btn {
+    align-self: auto;
+  }
+  .year-selector {
+    justify-content: space-between;
+    width: 100%;
+  }
+  table {
+    font-size: 0.8rem;
+  }
+  th,
+  td {
+    padding: 0.5rem 0.25rem;
+  }
+  .sticky-col {
+    min-width: 80px;
+  }
+
+  /* ✨ 新增：行動版上傳介面優化 ✨ */
+  .upload-panel {
+    justify-content: flex-start;
+  }
+  .upload-drop-zone {
+    padding: 1.5rem; /* 縮小內邊距 */
+  }
+  .upload-icon {
+    font-size: 2.5rem; /* 縮小圖示 */
+    margin-bottom: 0.5rem;
+  }
+  .upload-drop-zone h3 {
+    font-size: 1.1rem; /* 縮小標題字體 */
+  }
+  .upload-hint {
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .file-input-label,
+  .upload-btn-main {
+    width: 100%; /* 讓按鈕變滿版 */
+    box-sizing: border-box;
+    padding: 0.75rem;
+  }
 }
 </style>

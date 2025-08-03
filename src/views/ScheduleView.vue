@@ -488,6 +488,7 @@
 
 <script setup>
 import { ref, onMounted, computed, reactive, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   fetchAllSchedules as optimizedFetchAllSchedules,
@@ -598,6 +599,7 @@ const selectedPatientForAction = ref(null)
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
+const router = useRouter()
 
 // --- Computed Properties ---
 const isPageLocked = computed(() => {
@@ -912,13 +914,18 @@ function handleActionSelect(actionType) {
   const patient = selectedPatientForAction.value
   if (!patient) return
 
-  // 使用 nextTick 確保舊的 Modal 關閉動畫完成後再打開新的
   nextTick(() => {
     if (actionType === 'view-condition-record') {
       selectedPatientForRecord.value = patient
       isConditionModalVisible.value = true
     } else if (actionType === 'view-memos') {
       showPatientMemos(patient.id)
+    } else if (actionType === 'view-lab-reports') {
+      // ✨ 執行頁面跳轉，並帶上 patientId 作為 query 參數
+      router.push({
+        path: '/lab-reports',
+        query: { patientId: patient.id },
+      })
     }
   })
 }
