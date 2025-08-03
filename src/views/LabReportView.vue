@@ -275,6 +275,21 @@ const labItemDisplayNames = {
   TSAT: 'TSAT (%)',
 }
 
+// ‼️‼️‼️ 在這裡加入檢驗項目標準值 ‼️‼️‼️
+const STANDARDS = {
+  Albumin: { min: 3.5 },
+  P: { max: 5.5 },
+  Ca: { min: 8.4, max: 10.2 },
+  'Kt/V': { min: 1.2 },
+  URR: { min: 65 },
+  Hb: { min: 10 },
+  Hct: { min: 33, max: 36 },
+  Ferritin: { min: 200, max: 500 },
+  TSAT: { min: 20 },
+  iPTH: { min: 150, max: 300 },
+  // ... 您可以隨時在此處新增或修改標準
+}
+
 // ‼️‼️‼️ 以下是完整的上傳邏輯函式 ‼️‼️‼️
 function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
