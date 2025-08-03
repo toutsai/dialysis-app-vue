@@ -21,6 +21,12 @@
               <span class="badge">!</span>
             </button>
           </li>
+          <li class="action-item">
+            <button class="action-btn" @click="emitAction('view-lab-reports')">
+              <span class="icon">📄</span>
+              <span class="text">檢驗報告</span>
+            </button>
+          </li>
           <!-- 未來可在此處擴充，例如： -->
           <!--
           <li class="action-item">
