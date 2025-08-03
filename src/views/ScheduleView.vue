@@ -345,14 +345,15 @@
                         ?.medicalRecordNumber
                     }}</span>
                     <div class="patient-name-wrapper">
+                      <!-- ‼️ 核心修正：使用新的 computed 屬性來判斷是否顯示圖示 -->
                       <span
                         v-if="
-                          hasRecentRecord(
+                          patientHasNotification.has(
                             currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
                           )
                         "
                         class="record-indicator"
-                        title="有近期病情紀錄"
+                        title="有新的病情紀錄或交班備忘"
                         >📝</span
                       >
                       <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
@@ -383,14 +384,15 @@
                       )?.medicalRecordNumber
                     }}</span>
                     <div class="patient-name-wrapper">
+                      <!-- ‼️ 核心修正：同樣使用新的 computed 屬性 -->
                       <span
                         v-if="
-                          hasRecentRecord(
+                          patientHasNotification.has(
                             currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
                           )
                         "
                         class="record-indicator"
-                        title="有近期病情紀錄"
+                        title="有新的病情紀錄或交班備忘"
                         >📝</span
                       >
                       <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
@@ -474,11 +476,18 @@
       @update="handleUpdateConditionRecord"
       @delete="handleDeleteConditionRecord"
     />
+    <PatientActionModal
+      :is-visible="isActionModalVisible"
+      :patient="selectedPatientForAction"
+      :has-memo="patientWithMemoIds.has(selectedPatientForAction?.id)"
+      @select="handleActionSelect"
+      @close="isActionModalVisible = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, reactive, watch } from 'vue'
+import { ref, onMounted, computed, reactive, watch, nextTick } from 'vue'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   fetchAllSchedules as optimizedFetchAllSchedules,
@@ -515,6 +524,7 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ConditionRecordModal from '@/components/ConditionRecordModal.vue'
+import PatientActionModal from '@/components/PatientActionModal.vue'
 
 // --- API and Constants ---
 const conditionRecordsApi = ApiManager('condition_records')
@@ -583,6 +593,8 @@ const onConfirmAction = ref(null)
 const isLoading = ref(true)
 const isConditionModalVisible = ref(false)
 const selectedPatientForRecord = ref(null)
+const isActionModalVisible = ref(false)
+const selectedPatientForAction = ref(null)
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -679,6 +691,27 @@ const latestRecordDateByPatientId = computed(() => {
   return map
 })
 
+const patientHasNotification = computed(() => {
+  const patientIdsWithInfo = new Set()
+
+  // 1. 加入有待處理備忘的病人 ID
+  patientWithMemoIds.value.forEach((id) => patientIdsWithInfo.add(id))
+
+  // 2. 加入有近期病情紀錄的病人 ID
+  for (const record of recentConditionRecords.value) {
+    if (record.patientId) {
+      const lastTreatmentDate = getLastTreatmentDate(
+        patientMap.value.get(record.patientId)?.freq,
+        currentDate.value,
+      )
+      if (!lastTreatmentDate || record.recordDate >= lastTreatmentDate) {
+        patientIdsWithInfo.add(record.patientId)
+      }
+    }
+  }
+  return patientIdsWithInfo
+})
+
 // --- Helper Functions ---
 function showAlert(title, message) {
   alertDialogTitle.value = title
@@ -720,16 +753,7 @@ function getLastTreatmentDate(patientFreq, today) {
   lastDate.setDate(today.getDate() - daysToSubtract)
   return formatDate(lastDate)
 }
-function hasRecentRecord(patientId) {
-  if (!patientId) return false
-  const latestRecordDate = latestRecordDateByPatientId.value.get(patientId)
-  if (!latestRecordDate) return false
-  const patient = patientMap.value.get(patientId)
-  if (!patient) return false
-  const lastTreatmentDate = getLastTreatmentDate(patient.freq, currentDate.value)
-  if (!lastTreatmentDate) return true
-  return latestRecordDate >= lastTreatmentDate
-}
+
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -848,19 +872,25 @@ function goToToday() {
     performChange()
   }
 }
+
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   const isMobile = window.innerWidth <= 992
-  if (isMobile) {
-    if (slotData?.patientId) {
-      const patient = patientMap.value.get(slotData.patientId)
-      if (patient) {
-        selectedPatientForRecord.value = patient
-        isConditionModalVisible.value = true
-      }
+
+  // 檢查是否有病人
+  if (slotData?.patientId) {
+    const patient = patientMap.value.get(slotData.patientId)
+    if (!patient) return
+
+    // 如果是行動版，打開新的 Action Modal
+    if (isMobile) {
+      selectedPatientForAction.value = patient
+      isActionModalVisible.value = true
+      return // 流程到此結束，等待使用者選擇
     }
-    return
   }
+
+  // --- 以下是桌面版的既有邏輯，保持不變 ---
   if (isPageLocked.value) {
     if (slotData?.patientId) showPatientMemos(slotData.patientId)
     return
@@ -875,6 +905,24 @@ function handleSlotClick(shiftId) {
     isPatientSelectDialogVisible.value = true
   }
 }
+
+// 4. 在 handleSlotClick 函式下方，加入處理 Action Modal 選擇事件的新函式
+function handleActionSelect(actionType) {
+  isActionModalVisible.value = false // 先關閉選單
+  const patient = selectedPatientForAction.value
+  if (!patient) return
+
+  // 使用 nextTick 確保舊的 Modal 關閉動畫完成後再打開新的
+  nextTick(() => {
+    if (actionType === 'view-condition-record') {
+      selectedPatientForRecord.value = patient
+      isConditionModalVisible.value = true
+    } else if (actionType === 'view-memos') {
+      showPatientMemos(patient.id)
+    }
+  })
+}
+
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
@@ -1181,21 +1229,27 @@ function handleCancel() {
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
+
 async function handleSaveConditionRecord(recordData) {
-  if (!auth.canEditSchedules.value) {
-    showAlert('權限不足', '您沒有權限儲存病情紀錄。')
+  // ‼️ 核心修正：在存取 currentUser 之前，增加更嚴格的檢查
+  if (!auth.isContributor.value || !auth.currentUser.value) {
+    // 檢查 isContributor 和 currentUser.value 是否都存在
+    showAlert('權限不足', '您可能尚未登入或權限不足，無法儲存病情紀錄。')
     return
   }
+
   if (!selectedPatientForRecord.value || !recordData.content) {
     showAlert('資料不完整', '請確保已選擇病人且紀錄內容不為空。')
     return
   }
+
   try {
     const dataToSave = {
       patientId: selectedPatientForRecord.value.id,
       patientName: selectedPatientForRecord.value.name,
       recordDate: formatDate(currentDate.value),
       content: recordData.content,
+      // 經過上面的檢查，這裡現在是安全的
       authorId: auth.currentUser.value.uid,
       authorName: auth.currentUser.value.name,
       createdAt: new Date(),
@@ -1211,7 +1265,14 @@ async function handleSaveConditionRecord(recordData) {
     showAlert('儲存失敗', `儲存病情紀錄時發生錯誤: ${error.message}`)
   }
 }
+
 async function handleUpdateConditionRecord({ id, content }) {
+  // ‼️ 加入前端權限檢查 ‼️
+  if (!auth.isContributor.value) {
+    showAlert('權限不足', '您沒有權限更新病情紀錄。')
+    return
+  }
+
   try {
     await conditionRecordsApi.update(id, { content: content })
     createGlobalNotification('病情紀錄已更新', 'schedule')
@@ -1221,7 +1282,15 @@ async function handleUpdateConditionRecord({ id, content }) {
     showAlert('更新失敗', `更新病情紀錄時發生錯誤: ${error.message}`)
   }
 }
+
+// 修正後的 handleDeleteConditionRecord 函式
 async function handleDeleteConditionRecord(recordId) {
+  // ‼️ 同樣加入前端權限檢查 ‼️
+  if (!auth.isContributor.value) {
+    showAlert('權限不足', '您沒有權限刪除病情紀錄。')
+    return
+  }
+
   showConfirm('確認刪除', '您確定要永久刪除這筆病情紀錄嗎？此操作無法復原。', async () => {
     try {
       await conditionRecordsApi.delete(recordId)

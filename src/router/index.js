@@ -45,6 +45,12 @@ const routes = [
         meta: { requiresAdmin: true },
       },
       {
+        path: 'lab-reports',
+        name: 'LabReports',
+        component: () => import('../views/LabReportView.vue'),
+        meta: { title: '檢驗報告管理', requiresAuth: true, roles: ['admin', 'editor'] },
+      },
+      {
         path: 'account-settings',
         name: 'AccountSettings',
         component: () => import('../views/AccountSettingsView.vue'),

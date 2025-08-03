@@ -167,6 +167,7 @@ export function useAuth() {
   const isLoggedIn = computed(() => !!currentUser.value)
   const isAdmin = computed(() => hasPermission('admin'))
   const canEditSchedules = computed(() => hasPermission('editor'))
+  const isContributor = computed(() => hasPermission('contributor'))
   const canEditPatients = computed(() => hasPermission('contributor'))
   const isReadOnly = computed(() => !hasPermission('contributor'))
   const isAnyLoading = computed(
@@ -190,6 +191,7 @@ export function useAuth() {
 
     // 權限計算屬性
     isAdmin,
+    isContributor,
     canEditSchedules,
     canEditPatients,
     isReadOnly,
