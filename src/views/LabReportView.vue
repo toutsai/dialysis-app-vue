@@ -254,7 +254,7 @@ const prioritizedLabItems = [
   'Iron',
   'TIBC',
   'TSAT',
-  'GlucoseAC',
+  'Glucose',
   'Albumin',
   'Na',
   'K',
@@ -283,7 +283,7 @@ const labItemDisplayNames = {
   Na: 'Na',
   K: 'K',
   eGFR: 'eGFR',
-  GlucoseAC: 'Glucose AC',
+  GlucoseAC: 'Glucose',
   TotalProtein: 'Total Protein',
   Iron: 'Iron',
   TIBC: 'TIBC',
@@ -447,16 +447,25 @@ async function searchGroupReports() {
     const querySnapshot = await getDocs(q)
     querySnapshot.forEach((doc) => {
       const data = doc.data()
-      if (data.reportDate?.toDate)
-        data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
-      allReports.push({ id: doc.id, ...data })
+      const reportDate = data.reportDate?.toDate
+        ? data.reportDate.toDate()
+        : new Date(data.reportDate)
+      allReports.push({
+        id: doc.id,
+        ...data,
+        reportDate: reportDate,
+        reportDateString: reportDate.toISOString().slice(0, 10),
+      })
     })
   }
 
   // 5. 聚合與組合數據 (不變)
   const latestReports = new Map()
   allReports.forEach((report) => {
-    if (!latestReports.has(report.patientId)) latestReports.set(report.patientId, report)
+    const existingReport = latestReports.get(report.patientId)
+    if (!existingReport || report.reportDate > existingReport.reportDate) {
+      latestReports.set(report.patientId, report)
+    }
   })
 
   reportData.value = patientList

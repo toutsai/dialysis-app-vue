@@ -5,8 +5,6 @@ import { getAuth, connectAuthEmulator } from 'firebase/auth'
 import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
 
-// 1. Firebase 設定
-//    從 Vite 的環境變數動態讀取，完美支援多專案部署 (develop/production)
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -16,33 +14,29 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 }
 
-// 2. 初始化 Firebase App
-//    這是整個應用的 Firebase 核心實例
 const app = initializeApp(firebaseConfig)
 
-// 3. 集中初始化所有需要的 Firebase 服務
-//    所有服務都從同一個 app 實例中衍生出來，確保它們屬於同一個專案。
 const auth = getAuth(app)
 const db = getFirestore(app)
-const functions = getFunctions(app, 'asia-east1')
-
-// 檢查是否處於開發模式 (Vite 預設會設定 import.meta.env.DEV 為 true)
+const functions = getFunctions(app)
 
 if (import.meta.env.DEV) {
   console.log('👨‍💻 Running in development mode, attempting to connect to Firebase Emulators...')
+
+  // 連接到本地模擬器
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', {
     disableAppCheck: true,
   })
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
   connectFunctionsEmulator(functions, '127.0.0.1', 5001)
+
   console.log(
     '✅ Firebase Emulators connection configured. Auth:9099, Firestore:8080, Functions:5001',
   )
 } else {
+  // 只有在生產模式下才顯示連接到線上服務的日誌
   console.log('🌍 Running in production mode, connecting to live Firebase services.')
+  console.log(`🌍 Connecting to LIVE Firebase project: ${firebaseConfig.projectId}`)
 }
-
-// ✨ (可選，但推薦) 加上一行日誌，讓您清楚知道現在的連接狀態
-console.log(`🌍 Connecting to LIVE Firebase project: ${firebaseConfig.projectId}`)
 
 export { app, auth, db, functions }
