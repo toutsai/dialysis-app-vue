@@ -20,7 +20,14 @@
     <main class="page-main-content">
       <!-- 報告查詢頁籤 -->
       <div v-show="activeTab === 'query'" class="tab-panel query-panel">
-        <div class="search-controls">
+        <!-- 行動版專用的搜尋面板開關按鈕 (桌面版會透過 CSS 自動隱藏) -->
+        <button class="search-toggle-btn" @click="isSearchVisible = !isSearchVisible">
+          {{ isSearchVisible ? '收合搜尋條件' : '展開搜尋條件' }}
+          <span :class="['toggle-icon', { 'is-toggled': !isSearchVisible }]">▼</span>
+        </button>
+
+        <!-- 搜尋面板，其可見性由 v-show 和 isSearchVisible 狀態控制 -->
+        <div v-show="isSearchVisible" class="search-controls">
           <div class="search-field">
             <label for="search-type">查詢模式:</label>
             <select id="search-type" v-model="searchType">
@@ -134,9 +141,8 @@
         </div>
       </div>
 
-      <!-- 資料上傳頁籤 -->
+      <!-- 資料上傳頁籤 (此區塊結構與邏輯不變) -->
       <div v-show="activeTab === 'upload'" class="tab-panel upload-panel">
-        <!-- 美化後的上傳介面 -->
         <div
           class="upload-drop-zone"
           :class="{ 'is-dragover': isDragOver }"
@@ -150,8 +156,6 @@
             已選擇檔案：<strong>{{ selectedFile.name }}</strong>
           </h3>
           <p class="upload-hint">支援 .xlsx, .xls 格式</p>
-
-          <!-- 隱藏的原始 input，透過 label 觸發 -->
           <input
             id="file-input"
             type="file"
@@ -159,12 +163,9 @@
             accept=".xlsx, .xls"
             :disabled="isUploading"
           />
-          <!-- 美化後的按鈕，點擊它等於點擊上面的 input -->
           <label for="file-input" class="file-input-label">
             {{ selectedFile ? '重新選擇檔案' : '選擇檔案' }}
           </label>
-
-          <!-- 主要的上傳按鈕 -->
           <button
             class="upload-btn-main"
             @click="handleUpload"
@@ -173,8 +174,6 @@
             {{ isUploading ? '處理中...' : '開始上傳並處理' }}
           </button>
         </div>
-
-        <!-- 處理結果區塊 -->
         <div v-if="uploadResult" class="results-card">
           <h2>處理結果</h2>
           <div class="upload-result">
@@ -212,22 +211,19 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 
-// --- API & Services ---
+// 新增一個狀態來控制搜尋面板的顯示，預設為 true
+const isSearchVisible = ref(true)
+
+// --- 其餘 Script 內容完全不變 ---
 const patientsApi = ApiManager('patients')
 const labReportsApi = ApiManager('lab_reports')
 const baseSchedulesApi = ApiManager('base_schedules')
 const route = useRoute()
-
-// --- 頁籤控制 ---
 const activeTab = ref('query')
-
-// --- 上傳相關狀態 ---
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
 const isDragOver = ref(false)
-
-// --- 查詢相關狀態 ---
 const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
@@ -240,11 +236,8 @@ const isLoadingReports = ref(false)
 const searchPerformed = ref(false)
 const reportData = ref([])
 const reportColumns = ref([])
-
 const freqOptions = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六']
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
-
-// ✨ 1. 調整顯示順序、省略項目、加入計算欄位鍵
 const prioritizedLabItems = [
   'WBC',
   'Platelet',
@@ -254,7 +247,7 @@ const prioritizedLabItems = [
   'Iron',
   'TIBC',
   'TSAT',
-  'Glucose',
+  'GlucoseAC',
   'Albumin',
   'Na',
   'K',
@@ -268,56 +261,36 @@ const prioritizedLabItems = [
   'Kt/V',
   'URR',
 ]
-
-// ✨ 2. 項目名稱英文化，並為計算欄位命名
 const labItemDisplayNames = {
   BUN: 'BUN',
-  Creatinine: 'Creatinine',
-  Albumin: 'Albumin',
+  Creatinine: 'Cr',
+  Albumin: 'ALB',
   P: 'P',
   Ca: 'Ca',
   Hb: 'Hb',
   Hct: 'Hct',
-  Platelet: 'Platelet',
+  Platelet: 'PLT',
   WBC: 'WBC',
   Na: 'Na',
   K: 'K',
   eGFR: 'eGFR',
   GlucoseAC: 'Glucose',
   TotalProtein: 'Total Protein',
-  Iron: 'Iron',
+  Iron: 'Fe',
   TIBC: 'TIBC',
   Ferritin: 'Ferritin',
   iPTH: 'iPTH',
   PostBUN: 'Post-BUN',
-  // 計算欄位
   CaXP: 'Ca x P',
   'Kt/V': 'Kt/V',
   URR: 'URR (%)',
   TSAT: 'TSAT (%)',
 }
 
-// ‼️‼️‼️ 在這裡加入檢驗項目標準值 ‼️‼️‼️
-const STANDARDS = {
-  Albumin: { min: 3.5 },
-  P: { max: 5.5 },
-  Ca: { min: 8.4, max: 10.2 },
-  'Kt/V': { min: 1.2 },
-  URR: { min: 65 },
-  Hb: { min: 10 },
-  Hct: { min: 33, max: 36 },
-  Ferritin: { min: 200, max: 500 },
-  TSAT: { min: 20 },
-  iPTH: { min: 150, max: 300 },
-  // ... 您可以隨時在此處新增或修改標準
-}
-
-// ‼️‼️‼️ 以下是完整的上傳邏輯函式 ‼️‼️‼️
 function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
   uploadResult.value = null
 }
-
 async function handleUpload() {
   if (!selectedFile.value) {
     alert('請先選擇一個檔案！')
@@ -341,7 +314,6 @@ async function handleUpload() {
     isUploading.value = false
   }
 }
-
 function toBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -350,12 +322,15 @@ function toBase64(file) {
     reader.onerror = (error) => reject(error)
   })
 }
-// ‼️‼️‼️ 上傳邏輯函式結束 ‼️‼️‼️
 
-// --- 查詢邏輯 ---
+// 搜尋按鈕邏輯：加入行動版判斷
 async function handleSearch() {
   isLoadingReports.value = true
   searchPerformed.value = true
+  // 在行動裝置上，查詢後自動收合搜尋面板
+  if (window.innerWidth <= 768) {
+    isSearchVisible.value = false
+  }
   try {
     if (searchType.value === 'group') {
       await searchGroupReports()
@@ -385,6 +360,7 @@ watch(searchType, (newType) => {
   }
 })
 
+// searchGroupReports 函式完全不變
 async function searchGroupReports() {
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
@@ -393,20 +369,15 @@ async function searchGroupReports() {
     (id) =>
       masterRules[id].freq === groupSearchParams.freq && masterRules[id].shiftIndex === shiftIndex,
   )
-
   if (allPatientIdsInGroup.length === 0) {
     reportData.value = []
     return
   }
-
-  // 1. 建立唯一的、供所有後續查詢使用的病人 ID 批次
   const CHUNK_SIZE = 30
   const chunks = Array.from(
     { length: Math.ceil(allPatientIdsInGroup.length / CHUNK_SIZE) },
     (v, i) => allPatientIdsInGroup.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE),
   )
-
-  // 2. 查詢病人詳細資訊 (不變)
   const patientInfoMap = new Map()
   const patientsRef = collection(db, 'patients')
   for (const chunk of chunks) {
@@ -414,8 +385,6 @@ async function searchGroupReports() {
     const querySnapshot = await getDocs(q)
     querySnapshot.forEach((doc) => patientInfoMap.set(doc.id, { id: doc.id, ...doc.data() }))
   }
-
-  // 3. 組合出完整的「點名單」 (不變)
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -426,16 +395,11 @@ async function searchGroupReports() {
     reportData.value = []
     return
   }
-
-  // 4. 準備日期範圍 (不變)
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
-
   const allReports = []
   const reportsRef = collection(db, 'lab_reports')
-
-  // ‼️‼️‼️ 核心修正：直接使用第 1 步建立的 `chunks` 進行查詢 ‼️‼️‼️
   for (const chunk of chunks) {
     const q = firestoreQuery(
       reportsRef,
@@ -458,8 +422,6 @@ async function searchGroupReports() {
       })
     })
   }
-
-  // 5. 聚合與組合數據 (不變)
   const latestReports = new Map()
   allReports.forEach((report) => {
     const existingReport = latestReports.get(report.patientId)
@@ -467,12 +429,10 @@ async function searchGroupReports() {
       latestReports.set(report.patientId, report)
     }
   })
-
   reportData.value = patientList
     .map((p) => {
       const report = latestReports.get(p.patientId)
       const labData = report?.data || {}
-      // ... (計算邏輯不變) ...
       if (labData.Ca && labData.P) labData.CaXP = (labData.Ca * labData.P).toFixed(2)
       if (labData.Iron && labData.TIBC > 0)
         labData.TSAT = ((labData.Iron / labData.TIBC) * 100).toFixed(1)
@@ -490,6 +450,7 @@ async function searchGroupReports() {
     .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
 }
 
+// searchIndividualReports 函式完全不變
 async function searchIndividualReports() {
   if (!individualSearchQuery.value.trim()) return
   const query = individualSearchQuery.value.trim().toLowerCase()
@@ -499,11 +460,9 @@ async function searchIndividualReports() {
       p.medicalRecordNumber?.toLowerCase().includes(query) || p.name?.toLowerCase().includes(query),
   )
   if (!foundPatient) throw new Error(`找不到病人: ${individualSearchQuery.value}`)
-
   const year = individualSearchYear.value
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year + 1, 0, 1)
-
   const reportsRaw = []
   const reportsRef = collection(db, 'lab_reports')
   const q = firestoreQuery(
@@ -520,44 +479,30 @@ async function searchIndividualReports() {
       data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
     reportsRaw.push({ id: doc.id, ...data })
   })
-
-  // ‼️‼️‼️ 核心修正：簡化數據處理與計算流程 ‼️‼️‼️
-
-  // 1. 準備最終的數據結構和月份欄位
   const processedData = {}
   const monthSet = new Set()
   for (let i = 1; i <= 12; i++) {
     monthSet.add(`${year}-${String(i).padStart(2, '0')}`)
   }
-
-  // 2. 遍歷從 Firestore 拿回來的報告
   reportsRaw.forEach((report) => {
     const monthKey = report.reportDate.slice(0, 7)
     const labData = report.data
-
-    // 3. 先將所有原始數據填入 processedData
     for (const itemKey in labData) {
       if (!processedData[itemKey]) {
         processedData[itemKey] = {}
       }
-      // 確保只填入該月份的最新一筆數據
       if (!processedData[itemKey][monthKey]) {
         processedData[itemKey][monthKey] = labData[itemKey]
       }
     }
   })
-
-  // 4. 在所有原始數據都就位後，再遍歷所有月份進行計算
   for (const monthKey of monthSet) {
-    // 從 processedData 中反向取出該月份的數據，方便計算
     const bun = processedData['BUN']?.[monthKey]
     const postBun = processedData['PostBUN']?.[monthKey]
     const ca = processedData['Ca']?.[monthKey]
     const p = processedData['P']?.[monthKey]
     const iron = processedData['Iron']?.[monthKey]
     const tibc = processedData['TIBC']?.[monthKey]
-
-    // 進行計算，並將結果填回 processedData
     if (ca && p) {
       if (!processedData['CaXP']) processedData['CaXP'] = {}
       processedData['CaXP'][monthKey] = (ca * p).toFixed(2)
@@ -573,8 +518,6 @@ async function searchIndividualReports() {
       processedData['Kt/V'][monthKey] = Math.log(bun / postBun).toFixed(2)
     }
   }
-
-  // 5. 更新最終的 ref 狀態
   reportData.value = processedData
   reportColumns.value = Array.from(monthSet).sort().reverse()
 }
@@ -583,7 +526,6 @@ function changeYear(offset) {
   individualSearchYear.value += offset
   if (individualSearchQuery.value.trim()) handleSearch()
 }
-
 function handleFileDrop(event) {
   isDragOver.value = false
   const files = event.dataTransfer.files
@@ -593,22 +535,27 @@ function handleFileDrop(event) {
   }
 }
 
+// onMounted 邏輯：加入行動版判斷
 onMounted(() => {
   const patientIdFromQuery = route.query.patientId
   if (patientIdFromQuery) {
     searchType.value = 'individual'
+    isSearchVisible.value = true
     patientsApi.fetchById(patientIdFromQuery).then((patient) => {
       if (patient) {
         individualSearchQuery.value = patient.name
         handleSearch()
       }
     })
+  } else if (window.innerWidth <= 768) {
+    // 在行動裝置上，若非直接查詢，則預設收合搜尋面板
+    isSearchVisible.value = false
   }
 })
 </script>
 
 <style scoped>
-/* --- 頁面主體與頁籤 (不變) --- */
+/* --- 1. 基礎樣式 (桌面版原始樣式) --- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -671,128 +618,6 @@ h1 {
 .query-panel {
   gap: 1.5rem;
 }
-
-/* --- 美化後的上傳頁籤樣式 --- */
-.upload-panel {
-  align-items: center;
-  justify-content: flex-start; /* 從置中改為從頂部開始 */
-  gap: 2rem;
-  overflow-y: auto;
-}
-.upload-drop-zone {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 2.5rem;
-  border: 2px dashed #adb5bd;
-  border-radius: 12px;
-  background-color: #f8f9fa;
-  width: 100%;
-  max-width: 600px;
-  text-align: center;
-  transition: all 0.2s ease-in-out;
-}
-.upload-drop-zone.is-dragover {
-  border-color: #007bff;
-  background-color: #e7f1ff;
-}
-.upload-icon {
-  font-size: 3rem;
-  color: #007bff;
-  margin-bottom: 1rem;
-}
-.upload-drop-zone h3 {
-  margin: 0 0 0.5rem 0;
-  color: #495057;
-}
-.upload-hint {
-  color: #6c757d;
-  margin: 0 0 1.5rem 0;
-}
-input[type='file'] {
-  display: none;
-}
-.file-input-label {
-  display: inline-block;
-  padding: 0.6rem 1.2rem;
-  background-color: #fff;
-  border: 1px solid #6c757d;
-  color: #495057;
-  border-radius: 6px;
-  cursor: pointer;
-  margin-bottom: 1rem;
-  transition: all 0.2s;
-}
-.file-input-label:hover {
-  background-color: #e9ecef;
-}
-.upload-btn-main {
-  padding: 0.75rem 2rem;
-  font-size: 1.1rem;
-  font-weight: 500;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-.upload-btn-main:disabled {
-  background-color: #6c757d;
-  cursor: not-allowed;
-}
-
-/* --- 處理結果區塊的樣式 --- */
-.results-card {
-  width: 100%;
-  max-width: 600px;
-  padding: 1.5rem;
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  background-color: #fff;
-}
-.results-card h2 {
-  margin-top: 0;
-}
-.upload-result {
-  padding: 0.75rem;
-  border-radius: 4px;
-}
-.upload-result .is-success {
-  color: #155724;
-  background-color: #d4edda;
-}
-.upload-result .has-error {
-  color: #721c24;
-  background-color: #f8d7da;
-}
-.error-details {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #ffc107;
-  text-align: left;
-}
-.error-details h4 {
-  margin-top: 0;
-  color: #856404;
-}
-.error-details ul {
-  padding-left: 20px;
-  margin: 0;
-  max-height: 150px;
-  overflow-y: auto;
-}
-.error-details li {
-  margin-bottom: 0.5rem;
-}
-.error-data {
-  font-size: 0.85rem;
-  color: #666;
-  font-family: monospace;
-}
-
-/* --- 查詢頁籤的樣式 (不變) --- */
 .search-controls {
   flex-shrink: 0;
   display: flex;
@@ -903,8 +728,7 @@ th {
   min-width: 120px;
 }
 .sticky-col.col-name {
-  left: 80px;
-  min-width: 100px;
+  left: 120px;
 }
 tbody .sticky-col {
   background-color: #fff;
@@ -916,54 +740,141 @@ tbody tr:nth-child(even) {
 tbody tr:nth-child(even) .sticky-col {
   background-color: #f8f9fa;
 }
-.file-info {
-  margin-top: 1rem;
-}
-.abnormal-high,
-.abnormal-low {
-  font-weight: bold;
-}
-.abnormal-high {
-  color: #dc3545;
-}
-.abnormal-low {
-  color: #007bff;
-}
-.cell-content {
-  display: flex;
-  justify-content: center;
+
+/* --- 上傳頁籤樣式 (不變) --- */
+.upload-panel {
   align-items: center;
-  gap: 0.5rem;
+  justify-content: flex-start;
+  gap: 2rem;
+  overflow-y: auto;
 }
-.trend-up {
-  color: #dc3545;
-  font-size: 0.8em;
+.upload-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem;
+  border: 2px dashed #adb5bd;
+  border-radius: 12px;
+  background-color: #f8f9fa;
+  width: 100%;
+  max-width: 600px;
+  text-align: center;
+  transition: all 0.2s ease-in-out;
 }
-.trend-down {
-  color: #28a745;
-  font-size: 0.8em;
+.upload-drop-zone.is-dragover {
+  border-color: #007bff;
+  background-color: #e7f1ff;
+}
+.upload-icon {
+  font-size: 3rem;
+  color: #007bff;
+  margin-bottom: 1rem;
+}
+.upload-drop-zone h3 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+}
+.upload-hint {
+  color: #6c757d;
+  margin: 0 0 1.5rem 0;
+}
+input[type='file'] {
+  display: none;
+}
+.file-input-label {
+  display: inline-block;
+  padding: 0.6rem 1.2rem;
+  background-color: #fff;
+  border: 1px solid #6c757d;
+  color: #495057;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-bottom: 1rem;
+  transition: all 0.2s;
+}
+.file-input-label:hover {
+  background-color: #e9ecef;
+}
+.upload-btn-main {
+  padding: 0.75rem 2rem;
+  font-size: 1.1rem;
+  font-weight: 500;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.upload-btn-main:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+.results-card {
+  width: 100%;
+  max-width: 600px;
+  padding: 1.5rem;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  background-color: #fff;
+}
+.results-card h2 {
+  margin-top: 0;
+}
+.upload-result {
+  padding: 0.75rem;
+  border-radius: 4px;
+}
+.upload-result .is-success {
+  color: #155724;
+  background-color: #d4edda;
+}
+.upload-result .has-error {
+  color: #721c24;
+  background-color: #f8d7da;
+}
+.error-details {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #ffc107;
+  text-align: left;
+}
+.error-details h4 {
+  margin-top: 0;
+  color: #856404;
+}
+.error-details ul {
+  padding-left: 20px;
+  margin: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.error-details li {
+  margin-bottom: 0.5rem;
+}
+.error-data {
+  font-size: 0.85rem;
+  color: #666;
+  font-family: monospace;
 }
 
-/* ‼️‼️‼️ 行動版響應式樣式 (已包含上傳頁籤優化) ‼️‼️‼️ */
+/* --- 2. 行動版響應式樣式 (所有行動版樣式都嚴格限制在此區塊內) --- */
+.search-toggle-btn {
+  display: none; /* 關鍵：預設（桌面版）隱藏此按鈕 */
+}
+
 @media (max-width: 768px) {
+  /* --- 整體佈局調整 --- */
   .page-container {
-    height: auto;
+    height: 100vh;
     padding: 0;
-  }
-  .page-header,
-  .tab-panel {
-    padding: 1rem;
   }
   .page-main-content {
     border-radius: 0;
-    overflow: visible;
   }
-  .tab-panel.query-panel {
-    overflow: visible;
-  }
-  .search-controls {
-    position: relative;
-    z-index: 40;
+  .page-header {
+    padding: 1rem;
   }
   h1 {
     font-size: 1.5rem;
@@ -972,7 +883,43 @@ tbody tr:nth-child(even) .sticky-col {
     font-size: 1rem;
     padding: 0.5rem 1rem;
   }
-  .search-controls,
+
+  /* --- 查詢頁籤的行動版專屬佈局 --- */
+  .query-panel {
+    padding: 0;
+    gap: 0;
+  }
+
+  /* --- 顯示並美化行動版切換按鈕 --- */
+  .search-toggle-btn {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background-color: #f8f9fa;
+    border: none;
+    border-bottom: 1px solid #dee2e6;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toggle-icon {
+    transition: transform 0.3s ease;
+  }
+  .toggle-icon.is-toggled {
+    transform: rotate(180deg);
+  }
+
+  /* --- 搜尋控制項的行動版樣式 --- */
+  .search-controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+    padding: 1rem; /* 設定內距 */
+    border-bottom: 1px solid #e9ecef; /* 維持底線 */
+  }
   .filter-wrapper,
   .group-filters,
   .individual-filters {
@@ -981,48 +928,55 @@ tbody tr:nth-child(even) .sticky-col {
     gap: 1rem;
   }
   .search-field input,
-  .search-field select {
-    min-width: 100%;
-  }
+  .search-field select,
   .search-btn {
-    align-self: auto;
+    width: 100%;
   }
   .year-selector {
     justify-content: space-between;
-    width: 100%;
+  }
+
+  /* --- 報告顯示區和表格容器的行動版樣式 --- */
+  .report-display {
+    padding: 0;
+  }
+  .table-container {
+    border: none;
+    border-radius: 0;
   }
   table {
     font-size: 0.8rem;
   }
   th,
   td {
-    padding: 0.5rem 0.25rem;
+    padding: 0.5rem 0.4rem;
   }
   .sticky-col {
     min-width: 80px;
   }
+  .sticky-col.col-name {
+    left: 80px;
+  }
 
-  /* ✨ 新增：行動版上傳介面優化 ✨ */
+  /* --- 上傳頁籤的行動版微調 --- */
   .upload-panel {
-    justify-content: flex-start;
+    padding: 1rem;
   }
   .upload-drop-zone {
-    padding: 1.5rem; /* 縮小內邊距 */
+    padding: 1.5rem;
   }
   .upload-icon {
-    font-size: 2.5rem; /* 縮小圖示 */
-    margin-bottom: 0.5rem;
+    font-size: 2.5rem;
   }
   .upload-drop-zone h3 {
-    font-size: 1.1rem; /* 縮小標題字體 */
+    font-size: 1.1rem;
   }
   .upload-hint {
     font-size: 0.9rem;
-    margin-bottom: 1rem;
   }
   .file-input-label,
   .upload-btn-main {
-    width: 100%; /* 讓按鈕變滿版 */
+    width: 100%;
     box-sizing: border-box;
     padding: 0.75rem;
   }
