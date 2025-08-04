@@ -65,25 +65,28 @@ jobs:
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/service-account.json
         run: |
-          echo "部署第一批 Functions..."
+          echo "開始部署第一批 Functions..."
           for i in {1..3}; do
-            firebase deploy --project my-dialysis-app-develop --only "functions:checkExpiredMemos,functions:customLogin,functions:ensureFutureSchedules" && break || sleep 10
+            echo "嘗試第 $i 次部署..."
+            firebase deploy --project my-dialysis-app-develop --only "functions:checkExpiredMemos,functions:customLogin,functions:ensureFutureSchedules" && { echo "部署成功！"; break; } || { echo "部署失敗，等待 5 秒後重試..."; sleep 5; }
           done
 
       - name: Deploy Firebase Functions (Batch 2)
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/service-account.json
         run: |
-          echo "部署第二批 Functions..."
+          echo "開始部署第二批 Functions..."
           for i in {1..3}; do
-            firebase deploy --project my-dialysis-app-develop --only "functions:handleNewExceptionRequest,functions:initializeFutureSchedules,functions:onExceptionDeleted" && break || sleep 10
+            echo "嘗試第 $i 次部署..."
+            firebase deploy --project my-dialysis-app-develop --only "functions:handleNewExceptionRequest,functions:initializeFutureSchedules,functions:onExceptionDeleted" && { echo "部署成功！"; break; } || { echo "部署失敗，等待 5 秒後重試..."; sleep 5; }
           done
 
       - name: Deploy Firebase Functions (Batch 3)
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/service-account.json
         run: |
-          echo "部署第三批 Functions..."
+          echo "開始部署第三批 Functions..."
           for i in {1..3}; do
-            firebase deploy --project my-dialysis-app-develop --only "functions:processExceptionTask,functions:processLabReport,functions:reapplyAllActiveExceptions,functions:syncMasterScheduleToFuture" && break || sleep 10
+            echo "嘗試第 $i 次部署..."
+            firebase deploy --project my-dialysis-app-develop --only "functions:processExceptionTask,functions:processLabReport,functions:reapplyAllActiveExceptions,functions:syncMasterScheduleToFuture" && { echo "部署成功！"; break; } || { echo "部署失敗，等待 5 秒後重試..."; sleep 5; }
           done
