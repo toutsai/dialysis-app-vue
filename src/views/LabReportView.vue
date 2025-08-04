@@ -2,8 +2,13 @@
 <template>
   <div class="page-container">
     <header class="page-header">
-      <h1>檢驗報告管理</h1>
-      <p class="page-description">匯入批次檢驗報告，並提供多維度的查詢與檢視功能。</p>
+      <!-- ✨ 1. 新增返回按鈕，只有在需要時才會顯示 -->
+      <button v-if="showBackButton" @click="router.back()" class="back-button">返回查房名單</button>
+
+      <div class="header-main-content">
+        <h1>檢驗報告管理</h1>
+        <p class="page-description">匯入批次檢驗報告，並提供多維度的查詢與檢視功能。</p>
+      </div>
     </header>
 
     <!-- 頁籤導覽 -->
@@ -198,7 +203,7 @@
 
 <script setup>
 import { ref, onMounted, reactive, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
 import {
@@ -211,14 +216,16 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 
-// 新增一個狀態來控制搜尋面板的顯示，預設為 true
-const isSearchVisible = ref(true)
+// --- Router and State ---
+const route = useRoute()
+const router = useRouter() // 初始化 router
+const showBackButton = ref(false) // 控制返回按鈕的顯示狀態
 
 // --- 其餘 Script 內容完全不變 ---
+const isSearchVisible = ref(true)
 const patientsApi = ApiManager('patients')
 const labReportsApi = ApiManager('lab_reports')
 const baseSchedulesApi = ApiManager('base_schedules')
-const route = useRoute()
 const activeTab = ref('query')
 const selectedFile = ref(null)
 const isUploading = ref(false)
@@ -539,6 +546,8 @@ function handleFileDrop(event) {
 onMounted(() => {
   const patientIdFromQuery = route.query.patientId
   if (patientIdFromQuery) {
+    showBackButton.value = true
+
     searchType.value = 'individual'
     isSearchVisible.value = true
     patientsApi.fetchById(patientIdFromQuery).then((patient) => {
@@ -568,6 +577,29 @@ onMounted(() => {
   padding-bottom: 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid #dee2e6;
+  /* 使用 flex 佈局 */
+  display: flex;
+  align-items: center;
+  gap: 1.5rem; /* 在按鈕和標題之間增加間距 */
+}
+.back-button {
+  flex-shrink: 0; /* 防止按鈕被壓縮 */
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.back-button:hover {
+  background-color: #5a6268;
+}
+
+.header-main-content {
+  flex-grow: 1; /* 讓標題區塊填滿剩餘空間 */
 }
 h1 {
   font-size: 2rem;
@@ -875,9 +907,17 @@ input[type='file'] {
   }
   .page-header {
     padding: 1rem;
+    gap: 1rem;
   }
   h1 {
-    font-size: 1.5rem;
+    font-size: 1.2rem; /* 稍微縮小標題以容納按鈕 */
+  }
+  .page-description {
+    display: none; /* 在行動裝置上隱藏次標題以節省空間 */
+  }
+  .back-button {
+    padding: 0.5rem 0.8rem;
+    font-size: 0.9rem;
   }
   .tabs-navigation button {
     font-size: 1rem;
