@@ -42,7 +42,7 @@
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
             size="compact"
-            class="mobile-only"
+            class="mobile-and-print-only"
           />
           <span class="status-indicator">{{ statusIndicator }}</span>
           <button
