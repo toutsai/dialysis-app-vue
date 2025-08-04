@@ -24,9 +24,7 @@ const app = initializeApp(firebaseConfig)
 //    所有服務都從同一個 app 實例中衍生出來，確保它們屬於同一個專案。
 const auth = getAuth(app)
 const db = getFirestore(app)
-// 如果您的真實 Cloud Functions 部署在特定區域，建議在此指定，這不會影響模擬器
-// 例如: const functions = getFunctions(app, 'asia-east1');
-const functions = getFunctions(app)
+const functions = getFunctions(app, 'asia-east1')
 
 // 檢查是否處於開發模式 (Vite 預設會設定 import.meta.env.DEV 為 true)
 
