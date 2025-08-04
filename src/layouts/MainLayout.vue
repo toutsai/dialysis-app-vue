@@ -23,6 +23,7 @@
           </li>
           <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
+          <li><RouterLink to="/lab-reports" class="nav-link">檢驗報告管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
       </div>
