@@ -483,6 +483,12 @@
       @select="handleActionSelect"
       @close="isActionModalVisible = false"
     />
+    <PatientLabSummaryModal
+      :is-visible="isLabSummaryModalVisible"
+      :patient="selectedPatientForLabSummary"
+      @close="isLabSummaryModalVisible = false"
+      @save-record="handleSaveLabSummaryAsRecord"
+    />
   </div>
 </template>
 
@@ -526,6 +532,7 @@ import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ConditionRecordModal from '@/components/ConditionRecordModal.vue'
 import PatientActionModal from '@/components/PatientActionModal.vue'
+import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 
 // --- API and Constants ---
 const conditionRecordsApi = ApiManager('condition_records')
@@ -596,6 +603,8 @@ const isConditionModalVisible = ref(false)
 const selectedPatientForRecord = ref(null)
 const isActionModalVisible = ref(false)
 const selectedPatientForAction = ref(null)
+const isLabSummaryModalVisible = ref(false)
+const selectedPatientForLabSummary = ref(null)
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -921,11 +930,10 @@ function handleActionSelect(actionType) {
     } else if (actionType === 'view-memos') {
       showPatientMemos(patient.id)
     } else if (actionType === 'view-lab-reports') {
-      // ✨ 執行頁面跳轉，並帶上 patientId 作為 query 參數
-      router.push({
-        path: '/lab-reports',
-        query: { patientId: patient.id },
-      })
+      // 將病人資訊傳遞給新 Modal 的狀態
+      selectedPatientForLabSummary.value = patient
+      // 打開新的檢驗報告摘要 Modal
+      isLabSummaryModalVisible.value = true
     }
   })
 }
@@ -1308,6 +1316,32 @@ async function handleDeleteConditionRecord(recordId) {
       showAlert('刪除失敗', `刪除病情紀錄時發生錯誤: ${error.message}`)
     }
   })
+}
+
+async function handleSaveLabSummaryAsRecord({ patient, content }) {
+  if (!auth.isContributor.value || !auth.currentUser.value) {
+    showAlert('權限不足', '您可能尚未登入或權限不足，無法儲存病情紀錄。')
+    return
+  }
+
+  try {
+    const dataToSave = {
+      patientId: patient.id,
+      patientName: patient.name,
+      recordDate: formatDate(currentDate.value),
+      content: content,
+      authorId: auth.currentUser.value.uid,
+      authorName: auth.currentUser.value.name,
+      createdAt: new Date(),
+    }
+    await conditionRecordsApi.save(dataToSave)
+    createGlobalNotification(`已為 ${patient.name} 新增一筆檢驗報告處置紀錄`, 'schedule')
+    // 刷新病情紀錄，這樣紅點提示才會更新
+    await fetchRecentRecords()
+  } catch (error) {
+    console.error('儲存檢驗摘要紀錄失敗:', error)
+    showAlert('儲存失敗', `儲存紀錄時發生錯誤: ${error.message}`)
+  }
 }
 
 // --- Auto Assignment Logic ---
