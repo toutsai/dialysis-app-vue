@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/PatientLabSummaryModal.vue -->
+<!-- 檔案路徑: src/components/PatientLabSummaryModal.vue (桌面版佈局優化後) -->
 <template>
   <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
     <div class="modal-container">
@@ -22,18 +22,18 @@
           <p>找不到該病人的檢驗報告資料。</p>
         </div>
 
+        <!-- ✨ 1. 修改 template 結構 ✨ -->
         <div v-else class="content-grid">
-          <!-- 上半部: 數據判讀與處置 -->
-          <div class="summary-and-action-panel">
+          <!-- (A) 新增一個 top-panel 容器，包裹摘要和處置 -->
+          <div class="top-panel">
             <div class="summary-section">
               <h3>數據判讀摘要 ({{ latestMonth }})</h3>
               <div class="summary-item">
                 <strong>本月不合格項目:</strong>
                 <ul v-if="analysisResults.nonCompliantItems.length > 0">
                   <li v-for="item in analysisResults.nonCompliantItems" :key="item.key">
-                    {{ item.key }}: <span :class="item.class">{{ item.value }}</span> ({{
-                      item.reason
-                    }})
+                    {{ labItemDisplayNames[item.key] || item.key }}:
+                    <span :class="item.class">{{ item.value }}</span> ({{ item.reason }})
                   </li>
                 </ul>
                 <p v-else>無</p>
@@ -42,7 +42,7 @@
                 <strong>連續三個月趨勢異常:</strong>
                 <ul v-if="analysisResults.trendItems.length > 0">
                   <li v-for="item in analysisResults.trendItems" :key="item.key">
-                    {{ item.key }} ({{ item.reason }})
+                    {{ labItemDisplayNames[item.key] || item.key }} ({{ item.reason }})
                   </li>
                 </ul>
                 <p v-else>無</p>
@@ -61,7 +61,7 @@
             </div>
           </div>
 
-          <!-- 下半部: 歷次檢驗表格 -->
+          <!-- (B) 表格面板現在是 content-grid 的第二個子元素 -->
           <div class="table-panel">
             <h3>歷次檢驗數據</h3>
             <div class="table-container">
@@ -70,7 +70,6 @@
                   <tr>
                     <th>月份</th>
                     <th v-for="itemKey in prioritizedLabItems" :key="itemKey">
-                      <!-- ✨ 使用 labItemDisplayNames 來顯示別名 -->
                       {{ labItemDisplayNames[itemKey] || itemKey }}
                     </th>
                   </tr>
@@ -115,7 +114,6 @@ const emit = defineEmits(['close', 'save-record'])
 
 // --- API & Constants ---
 const labReportsApi = ApiManager('lab_reports')
-// ✨ 1. 修正並補完檢驗項目列表 (使用資料庫原始鍵名)
 const prioritizedLabItems = [
   'WBC',
   'Platelet',
@@ -139,8 +137,6 @@ const prioritizedLabItems = [
   'Kt/V',
   'URR',
 ]
-
-// ✨ 2. 新增顯示名稱對應表 (從 LabReportView 移植過來)
 const labItemDisplayNames = {
   Creatinine: 'Cr',
   Albumin: 'ALB',
@@ -151,15 +147,13 @@ const labItemDisplayNames = {
   URR: 'URR (%)',
   TSAT: 'TSAT (%)',
 }
-
-// ✨ 3. 修正正常值參考範圍 (使用資料庫原始鍵名)
 const LAB_REFERENCE_RANGES = {
   WBC: { min: 4.0, max: 10.0 },
   Hb: { min: 10 },
   P: { max: 5.5 },
-  Albumin: { min: 3.5 }, // 使用 'Albumin' 而不是 'ALB'
+  Albumin: { min: 3.5 },
   'Kt/V': { min: 1.2 },
-  URR: { min: 65 }, // 使用 'URR' 而不是 'URR (%)'
+  URR: { min: 65 },
   iPTH: { min: 150, max: 300 },
   Ca: { min: 8.5, max: 10.5 },
   K: { min: 3.5, max: 5.5 },
@@ -184,8 +178,6 @@ const processedReports = computed(() => {
       }
     }
   })
-
-  // ✨ 4. 修正計算欄位邏輯 (使用原始鍵名)
   for (const monthKey of reportMonths.value) {
     const bun = data['BUN']?.[monthKey]
     const postBun = data['PostBUN']?.[monthKey]
@@ -211,57 +203,41 @@ const processedReports = computed(() => {
   }
   return data
 })
-
 const reportMonths = computed(() => {
   const monthSet = new Set()
   rawReports.value.forEach((r) => monthSet.add(r.reportDate.slice(0, 7)))
   return Array.from(monthSet).sort().reverse()
 })
-
 const latestMonth = computed(() => reportMonths.value[0] || '')
-
 const analysisResults = computed(() => {
   const results = { nonCompliantItems: [], trendItems: [] }
   if (!latestMonth.value) return results
-
-  // 1. 分析本月不合格項目
   for (const key in processedReports.value) {
     const value = processedReports.value[key][latestMonth.value]
     if (value === undefined) continue
-
     const range = LAB_REFERENCE_RANGES[key]
     if (!range) continue
-
     if (range.min !== undefined && value < range.min) {
       results.nonCompliantItems.push({ key, value, reason: '偏低', class: 'value-low' })
     } else if (range.max !== undefined && value > range.max) {
       results.nonCompliantItems.push({ key, value, reason: '偏高', class: 'value-high' })
     }
   }
-
-  // 2. 分析連續三個月趨勢
   if (reportMonths.value.length < 3) return results
   const last3Months = reportMonths.value.slice(0, 3)
-
   for (const key in processedReports.value) {
-    const val1 = processedReports.value[key][last3Months[0]] // 最新
+    const val1 = processedReports.value[key][last3Months[0]]
     const val2 = processedReports.value[key][last3Months[1]]
     const val3 = processedReports.value[key][last3Months[2]]
-
     if (val1 === undefined || val2 === undefined || val3 === undefined) continue
-
-    // 連續上升或下降
     if (val1 > val2 && val2 > val3) results.trendItems.push({ key, reason: '連續上升' })
     if (val1 < val2 && val2 < val3) results.trendItems.push({ key, reason: '連續下降' })
-
-    // 連續不合格
     const range = LAB_REFERENCE_RANGES[key]
     if (range) {
       const isAbnormal = (v) =>
         (range.min !== undefined && v < range.min) || (range.max !== undefined && v > range.max)
       if (isAbnormal(val1) && isAbnormal(val2) && isAbnormal(val3)) {
         if (!results.trendItems.some((item) => item.key === key)) {
-          // 避免重複
           results.trendItems.push({ key, reason: '連續超標' })
         }
       }
@@ -278,13 +254,11 @@ async function fetchLabData() {
   try {
     const oneYearAgo = new Date()
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-
     const reports = await labReportsApi.fetchAll([
       where('patientId', '==', props.patient.id),
       where('reportDate', '>=', oneYearAgo),
       orderBy('reportDate', 'desc'),
     ])
-
     rawReports.value = reports.map((r) => ({
       ...r,
       reportDate: r.reportDate.toDate
@@ -298,44 +272,35 @@ async function fetchLabData() {
     isLoading.value = false
   }
 }
-
 function handleClose() {
   emit('close')
 }
-
 function handleSave() {
   isSubmitting.value = true
-
-  // 自動生成內容
   let autoContent = `【檢驗報告處置 - ${latestMonth.value}】\n\n摘要：\n`
   if (analysisResults.value.nonCompliantItems.length > 0) {
     autoContent += ` • 本月不合格項目:\n`
     analysisResults.value.nonCompliantItems.forEach((item) => {
-      autoContent += `   - ${item.key}: ${item.value} (${item.reason})\n`
+      autoContent += `   - ${labItemDisplayNames[item.key] || item.key}: ${item.value} (${item.reason})\n`
     })
   }
   if (analysisResults.value.trendItems.length > 0) {
     autoContent += ` • 連續三個月趨勢異常:\n`
     analysisResults.value.trendItems.forEach((item) => {
-      autoContent += `   - ${item.key} (${item.reason})\n`
+      autoContent += `   - ${labItemDisplayNames[item.key] || item.key} (${item.reason})\n`
     })
   }
   autoContent += `\n處置與計畫：\n${dispositionText.value.trim()}`
-
-  // 透過 emit 將整理好的內容傳遞給父元件
   emit('save-record', {
     patient: props.patient,
     content: autoContent,
   })
-
-  // 延遲關閉，讓父元件有時間處理
   setTimeout(() => {
     isSubmitting.value = false
     dispositionText.value = ''
     handleClose()
   }, 300)
 }
-
 function getAbnormalClass(itemKey, value) {
   const range = LAB_REFERENCE_RANGES[itemKey]
   if (!range || value === undefined) return ''
@@ -343,17 +308,13 @@ function getAbnormalClass(itemKey, value) {
   if (range.max !== undefined && value > range.max) return 'value-high'
   return ''
 }
-
 function getTrendArrow(itemKey, month) {
   const currentMonthIndex = reportMonths.value.indexOf(month)
   if (currentMonthIndex >= reportMonths.value.length - 1) return { arrow: '', class: '' }
-
   const prevMonth = reportMonths.value[currentMonthIndex + 1]
   const currentValue = processedReports.value[itemKey]?.[month]
   const prevValue = processedReports.value[itemKey]?.[prevMonth]
-
   if (currentValue === undefined || prevValue === undefined) return { arrow: '', class: '' }
-
   if (currentValue > prevValue) return { arrow: '▲', class: 'value-high' }
   if (currentValue < prevValue) return { arrow: '▼', class: 'value-low' }
   return { arrow: '', class: '' }
@@ -364,7 +325,6 @@ watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      // 重置狀態
       rawReports.value = []
       dispositionText.value = ''
       fetchLabData()
@@ -449,16 +409,19 @@ watch(
   }
 }
 
+/* ✨ 2. 修改 CSS 樣式 ✨ */
 .content-grid {
-  display: grid;
-  grid-template-columns: 1fr 2fr;
+  display: flex; /* 主佈局改為垂直堆疊 */
+  flex-direction: column;
   gap: 1.5rem;
 }
 
-.summary-and-action-panel {
-  display: flex;
-  flex-direction: column;
+/* 新增：頂部面板，用於並排顯示摘要和處置 */
+.top-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 1.5rem;
+  flex-shrink: 0; /* 防止被壓縮 */
 }
 
 .summary-section,
@@ -488,13 +451,20 @@ h3 {
   list-style-type: none;
   padding-left: 0.5rem;
   margin: 0.5rem 0 0 0;
+  font-size: 0.95rem;
 }
 .summary-item li {
   margin-bottom: 0.25rem;
 }
 
+.action-section {
+  display: flex;
+  flex-direction: column;
+}
+
 .action-section textarea {
   width: 100%;
+  flex-grow: 1; /* 讓 text area 填滿剩餘空間 */
   min-height: 100px;
   padding: 0.5rem;
   border-radius: 6px;
@@ -513,6 +483,7 @@ h3 {
   font-size: 1rem;
   font-weight: bold;
   cursor: pointer;
+  flex-shrink: 0; /* 按鈕不壓縮 */
 }
 .action-section button:disabled {
   background-color: #6c757d;
@@ -522,10 +493,11 @@ h3 {
 .table-panel {
   display: flex;
   flex-direction: column;
+  min-height: 0; /* 確保在 flex 容器中可以縮小 */
 }
 .table-container {
   flex-grow: 1;
-  overflow-x: auto;
+  overflow: auto; /* 讓表格自己滾動 */
   border: 1px solid #dee2e6;
   border-radius: 8px;
 }
@@ -556,6 +528,10 @@ th:first-child {
   left: 0;
   background-color: #f8f9fa;
   font-weight: bold;
+  z-index: 2; /* 比表頭的 z-index 高 */
+}
+thead th:first-child {
+  z-index: 3; /* 確保左上角單元格在最上層 */
 }
 tbody tr:nth-child(even) td:first-child {
   background-color: #f0f3f5;
@@ -574,11 +550,12 @@ tbody tr:nth-child(even) td:first-child {
   .modal-container {
     width: 95%;
   }
-  .content-grid {
-    grid-template-columns: minmax(0, 100%); /* <--- 修改成這一行 */
+  /* 在手機上，讓頂部面板也堆疊起來 */
+  .top-panel {
+    grid-template-columns: 1fr;
   }
   .table-panel {
-    order: -1; /* 將表格移到最上面 */
+    order: -1;
     margin-bottom: 1.5rem;
   }
 }
