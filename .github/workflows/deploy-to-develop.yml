@@ -51,7 +51,7 @@ jobs:
 
       # ✨ 核心修正：將部署過程分為多個步驟
       - name: Build Vue Application
-        run: npm run build
+        run: npm run build:dev  # 使用開發環境的建置指令
 
       - name: Deploy Firebase Hosting and Rules
         env:

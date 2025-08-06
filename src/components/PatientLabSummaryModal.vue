@@ -17,9 +17,9 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue'
-// 引入我們剛剛建立的 Panel 元件
-import PatientLabSummaryPanel from './PatientLabSummaryPanel.vue'
+import { defineProps, defineEmits, defineAsyncComponent } from 'vue'
+// 使用動態導入 Panel 元件
+const PatientLabSummaryPanel = defineAsyncComponent(() => import('./PatientLabSummaryPanel.vue'))
 
 // --- Props & Emits ---
 const props = defineProps({
