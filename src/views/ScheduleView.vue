@@ -576,27 +576,13 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-    <ConditionRecordModal
-      :is-visible="isConditionModalVisible"
-      :patient="selectedPatientForRecord"
+    <PatientDetailModal
+      :is-visible="isDetailModalVisible"
+      :patient="selectedPatientForDetail"
       :current-date="currentDate"
-      @close="isConditionModalVisible = false"
-      @save="handleSaveConditionRecord"
-      @update="handleUpdateConditionRecord"
-      @delete="handleDeleteConditionRecord"
-    />
-    <PatientActionModal
-      :is-visible="isActionModalVisible"
-      :patient="selectedPatientForAction"
-      :has-memo="patientWithMemoIds.has(selectedPatientForAction?.id)"
-      @select="handleActionSelect"
-      @close="isActionModalVisible = false"
-    />
-    <PatientLabSummaryModal
-      :is-visible="isLabSummaryModalVisible"
-      :patient="selectedPatientForLabSummary"
-      @close="isLabSummaryModalVisible = false"
-      @save-record="handleSaveLabSummaryAsRecord"
+      :has-pending-memos="patientWithMemoIds.has(selectedPatientForDetail?.id)"
+      @close="isDetailModalVisible = false"
+      @record-updated="fetchRecentRecords"
     />
     <!-- ======================================================= -->
     <!--                  ✨ 全新：專為列印設計的區塊 ✨            -->
@@ -729,9 +715,7 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import ConditionRecordModal from '@/components/ConditionRecordModal.vue'
-import PatientActionModal from '@/components/PatientActionModal.vue'
-import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
+import PatientDetailModal from '@/components/PatientDetailModal.vue'
 
 // --- API and Constants ---
 const conditionRecordsApi = ApiManager('condition_records')
@@ -798,13 +782,9 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
 const isLoading = ref(true)
-const isConditionModalVisible = ref(false)
-const selectedPatientForRecord = ref(null)
-const isActionModalVisible = ref(false)
-const selectedPatientForAction = ref(null)
-const isLabSummaryModalVisible = ref(false)
-const selectedPatientForLabSummary = ref(null)
 const isSimplifiedViewVisible = ref(false)
+const isDetailModalVisible = ref(false)
+const selectedPatientForDetail = ref(null)
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1084,11 +1064,9 @@ function goToToday() {
   }
 }
 
-// ✨ 1. 修改 handleSlotClick (排班模式)
+// 排班模式下的點擊邏輯 (保持不變)
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
-
-  // 如果頁面鎖定，或者格子裡沒有病人，直接返回 (排班者不能操作空格子外的東西)
   if (isPageLocked.value || !slotData?.patientId) {
     if (!slotData?.patientId && !isPageLocked.value) {
       currentSlotId.value = shiftId
@@ -1096,57 +1074,24 @@ function handleSlotClick(shiftId) {
     }
     return
   }
-
-  // 對於排班者，點擊有病人的格子，直接彈出移除確認
   const patient = patientMap.value.get(slotData.patientId)
   showConfirm(`確認移除`, `確定要將「${patient?.name}」從此班次中移除嗎？`, () => {
     handleSlotUpdate(shiftId, null)
   })
 }
 
-// ✨ 2. 新增 handleSimplifiedCellClick (臨床查閱模式)
+// ✨ 4. 修改臨床查閱模式的點擊邏輯
 function handleSimplifiedCellClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   const patientId = slotData?.patientId
-
   if (patientId) {
     const patient = patientMap.value.get(patientId)
     if (!patient) return
 
-    // 點擊有病人的格子，打開 Action Modal
-    selectedPatientForAction.value = patient
-    isActionModalVisible.value = true
+    // 直接打開新的整合式 Detail Modal
+    selectedPatientForDetail.value = patient
+    isDetailModalVisible.value = true
   }
-  // 如果點擊空格子，則不做任何事
-}
-
-// ✨ 3. 修改 handleActionSelect 以處理來自臨床模式的新增操作
-function handleActionSelect(actionType) {
-  isActionModalVisible.value = false
-  const patient = selectedPatientForAction.value
-  if (!patient) return
-
-  nextTick(() => {
-    if (actionType === 'view-condition-record') {
-      selectedPatientForRecord.value = patient
-      isConditionModalVisible.value = true
-    } else if (actionType === 'view-memos') {
-      showPatientMemos(patient.id)
-    } else if (actionType === 'view-lab-reports') {
-      selectedPatientForLabSummary.value = patient
-      isLabSummaryModalVisible.value = true
-    } else if (actionType === 'remove-patient') {
-      // 這個選項現在只應該在 PatientActionModal 內被觸發
-      const shiftId = Object.keys(currentRecord.schedule).find(
-        (id) => currentRecord.schedule[id]?.patientId === patient.id,
-      )
-      if (shiftId && !isPageLocked.value) {
-        showConfirm(`確認移除`, `確定要將「${patient.name}」從此班次中移除嗎？`, () => {
-          handleSlotUpdate(shiftId, null)
-        })
-      }
-    }
-  })
 }
 
 function showPatientMemos(patientId) {
@@ -1456,105 +1401,6 @@ function handleCancel() {
   onConfirmAction.value = null
 }
 
-async function handleSaveConditionRecord(recordData) {
-  // ‼️ 核心修正：在存取 currentUser 之前，增加更嚴格的檢查
-  if (!auth.isContributor.value || !auth.currentUser.value) {
-    // 檢查 isContributor 和 currentUser.value 是否都存在
-    showAlert('權限不足', '您可能尚未登入或權限不足，無法儲存病情紀錄。')
-    return
-  }
-
-  if (!selectedPatientForRecord.value || !recordData.content) {
-    showAlert('資料不完整', '請確保已選擇病人且紀錄內容不為空。')
-    return
-  }
-
-  try {
-    const dataToSave = {
-      patientId: selectedPatientForRecord.value.id,
-      patientName: selectedPatientForRecord.value.name,
-      recordDate: formatDate(currentDate.value),
-      content: recordData.content,
-      // 經過上面的檢查，這裡現在是安全的
-      authorId: auth.currentUser.value.uid,
-      authorName: auth.currentUser.value.name,
-      createdAt: new Date(),
-    }
-    await conditionRecordsApi.save(dataToSave)
-    createGlobalNotification(
-      `已為 ${selectedPatientForRecord.value.name} 新增一筆病情紀錄`,
-      'schedule',
-    )
-    await fetchRecentRecords()
-  } catch (error) {
-    console.error('儲存病情紀錄失敗:', error)
-    showAlert('儲存失敗', `儲存病情紀錄時發生錯誤: ${error.message}`)
-  }
-}
-
-async function handleUpdateConditionRecord({ id, content }) {
-  // ‼️ 加入前端權限檢查 ‼️
-  if (!auth.isContributor.value) {
-    showAlert('權限不足', '您沒有權限更新病情紀錄。')
-    return
-  }
-
-  try {
-    await conditionRecordsApi.update(id, { content: content })
-    createGlobalNotification('病情紀錄已更新', 'schedule')
-    await fetchRecentRecords()
-  } catch (error) {
-    console.error('更新病情紀錄失敗:', error)
-    showAlert('更新失敗', `更新病情紀錄時發生錯誤: ${error.message}`)
-  }
-}
-
-// 修正後的 handleDeleteConditionRecord 函式
-async function handleDeleteConditionRecord(recordId) {
-  // ‼️ 同樣加入前端權限檢查 ‼️
-  if (!auth.isContributor.value) {
-    showAlert('權限不足', '您沒有權限刪除病情紀錄。')
-    return
-  }
-
-  showConfirm('確認刪除', '您確定要永久刪除這筆病情紀錄嗎？此操作無法復原。', async () => {
-    try {
-      await conditionRecordsApi.delete(recordId)
-      createGlobalNotification('病情紀錄已刪除', 'schedule')
-      await fetchRecentRecords()
-    } catch (error) {
-      console.error('刪除病情紀錄失敗:', error)
-      showAlert('刪除失敗', `刪除病情紀錄時發生錯誤: ${error.message}`)
-    }
-  })
-}
-
-async function handleSaveLabSummaryAsRecord({ patient, content }) {
-  if (!auth.isContributor.value || !auth.currentUser.value) {
-    showAlert('權限不足', '您可能尚未登入或權限不足，無法儲存病情紀錄。')
-    return
-  }
-
-  try {
-    const dataToSave = {
-      patientId: patient.id,
-      patientName: patient.name,
-      recordDate: formatDate(currentDate.value),
-      content: content,
-      authorId: auth.currentUser.value.uid,
-      authorName: auth.currentUser.value.name,
-      createdAt: new Date(),
-    }
-    await conditionRecordsApi.save(dataToSave)
-    createGlobalNotification(`已為 ${patient.name} 新增一筆檢驗報告處置紀錄`, 'schedule')
-    // 刷新病情紀錄，這樣紅點提示才會更新
-    await fetchRecentRecords()
-  } catch (error) {
-    console.error('儲存檢驗摘要紀錄失敗:', error)
-    showAlert('儲存失敗', `儲存紀錄時發生錯誤: ${error.message}`)
-  }
-}
-
 // --- Auto Assignment Logic ---
 const { distributePatients } = useTeamAssigner()
 function autoAssignNurseTeams() {
@@ -1566,8 +1412,6 @@ function autoAssignNurseTeams() {
     executeAutoAssignment()
   })
 }
-
-// 在 src/views/ScheduleView.vue 中，找到 executeAutoAssignment 函式並替換成以下內容：
 
 function executeAutoAssignment() {
   const scheduleCopy = JSON.parse(JSON.stringify(currentRecord.schedule))
