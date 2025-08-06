@@ -1,61 +1,52 @@
-<!-- 檔案路徑: src/components/ConditionRecordModal.vue (功能增強版) -->
+<!-- 檔案路徑: src/components/ConditionRecordPanel.vue (作為整合式彈窗的子面板) -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="close">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 class="modal-title">病情紀錄 - {{ patient?.name }}</h2>
-        <button class="close-button" @click="close">×</button>
+  <!-- 移除外層的 modal-overlay 和 modal-content，直接從內容區塊開始 -->
+  <div class="condition-record-panel-content">
+    <!-- 新增/編輯紀錄區塊 -->
+    <div class="record-form" ref="recordFormElement">
+      <textarea
+        v-model="newRecordContent"
+        :placeholder="editingRecordId ? '正在編輯紀錄...' : '請在此輸入病情、透析狀況或注意事項...'"
+        rows="4"
+      ></textarea>
+      <div class="form-actions">
+        <button v-if="editingRecordId" @click="cancelEditing" class="cancel-button">
+          取消編輯
+        </button>
+        <button @click="handleSave" class="save-button" :disabled="isSaving">
+          {{ isSaving ? '儲存中...' : editingRecordId ? '更新紀錄' : '儲存紀錄' }}
+        </button>
       </div>
-      <div class="modal-body">
-        <!-- 新增/編輯紀錄區塊 -->
-        <div class="record-form" ref="recordFormElement">
-          <textarea
-            v-model="newRecordContent"
-            :placeholder="
-              editingRecordId ? '正在編輯紀錄...' : '請在此輸入病情、透析狀況或注意事項...'
-            "
-            rows="4"
-          ></textarea>
-          <div class="form-actions">
-            <button v-if="editingRecordId" @click="cancelEditing" class="cancel-button">
-              取消編輯
-            </button>
-            <button @click="handleSave" class="save-button" :disabled="isSaving">
-              {{ isSaving ? '儲存中...' : editingRecordId ? '更新紀錄' : '儲存紀錄' }}
-            </button>
-          </div>
-        </div>
+    </div>
 
-        <!-- 歷史紀錄區塊 -->
-        <div class="history-section">
-          <h3 class="history-title">歷史紀錄</h3>
-          <div v-if="isLoading" class="loading-state">
-            <div class="spinner"></div>
-            正在讀取歷史紀錄...
-          </div>
-          <div v-else-if="error" class="error-state">
-            {{ error }}
-          </div>
-          <ul v-else-if="history.length > 0" class="history-list">
-            <li v-for="record in history" :key="record.id" class="history-item">
-              <p class="record-content">{{ record.content }}</p>
-              <div class="record-meta">
-                <span class="author">紀錄者: {{ record.authorName || '未知' }}</span>
-                <span class="timestamp">{{ formatTimestamp(record.createdAt) }}</span>
-              </div>
-              <!-- ✨ 新增/修改：只有作者能看到編輯和刪除按鈕 -->
-              <div
-                v-if="auth.currentUser.value && record.authorId === auth.currentUser.value.uid"
-                class="record-actions"
-              >
-                <button @click="startEditing(record)" class="action-btn edit-btn">編輯</button>
-                <button @click="handleDelete(record.id)" class="action-btn delete-btn">刪除</button>
-              </div>
-            </li>
-          </ul>
-          <div v-else class="empty-state">這位病人目前沒有任何歷史病情紀錄。</div>
-        </div>
+    <!-- 歷史紀錄區塊 -->
+    <div class="history-section">
+      <h3 class="history-title">歷史紀錄</h3>
+      <div v-if="isLoading" class="loading-state">
+        <div class="spinner"></div>
+        正在讀取歷史紀錄...
       </div>
+      <div v-else-if="error" class="error-state">
+        {{ error }}
+      </div>
+      <ul v-else-if="history.length > 0" class="history-list">
+        <li v-for="record in history" :key="record.id" class="history-item">
+          <p class="record-content">{{ record.content }}</p>
+          <div class="record-meta">
+            <span class="author">紀錄者: {{ record.authorName || '未知' }}</span>
+            <span class="timestamp">{{ formatTimestamp(record.createdAt) }}</span>
+          </div>
+          <!-- 只有作者能看到編輯和刪除按鈕 -->
+          <div
+            v-if="auth.currentUser.value && record.authorId === auth.currentUser.value.uid"
+            class="record-actions"
+          >
+            <button @click="startEditing(record)" class="action-btn edit-btn">編輯</button>
+            <button @click="handleDelete(record.id)" class="action-btn delete-btn">刪除</button>
+          </div>
+        </li>
+      </ul>
+      <div v-else class="empty-state">這位病人目前沒有任何歷史病情紀錄。</div>
     </div>
   </div>
 </template>
@@ -67,22 +58,21 @@ import { where, orderBy } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 
 const props = defineProps({
-  isVisible: Boolean,
-  patient: Object,
-  currentDate: Date,
+  // ✨ 移除 isVisible prop，因為 Panel 不再控制自己的可見性
+  patient: Object, // 仍然需要 patient 物件來獲取資料
+  currentDate: Date, // 仍然需要 current Date
 })
 
-// ✨ 新增/修改：新增 update 和 delete 事件
-const emit = defineEmits(['close', 'save', 'update', 'delete'])
+// ✨ 移除 'close' emit，因為 Panel 不再需要通知父層關閉
+const emit = defineEmits(['save', 'update', 'delete'])
 
-const { isVisible, patient } = toRefs(props)
+const { patient } = toRefs(props) // 由於 isVisible 已移除，這裡也一併移除
 
 const newRecordContent = ref('')
 const history = ref([])
 const isLoading = ref(false)
 const isSaving = ref(false)
 const error = ref(null)
-// ✨ 新增/修改：用於追蹤正在編輯的紀錄 ID
 const editingRecordId = ref(null)
 const recordFormElement = ref(null)
 
@@ -97,7 +87,7 @@ async function fetchHistory() {
 
   isLoading.value = true
   error.value = null
-  history.value = []
+  history.value = [] // 清空現有歷史，準備載入新病人的資料
 
   try {
     const queryConstraints = [
@@ -125,7 +115,6 @@ function formatTimestamp(ts) {
   })
 }
 
-// ✨ 新增/修改：處理儲存（新增或更新）的邏輯
 async function handleSave() {
   if (!newRecordContent.value.trim() || !patient.value || isSaving.value) return
 
@@ -133,126 +122,89 @@ async function handleSave() {
 
   try {
     if (editingRecordId.value) {
-      // --- 更新模式 ---
       emit('update', {
         id: editingRecordId.value,
         content: newRecordContent.value.trim(),
       })
     } else {
-      // --- 新增模式 ---
       const recordData = {
         content: newRecordContent.value.trim(),
         authorId: auth.currentUser.value.uid,
         authorName: auth.currentUser.value.name,
+        // ✨ 新增：將 patientId 和 patientName 也傳遞給父組件，以符合之前 ScheduleView 的處理方式
+        patientId: patient.value.id,
+        patientName: patient.value.name,
+        recordDate: props.currentDate
+          ? props.currentDate.toISOString().slice(0, 10)
+          : new Date().toISOString().slice(0, 10),
+        createdAt: new Date(), // 將 createdAt 也傳遞過去，以便父組件儲存
       }
       emit('save', recordData)
     }
     // 操作成功後，重置表單狀態
     cancelEditing()
-    // 重新載入歷史紀錄以顯示變更
+    // 重新載入歷史紀錄以顯示變更 (父組件會處理實際的保存/更新，我們這裡只是刷新顯示)
     await fetchHistory()
   } catch (err) {
-    console.error('從 Modal 觸發儲存/更新失敗:', err)
+    console.error('從 Panel 觸發儲存/更新失敗:', err)
   } finally {
     isSaving.value = false
   }
 }
 
-// ✨ 新增/修改：開始編輯的函式
 function startEditing(record) {
   editingRecordId.value = record.id
   newRecordContent.value = record.content
-  // 將視窗滾動到表單位置，方便手機操作
   recordFormElement.value?.scrollIntoView({ behavior: 'smooth' })
 }
 
-// ✨ 新增/修改：取消編輯的函式
 function cancelEditing() {
   editingRecordId.value = null
   newRecordContent.value = ''
 }
 
-// ✨ 新增/修改：處理刪除的函式
 async function handleDelete(recordId) {
   emit('delete', recordId)
-  // 假定父組件會處理確認，並在成功後重新載入
-  // 為了即時反饋，也可以在這裡先從 UI 移除
+  // 為了即時反饋，可以先從 UI 移除，即使父組件的確認操作還未完成
   history.value = history.value.filter((r) => r.id !== recordId)
 }
 
-function close() {
-  cancelEditing() // 關閉時也取消編輯狀態
-  emit('close')
-}
+// ✨ 移除 close() 函式，因為它不再需要通知父層關閉
 
-watch(isVisible, (newVal) => {
-  if (newVal) {
-    cancelEditing()
-    error.value = null
-    fetchHistory()
-  }
-})
+// ✨ 修改 watch 邏輯：現在監聽 patient.id 的變化來載入資料
+watch(
+  () => patient.value?.id,
+  (newPatientId) => {
+    if (newPatientId) {
+      // 當 patient.id 有值時（表示有病人被選中），清空編輯狀態並載入歷史
+      cancelEditing()
+      error.value = null
+      fetchHistory()
+    } else {
+      // 如果 patient.id 為空（例如清除了選中的病人），則清空歷史紀錄
+      history.value = []
+    }
+  },
+  { immediate: true },
+) // immediate: true 確保在組件首次載入時，如果 patient 已經有值，也能立即載入數據
 </script>
 
 <style scoped>
-/* (樣式保持不變，但新增了幾個 class 的定義) */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background-color: #fff;
-  border-radius: 12px;
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
-  width: 90%;
-  max-width: 600px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.modal-header {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e9ecef;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.modal-title {
-  margin: 0;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #343a40;
-}
-
-.close-button {
-  background: none;
-  border: none;
-  font-size: 2rem;
-  cursor: pointer;
-  color: #6c757d;
-  padding: 0;
-  line-height: 1;
-}
-
-.modal-body {
-  padding: 1.5rem;
+/* 將 .modal-body 的樣式套用到新的根容器 .condition-record-panel-content */
+.condition-record-panel-content {
+  /* 這邊是原 .modal-body 的 padding */
+  padding: 0; /* 讓父元件的 padding 控制 */
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.5rem; /* 原本的 gap */
+  height: 100%; /* 確保 Panel 填滿父容器高度 */
 }
 
+/* 移除所有 modal 相關的樣式 */
+/* .modal-overlay, .modal-content, .modal-header, .modal-title, .close-button 都刪除 */
+
+/* 其他所有內部的樣式保持不變 */
 .record-form {
   display: flex;
   flex-direction: column;
@@ -269,7 +221,6 @@ watch(isVisible, (newVal) => {
   resize: vertical;
 }
 
-/* ✨ 新增/修改：讓儲存和取消按鈕並排 */
 .form-actions {
   display: flex;
   justify-content: flex-end;
@@ -347,7 +298,6 @@ watch(isVisible, (newVal) => {
   color: #495057;
 }
 
-/* ✨ 新增/修改：操作按鈕樣式 */
 .record-actions {
   display: flex;
   gap: 0.5rem;
