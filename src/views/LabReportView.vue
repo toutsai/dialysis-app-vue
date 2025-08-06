@@ -1,37 +1,33 @@
-<!-- 檔案路徑: src/views/LabReportView.vue (請用此程式碼完整替換) -->
+<!-- 檔案路徑: src/views/LabReportView.vue (整合了所有新功能後的最終版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
-      <!-- ✨ 1. 新增返回按鈕，只有在需要時才會顯示 -->
       <button v-if="showBackButton" @click="router.back()" class="back-button">返回查房名單</button>
-
       <div class="header-main-content">
         <h1>檢驗報告管理</h1>
-        <p class="page-description">匯入批次檢驗報告，並提供多維度的查詢與檢視功能。</p>
+        <p class="page-description">匯入、查詢檢驗報告，並提供特定條件的警示名單。</p>
       </div>
     </header>
 
-    <!-- 頁籤導覽 -->
     <div class="tabs-navigation">
-      <button :class="{ active: activeTab === 'query' }" @click="activeTab = 'query'">
+      <button :class="{ active: activeTab === 'query' }" @click="setActiveTab('query')">
         報告查詢
       </button>
-      <button :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">
+      <button :class="{ active: activeTab === 'alert' }" @click="setActiveTab('alert')">
+        警示報告
+      </button>
+      <button :class="{ active: activeTab === 'upload' }" @click="setActiveTab('upload')">
         資料上傳
       </button>
     </div>
 
-    <!-- 頁籤內容面板 -->
     <main class="page-main-content">
-      <!-- 報告查詢頁籤 -->
+      <!-- (A) 報告查詢頁籤 -->
       <div v-show="activeTab === 'query'" class="tab-panel query-panel">
-        <!-- 行動版專用的搜尋面板開關按鈕 (桌面版會透過 CSS 自動隱藏) -->
         <button class="search-toggle-btn" @click="isSearchVisible = !isSearchVisible">
           {{ isSearchVisible ? '收合搜尋條件' : '展開搜尋條件' }}
           <span :class="['toggle-icon', { 'is-toggled': !isSearchVisible }]">▼</span>
         </button>
-
-        <!-- 搜尋面板，其可見性由 v-show 和 isSearchVisible 狀態控制 -->
         <div v-show="isSearchVisible" class="search-controls">
           <div class="search-field">
             <label for="search-type">查詢模式:</label>
@@ -40,7 +36,6 @@
               <option value="individual">依個人查詢</option>
             </select>
           </div>
-
           <div v-if="searchType === 'group'" class="filter-wrapper">
             <div class="group-filters">
               <div class="search-field">
@@ -66,7 +61,6 @@
               {{ isLoadingReports ? '查詢中...' : '查詢報告' }}
             </button>
           </div>
-
           <div v-if="searchType === 'individual'" class="filter-wrapper">
             <div class="individual-filters">
               <div class="search-field">
@@ -102,7 +96,6 @@
             查無符合條件的報告。
           </div>
           <div v-else class="table-container">
-            <!-- 依群組查詢的結果表格 -->
             <table v-if="searchType === 'group'">
               <thead>
                 <tr>
@@ -123,7 +116,6 @@
                 </tr>
               </tbody>
             </table>
-            <!-- 依個人查詢的結果表格 -->
             <table v-if="searchType === 'individual'">
               <thead>
                 <tr>
@@ -146,7 +138,66 @@
         </div>
       </div>
 
-      <!-- 資料上傳頁籤 (此區塊結構與邏輯不變) -->
+      <!-- ✨ 警示報告頁籤 (已升級) ✨ -->
+      <div v-show="activeTab === 'alert'" class="tab-panel alert-panel">
+        <div class="alert-controls">
+          <button @click="changeAlertMonth(-1)">&lt; 前三個月</button>
+          <span class="month-range-display"
+            >{{ alertMonthRange.start }} ~ {{ alertMonthRange.end }}</span
+          >
+          <button @click="changeAlertMonth(1)">後三個月 &gt;</button>
+          <button @click="exportToExcel" class="export-btn" :disabled="alertList.length === 0">
+            匯出 Excel
+          </button>
+        </div>
+
+        <div class="alert-report-display">
+          <div v-if="isLoadingAlerts" class="loading-state">
+            <div class="loading-spinner"></div>
+            正在分析 {{ alertMonthRange.start }} 至 {{ alertMonthRange.end }} 的數據...
+          </div>
+          <div v-else-if="groupedAlerts.length === 0" class="empty-state">
+            太棒了！此區間內沒有病人符合連續不合格的警示條件。
+          </div>
+          <div v-else class="grouped-tables-container">
+            <div v-for="group in groupedAlerts" :key="group.key" class="alert-group">
+              <h3 class="group-title">
+                {{ labItemDisplayNames[group.key] || group.key }} - 不合格名單
+              </h3>
+              <table class="alert-table">
+                <thead>
+                  <tr>
+                    <th>頻率</th>
+                    <th>預設班別</th>
+                    <th>預設床號</th>
+                    <th>姓名</th>
+                    <th>不合格項目詳情</th>
+                    <th class="col-analysis">病因分析</th>
+                    <th class="col-suggestion">建議處置</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in group.items" :key="item.patient.id">
+                    <td>{{ item.patient.freq || 'N/A' }}</td>
+                    <td>{{ item.patient.defaultShift || 'N/A' }}</td>
+                    <td>{{ item.patient.defaultBed || 'N/A' }}</td>
+                    <td class="clickable" @click="showPatientHistory(item.patient)">
+                      {{ item.patient.name }}
+                    </td>
+                    <td class="clickable" @click="showPatientHistory(item.patient, group.key)">
+                      {{ item.abnormality.reason }}
+                    </td>
+                    <td><textarea v-model="item.analysisText" rows="2"></textarea></td>
+                    <td><textarea v-model="item.suggestionText" rows="2"></textarea></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- (C) 資料上傳頁籤 -->
       <div v-show="activeTab === 'upload'" class="tab-panel upload-panel">
         <div
           class="upload-drop-zone"
@@ -198,11 +249,18 @@
         </div>
       </div>
     </main>
+
+    <!-- 用於顯示病人歷史報告的彈出視窗 -->
+    <PatientLabSummaryModal
+      :is-visible="isHistoryModalVisible"
+      :patient="selectedPatientForHistory"
+      @close="isHistoryModalVisible = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, watch } from 'vue'
+import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getFunctions, httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
@@ -215,22 +273,25 @@ import {
   query as firestoreQuery,
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
+import * as XLSX from 'xlsx'
+import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 
 // --- Router and State ---
 const route = useRoute()
-const router = useRouter() // 初始化 router
-const showBackButton = ref(false) // 控制返回按鈕的顯示狀態
+const router = useRouter()
+const showBackButton = ref(false)
 
-// --- 其餘 Script 內容完全不變 ---
-const isSearchVisible = ref(true)
-const patientsApi = ApiManager('patients')
-const labReportsApi = ApiManager('lab_reports')
-const baseSchedulesApi = ApiManager('base_schedules')
+// --- 頁籤與搜尋面板狀態 ---
 const activeTab = ref('query')
+const isSearchVisible = ref(true)
+
+// --- 資料上傳狀態 ---
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
 const isDragOver = ref(false)
+
+// --- 報告查詢狀態 ---
 const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
@@ -243,6 +304,21 @@ const isLoadingReports = ref(false)
 const searchPerformed = ref(false)
 const reportData = ref([])
 const reportColumns = ref([])
+
+// --- 警示報告相關的狀態 ---
+const isLoadingAlerts = ref(false)
+const alertList = ref([])
+const alertCurrentMonth = ref(new Date())
+const CONSECUTIVE_ABNORMAL_CRITERIA = {
+  Hb: { max: 8.5 },
+  Albumin: { max: 3.5 },
+  URR: { max: 65 },
+  CaXP: { min: 60 },
+}
+const isHistoryModalVisible = ref(false)
+const selectedPatientForHistory = ref(null)
+
+// --- 常數定義 ---
 const freqOptions = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六']
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
 const prioritizedLabItems = [
@@ -294,6 +370,220 @@ const labItemDisplayNames = {
   TSAT: 'TSAT (%)',
 }
 
+// --- API Manager ---
+const patientsApi = ApiManager('patients')
+const labReportsApi = ApiManager('lab_reports')
+const baseSchedulesApi = ApiManager('base_schedules')
+
+// --- Computed Properties ---
+const alertMonthRange = computed(() => {
+  const end = new Date(alertCurrentMonth.value)
+  const start = new Date(alertCurrentMonth.value)
+  start.setMonth(start.getMonth() - 2)
+  const formatDate = (date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+  return { start: formatDate(start), end: formatDate(end) }
+})
+
+const groupedAlerts = computed(() => {
+  const groups = {}
+  alertList.value.forEach((item) => {
+    item.abnormalities.forEach((abnormality) => {
+      const key = abnormality.key
+      if (!groups[key]) {
+        groups[key] = { key: key, items: [] }
+      }
+      groups[key].items.push({
+        patient: item.patient,
+        abnormality: abnormality,
+        analysisText: '',
+        suggestionText: '',
+      })
+    })
+  })
+  return Object.values(groups).sort((a, b) => a.key.localeCompare(b.key))
+})
+
+// --- Methods ---
+function setActiveTab(tabName) {
+  activeTab.value = tabName
+  if (tabName === 'alert' && alertList.value.length === 0 && !isLoadingAlerts.value) {
+    generateAlertReport()
+  }
+}
+
+function changeAlertMonth(monthOffset) {
+  alertCurrentMonth.value.setMonth(alertCurrentMonth.value.getMonth() + monthOffset)
+  alertCurrentMonth.value = new Date(alertCurrentMonth.value)
+  generateAlertReport()
+}
+
+async function generateAlertReport() {
+  isLoadingAlerts.value = true
+  alertList.value = []
+  try {
+    const allOpdPatients = await patientsApi.fetchAll([where('status', '==', 'opd')])
+    const range = alertMonthRange.value
+    const startDate = new Date(range.start + '-01')
+    const endDate = new Date(range.end + '-01')
+    endDate.setMonth(endDate.getMonth() + 1)
+    const scheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+    const scheduleRules = scheduleDoc?.schedule || {}
+    for (const patient of allOpdPatients) {
+      const reports = await labReportsApi.fetchAll([
+        where('patientId', '==', patient.id),
+        where('reportDate', '>=', startDate),
+        where('reportDate', '<', endDate),
+        orderBy('reportDate', 'desc'),
+      ])
+      if (reports.length < 3) continue
+      const cleanedReports = reports.map((r) => ({
+        ...r,
+        reportDate: r.reportDate.toDate
+          ? r.reportDate.toDate().toISOString().slice(0, 10)
+          : r.reportDate,
+      }))
+      const { processedData, months } = processReports(cleanedReports)
+      const requiredMonths = [
+        alertMonthRange.value.end,
+        new Date(
+          new Date(alertMonthRange.value.end + '-01').setMonth(
+            new Date(alertMonthRange.value.end + '-01').getMonth() - 1,
+          ),
+        )
+          .toISOString()
+          .slice(0, 7),
+        alertMonthRange.value.start,
+      ]
+      if (!requiredMonths.every((m) => months.includes(m))) continue
+      const abnormalities = findAbnormalities(processedData, requiredMonths)
+      if (abnormalities.length > 0) {
+        const scheduleInfo = scheduleRules[patient.id]
+        patient.defaultShift = ['早', '午', '晚'][scheduleInfo?.shiftIndex] || 'N/A'
+        patient.defaultBed = scheduleInfo?.bedNum || 'N/A'
+        alertList.value.push({ patient, abnormalities })
+      }
+    }
+    alertList.value.sort((a, b) =>
+      String(a.patient.defaultBed).localeCompare(String(b.patient.defaultBed), undefined, {
+        numeric: true,
+      }),
+    )
+  } catch (error) {
+    console.error('生成警示報告失敗:', error)
+    alert('生成警示報告時發生錯誤，請檢查主控台。')
+  } finally {
+    isLoadingAlerts.value = false
+  }
+}
+
+function processReports(rawReports) {
+  const data = {}
+  const monthSet = new Set()
+  rawReports.forEach((report) => {
+    const monthKey = report.reportDate.slice(0, 7)
+    monthSet.add(monthKey)
+    for (const itemKey in report.data) {
+      if (!data[itemKey]) data[itemKey] = {}
+      data[itemKey][monthKey] = report.data[itemKey]
+    }
+  })
+  const reportMonths = Array.from(monthSet).sort().reverse()
+  for (const monthKey of reportMonths) {
+    const bun = data['BUN']?.[monthKey]
+    const postBun = data['PostBUN']?.[monthKey]
+    const ca = data['Ca']?.[monthKey]
+    const p = data['P']?.[monthKey]
+    const iron = data['Iron']?.[monthKey]
+    const tibc = data['TIBC']?.[monthKey]
+    if (ca && p) {
+      if (!data['CaXP']) data['CaXP'] = {}
+      data['CaXP'][monthKey] = (ca * p).toFixed(2)
+    }
+    if (iron && tibc > 0) {
+      if (!data['TSAT']) data['TSAT'] = {}
+      data['TSAT'][monthKey] = ((iron / tibc) * 100).toFixed(1)
+    }
+    if (bun && postBun > 0) {
+      if (!data['URR']) data['URR'] = {}
+      if (!data['Kt/V']) data['Kt/V'] = {}
+      data['URR'][monthKey] = (((bun - postBun) / bun) * 100).toFixed(1)
+      data['Kt/V'][monthKey] = Math.log(bun / postBun).toFixed(2)
+    }
+  }
+  return { processedData: data, months: reportMonths }
+}
+
+function findAbnormalities(processedData, months) {
+  const abnormalities = []
+  if (months.length < 3) return abnormalities
+  const last3Months = months.slice(0, 3).sort().reverse()
+  for (const key in CONSECUTIVE_ABNORMAL_CRITERIA) {
+    const val1 = processedData[key]?.[last3Months[0]]
+    const val2 = processedData[key]?.[last3Months[1]]
+    const val3 = processedData[key]?.[last3Months[2]]
+    if (val1 === undefined || val2 === undefined || val3 === undefined) continue
+    const rule = CONSECUTIVE_ABNORMAL_CRITERIA[key]
+    const isValueAbnormal = (v) => {
+      if (rule.max !== undefined && v < rule.max) return true
+      if (rule.min !== undefined && v > rule.min) return true
+      return false
+    }
+    if (isValueAbnormal(val1) && isValueAbnormal(val2) && isValueAbnormal(val3)) {
+      abnormalities.push({ key, reason: `最近三個月值: ${val1}, ${val2}, ${val3}` })
+    }
+  }
+  return abnormalities
+}
+
+function showPatientHistory(patient, highlightItem = null) {
+  selectedPatientForHistory.value = patient
+  isHistoryModalVisible.value = true
+}
+
+function exportToExcel() {
+  const wb = XLSX.utils.book_new()
+  groupedAlerts.value.forEach((group) => {
+    const sheetData = group.items.map((item) => ({
+      頻率: item.patient.freq || 'N/A',
+      預設班別: item.patient.defaultShift || 'N/A',
+      預設床號: item.patient.defaultBed || 'N/A',
+      姓名: item.patient.name,
+      不合格項目詳情: item.abnormality.reason,
+      病因分析: item.analysisText,
+      建議處置: item.suggestionText,
+    }))
+    if (sheetData.length > 0) {
+      const ws = XLSX.utils.json_to_sheet(sheetData)
+      const sheetName = (labItemDisplayNames[group.key] || group.key).replace(/[%()/]/g, '')
+      XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))
+    }
+  })
+  const fileName = `警示報告_${alertMonthRange.value.start}_${alertMonthRange.value.end}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
+
+onMounted(() => {
+  const patientIdFromQuery = route.query.patientId
+  const tabFromQuery = route.query.tab
+  if (patientIdFromQuery) {
+    showBackButton.value = true
+    setActiveTab('query')
+    searchType.value = 'individual'
+    isSearchVisible.value = true
+    patientsApi.fetchById(patientIdFromQuery).then((patient) => {
+      if (patient) {
+        individualSearchQuery.value = patient.name
+        handleSearch()
+      }
+    })
+  } else if (tabFromQuery === 'alert') {
+    setActiveTab('alert')
+  } else if (window.innerWidth <= 768) {
+    isSearchVisible.value = false
+  }
+})
+
 function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
   uploadResult.value = null
@@ -329,12 +619,9 @@ function toBase64(file) {
     reader.onerror = (error) => reject(error)
   })
 }
-
-// 搜尋按鈕邏輯：加入行動版判斷
 async function handleSearch() {
   isLoadingReports.value = true
   searchPerformed.value = true
-  // 在行動裝置上，查詢後自動收合搜尋面板
   if (window.innerWidth <= 768) {
     isSearchVisible.value = false
   }
@@ -356,7 +643,6 @@ async function handleSearch() {
     isLoadingReports.value = false
   }
 }
-
 watch(searchType, (newType) => {
   searchPerformed.value = false
   reportColumns.value = []
@@ -366,8 +652,6 @@ watch(searchType, (newType) => {
     reportData.value = {}
   }
 })
-
-// searchGroupReports 函式完全不變
 async function searchGroupReports() {
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
@@ -456,8 +740,6 @@ async function searchGroupReports() {
     })
     .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
 }
-
-// searchIndividualReports 函式完全不變
 async function searchIndividualReports() {
   if (!individualSearchQuery.value.trim()) return
   const query = individualSearchQuery.value.trim().toLowerCase()
@@ -528,7 +810,6 @@ async function searchIndividualReports() {
   reportData.value = processedData
   reportColumns.value = Array.from(monthSet).sort().reverse()
 }
-
 function changeYear(offset) {
   individualSearchYear.value += offset
   if (individualSearchQuery.value.trim()) handleSearch()
@@ -541,30 +822,10 @@ function handleFileDrop(event) {
     uploadResult.value = null
   }
 }
-
-// onMounted 邏輯：加入行動版判斷
-onMounted(() => {
-  const patientIdFromQuery = route.query.patientId
-  if (patientIdFromQuery) {
-    showBackButton.value = true
-
-    searchType.value = 'individual'
-    isSearchVisible.value = true
-    patientsApi.fetchById(patientIdFromQuery).then((patient) => {
-      if (patient) {
-        individualSearchQuery.value = patient.name
-        handleSearch()
-      }
-    })
-  } else if (window.innerWidth <= 768) {
-    // 在行動裝置上，若非直接查詢，則預設收合搜尋面板
-    isSearchVisible.value = false
-  }
-})
 </script>
 
 <style scoped>
-/* --- 1. 基礎樣式 (桌面版原始樣式) --- */
+/* --- 1. 基礎樣式 --- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -577,13 +838,12 @@ onMounted(() => {
   padding-bottom: 1rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid #dee2e6;
-  /* 使用 flex 佈局 */
   display: flex;
   align-items: center;
-  gap: 1.5rem; /* 在按鈕和標題之間增加間距 */
+  gap: 1.5rem;
 }
 .back-button {
-  flex-shrink: 0; /* 防止按鈕被壓縮 */
+  flex-shrink: 0;
   background-color: #6c757d;
   color: white;
   border: none;
@@ -597,9 +857,8 @@ onMounted(() => {
 .back-button:hover {
   background-color: #5a6268;
 }
-
 .header-main-content {
-  flex-grow: 1; /* 讓標題區塊填滿剩餘空間 */
+  flex-grow: 1;
 }
 h1 {
   font-size: 2rem;
@@ -647,7 +906,8 @@ h1 {
   flex-direction: column;
   padding: 1.5rem;
 }
-.query-panel {
+.query-panel,
+.alert-panel {
   gap: 1.5rem;
 }
 .search-controls {
@@ -659,7 +919,8 @@ h1 {
   padding-bottom: 1.5rem;
   border-bottom: 1px solid #e9ecef;
 }
-.report-display {
+.report-display,
+.alert-report-display {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
@@ -733,6 +994,23 @@ h1 {
   color: #6c757d;
   padding: 2rem;
 }
+.loading-spinner {
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid #3498db;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem auto;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -772,8 +1050,6 @@ tbody tr:nth-child(even) {
 tbody tr:nth-child(even) .sticky-col {
   background-color: #f8f9fa;
 }
-
-/* --- 上傳頁籤樣式 (不變) --- */
 .upload-panel {
   align-items: center;
   justify-content: flex-start;
@@ -891,13 +1167,82 @@ input[type='file'] {
   font-family: monospace;
 }
 
-/* --- 2. 行動版響應式樣式 (所有行動版樣式都嚴格限制在此區塊內) --- */
-.search-toggle-btn {
-  display: none; /* 關鍵：預設（桌面版）隱藏此按鈕 */
+/* --- 2. 警示報告頁籤樣式 --- */
+.alert-controls {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.5rem;
+  background-color: #e9ecef;
+  border-radius: 8px;
+}
+.alert-controls button {
+  padding: 0.5rem 1.5rem;
+  border-radius: 4px;
+  border: 1px solid #007bff;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+}
+.month-range-display {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #343a40;
+  min-width: 220px;
+  text-align: center;
+}
+.export-btn {
+  background-color: #198754;
+  border-color: #198754;
+  margin-left: auto;
+}
+.export-btn:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+.grouped-tables-container {
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+.alert-group {
+  margin-bottom: 2rem;
+}
+.group-title {
+  font-size: 1.25rem;
+  color: #343a40;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #007bff;
+}
+.alert-table td.clickable {
+  color: #0056b3;
+  font-weight: bold;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.alert-table td.clickable:hover {
+  color: #003f7e;
+}
+.alert-table textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+.col-analysis,
+.col-suggestion {
+  width: 20%;
 }
 
+/* --- 3. 行動版響應式樣式 --- */
+.search-toggle-btn {
+  display: none;
+}
 @media (max-width: 768px) {
-  /* --- 整體佈局調整 --- */
   .page-container {
     height: 100vh;
     padding: 0;
@@ -910,10 +1255,10 @@ input[type='file'] {
     gap: 1rem;
   }
   h1 {
-    font-size: 1.2rem; /* 稍微縮小標題以容納按鈕 */
+    font-size: 1.2rem;
   }
   .page-description {
-    display: none; /* 在行動裝置上隱藏次標題以節省空間 */
+    display: none;
   }
   .back-button {
     padding: 0.5rem 0.8rem;
@@ -923,14 +1268,10 @@ input[type='file'] {
     font-size: 1rem;
     padding: 0.5rem 1rem;
   }
-
-  /* --- 查詢頁籤的行動版專屬佈局 --- */
-  .query-panel {
+  .query-panel,
+  .alert-panel {
     padding: 0;
-    gap: 0;
   }
-
-  /* --- 顯示並美化行動版切換按鈕 --- */
   .search-toggle-btn {
     display: flex;
     justify-content: space-between;
@@ -951,14 +1292,12 @@ input[type='file'] {
   .toggle-icon.is-toggled {
     transform: rotate(180deg);
   }
-
-  /* --- 搜尋控制項的行動版樣式 --- */
   .search-controls {
     flex-direction: column;
     align-items: stretch;
     gap: 1rem;
-    padding: 1rem; /* 設定內距 */
-    border-bottom: 1px solid #e9ecef; /* 維持底線 */
+    padding: 1rem;
+    border-bottom: 1px solid #e9ecef;
   }
   .filter-wrapper,
   .group-filters,
@@ -975,9 +1314,8 @@ input[type='file'] {
   .year-selector {
     justify-content: space-between;
   }
-
-  /* --- 報告顯示區和表格容器的行動版樣式 --- */
-  .report-display {
+  .report-display,
+  .alert-report-display {
     padding: 0;
   }
   .table-container {
@@ -997,8 +1335,6 @@ input[type='file'] {
   .sticky-col.col-name {
     left: 80px;
   }
-
-  /* --- 上傳頁籤的行動版微調 --- */
   .upload-panel {
     padding: 1rem;
   }
@@ -1019,6 +1355,21 @@ input[type='file'] {
     width: 100%;
     box-sizing: border-box;
     padding: 0.75rem;
+  }
+  .alert-controls {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border-radius: 0;
+    border-bottom: 1px solid #dee2e6;
+  }
+  .month-range-display {
+    width: 100%;
+    order: -1;
+    padding-bottom: 0.5rem;
+  }
+  .alert-controls button {
+    flex-grow: 1;
   }
 }
 </style>
