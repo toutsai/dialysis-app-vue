@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (最終黃金整合版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (整合臨床查閱模式的最終版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -37,7 +37,6 @@
           </button>
         </div>
         <div class="toolbar-right">
-          <!-- ✨ 核心修正 1：在這裡放置一個【專供行動版】的 StatsToolbar -->
           <StatsToolbar
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
@@ -59,12 +58,22 @@
       <!-- 第二列：控制面板 -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
-          <button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
+          <!-- ✨ 新增：臨床查閱的切換按鈕和容器 (僅桌面) ✨ -->
+          <div class="view-toggle-wrapper desktop-only">
+            <button
+              class="view-toggle-btn"
+              @click="isSimplifiedViewVisible = !isSimplifiedViewVisible"
+            >
+              <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
+              {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
+            </button>
+          </div>
+          <!--<button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
             清除住院病人
-          </button>
-          <button class="btn btn-secondary" @click="clearNurseTeams" :disabled="isPageLocked">
+          </button> -->
+          <!--<button class="btn btn-secondary" @click="clearNurseTeams" :disabled="isPageLocked">
             清除護理分組
-          </button>
+          </button> -->
           <div class="team-highlight-container">
             <div class="team-group">
               <span class="team-group-label">早</span>
@@ -107,7 +116,108 @@
     </header>
 
     <main class="page-main-content" :class="{ 'is-locked': isPageLocked }">
-      <div class="schedule-content desktop-only">
+      <!-- ✨ 修改：為兩個視圖加上 v-if/v-show，並調整 class ✨ -->
+      <!-- (A) 臨床查閱模式 (桌面/手機/列印共用) -->
+      <div v-if="isSimplifiedViewVisible" class="simplified-view-wrapper desktop-only">
+        <div class="simplified-view">
+          <table class="simplified-table">
+            <thead>
+              <tr>
+                <th class="col-bed">床號</th>
+                <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
+                  {{ getShiftDisplayName(shiftCode) }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="bedNum in sortedBedNumbers" :key="bedNum">
+                <td class="col-bed">{{ bedNum }}</td>
+                <td
+                  v-for="shiftCode in ORDERED_SHIFT_CODES"
+                  :key="shiftCode"
+                  :class="getPatientCellStyle(`bed-${bedNum}-${shiftCode}`)"
+                  @click="handleSimplifiedCellClick(`bed-${bedNum}-${shiftCode}`)"
+                >
+                  <div
+                    v-if="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]"
+                    class="patient-info-cell"
+                  >
+                    <div class="patient-mrn-name">
+                      <span>{{
+                        patientMap.get(
+                          currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                        )?.medicalRecordNumber
+                      }}</span>
+                      <div class="patient-name-wrapper">
+                        <span
+                          v-if="
+                            patientHasNotification.has(
+                              currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                            )
+                          "
+                          class="record-indicator"
+                          title="有新的病情紀錄或交班備忘"
+                          >📝</span
+                        >
+                        <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
+                      </div>
+                    </div>
+                    <div class="patient-note">
+                      {{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr v-for="i in peripheralBedCount" :key="`p-${i}`">
+                <td class="col-bed">外圍 {{ i }}</td>
+                <td
+                  v-for="shiftCode in ORDERED_SHIFT_CODES"
+                  :key="shiftCode"
+                  :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
+                  @click="handleSimplifiedCellClick(`peripheral-${i}-${shiftCode}`)"
+                >
+                  <div
+                    v-if="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]"
+                    class="patient-info-cell"
+                  >
+                    <div class="patient-mrn-name">
+                      <span>{{
+                        patientMap.get(
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                        )?.medicalRecordNumber
+                      }}</span>
+                      <div class="patient-name-wrapper">
+                        <span
+                          v-if="
+                            patientHasNotification.has(
+                              currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                            )
+                          "
+                          class="record-indicator"
+                          title="有新的病情紀錄或交班備忘"
+                          >📝</span
+                        >
+                        <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
+                      </div>
+                    </div>
+                    <div class="patient-ward-note">
+                      <span class="ward-number">{{
+                        currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber
+                      }}</span>
+                      <span class="patient-note">{{
+                        getCombinedNote(`peripheral-${i}-${shiftCode}`)
+                      }}</span>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- (B) 排班操作模式 (原本的 schedule-content) -->
+      <div v-show="!isSimplifiedViewVisible" class="schedule-content desktop-only">
         <div class="dialysis-unit">
           <template
             v-for="(wing, wingName) in {
@@ -316,6 +426,7 @@
         </div>
       </div>
 
+      <!-- (C) 行動版專用視圖 -->
       <div class="simplified-view mobile-and-print-only">
         <table class="simplified-table">
           <thead>
@@ -333,7 +444,7 @@
                 v-for="shiftCode in ORDERED_SHIFT_CODES"
                 :key="shiftCode"
                 :class="getPatientCellStyle(`bed-${bedNum}-${shiftCode}`)"
-                @click="handleSlotClick(`bed-${bedNum}-${shiftCode}`)"
+                @click="handleSimplifiedCellClick(`bed-${bedNum}-${shiftCode}`)"
               >
                 <div
                   v-if="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]"
@@ -345,7 +456,6 @@
                         ?.medicalRecordNumber
                     }}</span>
                     <div class="patient-name-wrapper">
-                      <!-- ‼️ 核心修正：使用新的 computed 屬性來判斷是否顯示圖示 -->
                       <span
                         v-if="
                           patientHasNotification.has(
@@ -371,7 +481,7 @@
                 v-for="shiftCode in ORDERED_SHIFT_CODES"
                 :key="shiftCode"
                 :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
-                @click="handleSlotClick(`peripheral-${i}-${shiftCode}`)"
+                @click="handleSimplifiedCellClick(`peripheral-${i}-${shiftCode}`)"
               >
                 <div
                   v-if="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]"
@@ -384,7 +494,6 @@
                       )?.medicalRecordNumber
                     }}</span>
                     <div class="patient-name-wrapper">
-                      <!-- ‼️ 核心修正：同樣使用新的 computed 屬性 -->
                       <span
                         v-if="
                           patientHasNotification.has(
@@ -483,6 +592,102 @@
       @select="handleActionSelect"
       @close="isActionModalVisible = false"
     />
+    <PatientLabSummaryModal
+      :is-visible="isLabSummaryModalVisible"
+      :patient="selectedPatientForLabSummary"
+      @close="isLabSummaryModalVisible = false"
+      @save-record="handleSaveLabSummaryAsRecord"
+    />
+    <!-- ======================================================= -->
+    <!--                  ✨ 全新：專為列印設計的區塊 ✨            -->
+    <!-- ======================================================= -->
+    <div class="print-only-view">
+      <!-- 1. 列印頁首 -->
+      <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
+
+      <!-- 2. 人數統計 -->
+      <div v-if="statsToolbarData[0]" class="print-stats">
+        <span class="stat-item"><strong>本日總計:</strong> {{ statsToolbarData[0].total }}人</span>
+        <span class="stat-item"
+          ><strong>早班:</strong> {{ statsToolbarData[0].counts.early.total }}人</span
+        >
+        <span class="stat-item"
+          ><strong>午班:</strong> {{ statsToolbarData[0].counts.noon.total }}人</span
+        >
+        <span class="stat-item"
+          ><strong>晚班:</strong> {{ statsToolbarData[0].counts.late.total }}人</span
+        >
+      </div>
+
+      <hr class="print-divider" />
+
+      <!-- 3. A4 表格 -->
+      <table class="simplified-table print-table">
+        <thead>
+          <tr>
+            <th class="col-bed">床號</th>
+            <th>早班</th>
+            <th>午班</th>
+            <th>晚班</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- 主要床位 -->
+          <tr v-for="bedNum in sortedBedNumbers" :key="`print-bed-${bedNum}`">
+            <td class="col-bed">{{ bedNum }}</td>
+            <td
+              v-for="shiftCode in ORDERED_SHIFT_CODES"
+              :key="shiftCode"
+              :class="getPatientCellStyle(`bed-${bedNum}-${shiftCode}`)"
+            >
+              <div
+                v-if="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]"
+                class="patient-info-cell"
+              >
+                <div class="patient-mrn-name">
+                  <span>{{
+                    patientMap.get(currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId)
+                      ?.medicalRecordNumber
+                  }}</span>
+                  <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
+                </div>
+                <div class="patient-note">{{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}</div>
+              </div>
+            </td>
+          </tr>
+          <!-- 外圍床位 -->
+          <tr v-for="i in peripheralBedCount" :key="`print-p-${i}`">
+            <td class="col-bed">外圍 {{ i }}</td>
+            <td
+              v-for="shiftCode in ORDERED_SHIFT_CODES"
+              :key="shiftCode"
+              :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
+            >
+              <div
+                v-if="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]"
+                class="patient-info-cell"
+              >
+                <div class="patient-mrn-name">
+                  <span>{{
+                    patientMap.get(currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId)
+                      ?.medicalRecordNumber
+                  }}</span>
+                  <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
+                </div>
+                <div class="patient-ward-note">
+                  <span class="ward-number">{{
+                    currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber
+                  }}</span>
+                  <span class="patient-note">{{
+                    getCombinedNote(`peripheral-${i}-${shiftCode}`)
+                  }}</span>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -526,6 +731,7 @@ import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ConditionRecordModal from '@/components/ConditionRecordModal.vue'
 import PatientActionModal from '@/components/PatientActionModal.vue'
+import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 
 // --- API and Constants ---
 const conditionRecordsApi = ApiManager('condition_records')
@@ -596,6 +802,9 @@ const isConditionModalVisible = ref(false)
 const selectedPatientForRecord = ref(null)
 const isActionModalVisible = ref(false)
 const selectedPatientForAction = ref(null)
+const isLabSummaryModalVisible = ref(false)
+const selectedPatientForLabSummary = ref(null)
+const isSimplifiedViewVisible = ref(false)
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -875,42 +1084,45 @@ function goToToday() {
   }
 }
 
+// ✨ 1. 修改 handleSlotClick (排班模式)
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
-  const isMobile = window.innerWidth <= 992
 
-  // 檢查是否有病人
-  if (slotData?.patientId) {
-    const patient = patientMap.value.get(slotData.patientId)
-    if (!patient) return
-
-    // 如果是行動版，打開新的 Action Modal
-    if (isMobile) {
-      selectedPatientForAction.value = patient
-      isActionModalVisible.value = true
-      return // 流程到此結束，等待使用者選擇
+  // 如果頁面鎖定，或者格子裡沒有病人，直接返回 (排班者不能操作空格子外的東西)
+  if (isPageLocked.value || !slotData?.patientId) {
+    if (!slotData?.patientId && !isPageLocked.value) {
+      currentSlotId.value = shiftId
+      isPatientSelectDialogVisible.value = true
     }
-  }
-
-  // --- 以下是桌面版的既有邏輯，保持不變 ---
-  if (isPageLocked.value) {
-    if (slotData?.patientId) showPatientMemos(slotData.patientId)
     return
   }
-  if (slotData?.patientId) {
-    const patient = patientMap.value.get(slotData.patientId)
-    showConfirm(`確認移除`, `確定要將「${patient?.name}」從此班次中移除嗎？`, () => {
-      handleSlotUpdate(shiftId, null)
-    })
-  } else {
-    currentSlotId.value = shiftId
-    isPatientSelectDialogVisible.value = true
-  }
+
+  // 對於排班者，點擊有病人的格子，直接彈出移除確認
+  const patient = patientMap.value.get(slotData.patientId)
+  showConfirm(`確認移除`, `確定要將「${patient?.name}」從此班次中移除嗎？`, () => {
+    handleSlotUpdate(shiftId, null)
+  })
 }
 
-// 4. 在 handleSlotClick 函式下方，加入處理 Action Modal 選擇事件的新函式
+// ✨ 2. 新增 handleSimplifiedCellClick (臨床查閱模式)
+function handleSimplifiedCellClick(shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  const patientId = slotData?.patientId
+
+  if (patientId) {
+    const patient = patientMap.value.get(patientId)
+    if (!patient) return
+
+    // 點擊有病人的格子，打開 Action Modal
+    selectedPatientForAction.value = patient
+    isActionModalVisible.value = true
+  }
+  // 如果點擊空格子，則不做任何事
+}
+
+// ✨ 3. 修改 handleActionSelect 以處理來自臨床模式的新增操作
 function handleActionSelect(actionType) {
-  isActionModalVisible.value = false // 先關閉選單
+  isActionModalVisible.value = false
   const patient = selectedPatientForAction.value
   if (!patient) return
 
@@ -921,11 +1133,18 @@ function handleActionSelect(actionType) {
     } else if (actionType === 'view-memos') {
       showPatientMemos(patient.id)
     } else if (actionType === 'view-lab-reports') {
-      // ✨ 執行頁面跳轉，並帶上 patientId 作為 query 參數
-      router.push({
-        path: '/lab-reports',
-        query: { patientId: patient.id },
-      })
+      selectedPatientForLabSummary.value = patient
+      isLabSummaryModalVisible.value = true
+    } else if (actionType === 'remove-patient') {
+      // 這個選項現在只應該在 PatientActionModal 內被觸發
+      const shiftId = Object.keys(currentRecord.schedule).find(
+        (id) => currentRecord.schedule[id]?.patientId === patient.id,
+      )
+      if (shiftId && !isPageLocked.value) {
+        showConfirm(`確認移除`, `確定要將「${patient.name}」從此班次中移除嗎？`, () => {
+          handleSlotUpdate(shiftId, null)
+        })
+      }
     }
   })
 }
@@ -1310,6 +1529,32 @@ async function handleDeleteConditionRecord(recordId) {
   })
 }
 
+async function handleSaveLabSummaryAsRecord({ patient, content }) {
+  if (!auth.isContributor.value || !auth.currentUser.value) {
+    showAlert('權限不足', '您可能尚未登入或權限不足，無法儲存病情紀錄。')
+    return
+  }
+
+  try {
+    const dataToSave = {
+      patientId: patient.id,
+      patientName: patient.name,
+      recordDate: formatDate(currentDate.value),
+      content: content,
+      authorId: auth.currentUser.value.uid,
+      authorName: auth.currentUser.value.name,
+      createdAt: new Date(),
+    }
+    await conditionRecordsApi.save(dataToSave)
+    createGlobalNotification(`已為 ${patient.name} 新增一筆檢驗報告處置紀錄`, 'schedule')
+    // 刷新病情紀錄，這樣紅點提示才會更新
+    await fetchRecentRecords()
+  } catch (error) {
+    console.error('儲存檢驗摘要紀錄失敗:', error)
+    showAlert('儲存失敗', `儲存紀錄時發生錯誤: ${error.message}`)
+  }
+}
+
 // --- Auto Assignment Logic ---
 const { distributePatients } = useTeamAssigner()
 function autoAssignNurseTeams() {
@@ -1496,7 +1741,7 @@ watch(currentDate, (newDate, oldDate) => {
 
 <style scoped>
 /* =================================================================== */
-/* === 1. 您提供的、功能正常的原始樣式 (無任何修改) === */
+/* === 1. 原始樣式 (無變動) === */
 /* =================================================================== */
 .loading-overlay {
   position: absolute;
@@ -1577,6 +1822,7 @@ watch(currentDate, (newDate, oldDate) => {
   flex-grow: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 .schedule-content {
   flex-grow: 1;
@@ -1979,25 +2225,153 @@ button:disabled {
 }
 
 /* =================================================================== */
-/* === 2. 精簡且必要的響應式與列印樣式 (添加在最後) === */
+/* === 2. 整合後的響應式與新增功能樣式 === */
 /* =================================================================== */
-
-/* --- 初始狀態：手機版/列印版相關元素預設隱藏 --- */
 .mobile-and-print-only {
   display: none;
 }
+.view-toggle-wrapper {
+}
+.view-toggle-btn {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+  padding: 8px 15px;
+  font-weight: 500;
+}
+.view-toggle-btn:hover {
+  background-color: #dee2e6;
+}
+.toggle-icon {
+  transition: transform 0.2s ease-in-out;
+}
+.simplified-view-wrapper.desktop-only {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(248, 249, 250, 0.97);
+  z-index: 20;
+  padding: 1rem;
+  overflow-y: auto;
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.simplified-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  table-layout: fixed;
+}
+.simplified-table th,
+.simplified-table td {
+  border: 1px solid #ccc;
+  padding: 0.5rem;
+  text-align: center;
+  vertical-align: top;
+}
+.simplified-table th {
+  background-color: #e9ecef;
+  font-weight: 600;
+}
+.simplified-table .col-bed {
+  font-weight: bold;
+  background-color: #f8f9fa;
+  width: 80px;
+}
+.patient-info-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  text-align: left;
+  cursor: pointer;
+}
+.patient-mrn-name {
+  font-weight: bold;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.patient-note {
+  font-size: 0.85rem;
+  color: #dc3545;
+  font-weight: 500;
+}
+.patient-ward-note {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.ward-number {
+  font-weight: bold;
+  background-color: #ffc107;
+  color: #333;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.patient-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.record-indicator {
+  font-size: 1rem;
+  line-height: 1;
+}
 
-/* --- 手機螢幕 (小於等於 992px) 的媒體查詢 --- */
+/* 桌面版臨床查閱模式的字體顏色 */
+.desktop-only .simplified-table .patient-name-wrapper {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #212529;
+}
+.desktop-only .simplified-table .patient-mrn-name span:first-child {
+  color: #6c757d;
+  font-size: 0.85em;
+  font-weight: normal;
+}
+.desktop-only :deep(.simplified-table td[class*='status-']) {
+  color: #212529;
+}
+.desktop-only :deep(.simplified-table td[class*='status-']) .patient-mrn-name span:first-child {
+  color: #6c757d;
+}
+.desktop-only :deep(.simplified-table td[class*='status-']) .patient-note {
+  color: #dc3545;
+}
+
+@media screen and (min-width: 993px) {
+  .desktop-only .simplified-table td {
+    padding: 0.6rem;
+    font-size: 1rem;
+  }
+  .desktop-only .simplified-table .patient-mrn-name {
+    display: flex;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 0.5em;
+    flex-wrap: nowrap;
+  }
+  .desktop-only .simplified-table .patient-ward-note {
+    gap: 0.5em;
+  }
+}
+
 @media screen and (max-width: 992px) {
-  /* 隱藏所有標記為 desktop-only 的元素 */
   .desktop-only {
     display: none !important;
   }
-  /* 顯示標記為 mobile-and-print-only 的元素 */
   .mobile-and-print-only {
     display: block;
   }
-
   .page-container {
     padding: 0;
   }
@@ -2014,7 +2388,6 @@ button:disabled {
   .simplified-view {
     padding: 1rem;
   }
-
   .header-toolbar {
     flex-direction: column;
     align-items: stretch;
@@ -2032,131 +2405,106 @@ button:disabled {
   .page-title {
     text-align: center;
   }
-
-  /* 簡化版視圖的樣式 */
-  .simplified-stats {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    align-items: flex-start;
-    background-color: #f8f9fa;
-    padding: 0.75rem;
-    border-radius: 8px;
-    margin-bottom: 1.5rem;
-    border: 1px solid #dee2e6;
-  }
-  .stat-item {
-    display: flex;
-    flex-direction: row;
-    width: 100%;
-    justify-content: space-between;
-  }
-  .stat-label {
-    font-weight: bold;
-    font-size: 1.1rem;
-    color: #343a40;
-  }
-  .stat-value {
-    font-size: 0.9rem;
-    color: #6c757d;
-  }
-  .simplified-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
-    table-layout: fixed;
-  }
-  .simplified-table th,
-  .simplified-table td {
-    border: 1px solid #ccc;
-    padding: 0.5rem;
-    text-align: center;
-    vertical-align: top;
-  }
-  .simplified-table th {
-    background-color: #e9ecef;
-    font-weight: 600;
-  }
-  .simplified-table .col-bed {
-    font-weight: bold;
-    background-color: #f8f9fa;
-    width: 80px;
-  }
-  .patient-info-cell {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    text-align: left;
-    cursor: pointer;
-  }
-  .patient-mrn-name {
-    font-weight: bold;
-    display: flex;
-    flex-direction: column;
-    line-height: 1.3;
-  }
-  .patient-note {
-    font-size: 0.85rem;
-    color: #dc3545;
-    font-weight: 500;
-  }
-  .patient-ward-note {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .ward-number {
-    font-weight: bold;
-    background-color: #ffc107;
-    color: #333;
-    padding: 0 4px;
-    border-radius: 4px;
-  }
-  .patient-name-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .record-indicator {
-    font-size: 1rem;
-    line-height: 1;
-  }
 }
 
-/* --- 列印時的媒體查詢 --- */
+/* =================================================================== */
+/* === 3. 專業列印模式樣式 (最終解決方案) === */
+/* =================================================================== */
+
+/* ✨ 核心修正: 使用新的視覺隱藏技巧，而不是 display: none */
+.print-only-view {
+  position: absolute;
+  left: -9999px; /* 移到螢幕外 */
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.print-header {
+  text-align: center;
+  font-size: 16pt;
+  margin-bottom: 0.5rem;
+}
+.print-stats {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  font-size: 12pt;
+  margin-bottom: 0.5rem;
+}
+.print-stats .stat-item strong {
+  margin-right: 0.5em;
+}
+.print-divider {
+  border: none;
+  border-top: 2px solid #333;
+  margin-bottom: 1rem;
+}
+.print-table {
+  font-size: 11pt;
+  table-layout: auto;
+}
+.print-table th,
+.print-table td {
+  padding: 5px;
+  vertical-align: middle;
+}
+.print-table .patient-info-cell {
+  text-align: center;
+}
+.print-table .patient-mrn-name {
+  flex-direction: column;
+}
+.print-table .patient-mrn-name span:first-child {
+  font-size: 0.8em;
+  color: #555;
+}
+.print-table .patient-name-wrapper {
+  font-weight: 600;
+}
+
 @media print {
-  .desktop-only,
-  .page-header,
-  .inpatient-sidebar {
+  /* 1. 徹底隱藏整個主應用程式容器 */
+  :deep(body > #app > *) {
     display: none !important;
   }
-  .mobile-and-print-only {
+
+  /* 2. 只讓 page-container 內的 print-only-view 顯示出來 */
+  :deep(body > #app > .page-container) {
     display: block !important;
   }
+  .page-container > :not(.print-only-view) {
+    display: none !important;
+  }
 
+  /* 3. 讓列印區塊正常顯示 */
+  .print-only-view {
+    display: block !important;
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* 4. 移除頁面邊距和背景 */
   @page {
-    size: A4;
+    size: A4 landscape;
     margin: 1cm;
   }
   body,
   .page-container {
-    background-color: #fff !important;
     padding: 0 !important;
     margin: 0 !important;
+    background: none !important;
   }
-  .page-main-content {
-    box-shadow: none;
-    border: none;
-    overflow: visible;
+
+  /* 5. 確保表格內容不斷開 */
+  tr,
+  .patient-info-cell {
+    page-break-inside: avoid;
   }
-  .simplified-table {
-    font-size: 10pt;
-  }
-  .simplified-table th,
-  .simplified-table td {
-    padding: 4px;
-  }
-  .simplified-table td[class*='status-'] {
+  .print-table td[class*='status-'] {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
