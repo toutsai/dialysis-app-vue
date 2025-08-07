@@ -17,19 +17,16 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits, defineAsyncComponent } from 'vue'
-// 使用動態導入 Panel 元件
+import { defineAsyncComponent } from 'vue' // 正確：只 import 真正的函式
+
 const PatientLabSummaryPanel = defineAsyncComponent(() => import('./PatientLabSummaryPanel.vue'))
 
-// --- Props & Emits ---
+// defineProps 和 defineEmits 不需要 import
 const props = defineProps({
   isVisible: Boolean,
   patient: Object,
 })
 
-// Modal 需要 'close' 和 'save-record' 兩個事件
-// 'close' 用來關閉自己
-// 'save-record' 用來將 Panel 的事件「轉發」給更上層的父元件 (例如 ScheduleView)
 const emit = defineEmits(['close', 'save-record'])
 
 // --- Methods ---
