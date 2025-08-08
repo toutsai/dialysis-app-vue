@@ -83,6 +83,10 @@ service cloud.firestore {
       // 只有後端函式可以寫入，前端不允許直接寫入
       allow write: if false; 
     }
+    match /nurse_assignments/{date} {
+      allow read: if isAuthenticated();
+      allow write: if isEditor(); // 或只允許 Cloud Functions 寫入
+    }
 
   }
 }
