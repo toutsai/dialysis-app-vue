@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/LabReportView.vue (恢復固定補登欄位並修正上傳格式的最終版) -->
+<!-- 檔案路徑: src/views/LabReportView.vue (已修正 Firestore IN 查詢上限問題) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -325,6 +325,9 @@ import { db } from '@/composables/useFirebase.js'
 import * as XLSX from 'xlsx'
 import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 
+// [核心修正 1/3] 引入我們的新工具函式
+import { queryWithInChunks } from '@/utils/firestoreUtils.js'
+
 // --- Router and State ---
 const route = useRoute()
 const router = useRouter()
@@ -345,8 +348,6 @@ const missingPatients = ref([])
 const searchedForMissing = ref(false)
 const manualReportDate = ref(new Date().toISOString().slice(0, 10))
 
-// ✨ 核心修正：恢復使用固定的、寬格式的欄位列表來生成輸入框
-// ✨ 這個列表的 `label` 必須和後端 `labItemMapping` 的「中文鍵」對應
 const manualEntryItems = [
   { key: 'WBC', label: '白血球' },
   { key: 'Hb', label: '血色素' },
@@ -665,6 +666,7 @@ function exportToExcel() {
   XLSX.writeFile(wb, fileName)
 }
 
+// [核心修正 2/3] 修改 findMissingPatients 函式
 async function findMissingPatients() {
   if (!uploadResult.value) {
     alert('請先成功上傳一份批次報告，才能進行比對。')
@@ -685,9 +687,14 @@ async function findMissingPatients() {
       console.warn(`在 ${manualEntryGroup.freq} ${manualEntryGroup.shift} 班別中沒有找到任何病人。`)
       return
     }
-    const allPatientDetails = await patientsApi.fetchAll([
-      where(documentId(), 'in', allPatientInGroup),
-    ])
+
+    // 使用新的分塊查詢函式來獲取病人資料，而不是舊的 patientsApi.fetchAll
+    const allPatientDetails = await queryWithInChunks(
+      'patients', // 集合名稱
+      documentId(), // 注意：這裡是用 documentId() 來比對，因為我們有的是病人的 UID
+      allPatientInGroup, // 要查詢的 ID 列表
+    )
+
     const allPatientMap = new Map(allPatientDetails.map((p) => [p.id, p]))
     const processedPatientIds = new Set(
       uploadResult.value?.processedPatients?.map((p) => p.patientId) || [],
@@ -806,6 +813,7 @@ async function handleUpload() {
     })
     uploadResult.value = result.data
     if (uploadResult.value) {
+      // 在上傳成功後自動觸發一次比對
       await findMissingPatients()
     }
   } catch (error) {
@@ -857,6 +865,8 @@ watch(searchType, (newType) => {
     reportData.value = {}
   }
 })
+
+// [核心修正 3/3] 修改 searchGroupReports 函式
 async function searchGroupReports() {
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
@@ -869,18 +879,11 @@ async function searchGroupReports() {
     reportData.value = []
     return
   }
-  const CHUNK_SIZE = 30
-  const chunks = Array.from(
-    { length: Math.ceil(allPatientIdsInGroup.length / CHUNK_SIZE) },
-    (v, i) => allPatientIdsInGroup.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE),
-  )
-  const patientInfoMap = new Map()
-  const patientsRef = collection(db, 'patients')
-  for (const chunk of chunks) {
-    const q = firestoreQuery(patientsRef, where(documentId(), 'in', chunk))
-    const querySnapshot = await getDocs(q)
-    querySnapshot.forEach((doc) => patientInfoMap.set(doc.id, { id: doc.id, ...doc.data() }))
-  }
+
+  // 使用新的分塊查詢函式來獲取病人詳細資料
+  const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
+  const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
+
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -891,12 +894,20 @@ async function searchGroupReports() {
     reportData.value = []
     return
   }
+
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
+
+  // 獲取報告的部分也需要分塊，因為 'IN' 查詢同樣存在於這裡
   const allReports = []
+  const reportChunks = []
+  for (let i = 0; i < allPatientIdsInGroup.length; i += 30) {
+    reportChunks.push(allPatientIdsInGroup.slice(i, i + 30))
+  }
+
   const reportsRef = collection(db, 'lab_reports')
-  for (const chunk of chunks) {
+  for (const chunk of reportChunks) {
     const q = firestoreQuery(
       reportsRef,
       where('patientId', 'in', chunk),
@@ -918,6 +929,7 @@ async function searchGroupReports() {
       })
     })
   }
+
   const latestReports = new Map()
   allReports.forEach((report) => {
     const existingReport = latestReports.get(report.patientId)
@@ -925,6 +937,7 @@ async function searchGroupReports() {
       latestReports.set(report.patientId, report)
     }
   })
+
   reportData.value = patientList
     .map((p) => {
       const report = latestReports.get(p.patientId)
@@ -945,6 +958,7 @@ async function searchGroupReports() {
     })
     .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
 }
+
 async function searchIndividualReports() {
   if (!individualSearchQuery.value.trim()) return
   const query = individualSearchQuery.value.trim().toLowerCase()
@@ -1030,6 +1044,7 @@ function handleFileDrop(event) {
 </script>
 
 <style scoped>
+/* --- 您的所有 CSS 樣式 ... --- */
 /* --- 基礎樣式 --- */
 .page-container {
   display: flex;
