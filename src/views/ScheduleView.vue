@@ -304,6 +304,7 @@
                           {{ team }}組
                         </option>
                       </select>
+                      <!-- [修改] 將原本的 patient-name 區塊替換成以下結構 -->
                       <div
                         class="patient-name"
                         :draggable="!isPageLocked && !!getPatientName(`bed-${bedNum}-${shiftCode}`)"
@@ -315,47 +316,54 @@
                           !isPageLocked && onBedDragStart($event, `bed-${bedNum}-${shiftCode}`)
                         "
                       >
-                        <span v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)">
-                          {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
-                          <!-- 床號顯示在姓名旁邊 -->
-                          <span
-                            v-if="
-                              getPatientWardNumber(
-                                currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
-                              )
-                            "
-                            class="ward-badge-inline"
-                            @click.stop="promptWardNumber(`bed-${bedNum}-${shiftCode}`)"
-                            :title="
-                              '床號：' +
-                              getPatientWardNumber(
-                                currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
-                              ) +
-                              '（點擊編輯）'
-                            "
-                          >
-                            {{
-                              getPatientWardNumber(
-                                currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
-                              )
-                            }}
-                          </span>
-                          <!-- 沒床號但是住院/急診：顯示小床圖示 -->
-                          <button
-                            v-else-if="isInpatientOrER(`bed-${bedNum}-${shiftCode}`)"
-                            class="ward-icon-inline"
-                            @click.stop="promptWardNumber(`bed-${bedNum}-${shiftCode}`)"
-                            :disabled="isPageLocked"
-                            title="設定床號"
-                          >
-                            🛏️
-                          </button>
-                          <MemoIcon
-                            :patient-id="
-                              currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.patientId
-                            "
-                          />
-                        </span>
+                        <div
+                          v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)"
+                          class="patient-cell-layout"
+                        >
+                          <!-- 第一行：姓名 -->
+                          <div class="patient-name-text">
+                            {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
+                          </div>
+                          <!-- 第二行：圖示列 -->
+                          <div class="patient-icons-row">
+                            <span
+                              v-if="
+                                getPatientWardNumber(
+                                  currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                                )
+                              "
+                              class="ward-badge-inline"
+                              @click.stop="promptWardNumber(`bed-${bedNum}-${shiftCode}`)"
+                              :title="
+                                '床號：' +
+                                getPatientWardNumber(
+                                  currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                                ) +
+                                '（點擊編輯）'
+                              "
+                            >
+                              {{
+                                getPatientWardNumber(
+                                  currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                                )
+                              }}
+                            </span>
+                            <button
+                              v-else-if="isInpatientOrER(`bed-${bedNum}-${shiftCode}`)"
+                              class="ward-icon-inline"
+                              @click.stop="promptWardNumber(`bed-${bedNum}-${shiftCode}`)"
+                              :disabled="isPageLocked"
+                              title="設定床號"
+                            >
+                              🛏️
+                            </button>
+                            <MemoIcon
+                              :patient-id="
+                                currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.patientId
+                              "
+                            />
+                          </div>
+                        </div>
                         <span v-else class="empty-slot-placeholder">+</span>
                       </div>
                       <!-- 備註區純粹顯示醫療備註 -->
@@ -481,14 +489,23 @@
                       !isPageLocked && onBedDragStart($event, `peripheral-${i}-${shiftCode}`)
                     "
                   >
-                    <span v-if="getPatientName(`peripheral-${i}-${shiftCode}`)">
-                      {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
-                      <MemoIcon
-                        :patient-id="
-                          currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.patientId
-                        "
-                      />
-                    </span>
+                    <div
+                      v-if="getPatientName(`peripheral-${i}-${shiftCode}`)"
+                      class="patient-cell-layout"
+                    >
+                      <!-- 第一行：姓名 -->
+                      <div class="patient-name-text">
+                        {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
+                      </div>
+                      <!-- 第二行：圖示列 -->
+                      <div class="patient-icons-row">
+                        <MemoIcon
+                          :patient-id="
+                            currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.patientId
+                          "
+                        />
+                      </div>
+                    </div>
                     <span v-else class="empty-slot-placeholder">+</span>
                   </div>
                   <!-- 備註區純粹顯示醫療備註 -->
@@ -2379,7 +2396,40 @@ button:disabled {
 .patient-name {
   position: relative;
 }
+/* 新增：病人儲存格的兩行佈局容器 */
+.patient-cell-layout {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* 垂直置中 */
+  align-items: center; /* 水平置中 */
+  width: 100%;
+  height: 100%;
+  gap: 2px; /* 上下兩行之間的間距 */
+  line-height: 1.2;
+}
 
+/* 新增：病人姓名的樣式 */
+.patient-name-text {
+  font-weight: bold;
+}
+
+/* 新增：下方圖示列的容器 */
+.patient-icons-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px; /* 圖示之間的間距 */
+}
+
+/* 微調：讓 patient-name 容器支援 flex 佈局 */
+.patient-name,
+.peripheral-patient-name {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 移除原有的 padding，交給內層容器處理 */
+  padding: 2px;
+}
 /* =================================================================== */
 /* === 2. 整合後的響應式與新增功能樣式 === */
 /* =================================================================== */
@@ -2718,6 +2768,40 @@ button:disabled {
   .print-table td[class*='status-'] {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  /* 新增：病人儲存格的兩行佈局容器 */
+  .patient-cell-layout {
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* 垂直置中 */
+    align-items: center; /* 水平置中 */
+    width: 100%;
+    height: 100%;
+    gap: 2px; /* 上下兩行之間的間距 */
+    line-height: 1.2;
+    padding: 2px 0; /* 給予一點垂直內距 */
+  }
+
+  /* 新增：病人姓名的樣式 */
+  .patient-name-text {
+    font-weight: bold;
+  }
+
+  /* 新增：下方圖示列的容器 */
+  .patient-icons-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px; /* 圖示之間的間距 */
+  }
+
+  /* 微調：讓 patient-name 容器支援 flex 佈局 */
+  .patient-name,
+  .peripheral-patient-name {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
   }
 }
 </style>
