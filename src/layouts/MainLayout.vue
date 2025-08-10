@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (最終完整修正版) -->
+<!-- 檔案路徑: src/layouts/MainLayout.vue (已移除通知刪除功能) -->
 <template>
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
@@ -28,7 +28,7 @@
         </ul>
       </div>
 
-      <!-- ✨ 核心修正 1：通知區域現在是獨立的可滾動容器 -->
+      <!-- 通知區域 -->
       <div class="notification-area">
         <h3 v-if="notifications.length > 0" class="section-title">即時動態</h3>
         <transition-group name="notification-list" tag="div" class="notification-list">
@@ -44,19 +44,16 @@
               <span class="notification-icon">{{ notif.config.icon }}</span>
               <p class="notification-message">{{ notif.message }}</p>
             </div>
-            <!-- [核心修改] 修改此區塊以顯示操作者姓名 -->
             <div class="notification-footer-item">
-              <span class="notification-user">{{ notif.createdByName }}</span>
+              <span class="notification-user">by {{ notif.createdByName }}</span>
               <span class="notification-time">{{ notif.time }}</span>
-              <button class="notification-close" @click.stop="removeNotification(notif.id)">
-                ×
-              </button>
+              <!-- [核心修改] 刪除按鈕已被移除 -->
             </div>
           </div>
         </transition-group>
       </div>
 
-      <!-- ✨ 核心修正 2：將後台管理和使用者資訊包裹在一個固定的底部容器中 -->
+      <!-- 固定的底部容器 -->
       <div class="bottom-fixed-section">
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
@@ -123,20 +120,16 @@ const patientsApi = ApiManager('patients')
 const router = useRouter()
 const route = useRoute()
 const { currentUser, logout, isAdmin } = useAuth()
-const { notifications, startListening, stopListening, removeNotification } =
-  useRealtimeNotifications()
+// [核心修改] 從 useRealtimeNotifications 中不再需要 remove/delete 函式
+const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
-// --- 響應式佈局狀態 ---
 const isSidebarOpen = ref(false)
-
-// --- 備忘錄相關的全域狀態 ---
 const allPatients = ref([])
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
 const memosForDialog = ref([])
 
-// --- 全域 Provide/Inject 所需的計算屬性和函式 ---
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () =>
@@ -167,7 +160,6 @@ function showPatientMemos(patientId) {
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
-// --- 其他輔助函式 ---
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
     return { text: '(開發版)', class: 'env-tag-dev' }
@@ -185,10 +177,10 @@ function closeSidebar() {
   isSidebarOpen.value = false
 }
 
+// [核心修改] 簡化點擊事件，不再刪除通知
 function handleNotificationClick(notif) {
   if (notif.action) {
     notif.action()
-    removeNotification(notif.id)
   }
 }
 
@@ -196,12 +188,10 @@ function handleLogout() {
   logout()
 }
 
-// --- 核心業務邏輯 ---
 async function loadSharedData() {
   try {
     console.log('🔄 [MainLayout] Loading shared data (patients & memos)...')
     const [patientsData, memosData] = await Promise.all([
-      // 只獲取未刪除的病人
       patientsApi.fetchAll([where('isDeleted', '==', false)]),
       memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
@@ -231,12 +221,10 @@ const triggerScheduleCheck = async () => {
   }
 }
 
-// --- 核心業務邏輯：實時監聽備忘錄 ---
-let memoUnsubscribe = null // 用於停止備忘錄監聽
-let patientUnsubscribe = null // 為病人數據也加上監聽
+let memoUnsubscribe = null
+let patientUnsubscribe = null
 
 function startSharedDataListeners() {
-  // 監聽備忘錄
   if (memoUnsubscribe) return
   console.log('🔄 [MainLayout] Starting to listen for active memos...')
   const memoQuery = query(collection(db, 'memos'), where('status', '==', 'pending'))
@@ -245,7 +233,6 @@ function startSharedDataListeners() {
     console.log(`✅ [MainLayout] Active memos updated: ${activeMemos.value.length} items.`)
   })
 
-  // 監聽病人（只在需要時更新）
   if (patientUnsubscribe) return
   console.log('🔄 [MainLayout] Starting to listen for patient data...')
   const patientQuery = query(collection(db, 'patients'), where('isDeleted', '==', false))
@@ -267,7 +254,6 @@ function stopSharedDataListeners() {
   }
 }
 
-// --- 生命週期與監聽器 ---
 watch(
   () => currentUser.value,
   (newUser) => {
@@ -299,7 +285,6 @@ watch(
 
 onUnmounted(() => {
   stopListening()
-  stopConflictWatching()
   stopSharedDataListeners()
 })
 </script>
@@ -327,25 +312,22 @@ onUnmounted(() => {
 
 .main-nav-section {
   padding: 15px 0;
-  flex-shrink: 0; /* 固定頂部 */
+  flex-shrink: 0;
 }
 
-/* ✨ 核心修正：讓中間的通知區域可以滾動 */
 .notification-area {
-  flex-grow: 1; /* 佔滿所有剩餘空間 */
-  min-height: 0; /* Flexbox 滾動的關鍵 */
-  overflow-y: auto; /* 產生垂直滾動條 */
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 8px;
   border-top: 1px solid #34495e;
 }
 
-/* ✨ 核心修正：新的固定底部容器 */
 .bottom-fixed-section {
-  flex-shrink: 0; /* 固定底部 */
+  flex-shrink: 0;
   border-top: 1px solid #34495e;
 }
 
-/* 為滾動條美化 */
 .notification-area::-webkit-scrollbar {
   width: 6px;
 }
@@ -515,37 +497,6 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   position: relative;
 }
-/* [新增] 通知項目底部的樣式 */
-.notification-footer-item {
-  display: flex;
-  justify-content: space-between; /* 讓時間推到右邊 */
-  align-items: center;
-  padding-left: 24px; /* 與 icon 對齊 */
-  margin-top: 4px; /* 與上方訊息稍微分開 */
-  position: relative; /* 為了讓 close button 定位 */
-}
-
-/* [新增] 操作者姓名的樣式 */
-.notification-user {
-  font-weight: bold;
-  font-size: 0.8rem;
-  opacity: 0.9;
-  margin-right: auto; /* 關鍵：讓姓名和時間之間有彈性空間 */
-}
-
-.notification-time {
-  font-size: 0.8rem;
-  opacity: 0.85;
-  flex-shrink: 0; /* 確保時間不會被壓縮 */
-}
-
-/* [修改] 調整 close button 的位置，現在它相對於 footer 定位 */
-.notification-close {
-  position: absolute;
-  top: 50%; /* 垂直置中 */
-  right: -4px; /* 移到最右邊 */
-  transform: translateY(-50%);
-}
 .notification-item,
 .notification-item .notification-message,
 .notification-item .notification-icon,
@@ -581,36 +532,23 @@ onUnmounted(() => {
 }
 .notification-footer-item {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-start; /* [修改] 改為從頭開始排列 */
   align-items: center;
+  gap: 0.5rem; /* [新增] 增加姓名和時間之間的間距 */
   padding-left: 24px;
+  margin-top: 4px;
+}
+.notification-user {
+  font-weight: bold;
+  font-size: 0.8rem;
+  opacity: 0.9;
 }
 .notification-time {
   font-size: 0.8rem;
   opacity: 0.85;
 }
-.notification-close {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: none;
-  border: none;
-  font-size: 1.2rem;
-  cursor: pointer;
-  padding: 0;
-  width: 20px;
-  height: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  opacity: 0.7;
-  transition: all 0.2s ease;
-}
-.notification-close:hover {
-  opacity: 1;
-  background-color: rgba(0, 0, 0, 0.2);
-}
+/* [核心修改] 刪除按鈕的 CSS 已被移除 */
+
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.3s ease;
