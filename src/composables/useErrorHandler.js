@@ -1,11 +1,9 @@
-// 檔案路徑: src/composables/useErrorHandler.js (最終統一版)
+// 檔案路徑: src/composables/useErrorHandler.js (最終修正版 - 確保 error.code 被傳遞)
+
 import { ref } from 'vue'
-// ✨ 1. 引入【唯一的】、合併後的即時通知系統
 import { useRealtimeNotifications } from './useRealtimeNotifications.js'
 
 export function useErrorHandler() {
-  // ✨ 2. 從唯一的系統中獲取【本地通知】函式
-  // 我們用它來顯示成功或失敗的訊息
   const { addLocalNotification } = useRealtimeNotifications()
 
   const globalErrors = ref([])
@@ -16,7 +14,7 @@ export function useErrorHandler() {
       successMessage = null,
       errorPrefix = '操作失敗',
       showNotification = true,
-      retryCount = 1, // API 通常不需要重試太多次，設為 1 表示不重試
+      retryCount = 1,
       retryDelay = 1000,
     } = options
 
@@ -27,8 +25,6 @@ export function useErrorHandler() {
         const result = await apiCall()
 
         if (successMessage && showNotification) {
-          // ✨ 3. 呼叫 addLocalNotification 來顯示【成功】訊息
-          // 成功訊息我們使用 'team' (綠色) 類型
           addLocalNotification(successMessage, 'team')
         }
 
@@ -42,13 +38,20 @@ export function useErrorHandler() {
           const errorMessage = getErrorMessage(error, errorPrefix)
 
           if (showNotification) {
-            // ✨ 4. 呼叫 addLocalNotification 來顯示【錯誤】訊息
-            // 我們使用 'conflict' (紅色) 類型來表示錯誤
             addLocalNotification(errorMessage, 'conflict')
           }
 
           logError(error, { apiCall: apiCall.name, attempts: attempt })
-          throw new Error(errorMessage)
+
+          // =========================================================
+          // 【核心修正】
+          // 1. 建立一個新的錯誤物件
+          const customError = new Error(errorMessage)
+          // 2. 將原始 Firebase 錯誤的 .code 屬性複製過來
+          customError.code = error.code
+          // 3. 拋出這個帶有 .code 的新錯誤物件
+          throw customError
+          // =========================================================
         }
         await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
       }
@@ -57,8 +60,14 @@ export function useErrorHandler() {
 
   const getErrorMessage = (error, prefix = '錯誤') => {
     if (typeof error === 'string') return `${prefix}: ${error}`
-    const message = error?.message || error?.code || '未知錯誤'
+
+    // 優化：直接從 error.code 映射，更精確
     const firebaseErrors = {
+      'auth/user-not-found': '找不到此使用者。',
+      'auth/wrong-password': '密碼不正確。',
+      'auth/invalid-email': '電子郵件格式無效。',
+      'auth/email-already-in-use': '此電子郵件已被註冊。',
+      'auth/requires-recent-login': '此操作需要重新登入以確保安全。',
       'permission-denied': '權限不足',
       'not-found': '找不到資料',
       'already-exists': '資料已存在',
@@ -66,11 +75,14 @@ export function useErrorHandler() {
       'deadline-exceeded': '請求逾時',
       unavailable: '服務暫時無法使用',
     }
-    for (const [code, msg] of Object.entries(firebaseErrors)) {
-      if (message.includes(code)) {
-        return `${prefix}: ${msg}`
-      }
+
+    // 如果 error.code 能直接對應到我們的列表，就優先使用它
+    if (error.code && firebaseErrors[error.code]) {
+      return `${prefix}: ${firebaseErrors[error.code]}`
     }
+
+    // 否則，使用原始的 message 或 code
+    const message = error?.message || error?.code || '未知錯誤'
     return `${prefix}: ${message}`
   }
 

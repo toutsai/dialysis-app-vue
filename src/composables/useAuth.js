@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useAuth.js (最終修正版 - 實現 Session-Only 登入)
+// 檔案路徑: src/composables/useAuth.js (已加入修改密碼功能)
 
 import { ref, computed, readonly } from 'vue'
 import { useRouter } from 'vue-router'
@@ -20,7 +20,7 @@ import { useErrorHandler } from '@/composables/useErrorHandler.js'
 const currentUser = ref(null)
 const authLoading = ref(true)
 
-// --- ✨ 核心修正：建立一個只 resolve 一次的 Promise ---
+// --- 建立一個只 resolve 一次的 Promise ---
 let authReadyResolve
 const authReadyPromise = new Promise((resolve) => {
   authReadyResolve = resolve
@@ -144,7 +144,35 @@ export function useAuth() {
     }
   }
 
-  // ✨ 核心修正：新增 waitForAuthInit 函式
+  // --- 修改密碼函式 (核心修正) ---
+  const updatePassword = async (oldPassword, newPassword) => {
+    // 確保當前有登入的使用者
+    if (!auth.currentUser) {
+      throw new Error('使用者未登入，無法更改密碼。')
+    }
+
+    // [核心修正] 移除對 currentUser.email 的檢查，因為後端不再需要它
+    // if (!auth.currentUser.email) {
+    //   throw new Error('找不到使用者 Email，無法重新驗證身份。')
+    // }
+
+    // 使用 handleApiCall 包裝
+    return handleApiCall(
+      async () => {
+        const changeUserPasswordFunction = httpsCallable(functions, 'changeUserPassword')
+        const result = await changeUserPasswordFunction({ oldPassword, newPassword })
+        return result.data
+      },
+      {
+        loadingMessage: '正在更新密碼...',
+        successMessage: '密碼已成功更新！',
+        errorPrefix: '密碼更新失敗',
+        showNotification: true,
+      },
+    )
+  }
+
+  // --- 等待認證初始化 ---
   const waitForAuthInit = () => {
     return authReadyPromise
   }
@@ -186,7 +214,8 @@ export function useAuth() {
     // 方法
     login,
     logout,
-    waitForAuthInit, // ✨ 核心修正：匯出函式
+    updatePassword, // <-- 匯出新函式
+    waitForAuthInit,
     hasPermission,
 
     // 權限計算屬性

@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 
-const { changePassword, currentUser } = useAuth()
+const { updatePassword, currentUser } = useAuth()
 const router = useRouter()
 
 const oldPassword = ref('')
@@ -29,7 +29,7 @@ function togglePasswordVisibility(field) {
 
 async function handleChangePassword() {
   message.value = ''
-  isLoading.value = false
+  isLoading.value = true
 
   if (newPassword.value !== confirmPassword.value) {
     message.value = '新密碼與確認密碼不相符。'
@@ -45,14 +45,23 @@ async function handleChangePassword() {
   }
 
   try {
-    await changePassword(oldPassword.value, newPassword.value)
+    await updatePassword(oldPassword.value, newPassword.value)
     message.value = '密碼已成功更新！'
     messageType.value = 'success'
     oldPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
   } catch (error) {
-    message.value = error.message
+    // =========================================================
+    // [核心修正] 檢查從 Cloud Function 回傳的正確錯誤代碼
+    // =========================================================
+    // Firebase Functions 的錯誤代碼會被包裝，例如 'unauthenticated' 會變成 'functions/unauthenticated'
+    if (error.code === 'functions/unauthenticated') {
+      message.value = '舊密碼不正確，請重新輸入。'
+    } else {
+      // 顯示從 handleApiCall 傳來的、已經格式化過的通用錯誤訊息
+      message.value = error.message || '發生未知錯誤，請稍後再試。'
+    }
     messageType.value = 'error'
   } finally {
     isLoading.value = false
@@ -75,7 +84,6 @@ function handleCancel() {
       </header>
 
       <form @submit.prevent="handleChangePassword" class="password-form">
-        <!-- 【核心修改 1/3】: 複製 LoginView 的 HTML 結構 -->
         <div class="form-group">
           <label for="old-password">舊密碼</label>
           <div class="password-wrapper">
@@ -215,7 +223,6 @@ function handleCancel() {
   box-shadow: 0 0 0 3px rgba(0, 90, 156, 0.2);
 }
 
-/* 【核心修改 2/3】: 複製 LoginView 的 password-wrapper 樣式 */
 .password-wrapper {
   position: relative;
   display: flex;
@@ -227,7 +234,6 @@ function handleCancel() {
   padding-right: 3.5rem;
 }
 
-/* 【核心修改 3/3】: 複製 LoginView 的 password-toggle-icon 樣式 */
 .password-toggle-icon {
   position: absolute;
   right: 1rem;
@@ -299,22 +305,18 @@ function handleCancel() {
   background-color: #fee2e2;
   color: #991b1b;
 }
-/* ‼️‼️‼️ 新增的響應式樣式 ‼️‼️‼️ */
 @media (max-width: 768px) {
   .page-wrapper {
-    /* 在手機上減少外邊距 */
     padding: 1.5rem 1rem;
   }
 
   .settings-card {
-    /* 移除陰影和邊框，讓它看起來更原生 */
     box-shadow: none;
     border-radius: 0;
   }
 
   .card-header,
   .password-form {
-    /* 減少內邊距 */
     padding: 1.5rem;
   }
 
@@ -323,14 +325,12 @@ function handleCancel() {
   }
 
   .form-actions {
-    /* 讓按鈕堆疊 */
     flex-direction: column-reverse;
     gap: 0.75rem;
   }
 
   .submit-btn,
   .btn-cancel {
-    /* 讓按鈕佔滿全寬 */
     width: 100%;
   }
 }

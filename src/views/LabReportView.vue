@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/LabReportView.vue (整合了所有新功能後的最終版) -->
+<!-- 檔案路徑: src/views/LabReportView.vue (已修正 Firestore IN 查詢上限問題) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -138,7 +138,7 @@
         </div>
       </div>
 
-      <!-- ✨ 警示報告頁籤 (已升級) ✨ -->
+      <!-- (B) 警示報告頁籤 -->
       <div v-show="activeTab === 'alert'" class="tab-panel alert-panel">
         <div class="alert-controls">
           <button @click="changeAlertMonth(-1)">&lt; 前三個月</button>
@@ -146,7 +146,7 @@
             >{{ alertMonthRange.start }} ~ {{ alertMonthRange.end }}</span
           >
           <button @click="changeAlertMonth(1)">後三個月 &gt;</button>
-          <button @click="exportToExcel" class="export-btn" :disabled="alertList.length === 0">
+          <button @click="exportToExcel" class="export-btn" :disabled="groupedAlerts.length === 0">
             匯出 Excel
           </button>
         </div>
@@ -177,7 +177,7 @@
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="item in group.items" :key="item.patient.id">
+                  <tr v-for="item in sortAlertItems(group.items)" :key="item.patient.id">
                     <td>{{ item.patient.freq || 'N/A' }}</td>
                     <td>{{ item.patient.defaultShift || 'N/A' }}</td>
                     <td>{{ item.patient.defaultBed || 'N/A' }}</td>
@@ -185,7 +185,7 @@
                       {{ item.patient.name }}
                     </td>
                     <td class="clickable" @click="showPatientHistory(item.patient, group.key)">
-                      {{ item.abnormality.reason }}
+                      {{ formatAbnormalityReason(item.abnormality) }}
                     </td>
                     <td><textarea v-model="item.analysisText" rows="2"></textarea></td>
                     <td><textarea v-model="item.suggestionText" rows="2"></textarea></td>
@@ -198,59 +198,108 @@
       </div>
 
       <!-- (C) 資料上傳頁籤 -->
-      <div v-show="activeTab === 'upload'" class="tab-panel upload-panel">
-        <div
-          class="upload-drop-zone"
-          :class="{ 'is-dragover': isDragOver }"
-          @dragover.prevent="isDragOver = true"
-          @dragleave.prevent="isDragOver = false"
-          @drop.prevent="handleFileDrop"
-        >
-          <div class="upload-icon">📤</div>
-          <h3 v-if="!selectedFile">拖曳 Excel 檔案至此，或點擊按鈕選擇</h3>
-          <h3 v-else>
-            已選擇檔案：<strong>{{ selectedFile.name }}</strong>
-          </h3>
-          <p class="upload-hint">支援 .xlsx, .xls 格式</p>
-          <input
-            id="file-input"
-            type="file"
-            @change="handleFileSelect"
-            accept=".xlsx, .xls"
-            :disabled="isUploading"
-          />
-          <label for="file-input" class="file-input-label">
-            {{ selectedFile ? '重新選擇檔案' : '選擇檔案' }}
-          </label>
-          <button
-            class="upload-btn-main"
-            @click="handleUpload"
-            :disabled="!selectedFile || isUploading"
-          >
-            {{ isUploading ? '處理中...' : '開始上傳並處理' }}
-          </button>
-        </div>
-        <div v-if="uploadResult" class="results-card">
-          <h2>處理結果</h2>
-          <div class="upload-result">
-            <p :class="uploadResult.errorCount > 0 ? 'has-error' : 'is-success'">
-              {{ uploadResult.message }}
-            </p>
-            <div v-if="uploadResult.errorCount > 0" class="error-details">
-              <h4>問題詳情 (最多顯示 50 筆)：</h4>
-              <ul>
-                <li v-for="(err, index) in uploadResult.errors" :key="index">
-                  <strong>原因: {{ err.reason }}</strong>
-                  <div class="error-data">原始資料: {{ err.rowData }}</div>
-                </li>
-              </ul>
+      <div v-show="activeTab === 'upload'" class="tab-panel upload-panel expanded">
+        <div class="upload-core-panel">
+          <div class="upload-drop-zone">
+            <div class="upload-icon">📤</div>
+            <h3 v-if="!selectedFile">拖曳 Excel 檔案至此，或點擊按鈕選擇</h3>
+            <h3 v-else>
+              已選擇檔案：<strong>{{ selectedFile.name }}</strong>
+            </h3>
+            <p class="upload-hint">支援 .xlsx, .xls 格式</p>
+            <input
+              id="file-input"
+              type="file"
+              @change="handleFileSelect"
+              accept=".xlsx, .xls"
+              :disabled="isUploading"
+            />
+            <label for="file-input" class="file-input-label">{{
+              selectedFile ? '重新選擇檔案' : '選擇檔案'
+            }}</label>
+            <button
+              class="upload-btn-main"
+              @click="handleUpload"
+              :disabled="!selectedFile || isUploading"
+            >
+              {{ isUploading ? '處理中...' : '開始上傳並處理' }}
+            </button>
+          </div>
+          <div v-if="uploadResult" class="results-card">
+            <h2>處理結果</h2>
+            <div class="upload-result">
+              <p :class="uploadResult.errorCount > 0 ? 'has-error' : 'is-success'">
+                {{ uploadResult.message }}
+              </p>
+              <div v-if="uploadResult.errorCount > 0" class="error-details">
+                <h4>問題詳情 (最多顯示 50 筆)：</h4>
+                <ul>
+                  <li v-for="(err, index) in uploadResult.errors" :key="index">
+                    <strong>原因: {{ err.reason }}</strong>
+                    <div class="error-data">原始資料: {{ err.rowData }}</div>
+                  </li>
+                </ul>
+              </div>
             </div>
+          </div>
+        </div>
+        <div class="manual-entry-panel">
+          <h4>手動補登缺漏報告</h4>
+          <p class="panel-description">上傳批次報告後，系統將自動比對缺漏名單。</p>
+          <div class="manual-controls">
+            <select v-model="manualEntryGroup.freq">
+              <option v-for="freq in freqOptions" :key="freq" :value="freq">{{ freq }}</option>
+            </select>
+            <select v-model="manualEntryGroup.shift">
+              <option value="early">早班</option>
+              <option value="noon">午班</option>
+              <option value="late">晚班</option>
+            </select>
+            <button
+              @click="findMissingPatients"
+              :disabled="isUploading || isFindingMissing || !uploadResult"
+            >
+              {{ isFindingMissing ? '比對中...' : '手動比對' }}
+            </button>
+          </div>
+          <div class="missing-patients-list">
+            <div v-if="isFindingMissing" class="placeholder-item">正在比對缺漏名單...</div>
+            <div v-else-if="missingPatients.length > 0">
+              <div class="manual-entry-global-date">
+                <label for="manual-report-date">所有補登報告的統一報告日：</label>
+                <input type="date" id="manual-report-date" v-model="manualReportDate" />
+              </div>
+              <div
+                v-for="patient in missingPatients"
+                :key="patient.id"
+                class="missing-patient-item"
+              >
+                <span class="patient-info"
+                  >{{ patient.name }} ({{ patient.medicalRecordNumber }})</span
+                >
+                <div class="input-grid">
+                  <div v-for="item in manualEntryItems" :key="item.key" class="input-field">
+                    <label>{{ item.label }}</label>
+                    <input type="text" v-model="patient.labData[item.key]" />
+                  </div>
+                </div>
+              </div>
+              <button
+                @click="generateAndUploadManualData"
+                class="save-manual-btn"
+                :disabled="isUploading"
+              >
+                生成 Excel 並上傳補登資料
+              </button>
+            </div>
+            <div v-else-if="searchedForMissing" class="placeholder-item">
+              太棒了！此群組沒有缺漏報告的病人。
+            </div>
+            <div v-else class="placeholder-item">等待上傳報告後自動比對...</div>
           </div>
         </div>
       </div>
     </main>
-
-    <!-- 用於顯示病人歷史報告的彈出視窗 -->
     <PatientLabSummaryModal
       :is-visible="isHistoryModalVisible"
       :patient="selectedPatientForHistory"
@@ -276,6 +325,9 @@ import { db } from '@/composables/useFirebase.js'
 import * as XLSX from 'xlsx'
 import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 
+// [核心修正 1/3] 引入我們的新工具函式
+import { queryWithInChunks } from '@/utils/firestoreUtils.js'
+
 // --- Router and State ---
 const route = useRoute()
 const router = useRouter()
@@ -290,6 +342,29 @@ const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
 const isDragOver = ref(false)
+const isFindingMissing = ref(false)
+const manualEntryGroup = reactive({ freq: '一三五', shift: 'early' })
+const missingPatients = ref([])
+const searchedForMissing = ref(false)
+const manualReportDate = ref(new Date().toISOString().slice(0, 10))
+
+const manualEntryItems = [
+  { key: 'WBC', label: '白血球' },
+  { key: 'Hb', label: '血色素' },
+  { key: 'Platelet', label: '血小板' },
+  { key: 'BUN', label: 'BUN(Blood)' },
+  { key: 'Creatinine', label: '肌酐、血(洗腎專用)' },
+  { key: 'Albumin', label: '白蛋白(BCG法)' },
+  { key: 'Na', label: '血中鈉' },
+  { key: 'K', label: '血中鉀' },
+  { key: 'Ca', label: 'Calcium(Blood)' },
+  { key: 'P', label: '磷' },
+  { key: 'Iron', label: 'Iron' },
+  { key: 'TIBC', label: '總鐵結合能力TIBC' },
+  { key: 'Ferritin', label: '鐵蛋白' },
+  { key: 'iPTH', label: '副甲狀腺素' },
+  { key: 'PostBUN', label: '血中尿素氮(洗後專用)' },
+]
 
 // --- 報告查詢狀態 ---
 const searchType = ref('group')
@@ -405,6 +480,32 @@ const groupedAlerts = computed(() => {
 })
 
 // --- Methods ---
+const FREQ_ORDER = { 一三五: 1, 二四六: 2, 一四: 3, 二五: 4, 三六: 5, 一五: 6, 二六: 7 }
+
+function sortAlertItems(items) {
+  return [...items].sort((a, b) => {
+    const freqA = FREQ_ORDER[a.patient.freq] || 99
+    const freqB = FREQ_ORDER[b.patient.freq] || 99
+    if (freqA !== freqB) return freqA - freqB
+    const shiftA = a.patient.shiftIndex ?? 99
+    const shiftB = b.patient.shiftIndex ?? 99
+    if (shiftA !== shiftB) return shiftA - shiftB
+    return String(a.patient.defaultBed).localeCompare(String(b.patient.defaultBed), undefined, {
+      numeric: true,
+    })
+  })
+}
+
+function formatAbnormalityReason(abnormality) {
+  if (!abnormality || !abnormality.values) return abnormality.reason || 'N/A'
+  return abnormality.values
+    .map((item) => {
+      const monthNum = parseInt(item.month.split('-')[1], 10)
+      return `${item.value}(${monthNum}月)`
+    })
+    .join(', ')
+}
+
 function setActiveTab(tabName) {
   activeTab.value = tabName
   if (tabName === 'alert' && alertList.value.length === 0 && !isLoadingAlerts.value) {
@@ -459,16 +560,12 @@ async function generateAlertReport() {
       const abnormalities = findAbnormalities(processedData, requiredMonths)
       if (abnormalities.length > 0) {
         const scheduleInfo = scheduleRules[patient.id]
+        patient.shiftIndex = scheduleInfo?.shiftIndex
         patient.defaultShift = ['早', '午', '晚'][scheduleInfo?.shiftIndex] || 'N/A'
         patient.defaultBed = scheduleInfo?.bedNum || 'N/A'
         alertList.value.push({ patient, abnormalities })
       }
     }
-    alertList.value.sort((a, b) =>
-      String(a.patient.defaultBed).localeCompare(String(b.patient.defaultBed), undefined, {
-        numeric: true,
-      }),
-    )
   } catch (error) {
     console.error('生成警示報告失敗:', error)
     alert('生成警示報告時發生錯誤，請檢查主控台。')
@@ -517,26 +614,31 @@ function processReports(rawReports) {
 function findAbnormalities(processedData, months) {
   const abnormalities = []
   if (months.length < 3) return abnormalities
-  const last3Months = months.slice(0, 3).sort().reverse()
+  const last3MonthsSorted = [...months.slice(0, 3)].sort()
   for (const key in CONSECUTIVE_ABNORMAL_CRITERIA) {
-    const val1 = processedData[key]?.[last3Months[0]]
-    const val2 = processedData[key]?.[last3Months[1]]
-    const val3 = processedData[key]?.[last3Months[2]]
-    if (val1 === undefined || val2 === undefined || val3 === undefined) continue
+    const valuesWithMonths = last3MonthsSorted.map((month) => ({
+      month: month,
+      value: processedData[key]?.[month],
+    }))
+    if (valuesWithMonths.some((item) => item.value === undefined)) continue
     const rule = CONSECUTIVE_ABNORMAL_CRITERIA[key]
     const isValueAbnormal = (v) => {
       if (rule.max !== undefined && v < rule.max) return true
       if (rule.min !== undefined && v > rule.min) return true
       return false
     }
-    if (isValueAbnormal(val1) && isValueAbnormal(val2) && isValueAbnormal(val3)) {
-      abnormalities.push({ key, reason: `最近三個月值: ${val1}, ${val2}, ${val3}` })
+    const allAbnormal = valuesWithMonths.every((item) => isValueAbnormal(item.value))
+    if (allAbnormal) {
+      abnormalities.push({
+        key,
+        values: valuesWithMonths.map((item) => ({ month: item.month, value: item.value })),
+      })
     }
   }
   return abnormalities
 }
 
-function showPatientHistory(patient, highlightItem = null) {
+function showPatientHistory(patient) {
   selectedPatientForHistory.value = patient
   isHistoryModalVisible.value = true
 }
@@ -544,12 +646,13 @@ function showPatientHistory(patient, highlightItem = null) {
 function exportToExcel() {
   const wb = XLSX.utils.book_new()
   groupedAlerts.value.forEach((group) => {
-    const sheetData = group.items.map((item) => ({
+    const sortedItems = sortAlertItems(group.items)
+    const sheetData = sortedItems.map((item) => ({
       頻率: item.patient.freq || 'N/A',
       預設班別: item.patient.defaultShift || 'N/A',
       預設床號: item.patient.defaultBed || 'N/A',
       姓名: item.patient.name,
-      不合格項目詳情: item.abnormality.reason,
+      不合格項目詳情: formatAbnormalityReason(item.abnormality),
       病因分析: item.analysisText,
       建議處置: item.suggestionText,
     }))
@@ -561,6 +664,108 @@ function exportToExcel() {
   })
   const fileName = `警示報告_${alertMonthRange.value.start}_${alertMonthRange.value.end}.xlsx`
   XLSX.writeFile(wb, fileName)
+}
+
+// [核心修正 2/3] 修改 findMissingPatients 函式
+async function findMissingPatients() {
+  if (!uploadResult.value) {
+    alert('請先成功上傳一份批次報告，才能進行比對。')
+    return
+  }
+  isFindingMissing.value = true
+  searchedForMissing.value = true
+  missingPatients.value = []
+  try {
+    const shiftIndex = SHIFT_MAP[manualEntryGroup.shift]
+    const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+    const masterRules = masterScheduleDoc?.schedule || {}
+    const allPatientInGroup = Object.keys(masterRules).filter(
+      (id) =>
+        masterRules[id].freq === manualEntryGroup.freq && masterRules[id].shiftIndex === shiftIndex,
+    )
+    if (allPatientInGroup.length === 0) {
+      console.warn(`在 ${manualEntryGroup.freq} ${manualEntryGroup.shift} 班別中沒有找到任何病人。`)
+      return
+    }
+
+    // 使用新的分塊查詢函式來獲取病人資料，而不是舊的 patientsApi.fetchAll
+    const allPatientDetails = await queryWithInChunks(
+      'patients', // 集合名稱
+      documentId(), // 注意：這裡是用 documentId() 來比對，因為我們有的是病人的 UID
+      allPatientInGroup, // 要查詢的 ID 列表
+    )
+
+    const allPatientMap = new Map(allPatientDetails.map((p) => [p.id, p]))
+    const processedPatientIds = new Set(
+      uploadResult.value?.processedPatients?.map((p) => p.patientId) || [],
+    )
+    const missingIds = allPatientInGroup.filter((id) => !processedPatientIds.has(id))
+    missingPatients.value = missingIds
+      .map((id) => {
+        const patientData = allPatientMap.get(id)
+        if (!patientData) return null
+        const labData = {}
+        manualEntryItems.forEach((item) => {
+          labData[item.key] = ''
+        })
+        return {
+          id: patientData.id,
+          name: patientData.name,
+          medicalRecordNumber: patientData.medicalRecordNumber,
+          labData: reactive(labData),
+        }
+      })
+      .filter(Boolean)
+  } catch (error) {
+    console.error('查找缺漏病人失敗:', error)
+    alert('查找缺漏病人時發生錯誤。')
+  } finally {
+    isFindingMissing.value = false
+  }
+}
+
+async function generateAndUploadManualData() {
+  if (!manualReportDate.value) {
+    alert('請選擇所有補登報告的統一報告日。')
+    return
+  }
+  const formattedDate = manualReportDate.value.replace(/-/g, '')
+  const dataToUpload = []
+  missingPatients.value.forEach((patient) => {
+    manualEntryItems.forEach((item) => {
+      const value = patient.labData[item.key]
+      if (value !== null && value !== '') {
+        dataToUpload.push({
+          病歷號: patient.medicalRecordNumber,
+          報告日: formattedDate,
+          細項名稱: item.label,
+          結果: value,
+        })
+      }
+    })
+  })
+  if (dataToUpload.length === 0) {
+    alert('沒有可上傳的補登資料。請至少為一位病人填寫一項數據。')
+    return
+  }
+  try {
+    const ws = XLSX.utils.json_to_sheet(dataToUpload)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'ManualEntry')
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+    const fileName = `manual_entry_${new Date().toISOString().slice(0, 10)}.xlsx`
+    const mockFile = new File([blob], fileName, {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+    selectedFile.value = mockFile
+    await handleUpload()
+    missingPatients.value = []
+    searchedForMissing.value = false
+  } catch (error) {
+    console.error('生成或上傳手動資料失敗:', error)
+    alert('處理手動補登資料時發生錯誤。')
+  }
 }
 
 onMounted(() => {
@@ -588,6 +793,7 @@ function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
   uploadResult.value = null
 }
+
 async function handleUpload() {
   if (!selectedFile.value) {
     alert('請先選擇一個檔案！')
@@ -595,6 +801,8 @@ async function handleUpload() {
   }
   isUploading.value = true
   uploadResult.value = null
+  missingPatients.value = []
+  searchedForMissing.value = false
   try {
     const fileContentBase64 = await toBase64(selectedFile.value)
     const functions = getFunctions()
@@ -604,6 +812,10 @@ async function handleUpload() {
       fileContent: fileContentBase64,
     })
     uploadResult.value = result.data
+    if (uploadResult.value) {
+      // 在上傳成功後自動觸發一次比對
+      await findMissingPatients()
+    }
   } catch (error) {
     console.error('上傳處理失敗:', error)
     uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1 }
@@ -611,6 +823,7 @@ async function handleUpload() {
     isUploading.value = false
   }
 }
+
 function toBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -652,6 +865,8 @@ watch(searchType, (newType) => {
     reportData.value = {}
   }
 })
+
+// [核心修正 3/3] 修改 searchGroupReports 函式
 async function searchGroupReports() {
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
@@ -664,18 +879,11 @@ async function searchGroupReports() {
     reportData.value = []
     return
   }
-  const CHUNK_SIZE = 30
-  const chunks = Array.from(
-    { length: Math.ceil(allPatientIdsInGroup.length / CHUNK_SIZE) },
-    (v, i) => allPatientIdsInGroup.slice(i * CHUNK_SIZE, i * CHUNK_SIZE + CHUNK_SIZE),
-  )
-  const patientInfoMap = new Map()
-  const patientsRef = collection(db, 'patients')
-  for (const chunk of chunks) {
-    const q = firestoreQuery(patientsRef, where(documentId(), 'in', chunk))
-    const querySnapshot = await getDocs(q)
-    querySnapshot.forEach((doc) => patientInfoMap.set(doc.id, { id: doc.id, ...doc.data() }))
-  }
+
+  // 使用新的分塊查詢函式來獲取病人詳細資料
+  const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
+  const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
+
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -686,12 +894,20 @@ async function searchGroupReports() {
     reportData.value = []
     return
   }
+
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
+
+  // 獲取報告的部分也需要分塊，因為 'IN' 查詢同樣存在於這裡
   const allReports = []
+  const reportChunks = []
+  for (let i = 0; i < allPatientIdsInGroup.length; i += 30) {
+    reportChunks.push(allPatientIdsInGroup.slice(i, i + 30))
+  }
+
   const reportsRef = collection(db, 'lab_reports')
-  for (const chunk of chunks) {
+  for (const chunk of reportChunks) {
     const q = firestoreQuery(
       reportsRef,
       where('patientId', 'in', chunk),
@@ -713,6 +929,7 @@ async function searchGroupReports() {
       })
     })
   }
+
   const latestReports = new Map()
   allReports.forEach((report) => {
     const existingReport = latestReports.get(report.patientId)
@@ -720,6 +937,7 @@ async function searchGroupReports() {
       latestReports.set(report.patientId, report)
     }
   })
+
   reportData.value = patientList
     .map((p) => {
       const report = latestReports.get(p.patientId)
@@ -740,6 +958,7 @@ async function searchGroupReports() {
     })
     .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
 }
+
 async function searchIndividualReports() {
   if (!individualSearchQuery.value.trim()) return
   const query = individualSearchQuery.value.trim().toLowerCase()
@@ -825,7 +1044,8 @@ function handleFileDrop(event) {
 </script>
 
 <style scoped>
-/* --- 1. 基礎樣式 --- */
+/* --- 您的所有 CSS 樣式 ... --- */
+/* --- 基礎樣式 --- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1050,11 +1270,128 @@ tbody tr:nth-child(even) {
 tbody tr:nth-child(even) .sticky-col {
   background-color: #f8f9fa;
 }
-.upload-panel {
+
+/* --- 警示報告頁籤樣式 --- */
+.alert-controls {
+  flex-shrink: 0;
+  display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 2rem;
+  gap: 1.5rem;
+  padding: 0.5rem;
+  background-color: #e9ecef;
+  border-radius: 8px;
+}
+.alert-controls button {
+  padding: 0.5rem 1.5rem;
+  border-radius: 4px;
+  border: 1px solid #007bff;
+  background-color: #007bff;
+  color: white;
+  cursor: pointer;
+}
+.month-range-display {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #343a40;
+  min-width: 220px;
+  text-align: center;
+}
+.export-btn {
+  background-color: #198754;
+  border-color: #198754;
+  margin-left: auto;
+}
+.export-btn:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+.grouped-tables-container {
   overflow-y: auto;
+  padding: 0.5rem;
+}
+.alert-group {
+  margin-bottom: 2rem;
+}
+.group-title {
+  font-size: 1.25rem;
+  color: #343a40;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #007bff;
+}
+.alert-table td.clickable {
+  color: #0056b3;
+  font-weight: bold;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.alert-table td.clickable:hover {
+  color: #003f7e;
+}
+.alert-table textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+.col-analysis,
+.col-suggestion {
+  width: 20%;
+}
+
+/* --- 資料上傳頁籤擴充樣式 --- */
+.upload-panel.expanded {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 1.5rem;
+}
+.upload-core-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  align-items: center;
+  justify-content: center;
+}
+.manual-entry-panel {
+  display: flex;
+  flex-direction: column;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-y: auto;
+}
+.manual-entry-panel h4 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+.panel-description {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #dee2e6;
+  padding-bottom: 0.5rem;
+}
+.missing-patients-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.placeholder-item {
+  padding: 1rem;
+  text-align: center;
+  color: #adb5bd;
+  border: 1px dashed #ced4da;
+  border-radius: 4px;
+}
+.upload-panel {
+  align-items: initial;
 }
 .upload-drop-zone {
   display: flex;
@@ -1166,83 +1503,97 @@ input[type='file'] {
   color: #666;
   font-family: monospace;
 }
-
-/* --- 2. 警示報告頁籤樣式 --- */
-.alert-controls {
-  flex-shrink: 0;
+.manual-controls {
   display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.5rem;
-  background-color: #e9ecef;
-  border-radius: 8px;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
 }
-.alert-controls button {
-  padding: 0.5rem 1.5rem;
+.manual-controls select {
+  flex-grow: 1;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+.manual-controls button {
+  padding: 0.5rem 1rem;
   border-radius: 4px;
   border: 1px solid #007bff;
   background-color: #007bff;
   color: white;
   cursor: pointer;
 }
-.month-range-display {
-  font-size: 1.2rem;
-  font-weight: bold;
-  color: #343a40;
-  min-width: 220px;
-  text-align: center;
-}
-.export-btn {
-  background-color: #198754;
-  border-color: #198754;
-  margin-left: auto;
-}
-.export-btn:disabled {
+.manual-controls button:disabled {
   background-color: #6c757d;
   border-color: #6c757d;
+  cursor: not-allowed;
 }
-.grouped-tables-container {
-  overflow-y: auto;
-  padding: 0.5rem;
+.missing-patient-item {
+  background: #fff;
+  padding: 0.75rem;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
 }
-.alert-group {
-  margin-bottom: 2rem;
-}
-.group-title {
-  font-size: 1.25rem;
-  color: #343a40;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #007bff;
-}
-.alert-table td.clickable {
-  color: #0056b3;
+.patient-info {
   font-weight: bold;
-  cursor: pointer;
-  text-decoration: underline;
+  display: block;
+  margin-bottom: 0.75rem;
 }
-.alert-table td.clickable:hover {
-  color: #003f7e;
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 0.75rem;
 }
-.alert-table textarea {
+.input-field {
+  display: flex;
+  flex-direction: column;
+}
+.input-field label {
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin-bottom: 2px;
+}
+.input-field input {
   width: 100%;
-  box-sizing: border-box;
   padding: 4px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  font-size: 0.9rem;
-  resize: vertical;
 }
-.col-analysis,
-.col-suggestion {
-  width: 20%;
+.save-manual-btn {
+  width: 100%;
+  padding: 0.75rem;
+  margin-top: 1rem;
+  background-color: #198754;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.save-manual-btn:disabled {
+  background-color: #6c757d;
+}
+.manual-entry-global-date {
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #dee2e6;
+}
+.manual-entry-global-date label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+}
+.manual-entry-global-date input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
 }
 
-/* --- 3. 行動版響應式樣式 --- */
+/* --- 行動版響應式樣式 --- */
 .search-toggle-btn {
   display: none;
 }
-@media (max-width: 768px) {
+@media (max-width: 992px) {
   .page-container {
     height: 100vh;
     padding: 0;
@@ -1334,6 +1685,15 @@ input[type='file'] {
   }
   .sticky-col.col-name {
     left: 80px;
+  }
+  .upload-panel.expanded {
+    grid-template-columns: 1fr;
+  }
+  .upload-history-panel {
+    display: none;
+  }
+  .manual-entry-panel {
+    margin-top: 1.5rem;
   }
   .upload-panel {
     padding: 1rem;

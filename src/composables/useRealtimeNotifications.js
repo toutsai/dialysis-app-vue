@@ -1,14 +1,13 @@
-// 檔案路徑: src/composables/useRealtimeNotifications.js (最終統一版)
+// 檔案路徑: src/composables/useRealtimeNotifications.js (已移除刪除功能)
 
 import { ref } from 'vue'
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import { useRouter } from 'vue-router'
 
-// 這是我們【唯一】的通知狀態來源
 const notifications = ref([])
 let unsubscribe = null
-const MAX_NOTIFICATIONS = 10 // 您可以調整上限
+const MAX_NOTIFICATIONS = 10
 
 const NOTIFICATION_CONFIG = {
   schedule: { icon: '📅', bgColor: '#3498db', textColor: '#fff' },
@@ -20,18 +19,30 @@ const NOTIFICATION_CONFIG = {
   default: { icon: '🔔', bgColor: '#7f8c8d', textColor: '#fff' },
 }
 
+function formatDateTime(date) {
+  if (!date || !(date instanceof Date)) return ''
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${month}-${day} ${hours}:${minutes}`
+}
+
 const processDoc = (doc, router) => {
   const data = doc.data()
   const createdAt = data.createdAt?.toDate() || new Date()
   const action = data.metadata?.routePath ? () => router.push(data.metadata.routePath) : null
+  const createdByName = data.createdBy?.name || '系統'
+
   return {
     id: doc.id,
     message: data.message,
     type: data.type,
-    time: createdAt.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+    time: formatDateTime(createdAt),
     createdAt,
     config: NOTIFICATION_CONFIG[data.type] || NOTIFICATION_CONFIG.default,
     action,
+    createdByName,
   }
 }
 
@@ -46,11 +57,8 @@ export function useRealtimeNotifications() {
       limit(MAX_NOTIFICATIONS),
     )
     unsubscribe = onSnapshot(q, (snapshot) => {
-      const serverNotifications = snapshot.docs.map((doc) => processDoc(doc, router))
-      // 合併伺服器通知和本地通知，並排序
-      const allNotifs = [...serverNotifications, ...notifications.value.filter((n) => n.isLocal)]
-      allNotifs.sort((a, b) => b.createdAt - a.createdAt)
-      notifications.value = allNotifs.slice(0, MAX_NOTIFICATIONS)
+      // [核心修改] onSnapshot 現在是唯一的數據來源，不再需要合併本地通知
+      notifications.value = snapshot.docs.map((doc) => processDoc(doc, router))
     })
   }
 
@@ -62,7 +70,7 @@ export function useRealtimeNotifications() {
     }
   }
 
-  // ✨✨✨ 新增的本地通知函式 ✨✨✨
+  // 本地通知仍然保留，用於即時的操作反饋
   const addLocalNotification = (message, type = 'default', options = {}) => {
     const id = Date.now() + Math.random()
     const now = new Date()
@@ -70,30 +78,24 @@ export function useRealtimeNotifications() {
       id,
       message,
       type,
-      time: now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }),
+      time: formatDateTime(now),
       createdAt: now,
       config: NOTIFICATION_CONFIG[type] || NOTIFICATION_CONFIG.default,
       action: options.action || null,
       isLocal: true, // 標記為本地通知
+      createdByName: '您',
     }
-    notifications.value.unshift(newNotification)
-    if (notifications.value.length > MAX_NOTIFICATIONS) {
-      notifications.value.pop()
-    }
-  }
-
-  const removeNotification = (id) => {
-    const index = notifications.value.findIndex((n) => n.id === id)
-    if (index !== -1) {
-      notifications.value.splice(index, 1)
-    }
+    // 插入到列表頂部，並保持總數不超過上限
+    const currentServerNotifications = notifications.value.filter((n) => !n.isLocal)
+    const newNotifications = [newNotification, ...currentServerNotifications]
+    notifications.value = newNotifications.slice(0, MAX_NOTIFICATIONS)
   }
 
   return {
     notifications,
     startListening,
     stopListening,
-    addLocalNotification, // ✨ 導出新函式
-    removeNotification,
+    addLocalNotification,
+    // [核心修改] 移除了 removeNotification 和 deleteNotification
   }
 }

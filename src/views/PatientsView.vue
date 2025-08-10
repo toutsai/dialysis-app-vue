@@ -983,7 +983,16 @@ onUnmounted(() => {
                 class="flex-table-row"
                 :class="getRowClass(p)"
               >
-                <div class="flex-cell col-name">{{ p.name }}</div>
+                <div class="flex-cell col-name">
+                  <div class="name-cell-content">
+                    <span class="patient-name-text">{{ p.name }}</span>
+                    <div
+                      v-if="p.diseases && p.diseases.length"
+                      class="disease-tags-container"
+                      v-html="generateDiseaseTags(p.diseases)"
+                    ></div>
+                  </div>
+                </div>
                 <div class="flex-cell col-mrn">{{ p.medicalRecordNumber }}</div>
                 <div class="flex-cell col-physician">{{ p.physician }}</div>
                 <div class="flex-cell col-freq">{{ p.freq }}</div>

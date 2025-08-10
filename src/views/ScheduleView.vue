@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (整合臨床查閱模式的最終版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (床號與護理分組分離的最終版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -68,12 +68,6 @@
               {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
             </button>
           </div>
-          <!--<button class="btn btn-secondary" @click="clearInpatients" :disabled="isPageLocked">
-            清除住院病人
-          </button> -->
-          <!--<button class="btn btn-secondary" @click="clearNurseTeams" :disabled="isPageLocked">
-            清除護理分組
-          </button> -->
           <div class="team-highlight-container">
             <div class="team-group">
               <span class="team-group-label">早</span>
@@ -116,8 +110,7 @@
     </header>
 
     <main class="page-main-content" :class="{ 'is-locked': isPageLocked }">
-      <!-- ✨ 修改：為兩個視圖加上 v-if/v-show，並調整 class ✨ -->
-      <!-- (A) 臨床查閱模式 (桌面/手機/列印共用) -->
+      <!-- (A) 臨床查閱模式 (桌面覆蓋層) -->
       <div v-if="isSimplifiedViewVisible" class="simplified-view-wrapper desktop-only">
         <div class="simplified-view">
           <table class="simplified-table">
@@ -163,6 +156,20 @@
                       </div>
                     </div>
                     <div class="patient-note">
+                      <span
+                        v-if="
+                          getPatientWardNumber(
+                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                          )
+                        "
+                        class="ward-number-display"
+                      >
+                        [{{
+                          getPatientWardNumber(
+                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                          )
+                        }}]
+                      </span>
                       {{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}
                     </div>
                   </div>
@@ -202,7 +209,9 @@
                     </div>
                     <div class="patient-ward-note">
                       <span class="ward-number">{{
-                        currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber
+                        getPatientWardNumber(
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                        )
                       }}</span>
                       <span class="patient-note">{{
                         getCombinedNote(`peripheral-${i}-${shiftCode}`)
@@ -258,9 +267,7 @@
                       <div v-if="shiftCode === SHIFT_CODES.NOON" class="nurse-split-column">
                         <select
                           class="nurse-team-select nurse-in"
-                          :value="
-                            currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.nurseTeamIn
-                          "
+                          :value="getNurseTeam(`bed-${bedNum}-${shiftCode}`, 'in')"
                           @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'in')"
                           :disabled="isPageLocked"
                         >
@@ -271,9 +278,7 @@
                         </select>
                         <select
                           class="nurse-team-select nurse-out"
-                          :value="
-                            currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.nurseTeamOut
-                          "
+                          :value="getNurseTeam(`bed-${bedNum}-${shiftCode}`, 'out')"
                           @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'out')"
                           :disabled="isPageLocked"
                         >
@@ -286,9 +291,7 @@
                       <select
                         v-else
                         class="nurse-team-select"
-                        :value="
-                          currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.nurseTeam
-                        "
+                        :value="getNurseTeam(`bed-${bedNum}-${shiftCode}`, 'single')"
                         @change="updateNurseTeam($event, `bed-${bedNum}-${shiftCode}`, 'single')"
                         :disabled="isPageLocked"
                       >
@@ -301,6 +304,7 @@
                           {{ team }}組
                         </option>
                       </select>
+                      <!-- [修改] 將原本的 patient-name 區塊替換成以下結構 -->
                       <div
                         class="patient-name"
                         :draggable="!isPageLocked && !!getPatientName(`bed-${bedNum}-${shiftCode}`)"
@@ -312,16 +316,57 @@
                           !isPageLocked && onBedDragStart($event, `bed-${bedNum}-${shiftCode}`)
                         "
                       >
-                        <span v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)">
-                          {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
-                          <MemoIcon
-                            :patient-id="
-                              currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.patientId
-                            "
-                          />
-                        </span>
+                        <div
+                          v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)"
+                          class="patient-cell-layout"
+                        >
+                          <!-- 第一行：姓名 -->
+                          <div class="patient-name-text">
+                            {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
+                          </div>
+                          <!-- 第二行：圖示列 -->
+                          <div class="patient-icons-row">
+                            <span
+                              v-if="
+                                getPatientWardNumber(
+                                  currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                                )
+                              "
+                              class="ward-badge-inline"
+                              @click.stop="promptWardNumber(`bed-${bedNum}-${shiftCode}`)"
+                              :title="
+                                '床號：' +
+                                getPatientWardNumber(
+                                  currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                                ) +
+                                '（點擊編輯）'
+                              "
+                            >
+                              {{
+                                getPatientWardNumber(
+                                  currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                                )
+                              }}
+                            </span>
+                            <button
+                              v-else-if="isInpatientOrER(`bed-${bedNum}-${shiftCode}`)"
+                              class="ward-icon-inline"
+                              @click.stop="promptWardNumber(`bed-${bedNum}-${shiftCode}`)"
+                              :disabled="isPageLocked"
+                              title="設定床號"
+                            >
+                              🛏️
+                            </button>
+                            <MemoIcon
+                              :patient-id="
+                                currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.patientId
+                              "
+                            />
+                          </div>
+                        </div>
                         <span v-else class="empty-slot-placeholder">+</span>
                       </div>
+                      <!-- 備註區純粹顯示醫療備註 -->
                       <div
                         class="patient-tag"
                         :contenteditable="!isPageLocked"
@@ -358,9 +403,10 @@
                   <select
                     class="nurse-team-select"
                     :value="
-                      shiftCode === SHIFT_CODES.NOON
-                        ? currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.nurseTeamIn
-                        : currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.nurseTeam
+                      getNurseTeam(
+                        `peripheral-${i}-${shiftCode}`,
+                        shiftCode === SHIFT_CODES.NOON ? 'in' : 'single',
+                      )
                     "
                     @change="
                       updateNurseTeam(
@@ -384,12 +430,53 @@
                       {{ team }}組
                     </option>
                   </select>
+                  <!-- 外圍床位：床號獨立欄位 -->
                   <div
                     class="peripheral-bed-number"
-                    :contenteditable="!isPageLocked"
-                    @blur="updateWardNumber($event, `peripheral-${i}-${shiftCode}`)"
+                    @click="
+                      isInpatientOrER(`peripheral-${i}-${shiftCode}`) &&
+                      promptWardNumber(`peripheral-${i}-${shiftCode}`)
+                    "
+                    :style="{
+                      cursor:
+                        isPageLocked || !isInpatientOrER(`peripheral-${i}-${shiftCode}`)
+                          ? 'default'
+                          : 'pointer',
+                    }"
                   >
-                    {{ currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.wardNumber }}
+                    <span
+                      v-if="
+                        getPatientWardNumber(
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                        )
+                      "
+                      class="ward-number-badge"
+                      :title="
+                        '床號：' +
+                        getPatientWardNumber(
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                        ) +
+                        '（點擊編輯）'
+                      "
+                    >
+                      {{
+                        getPatientWardNumber(
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                        )
+                      }}
+                    </span>
+                    <button
+                      v-else-if="
+                        getPatientName(`peripheral-${i}-${shiftCode}`) &&
+                        isInpatientOrER(`peripheral-${i}-${shiftCode}`)
+                      "
+                      class="ward-edit-icon"
+                      :disabled="isPageLocked"
+                      title="設定床號"
+                    >
+                      🛏️
+                    </button>
+                    <span v-else>-</span>
                   </div>
                   <div
                     class="peripheral-patient-name"
@@ -402,16 +489,26 @@
                       !isPageLocked && onBedDragStart($event, `peripheral-${i}-${shiftCode}`)
                     "
                   >
-                    <span v-if="getPatientName(`peripheral-${i}-${shiftCode}`)">
-                      {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
-                      <MemoIcon
-                        :patient-id="
-                          currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.patientId
-                        "
-                      />
-                    </span>
+                    <div
+                      v-if="getPatientName(`peripheral-${i}-${shiftCode}`)"
+                      class="patient-cell-layout"
+                    >
+                      <!-- 第一行：姓名 -->
+                      <div class="patient-name-text">
+                        {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
+                      </div>
+                      <!-- 第二行：圖示列 -->
+                      <div class="patient-icons-row">
+                        <MemoIcon
+                          :patient-id="
+                            currentRecord.schedule['peripheral-' + i + '-' + shiftCode]?.patientId
+                          "
+                        />
+                      </div>
+                    </div>
                     <span v-else class="empty-slot-placeholder">+</span>
                   </div>
+                  <!-- 備註區純粹顯示醫療備註 -->
                   <div
                     class="patient-tag"
                     :contenteditable="!isPageLocked"
@@ -509,7 +606,9 @@
                   </div>
                   <div class="patient-ward-note">
                     <span class="ward-number">{{
-                      currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber
+                      getPatientWardNumber(
+                        currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                      )
                     }}</span>
                     <span class="patient-note">{{
                       getCombinedNote(`peripheral-${i}-${shiftCode}`)
@@ -583,6 +682,12 @@
       :has-pending-memos="patientWithMemoIds.has(selectedPatientForDetail?.id)"
       @close="isDetailModalVisible = false"
       @record-updated="fetchRecentRecords"
+    />
+    <WardNumberDialog
+      :is-visible="isWardDialogVisible"
+      :current-value="currentWardNumber"
+      @confirm="handleWardNumberConfirm"
+      @cancel="isWardDialogVisible = false"
     />
     <!-- ======================================================= -->
     <!--                  ✨ 全新：專為列印設計的區塊 ✨            -->
@@ -662,7 +767,9 @@
                 </div>
                 <div class="patient-ward-note">
                   <span class="ward-number">{{
-                    currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.wardNumber
+                    getPatientWardNumber(
+                      currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
+                    )
                   }}</span>
                   <span class="patient-note">{{
                     getCombinedNote(`peripheral-${i}-${shiftCode}`)
@@ -686,6 +793,7 @@ import {
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
   fetchAllMemos as optimizedFetchAllMemos,
+  updatePatient as optimizedUpdatePatient,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
@@ -693,6 +801,8 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
+// 引入護理分組服務
+import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
 
 import {
   SHIFT_CODES,
@@ -716,6 +826,7 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PatientDetailModal from '@/components/PatientDetailModal.vue'
+import WardNumberDialog from '@/components/WardNumberDialog.vue'
 
 // --- API and Constants ---
 const conditionRecordsApi = ApiManager('condition_records')
@@ -768,6 +879,10 @@ const recentConditionRecords = ref([])
 const hasUnsavedChanges = ref(false)
 const statusIndicator = ref('')
 const currentRecord = reactive({ id: null, date: '', schedule: {}, names: {} })
+// 新增：護理分組的記錄
+const currentTeamsRecord = ref({ id: null, date: '', teams: {} })
+const hasUnsavedTeamChanges = ref(false)
+
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
@@ -785,6 +900,10 @@ const isLoading = ref(true)
 const isSimplifiedViewVisible = ref(false)
 const isDetailModalVisible = ref(false)
 const selectedPatientForDetail = ref(null)
+// 床號相關狀態
+const isWardDialogVisible = ref(false)
+const currentWardNumber = ref('')
+const currentEditingShiftId = ref(null)
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -951,15 +1070,57 @@ function setChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
+// 標記護理分組變更
+function setTeamChange() {
+  if (isPageLocked.value) return
+  hasUnsavedTeamChanges.value = true // 標記護理分組有變更
+  hasUnsavedChanges.value = true // 同時標記整體有變更
+  statusIndicator.value = '有未儲存的變更'
+}
+
 // --- Data Loading and Saving ---
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
+  hasUnsavedTeamChanges.value = false
   statusIndicator.value = '讀取中...'
   isLoading.value = true
   const dateStr = formatDate(date)
+
   try {
+    // 1. 載入排程資料
     const dailyRecords = await optimizedFetchAllSchedules([where('date', '==', dateStr)])
     const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+
+    // 2. 載入護理分組資料
+    const teamsData = await fetchTeamsByDate(dateStr)
+    // 檢查是否需要資料遷移（如果key還是床位格式）
+    if (teamsData && teamsData.teams) {
+      const needsMigration = Object.keys(teamsData.teams).some(
+        (key) => key.startsWith('bed-') || key.startsWith('peripheral-'),
+      )
+
+      if (needsMigration) {
+        console.log('偵測到舊格式資料，開始遷移...')
+        const migratedTeams = {}
+
+        for (const [bedKey, teamData] of Object.entries(teamsData.teams)) {
+          // 從排程中找出該床位的病人
+          const slot = currentRecord.schedule[bedKey]
+          if (slot?.patientId) {
+            const shiftCode = bedKey.split('-').pop()
+            const newKey = `${slot.patientId}-${shiftCode}`
+            migratedTeams[newKey] = teamData
+          }
+        }
+
+        teamsData.teams = migratedTeams
+        console.log('資料遷移完成')
+      }
+    }
+    currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {} }
+    console.log('載入的護理分組資料:', currentTeamsRecord.value.teams) // 除錯用
+
+    // 3. 處理排程資料
     const finalSchedule = {}
     if (record.schedule) {
       for (const shiftId in record.schedule) {
@@ -972,12 +1133,14 @@ async function loadDataForDay(date) {
         }
       }
     }
+
     Object.assign(currentRecord, {
       id: record.id || null,
       date: dateStr,
       schedule: finalSchedule,
       names: record.names || {},
     })
+
     statusIndicator.value = record.id ? '資料已載入' : '本日無排程'
   } catch (error) {
     console.error('載入資料失敗:', error)
@@ -986,6 +1149,7 @@ async function loadDataForDay(date) {
     isLoading.value = false
   }
 }
+
 async function loadAllData() {
   try {
     const [patientsData, memosData] = await Promise.all([
@@ -1000,30 +1164,61 @@ async function loadAllData() {
     statusIndicator.value = '獲取初始資料失敗'
   }
 }
+
 async function saveDataToCloud() {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足或日期已過。')
     return
   }
+
   statusIndicator.value = '儲存中...'
+
   try {
-    const dataToSave = {
-      date: currentRecord.date,
-      schedule: currentRecord.schedule || {},
-      names: currentRecord.names || {},
+    const promises = []
+
+    // 1. 儲存排程資料
+    if (hasUnsavedChanges.value) {
+      const dataToSave = {
+        date: currentRecord.date,
+        schedule: currentRecord.schedule || {},
+        names: currentRecord.names || {},
+      }
+      if (currentRecord.id) {
+        promises.push(optimizedUpdateSchedule(currentRecord.id, dataToSave))
+      } else if (Object.keys(dataToSave.schedule).length > 0) {
+        promises.push(
+          optimizedSaveSchedule(dataToSave).then((savedRecord) => {
+            currentRecord.id = savedRecord.id
+          }),
+        )
+      }
     }
-    if (currentRecord.id) {
-      await optimizedUpdateSchedule(currentRecord.id, dataToSave)
-    } else if (Object.keys(dataToSave.schedule).length > 0) {
-      const savedRecord = await optimizedSaveSchedule(dataToSave)
-      currentRecord.id = savedRecord.id
+
+    // 2. 儲存護理分組資料
+    if (hasUnsavedTeamChanges.value && Object.keys(currentTeamsRecord.value.teams).length > 0) {
+      const teamsToSave = {
+        date: currentTeamsRecord.value.date,
+        teams: currentTeamsRecord.value.teams,
+      }
+
+      console.log('準備儲存護理分組:', teamsToSave) // 除錯用
+
+      if (currentTeamsRecord.value.id) {
+        promises.push(updateTeams(currentTeamsRecord.value.id, teamsToSave))
+      } else {
+        promises.push(
+          saveTeams(teamsToSave).then((savedRecord) => {
+            currentTeamsRecord.value.id = savedRecord.id
+          }),
+        )
+      }
     }
+
+    await Promise.all(promises)
+
     hasUnsavedChanges.value = false
+    hasUnsavedTeamChanges.value = false
     statusIndicator.value = '儲存成功！'
-    window.dispatchEvent(
-      new CustomEvent('schedule-updated', { detail: { date: currentRecord.date } }),
-    )
-    createGlobalNotification(`修改每日排程: ${currentRecord.date}`, 'schedule')
     showAlert('操作成功', '排程已成功儲存！')
   } catch (error) {
     console.error('儲存失敗:', error)
@@ -1031,6 +1226,7 @@ async function saveDataToCloud() {
     showAlert('操作失敗', `儲存失敗: ${error.message}`)
   }
 }
+
 async function fetchRecentRecords() {
   try {
     const sevenDaysAgo = new Date()
@@ -1042,6 +1238,91 @@ async function fetchRecentRecords() {
   }
 }
 
+// 從病人資料取得住院床號
+function getPatientWardNumber(patientId) {
+  if (!patientId) return ''
+  const patient = patientMap.value.get(patientId)
+  return patient?.wardNumber || ''
+}
+
+// 判斷是否為住院或急診病人
+function isInpatientOrER(shiftId) {
+  const slot = currentRecord.schedule[shiftId]
+  if (!slot?.patientId) return false
+  const patient = patientMap.value.get(slot.patientId)
+  return patient?.status === 'ipd' || patient?.status === 'er'
+}
+
+// 提示編輯床號
+function promptWardNumber(shiftId) {
+  if (isPageLocked.value) return
+
+  const slot = currentRecord.schedule[shiftId]
+  if (!slot?.patientId) return
+
+  const patient = patientMap.value.get(slot.patientId)
+  if (!patient) return
+
+  // 只有住院或急診病人才能設定床號
+  if (patient.status !== 'ipd' && patient.status !== 'er') {
+    showAlert('提示', '只有住院或急診病人才能設定床號')
+    return
+  }
+
+  currentEditingShiftId.value = shiftId
+  currentWardNumber.value = patient.wardNumber || ''
+  isWardDialogVisible.value = true
+}
+
+// 處理床號確認
+async function handleWardNumberConfirm(value) {
+  if (!currentEditingShiftId.value) return
+
+  const slot = currentRecord.schedule[currentEditingShiftId.value]
+  if (!slot?.patientId) return
+
+  const patient = patientMap.value.get(slot.patientId)
+  if (!patient) return
+
+  try {
+    // 更新病人資料中的床號
+    await optimizedUpdatePatient(patient.id, { wardNumber: value })
+
+    // 更新本地資料
+    patient.wardNumber = value
+    showAlert('操作成功', '床號已更新')
+  } catch (error) {
+    console.error('更新床號失敗:', error)
+    showAlert('操作失敗', '更新床號失敗')
+  }
+
+  isWardDialogVisible.value = false
+  currentEditingShiftId.value = null
+  currentWardNumber.value = ''
+}
+
+// 取得護理分組（以病人ID為基礎）
+function getNurseTeam(shiftId, type) {
+  const slot = currentRecord.schedule[shiftId]
+  if (!slot?.patientId) return ''
+
+  // 使用病人ID + 班次代碼作為key
+  const shiftCode = shiftId.split('-').pop()
+  const key = `${slot.patientId}-${shiftCode}`
+  const teamData = currentTeamsRecord.value.teams[key]
+
+  if (!teamData) return ''
+
+  if (type === 'single') {
+    return teamData.nurseTeam || ''
+  } else if (type === 'in') {
+    return teamData.nurseTeamIn || ''
+  } else if (type === 'out') {
+    return teamData.nurseTeamOut || ''
+  }
+  return ''
+}
+
 // --- Event Handlers & Logic ---
 function changeDate(days) {
   const performChange = () => {
@@ -1049,22 +1330,23 @@ function changeDate(days) {
     newDate.setDate(newDate.getDate() + days)
     currentDate.value = newDate
   }
-  if (hasUnsavedChanges.value && !isPageLocked.value) {
+  if ((hasUnsavedChanges.value || hasUnsavedTeamChanges.value) && !isPageLocked.value) {
     showConfirm('注意', '您有未儲存的變更，確定要切換日期嗎？', performChange)
   } else {
     performChange()
   }
 }
+
 function goToToday() {
   const performChange = () => (currentDate.value = new Date())
-  if (hasUnsavedChanges.value && !isPageLocked.value) {
+  if ((hasUnsavedChanges.value || hasUnsavedTeamChanges.value) && !isPageLocked.value) {
     showConfirm('注意', '您有未儲存的變更，確定要切換到今天嗎？', performChange)
   } else {
     performChange()
   }
 }
 
-// 排班模式下的點擊邏輯 (保持不變)
+// 排班模式下的點擊邏輯
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (isPageLocked.value || !slotData?.patientId) {
@@ -1080,7 +1362,7 @@ function handleSlotClick(shiftId) {
   })
 }
 
-// ✨ 4. 修改臨床查閱模式的點擊邏輯
+// 臨床查閱模式的點擊邏輯
 function handleSimplifiedCellClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   const patientId = slotData?.patientId
@@ -1088,7 +1370,6 @@ function handleSimplifiedCellClick(shiftId) {
     const patient = patientMap.value.get(patientId)
     if (!patient) return
 
-    // 直接打開新的整合式 Detail Modal
     selectedPatientForDetail.value = patient
     isDetailModalVisible.value = true
   }
@@ -1102,6 +1383,7 @@ function showPatientMemos(patientId) {
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
+
 function toggleHighlight(type, team) {
   const currentHighlight = highlightedTeam.value
   if (currentHighlight && currentHighlight.type === type && currentHighlight.team === team) {
@@ -1110,21 +1392,32 @@ function toggleHighlight(type, team) {
     highlightedTeam.value = { type, team }
   }
 }
+
 function isSlotHighlighted(shiftId) {
   if (!highlightedTeam.value) return false
-  const slotData = currentRecord.schedule[shiftId]
-  if (!slotData) return false
+
+  const slot = currentRecord.schedule[shiftId]
+  if (!slot?.patientId) return false
+
+  // 使用病人ID + 班次代碼作為key
+  const shiftCode = shiftId.split('-').pop()
+  const key = `${slot.patientId}-${shiftCode}`
+  const teamData = currentTeamsRecord.value.teams[key]
+
+  if (!teamData) return false
+
   const { type, team } = highlightedTeam.value
-  const shiftCode = shiftId.split('-')[2]
+
   if (type === 'early') {
-    if (shiftCode === SHIFT_CODES.EARLY && slotData.nurseTeam === `早${team}`) return true
-    if (shiftCode === SHIFT_CODES.NOON && slotData.nurseTeamIn === `早${team}`) return true
+    if (shiftCode === SHIFT_CODES.EARLY && teamData.nurseTeam === `早${team}`) return true
+    if (shiftCode === SHIFT_CODES.NOON && teamData.nurseTeamIn === `早${team}`) return true
   } else if (type === 'late') {
-    if (shiftCode === SHIFT_CODES.LATE && slotData.nurseTeam === `晚${team}`) return true
-    if (shiftCode === SHIFT_CODES.NOON && slotData.nurseTeamOut === `晚${team}`) return true
+    if (shiftCode === SHIFT_CODES.LATE && teamData.nurseTeam === `晚${team}`) return true
+    if (shiftCode === SHIFT_CODES.NOON && teamData.nurseTeamOut === `晚${team}`) return true
   }
   return false
 }
+
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -1159,6 +1452,7 @@ function onDrop(event, targetShiftId) {
   }
   setChange()
 }
+
 function onBedDragStart(event, sourceShiftId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -1173,6 +1467,7 @@ function onBedDragStart(event, sourceShiftId) {
   event.dataTransfer.setData('application/json', JSON.stringify(slotData))
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function onSidebarDragStart(event, patient) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -1187,15 +1482,18 @@ function onSidebarDragStart(event, patient) {
   event.dataTransfer.setData('application/json', JSON.stringify(slotData))
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
   const targetCell = event.target.closest('.patient-name, .peripheral-patient-name')
   if (targetCell) targetCell.classList.add('drag-over')
 }
+
 function onDragLeave(event) {
   event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
 }
+
 function handleSlotUpdate(shiftId, patientId) {
   if (isPageLocked.value) return
   if (patientId) {
@@ -1211,6 +1509,7 @@ function handleSlotUpdate(shiftId, patientId) {
   }
   setChange()
 }
+
 function handlePatientSelect({ patientId }) {
   if (!patientId || !currentSlotId.value) return
   isPatientSelectDialogVisible.value = false
@@ -1223,8 +1522,10 @@ function handlePatientSelect({ patientId }) {
   handleSlotUpdate(currentSlotId.value, patientId)
   currentSlotId.value = null
 }
+
 function handleAssignBed({ patientId, shiftId }) {
   if (!patientId || !shiftId || isPageLocked.value) return
+
   if (scheduledPatientIds.value.has(patientId)) {
     const patient = patientMap.value.get(patientId)
     showConfirm('重複排班警告', `病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`, () => {
@@ -1238,32 +1539,57 @@ function handleAssignBed({ patientId, shiftId }) {
   }
   handleSlotUpdate(shiftId, patientId)
 }
+
+// 更新護理分組（以病人ID為基礎）
 function updateNurseTeam(event, shiftId, type) {
   if (isPageLocked.value) {
-    event.target.value =
-      currentRecord.schedule[shiftId]?.[
-        type === 'single' ? 'nurseTeam' : type === 'in' ? 'nurseTeamIn' : 'nurseTeamOut'
-      ] || ''
+    event.target.value = getNurseTeam(shiftId, type)
     return
   }
-  const value = event.target.value
-  if (!currentRecord.schedule[shiftId])
-    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
+
   const slot = currentRecord.schedule[shiftId]
-  const isPeripheralNoon = shiftId.startsWith('peripheral') && shiftId.endsWith(SHIFT_CODES.NOON)
-  if (type === 'single' && isPeripheralNoon) {
-    slot.nurseTeamIn = value || null
-    slot.nurseTeamOut = value || null
-    slot.nurseTeam = null
-  } else if (type === 'single') {
-    slot.nurseTeam = value || null
-  } else if (type === 'in') {
-    slot.nurseTeamIn = value || null
-  } else if (type === 'out') {
-    slot.nurseTeamOut = value || null
+  if (!slot?.patientId) {
+    event.target.value = ''
+    return
   }
-  setChange()
+
+  const value = event.target.value
+
+  // 使用病人ID + 班次代碼作為key
+  const shiftCode = shiftId.split('-').pop()
+  const key = `${slot.patientId}-${shiftCode}`
+
+  // 確保 teams 物件存在
+  if (!currentTeamsRecord.value.teams[key]) {
+    currentTeamsRecord.value.teams[key] = {}
+  }
+
+  const teamData = currentTeamsRecord.value.teams[key]
+  const isPeripheralNoon = shiftId.startsWith('peripheral') && shiftId.endsWith(SHIFT_CODES.NOON)
+
+  if (type === 'single' && isPeripheralNoon) {
+    teamData.nurseTeamIn = value || null
+    teamData.nurseTeamOut = value || null
+    teamData.nurseTeam = null
+  } else if (type === 'single') {
+    teamData.nurseTeam = value || null
+  } else if (type === 'in') {
+    teamData.nurseTeamIn = value || null
+  } else if (type === 'out') {
+    teamData.nurseTeamOut = value || null
+  }
+
+  // 清理空的分組資料
+  if (!teamData.nurseTeam && !teamData.nurseTeamIn && !teamData.nurseTeamOut) {
+    delete currentTeamsRecord.value.teams[key]
+  }
+
+  // 強制觸發 Vue 響應式更新
+  currentTeamsRecord.value = { ...currentTeamsRecord.value }
+  setTeamChange()
 }
+
+// updateNote 函數保持不變
 function updateNote(event, shiftId) {
   if (isPageLocked.value) {
     event.target.textContent = getCombinedNote(shiftId)
@@ -1275,68 +1601,7 @@ function updateNote(event, shiftId) {
   currentRecord.schedule[shiftId].manualNote = event.target.textContent.trim()
   setChange()
 }
-const updateWardNumber = (event, shiftId) => {
-  if (isPageLocked.value) {
-    event.target.textContent = currentRecord.schedule[shiftId]?.wardNumber || ''
-    return
-  }
-  const value = event.target.textContent.trim()
-  if (!currentRecord.schedule[shiftId])
-    currentRecord.schedule[shiftId] = createEmptySlotData(shiftId)
-  currentRecord.schedule[shiftId].wardNumber = value
-  setChange()
-}
-function clearInpatients() {
-  if (isPageLocked.value) return
-  showConfirm(
-    '確認清除',
-    '確定要清除畫面上所有的「住院/急診」病人嗎？(此操作需儲存後才會生效)',
-    () => {
-      const newSchedule = { ...currentRecord.schedule }
-      let clearedCount = 0
-      for (const shiftId in newSchedule) {
-        const slotData = newSchedule[shiftId]
-        if (slotData?.patientId) {
-          const patient = patientMap.value.get(slotData.patientId)
-          if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
-            delete newSchedule[shiftId]
-            clearedCount++
-          }
-        }
-      }
-      if (clearedCount > 0) {
-        currentRecord.schedule = newSchedule
-        setChange()
-        createGlobalNotification(`已清除 ${clearedCount} 位住院/急診病人`, 'schedule')
-      } else {
-        showAlert('提示', '畫面上沒有住院或急診病人可供清除。')
-      }
-    },
-  )
-}
-function clearNurseTeams() {
-  if (isPageLocked.value) return
-  showConfirm('確認清除', '確定要清除畫面上所有的「護理分組」嗎？(此操作需儲存後才會生效)', () => {
-    const newSchedule = { ...currentRecord.schedule }
-    let cleared = false
-    for (const shiftId in newSchedule) {
-      const slotData = newSchedule[shiftId]
-      if (slotData) {
-        if (slotData.nurseTeam || slotData.nurseTeamIn || slotData.nurseTeamOut) cleared = true
-        slotData.nurseTeam = null
-        slotData.nurseTeamIn = null
-        slotData.nurseTeamOut = null
-      }
-    }
-    if (cleared) {
-      currentRecord.schedule = newSchedule
-      setChange()
-      createGlobalNotification(`已清除所有護理分組`, 'team')
-    } else {
-      showAlert('提示', '畫面上沒有護理分組可供清除。')
-    }
-  })
-}
+
 function runScheduleCheck() {
   const warnings = []
   const duplicateNames = new Set()
@@ -1368,10 +1633,12 @@ function runScheduleCheck() {
     showAlert('排班檢視完畢', '未發現明顯的排班或遺漏問題。')
   }
 }
+
 function getPatientName(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   return patientMap.value.get(patientId)?.name || ''
 }
+
 function getCombinedNote(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData) return ''
@@ -1381,6 +1648,7 @@ function getCombinedNote(shiftId) {
   const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   return finalTags.join(' ')
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
@@ -1388,14 +1656,17 @@ function getPatientCellStyle(shiftId) {
   if (!patient) return {}
   return getUnifiedCellStyle(slotData, patient)
 }
+
 function triggerPrint() {
   window.print()
 }
+
 function handleConfirm() {
   if (typeof onConfirmAction.value === 'function') onConfirmAction.value()
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
+
 function handleCancel() {
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
@@ -1403,6 +1674,7 @@ function handleCancel() {
 
 // --- Auto Assignment Logic ---
 const { distributePatients } = useTeamAssigner()
+
 function autoAssignNurseTeams() {
   if (isPageLocked.value) {
     showAlert('操作失敗', '頁面已鎖定，無法執行自動分組。')
@@ -1414,11 +1686,12 @@ function autoAssignNurseTeams() {
 }
 
 function executeAutoAssignment() {
-  const scheduleCopy = JSON.parse(JSON.stringify(currentRecord.schedule))
+  // 清空現有分組
+  currentTeamsRecord.value.teams = {}
 
-  // --- 輔助函式 (從您的正常版本中提取) ---
+  // --- 輔助函式 ---
   const getRichPatientList = (shiftCode) => {
-    return Object.entries(scheduleCopy)
+    return Object.entries(currentRecord.schedule)
       .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(shiftCode))
       .map(([shiftId, slot]) => {
         const patientData = patientMap.value.get(slot.patientId)
@@ -1426,8 +1699,9 @@ function executeAutoAssignment() {
         const bedNumberStr = shiftId.split('-')[1]
         const bedNumber = parseInt(bedNumberStr, 10)
         return {
-          id: slot.patientId,
-          shiftId: shiftId,
+          id: slot.patientId, // 病人ID
+          shiftId: shiftId, // 原始床位ID（用於判斷是否外圍）
+          shiftCode: shiftCode, // 班次代碼
           status: patientData.status,
           isHepatitis: !isNaN(bedNumber) && hepatitisBeds.includes(bedNumber),
           isPeripheral: shiftId.startsWith('peripheral'),
@@ -1454,9 +1728,7 @@ function executeAutoAssignment() {
   const allNoonPatients = getRichPatientList(SHIFT_CODES.NOON)
   const allLatePatients = getRichPatientList(SHIFT_CODES.LATE)
 
-  // =================================================================
-  // === 1. 早班分配 (完全遵照您的原始邏輯)
-  // =================================================================
+  // 1. 早班分配
   console.log('--- 🚀 開始早班分配 ---')
   const earlyMain = mainArea(allEarlyPatients)
   const useEarlyTeamA = earlyMain.length > 36
@@ -1477,12 +1749,10 @@ function executeAutoAssignment() {
     },
   }
   const earlyAssignments = distributePatients(sort(earlyMain), earlyTeamsToUse, earlyRules)
-  earlyAssignments['早外圍'] = peripheral(allEarlyPatients) // 現在 peripheral() 是正確的了
+  earlyAssignments['早外圍'] = peripheral(allEarlyPatients)
 
-  // =================================================================
-  // === 2. 午班上針分配 (完全遵照您的原始邏輯)
-  // =================================================================
-  console.log('--- 🌞 開始午班上針分配 (規則同早班) ---')
+  // 2. 午班上針分配
+  console.log('--- 🌞 開始午班上針分配 ---')
   const noonMain = mainArea(allNoonPatients)
   const useNoonTeamA = noonMain.length > 36
   const noonOnRules = {
@@ -1495,10 +1765,8 @@ function executeAutoAssignment() {
   const noonOnAssignments = distributePatients(sort(noonMain), earlyTeamsToUse, noonOnRules)
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
 
-  // =================================================================
-  // === 3. 午班收針分配 (完全遵照您的原始邏輯)
-  // =================================================================
-  console.log('--- 🌙 開始午班收針分配 (規則同晚班) ---')
+  // 3. 午班收針分配
+  console.log('--- 🌙 開始午班收針分配 ---')
   const lateTeamsToUse = baseTeams.filter((t) => t <= 'H').map((t) => `晚${t}`)
   const lateRules = {
     priorityTeams: {
@@ -1514,56 +1782,63 @@ function executeAutoAssignment() {
   const noonOffAssignments = distributePatients(sort(noonMain), lateTeamsToUse, lateRules)
   noonOffAssignments['晚外圍'] = peripheral(allNoonPatients)
 
-  // =================================================================
-  // === 4. 晚班分配 (完全遵照您的原始邏輯)
-  // =================================================================
+  // 4. 晚班分配
   console.log('--- 🌃 開始晚班分配 ---')
   const lateMain = mainArea(allLatePatients)
   const lateAssignments = distributePatients(sort(lateMain), lateTeamsToUse, lateRules)
   lateAssignments['晚外圍'] = peripheral(allLatePatients)
 
-  // =================================================================
-  // === 5. 應用所有分配結果 (完全遵照您的原始邏輯)
-  // =================================================================
-  console.log('--- ✅ 開始應用所有分配結果到排程表 ---')
-  Object.values(scheduleCopy).forEach((slot) => {
-    if (slot) {
-      slot.nurseTeam = null
-      slot.nurseTeamIn = null
-      slot.nurseTeamOut = null
-    }
-  })
+  // 5. 應用所有分配結果到護理分組記錄（以病人ID為基礎）
+  console.log('--- ✅ 開始應用所有分配結果 ---')
+
+  // 早班
   for (const team in earlyAssignments) {
     for (const patient of earlyAssignments[team]) {
-      if (scheduleCopy[patient.shiftId]) {
-        scheduleCopy[patient.shiftId].nurseTeam = team
+      const key = `${patient.id}-${SHIFT_CODES.EARLY}`
+      if (!currentTeamsRecord.value.teams[key]) {
+        currentTeamsRecord.value.teams[key] = {}
       }
-    }
-  }
-  for (const team in noonOnAssignments) {
-    for (const patient of noonOnAssignments[team]) {
-      if (scheduleCopy[patient.shiftId]) {
-        scheduleCopy[patient.shiftId].nurseTeamIn = team
-      }
-    }
-  }
-  for (const team in noonOffAssignments) {
-    for (const patient of noonOffAssignments[team]) {
-      if (scheduleCopy[patient.shiftId]) {
-        scheduleCopy[patient.shiftId].nurseTeamOut = team
-      }
-    }
-  }
-  for (const team in lateAssignments) {
-    for (const patient of lateAssignments[team]) {
-      if (scheduleCopy[patient.shiftId]) {
-        scheduleCopy[patient.shiftId].nurseTeam = team
-      }
+      currentTeamsRecord.value.teams[key].nurseTeam = team
     }
   }
 
-  currentRecord.schedule = scheduleCopy
-  setChange()
+  // 午班上針
+  for (const team in noonOnAssignments) {
+    for (const patient of noonOnAssignments[team]) {
+      const key = `${patient.id}-${SHIFT_CODES.NOON}`
+      if (!currentTeamsRecord.value.teams[key]) {
+        currentTeamsRecord.value.teams[key] = {}
+      }
+      currentTeamsRecord.value.teams[key].nurseTeamIn = team
+    }
+  }
+
+  // 午班收針
+  for (const team in noonOffAssignments) {
+    for (const patient of noonOffAssignments[team]) {
+      const key = `${patient.id}-${SHIFT_CODES.NOON}`
+      if (!currentTeamsRecord.value.teams[key]) {
+        currentTeamsRecord.value.teams[key] = {}
+      }
+      currentTeamsRecord.value.teams[key].nurseTeamOut = team
+    }
+  }
+
+  // 晚班
+  for (const team in lateAssignments) {
+    for (const patient of lateAssignments[team]) {
+      const key = `${patient.id}-${SHIFT_CODES.LATE}`
+      if (!currentTeamsRecord.value.teams[key]) {
+        currentTeamsRecord.value.teams[key] = {}
+      }
+      currentTeamsRecord.value.teams[key].nurseTeam = team
+    }
+  }
+
+  // 🔴 重要：標記有未儲存的變更
+  setTeamChange() // 這行應該要有
+  hasUnsavedChanges.value = true // 確保這行也有！
+
   statusIndicator.value = '自動分組完成，請確認並儲存'
   showAlert('操作成功', '四個班次的自動分組已全部完成！請檢視結果並點擊「儲存」。')
 }
@@ -1576,6 +1851,7 @@ onMounted(async () => {
   await loadDataForDay(currentDate.value)
   isLoading.value = false
 })
+
 watch(currentDate, (newDate, oldDate) => {
   if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
     loadDataForDay(newDate)
@@ -1875,6 +2151,7 @@ button:disabled {
   word-break: break-all;
   text-align: center;
 }
+/* 備註區樣式（純粹的醫療備註） */
 .patient-tag {
   font-size: 0.9em;
   white-space: nowrap;
@@ -1883,6 +2160,51 @@ button:disabled {
   padding: 4px 6px;
   color: #dc3545;
   font-weight: bold;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 姓名區的床號徽章 */
+.ward-badge-inline {
+  display: inline-block;
+  background-color: #007bff;
+  color: white;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 0.75em;
+  font-weight: bold;
+  margin-left: 4px;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background-color 0.2s;
+}
+
+.ward-badge-inline:hover {
+  background-color: #0056b3;
+}
+
+/* 姓名區的小床圖示 */
+.ward-icon-inline {
+  font-size: 0.85em;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.6;
+  margin-left: 4px;
+  line-height: 1;
+  transition: opacity 0.2s;
+}
+
+.ward-icon-inline:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.ward-icon-inline:disabled {
+  cursor: not-allowed;
+  opacity: 0.3;
 }
 .nurse-team-select {
   padding: 4px;
@@ -1959,6 +2281,7 @@ button:disabled {
 .peripheral-shift-row.tag-b {
   background-color: #fff9c4;
 }
+/* 病人姓名區 */
 .patient-name,
 .peripheral-patient-name {
   font-size: 1.1em;
@@ -1971,6 +2294,12 @@ button:disabled {
   justify-content: center;
   position: relative;
   cursor: pointer;
+  gap: 4px;
+}
+.patient-name > span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .empty-slot-placeholder {
   color: #adb5bd;
@@ -2067,7 +2396,40 @@ button:disabled {
 .patient-name {
   position: relative;
 }
+/* 新增：病人儲存格的兩行佈局容器 */
+.patient-cell-layout {
+  display: flex;
+  flex-direction: column;
+  justify-content: center; /* 垂直置中 */
+  align-items: center; /* 水平置中 */
+  width: 100%;
+  height: 100%;
+  gap: 2px; /* 上下兩行之間的間距 */
+  line-height: 1.2;
+}
 
+/* 新增：病人姓名的樣式 */
+.patient-name-text {
+  font-weight: bold;
+}
+
+/* 新增：下方圖示列的容器 */
+.patient-icons-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px; /* 圖示之間的間距 */
+}
+
+/* 微調：讓 patient-name 容器支援 flex 佈局 */
+.patient-name,
+.peripheral-patient-name {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 移除原有的 padding，交給內層容器處理 */
+  padding: 2px;
+}
 /* =================================================================== */
 /* === 2. 整合後的響應式與新增功能樣式 === */
 /* =================================================================== */
@@ -2251,6 +2613,61 @@ button:disabled {
   }
 }
 
+/* 臨床查閱模式的床號顯示 */
+.ward-number-display {
+  font-weight: bold;
+  color: #007bff;
+  margin-right: 8px;
+}
+
+/* 外圍床位的床號欄位 */
+.peripheral-bed-number {
+  font-size: 0.9em;
+  min-width: 80px;
+  padding: 4px 8px;
+  border-left: 1px solid #e0e0e0;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.peripheral-bed-number:focus {
+  outline: 2px solid #007bff;
+  outline-offset: -2px;
+  background-color: #f0f8ff;
+}
+
+.peripheral-bed-number[contenteditable='false'] {
+  background-color: #f5f5f5;
+}
+
+/* 外圍床位的床號徽章 */
+.peripheral-bed-number .ward-number-badge {
+  display: inline-block;
+  background-color: #007bff;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.peripheral-bed-number .ward-number-badge:hover {
+  background-color: #0056b3;
+}
+
+.peripheral-bed-number .ward-edit-icon {
+  font-size: 0.9em;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.6;
+  line-height: 1;
+}
 /* =================================================================== */
 /* === 3. 專業列印模式樣式 (最終解決方案) === */
 /* =================================================================== */
@@ -2351,6 +2768,40 @@ button:disabled {
   .print-table td[class*='status-'] {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+  }
+  /* 新增：病人儲存格的兩行佈局容器 */
+  .patient-cell-layout {
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* 垂直置中 */
+    align-items: center; /* 水平置中 */
+    width: 100%;
+    height: 100%;
+    gap: 2px; /* 上下兩行之間的間距 */
+    line-height: 1.2;
+    padding: 2px 0; /* 給予一點垂直內距 */
+  }
+
+  /* 新增：病人姓名的樣式 */
+  .patient-name-text {
+    font-weight: bold;
+  }
+
+  /* 新增：下方圖示列的容器 */
+  .patient-icons-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px; /* 圖示之間的間距 */
+  }
+
+  /* 微調：讓 patient-name 容器支援 flex 佈局 */
+  .patient-name,
+  .peripheral-patient-name {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
   }
 }
 </style>
