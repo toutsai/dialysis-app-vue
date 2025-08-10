@@ -440,30 +440,74 @@ exports.handleNewExceptionRequest = onDocumentCreated(
     const exceptionData = exceptionDoc.data()
     const exceptionId = exceptionDoc.id
     logger.info(`🚀 [ExceptionDispatcher] 接收到新的例外申請: ${exceptionId}`)
+
     if (exceptionData.status !== 'pending') {
       logger.info(`申請 ${exceptionId} 狀態為 "${exceptionData.status}"，非 "pending"，不予處理。`)
       return
     }
+
     await exceptionDoc.ref.update({ status: 'processing' })
     const batch = db.batch()
     let taskCount = 0
+
+    // [*** 核心修正 ***] 區分 MOVE 的兩種子類型
     if (exceptionData.type === 'MOVE') {
-      logger.info(`[ExceptionDispatcher] 申請 ${exceptionId} 類型為 MOVE，創建單一任務。`)
-      const taskDocRef = db.collection('exception_tasks').doc()
-      const targetDate = exceptionData.to.goalDate
-      const taskData = {
-        parentExceptionId: exceptionId,
-        targetDate: targetDate,
-        type: exceptionData.type,
-        patientId: exceptionData.patientId,
-        patientName: exceptionData.patientName,
-        from: exceptionData.from || null,
-        to: exceptionData.to || null,
-        status: 'pending',
-        createdAt: FieldValue.serverTimestamp(),
+      // 情況一：檢查是否為「單日調班」(其特徵是有 from.sourceDate)
+      if (exceptionData.from?.sourceDate) {
+        logger.info(`[ExceptionDispatcher] 申請 ${exceptionId} 類型為 MOVE (單日)，創建單一任務。`)
+        const taskDocRef = db.collection('exception_tasks').doc()
+        const targetDate = exceptionData.to.goalDate // 單日調班有 goalDate
+
+        if (!targetDate) {
+          logger.error(
+            `[ExceptionDispatcher] 單日調班 ${exceptionId} 缺少 to.goalDate，無法創建任務。`,
+          )
+          await exceptionDoc.ref.update({ status: 'error', errorMessage: '單日調班缺少目標日期' })
+          return
+        }
+
+        const taskData = {
+          parentExceptionId: exceptionId,
+          targetDate: targetDate,
+          type: 'MOVE_SINGLE', // 給任務一個更明確的類型
+          patientId: exceptionData.patientId,
+          patientName: exceptionData.patientName,
+          from: exceptionData.from || null,
+          to: exceptionData.to || null,
+          status: 'pending',
+          createdAt: FieldValue.serverTimestamp(),
+        }
+        batch.set(taskDocRef, taskData)
+        taskCount = 1
       }
-      batch.set(taskDocRef, taskData)
-      taskCount = 1
+      // 情況二：檢查是否為「區間調班」(其特徵是有 startDate 和 endDate)
+      else if (exceptionData.startDate && exceptionData.endDate) {
+        logger.info(
+          `[ExceptionDispatcher] 申請 ${exceptionId} 類型為 MOVE (區間)，遍歷日期範圍創建任務。`,
+        )
+        const startDate = new Date(exceptionData.startDate + 'T00:00:00Z')
+        const endDate = new Date(exceptionData.endDate + 'T00:00:00Z')
+
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = formatDateForQuery(new Date(d))
+          const taskDocRef = db.collection('exception_tasks').doc()
+          const taskData = {
+            parentExceptionId: exceptionId,
+            targetDate: dateStr, // [修正] 現在 targetDate 是明確的 dateStr，不再是 undefined
+            type: 'MOVE_INTERVAL', // 給任務一個更明確的類型
+            patientId: exceptionData.patientId,
+            patientName: exceptionData.patientName,
+            to: exceptionData.to, // 將目標床位信息傳遞給任務
+            status: 'pending',
+            createdAt: FieldValue.serverTimestamp(),
+          }
+          batch.set(taskDocRef, taskData)
+          taskCount++
+        }
+      } else {
+        logger.error(`[ExceptionDispatcher] MOVE 類型的申請 ${exceptionId} 結構不明確，無法處理。`)
+        await exceptionDoc.ref.update({ status: 'error', errorMessage: 'MOVE 申請結構不明確' })
+      }
     } else if (exceptionData.type === 'SUSPEND') {
       logger.info(
         `[ExceptionDispatcher] 申請 ${exceptionId} 類型為 SUSPEND，遍歷日期範圍創建任務。`,
@@ -488,6 +532,7 @@ exports.handleNewExceptionRequest = onDocumentCreated(
     } else {
       logger.warn(`[ExceptionDispatcher] 未知的例外類型: ${exceptionData.type} for ${exceptionId}`)
     }
+
     try {
       if (taskCount > 0) {
         await batch.commit()
@@ -495,12 +540,23 @@ exports.handleNewExceptionRequest = onDocumentCreated(
           `✅ [ExceptionDispatcher] 成功為例外申請 ${exceptionId} 分發了 ${taskCount} 個每日任務。`,
         )
       } else {
-        logger.warn(`[ExceptionDispatcher] 沒有為 ${exceptionId} 創建任何任務，可能類型未知。`)
-        await exceptionDoc.ref.update({ status: 'error', errorMessage: '未知的例外類型' })
+        logger.warn(
+          `[ExceptionDispatcher] 沒有為 ${exceptionId} 創建任何任務，可能類型未知或数据不完整。`,
+        )
+        if (exceptionData.status === 'processing') {
+          // 僅在未被標記為錯誤時更新
+          await exceptionDoc.ref.update({
+            status: 'error',
+            errorMessage: '未知的例外類型或数据不完整',
+          })
+        }
       }
     } catch (error) {
       logger.error(`❌ [ExceptionDispatcher] 分發任務失敗 for ${exceptionId}:`, error)
-      await exceptionDoc.ref.update({ status: 'error', errorMessage: '分發每日任務失敗' })
+      await exceptionDoc.ref.update({
+        status: 'error',
+        errorMessage: `分發每日任務失敗: ${error.message}`,
+      })
     }
   },
 )
@@ -528,15 +584,30 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 
   try {
     await db.runTransaction(async (transaction) => {
-      if (taskData.type === 'MOVE') {
-        const { from, to, patientId, patientName, targetDate } = taskData
-        const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
-        const sourceScheduleKey = getScheduleKey(from.bedNum, from.shiftCode)
-        transaction.update(sourceScheduleRef, {
-          [`schedule.${sourceScheduleKey}`]: FieldValue.delete(),
-        })
+      const { targetDate, patientId, patientName } = taskData
+      const scheduleRef = db.collection('schedules').doc(targetDate)
+      const scheduleDoc = await transaction.get(scheduleRef)
 
-        const targetScheduleRef = db.collection('schedules').doc(targetDate)
+      if (!scheduleDoc.exists) {
+        logger.warn(`[TaskWorker] 日期 ${targetDate} 的排班表不存在，跳過此任務。`)
+        return
+      }
+
+      const scheduleData = scheduleDoc.data().schedule || {}
+
+      // [通用步驟] 無論是哪種任務，都先確保當天沒有這個病人的舊排班
+      for (const key in scheduleData) {
+        if (scheduleData[key].patientId === patientId) {
+          transaction.update(scheduleRef, { [`schedule.${key}`]: FieldValue.delete() })
+          logger.info(`[TaskWorker] 在 ${targetDate} 移除了 ${patientName} 的舊排班。`)
+          break // 假設一個病人一天只會出現一次
+        }
+      }
+
+      // [*** 核心修正 ***] 根據任務類型執行不同操作
+      if (taskData.type === 'MOVE_SINGLE') {
+        // 處理單日調班
+        const { to } = taskData
         const targetScheduleKey = getScheduleKey(to.bedNum, to.shiftCode)
         const newSlotData = {
           patientId,
@@ -544,33 +615,42 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
           shiftId: to.shiftCode,
           manualNote: `(例外調班)`,
         }
-
         transaction.set(
-          targetScheduleRef,
+          scheduleRef,
           { schedule: { [targetScheduleKey]: newSlotData } },
           { merge: true },
         )
+        logger.info(
+          `[TaskWorker] 在 ${targetDate} 為 ${patientName} 安排了新床位: ${targetScheduleKey}`,
+        )
+      } else if (taskData.type === 'MOVE_INTERVAL') {
+        // 處理區間調班 (借床)
+        const { to } = taskData
+        const targetScheduleKey = getScheduleKey(to.bedNum, to.shiftCode)
+        const newSlotData = {
+          patientId,
+          patientName,
+          shiftId: to.shiftCode,
+          manualNote: `(區間調班)`,
+        }
+        transaction.set(
+          scheduleRef,
+          { schedule: { [targetScheduleKey]: newSlotData } },
+          { merge: true },
+        )
+        logger.info(
+          `[TaskWorker] 在 ${targetDate} 為 ${patientName} 安排了借用床位: ${targetScheduleKey}`,
+        )
       } else if (taskData.type === 'SUSPEND') {
-        const { targetDate, patientId } = taskData
-        const scheduleRef = db.collection('schedules').doc(targetDate)
-        const scheduleDoc = await transaction.get(scheduleRef)
-
-        if (!scheduleDoc.exists) {
-          logger.warn(`[SUSPEND] 日期 ${targetDate} 的排班表不存在，跳過此任務。`)
-          return
-        }
-
-        const scheduleData = scheduleDoc.data().schedule || {}
-        for (const key in scheduleData) {
-          if (scheduleData[key].patientId === patientId) {
-            transaction.update(scheduleRef, { [`schedule.${key}`]: FieldValue.delete() })
-            break
-          }
-        }
+        // 對於暫停任務，上面的通用步驟已經完成了所有工作 (移除了排班)，所以這裡不需要做任何事
+        logger.info(`[TaskWorker] 在 ${targetDate} 暫停了 ${patientName} 的排班。`)
       }
     })
 
+    // 更新任務狀態
     await taskDoc.ref.update({ status: 'completed', completedAt: FieldValue.serverTimestamp() })
+
+    // 檢查是否所有相關任務都完成了
     const siblingTasksQuery = db
       .collection('exception_tasks')
       .where('parentExceptionId', '==', taskData.parentExceptionId)
@@ -582,6 +662,9 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
         status: 'applied',
         appliedAt: FieldValue.serverTimestamp(),
       })
+      logger.info(
+        `✅ [ExceptionWorker] 例外申請 ${taskData.parentExceptionId} 的所有任務已完成，狀態更新為 "applied"。`,
+      )
     }
   } catch (error) {
     logger.error(`❌ [ExceptionWorker] 處理任務 ${taskId} 失敗:`, error)

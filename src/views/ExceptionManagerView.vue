@@ -1,895 +1,653 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (最終修正版) -->
+<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (完整修正版) -->
 <template>
-  <div class="page-container">
-    <header class="page-header">
-      <div class="header-toolbar">
-        <div class="toolbar-left">
-          <h1 class="page-title">調班管理</h1>
+  <div v-if="isVisible" class="dialog-overlay" @click.self="close">
+    <div class="dialog-content">
+      <header class="dialog-header">
+        <h2>{{ dialogTitle }}</h2>
+        <button class="close-button" @click="close">&times;</button>
+      </header>
+      <div class="dialog-body">
+        <!-- 步驟 1: 選擇病人 -->
+        <div class="form-group">
+          <label>步驟 1: 選擇病人</label>
           <button
-            class="btn btn-primary desktop-only"
-            @click="openCreateDialog"
-            :disabled="isPageLocked"
+            class="select-btn"
+            @click="isPatientDialogVisible = true"
+            :disabled="isEditMode || isPrefilled"
           >
-            <i class="fas fa-plus-circle"></i> 新增調班申請
+            <div v-if="formData.patientId" class="patient-display-content">
+              <span
+                >{{ formData.patientName }} ({{
+                  getPatient(formData.patientId)?.medicalRecordNumber
+                }})</span
+              >
+              <span v-if="getPatient(formData.patientId)?.freq" class="patient-info-tag freq-tag">
+                {{ getPatient(formData.patientId).freq }}
+              </span>
+            </div>
+            <span v-else class="text-muted">點擊以選擇病人...</span>
           </button>
         </div>
-      </div>
-      <p class="page-description">
-        此處用於處理「臨時調班」或「區間暫停排程」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
-      </p>
-    </header>
 
-    <main class="page-main-content">
-      <div class="exceptions-list-container">
-        <h2 class="section-title">目前的調班申請列表</h2>
-        <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
-        <div v-else-if="exceptions.length === 0" class="empty-state">
-          <i class="fas fa-check-circle"></i>
-          <p>目前沒有任何待處理或已生效的例外申請。</p>
+        <!-- 步驟 2: 選擇類型 -->
+        <div class="form-group">
+          <label>步驟 2: 選擇例外類型</label>
+          <div class="radio-group">
+            <label>
+              <input
+                type="radio"
+                name="exceptionType"
+                value="MOVE_SINGLE"
+                v-model="formType"
+                :disabled="!formData.patientId || isPrefilled"
+              />
+              臨時調班 (單日)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="exceptionType"
+                value="MOVE_INTERVAL"
+                v-model="formType"
+                :disabled="!formData.patientId || isPrefilled"
+              />
+              區間調班
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="exceptionType"
+                value="SUSPEND"
+                v-model="formType"
+                :disabled="!formData.patientId || isPrefilled"
+              />
+              區間暫停
+            </label>
+          </div>
         </div>
 
-        <!-- ‼️‼️‼️ 這裡是核心修正：用一個 v-else 容器包裹兩個版本 ‼️‼️‼️ -->
-        <div v-else>
-          <!-- 桌機版表格 -->
-          <table class="exceptions-table desktop-only">
-            <thead>
-              <tr>
-                <th>狀態</th>
-                <th>病患姓名</th>
-                <th>類型</th>
-                <th>日期區間</th>
-                <th>原因 / 目的</th>
-                <th>申請時間</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="ex in exceptions" :key="ex.id" :class="`status-${ex.status}`">
-                <td>
-                  <span class="status-badge" :class="`status-${ex.status}`">
-                    {{ statusMap[ex.status] || '未知' }}
-                  </span>
-                </td>
-                <td>{{ ex.patientName }}</td>
-                <td>
-                  <span class="type-badge" :class="`type-${ex.type}`">
-                    {{ typeMap[ex.type] || '未知' }}
-                  </span>
-                </td>
-                <td>
-                  {{ ex.startDate }}
-                  <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
-                </td>
-                <td class="reason-cell">
-                  <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                    <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
-                    <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
-                    <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-
-                    <small v-if="ex.status === 'error'" class="error-message"
-                      >錯誤: {{ ex.errorMessage }}</small
-                    >
-                    <small v-else>原因: {{ ex.reason }}</small>
-                  </div>
-                  <div v-else>
-                    {{ ex.reason }}
-                  </div>
-                </td>
-                <td>{{ formatTimestamp(ex.createdAt) }}</td>
-                <td>
-                  <button
-                    class="btn btn-danger btn-sm"
-                    @click="confirmDeleteException(ex.id)"
-                    :disabled="isActionDisabled(ex) || isPageLocked"
-                  >
-                    <i class="fas fa-trash-alt"></i> 撤銷
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          <!-- 手機版卡片列表 -->
-          <div class="exception-cards-container mobile-only">
-            <div
-              v-for="ex in exceptions"
-              :key="ex.id"
-              class="exception-card"
-              :class="`status-border-${ex.status}`"
-            >
-              <div class="card-header">
-                <div class="header-left">
-                  <span class="patient-name">{{ ex.patientName }}</span>
-                  <span class="type-badge" :class="`type-${ex.type}`">{{
-                    typeMap[ex.type] || '未知'
-                  }}</span>
-                </div>
-                <span class="status-badge" :class="`status-${ex.status}`">{{
-                  statusMap[ex.status] || '未知'
+        <!-- 步驟 3: 調班詳情 (單日) -->
+        <div class="details-section" v-if="formType === 'MOVE_SINGLE'">
+          <div class="form-group-grid">
+            <div class="form-group">
+              <label>步驟 3: 選擇原始日期</label>
+              <input type="date" v-model="formData.from.sourceDate" :disabled="isFetchingSource" />
+            </div>
+            <div class="form-group">
+              <label>原始排班</label>
+              <div class="info-box">
+                <span v-if="isFetchingSource">查詢中...</span>
+                <span v-else-if="sourceScheduleMessage" class="text-muted">{{
+                  sourceScheduleMessage
                 }}</span>
-              </div>
-              <div class="card-body">
-                <div class="info-row">
-                  <strong class="info-label">日期區間:</strong>
-                  <span class="info-value">
-                    {{ ex.startDate
-                    }}<span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
-                  </span>
-                </div>
-                <div class="info-row details">
-                  <strong class="info-label">詳細內容:</strong>
-                  <div class="info-value">
-                    <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                      <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
-                      <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
-                      <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-
-                      <small v-if="ex.status === 'error'" class="error-message"
-                        >錯誤: {{ ex.errorMessage }}</small
-                      >
-                      <small v-else>原因: {{ ex.reason }}</small>
-                    </div>
-                    <div v-else>{{ ex.reason }}</div>
-                  </div>
-                </div>
-                <div class="info-row">
-                  <strong class="info-label">申請時間:</strong>
-                  <span class="info-value">{{ formatTimestamp(ex.createdAt) }}</span>
-                </div>
-              </div>
-              <div class="card-footer">
-                <button
-                  class="btn btn-danger btn-sm"
-                  @click="confirmDeleteException(ex.id)"
-                  :disabled="isActionDisabled(ex) || isPageLocked"
-                >
-                  <i class="fas fa-trash-alt"></i> 撤銷申請
-                </button>
+                <span v-else>{{ sourceBedDisplay }}</span>
               </div>
             </div>
           </div>
+          <div class="form-group-grid">
+            <div class="form-group">
+              <label>步驟 4: 選擇目標日期</label>
+              <input type="date" v-model="formData.to.goalDate" :disabled="!formData.from.bedNum" />
+            </div>
+            <div class="form-group">
+              <label>目標排班</label>
+              <button
+                class="select-btn"
+                @click="openBedAssignmentDialog"
+                :disabled="!formData.to.goalDate || isLoadingBeds"
+              >
+                <span v-if="isLoadingBeds">查詢空床中...</span>
+                <span v-else>{{ targetBedDisplay }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 步驟 4: 區間調班詳情 -->
+        <div class="details-section" v-if="formType === 'MOVE_INTERVAL'">
+          <div class="form-group-grid">
+            <div class="form-group">
+              <label>步驟 3: 調班開始日期</label>
+              <input type="date" v-model="formData.startDate" :disabled="isPrefilled" />
+            </div>
+            <div class="form-group">
+              <label>步驟 4: 調班結束日期</label>
+              <input
+                type="date"
+                v-model="formData.endDate"
+                :min="formData.startDate"
+                :disabled="isPrefilled"
+              />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>步驟 5: 目標床位</label>
+            <div v-if="isPrefilled" class="info-box">
+              {{ targetBedDisplay }}
+            </div>
+            <button
+              v-else
+              class="select-btn"
+              @click="openBedAssignmentDialog"
+              :disabled="!formData.startDate || isLoadingBeds"
+            >
+              <span v-if="isLoadingBeds">查詢空床中...</span>
+              <span v-else>{{ targetBedDisplay }}</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 步驟 3: 暫停詳情 -->
+        <div class="details-section" v-if="formType === 'SUSPEND'">
+          <div class="form-group-grid">
+            <div class="form-group">
+              <label>步驟 3: 選擇暫停開始日期</label>
+              <input type="date" v-model="formData.startDate" />
+            </div>
+            <div class="form-group">
+              <label>步驟 4: 選擇暫停結束日期</label>
+              <input type="date" v-model="formData.endDate" :min="formData.startDate" />
+            </div>
+          </div>
+        </div>
+
+        <!-- 申請事由 -->
+        <div class="form-group">
+          <label>申請事由</label>
+          <textarea
+            v-model.trim="formData.reason"
+            rows="3"
+            placeholder="請簡述調班或暫停原因"
+          ></textarea>
         </div>
       </div>
-    </main>
 
-    <!-- 手機版新增按鈕 (FAB - Floating Action Button) -->
-    <button class="fab mobile-only" @click="openCreateDialog" :disabled="isPageLocked">
-      <i class="fas fa-plus"></i>
-    </button>
+      <footer class="dialog-footer">
+        <button class="btn btn-secondary" @click="close">取消</button>
+        <button class="btn btn-primary" @click="submitForm" :disabled="!isFormValid">
+          {{ isEditMode ? '更新申請' : '提交申請' }}
+        </button>
+      </footer>
+    </div>
 
-    <ExceptionCreateDialog
-      :is-visible="isCreateDialogVisible"
+    <!-- 子對話框 -->
+    <PatientSelectDialog
+      :is-visible="isPatientDialogVisible"
+      :patients="allPatients"
+      @confirm="handlePatientSelected"
+      @cancel="isPatientDialogVisible = false"
+      title="選擇病人"
+    />
+    <BedAssignmentDialog
+      v-if="isBedAssignmentVisible"
+      :is-visible="isBedAssignmentVisible"
       :all-patients="allPatients"
-      :is-page-locked="isPageLocked"
-      :initial-data="exceptionToReEdit"
-      @close="closeCreateDialog"
-      @submit="handleCreateException"
-    />
-    <ConfirmDialog
-      :is-visible="isConfirmDeleteVisible"
-      title="確認撤銷"
-      message="您確定要撤銷這筆調班申請嗎？此操作可能會導致相關日期的排班恢復為總表預設值。"
-      @confirm="executeDeleteException"
-      @cancel="isConfirmDeleteVisible = false"
-    />
-    <AlertDialog
-      :is-visible="isConflictAlertVisible"
-      title="排班衝突！"
-      :message="conflictAlertMessage"
-      @confirm="handleConflictAlertConfirm"
+      :bed-layout="props.bedLayout"
+      :freq-map="props.freqMap"
+      :shifts="['early', 'noon', 'late']"
+      :day-of-week="
+        new Date(formType === 'MOVE_SINGLE' ? formData.to.goalDate : formData.startDate).getDay()
+      "
+      :schedule-data="targetDateScheduleData"
+      :hide-patient-list="true"
+      :assignment-mode="'singleDay'"
+      @close="isBedAssignmentVisible = false"
+      @assign-bed="handleTargetBedAssigned"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  writeBatch,
-} from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { ref, computed, watch, reactive } from 'vue'
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import ApiManager from '@/services/api_manager.js'
-import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
-import { useAuth } from '@/composables/useAuth.js'
-import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
-import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue'
+const schedulesApi = ApiManager('schedules')
 
-// --- API & Services ---
-const exceptionsApi = ApiManager('schedule_exceptions')
-const memosApi = ApiManager('memos')
-const router = useRouter()
-const route = useRoute()
-const { createGlobalNotification } = useGlobalNotifier()
-const { addLocalNotification } = useRealtimeNotifications()
+const props = defineProps({
+  isVisible: Boolean,
+  allPatients: { type: Array, default: () => [] },
+  initialData: { type: Object, default: null },
+  bedLayout: { type: Array, required: true },
+  freqMap: { type: Object, required: true },
+})
+const emit = defineEmits(['close', 'submit'])
 
-// --- Auth ---
-const { currentUser, canEditSchedules } = useAuth()
-const isPageLocked = computed(() => !canEditSchedules.value)
+const formType = ref('MOVE_SINGLE')
+const defaultFormData = () => ({
+  patientId: null,
+  patientName: '',
+  type: 'MOVE',
+  from: { sourceDate: '', bedNum: null, shiftCode: null, source: 'daily_schedule' },
+  to: { goalDate: '', bedNum: null, shiftCode: null },
+  startDate: '',
+  endDate: '',
+  reason: '',
+  status: 'pending',
+})
+const formData = reactive(defaultFormData())
 
-// --- Component State ---
-const allPatients = ref([])
-const exceptions = ref([])
-const isLoading = ref(true)
-const isCreateDialogVisible = ref(false)
-const isConfirmDeleteVisible = ref(false)
-const exceptionToDeleteId = ref(null)
-const exceptionToReEdit = ref(null)
-const isConflictAlertVisible = ref(false)
-const conflictAlertMessage = ref('')
+const isPatientDialogVisible = ref(false)
+const isBedAssignmentVisible = ref(false)
+const isFetchingSource = ref(false)
+const sourceScheduleMessage = ref('')
+const isLoadingBeds = ref(false)
+const targetDateScheduleData = ref({})
 
-let unsubscribe = null
-
-// --- Data Maps ---
-const statusMap = {
-  pending: '待處理',
-  processing: '處理中',
-  applied: '已生效',
-  error: '錯誤',
-  expired: '已過期',
-  conflict_requires_resolution: '衝突待解決',
-}
-const typeMap = {
-  MOVE: '臨時調班',
-  SUSPEND: '區間暫停',
-}
-
-const shiftMap = {
-  early: '早班',
-  noon: '午班',
-  late: '晚班',
-}
-
-// --- Methods ---
-
-// ✨✨✨ --- 核心修正：將 formatTimestamp 函式加回來 --- ✨✨✨
-function formatTimestamp(ts) {
-  if (!ts || !ts.toDate) return 'N/A'
-  return ts.toDate().toLocaleString('zh-TW', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function formatShiftInfo(shiftData) {
-  if (!shiftData) return ''
-  const shiftName = shiftMap[shiftData.shiftCode] || shiftData.shiftCode
-  const bedDisplay = String(shiftData.bedNum).startsWith('peripheral-')
-    ? `外圍 ${String(shiftData.bedNum).split('-')[1]}`
-    : `${shiftData.bedNum}床`
-  // 注意：這裡我們使用 shiftData.date，而不是 shiftData.sourceDate 或 goalDate
-  // 這是因為我們在模板中呼叫時已經統一傳遞了 `date` 屬性
-  return `${shiftData.date || ''} (${shiftName} ${bedDisplay})`
-}
-
-function openCreateDialog() {
-  if (isPageLocked.value) return
-  exceptionToReEdit.value = null
-  isCreateDialogVisible.value = true
-}
-
-function closeCreateDialog() {
-  isCreateDialogVisible.value = false
-  setTimeout(() => {
-    exceptionToReEdit.value = null
-  }, 300)
-}
-
-async function handleCreateException(formData) {
-  try {
-    const isUpdating = !!formData.id
-    if (isUpdating) {
-      await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
-    }
-    const dataToSave = {
-      patientId: formData.patientId,
-      patientName: formData.patientName,
-      type: formData.type,
-      reason: formData.reason,
-      startDate: formData.type === 'MOVE' ? formData.from.sourceDate : formData.startDate,
-      endDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
-      from: formData.type === 'MOVE' ? formData.from : null,
-      to: formData.type === 'MOVE' ? formData.to : null,
-      status: 'pending',
-      createdAt: new Date(),
-    }
-    await exceptionsApi.save(dataToSave)
-    closeCreateDialog()
-
-    const actionText = isUpdating ? '更新' : '新增'
-    const typeText = formData.type === 'MOVE' ? '臨時調班' : '區間暫停'
-    const message = `${actionText}調班申請: ${formData.patientName} (${typeText})`
-    createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
-
-    const getBedDisplay = (bedNum) =>
-      typeof bedNum === 'string' && bedNum.startsWith('peripheral-')
-        ? `外圍 ${bedNum.split('-')[1]}`
-        : `${bedNum}床`
-    let memoContent = ''
-    if (formData.type === 'MOVE') {
-      const fromShift =
-        formData.from.shiftCode === 'early'
-          ? '早'
-          : formData.from.shiftCode === 'noon'
-            ? '午'
-            : '晚'
-      const toShift =
-        formData.to.shiftCode === 'early' ? '早' : formData.to.shiftCode === 'noon' ? '午' : '晚'
-      const fromBedDisplay = getBedDisplay(formData.from.bedNum)
-      const toBedDisplay = getBedDisplay(formData.to.bedNum)
-      memoContent = `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay} / ${fromShift}班)\n新排班: ${formData.to.goalDate} (${toBedDisplay} / ${toShift}班)\n原因: ${formData.reason}`
-    } else if (formData.type === 'SUSPEND') {
-      memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}\n原因: ${formData.reason}`
-    }
-
-    if (memoContent) {
-      const newMemo = {
-        content: memoContent,
-        patientId: formData.patientId,
-        patientName: formData.patientName,
-        targetDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
-        status: 'pending',
-        isResolved: false,
-        createdAt: new Date().toISOString(),
-      }
-      await memosApi.save(newMemo)
-    }
-  } catch (error) {
-    console.error('提交調班申請或建立備忘失敗:', error)
+// --- Computed Properties ---
+const isEditMode = computed(() => !!props.initialData?.id)
+const isPrefilled = computed(() => !!props.initialData && !props.initialData.id)
+const dialogTitle = computed(() => {
+  if (isEditMode.value) return '編輯排程例外申請'
+  if (isPrefilled.value) return '確認借床申請'
+  return '新增排程例外申請'
+})
+const getPatient = (patientId) => props.allPatients.find((p) => p.id === patientId)
+const shiftDisplayNames = { early: '早', noon: '午', late: '晚' }
+const sourceBedDisplay = computed(() => {
+  if (formData.from.bedNum && formData.from.shiftCode) {
+    const shiftText = shiftDisplayNames[formData.from.shiftCode] || formData.from.shiftCode
+    const bedText = String(formData.from.bedNum).startsWith('peripheral')
+      ? `外圍 ${formData.from.bedNum.split('-')[1]}`
+      : `${formData.from.bedNum}床`
+    return `${bedText} / ${shiftText}班`
   }
-}
-
-function confirmDeleteException(id) {
-  if (isPageLocked.value) return
-  exceptionToDeleteId.value = id
-  isConfirmDeleteVisible.value = true
-}
-
-async function executeDeleteException() {
-  if (!exceptionToDeleteId.value) return
-  try {
-    const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
-    await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
-    if (exceptionData) {
-      const typeText = exceptionData.type === 'MOVE' ? '臨時調班' : '區間暫停'
-      const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
-      createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
-    }
-  } catch (error) {
-    console.error('撤銷失敗:', error)
-  } finally {
-    isConfirmDeleteVisible.value = false
-    exceptionToDeleteId.value = null
+  return '待查詢...'
+})
+const targetBedDisplay = computed(() => {
+  if (formData.to.bedNum && formData.to.shiftCode) {
+    const shiftText = shiftDisplayNames[formData.to.shiftCode] || formData.to.shiftCode
+    const bedText = String(formData.to.bedNum).startsWith('peripheral')
+      ? `外圍 ${formData.to.bedNum.split('-')[1]}`
+      : `${formData.to.bedNum}床`
+    return `${bedText} / ${shiftText}班`
   }
-}
-
-function isActionDisabled(exception) {
-  if (exception.status === 'error') return false
-  const endDateStr = exception.endDate
-  if (!endDateStr) return false
-  const today = new Date().toISOString().split('T')[0]
-  return endDateStr < today
-}
-
-function handleConflictAlertConfirm() {
-  isConflictAlertVisible.value = false
-  nextTick(() => {
-    isCreateDialogVisible.value = true
-  })
-}
-
-// --- Initialization Logic ---
-async function initializePageData() {
-  if (unsubscribe) {
-    unsubscribe()
-    unsubscribe = null
-  }
-  isLoading.value = true
-
-  try {
-    allPatients.value = await optimizedFetchAllPatients()
-    const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-
-    unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const newExceptions = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-        const oldExceptionsMap = new Map(exceptions.value.map((ex) => [ex.id, ex]))
-
-        newExceptions.forEach((newEx) => {
-          if (newEx.status === 'conflict_requires_resolution') {
-            const oldEx = oldExceptionsMap.get(newEx.id)
-            if (!oldEx || oldEx.status !== 'conflict_requires_resolution') {
-              addLocalNotification(
-                `排程衝突：${newEx.patientName} 的申請失敗，請點此解決。`,
-                'conflict',
-                {
-                  action: () => {
-                    router.push({
-                      path: '/exception-manager',
-                      query: { resolveConflict: newEx.id },
-                    })
-                  },
-                },
-              )
-            }
-          }
-        })
-
-        exceptions.value = newExceptions
-
-        cleanupExpiredExceptions(newExceptions)
-
-        if (isLoading.value) {
-          isLoading.value = false
-        }
-      },
-      (error) => {
-        console.error('❌ Firestore 監聽器發生錯誤:', error)
-        isLoading.value = false
-      },
-    )
-  } catch (error) {
-    console.error('載入資料失敗:', error)
-    isLoading.value = false
-  }
-}
-
-// ✨ 新增的清理函式 ✨
-async function cleanupExpiredExceptions(currentExceptions) {
-  const todayStr = new Date().toISOString().split('T')[0]
-  const expiredExceptions = currentExceptions.filter((ex) => {
-    // 只有已生效(applied)的申請才需要檢查過期
-    return ex.status === 'applied' && ex.endDate && ex.endDate < todayStr
-  })
-
-  if (expiredExceptions.length > 0 && canEditSchedules.value) {
-    console.log(`發現 ${expiredExceptions.length} 筆過期的調班申請，正在進行清理...`)
-
-    try {
-      const batch = writeBatch(db)
-      expiredExceptions.forEach((ex) => {
-        const docRef = doc(db, 'schedule_exceptions', ex.id)
-        batch.delete(docRef)
-      })
-      await batch.commit()
-
-      createGlobalNotification(
-        `系統自動清理了 ${expiredExceptions.length} 筆過期的調班申請`,
-        'info',
+  return '點擊以選擇目標床位...'
+})
+const isDetailsComplete = computed(() => {
+  switch (formType.value) {
+    case 'MOVE_SINGLE':
+      return !!formData.from.bedNum && !!formData.to.bedNum && !!formData.to.goalDate
+    case 'MOVE_INTERVAL':
+      return (
+        !!formData.startDate &&
+        !!formData.endDate &&
+        formData.endDate >= formData.startDate &&
+        !!formData.to.bedNum
       )
-      console.log('過期申請清理完畢！')
-    } catch (error) {
-      console.error('自動清理過期申請失敗:', error)
-    }
-  }
-}
-
-// --- Watchers & Lifecycle Hooks ---
-watch(
-  currentUser,
-  (newUser) => {
-    if (newUser) {
-      initializePageData()
-    } else {
-      if (unsubscribe) {
-        unsubscribe()
-        unsubscribe = null
-      }
-      exceptions.value = []
-      isLoading.value = false
-    }
-  },
-  { immediate: true },
-)
-
-watch(
-  () => route.query.resolveConflict,
-  (conflictId) => {
-    if (conflictId) {
-      const conflictException = exceptions.value.find((ex) => ex.id === conflictId)
-      if (conflictException) {
-        console.log(`正在打開衝突解決對話框 for ID: ${conflictId}`)
-        exceptionToReEdit.value = conflictException
-        isCreateDialogVisible.value = true
-        router.replace({ query: {} })
-      } else {
-        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的例外申請。`)
-      }
-    }
-  },
-  { immediate: true },
-)
-
-onUnmounted(() => {
-  if (unsubscribe) {
-    unsubscribe()
+    case 'SUSPEND':
+      return !!formData.startDate && !!formData.endDate && formData.endDate >= formData.startDate
+    default:
+      return false
   }
 })
+const isFormValid = computed(
+  () => formData.patientId && isDetailsComplete.value && !!formData.reason.trim(),
+)
+
+// --- Watchers ---
+watch(
+  () => props.isVisible,
+  (isVisible) => {
+    if (isVisible) {
+      Object.assign(formData, defaultFormData())
+      sourceScheduleMessage.value = ''
+      targetDateScheduleData.value = {}
+      formType.value = 'MOVE_SINGLE'
+
+      if (props.initialData) {
+        const data = props.initialData
+        if (data.ui_type === 'MOVE_INTERVAL') {
+          formType.value = 'MOVE_INTERVAL'
+        } else if (data.type === 'SUSPEND') {
+          formType.value = 'SUSPEND'
+        } else {
+          formType.value = 'MOVE_SINGLE'
+        }
+        formData.patientId = data.patientId || null
+        formData.patientName = data.patientName || ''
+        formData.reason = data.reason || ''
+        formData.startDate = data.startDate || ''
+        formData.endDate = data.endDate || ''
+        if (data.status) formData.status = data.status
+        if (data.to) {
+          formData.to.bedNum = data.to.bedNum
+          formData.to.shiftCode = data.to.shiftCode
+        }
+        if (data.from) {
+          Object.assign(formData.from, data.from)
+        }
+        if (formType.value.startsWith('MOVE')) {
+          formData.type = 'MOVE'
+        } else {
+          formData.type = 'SUSPEND'
+        }
+      }
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+watch(
+  () => formData.patientId,
+  () => {
+    if (isPrefilled.value || isEditMode.value) return
+    formData.from = { sourceDate: '', bedNum: null, shiftCode: null, source: 'daily_schedule' }
+    formData.to = { goalDate: '', bedNum: null, shiftCode: null }
+    formData.startDate = ''
+    formData.endDate = ''
+    sourceScheduleMessage.value = ''
+  },
+)
+
+watch(formType, (newType) => {
+  if (isPrefilled.value || isEditMode.value) return
+  const patientInfo = { patientId: formData.patientId, patientName: formData.patientName }
+  Object.assign(formData, defaultFormData(), patientInfo)
+  if (newType === 'SUSPEND') {
+    formData.type = 'SUSPEND'
+  } else {
+    formData.type = 'MOVE'
+  }
+})
+
+watch(
+  () => formData.from.sourceDate,
+  (newDate) => {
+    if (newDate) fetchSourceSchedule()
+  },
+)
+
+// --- Methods ---
+function close() {
+  emit('close')
+}
+function handlePatientSelected({ patientId }) {
+  const patient = getPatient(patientId)
+  if (patient) {
+    formData.patientId = patient.id
+    formData.patientName = patient.name
+  }
+  isPatientDialogVisible.value = false
+}
+async function fetchSourceSchedule() {
+  if (!formData.from.sourceDate || !formData.patientId) return
+  isFetchingSource.value = true
+  sourceScheduleMessage.value = ''
+  formData.from.bedNum = null
+  formData.from.shiftCode = null
+  try {
+    const record = await schedulesApi.fetchById(formData.from.sourceDate)
+    if (record && record.schedule) {
+      for (const shiftId in record.schedule) {
+        if (record.schedule[shiftId].patientId === formData.patientId) {
+          const parts = shiftId.split('-')
+          const shiftCode = parts.pop()
+          const bedNum = shiftId.replace(`-${shiftCode}`, '').replace('bed-', '')
+          formData.from.bedNum = bedNum
+          formData.from.shiftCode = shiftCode
+          return
+        }
+      }
+    }
+    sourceScheduleMessage.value = '當日無此病人排班'
+  } catch (error) {
+    console.error('查詢原始排班失敗:', error)
+    sourceScheduleMessage.value = '查詢失敗'
+  } finally {
+    isFetchingSource.value = false
+  }
+}
+
+async function openBedAssignmentDialog() {
+  const targetDate = formType.value === 'MOVE_SINGLE' ? formData.to.goalDate : formData.startDate
+  if (!targetDate) {
+    alert('請先選擇日期才能查詢空床！')
+    return
+  }
+
+  isLoadingBeds.value = true
+  try {
+    const record = await schedulesApi.fetchById(targetDate).catch(() => null)
+    targetDateScheduleData.value = record?.schedule || {}
+    isBedAssignmentVisible.value = true
+  } catch (error) {
+    console.error('載入目標日期排程失敗:', error)
+    alert('載入目標日期排程失敗，無法開啟智慧排床。')
+  } finally {
+    isLoadingBeds.value = false
+  }
+}
+
+function handleTargetBedAssigned({ bedNum, shiftCode }) {
+  formData.to.bedNum = bedNum
+  formData.to.shiftCode = shiftCode
+  isBedAssignmentVisible.value = false
+}
+
+// ✨ [核心修正] 重寫此函式，確保提交的資料物件是完整的
+function submitForm() {
+  if (!isFormValid.value) return
+
+  const dataToSubmit = {
+    patientId: formData.patientId,
+    patientName: formData.patientName,
+    reason: formData.reason,
+    type: formData.type,
+    status: formData.status,
+  }
+
+  if (isEditMode.value) {
+    dataToSubmit.id = props.initialData.id
+  }
+
+  if (formType.value === 'MOVE_SINGLE') {
+    dataToSubmit.from = formData.from
+    dataToSubmit.to = formData.to // formData.to 包含 goalDate
+    dataToSubmit.startDate = formData.from.sourceDate
+    dataToSubmit.endDate = formData.to.goalDate
+  } else if (formType.value === 'MOVE_INTERVAL') {
+    dataToSubmit.from = { source: 'base_schedule' }
+    // ✨ 關鍵修正：將 endDate 也加入到 'to' 物件中
+    dataToSubmit.to = {
+      bedNum: formData.to.bedNum,
+      shiftCode: formData.to.shiftCode,
+      goalDate: formData.endDate, // 補上遺失的 goalDate
+    }
+    dataToSubmit.startDate = formData.startDate
+    dataToSubmit.endDate = formData.endDate
+  } else if (formType.value === 'SUSPEND') {
+    dataToSubmit.startDate = formData.startDate
+    dataToSubmit.endDate = formData.endDate
+    // 確保 from 和 to 在暫停模式下為 null 或不存在，避免舊資料干擾
+    dataToSubmit.from = null
+    dataToSubmit.to = null
+  }
+
+  emit('submit', dataToSubmit)
+}
 </script>
 
 <style scoped>
-@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
-
-/* ================================== */
-/*         通用及桌面版樣式            */
-/* ================================== */
-/* [修正] 容器應填滿父層高度 (100%)，而非視窗高度 (100vh)，並移除外層 padding */
-.page-container {
+/* 所有 CSS 樣式保持不變 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
   height: 100%;
-  box-sizing: border-box;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+.dialog-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 500px;
   display: flex;
   flex-direction: column;
-  background-color: #f8f9fa;
-  padding: 10px;
+  max-height: 90vh;
 }
-
-/* [修正] 為 header 新增 padding，並減少邊距使其更緊湊 */
-.page-header {
-  border-bottom: 2px solid #dee2e6;
-  margin-bottom: 1.5rem;
-  flex-shrink: 0;
-}
-
-.header-toolbar {
+.dialog-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e9ecef;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
-
-.page-title {
-  font-size: 32px;
-  font-weight: 700;
-  color: #343a40;
+.dialog-header h2 {
   margin: 0;
+  font-size: 1.5rem;
 }
-
-.page-description {
-  margin-top: 0.5rem;
-  font-size: 1rem;
+.close-button {
+  border: none;
+  background: none;
+  font-size: 2rem;
+  cursor: pointer;
   color: #6c757d;
 }
-
+.dialog-body {
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+}
+.dialog-footer {
+  padding: 1.5rem;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.form-group label {
+  font-weight: 500;
+}
+.form-group input[type='text'],
+.form-group input[type='date'],
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 1rem;
+  box-sizing: border-box;
+}
+.form-group textarea {
+  resize: vertical;
+}
+.radio-group {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
 .btn {
   padding: 0.5rem 1rem;
   border-radius: 6px;
   border: 1px solid transparent;
   cursor: pointer;
   font-weight: 500;
-  transition: all 0.2s;
-  font-size: 1rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
 }
-
 .btn-primary {
   background-color: #007bff;
   color: white;
-  border-color: #007bff;
 }
-
-.btn-primary:hover {
-  background-color: #0069d9;
-}
-
-.btn-danger {
-  background-color: #dc3545;
+.btn-secondary {
+  background-color: #6c757d;
   color: white;
-  border-color: #dc3545;
 }
-
-.btn-danger:hover {
-  background-color: #c82333;
-}
-
-.btn-sm {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
-}
-
-button:disabled {
-  opacity: 0.65;
+.btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
-
-/* [修正] 為 main 內容區加上 min-height: 0，確保滾動條在此元素上 */
-.page-main-content {
-  flex-grow: 1;
-  background-color: #fff;
-  padding: 0.5rem;
+.details-section {
+  border: 1px solid #e9ecef;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  overflow-y: auto;
-  min-height: 0; /* ✨✨ 核心修正：約束 flex item 高度 ✨✨ */
-}
-
-.section-title {
-  font-size: 1.5rem;
-  margin-bottom: 1.5rem;
-  color: #495057;
-}
-
-.exceptions-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95rem;
-}
-
-.exceptions-table th,
-.exceptions-table td {
-  padding: 0.75rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid #e9ecef;
-  vertical-align: middle;
-}
-
-.exceptions-table th {
+  padding: 1rem;
   background-color: #f8f9fa;
-  font-weight: 600;
-  color: #495057;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
-
-.exceptions-table tbody tr:hover {
-  background-color: #f1f3f5;
+.form-group-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: end;
 }
-
-.status-badge,
-.type-badge {
-  padding: 0.25em 0.6em;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 0.8em;
-  text-transform: uppercase;
-  color: white;
-  white-space: nowrap;
-}
-
-.status-pending,
-.status-processing {
-  background-color: #ffc107;
-  color: #333;
-}
-.status-applied {
-  background-color: #28a745;
-}
-.status-error {
-  background-color: #dc3545;
-}
-.status-expired {
-  background-color: #6c757d;
-}
-.status-conflict_requires_resolution {
-  background-color: #fd7e14;
-  color: white;
-}
-
-.type-MOVE {
-  background-color: #17a2b8;
-}
-
-.type-SUSPEND {
-  background-color: #6610f2;
-}
-
-.reason-cell small {
-  color: #6c757d;
-}
-
-.loading-state,
-.empty-state {
-  text-align: center;
-  padding: 4rem 0;
-  color: #6c757d;
-}
-
-.empty-state i {
-  font-size: 3rem;
-  color: #28a745;
-  margin-bottom: 1rem;
-}
-
-.toolbar-left {
+.info-box {
+  height: 48px;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  background-color: #e9ecef;
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  font-weight: 500;
+  box-sizing: border-box;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-.error-message {
-  color: #dc3545;
-  font-weight: bold;
-  display: block;
-  margin-top: 4px;
+.text-muted {
+  color: #6c757d;
 }
-
-/* ================================== */
-/*         響應式樣式 (核心)         */
-/* ================================== */
-.exceptions-table.desktop-only {
-  display: table;
+.select-btn {
+  width: 100%;
+  height: 48px;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  background-color: #fff;
+  cursor: pointer;
+  text-align: left;
+  font-size: 1rem;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
 }
-.exception-cards-container.mobile-only {
-  display: none;
+.select-btn:disabled {
+  background-color: #e9ecef;
+  cursor: not-allowed;
 }
-.fab.mobile-only {
-  display: none;
+.select-btn:not(:disabled):hover {
+  border-color: #007bff;
 }
-.btn.desktop-only {
-  display: inline-flex;
+.patient-display-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  line-height: 1.5;
+  flex-wrap: wrap;
 }
-
-@media (max-width: 992px) {
-  .exceptions-table.desktop-only {
-    display: none;
-  }
-  .exception-cards-container.mobile-only {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-  .fab.mobile-only {
-    display: flex;
-  }
-  .btn.desktop-only {
-    display: none;
-  }
-
-  /* [修正] 移除手機版的 page-container padding，因為內層已有 */
-  .page-container {
-    padding: 0;
-  }
-
-  .page-header {
-    margin-bottom: 1rem;
-    padding: 1rem 1rem 0.75rem; /* 調整手機版 header padding */
-    border-radius: 0;
-  }
-
-  .page-title {
-    font-size: 28px;
-  }
-
-  .page-description {
-    font-size: 0.9rem;
-  }
-
-  .page-main-content {
-    padding: 1rem;
-    border-radius: 0;
-    box-shadow: none;
-  }
-
-  .section-title {
-    font-size: 1.3rem;
-    margin-bottom: 1rem;
-  }
-
-  /* 卡片樣式 */
-  .exception-card {
-    background-color: #fff;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    border-left: 5px solid #ccc;
-    overflow: hidden;
-  }
-
-  .status-border-pending,
-  .status-border-processing {
-    border-left-color: #ffc107;
-  }
-  .status-border-applied {
-    border-left-color: #28a745;
-  }
-  .status-border-error {
-    border-left-color: #dc3545;
-  }
-  .status-border-expired {
-    border-left-color: #6c757d;
-  }
-  .status-border-conflict_requires_resolution {
-    border-left-color: #fd7e14;
-  }
-
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    background-color: #f8f9fa;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .patient-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-
-  .card-body {
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .info-row {
-    display: grid;
-    grid-template-columns: 100px 1fr;
-    gap: 0.5rem;
-    align-items: start;
-  }
-
-  .info-label {
-    color: #6c757d;
-    font-weight: bold;
-  }
-
-  .info-value {
-    font-weight: 500;
-  }
-
-  .info-row.details .info-value {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .card-footer {
-    padding: 0.75rem 1rem;
-    background-color: #f8f9fa;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  /* 浮動操作按鈕 (FAB) */
-  .fab {
-    position: fixed;
-    bottom: 2rem;
-    right: 1.5rem;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background-color: #007bff;
-    color: white;
-    border: none;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    font-size: 1.5rem;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
+.patient-info-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
-
-@media (max-width: 480px) {
-  .page-title {
-    font-size: 24px;
-  }
-  .page-header {
-    padding: 1rem 1rem 0.5rem;
-    margin-bottom: 1rem;
-  }
-  .info-row {
-    grid-template-columns: 1fr;
-    gap: 0.25rem;
-  }
-  .info-label {
-    font-size: 0.8rem;
-  }
+.freq-tag {
+  background-color: #e7f3ff;
+  color: #0056b3;
+  border: 1px solid #b3d7ff;
 }
 </style>

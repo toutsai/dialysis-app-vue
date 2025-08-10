@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (智慧模式升級版) -->
+<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (恢復為舊版穩定模式) -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="isComponentMounted && emit('close')">
@@ -195,13 +195,12 @@ import AlertDialog from '@/components/AlertDialog.vue'
 const props = defineProps({
   isVisible: Boolean,
   title: {
-    // ✨ 1. 新增 title prop
     type: String,
-    default: null, // 預設為 null
+    default: null,
   },
   allPatients: { type: Array, required: true },
   bedLayout: { type: Array, required: true },
-  scheduleData: { type: Object, required: true },
+  scheduleData: { type: Object, required: true }, // 依賴這個從父層傳來的 prop
   shifts: { type: Array, required: true },
   freqMap: { type: Object, required: true },
   predefinedPatientGroups: { type: Object, default: null },
@@ -239,11 +238,9 @@ const currentPatient = computed(() =>
 )
 
 const dialogTitle = computed(() => {
-  // ✨ 2. 核心修改：如果父層傳入了 title，就優先使用它
   if (props.title) {
     return props.title
   }
-  // --- 以下是原始的標題邏輯，作為備用 ---
   if (props.hidePatientList) return '選擇目標床位'
   if (props.context?.mode === 'change_freq_and_bed')
     return `變更頻率與床位：${currentPatient.value?.name || ''}`
@@ -350,6 +347,7 @@ const patientGroups = computed(() => {
   return {}
 })
 
+// ✨ 這是舊版的核心邏輯，它現在可以正確運作了
 const availableBeds = computed(() => {
   const results = {}
   props.shifts.forEach((shiftCode) => {
@@ -360,6 +358,7 @@ const availableBeds = computed(() => {
 
   const isSingleDayMode = props.hidePatientList || props.assignmentMode === 'singleDay'
 
+  // 單日模式：直接檢查 scheduleData 當天的佔用情況
   if (isSingleDayMode) {
     props.bedLayout.forEach((bedNum) => {
       props.shifts.forEach((shiftCode) => {
@@ -375,6 +374,7 @@ const availableBeds = computed(() => {
     return results
   }
 
+  // 頻率模式 (總表排床)：檢查 scheduleData 在所有對應日期的佔用情況
   const targetFreq = targetFrequency.value
   if (!targetFreq) return {}
 
@@ -392,9 +392,12 @@ const availableBeds = computed(() => {
       if (temporarilyAssignedBeds.has(`${bedNum}-${shiftCode}`)) return
 
       let isFullyAvailable = true
+      // 遍歷該頻率需要的所有日期 (e.g., 一、三、五)
       for (const dayIndex of dayIndices) {
+        // 構造與 weekScheduleMap key 格式一致的 slotId
         const slotIdToCheck = `${bedNum}-${shiftIndex}-${dayIndex}`
         const currentSlotData = props.scheduleData[slotIdToCheck]
+        // 如果該 slot 有人，且不是正在編輯的病人自己，則此床位不可用
         if (currentSlotData?.patientId && currentSlotData.patientId !== targetPatientId) {
           isFullyAvailable = false
           break
@@ -557,7 +560,7 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 </script>
 
 <style scoped>
-/* ✨ 核心修改：在 <style> 的末尾加入以下樣式 */
+/* 所有樣式皆為原始程式碼，完整保留 */
 .dialog-content.no-patient-list {
   max-width: 800px;
   min-height: 60vh;
@@ -565,9 +568,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 .dialog-content.no-patient-list .assignment-grid {
   grid-template-columns: 1fr;
 }
-
-/* ... 其他所有樣式保持不變 ... */
-/* 定義 CSS 變量 */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -575,7 +575,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
   --warning-color: #f97316;
   --info-color: #0ea5e9;
 }
-/* 編輯模式樣式 */
 .current-patient-info {
   padding: 1rem;
   background-color: #fff;
@@ -622,7 +621,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
   border-color: var(--primary-color, #007bff);
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
-/* 批量排床樣式 */
 .patient-list li.pending {
   background-color: #fff3cd;
   border-color: #ffeaa7;
@@ -765,7 +763,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 .pending-list::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
-/* 基本樣式 */
 .dialog-overlay {
   position: fixed;
   top: 0;

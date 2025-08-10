@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終清理版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終整合版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -9,9 +9,6 @@
           <button class="btn btn-info" @click="openBaseAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
-
-          <!-- ✨ 已移除：衝突處理按鈕 -->
-
           <div class="search-container">
             <input
               type="text"
@@ -83,7 +80,7 @@
       </div>
     </main>
 
-    <!-- 原有的 Dialogs -->
+    <!-- Dialogs -->
     <SelectionDialog
       :is-visible="isActionDialogVisible"
       :title="`操作病人：${actionTarget.patientName}`"
@@ -131,6 +128,15 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
+    <ExceptionCreateDialog
+      :is-visible="isExceptionDialogVisible"
+      :initial-data="exceptionInitialData"
+      :all-patients="allPatients"
+      :bed-layout="bedLayout"
+      :freq-map="FREQ_MAP_TO_DAY_INDEX"
+      @close="isExceptionDialogVisible = false"
+      @submit="handleExceptionSubmit"
+    />
   </div>
 </template>
 
@@ -140,6 +146,7 @@ import {
   fetchAllPatients as optimizedFetchAllPatients,
   updatePatient,
   fetchAllMemos as optimizedFetchAllMemos,
+  saveException,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
@@ -154,6 +161,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 
 // --- API and Constants ---
 const baseSchedulesApi = ApiManager('base_schedules')
@@ -255,7 +263,9 @@ const isActionDialogVisible = ref(false)
 const actionTarget = ref({ patientId: null, patientName: '' })
 const isAssignmentDialogVisible = ref(false)
 const assignmentContext = ref({ mode: 'base', patient: null })
-const tableKey = ref(Date.now()) // 使用時間戳作為初始 key
+const tableKey = ref(Date.now())
+const isExceptionDialogVisible = ref(false)
+const exceptionInitialData = ref(null)
 
 // --- Computed Properties ---
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
@@ -263,26 +273,12 @@ const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p]
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
-
-// ✨✨✨ --- 核心修正：讓 weekScheduleMap 依賴 patientMap --- ✨✨✨
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
-
-  // 1. 在計算開始前，先讀取一次 patientMap.value.size。
-  //    這一步操作本身沒有意義，但它的副作用是告訴 Vue，這個 computed 屬性
-  //    依賴於 patientMap。因此，當 patientMap 改變時，這個 computed 也會重新計算。
-  const patientCount = patientMap.value.size
-  if (patientCount === 0 && allPatients.value.length > 0) {
-    // 確保在 patientMap 第一次建立時觸發
-    console.log('Patient map is being initialized.')
-  }
-
   if (!masterRecord.value || !masterRecord.value.schedule) {
     return combinedSchedule
   }
-
   for (const patientId in masterRecord.value.schedule) {
-    // 2. 只有當病人的資料存在於 patientMap 中時，我們才將其加入排班表
     if (patientMap.value.has(patientId)) {
       const ruleData = masterRecord.value.schedule[patientId]
       if (ruleData && ruleData.freq) {
@@ -303,23 +299,17 @@ const weekScheduleMap = computed(() => {
   }
   return combinedSchedule
 })
-
-// ✨✨✨ --- 核心修正：建立一個專門計算樣式的 computed 屬性 --- ✨✨✨
 const weeklyCellStyleMap = computed(() => {
   const styleMap = new Map()
-  // 這個 computed 現在同時依賴 weekScheduleMap 和 patientMap
   const currentSchedule = weekScheduleMap.value
   const currentPatientMap = patientMap.value
-
   for (const slotId in currentSchedule) {
     const slotData = currentSchedule[slotId]
     const patient = currentPatientMap.get(slotData?.patientId)
-    // 預先計算好所有格子的樣式，並儲存在一個 Map 中
     styleMap.set(slotId, getUnifiedCellStyle(slotData, patient))
   }
   return styleMap
 })
-
 const statsToolbarData = computed(() => {
   const dailyCounts = Array.from({ length: 6 }).map(() => ({
     counts: {
@@ -549,8 +539,6 @@ function handlePatientSelect({ patientId }) {
   currentSlotId.value = null
   console.log(`✅ [BaseScheduleView] 已為病人 ${patient.name} 建立新規則`)
 }
-// ✨✨✨ --- 核心修正：修改 getBaseCellStyle 函式 --- ✨✨✨
-// 這個函式現在不再進行計算，而是直接從預先計算好的 Map 中取值
 function getBaseCellStyle(slotId) {
   return weeklyCellStyleMap.value.get(slotId) || {}
 }
@@ -780,7 +768,6 @@ function onDragOver(event) {
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
-
 async function fetchPatientAndMemoData() {
   try {
     const [patients, memos] = await Promise.all([
@@ -789,25 +776,19 @@ async function fetchPatientAndMemoData() {
     ])
     allPatients.value = patients
     activeMemos.value = memos
-
-    // ✨✨✨ 核心修正 2：在成功更新 allPatients 後，立即更新 tableKey 的值 ✨✨✨
-    tableKey.value = Date.now() // 賦予一個新的、獨一無二的值
-
+    tableKey.value = Date.now()
     console.log('✅ [BaseScheduleView] 病人與備忘資料已刷新，並更新 tableKey 以強制重新渲染。')
   } catch (error) {
     console.error('❌ [BaseScheduleView] 獲取病人與備忘資料失敗:', error)
   }
 }
-
 async function loadAllData() {
   statusText.value = '讀取中...'
   try {
-    // ✨✨✨ --- 核心修正：修正 Promise.all 的解構賦值 --- ✨✨✨
     const [_, baseScheduleDoc] = await Promise.all([
       fetchPatientAndMemoData(),
       baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
     ])
-
     if (baseScheduleDoc && baseScheduleDoc.schedule) {
       masterRecord.value = { id: baseScheduleDoc.id, schedule: baseScheduleDoc.schedule }
     } else {
@@ -829,6 +810,35 @@ function handleScheduleUpdate() {
   loadAllData()
 }
 
+function handleCreateException({ type, prefill }) {
+  console.log('從 BedAssignmentDialog 收到預填指令:', { type, ...prefill })
+  exceptionInitialData.value = {
+    ...prefill,
+    ui_type: type,
+  }
+  isExceptionDialogVisible.value = true
+}
+
+async function handleExceptionSubmit(dataFromDialog) {
+  console.log('從 ExceptionCreateDialog 點擊提交，準備保存:', dataFromDialog)
+  try {
+    const savedException = await saveException(dataFromDialog)
+    console.log('✅ 成功保存例外申請到 Firestore:', savedException)
+    alertDialogTitle.value = '操作成功'
+    alertDialogMessage.value = '新的調班申請已成功提交！後端將自動處理此變更。'
+    isAlertDialogVisible.value = true
+    window.dispatchEvent(new CustomEvent('exceptions-updated'))
+  } catch (error) {
+    console.error('❌ 保存例外申請失敗:', error)
+    alertDialogTitle.value = '操作失敗'
+    alertDialogMessage.value = `提交調班申請失敗: ${error.message}`
+    isAlertDialogVisible.value = true
+  } finally {
+    isExceptionDialogVisible.value = false
+    exceptionInitialData.value = null
+  }
+}
+
 onMounted(() => {
   loadAllData()
   window.addEventListener('patient-data-updated', handlePatientDataUpdate)
@@ -841,11 +851,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 所有 CSS 樣式保持不變 */
 .search-container {
   position: relative;
   display: inline-block;
 }
-
 .patient-search-input {
   padding: 8px 16px;
   border: 1px solid #ced4da;
@@ -861,7 +871,6 @@ onUnmounted(() => {
   border-color: #007bff;
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
-
 .search-results {
   position: absolute;
   top: 100%;
@@ -879,21 +888,17 @@ onUnmounted(() => {
   overflow-y: auto;
   z-index: 1000;
 }
-
 .search-results li {
   padding: 8px 12px;
   cursor: pointer;
   border-bottom: 1px solid #eee;
 }
-
 .search-results li:last-child {
   border-bottom: none;
 }
-
 .search-results li:hover {
   background-color: #f0f0f0;
 }
-
 @keyframes highlight-animation {
   0% {
     background-color: #fffbe3;
@@ -904,11 +909,9 @@ onUnmounted(() => {
     outline: 3px solid transparent;
   }
 }
-
 :deep(.highlight-flash) {
   animation: highlight-animation 2s ease-out;
 }
-
 .page-container {
   display: flex;
   flex-direction: column;
@@ -996,7 +999,6 @@ onUnmounted(() => {
   font-style: italic;
   font-size: 0.9rem;
 }
-
 .page-main-content {
   flex-grow: 1;
   display: flex;
@@ -1008,26 +1010,22 @@ onUnmounted(() => {
   overflow: hidden;
   border: 1px solid #dee2e6;
 }
-
 .schedule-area {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-
 .stats-toolbar-wrapper {
   flex-shrink: 0;
   padding: 8px 1rem;
   box-sizing: border-box;
   transition: padding-left 0.2s ease-in-out;
 }
-
 .schedule-table-component {
   flex-grow: 1;
   overflow: auto;
 }
-
 :deep(.schedule-slot.status-opd) {
   background-color: var(--green-bg, #e8f5e9);
 }
@@ -1055,7 +1053,6 @@ onUnmounted(() => {
 :deep(.schedule-slot.tag-b) {
   background-color: #fff9c4;
 }
-
 .is-locked .page-header button:not(:disabled) {
   opacity: 0.65;
   pointer-events: none;
@@ -1067,16 +1064,13 @@ onUnmounted(() => {
 .is-locked :deep(.schedule-slot) {
   cursor: not-allowed;
 }
-
 .is-locked :deep(.memo-icon-wrapper) {
   pointer-events: auto;
   cursor: pointer;
 }
-
 .is-locked :deep(.schedule-slot[draggable='true']) {
   cursor: not-allowed;
 }
-
 .loading-state {
   display: flex;
   justify-content: center;
@@ -1085,55 +1079,46 @@ onUnmounted(() => {
   font-size: 1.5rem;
   color: #6c757d;
 }
-
 :deep(.shift-row.status-opd),
 :deep(.peripheral-shift-row.status-opd),
 :deep(.patient-item.status-opd) {
   background-color: #e8f5e9;
 }
-
 :deep(.shift-row.status-ipd),
 :deep(.peripheral-shift-row.status-ipd),
 :deep(.patient-item.status-ipd) {
   background-color: #ffebee;
 }
-
 :deep(.shift-row.status-er),
 :deep(.peripheral-shift-row.status-er),
 :deep(.patient-item.status-er) {
   background-color: #f3e5f5;
 }
-
 :deep(.shift-row.status-biweekly),
 :deep(.peripheral-shift-row.status-biweekly),
 :deep(.patient-item.status-biweekly) {
   background-color: #ffcc80;
 }
-
 :deep(.shift-row.tag-chou),
 :deep(.peripheral-shift-row.tag-chou),
 :deep(.patient-item.tag-chou) {
   background-color: #658ee0;
 }
-
 :deep(.shift-row.tag-new),
 :deep(.peripheral-shift-row.tag-new),
 :deep(.patient-item.tag-new) {
   background-color: #f5ec8e;
 }
-
 :deep(.shift-row.tag-huan),
 :deep(.peripheral-shift-row.tag-huan),
 :deep(.patient-item.tag-huan) {
   background-color: #e0f7fa;
 }
-
 :deep(.shift-row.tag-liang),
 :deep(.peripheral-shift-row.tag-liang),
 :deep(.patient-item.tag-liang) {
   background-color: #fff3e0;
 }
-
 :deep(.shift-row.tag-b),
 :deep(.peripheral-shift-row.tag-b),
 :deep(.patient-item.tag-b) {
