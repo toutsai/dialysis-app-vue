@@ -773,7 +773,8 @@ exports.processLabReport = onCall(
   },
   async (request) => {
     const XLSX = require('xlsx')
-    if (!request.auth || !['admin', 'editor'].includes(request.auth.token.role)) {
+    const allowedRoles = ['admin', 'editor', 'contributor']
+    if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
     }
 
