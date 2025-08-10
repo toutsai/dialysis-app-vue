@@ -1,4 +1,4 @@
-// 【最終修正與整理版】
+// 【最終修正與整理版 - 已加入修改密碼功能】
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const {
@@ -9,6 +9,7 @@ const {
 const { onMessagePublished } = require('firebase-functions/v2/pubsub')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
+// const functions = require('firebase-functions') // v2 中不建議混合使用
 const _ = require('lodash')
 const { PubSub } = require('@google-cloud/pubsub')
 
@@ -16,12 +17,10 @@ const { PubSub } = require('@google-cloud/pubsub')
 // Initialization (初始化)
 // ===================================================================
 
-// ✨ 最佳實踐：只在需要時才初始化服務
 admin.initializeApp()
 const db = admin.firestore()
 const { FieldValue } = require('firebase-admin/firestore')
 
-// 延遲初始化 PubSub，避免部署超時
 let pubsub
 
 // ===================================================================
@@ -195,18 +194,18 @@ exports.initializeFutureSchedules = onSchedule(
 exports.customLogin = onCall(async (request) => {
   const { username, password } = request.data
   if (!username || !password) {
-    throw new HttpsError('invalid-argument', 'Please provide a username and password.')
+    throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
   }
   try {
     const usersRef = db.collection('users')
     const snapshot = await usersRef.where('username', '==', username).limit(1).get()
     if (snapshot.empty) {
-      throw new HttpsError('not-found', 'Username does not exist.')
+      throw new HttpsError('not-found', '使用者名稱不存在。')
     }
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
     if (userData.password !== password) {
-      throw new HttpsError('unauthenticated', 'Incorrect password.')
+      throw new HttpsError('unauthenticated', '密碼不正確。')
     }
     const uid = userDoc.id
     const customToken = await admin.auth().createCustomToken(uid, {
@@ -217,7 +216,71 @@ exports.customLogin = onCall(async (request) => {
   } catch (error) {
     logger.error('[customLogin] Login function error:', error)
     if (error instanceof HttpsError) throw error
-    throw new HttpsError('internal', 'An unknown server error occurred.')
+    throw new HttpsError('internal', '發生未知的伺服器錯誤。')
+  }
+})
+
+// ===================================================================
+// ✨✨✨ 在此處新增 changeUserPassword 函式 ✨✨✨
+// ===================================================================
+exports.changeUserPassword = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
+  }
+
+  const { oldPassword, newPassword } = request.data
+
+  if (!oldPassword || !newPassword || newPassword.length < 6) {
+    throw new HttpsError('invalid-argument', '提供的密碼無效，或新密碼長度不足 6 個字元。')
+  }
+
+  const uid = request.auth.uid
+
+  try {
+    const userDocRef = db.collection('users').doc(uid)
+    const userDoc = await userDocRef.get()
+
+    if (!userDoc.exists) {
+      throw new HttpsError('not-found', '在資料庫中找不到對應的使用者紀錄。')
+    }
+
+    const userData = userDoc.data()
+
+    // [核心修正] 直接比對 Firestore 中儲存的密碼，不再需要 email
+    if (userData.password !== oldPassword) {
+      throw new HttpsError('unauthenticated', '舊密碼不正確。')
+    }
+
+    // 舊密碼驗證通過，更新 Firestore 中的密碼
+    await userDocRef.update({
+      password: newPassword,
+    })
+
+    // 為了安全起見，建議同時更新 Firebase Auth 內部的密碼
+    // 這樣如果未來啟用其他登入方式會更順暢
+    // 如果使用者沒有 email，這一步可以選擇性地跳過，但更新 Firestore 是必須的
+    try {
+      await admin.auth().updateUser(uid, {
+        password: newPassword,
+      })
+    } catch (authError) {
+      // 如果更新 Auth 密碼失敗 (例如，因為使用者沒有 email 或其他限制)
+      // 我們只記錄錯誤，但不中斷流程，因為 Firestore 的密碼已經更新了
+      logger.warn(
+        `[changeUserPassword] Updated password in Firestore for user ${uid}, but failed to update in Firebase Auth. Reason:`,
+        authError.message,
+      )
+    }
+
+    logger.info(`User ${uid} successfully changed their password.`)
+
+    return { success: true, message: '密碼已成功更新！' }
+  } catch (error) {
+    logger.error(`[changeUserPassword] Error changing password for user ${uid}:`, error)
+    if (error instanceof HttpsError) {
+      throw error
+    }
+    throw new HttpsError('internal', '更新密碼時發生未知的伺服器錯誤。')
   }
 })
 
