@@ -90,7 +90,7 @@ function handleClose() {
 async function handleSaveConditionRecord(recordData) {
   try {
     await conditionRecordsApi.save(recordData)
-    createGlobalNotification(`已為 ${recordData.patientName} 新增一筆病情紀錄`, 'schedule')
+    createGlobalNotification(`已為 ${recordData.patientName} 新增病情紀錄`, 'schedule')
     emit('record-updated')
   } catch (error) {
     console.error('儲存病情紀錄失敗:', error)
@@ -143,7 +143,7 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
       createdAt: new Date(),
     }
     await conditionRecordsApi.save(recordData)
-    createGlobalNotification(`已為 ${patient.name} 新增一筆檢驗報告處置紀錄`, 'schedule')
+    createGlobalNotification(`已為 ${patient.name} 新增檢驗報告處置紀錄`, 'schedule')
     emit('record-updated')
     // 儲存後自動切換到病情紀錄頁籤，讓使用者看到新增的紀錄
     activeTab.value = 'records'
