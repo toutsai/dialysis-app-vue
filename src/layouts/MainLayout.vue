@@ -44,7 +44,9 @@
               <span class="notification-icon">{{ notif.config.icon }}</span>
               <p class="notification-message">{{ notif.message }}</p>
             </div>
+            <!-- [核心修改] 修改此區塊以顯示操作者姓名 -->
             <div class="notification-footer-item">
+              <span class="notification-user">{{ notif.createdByName }}</span>
               <span class="notification-time">{{ notif.time }}</span>
               <button class="notification-close" @click.stop="removeNotification(notif.id)">
                 ×
@@ -513,7 +515,37 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   position: relative;
 }
-/* ... (其他通知樣式保持不變) ... */
+/* [新增] 通知項目底部的樣式 */
+.notification-footer-item {
+  display: flex;
+  justify-content: space-between; /* 讓時間推到右邊 */
+  align-items: center;
+  padding-left: 24px; /* 與 icon 對齊 */
+  margin-top: 4px; /* 與上方訊息稍微分開 */
+  position: relative; /* 為了讓 close button 定位 */
+}
+
+/* [新增] 操作者姓名的樣式 */
+.notification-user {
+  font-weight: bold;
+  font-size: 0.8rem;
+  opacity: 0.9;
+  margin-right: auto; /* 關鍵：讓姓名和時間之間有彈性空間 */
+}
+
+.notification-time {
+  font-size: 0.8rem;
+  opacity: 0.85;
+  flex-shrink: 0; /* 確保時間不會被壓縮 */
+}
+
+/* [修改] 調整 close button 的位置，現在它相對於 footer 定位 */
+.notification-close {
+  position: absolute;
+  top: 50%; /* 垂直置中 */
+  right: -4px; /* 移到最右邊 */
+  transform: translateY(-50%);
+}
 .notification-item,
 .notification-item .notification-message,
 .notification-item .notification-icon,

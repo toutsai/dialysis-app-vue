@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useRealtimeNotifications.js (最終統一版)
+// 檔案路徑: src/composables/useRealtimeNotifications.js (已加入顯示操作者姓名)
 
 import { ref } from 'vue'
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
@@ -8,7 +8,7 @@ import { useRouter } from 'vue-router'
 // 這是我們【唯一】的通知狀態來源
 const notifications = ref([])
 let unsubscribe = null
-const MAX_NOTIFICATIONS = 10 // 您可以調整上限
+const MAX_NOTIFICATIONS = 10
 
 const NOTIFICATION_CONFIG = {
   schedule: { icon: '📅', bgColor: '#3498db', textColor: '#fff' },
@@ -20,10 +20,15 @@ const NOTIFICATION_CONFIG = {
   default: { icon: '🔔', bgColor: '#7f8c8d', textColor: '#fff' },
 }
 
+// [核心修改] 修改 processDoc 函式
 const processDoc = (doc, router) => {
   const data = doc.data()
   const createdAt = data.createdAt?.toDate() || new Date()
   const action = data.metadata?.routePath ? () => router.push(data.metadata.routePath) : null
+
+  // ✨ 新增：從 data 中讀取 createdBy.name，如果不存在則給予預設值
+  const createdByName = data.createdBy?.name || '系統'
+
   return {
     id: doc.id,
     message: data.message,
@@ -32,6 +37,7 @@ const processDoc = (doc, router) => {
     createdAt,
     config: NOTIFICATION_CONFIG[data.type] || NOTIFICATION_CONFIG.default,
     action,
+    createdByName, // ✨ 將讀取到的姓名加入到通知物件中
   }
 }
 
@@ -47,7 +53,6 @@ export function useRealtimeNotifications() {
     )
     unsubscribe = onSnapshot(q, (snapshot) => {
       const serverNotifications = snapshot.docs.map((doc) => processDoc(doc, router))
-      // 合併伺服器通知和本地通知，並排序
       const allNotifs = [...serverNotifications, ...notifications.value.filter((n) => n.isLocal)]
       allNotifs.sort((a, b) => b.createdAt - a.createdAt)
       notifications.value = allNotifs.slice(0, MAX_NOTIFICATIONS)
@@ -62,7 +67,6 @@ export function useRealtimeNotifications() {
     }
   }
 
-  // ✨✨✨ 新增的本地通知函式 ✨✨✨
   const addLocalNotification = (message, type = 'default', options = {}) => {
     const id = Date.now() + Math.random()
     const now = new Date()
@@ -74,7 +78,8 @@ export function useRealtimeNotifications() {
       createdAt: now,
       config: NOTIFICATION_CONFIG[type] || NOTIFICATION_CONFIG.default,
       action: options.action || null,
-      isLocal: true, // 標記為本地通知
+      isLocal: true,
+      createdByName: '您', // 本地通知的操作者可以固定為 "您"
     }
     notifications.value.unshift(newNotification)
     if (notifications.value.length > MAX_NOTIFICATIONS) {
@@ -93,7 +98,7 @@ export function useRealtimeNotifications() {
     notifications,
     startListening,
     stopListening,
-    addLocalNotification, // ✨ 導出新函式
+    addLocalNotification,
     removeNotification,
   }
 }

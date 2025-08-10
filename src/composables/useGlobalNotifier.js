@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useGlobalNotifier.js
+// 檔案路徑: src/composables/useGlobalNotifier.js (已加入 30 天後過期的 expireAt 欄位)
 
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
@@ -21,6 +21,13 @@ export function useGlobalNotifier() {
     }
 
     try {
+      // =================================================================
+      // [核心修改] 計算 30 天後的過期時間
+      // =================================================================
+      const expireDate = new Date()
+      expireDate.setDate(expireDate.getDate() + 30) // 將日期設定為 30 天後
+      // =================================================================
+
       const notificationsRef = collection(db, 'notifications')
       await addDoc(notificationsRef, {
         message,
@@ -32,6 +39,8 @@ export function useGlobalNotifier() {
         },
         // 使用伺服器時間戳，確保所有用戶的時間一致
         createdAt: serverTimestamp(),
+        // [核心修改] 新增 expireAt 欄位，用於 TTL 政策
+        expireAt: expireDate,
         // 額外資訊，例如點擊後要跳轉的路徑
         metadata: {
           routePath: options.routePath || null,
