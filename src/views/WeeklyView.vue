@@ -366,6 +366,7 @@ const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
 const problemsToSolve = computed(() => ({
   '本週未排床病人 (有頻率)': globallyUnassignedPatients.value,
 }))
+
 const statsToolbarData = computed(() => {
   const baseData = WEEKDAYS.map(() => ({
     counts: {
@@ -376,16 +377,22 @@ const statsToolbarData = computed(() => {
     total: 0,
   }))
   const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
+
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
-        for (const slotData of Object.values(record.schedule)) {
-          if (slotData && slotData.patientId && slotData.shiftId) {
+        // ✨ 核心修正：從遍歷 values 改為遍歷 entries (鍵值對)
+        for (const [dailyShiftKey, slotData] of Object.entries(record.schedule)) {
+          if (slotData && slotData.patientId) {
             const patient = localPatientMap.get(slotData.patientId)
             if (!patient) continue
-            const shiftCode = slotData.shiftId
+
+            // ✨ 核心修正：直接從 key (例如 "bed-1-early") 來解析班別，這是最可靠的來源
+            const shiftCode = dailyShiftKey.split('-').pop()
+
             if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
               const shiftStats = baseData[dayIndex].counts[shiftCode]
               shiftStats.total++
@@ -401,6 +408,7 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
+
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 const searchResults = computed(() => {
   if (!searchQuery.value) return []
