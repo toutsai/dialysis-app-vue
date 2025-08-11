@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (床號與護理分組分離的最終版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (已修正拖曳後 statsToolbar 不更新的問題 - 最終版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -210,7 +210,7 @@
                     <div class="patient-ward-note">
                       <span class="ward-number">{{
                         getPatientWardNumber(
-                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
                         )
                       }}</span>
                       <span class="patient-note">{{
@@ -961,18 +961,24 @@ const patientGroupsForDialog = computed(() => {
   })
   return groups
 })
+
 const statsToolbarData = computed(() => {
   const counts = {}
   ORDERED_SHIFT_CODES.forEach((shiftCode) => {
     counts[shiftCode] = { total: 0, opd: 0, ipd: 0, er: 0 }
   })
   const dailyData = { counts: counts, total: 0 }
+
   if (currentRecord.schedule) {
-    for (const slotData of Object.values(currentRecord.schedule)) {
+    // ✨ 核心修正：從 Object.values 改為 Object.entries
+    for (const [shiftKey, slotData] of Object.entries(currentRecord.schedule)) {
       if (slotData && slotData.patientId) {
         const patient = patientMap.value.get(slotData.patientId)
         if (!patient) continue
-        const shiftCode = slotData.shiftId?.split('-').pop()
+
+        // ✨ 核心修正：直接從 key (例如 "bed-1-early") 來解析班別，這是最可靠的來源
+        const shiftCode = shiftKey.split('-').pop()
+
         if (shiftCode && dailyData.counts[shiftCode]) {
           const shiftStats = dailyData.counts[shiftCode]
           shiftStats.total++
@@ -986,6 +992,7 @@ const statsToolbarData = computed(() => {
   }
   return [dailyData]
 })
+
 const statsToolbarWeekdays = computed(() => ['本日'])
 const latestRecordDateByPatientId = computed(() => {
   const map = new Map()
@@ -1418,39 +1425,52 @@ function isSlotHighlighted(shiftId) {
   return false
 }
 
+// 最終修正 onDrop
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()
   document.querySelectorAll('.drag-over').forEach((el) => el.classList.remove('drag-over'))
   event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
+
   const sourceShiftId = event.dataTransfer.getData('sourceShiftId')
   const droppedSlotData = JSON.parse(event.dataTransfer.getData('application/json'))
+
   if (!droppedSlotData || !droppedSlotData.patientId) return
+
   const patient = patientMap.value.get(droppedSlotData.patientId)
   if (!patient) return
-  if (!sourceShiftId && scheduledPatientIds.value.has(patient.id)) {
+
+  const targetSlotData = currentRecord.schedule[targetShiftId]
+
+  // 檢查是否從側邊欄拖曳，且病人已在本日排班
+  if (sourceShiftId === 'sidebar' && scheduledPatientIds.value.has(patient.id)) {
     showConfirm('重複排班警告', `病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`, () => {
-      if (currentRecord.schedule[targetShiftId]?.patientId) {
+      if (targetSlotData?.patientId) {
         showAlert('操作失敗', '目標床位已被佔用，無法放置！')
         return
       }
-      handleSlotUpdate(targetShiftId, droppedSlotData.patientId)
+      handleSlotUpdate(targetShiftId, droppedSlotData.patientId, droppedSlotData)
     })
     return
   }
-  const targetSlotData = currentRecord.schedule[targetShiftId]
+
+  // 執行交換或移動
   if (targetSlotData && targetSlotData.patientId) {
-    if (!sourceShiftId) {
-      showAlert('操作失敗', '目標床位已被佔用，無法放置！')
+    // 這是交換操作
+    if (sourceShiftId === 'sidebar') {
+      showAlert('操作失敗', '目標床位已被佔用，無法從側邊欄拖曳至此。')
       return
     }
-    currentRecord.schedule[targetShiftId] = { ...droppedSlotData }
-    currentRecord.schedule[sourceShiftId] = { ...targetSlotData }
+    // 使用 handleSlotUpdate 進行交換
+    handleSlotUpdate(targetShiftId, droppedSlotData.patientId, droppedSlotData)
+    handleSlotUpdate(sourceShiftId, targetSlotData.patientId, targetSlotData)
   } else {
-    currentRecord.schedule[targetShiftId] = { ...droppedSlotData }
-    if (sourceShiftId) delete currentRecord.schedule[sourceShiftId]
+    // 這是移動或新增操作
+    handleSlotUpdate(targetShiftId, droppedSlotData.patientId, droppedSlotData)
+    if (sourceShiftId && sourceShiftId !== 'sidebar') {
+      handleSlotUpdate(sourceShiftId, null) // Clear source
+    }
   }
-  setChange()
 }
 
 function onBedDragStart(event, sourceShiftId) {
@@ -1474,11 +1494,12 @@ function onSidebarDragStart(event, patient) {
     return
   }
   const slotData = {
-    ...createEmptySlotData('sidebar-source'),
+    // 移除 createEmptySlotData，因為它會產生不正確的 shiftId
     patientId: patient.id,
     autoNote: generateAutoNote(patient),
     manualNote: patient.status === 'ipd' ? '住' : '',
   }
+  event.dataTransfer.setData('sourceShiftId', 'sidebar') // 標記來源是側邊欄
   event.dataTransfer.setData('application/json', JSON.stringify(slotData))
   event.dataTransfer.effectAllowed = 'move'
 }
@@ -1494,19 +1515,40 @@ function onDragLeave(event) {
   event.target.closest('.patient-name, .peripheral-patient-name')?.classList.remove('drag-over')
 }
 
-function handleSlotUpdate(shiftId, patientId) {
+// ✨ 最終修正 handleSlotUpdate
+function handleSlotUpdate(shiftId, patientId, fullSlotData = null) {
   if (isPageLocked.value) return
+
   if (patientId) {
     const patient = patientMap.value.get(patientId)
-    currentRecord.schedule[shiftId] = {
-      ...createEmptySlotData(shiftId),
-      patientId: patientId,
-      autoNote: generateAutoNote(patient),
-      manualNote: patient.status === 'ipd' ? '住' : '',
+    if (!patient) return
+
+    // 從目標位置 ID 解析出正確的班別代碼 (early, noon, late)
+    const correctShiftCode = shiftId.split('-').pop()
+
+    let newSlotData
+
+    if (fullSlotData) {
+      // 從拖曳的資料開始，保留 manualNote 等資訊
+      newSlotData = { ...fullSlotData, patientId: patientId }
+    } else {
+      // 從點擊新增，建立基本資料
+      newSlotData = {
+        patientId: patientId,
+        manualNote: patient.status === 'ipd' ? '住' : '',
+      }
     }
+
+    // ✨ 關鍵修正：無論來源為何，都強制設定正確的 autoNote 和 shiftId
+    newSlotData.autoNote = generateAutoNote(patient)
+    newSlotData.shiftId = correctShiftCode // 覆蓋掉任何可能來自 fullSlotData 的不正確 shiftId
+
+    currentRecord.schedule[shiftId] = newSlotData
   } else {
+    // 如果 patientId 為 null，則清除該欄位
     delete currentRecord.schedule[shiftId]
   }
+
   setChange()
 }
 

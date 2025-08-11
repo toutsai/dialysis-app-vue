@@ -321,7 +321,8 @@ const weeklyCellStyleMap = computed(() => {
 })
 
 const statsToolbarData = computed(() => {
-  const dailyCounts = Array.from({ length: 6 }).map(() => ({
+  // 1. 初始化一個空的每日計數陣列
+  const dailyCounts = Array.from({ length: 6 }, () => ({
     counts: {
       early: { total: 0, opd: 0, ipd: 0, er: 0 },
       noon: { total: 0, opd: 0, ipd: 0, er: 0 },
@@ -329,33 +330,57 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
+
+  // 2. 確保 masterRecord 和 schedule 存在
   if (!masterRecord.value || !masterRecord.value.schedule) {
     return dailyCounts
   }
-  const localPatientMap = patientMap.value
+
+  // 3. 遍歷 masterRecord 中的每一條規則
   for (const patientId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[patientId]
-    if (ruleData) {
-      const patient = localPatientMap.get(patientId)
+
+    // 確保規則和相關資料有效
+    if (ruleData && ruleData.freq && ruleData.shiftIndex !== undefined) {
+      const patient = patientMap.value.get(patientId)
+
+      // 如果在 patientMap 中找不到病人資料，則跳過此規則的計算
       if (!patient) continue
-      const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
+
+      // 從規則中獲取班別代碼 (early, noon, late)
       const shiftCode = SHIFTS[ruleData.shiftIndex]
+      // 從規則中獲取該頻率對應的星期幾索引 (0=週一, 1=週二, ...)
+      const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
+
+      // 4. 遍歷該規則生效的每一天
       dayIndices.forEach((dayIndex) => {
-        if (dayIndex >= 0 && dayIndex < 6 && shiftCode) {
+        // 確保星期和班別代碼都有效
+        if (dayIndex >= 0 && dayIndex < 6 && shiftCode && dailyCounts[dayIndex].counts[shiftCode]) {
           const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
-          if (shiftStats) {
-            shiftStats.total++
-            if (patient.status === 'opd') shiftStats.opd++
-            else if (patient.status === 'ipd') shiftStats.ipd++
-            else if (patient.status === 'er') shiftStats.er++
-            dailyCounts[dayIndex].total++
+
+          // 5. 根據病人狀態進行計數
+          shiftStats.total++
+          dailyCounts[dayIndex].total++ // 當天的總人數也增加
+
+          switch (patient.status) {
+            case 'opd':
+              shiftStats.opd++
+              break
+            case 'ipd':
+              shiftStats.ipd++
+              break
+            case 'er':
+              shiftStats.er++
+              break
           }
         }
       })
     }
   }
+
   return dailyCounts
 })
+
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 const searchResults = computed(() => {
   if (!searchQuery.value) {
