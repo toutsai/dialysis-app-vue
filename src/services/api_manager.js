@@ -1,4 +1,4 @@
-// src/services/api_manager.js (完整健壯版)
+// src/services/api_manager.js (修正版 - 恢復為純 default export)
 
 // 1. 從 Firebase SDK 中，引入所有我們需要用到的函式
 import {
@@ -174,4 +174,5 @@ const ApiManager = (resourceType) => {
   }
 }
 
+// ✨ 核心修正：移除 named export，只保留 default export
 export default ApiManager

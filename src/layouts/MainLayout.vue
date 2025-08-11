@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (已移除通知刪除功能) -->
+<!-- 檔案路徑: src/layouts/MainLayout.vue (已新增工作日誌連結) -->
 <template>
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
@@ -58,6 +58,8 @@
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
+            <!-- ✨✨✨ 在這裡新增工作日誌的連結 ✨✨✨ -->
+            <li><RouterLink to="/daily-log" class="nav-link">工作日誌</RouterLink></li>
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
               <RouterLink v-if="isAdmin" to="/user-management" class="nav-link"
