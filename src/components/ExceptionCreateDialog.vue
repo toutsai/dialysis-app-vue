@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (完整修正版) -->
+<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (最終修正版) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="close">
     <div class="dialog-content">
@@ -91,7 +91,6 @@
             </div>
             <div class="form-group">
               <label>目標排班</label>
-              <!-- ✨ 核心修改點 1 -->
               <button
                 class="select-btn"
                 @click="openBedAssignmentDialog"
@@ -126,7 +125,6 @@
             <div v-if="isPrefilled" class="info-box">
               {{ targetBedDisplay }}
             </div>
-            <!-- ✨ 核心修改點 2 -->
             <button
               v-else
               class="select-btn"
@@ -180,7 +178,6 @@
       @cancel="isPatientDialogVisible = false"
       title="選擇病人"
     />
-    <!-- ✨ 核心修改點 3: 修改 BedAssignmentDialog 的 props 傳遞方式 -->
     <BedAssignmentDialog
       v-if="isBedAssignmentVisible"
       :is-visible="isBedAssignmentVisible"
@@ -235,10 +232,8 @@ const isPatientDialogVisible = ref(false)
 const isBedAssignmentVisible = ref(false)
 const isFetchingSource = ref(false)
 const sourceScheduleMessage = ref('')
-
-// ✨ 核心修改點 4: 新增狀態來管理床位查詢
 const isLoadingBeds = ref(false)
-const targetDateScheduleData = ref({}) // 用於儲存查詢到的排程資料
+const targetDateScheduleData = ref({})
 
 // --- Computed Properties ---
 const isEditMode = computed(() => !!props.initialData?.id)
@@ -303,7 +298,6 @@ watch(
 
       if (props.initialData) {
         const data = props.initialData
-
         if (data.ui_type === 'MOVE_INTERVAL') {
           formType.value = 'MOVE_INTERVAL'
         } else if (data.type === 'SUSPEND') {
@@ -311,14 +305,12 @@ watch(
         } else {
           formType.value = 'MOVE_SINGLE'
         }
-
         formData.patientId = data.patientId || null
         formData.patientName = data.patientName || ''
         formData.reason = data.reason || ''
         formData.startDate = data.startDate || ''
         formData.endDate = data.endDate || ''
         if (data.status) formData.status = data.status
-
         if (data.to) {
           formData.to.bedNum = data.to.bedNum
           formData.to.shiftCode = data.to.shiftCode
@@ -326,7 +318,6 @@ watch(
         if (data.from) {
           Object.assign(formData.from, data.from)
         }
-
         if (formType.value.startsWith('MOVE')) {
           formData.type = 'MOVE'
         } else {
@@ -409,7 +400,6 @@ async function fetchSourceSchedule() {
   }
 }
 
-// ✨ 核心修改點 5: 實現新的非同步函式來處理所有邏輯
 async function openBedAssignmentDialog() {
   const targetDate = formType.value === 'MOVE_SINGLE' ? formData.to.goalDate : formData.startDate
   if (!targetDate) {
@@ -458,12 +448,18 @@ function submitForm() {
     dataToSubmit.endDate = formData.to.goalDate
   } else if (formType.value === 'MOVE_INTERVAL') {
     dataToSubmit.from = { source: 'base_schedule' }
-    dataToSubmit.to = { bedNum: formData.to.bedNum, shiftCode: formData.to.shiftCode }
+    dataToSubmit.to = {
+      bedNum: formData.to.bedNum,
+      shiftCode: formData.to.shiftCode,
+      goalDate: formData.endDate,
+    }
     dataToSubmit.startDate = formData.startDate
     dataToSubmit.endDate = formData.endDate
   } else if (formType.value === 'SUSPEND') {
     dataToSubmit.startDate = formData.startDate
     dataToSubmit.endDate = formData.endDate
+    dataToSubmit.from = null
+    dataToSubmit.to = null
   }
 
   emit('submit', dataToSubmit)
