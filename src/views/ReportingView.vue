@@ -171,26 +171,40 @@ function exportToExcel() {
 function processDailyReport(schedulesData, patientMap) {
   const shiftBreakdown = {}
   const dailyRecord = schedulesData[0]
+
   if (dailyRecord && dailyRecord.schedule) {
-    for (const slotData of Object.values(dailyRecord.schedule)) {
-      if (!slotData?.patientId || !slotData.shiftId) continue
+    // ✨ 核心修正：從遍歷 Object.values 改為 Object.entries
+    for (const [shiftKey, slotData] of Object.entries(dailyRecord.schedule)) {
+      if (!slotData?.patientId) continue
+
       const patient = patientMap.get(slotData.patientId)
       if (!patient) continue
-      const parts = slotData.shiftId.split('-')
-      const shiftCode = parts[parts.length - 1]
+
+      // ✨ 核心修正：直接從 key (例如 "bed-1-early") 來解析班別，這是最可靠的來源
+      const shiftCode = shiftKey.split('-').pop()
       if (!shiftCode) continue
-      if (!shiftBreakdown[shiftCode]) shiftBreakdown[shiftCode] = {}
+
+      if (!shiftBreakdown[shiftCode]) {
+        shiftBreakdown[shiftCode] = {}
+      }
+
       const status = patient.status || 'unknown'
       const mode = patient.mode || 'HD'
       const comboKey = `${mode}-${status}`
-      if (!shiftBreakdown[shiftCode][comboKey]) shiftBreakdown[shiftCode][comboKey] = 0
+
+      if (!shiftBreakdown[shiftCode][comboKey]) {
+        shiftBreakdown[shiftCode][comboKey] = 0
+      }
       shiftBreakdown[shiftCode][comboKey]++
     }
   }
+
   const shiftOrder = [SHIFT_CODES.EARLY, SHIFT_CODES.NOON, SHIFT_CODES.LATE]
   dailyTableHeaders.value = shiftOrder.map((code) => getShiftDisplayName(code))
+
   const reportMatrix = {}
   const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
+
   shiftOrder.forEach((shiftCode, shiftIndex) => {
     const shiftData = shiftBreakdown[shiftCode] || {}
     for (const comboKey in shiftData) {
@@ -208,20 +222,24 @@ function processDailyReport(schedulesData, patientMap) {
       reportMatrix[comboKey].dailyTotal += count
     }
   })
+
   const shiftTotalsRow = {
     mode: '每班總計',
     status: '',
     shiftCounts: Array(shiftOrder.length).fill(0),
     dailyTotal: 0,
   }
+
   const sortedRows = Object.values(reportMatrix).sort(
     (a, b) => a.mode.localeCompare(b.mode) || a.status.localeCompare(b.status),
   )
+
   sortedRows.forEach((row) => {
     row.shiftCounts.forEach((count, index) => {
       shiftTotalsRow.shiftCounts[index] += count
     })
   })
+
   shiftTotalsRow.dailyTotal = shiftTotalsRow.shiftCounts.reduce((sum, count) => sum + count, 0)
   dailyTableRows.value = [...sortedRows, shiftTotalsRow]
 }
