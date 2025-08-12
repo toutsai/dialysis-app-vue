@@ -124,6 +124,46 @@ exports.checkExpiredMemos = onSchedule(
   },
 )
 
+exports.cleanupExpiredExceptionsScheduled = onSchedule(
+  {
+    schedule: 'every day 02:05', // 建議跟檢查 memo 的時間錯開幾分鐘
+    timeZone: 'Asia/Taipei',
+    timeoutSeconds: 300,
+    memory: '256MiB',
+  },
+  async (event) => {
+    logger.info('[Scheduler] Running daily check for expired schedule exceptions...')
+    const todayStr = formatDateForQuery(new Date())
+
+    try {
+      const query = db
+        .collection('schedule_exceptions')
+        .where('status', '==', 'applied')
+        .where('endDate', '<', todayStr) // 注意是 '<' 而非 '<='
+
+      const snapshot = await query.get()
+
+      if (snapshot.empty) {
+        logger.info('[Scheduler] No expired schedule exceptions found to clean up.')
+        return null
+      }
+
+      logger.info(`[Scheduler] Found ${snapshot.size} expired exceptions. Preparing to delete...`)
+      const batch = db.batch()
+      snapshot.forEach((doc) => {
+        logger.info(`[Scheduler] Scheduling exception ${doc.id} for deletion.`)
+        batch.delete(doc.ref)
+      })
+
+      await batch.commit()
+      logger.info(`[Scheduler] Successfully deleted ${snapshot.size} expired schedule exceptions.`)
+    } catch (error) {
+      logger.error('[Scheduler] Failed to clean up expired exceptions:', error)
+    }
+    return null
+  },
+)
+
 exports.initializeFutureSchedules = onSchedule(
   {
     schedule: 'every day 03:00',
@@ -709,55 +749,85 @@ exports.onExceptionDeleted = onDocumentDeleted(
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [Reverter] 例外恢復處理器啟動: ${exceptionId}`)
+    logger.info(`🚀 [Reverter v2] 例外恢復處理器啟動: ${exceptionId}`)
+
     if (!deletedException || !deletedException.patientId || !deletedException.type) {
-      logger.error(`❌ [Reverter] 失敗：被刪除的例外資料不完整。`, deletedException)
+      logger.error(`❌ [Reverter v2] 失敗：被刪除的例外資料不完整。`, deletedException)
       return
     }
+
+    const { patientId } = deletedException
 
     try {
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       if (!masterScheduleDoc.exists) {
-        logger.error('❌ [Reverter] 嚴重錯誤：找不到總表規則，無法恢復排班。')
+        logger.error('❌ [Reverter v2] 嚴重錯誤：找不到總表規則，無法恢復排班。')
         return
       }
       const masterRules = masterScheduleDoc.data().schedule || {}
+      const patientRule = masterRules[patientId]
 
-      let datesToRestore = []
+      let affectedDates = []
       if (deletedException.type === 'MOVE') {
-        if (deletedException.from?.sourceDate && deletedException.to?.goalDate) {
-          datesToRestore = _.uniq([deletedException.from.sourceDate, deletedException.to.goalDate])
-        }
+        const dates = new Set()
+        if (deletedException.from?.sourceDate) dates.add(deletedException.from.sourceDate)
+        if (deletedException.to?.goalDate) dates.add(deletedException.to.goalDate)
+        affectedDates = Array.from(dates)
       } else if (deletedException.type === 'SUSPEND') {
         if (deletedException.startDate && deletedException.endDate) {
           const start = new Date(deletedException.startDate + 'T00:00:00Z')
           const end = new Date(deletedException.endDate + 'T00:00:00Z')
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            datesToRestore.push(formatDateForQuery(new Date(d)))
+            affectedDates.push(formatDateForQuery(new Date(d)))
           }
         }
       }
 
-      const restorePromises = datesToRestore.map((dateStr) => {
-        const targetDate = new Date(dateStr + 'T00:00:00Z')
-        const scheduleFromRules = generateDailyScheduleFromRules(masterRules, targetDate)
+      const restorePromises = affectedDates.map((dateStr) => {
         const scheduleRef = db.collection('schedules').doc(dateStr)
         return db.runTransaction(async (transaction) => {
-          transaction.update(scheduleRef, { schedule: FieldValue.delete() })
-          transaction.set(
-            scheduleRef,
-            {
-              schedule: scheduleFromRules,
-              lastRevertedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true },
-          )
+          const scheduleDoc = await transaction.get(scheduleRef)
+          if (!scheduleDoc.exists) return
+
+          const currentSchedule = scheduleDoc.data().schedule || {}
+          const updates = {}
+
+          // 步驟 1: 移除該病人在當天的所有排班
+          for (const key in currentSchedule) {
+            if (currentSchedule[key].patientId === patientId) {
+              updates[`schedule.${key}`] = FieldValue.delete()
+            }
+          }
+
+          // 步驟 2: 檢查總表規則，看是否需要將病人加回來
+          if (patientRule && patientRule.freq) {
+            const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
+            const targetDate = new Date(dateStr + 'T00:00:00Z')
+            const dayOfWeek = targetDate.getDay()
+            const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+
+            if (freqDays.includes(systemDayIndex)) {
+              const { bedNum, shiftIndex, autoNote, manualNote } = patientRule
+              const shiftCode = SHIFTS[shiftIndex]
+              const scheduleKey = getScheduleKey(bedNum, shiftCode)
+              updates[`schedule.${scheduleKey}`] = {
+                patientId: patientId,
+                shiftId: shiftCode,
+                autoNote: autoNote || '',
+                manualNote: manualNote || '',
+                baseRuleId: patientId,
+              }
+            }
+          }
+          if (Object.keys(updates).length > 0) {
+            transaction.update(scheduleRef, updates)
+          }
         })
       })
 
       await Promise.all(restorePromises)
     } catch (error) {
-      logger.error(`❌ [Reverter] 恢復例外 ${exceptionId} 時發生錯誤:`, error)
+      logger.error(`❌ [Reverter v2] 恢復例外 ${exceptionId} 時發生錯誤:`, error)
     }
   },
 )

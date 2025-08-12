@@ -430,8 +430,6 @@ async function initializePageData() {
 
         exceptions.value = newExceptions
 
-        cleanupExpiredExceptions(newExceptions)
-
         if (isLoading.value) {
           isLoading.value = false
         }
@@ -444,36 +442,6 @@ async function initializePageData() {
   } catch (error) {
     console.error('載入資料失敗:', error)
     isLoading.value = false
-  }
-}
-
-// ✨ 新增的清理函式 ✨
-async function cleanupExpiredExceptions(currentExceptions) {
-  const todayStr = new Date().toISOString().split('T')[0]
-  const expiredExceptions = currentExceptions.filter((ex) => {
-    // 只有已生效(applied)的申請才需要檢查過期
-    return ex.status === 'applied' && ex.endDate && ex.endDate < todayStr
-  })
-
-  if (expiredExceptions.length > 0 && canEditSchedules.value) {
-    console.log(`發現 ${expiredExceptions.length} 筆過期的調班申請，正在進行清理...`)
-
-    try {
-      const batch = writeBatch(db)
-      expiredExceptions.forEach((ex) => {
-        const docRef = doc(db, 'schedule_exceptions', ex.id)
-        batch.delete(docRef)
-      })
-      await batch.commit()
-
-      createGlobalNotification(
-        `系統自動清理了 ${expiredExceptions.length} 筆過期的調班申請`,
-        'info',
-      )
-      console.log('過期申請清理完畢！')
-    } catch (error) {
-      console.error('自動清理過期申請失敗:', error)
-    }
   }
 }
 
