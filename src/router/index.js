@@ -55,6 +55,12 @@ const routes = [
         name: 'AccountSettings',
         component: () => import('../views/AccountSettingsView.vue'),
       },
+      {
+        path: '/daily-log',
+        name: 'DailyLog',
+        component: () => import('../views/DailyLogView.vue'), // 假設您將下面的檔案命名為 DailyLogView.vue
+        meta: { requiresAuth: true },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
