@@ -99,7 +99,8 @@ const DELETE_REASONS = [
   { value: '轉外院透析', text: '轉外院透析' },
   { value: '轉PD', text: '轉PD' },
   { value: '腎臟移植', text: '腎臟移植' },
-  { value: '作廢', text: '作廢' },
+  { value: '轉安寧', text: '轉安寧' },
+  { value: '腎功能恢復不須透析', text: '腎功能恢復不須透析' },
 ]
 const RESTORE_OPTIONS = [
   { value: 'opd', text: '復原至 門診' },

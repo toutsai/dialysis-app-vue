@@ -567,6 +567,20 @@
                     </div>
                   </div>
                   <div class="patient-note">
+                    <span
+                      v-if="
+                        getPatientWardNumber(
+                          currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                        )
+                      "
+                      class="ward-number-display"
+                    >
+                      [{{
+                        getPatientWardNumber(
+                          currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
+                        )
+                      }}]
+                    </span>
                     {{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}
                   </div>
                 </div>
@@ -2576,24 +2590,12 @@ button:disabled {
 }
 
 /* 桌面版臨床查閱模式的字體顏色 */
-.desktop-only .simplified-table .patient-name-wrapper {
-  font-size: 1.1em;
-  font-weight: 600;
-  color: #212529;
-}
-.desktop-only .simplified-table .patient-mrn-name span:first-child {
-  color: #6c757d;
-  font-size: 0.85em;
-  font-weight: normal;
-}
-.desktop-only :deep(.simplified-table td[class*='status-']) {
-  color: #212529;
-}
-.desktop-only :deep(.simplified-table td[class*='status-']) .patient-mrn-name span:first-child {
-  color: #6c757d;
+.desktop-only :deep(.simplified-table td[class*='status-']) .patient-mrn-name {
+  color: #212529; /* 將整個病歷號+姓名容器設為黑色 */
+  font-weight: 600; /* 將整個病歷號+姓名容器設為粗體 */
 }
 .desktop-only :deep(.simplified-table td[class*='status-']) .patient-note {
-  color: #dc3545;
+  color: #dc3545; /* 保持備註的紅色不變 */
 }
 
 @media screen and (min-width: 993px) {
