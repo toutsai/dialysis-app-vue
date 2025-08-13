@@ -636,8 +636,13 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 const { getFunctions } = require('firebase-admin/functions') // 引入 Cloud Tasks 的 SDK
 
 // ✨✨✨ --- 全新：任務分派總管 (Pub/Sub 觸發) --- ✨✨✨
-exports.reapplyAllActiveExceptions_v3 = onMessagePublished(
-  { topic: 'resync-exceptions', timeoutSeconds: 540, memory: '1GiB' },
+exports.reapplyAllActiveExceptions_v4 = onMessagePublished(
+  {
+    topic: 'resync-exceptions',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+    region: 'asia-east1', // <-- ✨✨ 新增這一行
+  },
   async (event) => {
     logger.info('🚀 [TaskDispatcher v3] 任務分派總管啟動！')
     try {
