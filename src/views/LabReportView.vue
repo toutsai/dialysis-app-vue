@@ -60,6 +60,13 @@
             <button @click="handleSearch" :disabled="isLoadingReports" class="search-btn">
               {{ isLoadingReports ? '查詢中...' : '查詢報告' }}
             </button>
+            <button
+              @click="exportGroupReportToExcel"
+              :disabled="isLoadingReports || reportData.length === 0"
+              class="export-btn"
+            >
+              匯出 Excel
+            </button>
           </div>
           <div v-if="searchType === 'individual'" class="filter-wrapper">
             <div class="individual-filters">
@@ -654,25 +661,84 @@ function showPatientHistory(patient) {
 }
 
 function exportToExcel() {
+  // 防呆機制：確保有資料可供匯出
+  if (groupedAlerts.value.length === 0) {
+    alert('目前沒有可匯出的警示報告資料。')
+    return
+  }
+
+  // 1. 準備工作簿和通用的資訊
   const wb = XLSX.utils.book_new()
+  const { start, end } = alertMonthRange.value
+
+  // 2. 遍歷每個警示群組 (例如 Hb, Albumin)，為每個群組創建一個獨立的工作表
   groupedAlerts.value.forEach((group) => {
+    // 步驟 A：準備該工作表的所有資料
+
+    // A-1. 創建主標題，包含警示項目和日期區間
+    const title = `警示報告 (${labItemDisplayNames[group.key] || group.key}) - 區間: ${start} ~ ${end}`
+    const titleRow = [title]
+
+    // A-2. 創建表頭
+    const headers = [
+      '頻率',
+      '預設班別',
+      '預設床號',
+      '姓名',
+      '不合格項目詳情',
+      '病因分析',
+      '建議處置',
+    ]
+
+    // A-3. 創建資料列，並包含使用者在 textarea 中輸入的內容
     const sortedItems = sortAlertItems(group.items)
-    const sheetData = sortedItems.map((item) => ({
-      頻率: item.patient.freq || 'N/A',
-      預設班別: item.patient.defaultShift || 'N/A',
-      預設床號: item.patient.defaultBed || 'N/A',
-      姓名: item.patient.name,
-      不合格項目詳情: formatAbnormalityReason(item.abnormality),
-      病因分析: item.analysisText,
-      建議處置: item.suggestionText,
-    }))
-    if (sheetData.length > 0) {
-      const ws = XLSX.utils.json_to_sheet(sheetData)
-      const sheetName = (labItemDisplayNames[group.key] || group.key).replace(/[%()/]/g, '')
-      XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))
-    }
+    const dataRows = sortedItems.map((item) => [
+      item.patient.freq || 'N/A',
+      item.patient.defaultShift || 'N/A',
+      item.patient.defaultBed || 'N/A',
+      item.patient.name,
+      formatAbnormalityReason(item.abnormality),
+      item.analysisText, // 匯出「病因分析」的文字
+      item.suggestionText, // 匯出「建議處置」的文字
+    ])
+
+    // 步驟 B：將所有部分組合成一個給 Excel 使用的二維陣列
+    const sheetData = [
+      titleRow,
+      [], // 插入一個空行
+      headers,
+      ...dataRows,
+    ]
+
+    // 步驟 C：創建工作表並設定合併儲存格與欄寬
+    const ws = XLSX.utils.aoa_to_sheet(sheetData)
+
+    // C-1. 合併標題列的儲存格
+    const numCols = headers.length
+    if (!ws['!merges']) ws['!merges'] = []
+    ws['!merges'].push({
+      s: { r: 0, c: 0 }, // 開始: 第 0 行, 第 0 欄
+      e: { r: 0, c: numCols - 1 }, // 結束: 第 0 行, 最後一欄
+    })
+
+    // C-2. (優化) 設定建議的欄位寬度，讓報表更易讀
+    ws['!cols'] = [
+      { wch: 8 }, // 頻率
+      { wch: 10 }, // 預設班別
+      { wch: 10 }, // 預設床號
+      { wch: 12 }, // 姓名
+      { wch: 30 }, // 不合格項目詳情
+      { wch: 40 }, // 病因分析 (較寬)
+      { wch: 40 }, // 建議處置 (較寬)
+    ]
+
+    // 步驟 D：將格式化好的工作表加入工作簿
+    const sheetName = (labItemDisplayNames[group.key] || group.key).replace(/[%()/]/g, '')
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))
   })
-  const fileName = `警示報告_${alertMonthRange.value.start}_${alertMonthRange.value.end}.xlsx`
+
+  // 步驟 E：生成檔名並觸發下載
+  const fileName = `警示報告_${start}_${end}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
 
@@ -1067,6 +1133,70 @@ function handleFileDrop(event) {
     uploadResult.value = null
   }
 }
+function exportGroupReportToExcel() {
+  // 防呆機制 (不變)
+  if (searchType.value !== 'group' || reportData.value.length === 0) {
+    alert('目前沒有可匯出的群組報告資料。')
+    return
+  }
+
+  // 步驟一：準備所有需要的資料和標頭
+  const { freq, shift, month } = groupSearchParams
+  const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
+  const shiftName = shiftNameMap[shift] || shift
+
+  // 1. 創建主標題列 (這將是 Excel 的第一行)
+  const title = `檢驗報告查詢結果: ${freq} / ${shiftName} / ${month}`
+  const titleRow = [title] // 放在一個陣列中
+
+  // 2. 創建表頭 (Header)
+  const headers = [
+    '床號',
+    '姓名',
+    ...prioritizedLabItems.map((key) => labItemDisplayNames[key] || key),
+  ]
+
+  // 3. 創建所有資料列 (Data Rows)
+  const dataRows = reportData.value.map((row) => {
+    // 按照 headers 的順序將資料放入陣列
+    return [
+      row.bedNum || '-',
+      row.patientName,
+      ...prioritizedLabItems.map((itemKey) => {
+        const value = row.labData[itemKey]
+        return value !== undefined && value !== null ? value : '-'
+      }),
+    ]
+  })
+
+  // 步驟二：將所有部分組合成一個給 Excel 使用的二維陣列
+  // 結構：[ [標題], [空行], [表頭], [資料1], [資料2], ... ]
+  const sheetData = [
+    titleRow,
+    [], // 插入一個空行，讓標題和表格分開，更美觀
+    headers,
+    ...dataRows,
+  ]
+
+  // 步驟三：使用 xlsx 函式庫創建工作表
+  const ws = XLSX.utils.aoa_to_sheet(sheetData)
+
+  // 步驟四：(關鍵) 設定標題列的「合併儲存格」
+  // 我們要讓標題從 A1 儲存格橫跨到最後一欄
+  const numCols = headers.length
+  if (!ws['!merges']) ws['!merges'] = []
+  ws['!merges'].push({
+    s: { r: 0, c: 0 }, // s = start, r = row, c = column (皆從 0 開始)
+    e: { r: 0, c: numCols - 1 }, // e = end
+  })
+
+  // 步驟五：創建工作簿並觸發下載 (邏輯不變)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '報告查詢結果')
+
+  const fileName = `檢驗報告查詢_${freq}_${shiftName}_${month}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
 </script>
 
 <style scoped>
@@ -1307,13 +1437,55 @@ tbody tr:nth-child(even) .sticky-col {
   background-color: #e9ecef;
   border-radius: 8px;
 }
+/* (A) 設定控制列中【所有按鈕】的通用基礎樣式 */
 .alert-controls button {
   padding: 0.5rem 1.5rem;
   border-radius: 4px;
-  border: 1px solid #007bff;
-  background-color: #007bff;
-  color: white;
+  border: 1px solid #ccc; /* 給一個基礎邊框 */
   cursor: pointer;
+  height: 38px;
+  box-sizing: border-box;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+/* (B) 設定【導航按鈕】("前/後三個月") 的獨特樣式 */
+.alert-controls button:not(.export-btn) {
+  background-color: #f8f9fa; /* 淺灰色背景 */
+  color: #333;
+  border-color: #ccc;
+}
+
+/* (C) 設定【匯出按鈕】的獨特樣式 */
+.alert-controls .export-btn {
+  background-color: #198754; /* 綠色 */
+  color: white;
+  border-color: #198754;
+}
+
+/* (D) 禁用時的樣式 (對所有按鈕都有效) */
+.alert-controls button:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* (E) 為「報告查詢」頁籤的匯出按鈕也套用相同樣式 */
+.search-controls .export-btn {
+  padding: 0.5rem 1.5rem;
+  border-radius: 4px;
+  height: 38px;
+  box-sizing: border-box;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #198754; /* 綠色 */
+  color: white;
+  border-color: #198754;
+}
+.search-controls .export-btn:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
 }
 .month-range-display {
   font-size: 1.2rem;
@@ -1323,9 +1495,9 @@ tbody tr:nth-child(even) .sticky-col {
   text-align: center;
 }
 .export-btn {
-  background-color: #198754;
+  background-color: #198754; /* 綠色 */
   border-color: #198754;
-  margin-left: auto;
+  color: white; /* ✨ 確保文字是白色 */
 }
 .export-btn:disabled {
   background-color: #6c757d;
