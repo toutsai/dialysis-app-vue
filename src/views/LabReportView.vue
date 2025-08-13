@@ -892,8 +892,9 @@ watch(searchType, (newType) => {
   }
 })
 
-// [核心修正 3/3] 修改 searchGroupReports 函式
+// ✨✨✨ --- 全新、修正合併邏輯的 searchGroupReports 函式 --- ✨✨✨
 async function searchGroupReports() {
+  // 1. 獲取群組病人名單 (邏輯不變)
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
@@ -901,12 +902,13 @@ async function searchGroupReports() {
     (id) =>
       masterRules[id].freq === groupSearchParams.freq && masterRules[id].shiftIndex === shiftIndex,
   )
+
   if (allPatientIdsInGroup.length === 0) {
     reportData.value = []
     return
   }
 
-  // 使用新的分塊查詢函式來獲取病人詳細資料
+  // 2. 獲取病人詳細資料 (邏輯不變)
   const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
   const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
 
@@ -916,58 +918,55 @@ async function searchGroupReports() {
       return info ? { patientId: id, patientName: info.name, bedNum: masterRules[id].bedNum } : null
     })
     .filter(Boolean)
+
   if (patientList.length === 0) {
     reportData.value = []
     return
   }
 
+  // 3. 獲取該群組在指定月份的所有報告 (邏輯不變)
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
 
-  // 獲取報告的部分也需要分塊，因為 'IN' 查詢同樣存在於這裡
-  const allReports = []
-  const reportChunks = []
-  for (let i = 0; i < allPatientIdsInGroup.length; i += 30) {
-    reportChunks.push(allPatientIdsInGroup.slice(i, i + 30))
-  }
+  const allReportsInMonth = await queryWithInChunks(
+    'lab_reports',
+    'patientId',
+    allPatientIdsInGroup,
+    [where('reportDate', '>=', startDate), where('reportDate', '<', endDate)],
+  )
 
-  const reportsRef = collection(db, 'lab_reports')
-  for (const chunk of reportChunks) {
-    const q = firestoreQuery(
-      reportsRef,
-      where('patientId', 'in', chunk),
-      where('reportDate', '>=', startDate),
-      where('reportDate', '<', endDate),
-      orderBy('reportDate', 'desc'),
-    )
-    const querySnapshot = await getDocs(q)
-    querySnapshot.forEach((doc) => {
-      const data = doc.data()
-      const reportDate = data.reportDate?.toDate
-        ? data.reportDate.toDate()
-        : new Date(data.reportDate)
-      allReports.push({
-        id: doc.id,
-        ...data,
-        reportDate: reportDate,
-        reportDateString: reportDate.toISOString().slice(0, 10),
-      })
-    })
-  }
+  // 4. ✨✨✨ 核心修正：合併報告資料，而不是只取最新 ✨✨✨
+  const aggregatedReports = new Map()
 
-  const latestReports = new Map()
-  allReports.forEach((report) => {
-    const existingReport = latestReports.get(report.patientId)
-    if (!existingReport || report.reportDate > existingReport.reportDate) {
-      latestReports.set(report.patientId, report)
+  allReportsInMonth.forEach((report) => {
+    const patientId = report.patientId
+
+    // 如果 Map 中還沒有這位病人的資料，則初始化一個空物件
+    if (!aggregatedReports.has(patientId)) {
+      aggregatedReports.set(patientId, {})
+    }
+
+    const patientLabData = aggregatedReports.get(patientId)
+
+    // 遍歷該筆報告中的所有檢驗項目
+    for (const itemKey in report.data) {
+      // 只有當聚合資料中【尚未】存在該項目時，才將其加入。
+      // 這隱含了一個規則：我們會優先採用時間上較早的報告數據。
+      // 如果您希望採用較新的，可以反轉這個判斷 `if (!patientLabData[itemKey] || some_date_logic)`
+      if (patientLabData[itemKey] === undefined) {
+        patientLabData[itemKey] = report.data[itemKey]
+      }
     }
   })
 
+  // 5. 組合最終資料 (邏輯變更)
   reportData.value = patientList
     .map((p) => {
-      const report = latestReports.get(p.patientId)
-      const labData = report?.data || {}
+      // 從聚合後的報告中獲取資料
+      const labData = aggregatedReports.get(p.patientId) || {}
+
+      // 後續的衍生計算保持不變
       if (labData.Ca && labData.P) labData.CaXP = (labData.Ca * labData.P).toFixed(2)
       if (labData.Iron && labData.TIBC > 0)
         labData.TSAT = ((labData.Iron / labData.TIBC) * 100).toFixed(1)
@@ -975,6 +974,7 @@ async function searchGroupReports() {
         labData.URR = (((labData.BUN - labData.PostBUN) / labData.BUN) * 100).toFixed(1)
         labData['Kt/V'] = Math.log(labData.BUN / labData.PostBUN).toFixed(2)
       }
+
       return {
         patientId: p.patientId,
         patientName: p.patientName,
