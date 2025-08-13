@@ -657,7 +657,7 @@ exports.reapplyAllActiveExceptions_v3 = onMessagePublished(
       logger.info(`[TaskDispatcher] 找到 ${exceptions.length} 個例外，已排序。開始分派任務...`)
 
       // 2. 獲取佇列的參照
-      const queue = getFunctions().taskQueue('processSingleExceptionTask')
+      const queue = getFunctions().taskQueue('processSingleExceptionTask', 'asia-east1')
 
       // 3. 依序將任務加入佇列
       const tasks = []
@@ -677,6 +677,7 @@ exports.reapplyAllActiveExceptions_v3 = onMessagePublished(
   },
 )
 
+// ✨✨✨ --- 新增：真正的任務執行者 (HTTP 觸發) --- ✨✨✨
 // 確保在檔案頂部引入了 onRequest (如果還沒有的話)
 const { onRequest } = require('firebase-functions/v2/https')
 
