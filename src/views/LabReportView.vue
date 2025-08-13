@@ -197,10 +197,18 @@
         </div>
       </div>
 
-      <!-- (C) 資料上傳頁籤 -->
+      <!-- (C) 資料上傳頁籤 - 全新結構 -->
       <div v-show="activeTab === 'upload'" class="tab-panel upload-panel expanded">
+        <!-- 左側：上傳功能 -->
         <div class="upload-core-panel">
-          <div class="upload-drop-zone">
+          <h4>批次上傳報告</h4>
+          <div
+            class="upload-drop-zone"
+            :class="{ 'is-dragover': isDragOver }"
+            @dragover.prevent="isDragOver = true"
+            @dragleave.prevent="isDragOver = false"
+            @drop.prevent="handleFileDrop"
+          >
             <div class="upload-icon">📤</div>
             <h3 v-if="!selectedFile">拖曳 Excel 檔案至此，或點擊按鈕選擇</h3>
             <h3 v-else>
@@ -217,35 +225,30 @@
             <label for="file-input" class="file-input-label">{{
               selectedFile ? '重新選擇檔案' : '選擇檔案'
             }}</label>
-            <button
-              class="upload-btn-main"
-              @click="handleUpload"
-              :disabled="!selectedFile || isUploading"
-            >
-              {{ isUploading ? '處理中...' : '開始上傳並處理' }}
-            </button>
           </div>
-          <div v-if="uploadResult" class="results-card">
-            <h2>處理結果</h2>
-            <div class="upload-result">
-              <p :class="uploadResult.errorCount > 0 ? 'has-error' : 'is-success'">
-                {{ uploadResult.message }}
-              </p>
-              <div v-if="uploadResult.errorCount > 0" class="error-details">
-                <h4>問題詳情 (最多顯示 50 筆)：</h4>
-                <ul>
-                  <li v-for="(err, index) in uploadResult.errors" :key="index">
-                    <strong>原因: {{ err.reason }}</strong>
-                    <div class="error-data">原始資料: {{ err.rowData }}</div>
-                  </li>
-                </ul>
-              </div>
-            </div>
+          <button
+            class="upload-btn-main"
+            @click="handleUpload"
+            :disabled="!selectedFile || isUploading"
+          >
+            {{ isUploading ? '處理中...' : '開始上傳' }}
+          </button>
+          <!-- 上傳結果通知 -->
+          <div
+            v-if="uploadResult"
+            class="upload-result-toast"
+            :class="uploadResult.errorCount > 0 ? 'has-error' : 'is-success'"
+          >
+            {{ uploadResult.message }}
           </div>
         </div>
+
+        <!-- 右側：手動補登功能 (已獨立) -->
         <div class="manual-entry-panel">
-          <h4>手動補登缺漏報告</h4>
-          <p class="panel-description">上傳批次報告後，系統將自動比對缺漏名單。</p>
+          <h4>手動查詢與補登缺漏報告</h4>
+          <p class="panel-description">
+            選擇群組與月份，系統將直接從資料庫比對尚未有任何報告的病患名單。
+          </p>
           <div class="manual-controls">
             <select v-model="manualEntryGroup.freq">
               <option v-for="freq in freqOptions" :key="freq" :value="freq">{{ freq }}</option>
@@ -255,15 +258,21 @@
               <option value="noon">午班</option>
               <option value="late">晚班</option>
             </select>
-            <button
-              @click="findMissingPatients"
-              :disabled="isUploading || isFindingMissing || !uploadResult"
-            >
-              {{ isFindingMissing ? '比對中...' : '手動比對' }}
+            <!-- ✨ 關鍵新增：月份選擇器 -->
+            <input type="month" v-model="manualEntryGroup.month" />
+            <button @click="findMissingPatients" :disabled="isFindingMissing">
+              {{ isFindingMissing ? '查詢中...' : '查詢缺漏' }}
             </button>
           </div>
           <div class="missing-patients-list">
-            <div v-if="isFindingMissing" class="placeholder-item">正在比對缺漏名單...</div>
+            <div v-if="isFindingMissing" class="placeholder-item">正在從資料庫比對缺漏名單...</div>
+            <!-- ✨ 邏輯變更：使用 searchedForMissing 來判斷是否已執行過查詢 -->
+            <div
+              v-else-if="searchedForMissing && missingPatients.length === 0"
+              class="placeholder-item"
+            >
+              太棒了！此群組在此月份沒有缺漏報告的病人。
+            </div>
             <div v-else-if="missingPatients.length > 0">
               <div class="manual-entry-global-date">
                 <label for="manual-report-date">所有補登報告的統一報告日：</label>
@@ -292,10 +301,7 @@
                 生成 Excel 並上傳補登資料
               </button>
             </div>
-            <div v-else-if="searchedForMissing" class="placeholder-item">
-              太棒了！此群組沒有缺漏報告的病人。
-            </div>
-            <div v-else class="placeholder-item">等待上傳報告後自動比對...</div>
+            <div v-else class="placeholder-item">請選擇群組和月份，然後點擊「查詢缺漏」。</div>
           </div>
         </div>
       </div>
@@ -343,7 +349,11 @@ const isUploading = ref(false)
 const uploadResult = ref(null)
 const isDragOver = ref(false)
 const isFindingMissing = ref(false)
-const manualEntryGroup = reactive({ freq: '一三五', shift: 'early' })
+const manualEntryGroup = reactive({
+  freq: '一三五',
+  shift: 'early',
+  month: new Date().toISOString().slice(0, 7), // ✨ 新增此行
+})
 const missingPatients = ref([])
 const searchedForMissing = ref(false)
 const manualReportDate = ref(new Date().toISOString().slice(0, 10))
@@ -666,56 +676,76 @@ function exportToExcel() {
   XLSX.writeFile(wb, fileName)
 }
 
-// [核心修正 2/3] 修改 findMissingPatients 函式
+// ✨✨✨ --- 全新的、獨立的缺漏查找函式 --- ✨✨✨
 async function findMissingPatients() {
-  if (!uploadResult.value) {
-    alert('請先成功上傳一份批次報告，才能進行比對。')
+  // 檢查月份是否已選擇
+  if (!manualEntryGroup.month) {
+    alert('請先選擇要查詢的月份。')
     return
   }
+
   isFindingMissing.value = true
-  searchedForMissing.value = true
+  searchedForMissing.value = true // 標記已執行過查詢
   missingPatients.value = []
+
   try {
+    // 1. 根據選擇的群組，從總表獲取應有名單
     const shiftIndex = SHIFT_MAP[manualEntryGroup.shift]
     const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     const masterRules = masterScheduleDoc?.schedule || {}
-    const allPatientInGroup = Object.keys(masterRules).filter(
+    const allPatientIdsInGroup = Object.keys(masterRules).filter(
       (id) =>
         masterRules[id].freq === manualEntryGroup.freq && masterRules[id].shiftIndex === shiftIndex,
     )
-    if (allPatientInGroup.length === 0) {
+
+    if (allPatientIdsInGroup.length === 0) {
       console.warn(`在 ${manualEntryGroup.freq} ${manualEntryGroup.shift} 班別中沒有找到任何病人。`)
       return
     }
 
-    // 使用新的分塊查詢函式來獲取病人資料，而不是舊的 patientsApi.fetchAll
-    const allPatientDetails = await queryWithInChunks(
-      'patients', // 集合名稱
-      documentId(), // 注意：這裡是用 documentId() 來比對，因為我們有的是病人的 UID
-      allPatientInGroup, // 要查詢的 ID 列表
+    // 2. 查詢這個群組的病人在【指定月份】的所有報告
+    const [year, month] = manualEntryGroup.month.split('-').map(Number)
+    const startDate = new Date(year, month - 1, 1)
+    const endDate = new Date(year, month, 1)
+
+    // 使用分塊查詢獲取這些病人在該月份的報告
+    const reportsInMonth = await queryWithInChunks(
+      'lab_reports', // 集合名稱
+      'patientId', // 要查詢的欄位
+      allPatientIdsInGroup, // 要查詢的 ID 列表
+      [
+        // 額外的 where 條件
+        where('reportDate', '>=', startDate),
+        where('reportDate', '<', endDate),
+      ],
     )
 
-    const allPatientMap = new Map(allPatientDetails.map((p) => [p.id, p]))
-    const processedPatientIds = new Set(
-      uploadResult.value?.processedPatients?.map((p) => p.patientId) || [],
-    )
-    const missingIds = allPatientInGroup.filter((id) => !processedPatientIds.has(id))
-    missingPatients.value = missingIds
-      .map((id) => {
-        const patientData = allPatientMap.get(id)
-        if (!patientData) return null
-        const labData = {}
-        manualEntryItems.forEach((item) => {
-          labData[item.key] = ''
-        })
-        return {
-          id: patientData.id,
-          name: patientData.name,
-          medicalRecordNumber: patientData.medicalRecordNumber,
-          labData: reactive(labData),
-        }
+    // 3. 找出有報告的病人ID
+    const patientIdsWithReport = new Set(reportsInMonth.map((report) => report.patientId))
+
+    // 4. 進行比對，找出真正缺漏的病人ID
+    const missingIds = allPatientIdsInGroup.filter((id) => !patientIdsWithReport.has(id))
+
+    if (missingIds.length === 0) {
+      return // 沒有缺漏者，直接結束
+    }
+
+    // 5. 獲取缺漏病人的詳細資料以便顯示
+    const missingPatientDetails = await queryWithInChunks('patients', documentId(), missingIds)
+
+    // 6. 準備好要顯示在畫面上的資料結構
+    missingPatients.value = missingPatientDetails.map((patientData) => {
+      const labData = {}
+      manualEntryItems.forEach((item) => {
+        labData[item.key] = ''
       })
-      .filter(Boolean)
+      return {
+        id: patientData.id,
+        name: patientData.name,
+        medicalRecordNumber: patientData.medicalRecordNumber,
+        labData: reactive(labData),
+      }
+    })
   } catch (error) {
     console.error('查找缺漏病人失敗:', error)
     alert('查找缺漏病人時發生錯誤。')
@@ -812,10 +842,6 @@ async function handleUpload() {
       fileContent: fileContentBase64,
     })
     uploadResult.value = result.data
-    if (uploadResult.value) {
-      // 在上傳成功後自動觸發一次比對
-      await findMissingPatients()
-    }
   } catch (error) {
     console.error('上傳處理失敗:', error)
     uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1 }
@@ -1345,15 +1371,42 @@ tbody tr:nth-child(even) .sticky-col {
 /* --- 資料上傳頁籤擴充樣式 --- */
 .upload-panel.expanded {
   display: grid;
-  grid-template-columns: 1fr 400px;
+  /* ✨ 核心修改：改變 Grid 佈局比例 */
+  grid-template-columns: 350px 1fr;
   gap: 1.5rem;
 }
+
 .upload-core-panel {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1rem; /* 縮小間距 */
   align-items: center;
-  justify-content: center;
+  padding: 1rem;
+  background-color: #f8f9fa; /* 給左側一個淡淡的背景色 */
+  border-radius: 8px;
+}
+
+.upload-core-panel h4 {
+  margin: 0;
+}
+
+/* ✨ 新增：上傳結果的 Toast 樣式 */
+.upload-result-toast {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 6px;
+  font-weight: 500;
+  text-align: center;
+}
+.upload-result-toast.is-success {
+  color: #155724;
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+}
+.upload-result-toast.has-error {
+  color: #721c24;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
 }
 .manual-entry-panel {
   display: flex;
