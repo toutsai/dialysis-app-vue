@@ -614,6 +614,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
       const queue = getFunctions().taskQueue('processSingleExceptionTask')
 
       const tasks = []
+
       for (const ex of exceptions) {
         const payload = {
           id: ex.id,
@@ -628,8 +629,15 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
           status: ex.status,
           createdAtISO: ex.createdAt?.toDate().toISOString() || null,
         }
-        tasks.push(queue.enqueue(payload))
+
+        // 添加延遲確保順序執行（可選）
+        tasks.push(
+          queue.enqueue(payload, {
+            scheduleDelaySeconds: tasks.length * 2, // 每個任務延遲 2 秒
+          }),
+        )
       }
+
       await Promise.all(tasks)
       logger.info(`[TaskDispatcher] ✅ 成功將 ${exceptions.length} 個任務加入佇列。`)
     } catch (error) {
@@ -639,113 +647,204 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
   },
 )
 
+<<<<<<< Updated upstream
 // --- ✨✨✨ Cloud Tasks 任務執行者 (HTTP 觸發 - 流程三的子流程) ✨✨✨ ---
 exports.processSingleExceptionTask = onRequest(
+=======
+// --- ✨✨✨ Cloud Tasks 任務執行者 (Task Queue 觸發 - 流程三的子流程) ✨✨✨ ---
+exports.exceptionHandlerQueue = onTaskDispatched(
+>>>>>>> Stashed changes
   {
+    // 關鍵配置：確保任務按順序執行
+    rateLimits: {
+      maxConcurrentDispatches: 1, // 一次只處理一個任務
+      maxDispatchesPerSecond: 1, // 每秒最多處理一個任務
+    },
+    retryConfig: {
+      maxAttempts: 3,
+      minBackoffSeconds: 30,
+      maxBackoffSeconds: 120,
+      maxDoublings: 2,
+    },
     timeoutSeconds: 300,
     memory: '512MiB',
     region: 'asia-east1',
-    invoker: 'private',
   },
-  async (req, res) => {
-    if (req.method !== 'POST') {
-      logger.warn('[TaskWorker] Received non-POST request.')
-      return res.status(405).send('Method Not Allowed')
-    }
+  async (req) => {
+    const startTime = Date.now()
+
     try {
-      const ex = req.body
+      const ex = req.data // 注意：Task Queue 使用 req.data，不是 req.body
+
+      // 驗證輸入資料
       if (!ex || !ex.id || !ex.patientId || !ex.type) {
         logger.error('[TaskWorker] ❌ Received invalid or incomplete exception data.', ex)
-        return res.status(400).send('Invalid exception data provided.')
+        throw new Error('Invalid exception data provided.')
       }
+
       logger.info(
-        `[TaskWorker] 👷‍♂️ Received task, processing exception #${ex.id} (${ex.type} for ${ex.patientName})...`,
+        `[TaskWorker] 👷‍♂️ Processing exception #${ex.id} (${ex.type} for ${ex.patientName}) - CreatedAt: ${ex.createdAtISO}...`,
       )
+
+      // 處理 MOVE 類型例外
       if (ex.type === 'MOVE') {
         await db.runTransaction(async (transaction) => {
+          // 驗證 MOVE 必要欄位
           if (!ex.from?.sourceDate || !ex.to?.goalDate) {
             throw new Error('MOVE exception is missing sourceDate or goalDate.')
           }
+
           const { from, to, patientId, patientName } = ex
           const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
           const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
+
           let isConflict = false
           let conflictReason = ''
+
+          // 檢查目標位置是否有衝突
           const targetScheduleDoc = await transaction.get(targetScheduleRef)
           const currentSchedule = targetScheduleDoc.exists
             ? targetScheduleDoc.data().schedule || {}
             : {}
+
           if (currentSchedule[targetKey]) {
             isConflict = true
             conflictReason = `床位已被 ${currentSchedule[targetKey].patientName || '未知病人'} 佔用`
           }
+
           const exceptionRef = db.collection('schedule_exceptions').doc(ex.id)
+
           if (isConflict) {
+            // 有衝突：更新例外狀態為需要解決
             logger.warn(`[TaskWorker] 💥 Conflict detected for #${ex.id}: ${conflictReason}`)
             transaction.update(exceptionRef, {
               status: 'conflict_requires_resolution',
               errorMessage: `與排程衝突：${conflictReason}`,
+              processedAt: FieldValue.serverTimestamp(),
             })
           } else {
+            // 無衝突：執行移動操作
             const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
             const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
+
+            // 從原位置移除
             transaction.update(sourceScheduleRef, {
               [`schedule.${sourceKey}`]: FieldValue.delete(),
             })
+
+            // 新增到目標位置
             const newSlotData = {
               patientId,
               patientName,
               shiftId: to.shiftCode,
               manualNote: `(例外調班)`,
             }
+
             transaction.set(
               targetScheduleRef,
               { schedule: { [targetKey]: newSlotData } },
               { merge: true },
             )
+
+            // 更新例外狀態為已套用
             if (ex.status !== 'applied') {
-              transaction.update(exceptionRef, { status: 'applied', errorMessage: '' })
+              transaction.update(exceptionRef, {
+                status: 'applied',
+                errorMessage: '',
+                processedAt: FieldValue.serverTimestamp(),
+              })
             }
+
+            logger.info(
+              `[TaskWorker] ✅ Successfully moved patient from ${from.sourceDate} to ${to.goalDate}`,
+            )
           }
         })
+
+        // 處理 SUSPEND 類型例外
       } else if (ex.type === 'SUSPEND') {
+        // 驗證 SUSPEND 必要欄位
         if (!ex.startDate || !ex.endDate) {
           throw new Error('SUSPEND exception is missing startDate or endDate.')
         }
+
         const { patientId, startDate, endDate } = ex
         const start = new Date(startDate + 'T00:00:00Z')
         const end = new Date(endDate + 'T00:00:00Z')
+
+        let processedDays = 0
+
+        // 遍歷暫停期間的每一天
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const dateStr = formatDateForQuery(new Date(d))
+
           await db.runTransaction(async (transaction) => {
             const scheduleRef = db.collection('schedules').doc(dateStr)
             const doc = await transaction.get(scheduleRef)
+
             if (doc.exists) {
               const scheduleData = doc.data().schedule || {}
+
+              // 尋找並移除該病人的排程
               for (const key in scheduleData) {
                 if (scheduleData[key].patientId === patientId) {
-                  transaction.update(scheduleRef, { [`schedule.${key}`]: FieldValue.delete() })
+                  transaction.update(scheduleRef, {
+                    [`schedule.${key}`]: FieldValue.delete(),
+                  })
+                  processedDays++
+                  logger.info(`[TaskWorker] Removed schedule for ${patientName} on ${dateStr}`)
                   break
                 }
               }
             }
           })
         }
+
+        // 更新例外狀態為已套用
         const exceptionRef = db.collection('schedule_exceptions').doc(ex.id)
         if (ex.status !== 'applied') {
-          await exceptionRef.update({ status: 'applied', errorMessage: '' })
+          await exceptionRef.update({
+            status: 'applied',
+            errorMessage: '',
+            processedAt: FieldValue.serverTimestamp(),
+            processedDaysCount: processedDays,
+          })
         }
+
+        logger.info(
+          `[TaskWorker] ✅ Successfully suspended ${patientName} for ${processedDays} days`,
+        )
+      } else {
+        // 未知的例外類型
+        throw new Error(`Unknown exception type: ${ex.type}`)
       }
-      logger.info(`[TaskWorker] ✅ Successfully processed exception #${ex.id}`)
-      res.status(200).send({ success: true, message: `Successfully processed exception ${ex.id}` })
+
+      const processingTime = Date.now() - startTime
+      logger.info(
+        `[TaskWorker] ✅ Successfully processed exception #${ex.id} in ${processingTime}ms`,
+      )
     } catch (error) {
+      const processingTime = Date.now() - startTime
       logger.error(
-        `[TaskWorker] ❌ Failed to process exception #${req.body?.id || 'unknown'}:`,
+        `[TaskWorker] ❌ Failed to process exception #${req.data?.id || 'unknown'} after ${processingTime}ms:`,
         error,
       )
-      res
-        .status(500)
-        .send({ success: false, message: `Error processing exception: ${error.message}` })
+
+      // 更新例外狀態為處理失敗
+      if (req.data?.id) {
+        try {
+          await db.collection('schedule_exceptions').doc(req.data.id).update({
+            status: 'processing_failed',
+            errorMessage: error.message,
+            lastFailedAt: FieldValue.serverTimestamp(),
+          })
+        } catch (updateError) {
+          logger.error(`[TaskWorker] Failed to update error status:`, updateError)
+        }
+      }
+
+      // 重新拋出錯誤讓 Cloud Tasks 處理重試
+      throw error
     }
   },
 )
