@@ -611,8 +611,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
         .sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0))
       logger.info(`[TaskDispatcher] 找到 ${exceptions.length} 個例外，已排序。開始分派任務...`)
 
-      const queue = getFunctions().taskQueue('processSingleExceptionTask')
-
+      const queue = getFunctions().taskQueue('exceptionHandlerQueue')
       const tasks = []
       for (const ex of exceptions) {
         const payload = {
@@ -640,7 +639,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
 )
 
 // --- ✨✨✨ Cloud Tasks 任務執行者 (HTTP 觸發 - 流程三的子流程) ✨✨✨ ---
-exports.processSingleExceptionTask = onRequest(
+exports.exceptionHandlerQueue = onRequest(
   {
     timeoutSeconds: 300,
     memory: '512MiB',
