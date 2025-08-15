@@ -589,7 +589,7 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 
     try {
       // 直接使用 Cloud Tasks 處理（與批量處理使用相同佇列）
-      const queue = getFunctions().taskQueue('exceptionHandlerQueue')
+      const queue = getFunctions().taskQueue('exceptionHandlerQueueV2')
 
       const payload = {
         id: exceptionId,
@@ -785,7 +785,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
       )
 
       // 🔥 修正：使用正確的佇列名稱
-      const queue = getFunctions().taskQueue('exceptionHandlerQueue')
+      const queue = getFunctions().taskQueue('exceptionHandlerQueueV2')
       const tasks = []
 
       for (let i = 0; i < exceptions.length; i++) {
@@ -838,7 +838,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
 )
 
 // --- ✨✨✨ 優化的 Cloud Tasks 任務執行者 (Task Queue 觸發 - 流程三的子流程) ✨✨✨ ---
-exports.exceptionHandlerQueue = onTaskDispatched(
+exports.exceptionHandlerQueueV2 = onTaskDispatched(
   {
     // 關鍵配置：確保任務按順序執行
     rateLimits: {
