@@ -418,6 +418,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
 
 // --- ✨✨✨ 優化的 Cloud Tasks 任務執行者 (Task Queue 觸發 - 流程三的子流程) ✨✨✨ ---
 exports.exceptionHandlerQueue = onTaskDispatched(
+  
   {
     // 關鍵配置：確保任務按順序執行
     rateLimits: {
