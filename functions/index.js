@@ -1,4 +1,4 @@
-// 【最終優化簡化版 - 統一 asia-east1 區域 + 智能整合同步 - 2025-08-16】
+// 【最終優化簡化版 - 分離架構：基礎同步 + 兩階段例外處理 - 2025-08-16】
 
 // ===================================================================
 // 🔥 全域設定 - 必須在所有 require 之前
@@ -102,6 +102,321 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
     }
   }
   return dailySchedule
+}
+
+// ===================================================================
+// 🔥 兩階段例外處理 - 內部函數
+// ===================================================================
+async function reapplyAllExceptionsInternal() {
+  logger.info('🔄 [ReapplyExceptions] 開始兩階段例外處理')
+
+  try {
+    // ===== 步驟 1：讀取所有有效的例外 =====
+    const exceptionsSnapshot = await db
+      .collection('schedule_exceptions')
+      .where('status', 'in', ['applied', 'pending', 'processing'])
+      .get()
+
+    if (exceptionsSnapshot.empty) {
+      logger.info('✅ 沒有需要套用的例外')
+      return { success: true, processed: 0 }
+    }
+
+    const exceptions = exceptionsSnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toMillis() || 0,
+    }))
+
+    logger.info(`找到 ${exceptions.length} 個例外需要處理`)
+
+    // ===== 步驟 2：計算影響的日期範圍 =====
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(today.getDate() + 1)
+    const sixtyDaysLater = new Date(today)
+    sixtyDaysLater.setDate(today.getDate() + 60)
+
+    // 收集所有受影響的日期
+    const affectedDates = new Set()
+
+    for (const exception of exceptions) {
+      if (exception.type === 'SUSPEND') {
+        const start = new Date(
+          Math.max(new Date(exception.startDate + 'T00:00:00Z').getTime(), tomorrow.getTime()),
+        )
+        const end = new Date(
+          Math.min(new Date(exception.endDate + 'T00:00:00Z').getTime(), sixtyDaysLater.getTime()),
+        )
+
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          affectedDates.add(formatDateForQuery(new Date(d)))
+        }
+      } else if (exception.type === 'MOVE') {
+        if (exception.from?.sourceDate) {
+          const sourceDate = new Date(exception.from.sourceDate + 'T00:00:00Z')
+          if (sourceDate >= tomorrow && sourceDate <= sixtyDaysLater) {
+            affectedDates.add(exception.from.sourceDate)
+          }
+        }
+        if (exception.to?.goalDate) {
+          const goalDate = new Date(exception.to.goalDate + 'T00:00:00Z')
+          if (goalDate >= tomorrow && goalDate <= sixtyDaysLater) {
+            affectedDates.add(exception.to.goalDate)
+          }
+        }
+      }
+    }
+
+    const datesList = Array.from(affectedDates).sort()
+    logger.info(`影響 ${datesList.length} 個日期`)
+
+    // ===== 步驟 3：讀取所有受影響日期的排程 =====
+    const scheduleMap = new Map() // key: dateStr, value: schedule data
+
+    // 批次讀取（Firestore 'in' 查詢限制30個）
+    for (let i = 0; i < datesList.length; i += 30) {
+      const batch = datesList.slice(i, i + 30)
+      const snapshot = await db.collection('schedules').where('date', 'in', batch).get()
+
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data()
+        scheduleMap.set(doc.id, data.schedule || {})
+      })
+    }
+
+    // 確保所有日期都有排程物件
+    datesList.forEach((dateStr) => {
+      if (!scheduleMap.has(dateStr)) {
+        scheduleMap.set(dateStr, {})
+      }
+    })
+
+    // ===== 步驟 4：第一階段 - 收集並執行所有刪除 =====
+    logger.info('📝 第一階段：處理所有刪除')
+
+    const deletions = new Map() // key: "dateStr|position", value: patientId
+
+    for (const exception of exceptions) {
+      if (exception.type === 'SUSPEND') {
+        // 收集暫停期間要刪除的所有位置
+        const start = new Date(
+          Math.max(new Date(exception.startDate + 'T00:00:00Z').getTime(), tomorrow.getTime()),
+        )
+        const end = new Date(
+          Math.min(new Date(exception.endDate + 'T00:00:00Z').getTime(), sixtyDaysLater.getTime()),
+        )
+
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dateStr = formatDateForQuery(new Date(d))
+          const schedule = scheduleMap.get(dateStr) || {}
+
+          // 找到該病人的位置並標記刪除
+          for (const [position, slot] of Object.entries(schedule)) {
+            if (slot.patientId === exception.patientId) {
+              deletions.set(`${dateStr}|${position}`, exception.patientId)
+              logger.info(`  └─ 標記刪除: ${dateStr} ${position} (${exception.patientName})`)
+              break
+            }
+          }
+        }
+      } else if (exception.type === 'MOVE' && exception.from) {
+        // 收集調床來源位置要刪除的
+        const { sourceDate, bedNum, shiftCode } = exception.from
+        if (scheduleMap.has(sourceDate)) {
+          const position = getScheduleKey(bedNum, shiftCode)
+          const schedule = scheduleMap.get(sourceDate)
+
+          if (schedule[position]?.patientId === exception.patientId) {
+            deletions.set(`${sourceDate}|${position}`, exception.patientId)
+            logger.info(`  └─ 標記移除: ${sourceDate} ${position} (${exception.patientName})`)
+          }
+        }
+      }
+    }
+
+    logger.info(`第一階段完成：標記了 ${deletions.size} 個位置要刪除`)
+
+    // 執行所有刪除
+    for (const [key, patientId] of deletions) {
+      const [dateStr, position] = key.split('|')
+      const schedule = scheduleMap.get(dateStr)
+
+      if (schedule && schedule[position]) {
+        delete schedule[position]
+      }
+    }
+
+    // ===== 步驟 5：第二階段 - 收集並執行所有新增 =====
+    logger.info('📝 第二階段：處理所有新增')
+
+    const additions = new Map() // key: "dateStr|position", value: slot data
+    const conflicts = []
+
+    // 按創建時間排序，確保先創建的例外有優先權
+    exceptions.sort((a, b) => a.createdAt - b.createdAt)
+
+    for (const exception of exceptions) {
+      if (exception.type === 'MOVE' && exception.to) {
+        const { goalDate, bedNum, shiftCode } = exception.to
+
+        if (scheduleMap.has(goalDate)) {
+          const position = getScheduleKey(bedNum, shiftCode)
+          const schedule = scheduleMap.get(goalDate)
+
+          // 檢查位置是否已被佔用
+          if (schedule[position]) {
+            const occupant = schedule[position]
+            conflicts.push({
+              exceptionId: exception.id,
+              date: goalDate,
+              position: position,
+              wantedBy: exception.patientName,
+              occupiedBy: occupant.patientName || occupant.patientId,
+              resolution: 'skipped',
+            })
+            logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`)
+            continue
+          }
+
+          // 檢查是否已在 additions 中（另一個例外要用）
+          const addKey = `${goalDate}|${position}`
+          if (additions.has(addKey)) {
+            const existing = additions.get(addKey)
+            conflicts.push({
+              exceptionId: exception.id,
+              date: goalDate,
+              position: position,
+              wantedBy: exception.patientName,
+              occupiedBy: existing.patientName,
+              resolution: 'skipped - 另一個例外已預約',
+            })
+            logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被另一個例外預約`)
+            continue
+          }
+
+          // 可以新增
+          additions.set(addKey, {
+            patientId: exception.patientId,
+            patientName: exception.patientName,
+            shiftId: shiftCode,
+            manualNote: '(例外調班)',
+            exceptionId: exception.id,
+            appliedAt: FieldValue.serverTimestamp(),
+          })
+
+          logger.info(`  └─ 標記新增: ${goalDate} ${position} (${exception.patientName})`)
+        }
+      }
+    }
+
+    logger.info(`第二階段完成：標記了 ${additions.size} 個位置要新增`)
+
+    // 執行所有新增
+    for (const [key, slotData] of additions) {
+      const [dateStr, position] = key.split('|')
+      const schedule = scheduleMap.get(dateStr)
+
+      if (schedule) {
+        schedule[position] = slotData
+      }
+    }
+
+    // ===== 步驟 6：批次寫回資料庫 =====
+    logger.info('💾 寫回資料庫')
+
+    const BATCH_SIZE = 400
+    let batch = db.batch()
+    let operationCount = 0
+    let totalUpdated = 0
+
+    for (const [dateStr, schedule] of scheduleMap) {
+      const docRef = db.collection('schedules').doc(dateStr)
+
+      batch.set(
+        docRef,
+        {
+          date: dateStr,
+          schedule: schedule,
+          lastModified: FieldValue.serverTimestamp(),
+          reappliedAt: FieldValue.serverTimestamp(),
+          method: 'two-phase-reapply',
+        },
+        { merge: true },
+      )
+
+      operationCount++
+      totalUpdated++
+
+      if (operationCount >= BATCH_SIZE) {
+        await batch.commit()
+        logger.info(`批次提交：${operationCount} 個操作`)
+        batch = db.batch()
+        operationCount = 0
+      }
+    }
+
+    if (operationCount > 0) {
+      await batch.commit()
+      logger.info(`最終批次：${operationCount} 個操作`)
+    }
+
+    // ===== 步驟 7：更新例外狀態 =====
+    const exceptionBatch = db.batch()
+    let exceptionCount = 0
+
+    for (const exception of exceptions) {
+      exceptionBatch.update(db.collection('schedule_exceptions').doc(exception.id), {
+        status: 'applied',
+        lastReapplied: FieldValue.serverTimestamp(),
+        reapplyMethod: 'two-phase',
+      })
+
+      exceptionCount++
+      if (exceptionCount >= BATCH_SIZE) {
+        await exceptionBatch.commit()
+        exceptionCount = 0
+        exceptionBatch = db.batch()
+      }
+    }
+
+    if (exceptionCount > 0) {
+      await exceptionBatch.commit()
+    }
+
+    // ===== 記錄結果 =====
+    await db.collection('reapply_logs').add({
+      timestamp: FieldValue.serverTimestamp(),
+      method: 'two-phase',
+      stats: {
+        totalExceptions: exceptions.length,
+        totalDeletions: deletions.size,
+        totalAdditions: additions.size,
+        totalConflicts: conflicts.length,
+        totalDatesUpdated: scheduleMap.size,
+      },
+      conflicts: conflicts.length > 0 ? conflicts : null,
+    })
+
+    logger.info(`✅ 兩階段例外處理完成：`)
+    logger.info(`  - 處理例外：${exceptions.length}`)
+    logger.info(`  - 刪除位置：${deletions.size}`)
+    logger.info(`  - 新增位置：${additions.size}`)
+    logger.info(`  - 衝突：${conflicts.length}`)
+    logger.info(`  - 更新天數：${scheduleMap.size}`)
+
+    return {
+      success: true,
+      processed: exceptions.length,
+      deletions: deletions.size,
+      additions: additions.size,
+      conflicts: conflicts.length,
+    }
+  } catch (error) {
+    logger.error('❌ [ReapplyExceptions] 兩階段處理失敗:', error)
+    throw error
+  }
 }
 
 // ===================================================================
@@ -380,7 +695,7 @@ exports.ensureFutureSchedules = onCall(
 )
 
 // ===================================================================
-// 🔥 智能整合同步 - 優化版 syncMasterScheduleToFuture
+// 🔥 基礎同步 + 兩階段例外處理（分離架構）
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -389,7 +704,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [SmartSync] 開始智能整合同步！')
+    logger.info('🚀 [BasicSync] Step 1/2: 開始基礎同步')
 
     if (!event.data.after.exists) {
       logger.info('✅ MASTER_SCHEDULE 文件已被刪除，無需執行同步。')
@@ -401,396 +716,100 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       const today = new Date()
       today.setHours(0, 0, 0, 0)
 
-      // ===== 步驟 1：建立60天的基礎模板（記憶體中）=====
-      logger.info('[SmartSync] 步驟1：生成60天基礎模板...')
-      const scheduleTemplates = new Map() // key: dateStr, value: schedule object
+      // ===== 步驟 1：生成60天基礎排程 =====
+      logger.info('[BasicSync] 生成60天基礎排程...')
+      const schedules = new Map()
 
       for (let i = 1; i <= 60; i++) {
         const targetDate = new Date()
-        targetDate.setHours(0, 0, 0, 0)
         targetDate.setDate(today.getDate() + i)
         const dateStr = formatDateForQuery(targetDate)
 
-        // 從總表規則生成當天的基礎排程
         const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
-        scheduleTemplates.set(dateStr, dailySchedule)
+        schedules.set(dateStr, dailySchedule)
       }
 
-      logger.info(`[SmartSync] ✅ 生成了 ${scheduleTemplates.size} 天的基礎模板`)
+      logger.info(`[BasicSync] 生成了 ${schedules.size} 天的基礎排程`)
 
-      // ===== 步驟 1.5：識別現有已套用的例外 =====
-      logger.info('[SmartSync] 步驟1.5：識別現有已套用的例外...')
-      const appliedExceptions = new Map() // key: dateStr_position
-
-      const tomorrow = new Date()
-      tomorrow.setDate(today.getDate() + 1)
-      const sixtyDaysLater = new Date()
-      sixtyDaysLater.setDate(today.getDate() + 60)
-
-      // 批次讀取現有排程
-      const scheduleDocs = await db
-        .collection('schedules')
-        .where('date', '>=', formatDateForQuery(tomorrow))
-        .where('date', '<=', formatDateForQuery(sixtyDaysLater))
-        .get()
-
-      for (const doc of scheduleDocs.docs) {
-        const dateStr = doc.id
-        const schedule = doc.data().schedule || {}
-
-        for (const [position, slot] of Object.entries(schedule)) {
-          // 識別已套用的例外（有 exceptionId 或 manualNote 包含"例外"）
-          if (slot.exceptionId || slot.manualNote?.includes('例外')) {
-            appliedExceptions.set(`${dateStr}_${position}`, {
-              ...slot,
-              dateStr: dateStr,
-              position: position,
-            })
-          }
-        }
-      }
-
-      logger.info(`[SmartSync] 識別了 ${appliedExceptions.size} 個已套用的例外排班`)
-
-      // ===== 步驟 2：讀取所有有效的例外，按創建時間排序 =====
-      logger.info('[SmartSync] 步驟2：讀取並排序所有例外...')
-
-      const exceptionsQuery = db
-        .collection('schedule_exceptions')
-        .where('status', 'in', ['applied', 'processing', 'pending'])
-
-      const exceptionsSnapshot = await exceptionsQuery.get()
-
-      // 過濾出影響未來60天的例外
-      const exceptions = exceptionsSnapshot.docs
-        .map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAtMillis: doc.data().createdAt?.toMillis() || 0,
-        }))
-        .filter((ex) => {
-          // SUSPEND類型：檢查是否與未來60天有交集
-          if (ex.type === 'SUSPEND') {
-            const exEnd = new Date(ex.endDate + 'T00:00:00Z')
-            return exEnd >= tomorrow // 結束日期在明天或之後
-          }
-          // MOVE類型：檢查目標日期是否在未來60天內
-          if (ex.type === 'MOVE') {
-            if (!ex.to?.goalDate) return false
-            const moveDate = new Date(ex.to.goalDate + 'T00:00:00Z')
-            return moveDate >= tomorrow && moveDate <= sixtyDaysLater
-          }
-          return false
-        })
-        .sort((a, b) => {
-          // 關鍵排序邏輯
-          // 1. 按創建時間排序（先創建的優先）
-          if (a.createdAtMillis !== b.createdAtMillis) {
-            return a.createdAtMillis - b.createdAtMillis
-          }
-          // 2. 如果時間相同，SUSPEND 優先於 MOVE（釋放床位優先）
-          if (a.type !== b.type) {
-            return a.type === 'SUSPEND' ? -1 : 1
-          }
-          // 3. MOVE類型按目標日期排序
-          if (a.type === 'MOVE' && b.type === 'MOVE') {
-            const aDate = a.to?.goalDate || '9999-12-31'
-            const bDate = b.to?.goalDate || '9999-12-31'
-            return aDate.localeCompare(bDate)
-          }
-          return 0
-        })
-
-      logger.info(`[SmartSync] 找到 ${exceptions.length} 個影響未來60天的例外，已按優先順序排序`)
-
-      // ===== 步驟 3：依序套用每個例外到模板 =====
-      logger.info('[SmartSync] 步驟3：整合例外到模板...')
-      const conflictLog = [] // 記錄衝突
-      const processedExceptions = [] // 記錄成功處理的例外
-
-      for (const exception of exceptions) {
-        logger.info(
-          `[SmartSync] 處理例外 #${exception.id} (${exception.type} - ${exception.patientName})`,
-        )
-
-        try {
-          if (exception.type === 'SUSPEND') {
-            // 處理暫停：移除指定日期範圍的病人
-            const start = new Date(exception.startDate + 'T00:00:00Z')
-            const end = new Date(exception.endDate + 'T00:00:00Z')
-            let suspendCount = 0
-
-            for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-              const dateStr = formatDateForQuery(new Date(d))
-
-              // 只處理在60天範圍內的日期
-              if (scheduleTemplates.has(dateStr)) {
-                const daySchedule = scheduleTemplates.get(dateStr)
-
-                // 找到並移除該病人的所有排班
-                for (const key in daySchedule) {
-                  if (daySchedule[key].patientId === exception.patientId) {
-                    delete daySchedule[key]
-                    suspendCount++
-                    logger.info(`  └─ 暫停：移除 ${exception.patientName} 在 ${dateStr} 的 ${key}`)
-                    break
-                  }
-                }
-              }
-            }
-
-            if (suspendCount > 0) {
-              processedExceptions.push({
-                exceptionId: exception.id,
-                type: 'SUSPEND',
-                affectedDays: suspendCount,
-              })
-            }
-          } else if (exception.type === 'MOVE') {
-            // 處理調床
-            const { from, to, patientId, patientName } = exception
-            let moveSuccess = false
-
-            // 1. 從原位置移除（如果在60天範圍內）
-            if (from?.sourceDate && scheduleTemplates.has(from.sourceDate)) {
-              const sourceSchedule = scheduleTemplates.get(from.sourceDate)
-              const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
-
-              if (sourceSchedule[sourceKey]?.patientId === patientId) {
-                delete sourceSchedule[sourceKey]
-                logger.info(`  └─ 移動：從 ${from.sourceDate} ${sourceKey} 移除 ${patientName}`)
-                moveSuccess = true
-              }
-            }
-
-            // 2. 加入到目標位置（如果在60天範圍內）
-            if (to?.goalDate && scheduleTemplates.has(to.goalDate)) {
-              const targetSchedule = scheduleTemplates.get(to.goalDate)
-              const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
-
-              // 檢查目標位置是否有衝突
-              if (targetSchedule[targetKey]) {
-                const occupant = targetSchedule[targetKey]
-
-                // 判斷衝突處理策略
-                if (occupant.exceptionId) {
-                  // 與另一個例外衝突，比較創建時間
-                  if (occupant.createdAt && occupant.createdAt > exception.createdAtMillis) {
-                    // 當前例外較早，覆蓋
-                    conflictLog.push({
-                      exceptionId: exception.id,
-                      date: to.goalDate,
-                      position: targetKey,
-                      occupiedBy: occupant.patientName,
-                      occupantExceptionId: occupant.exceptionId,
-                      action: 'override',
-                      reason: '當前例外創建時間較早，優先權較高',
-                    })
-                    logger.warn(
-                      `  └─ 衝突：將覆蓋 ${occupant.patientName} 在 ${to.goalDate} ${targetKey}`,
-                    )
-                  } else {
-                    // 當前例外較晚，跳過
-                    conflictLog.push({
-                      exceptionId: exception.id,
-                      date: to.goalDate,
-                      position: targetKey,
-                      occupiedBy: occupant.patientName,
-                      occupantExceptionId: occupant.exceptionId,
-                      action: 'skip',
-                      reason: '目標位置被較早的例外佔用',
-                    })
-                    logger.warn(
-                      `  └─ 衝突：無法移動到 ${to.goalDate} ${targetKey}，已被 ${occupant.patientName} 佔用`,
-                    )
-                    continue
-                  }
-                } else {
-                  // 與基礎排程衝突，例外優先
-                  conflictLog.push({
-                    exceptionId: exception.id,
-                    date: to.goalDate,
-                    position: targetKey,
-                    occupiedBy: occupant.patientName || occupant.patientId,
-                    action: 'override',
-                    reason: '例外覆蓋基礎排程',
-                  })
-                  logger.info(`  └─ 覆蓋基礎排程：${targetKey} 在 ${to.goalDate}`)
-                }
-              }
-
-              // 加入到目標位置
-              targetSchedule[targetKey] = {
-                patientId: patientId,
-                patientName: patientName,
-                shiftId: to.shiftCode,
-                manualNote: `(例外調班)`,
-                exceptionId: exception.id,
-                createdAt: exception.createdAtMillis,
-              }
-              logger.info(`  └─ 移動：新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
-              moveSuccess = true
-            }
-
-            if (moveSuccess) {
-              processedExceptions.push({
-                exceptionId: exception.id,
-                type: 'MOVE',
-                from: from?.sourceDate,
-                to: to?.goalDate,
-              })
-            }
-          }
-        } catch (error) {
-          logger.error(`[SmartSync] 處理例外 ${exception.id} 時發生錯誤:`, error)
-          conflictLog.push({
-            exceptionId: exception.id,
-            error: error.message,
-            action: 'error',
-          })
-        }
-      }
-
-      // ===== 步驟 3.5：確保已套用的例外被保留 =====
-      logger.info('[SmartSync] 步驟3.5：保留已套用的例外...')
-      let preservedCount = 0
-
-      for (const [key, appliedSlot] of appliedExceptions) {
-        const [dateStr, position] = key.split('_')
-
-        if (scheduleTemplates.has(dateStr)) {
-          const schedule = scheduleTemplates.get(dateStr)
-
-          // 如果這個位置沒有被處理過，保留原有的例外
-          if (!schedule[position] || !schedule[position].exceptionId) {
-            schedule[position] = appliedSlot
-            preservedCount++
-            logger.info(`  └─ 保留：${dateStr} ${position} (${appliedSlot.patientName})`)
-          }
-        }
-      }
-
-      logger.info(`[SmartSync] 保留了 ${preservedCount} 個已套用的例外`)
-
-      // ===== 步驟 4：批次寫入所有排程 =====
-      logger.info('[SmartSync] 步驟4：批次寫入排程...')
-      const BATCH_SIZE = 400 // Firestore 批次限制是 500，留點餘地
-      let batchCount = 0
+      // ===== 步驟 2：批次寫入（完全覆蓋）=====
+      logger.info('[BasicSync] 開始批次寫入...')
+      const BATCH_SIZE = 400
       let batch = db.batch()
-      let operationCount = 0
-      let totalUpdated = 0
+      let count = 0
+      let totalWritten = 0
 
-      for (const [dateStr, schedule] of scheduleTemplates) {
-        const docRef = db.collection('schedules').doc(dateStr)
-
-        // 設定文件（merge: true 保留其他欄位）
+      for (const [dateStr, schedule] of schedules) {
         batch.set(
-          docRef,
+          db.collection('schedules').doc(dateStr),
           {
             date: dateStr,
             schedule: schedule,
-            lastSynced: FieldValue.serverTimestamp(),
-            syncMethod: 'smart_integration',
-            totalSlots: Object.keys(schedule).length,
-            hasExceptions: Object.values(schedule).some((s) => s.exceptionId),
+            syncedAt: FieldValue.serverTimestamp(),
+            syncType: 'basic',
+            syncMethod: 'overwrite',
           },
-          { merge: true },
+          { merge: false }, // 完全覆蓋
         )
 
-        operationCount++
-        totalUpdated++
+        count++
+        totalWritten++
 
-        // 如果接近批次限制，提交並創建新批次
-        if (operationCount >= BATCH_SIZE) {
+        if (count >= BATCH_SIZE) {
           await batch.commit()
-          batchCount++
-          logger.info(`[SmartSync] 批次 ${batchCount} 已提交（${operationCount} 個操作）`)
-
+          logger.info(`[BasicSync] 批次提交：${count} 個文件`)
           batch = db.batch()
-          operationCount = 0
+          count = 0
         }
       }
 
-      // 提交最後的批次
-      if (operationCount > 0) {
+      if (count > 0) {
         await batch.commit()
-        batchCount++
-        logger.info(`[SmartSync] 批次 ${batchCount} 已提交（${operationCount} 個操作）`)
+        logger.info(`[BasicSync] 最終批次：${count} 個文件`)
       }
 
-      // ===== 步驟 5：更新例外狀態 =====
-      logger.info('[SmartSync] 步驟5：更新例外狀態...')
-      if (processedExceptions.length > 0) {
-        const exceptionBatch = db.batch()
-        let exceptionUpdateCount = 0
+      logger.info(`✅ [BasicSync] Step 1/2 完成：已覆蓋 ${totalWritten} 天的基礎排程`)
 
-        for (const processed of processedExceptions) {
-          const exceptionRef = db.collection('schedule_exceptions').doc(processed.exceptionId)
-          exceptionBatch.update(exceptionRef, {
-            status: 'applied',
-            appliedAt: FieldValue.serverTimestamp(),
-            syncMethod: 'smart_integration',
-            lastSyncDetails: processed,
-          })
-          exceptionUpdateCount++
+      // ===== 步驟 3：呼叫兩階段例外處理 =====
+      logger.info('🔄 [BasicSync] Step 2/2: 開始套用例外...')
 
-          // 批次限制
-          if (exceptionUpdateCount >= BATCH_SIZE) {
-            await exceptionBatch.commit()
-            logger.info(`[SmartSync] 更新了 ${exceptionUpdateCount} 個例外狀態`)
-            exceptionUpdateCount = 0
-          }
-        }
+      try {
+        const result = await reapplyAllExceptionsInternal()
 
-        if (exceptionUpdateCount > 0) {
-          await exceptionBatch.commit()
-          logger.info(`[SmartSync] 更新了 ${exceptionUpdateCount} 個例外狀態`)
-        }
+        logger.info(`✅ [BasicSync] Step 2/2 完成：處理了 ${result.processed} 個例外`)
+
+        // 記錄同步報告
+        await db.collection('sync_logs').add({
+          type: 'basic_sync_with_exceptions',
+          timestamp: FieldValue.serverTimestamp(),
+          stats: {
+            basicSync: {
+              totalDays: totalWritten,
+              method: 'overwrite',
+            },
+            exceptions: result,
+          },
+        })
+
+        logger.info('✅ [BasicSync] 全部完成！基礎同步 + 例外處理成功')
+      } catch (error) {
+        logger.error('❌ [BasicSync] Step 2/2 例外處理失敗:', error)
+
+        // 記錄錯誤但不中斷，至少基礎排程已經同步
+        await db.collection('sync_logs').add({
+          type: 'basic_sync_exception_error',
+          timestamp: FieldValue.serverTimestamp(),
+          basicSyncSuccess: true,
+          exceptionError: {
+            message: error.message,
+            stack: error.stack,
+          },
+        })
       }
-
-      // ===== 步驟 6：記錄同步報告 =====
-      const syncReport = {
-        type: 'smart_sync_complete',
-        timestamp: FieldValue.serverTimestamp(),
-        stats: {
-          totalDays: scheduleTemplates.size,
-          totalExceptions: exceptions.length,
-          processedExceptions: processedExceptions.length,
-          preservedExceptions: preservedCount,
-          totalConflicts: conflictLog.length,
-          totalUpdated: totalUpdated,
-          batchCount: batchCount,
-        },
-        conflicts: conflictLog.length > 0 ? conflictLog : null,
-        processedExceptions: processedExceptions,
-        masterRulesCount: Object.keys(masterRules).length,
-      }
-
-      await db.collection('sync_logs').add(syncReport)
-
-      // 記錄結果
-      if (conflictLog.length > 0) {
-        logger.warn(
-          `[SmartSync] ⚠️ 完成同步，處理了 ${processedExceptions.length} 個例外，發現 ${conflictLog.length} 個衝突`,
-        )
-      } else {
-        logger.info(
-          `[SmartSync] ✅ 完美同步完成！處理了 ${processedExceptions.length} 個例外，無衝突`,
-        )
-      }
-
-      logger.info(`[SmartSync] 📊 同步統計：`)
-      logger.info(`  - 更新天數：${totalUpdated}`)
-      logger.info(`  - 處理例外：${processedExceptions.length}/${exceptions.length}`)
-      logger.info(`  - 保留例外：${preservedCount}`)
-      logger.info(`  - 批次數量：${batchCount}`)
-      logger.info(`  - 衝突數量：${conflictLog.length}`)
     } catch (error) {
-      logger.error('❌ [SmartSync] 智能整合同步失敗:', error)
+      logger.error('❌ [BasicSync] 基礎同步失敗:', error)
 
-      // 記錄錯誤
       await db.collection('sync_logs').add({
-        type: 'smart_sync_error',
+        type: 'basic_sync_error',
         timestamp: FieldValue.serverTimestamp(),
         error: {
           message: error.message,
@@ -857,10 +876,20 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         }
 
         await db.runTransaction(async (transaction) => {
-          // 1. 檢查並移除原位置
+          // ===== 第一階段：執行所有讀取操作 =====
           const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
-          const sourceDoc = await transaction.get(sourceScheduleRef)
+          const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
 
+          // 同時讀取兩個文件
+          const [sourceDoc, targetDoc] = await Promise.all([
+            transaction.get(sourceScheduleRef),
+            transaction.get(targetScheduleRef),
+          ])
+
+          // ===== 第二階段：準備所有更新資料 =====
+          const updates = []
+
+          // 1. 處理來源位置
           if (sourceDoc.exists) {
             const sourceSchedule = sourceDoc.data().schedule || {}
             const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
@@ -868,11 +897,14 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             if (sourceSchedule[sourceKey]) {
               // 確認是同一個病人
               if (sourceSchedule[sourceKey].patientId === patientId) {
-                // 移除原位置
-                transaction.update(sourceScheduleRef, {
-                  [`schedule.${sourceKey}`]: FieldValue.delete(),
-                  lastModified: FieldValue.serverTimestamp(),
-                  modifiedBy: 'exception_handler',
+                // 準備移除原位置的更新
+                updates.push({
+                  ref: sourceScheduleRef,
+                  data: {
+                    [`schedule.${sourceKey}`]: FieldValue.delete(),
+                    lastModified: FieldValue.serverTimestamp(),
+                    modifiedBy: 'exception_handler',
+                  },
                 })
                 logger.info(`  └─ 移除 ${patientName} 從 ${from.sourceDate} ${sourceKey}`)
               } else {
@@ -881,16 +913,12 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             }
           }
 
-          // 2. 檢查目標位置並加入
-          const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
-          const targetDoc = await transaction.get(targetScheduleRef)
-
-          let targetSchedule = {}
+          // 2. 處理目標位置
+          const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
           let hasConflict = false
 
           if (targetDoc.exists) {
-            targetSchedule = targetDoc.data().schedule || {}
-            const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
+            const targetSchedule = targetDoc.data().schedule || {}
 
             // 檢查衝突
             if (targetSchedule[targetKey]) {
@@ -909,45 +937,58 @@ exports.handleNewExceptionRequest = onDocumentCreated(
               hasConflict = true
             }
 
-            // 加入新位置（覆蓋現有）
-            targetSchedule[targetKey] = {
-              patientId: patientId,
-              patientName: patientName,
-              shiftId: to.shiftCode,
-              manualNote: `(例外調班${hasConflict ? '-覆蓋' : ''})`,
-              exceptionId: exceptionId,
-              appliedAt: FieldValue.serverTimestamp(),
-            }
-
-            transaction.update(targetScheduleRef, {
-              [`schedule.${targetKey}`]: targetSchedule[targetKey],
-              lastModified: FieldValue.serverTimestamp(),
-              modifiedBy: 'exception_handler',
+            // 準備更新目標位置
+            updates.push({
+              ref: targetScheduleRef,
+              data: {
+                [`schedule.${targetKey}`]: {
+                  patientId: patientId,
+                  patientName: patientName,
+                  shiftId: to.shiftCode,
+                  manualNote: `(例外調班${hasConflict ? '-覆蓋' : ''})`,
+                  exceptionId: exceptionId,
+                  appliedAt: FieldValue.serverTimestamp(),
+                },
+                lastModified: FieldValue.serverTimestamp(),
+                modifiedBy: 'exception_handler',
+              },
             })
           } else {
-            // 目標日期文件不存在，創建新文件
-            const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
-            targetSchedule[targetKey] = {
-              patientId: patientId,
-              patientName: patientName,
-              shiftId: to.shiftCode,
-              manualNote: '(例外調班)',
-              exceptionId: exceptionId,
-              appliedAt: FieldValue.serverTimestamp(),
+            // 目標日期文件不存在，準備創建新文件
+            const newSchedule = {
+              [targetKey]: {
+                patientId: patientId,
+                patientName: patientName,
+                shiftId: to.shiftCode,
+                manualNote: '(例外調班)',
+                exceptionId: exceptionId,
+                appliedAt: FieldValue.serverTimestamp(),
+              },
             }
 
-            transaction.set(targetScheduleRef, {
-              date: to.goalDate,
-              schedule: targetSchedule,
-              createdAt: FieldValue.serverTimestamp(),
-              lastModified: FieldValue.serverTimestamp(),
-              modifiedBy: 'exception_handler',
+            updates.push({
+              ref: targetScheduleRef,
+              data: {
+                date: to.goalDate,
+                schedule: newSchedule,
+                createdAt: FieldValue.serverTimestamp(),
+                lastModified: FieldValue.serverTimestamp(),
+                modifiedBy: 'exception_handler',
+              },
+              isCreate: true, // 標記這是創建操作
             })
           }
 
-          logger.info(
-            `  └─ 新增 ${patientName} 到 ${to.goalDate} ${getScheduleKey(to.bedNum, to.shiftCode)}`,
-          )
+          // ===== 第三階段：執行所有寫入操作 =====
+          for (const update of updates) {
+            if (update.isCreate) {
+              transaction.set(update.ref, update.data)
+            } else {
+              transaction.update(update.ref, update.data)
+            }
+          }
+
+          logger.info(`  └─ 新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
           processedDates = [from.sourceDate, to.goalDate]
         })
 
