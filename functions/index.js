@@ -32,8 +32,9 @@ const admin = require('firebase-admin')
 
 // 適用於多環境的初始化方式
 // 從 process.env 中讀取由 Firebase 自動設定的環境變數 GCLOUD_PROJECT
+const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({
-  projectId: process.env.GCLOUD_PROJECT,
+  projectId: functionsConfig.projectId,
 })
 
 const db = admin.firestore()
