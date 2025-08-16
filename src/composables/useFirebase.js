@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useFirebase.js (✨ 最終修正版 ✨)
+// 檔案路徑: src/composables/useFirebase.js (✨ 已修正 ✨)
 
 import { initializeApp } from 'firebase/app'
 import { getAuth, connectAuthEmulator } from 'firebase/auth'
@@ -29,12 +29,13 @@ if (import.meta.env.DEV) {
   // 開發模式：創建一個普通的 Functions 實例，然後連接到本地模擬器
   console.log('👨‍💻 Running in development mode, configuring emulators...')
 
-  functions = getFunctions(app) // 先創建
+  // ✨ 修正點：即使在開發/模擬器模式下，也要指定後端函式的區域
+  functions = getFunctions(app, 'asia-east1')
 
   // 連接到本地模擬器
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableAppCheck: true })
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
-  connectFunctionsEmulator(functions, '127.0.0.1', 5001) // 再連接
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001)
 
   console.log(
     '✅ Firebase Emulators connection configured. Auth:9099, Firestore:8080, Functions:5001',

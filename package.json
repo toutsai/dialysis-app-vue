@@ -24,12 +24,12 @@
     "deploy:dev": "npm-run-all build:dev deploy:hosting:dev deploy:functions:dev deploy:rules:dev",
     "deploy:prod": "npm-run-all build deploy:hosting:prod deploy:functions:prod deploy:rules:prod",
     "// --- 其他工具 ---": "",
-    "run:init-schedules": "firebase functions:scheduler:run initializefutureschedules --project develop"
+    "run:init-schedules": "firebase functions:scheduler:run initializefutureschedules --project develop",
+    "emu": "firebase emulators:start --only firestore,auth,functions",
+    "seed": "node ./scripts/seed-firestore.cjs"
   },
   "dependencies": {
-    "@faker-js/faker": "^9.9.0",
     "firebase": "^11.10.0",
-    "firebase-admin": "^13.4.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",
     "vue": "^3.5.13",
@@ -38,10 +38,12 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",
+    "@faker-js/faker": "^9.9.0",
     "@vitejs/plugin-vue": "^5.2.3",
     "@vue/eslint-config-prettier": "^10.2.0",
     "eslint": "^9.22.0",
     "eslint-plugin-vue": "~10.0.0",
+    "firebase-admin": "^13.4.0",
     "globals": "^16.0.0",
     "npm-run-all": "^4.1.5",
     "prettier": "3.5.3",
