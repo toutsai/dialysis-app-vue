@@ -1,7 +1,24 @@
-// 【完整優化版 - 2025-08-15】
+// 【完整優化版 - 統一 asia-east1 區域 - 2025-08-16】
+
+// ===================================================================
+// 🔥 全域設定 - 必須在所有 require 之前
+// ===================================================================
+const { setGlobalOptions } = require('firebase-functions/v2')
+
+// 設定全域預設值 - 所有函數都會使用這些設定
+setGlobalOptions({
+  region: 'asia-east1', // 統一區域到台灣
+  timeoutSeconds: 60, // 預設超時時間
+  memory: '256MiB', // 預設記憶體
+  maxInstances: 100, // 最大實例數
+})
+
+// ===================================================================
+// Imports (引入模組)
+// ===================================================================
 const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
-const { onTaskDispatched } = require('firebase-functions/v2/tasks') // 🔥 新增 Task Queue import
+const { onTaskDispatched } = require('firebase-functions/v2/tasks')
 const {
   onDocumentWritten,
   onDocumentCreated,
@@ -18,10 +35,8 @@ const { getFunctions } = require('firebase-admin/functions')
 // Initialization (初始化)
 // ===================================================================
 
-// ✨✨✨ ---【核心、最終的修正】適用於多環境的初始化方式 --- ✨✨✨
-// 從 Node.js 的 process.env 中讀取由 Firebase 自動設定的環境變數 GCLOUD_PROJECT。
-// 這確保了無論您部署到哪個環境 (develop 或 production)，
-// Admin SDK 都會自動使用正確的專案 ID，從而解決 'Queue does not exist' 的根本問題。
+// 適用於多環境的初始化方式
+// 從 process.env 中讀取由 Firebase 自動設定的環境變數 GCLOUD_PROJECT
 admin.initializeApp({
   projectId: process.env.GCLOUD_PROJECT,
 })
@@ -95,7 +110,7 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
   return dailySchedule
 }
 
-// 🔥 新增輔助函式：查找例外
+// 查找例外
 async function findExceptionByPatientAndDate(patientId, targetDate) {
   try {
     const query = db
@@ -130,12 +145,14 @@ async function findExceptionByPatientAndDate(patientId, targetDate) {
 // ===================================================================
 // Scheduled Functions (定時執行的函式)
 // ===================================================================
+
+// 檢查過期的備忘錄
 exports.checkExpiredMemos = onSchedule(
   {
     schedule: 'every day 02:00',
-    timeZone: 'Asia/Taipei',
-    timeoutSeconds: 540,
-    memory: '256MiB',
+    timeZone: 'Asia/Taipei', // 保持台北時區
+    timeoutSeconds: 540, // 覆寫預設值
+    // memory 和 region 使用全域設定
   },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired memos...')
@@ -164,12 +181,13 @@ exports.checkExpiredMemos = onSchedule(
   },
 )
 
+// 清理過期的例外
 exports.cleanupExpiredExceptionsScheduled = onSchedule(
   {
     schedule: 'every day 02:05',
     timeZone: 'Asia/Taipei',
     timeoutSeconds: 300,
-    memory: '256MiB',
+    // memory 和 region 使用全域設定
   },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired schedule exceptions...')
@@ -199,12 +217,13 @@ exports.cleanupExpiredExceptionsScheduled = onSchedule(
   },
 )
 
+// 初始化未來排程
 exports.initializeFutureSchedules = onSchedule(
   {
     schedule: 'every day 03:00',
     timeZone: 'Asia/Taipei',
     timeoutSeconds: 540,
-    memory: '1GiB',
+    memory: '1GiB', // 覆寫預設記憶體
   },
   async (event) => {
     logger.info('[Scheduler] Initializing future 60-day schedules...')
@@ -259,34 +278,40 @@ exports.initializeFutureSchedules = onSchedule(
 // ===================================================================
 // Callable Functions (可由前端呼叫的函式)
 // ===================================================================
-exports.customLogin = onCall(async (request) => {
-  const { username, password } = request.data
-  if (!username || !password) {
-    throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
-  }
-  try {
-    const usersRef = db.collection('users')
-    const snapshot = await usersRef.where('username', '==', username).limit(1).get()
-    if (snapshot.empty) {
-      throw new HttpsError('not-found', '使用者名稱不存在。')
-    }
-    const userDoc = snapshot.docs[0]
-    const userData = userDoc.data()
-    if (userData.password !== password) {
-      throw new HttpsError('unauthenticated', '密碼不正確。')
-    }
-    const uid = userDoc.id
-    const customToken = await admin
-      .auth()
-      .createCustomToken(uid, { role: userData.role, name: userData.name })
-    return { token: customToken }
-  } catch (error) {
-    logger.error('[customLogin] Login function error:', error)
-    if (error instanceof HttpsError) throw error
-    throw new HttpsError('internal', '發生未知的伺服器錯誤。')
-  }
-})
 
+// 自訂登入
+exports.customLogin = onCall(
+  // 使用全域設定，不需額外配置
+  async (request) => {
+    const { username, password } = request.data
+    if (!username || !password) {
+      throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
+    }
+    try {
+      const usersRef = db.collection('users')
+      const snapshot = await usersRef.where('username', '==', username).limit(1).get()
+      if (snapshot.empty) {
+        throw new HttpsError('not-found', '使用者名稱不存在。')
+      }
+      const userDoc = snapshot.docs[0]
+      const userData = userDoc.data()
+      if (userData.password !== password) {
+        throw new HttpsError('unauthenticated', '密碼不正確。')
+      }
+      const uid = userDoc.id
+      const customToken = await admin
+        .auth()
+        .createCustomToken(uid, { role: userData.role, name: userData.name })
+      return { token: customToken }
+    } catch (error) {
+      logger.error('[customLogin] Login function error:', error)
+      if (error instanceof HttpsError) throw error
+      throw new HttpsError('internal', '發生未知的伺服器錯誤。')
+    }
+  },
+)
+
+// 更改使用者密碼
 exports.changeUserPassword = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
@@ -326,8 +351,12 @@ exports.changeUserPassword = onCall(async (request) => {
   }
 })
 
+// 確保未來排程
 exports.ensureFutureSchedules = onCall(
-  { timeoutSeconds: 300, memory: '512MiB' },
+  {
+    timeoutSeconds: 300, // 覆寫預設值
+    memory: '512MiB', // 覆寫預設值
+  },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
@@ -394,10 +423,10 @@ exports.ensureFutureSchedules = onCall(
 )
 
 // ===================================================================
-// 🔥 優化後的 Firestore Triggers (資料庫觸發的函式)
+// Firestore Triggers (資料庫觸發的函式)
 // ===================================================================
 
-// --- ✨✨✨ 智能同步總表到未來排程 (Flow 1 優化版) ✨✨✨ ---
+// 智能同步總表到未來排程
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   'base_schedules/MASTER_SCHEDULE',
   async (event) => {
@@ -499,7 +528,6 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
               logger.info(
                 `[Sync] 位置衝突 ${dateStr} ${key}：被例外 ${occupation.exception.id} 佔用`,
               )
-              // 這裡可以根據需要決定是否覆蓋，目前選擇跳過
               continue
             }
 
@@ -564,31 +592,22 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
   },
 )
 
-// --- ✨✨✨ 簡化的新例外申請處理器 (直接使用 Cloud Tasks) ✨✨✨ ---
+// 處理新例外申請
 exports.handleNewExceptionRequest = onDocumentCreated(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
     const exceptionDoc = event.data
-    if (!exceptionDoc) {
-      logger.warn('Event data is missing, exiting function.')
-      return
-    }
-
     const exceptionData = exceptionDoc.data()
     const exceptionId = exceptionDoc.id
 
     logger.info(`🚀 [NewException] 新例外申請: ${exceptionId} (${exceptionData.type})`)
 
-    if (exceptionData.status !== 'pending') {
-      logger.info(`申請 ${exceptionId} 狀態為 "${exceptionData.status}"，非 "pending"，不予處理。`)
-      return
-    }
+    if (exceptionData.status !== 'pending') return
 
-    // 更新狀態為處理中
     await exceptionDoc.ref.update({ status: 'processing' })
 
     try {
-      // 直接使用 Cloud Tasks 處理（與批量處理使用相同佇列）
+      // 使用 Cloud Tasks（現在同區域，應該會成功）
       const queue = getFunctions().taskQueue('exceptionHandlerQueueV2')
 
       const payload = {
@@ -608,23 +627,61 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         triggerMode: 'immediate_single',
       }
 
-      // 立即處理，無延遲
-      await queue.enqueue(payload, {
-        scheduleDelaySeconds: 0,
-      })
+      await queue.enqueue(payload, { scheduleDelaySeconds: 0 })
+      logger.info(`✅ [NewException] 例外 ${exceptionId} 已加入 Cloud Tasks 佇列`)
+    } catch (cloudTasksError) {
+      // Cloud Tasks 失敗時，回退到舊系統
+      logger.warn(`⚠️ [NewException] Cloud Tasks 失敗，回退到舊系統: ${cloudTasksError.message}`)
 
-      logger.info(`✅ [NewException] 例外 ${exceptionId} 已加入即時處理佇列`)
-    } catch (error) {
-      logger.error(`❌ [NewException] 處理例外 ${exceptionId} 失敗:`, error)
-      await exceptionDoc.ref.update({
-        status: 'error',
-        errorMessage: error.message,
-        lastFailedAt: FieldValue.serverTimestamp(),
-      })
+      const batch = db.batch()
+      let taskCount = 0
+
+      if (exceptionData.type === 'MOVE') {
+        const taskDocRef = db.collection('exception_tasks').doc()
+        const targetDate = exceptionData.to.goalDate
+        const taskData = {
+          parentExceptionId: exceptionId,
+          targetDate: targetDate,
+          type: exceptionData.type,
+          patientId: exceptionData.patientId,
+          patientName: exceptionData.patientName,
+          from: exceptionData.from || null,
+          to: exceptionData.to || null,
+          status: 'pending',
+          createdAt: FieldValue.serverTimestamp(),
+        }
+        batch.set(taskDocRef, taskData)
+        taskCount = 1
+      } else if (exceptionData.type === 'SUSPEND') {
+        const startDate = new Date(exceptionData.startDate + 'T00:00:00Z')
+        const endDate = new Date(exceptionData.endDate + 'T00:00:00Z')
+
+        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = formatDateForQuery(new Date(d))
+          const taskDocRef = db.collection('exception_tasks').doc()
+          const taskData = {
+            parentExceptionId: exceptionId,
+            targetDate: dateStr,
+            type: exceptionData.type,
+            patientId: exceptionData.patientId,
+            patientName: exceptionData.patientName,
+            status: 'pending',
+            createdAt: FieldValue.serverTimestamp(),
+          }
+          batch.set(taskDocRef, taskData)
+          taskCount++
+        }
+      }
+
+      if (taskCount > 0) {
+        await batch.commit()
+        logger.info(`✅ [NewException] 回退成功：為例外 ${exceptionId} 創建了 ${taskCount} 個任務`)
+      }
     }
   },
 )
 
+// 處理例外任務（舊系統備用）
 exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', async (event) => {
   const taskDoc = event.data
   if (!taskDoc) {
@@ -713,19 +770,22 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
   }
 })
 
-// --- ✨✨✨ 優化的任務分派總管 (Pub/Sub 觸發 - 流程三) ✨✨✨ ---
+// ===================================================================
+// Pub/Sub Functions
+// ===================================================================
+
+// 重新套用所有有效例外
 exports.reapplyAllActiveExceptions = onMessagePublished(
   {
     topic: 'resync-exceptions',
     timeoutSeconds: 540,
-    memory: '1GiB',
-    region: 'asia-east1',
+    memory: '1GiB', // 覆寫預設值
+    // region 使用全域設定 asia-east1
   },
   async (event) => {
     logger.info('🚀 [TaskDispatcher] 優化任務分派總管啟動！')
 
     try {
-      // 解析觸發訊息
       const messageData = event.data ? JSON.parse(Buffer.from(event.data, 'base64').toString()) : {}
       const triggerMode = messageData.mode || 'standard'
 
@@ -745,8 +805,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
       const exceptions = exceptionsSnapshot.docs
         .map((doc) => ({ id: doc.id, ...doc.data() }))
         .sort((a, b) => {
-          // 🔥 多層智能排序邏輯
-
+          // 多層智能排序邏輯
           // 1. 先按類型排序：SUSPEND 優先 (釋放床位)
           if (a.type !== b.type) {
             if (a.type === 'SUSPEND' && b.type === 'MOVE') return -1
@@ -784,7 +843,6 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
           .join(', ')}...`,
       )
 
-      // 🔥 修正：使用正確的佇列名稱
       const queue = getFunctions().taskQueue('exceptionHandlerQueueV2')
       const tasks = []
 
@@ -808,7 +866,7 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
           triggerMode: triggerMode,
         }
 
-        // 🔥 優化的延遲策略
+        // 優化的延遲策略
         let scheduleDelay = 0
 
         if (ex.type === 'SUSPEND') {
@@ -837,10 +895,13 @@ exports.reapplyAllActiveExceptions = onMessagePublished(
   },
 )
 
-// --- ✨✨✨ 優化的 Cloud Tasks 任務執行者 (Task Queue 觸發 - 流程三的子流程) ✨✨✨ ---
+// ===================================================================
+// Task Queue Functions
+// ===================================================================
+
+// Cloud Tasks 任務執行者
 exports.exceptionHandlerQueueV2 = onTaskDispatched(
   {
-    // 關鍵配置：確保任務按順序執行
     rateLimits: {
       maxConcurrentDispatches: 1, // 一次只處理一個任務
       maxDispatchesPerSecond: 1, // 每秒最多處理一個任務
@@ -851,15 +912,15 @@ exports.exceptionHandlerQueueV2 = onTaskDispatched(
       maxBackoffSeconds: 120,
       maxDoublings: 2,
     },
-    timeoutSeconds: 300,
-    memory: '512MiB',
-    region: 'asia-east1',
+    timeoutSeconds: 300, // 覆寫預設值
+    memory: '512MiB', // 覆寫預設值
+    // region 使用全域設定 asia-east1
   },
   async (req) => {
     const startTime = Date.now()
 
     try {
-      const ex = req.data // Task Queue 使用 req.data
+      const ex = req.data
 
       // 驗證輸入資料
       if (!ex || !ex.id || !ex.patientId || !ex.type) {
@@ -912,7 +973,7 @@ exports.exceptionHandlerQueueV2 = onTaskDispatched(
             const occupant = currentSchedule[targetKey]
             isConflict = true
 
-            // 🔥 智能衝突解決邏輯
+            // 智能衝突解決邏輯
             if (occupant.manualNote?.includes('例外')) {
               // 如果是另一個例外佔用，比較優先級（創建時間）
               try {
@@ -1089,15 +1150,12 @@ exports.exceptionHandlerQueueV2 = onTaskDispatched(
       // 更新例外狀態為處理失敗
       if (req.data?.id) {
         try {
-          await db
-            .collection('schedule_exceptions')
-            .doc(req.data.id)
-            .update({
-              status: 'processing_failed',
-              errorMessage: error.message,
-              lastFailedAt: FieldValue.serverTimestamp(),
-              processingTimeMs: Date.now() - startTime,
-            })
+          await db.collection('schedule_exceptions').doc(req.data.id).update({
+            status: 'processing_failed',
+            errorMessage: error.message,
+            lastFailedAt: FieldValue.serverTimestamp(),
+            processingTimeMs: processingTime,
+          })
         } catch (updateError) {
           logger.error(`[TaskWorker] Failed to update error status:`, updateError)
         }
@@ -1109,6 +1167,7 @@ exports.exceptionHandlerQueueV2 = onTaskDispatched(
   },
 )
 
+// 處理例外刪除
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
@@ -1188,172 +1247,180 @@ exports.onExceptionDeleted = onDocumentDeleted(
 // ===================================================================
 // Lab Report Functions (檢驗報告相關函式)
 // ===================================================================
-exports.processLabReport = onCall({ timeoutSeconds: 300, memory: '1GiB' }, async (request) => {
-  const XLSX = require('xlsx')
-  const allowedRoles = ['admin', 'editor', 'contributor']
-  if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
-    throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
-  }
-  const { fileName, fileContent } = request.data
-  if (!fileName || !fileContent) {
-    throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
-  }
-  logger.info(`接收到檔案 ${fileName}，開始解析...`)
-  try {
-    const buffer = Buffer.from(fileContent, 'base64')
-    const workbook = XLSX.read(buffer, { type: 'buffer' })
-    const sheetName = workbook.SheetNames[0]
-    const worksheet = workbook.Sheets[sheetName]
-    const sheetAsArray = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-    if (sheetAsArray.length < 2) {
-      throw new HttpsError('invalid-argument', 'Excel 檔案內容行數不足。')
+
+// 處理檢驗報告
+exports.processLabReport = onCall(
+  {
+    timeoutSeconds: 300, // 覆寫預設值
+    memory: '1GiB', // 覆寫預設值
+  },
+  async (request) => {
+    const XLSX = require('xlsx')
+    const allowedRoles = ['admin', 'editor', 'contributor']
+    if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
     }
-    let headerRowIndex = -1
-    let headers = []
-    for (let i = 0; i < sheetAsArray.length; i++) {
-      const row = sheetAsArray[i]
-      if (row.includes('病歷號') && row.includes('細項名稱')) {
-        headerRowIndex = i
-        headers = row
-        break
+    const { fileName, fileContent } = request.data
+    if (!fileName || !fileContent) {
+      throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
+    }
+    logger.info(`接收到檔案 ${fileName}，開始解析...`)
+    try {
+      const buffer = Buffer.from(fileContent, 'base64')
+      const workbook = XLSX.read(buffer, { type: 'buffer' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const sheetAsArray = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+      if (sheetAsArray.length < 2) {
+        throw new HttpsError('invalid-argument', 'Excel 檔案內容行數不足。')
       }
-    }
-    if (headerRowIndex === -1) {
-      throw new HttpsError(
-        'invalid-argument',
-        "找不到有效的標題行 (需包含 '病歷號' 和 '細項名稱')。",
-      )
-    }
-    const dataRows = sheetAsArray.slice(headerRowIndex + 1)
-    const headerToIndex = {}
-    headers.forEach((header, index) => {
-      if (header) headerToIndex[String(header).trim()] = index
-    })
-    const labItemMapping = {
-      白血球: 'WBC',
-      紅血球: 'RBC',
-      血色素: 'Hb',
-      血球容積比: 'Hct',
-      平均紅血球容積: 'MCV',
-      平均紅血球血紅素量: 'MCH',
-      平均紅血球血紅素濃度: 'MCHC',
-      血小板: 'Platelet',
-      '總膽固醇(血)': 'Cholesterol',
-      'BUN(Blood)': 'BUN',
-      '三酸甘油酯(血)': 'Triglyceride',
-      飯前血糖: 'GlucoseAC',
-      'Calcium(Blood)': 'Ca',
-      磷: 'P',
-      'Uric Acid (B)': 'UricAcid',
-      eGFR: 'eGFR',
-      '肌酐、血(洗腎專用)': 'Creatinine',
-      血中鈉: 'Na',
-      血中鉀: 'K',
-      總鐵結合能力TIBC: 'TIBC',
-      Iron: 'Iron',
-      '白蛋白(BCG法)': 'Albumin',
-      '總蛋白(血)': 'TotalProtein',
-      高密度脂蛋白: 'HDL',
-      低密度脂蛋白: 'LDL',
-      副甲狀腺素: 'iPTH',
-      '血中尿素氮(洗後專用)': 'PostBUN',
-      鐵蛋白: 'Ferritin',
-    }
-    const reports = new Map()
-    let errors = []
-    const patientCache = new Map()
-    for (const rowArray of dataRows) {
-      let medicalRecordNumber = String(rowArray[headerToIndex['病歷號']] || '').trim()
-      if (medicalRecordNumber) {
-        medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
+      let headerRowIndex = -1
+      let headers = []
+      for (let i = 0; i < sheetAsArray.length; i++) {
+        const row = sheetAsArray[i]
+        if (row.includes('病歷號') && row.includes('細項名稱')) {
+          headerRowIndex = i
+          headers = row
+          break
+        }
       }
-      const reportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
-      const labItemName = String(rowArray[headerToIndex['細項名稱']] || '').trim()
-      const labResult = rowArray[headerToIndex['結果']]
-      if (
-        !medicalRecordNumber ||
-        !reportDateStr ||
-        !labItemName ||
-        labResult === undefined ||
-        labResult === null
-      ) {
-        if (
-          rowArray.every(
-            (cell) => cell === null || cell === undefined || String(cell).trim() === '',
-          )
+      if (headerRowIndex === -1) {
+        throw new HttpsError(
+          'invalid-argument',
+          "找不到有效的標題行 (需包含 '病歷號' 和 '細項名稱')。",
         )
-          continue
-        errors.push({
-          rowData: JSON.stringify(rowArray),
-          reason: '該行缺少 病歷號/報告日/細項名稱/結果',
-        })
-        continue
       }
-      const reportKey = `${medicalRecordNumber}_${reportDateStr}`
-      if (!reports.has(reportKey)) {
-        let patientDoc
-        if (patientCache.has(medicalRecordNumber)) {
-          patientDoc = patientCache.get(medicalRecordNumber)
-        } else {
-          const patientQuery = await db
-            .collection('patients')
-            .where('medicalRecordNumber', '==', medicalRecordNumber)
-            .limit(1)
-            .get()
-          if (patientQuery.empty) {
-            patientCache.set(medicalRecordNumber, null)
+      const dataRows = sheetAsArray.slice(headerRowIndex + 1)
+      const headerToIndex = {}
+      headers.forEach((header, index) => {
+        if (header) headerToIndex[String(header).trim()] = index
+      })
+      const labItemMapping = {
+        白血球: 'WBC',
+        紅血球: 'RBC',
+        血色素: 'Hb',
+        血球容積比: 'Hct',
+        平均紅血球容積: 'MCV',
+        平均紅血球血紅素量: 'MCH',
+        平均紅血球血紅素濃度: 'MCHC',
+        血小板: 'Platelet',
+        '總膽固醇(血)': 'Cholesterol',
+        'BUN(Blood)': 'BUN',
+        '三酸甘油酯(血)': 'Triglyceride',
+        飯前血糖: 'GlucoseAC',
+        'Calcium(Blood)': 'Ca',
+        磷: 'P',
+        'Uric Acid (B)': 'UricAcid',
+        eGFR: 'eGFR',
+        '肌酐、血(洗腎專用)': 'Creatinine',
+        血中鈉: 'Na',
+        血中鉀: 'K',
+        總鐵結合能力TIBC: 'TIBC',
+        Iron: 'Iron',
+        '白蛋白(BCG法)': 'Albumin',
+        '總蛋白(血)': 'TotalProtein',
+        高密度脂蛋白: 'HDL',
+        低密度脂蛋白: 'LDL',
+        副甲狀腺素: 'iPTH',
+        '血中尿素氮(洗後專用)': 'PostBUN',
+        鐵蛋白: 'Ferritin',
+      }
+      const reports = new Map()
+      let errors = []
+      const patientCache = new Map()
+      for (const rowArray of dataRows) {
+        let medicalRecordNumber = String(rowArray[headerToIndex['病歷號']] || '').trim()
+        if (medicalRecordNumber) {
+          medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
+        }
+        const reportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
+        const labItemName = String(rowArray[headerToIndex['細項名稱']] || '').trim()
+        const labResult = rowArray[headerToIndex['結果']]
+        if (
+          !medicalRecordNumber ||
+          !reportDateStr ||
+          !labItemName ||
+          labResult === undefined ||
+          labResult === null
+        ) {
+          if (
+            rowArray.every(
+              (cell) => cell === null || cell === undefined || String(cell).trim() === '',
+            )
+          )
+            continue
+          errors.push({
+            rowData: JSON.stringify(rowArray),
+            reason: '該行缺少 病歷號/報告日/細項名稱/結果',
+          })
+          continue
+        }
+        const reportKey = `${medicalRecordNumber}_${reportDateStr}`
+        if (!reports.has(reportKey)) {
+          let patientDoc
+          if (patientCache.has(medicalRecordNumber)) {
+            patientDoc = patientCache.get(medicalRecordNumber)
           } else {
-            patientDoc = patientQuery.docs[0]
-            patientCache.set(medicalRecordNumber, patientDoc)
+            const patientQuery = await db
+              .collection('patients')
+              .where('medicalRecordNumber', '==', medicalRecordNumber)
+              .limit(1)
+              .get()
+            if (patientQuery.empty) {
+              patientCache.set(medicalRecordNumber, null)
+            } else {
+              patientDoc = patientQuery.docs[0]
+              patientCache.set(medicalRecordNumber, patientDoc)
+            }
+          }
+          if (!patientDoc) {
+            errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
+            continue
+          }
+          const year = reportDateStr.substring(0, 4)
+          const month = reportDateStr.substring(4, 6)
+          const day = reportDateStr.substring(6, 8)
+          let parsedDate = new Date(`${year}-${month}-${day}`)
+          if (isNaN(parsedDate.getTime())) {
+            parsedDate = new Date()
+          }
+          reports.set(reportKey, {
+            patientId: patientDoc.id,
+            patientName: patientDoc.data().name,
+            medicalRecordNumber: patientDoc.data().medicalRecordNumber,
+            reportDate: parsedDate,
+            sourceFile: fileName,
+            createdAt: FieldValue.serverTimestamp(),
+            data: {},
+          })
+        }
+        const report = reports.get(reportKey)
+        if (report) {
+          const dbField = labItemMapping[labItemName]
+          if (dbField) {
+            const value = parseFloat(labResult)
+            report.data[dbField] = isNaN(value) ? String(labResult) : value
           }
         }
-        if (!patientDoc) {
-          errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
-          continue
-        }
-        const year = reportDateStr.substring(0, 4)
-        const month = reportDateStr.substring(4, 6)
-        const day = reportDateStr.substring(6, 8)
-        let parsedDate = new Date(`${year}-${month}-${day}`)
-        if (isNaN(parsedDate.getTime())) {
-          parsedDate = new Date()
-        }
-        reports.set(reportKey, {
-          patientId: patientDoc.id,
-          patientName: patientDoc.data().name,
-          medicalRecordNumber: patientDoc.data().medicalRecordNumber,
-          reportDate: parsedDate,
-          sourceFile: fileName,
-          createdAt: FieldValue.serverTimestamp(),
-          data: {},
-        })
       }
-      const report = reports.get(reportKey)
-      if (report) {
-        const dbField = labItemMapping[labItemName]
-        if (dbField) {
-          const value = parseFloat(labResult)
-          report.data[dbField] = isNaN(value) ? String(labResult) : value
+      if (reports.size > 0) {
+        const batch = db.batch()
+        for (const reportData of reports.values()) {
+          const newReportRef = db.collection('lab_reports').doc()
+          batch.set(newReportRef, reportData)
         }
+        await batch.commit()
       }
-    }
-    if (reports.size > 0) {
-      const batch = db.batch()
-      for (const reportData of reports.values()) {
-        const newReportRef = db.collection('lab_reports').doc()
-        batch.set(newReportRef, reportData)
+      return {
+        success: true,
+        message: `處理完成！成功聚合並匯入 ${reports.size} 份報告，發現 ${errors.length} 個問題行。`,
+        processedCount: reports.size,
+        errorCount: errors.length,
+        errors: errors.slice(0, 50),
       }
-      await batch.commit()
+    } catch (error) {
+      logger.error(`處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
     }
-    return {
-      success: true,
-      message: `處理完成！成功聚合並匯入 ${reports.size} 份報告，發現 ${errors.length} 個問題行。`,
-      processedCount: reports.size,
-      errorCount: errors.length,
-      errors: errors.slice(0, 50),
-    }
-  } catch (error) {
-    logger.error(`處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
-    throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
-  }
-})
+  },
+)
