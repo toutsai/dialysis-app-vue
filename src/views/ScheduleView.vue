@@ -1826,7 +1826,7 @@ function executeAutoAssignment() {
   const lateTeamsToUse = baseTeams.filter((t) => t <= 'H').map((t) => `晚${t}`)
   const lateRules = {
     priorityTeams: {
-      hepatitis: '晚G',
+      hepatitis: '晚F',
       inPatientTeams: ['晚H'],
       inPatientCapacity: { 晚H: 2 },
     },
