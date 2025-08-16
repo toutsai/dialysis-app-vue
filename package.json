@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "// --- 開發與建構 (已根據您的命名習慣修正) ---": "",
-    "dev": "vite --mode local",
+    "dev": "vite --mode emulator",
     "build": "vite build --mode production",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
