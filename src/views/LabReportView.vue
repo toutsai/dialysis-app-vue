@@ -324,7 +324,6 @@
 <script setup>
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getFunctions, httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
 import {
   where,
@@ -334,11 +333,9 @@ import {
   getDocs,
   query as firestoreQuery,
 } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db, functions } from '@/composables/useFirebase.js'
 import * as XLSX from 'xlsx'
 import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
-
-// [核心修正 1/3] 引入我們的新工具函式
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 
 // --- Router and State ---
@@ -901,7 +898,7 @@ async function handleUpload() {
   searchedForMissing.value = false
   try {
     const fileContentBase64 = await toBase64(selectedFile.value)
-    const functions = getFunctions()
+    // ✨ 3. 直接使用從 useFirebase 引入的、已配置好區域的 functions 物件
     const processLabReport = httpsCallable(functions, 'processLabReport')
     const result = await processLabReport({
       fileName: selectedFile.value.name,

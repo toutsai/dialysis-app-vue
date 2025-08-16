@@ -112,17 +112,15 @@ import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import { getFunctions, httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db, functions } from '@/composables/useFirebase.js'
 
 const patientsApi = ApiManager('patients')
 const router = useRouter()
 const route = useRoute()
 const { currentUser, logout, isAdmin } = useAuth()
-// [核心修改] 從 useRealtimeNotifications 中不再需要 remove/delete 函式
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
@@ -213,7 +211,7 @@ const triggerScheduleCheck = async () => {
   }
   console.log('🚀 [MainLayout] Triggering cloud function ensureFutureSchedules...')
   try {
-    const functions = getFunctions()
+    // ✨ 3. 直接使用從 useFirebase 引入的、已配置好區域的 functions 物件
     const ensureSchedules = httpsCallable(functions, 'ensureFutureSchedules')
     const result = await ensureSchedules()
     console.log('✅ [MainLayout] Cloud function executed successfully:', result.data)
