@@ -1,4 +1,4 @@
-// 【完整優化版 - 統一 asia-east1 區域 + 智能整合同步 - 2025-08-16】
+// 【最終優化簡化版 - 統一 asia-east1 區域 + 智能整合同步 - 2025-08-16】
 
 // ===================================================================
 // 🔥 全域設定 - 必須在所有 require 之前
@@ -16,20 +16,15 @@ setGlobalOptions({
 // ===================================================================
 // Imports (引入模組)
 // ===================================================================
-const { onCall, HttpsError, onRequest } = require('firebase-functions/v2/https')
+const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
-const { onTaskDispatched } = require('firebase-functions/v2/tasks')
 const {
   onDocumentWritten,
   onDocumentCreated,
   onDocumentDeleted,
 } = require('firebase-functions/v2/firestore')
-const { onMessagePublished } = require('firebase-functions/v2/pubsub')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
-const _ = require('lodash')
-const { PubSub } = require('@google-cloud/pubsub')
-const { getFunctions } = require('firebase-admin/functions')
 
 // ===================================================================
 // Initialization (初始化)
@@ -43,8 +38,6 @@ admin.initializeApp({
 
 const db = admin.firestore()
 const { FieldValue } = require('firebase-admin/firestore')
-
-let pubsub
 
 // ===================================================================
 // Helper Functions (輔助函式)
@@ -119,9 +112,8 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
 exports.checkExpiredMemos = onSchedule(
   {
     schedule: 'every day 02:00',
-    timeZone: 'Asia/Taipei', // 保持台北時區
-    timeoutSeconds: 540, // 覆寫預設值
-    // memory 和 region 使用全域設定
+    timeZone: 'Asia/Taipei',
+    timeoutSeconds: 540,
   },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired memos...')
@@ -156,7 +148,6 @@ exports.cleanupExpiredExceptionsScheduled = onSchedule(
     schedule: 'every day 02:05',
     timeZone: 'Asia/Taipei',
     timeoutSeconds: 300,
-    // memory 和 region 使用全域設定
   },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired schedule exceptions...')
@@ -192,7 +183,7 @@ exports.initializeFutureSchedules = onSchedule(
     schedule: 'every day 03:00',
     timeZone: 'Asia/Taipei',
     timeoutSeconds: 540,
-    memory: '1GiB', // 覆寫預設記憶體
+    memory: '1GiB',
   },
   async (event) => {
     logger.info('[Scheduler] Initializing future 60-day schedules...')
@@ -249,36 +240,33 @@ exports.initializeFutureSchedules = onSchedule(
 // ===================================================================
 
 // 自訂登入
-exports.customLogin = onCall(
-  // 使用全域設定，不需額外配置
-  async (request) => {
-    const { username, password } = request.data
-    if (!username || !password) {
-      throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
+exports.customLogin = onCall(async (request) => {
+  const { username, password } = request.data
+  if (!username || !password) {
+    throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
+  }
+  try {
+    const usersRef = db.collection('users')
+    const snapshot = await usersRef.where('username', '==', username).limit(1).get()
+    if (snapshot.empty) {
+      throw new HttpsError('not-found', '使用者名稱不存在。')
     }
-    try {
-      const usersRef = db.collection('users')
-      const snapshot = await usersRef.where('username', '==', username).limit(1).get()
-      if (snapshot.empty) {
-        throw new HttpsError('not-found', '使用者名稱不存在。')
-      }
-      const userDoc = snapshot.docs[0]
-      const userData = userDoc.data()
-      if (userData.password !== password) {
-        throw new HttpsError('unauthenticated', '密碼不正確。')
-      }
-      const uid = userDoc.id
-      const customToken = await admin
-        .auth()
-        .createCustomToken(uid, { role: userData.role, name: userData.name })
-      return { token: customToken }
-    } catch (error) {
-      logger.error('[customLogin] Login function error:', error)
-      if (error instanceof HttpsError) throw error
-      throw new HttpsError('internal', '發生未知的伺服器錯誤。')
+    const userDoc = snapshot.docs[0]
+    const userData = userDoc.data()
+    if (userData.password !== password) {
+      throw new HttpsError('unauthenticated', '密碼不正確。')
     }
-  },
-)
+    const uid = userDoc.id
+    const customToken = await admin
+      .auth()
+      .createCustomToken(uid, { role: userData.role, name: userData.name })
+    return { token: customToken }
+  } catch (error) {
+    logger.error('[customLogin] Login function error:', error)
+    if (error instanceof HttpsError) throw error
+    throw new HttpsError('internal', '發生未知的伺服器錯誤。')
+  }
+})
 
 // 更改使用者密碼
 exports.changeUserPassword = onCall(async (request) => {
@@ -323,8 +311,8 @@ exports.changeUserPassword = onCall(async (request) => {
 // 確保未來排程
 exports.ensureFutureSchedules = onCall(
   {
-    timeoutSeconds: 300, // 覆寫預設值
-    memory: '512MiB', // 覆寫預設值
+    timeoutSeconds: 300,
+    memory: '512MiB',
   },
   async (request) => {
     if (!request.auth) {
@@ -495,7 +483,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
           return false
         })
         .sort((a, b) => {
-          // 🔥 關鍵排序邏輯
+          // 關鍵排序邏輯
           // 1. 按創建時間排序（先創建的優先）
           if (a.createdAtMillis !== b.createdAtMillis) {
             return a.createdAtMillis - b.createdAtMillis
@@ -1099,27 +1087,34 @@ exports.handleNewExceptionRequest = onDocumentCreated(
   },
 )
 
+// ===================================================================
 // 處理例外刪除（恢復原始排程）
+// ===================================================================
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [Reverter v2] 例外恢復處理器啟動: ${exceptionId}`)
+    logger.info(`🚀 [Reverter] 例外恢復處理器啟動: ${exceptionId}`)
+
     if (!deletedException || !deletedException.patientId || !deletedException.type) {
-      logger.error(`❌ [Reverter v2] 失敗：被刪除的例外資料不完整。`, deletedException)
+      logger.error(`❌ [Reverter] 失敗：被刪除的例外資料不完整。`, deletedException)
       return
     }
+
     const { patientId } = deletedException
+
     try {
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       if (!masterScheduleDoc.exists) {
-        logger.error('❌ [Reverter v2] 嚴重錯誤：找不到總表規則，無法恢復排班。')
+        logger.error('❌ [Reverter] 嚴重錯誤：找不到總表規則，無法恢復排班。')
         return
       }
+
       const masterRules = masterScheduleDoc.data().schedule || {}
       const patientRule = masterRules[patientId]
       let affectedDates = []
+
       if (deletedException.type === 'MOVE') {
         const dates = new Set()
         if (deletedException.from?.sourceDate) dates.add(deletedException.from.sourceDate)
@@ -1134,29 +1129,41 @@ exports.onExceptionDeleted = onDocumentDeleted(
           }
         }
       }
+
       const restorePromises = affectedDates.map((dateStr) => {
         const scheduleRef = db.collection('schedules').doc(dateStr)
         return db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
           if (!scheduleDoc.exists) return
+
           const currentSchedule = scheduleDoc.data().schedule || {}
-          const updates = {}
+          const updates = {
+            lastModified: FieldValue.serverTimestamp(),
+            modifiedBy: 'exception_reverter',
+          }
+
+          // 移除該病人的現有排班
           for (const key in currentSchedule) {
             if (currentSchedule[key].patientId === patientId) {
               updates[`schedule.${key}`] = FieldValue.delete()
             }
           }
+
+          // 如果有原始規則，恢復原始排班
           if (patientRule && patientRule.freq) {
             const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
             const targetDate = new Date(dateStr + 'T00:00:00Z')
             const dayOfWeek = targetDate.getDay()
             const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+
             if (freqDays.includes(systemDayIndex)) {
               const { bedNum, shiftIndex, autoNote, manualNote } = patientRule
               const shiftCode = SHIFTS[shiftIndex]
               const scheduleKey = getScheduleKey(bedNum, shiftCode)
+
               updates[`schedule.${scheduleKey}`] = {
                 patientId: patientId,
+                patientName: patientRule.patientName || '',
                 shiftId: shiftCode,
                 autoNote: autoNote || '',
                 manualNote: manualNote || '',
@@ -1164,20 +1171,23 @@ exports.onExceptionDeleted = onDocumentDeleted(
               }
             }
           }
+
           if (Object.keys(updates).length > 0) {
             transaction.update(scheduleRef, updates)
           }
         })
       })
+
       await Promise.all(restorePromises)
+      logger.info(`✅ [Reverter] 成功恢復 ${affectedDates.length} 天的排程`)
     } catch (error) {
-      logger.error(`❌ [Reverter v2] 恢復例外 ${exceptionId} 時發生錯誤:`, error)
+      logger.error(`❌ [Reverter] 恢復例外 ${exceptionId} 時發生錯誤:`, error)
     }
   },
 )
 
 // ===================================================================
-// 處理例外任務（舊系統備用 - 保留以防 Cloud Tasks 失敗）
+// 處理例外任務（舊系統備用 - 保留以防需要）
 // ===================================================================
 exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', async (event) => {
   const taskDoc = event.data
@@ -1190,7 +1200,7 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
   const parentExceptionRef = db.collection('schedule_exceptions').doc(taskData.parentExceptionId)
 
   logger.info(
-    `👷 [ExceptionWorker] 開始處理任務: ${taskId} (來自申請 ${taskData.parentExceptionId})`,
+    `👷 [ExceptionWorker-Legacy] 開始處理任務: ${taskId} (來自申請 ${taskData.parentExceptionId})`,
   )
 
   if (taskData.status !== 'pending') {
@@ -1257,8 +1267,10 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
         appliedAt: FieldValue.serverTimestamp(),
       })
     }
+
+    logger.info(`✅ [ExceptionWorker-Legacy] 任務 ${taskId} 處理完成`)
   } catch (error) {
-    logger.error(`❌ [ExceptionWorker] 處理任務 ${taskId} 失敗:`, error)
+    logger.error(`❌ [ExceptionWorker-Legacy] 處理任務 ${taskId} 失敗:`, error)
     await taskDoc.ref.update({ status: 'error', errorMessage: error.message })
     await parentExceptionRef.update({
       status: 'error',
@@ -1274,8 +1286,8 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 // 處理檢驗報告
 exports.processLabReport = onCall(
   {
-    timeoutSeconds: 300, // 覆寫預設值
-    memory: '1GiB', // 覆寫預設值
+    timeoutSeconds: 300,
+    memory: '1GiB',
   },
   async (request) => {
     const XLSX = require('xlsx')
@@ -1447,10 +1459,3 @@ exports.processLabReport = onCall(
     }
   },
 )
-
-// ===================================================================
-// 🔥 以下函數已被優化方案取代，可以刪除或保留作為備用
-// ===================================================================
-
-// exports.reapplyAllActiveExceptions = ... // 已被智能整合同步取代
-// exports.exceptionHandlerQueueV2 = ... // 已被即時處理取代
