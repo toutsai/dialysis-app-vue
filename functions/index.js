@@ -1,21 +1,7 @@
-// 【最終優化簡化版 - 分離架構：基礎同步 + 兩階段例外處理 - 2025-08-16】
-
-// ===================================================================
-// 🔥 全域設定 - 必須在所有 require 之前
-// ===================================================================
+// functions/index.js (✨ K-IDIT 數據追溯增強版 ✨)
+// ... (所有頂部引入和設定保持不變) ...
 const { setGlobalOptions } = require('firebase-functions/v2')
-
-// 設定全域預設值 - 所有函數都會使用這些設定
-setGlobalOptions({
-  region: 'asia-east1', // 統一區域到台灣
-  timeoutSeconds: 60, // 預設超時時間
-  memory: '256MiB', // 預設記憶體
-  maxInstances: 100, // 最大實例數
-})
-
-// ===================================================================
-// Imports (引入模組)
-// ===================================================================
+setGlobalOptions({ region: 'asia-east1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 100 })
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const {
@@ -25,35 +11,22 @@ const {
 } = require('firebase-functions/v2/firestore')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
-
-// ===================================================================
-// Initialization (初始化)
-// ===================================================================
-
-// 適用於多環境的初始化方式
-// 從 process.env 中讀取由 Firebase 自動設定的環境變數 GCLOUD_PROJECT
-admin.initializeApp({
-  projectId: process.env.GCLOUD_PROJECT,
-})
-
+const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
+admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
 const { FieldValue } = require('firebase-admin/firestore')
 
-// ===================================================================
-// Helper Functions (輔助函式)
-// ===================================================================
+// ... (所有輔助函式，如 formatDateForQuery 等，保持不變) ...
 function formatDateForQuery(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
   const day = date.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
 const getScheduleKey = (bedNum, shiftCode) => {
   const prefix = String(bedNum).startsWith('peripheral') ? '' : 'bed-'
   return `${prefix}${bedNum}-${shiftCode}`
 }
-
 const FREQ_MAP_TO_DAY_INDEX = {
   一三五: [0, 2, 4],
   二四六: [1, 3, 5],
@@ -64,33 +37,26 @@ const FREQ_MAP_TO_DAY_INDEX = {
   二六: [1, 5],
 }
 const SHIFTS = ['early', 'noon', 'late']
-
 function generateDailyScheduleFromRules(masterRules, targetDate) {
-  const dailySchedule = {}
+  /* ... no change ... */ const dailySchedule = {}
   const dayOfWeek = targetDate.getDay()
   const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-
   for (const patientId in masterRules) {
     const rule = masterRules[patientId]
     if (!rule || !rule.freq) continue
-
     const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
-
     if (freqDays.includes(systemDayIndex)) {
       const { bedNum, shiftIndex } = rule
       const shiftCode = SHIFTS[shiftIndex]
-
       if (bedNum === undefined || shiftCode === undefined) {
         logger.warn(
           `[generateDaily] Rule for patient ${patientId} is missing bedNum or shiftIndex, skipping.`,
         )
         continue
       }
-
       const dailyShiftId = String(bedNum).startsWith('peripheral')
         ? `${bedNum}-${shiftCode}`
         : `bed-${bedNum}-${shiftCode}`
-
       dailySchedule[dailyShiftId] = {
         patientId: patientId,
         patientName: rule.patientName || '',
@@ -103,15 +69,9 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
   }
   return dailySchedule
 }
-
-// ===================================================================
-// 🔥 兩階段例外處理 - 內部函數 (全新簡化版)
-// ===================================================================
 async function reapplyAllExceptionsInternal(baseSchedules) {
-  logger.info('🔄 [ReapplyExceptions] 開始兩階段例外處理')
-
+  /* ... no change ... */ logger.info('🔄 [ReapplyExceptions] 開始兩階段例外處理')
   try {
-    // ===== 步驟 1：讀取所有有效的例外 =====
     const exceptionsSnapshot = await db
       .collection('schedule_exceptions')
       .where('status', 'in', ['applied', 'pending', 'processing', 'conflict_requires_resolution'])
@@ -126,11 +86,7 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
       createdAt: doc.data().createdAt?.toMillis() || 0,
     }))
     logger.info(`找到 ${exceptions.length} 個例外需要處理`)
-
-    // 複製一份基礎排程來進行修改，避免污染原始物件
     const modifiedSchedules = new Map(JSON.parse(JSON.stringify(Array.from(baseSchedules))))
-
-    // ===== 步驟 2：第一階段 - 處理所有刪除 =====
     logger.info('📝 第一階段：處理所有刪除')
     let deletionsCount = 0
     for (const exception of exceptions) {
@@ -165,12 +121,10 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
       }
     }
     logger.info(`第一階段完成：標記了 ${deletionsCount} 個位置要刪除`)
-
-    // ===== 步驟 3：第二階段 - 處理所有新增 =====
     logger.info('📝 第二階段：處理所有新增')
     const conflicts = []
     let additionsCount = 0
-    exceptions.sort((a, b) => a.createdAt - b.createdAt) // 按創建時間排序
+    exceptions.sort((a, b) => a.createdAt - b.createdAt)
     for (const exception of exceptions) {
       if (exception.type === 'MOVE' && exception.to) {
         const { goalDate, bedNum, shiftCode } = exception.to
@@ -187,7 +141,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
               occupiedBy: occupant.patientName || occupant.patientId,
             })
             logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`)
-            // 更新衝突的例外狀態
             await db
               .collection('schedule_exceptions')
               .doc(exception.id)
@@ -206,7 +159,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           }
           additionsCount++
           logger.info(`  └─ 標記新增: ${goalDate} ${position} (${exception.patientName})`)
-          // 更新成功的例外狀態
           if (exception.status !== 'applied') {
             await db
               .collection('schedule_exceptions')
@@ -219,8 +171,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
     logger.info(
       `第二階段完成：標記了 ${additionsCount} 個位置要新增，發現 ${conflicts.length} 個衝突。`,
     )
-
-    // 返回最終修改後的排程和統計數據
     return {
       success: true,
       processed: exceptions.length,
@@ -233,19 +183,76 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
   }
 }
 
-// ===================================================================
-// Scheduled Functions (定時執行的函式)
-// ===================================================================
+// --- ✨ 核心修正: onDocumentWritten for patients ✨ ---
+exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
+  const patientId = event.params.patientId
+  const beforeData = event.data?.before.data()
+  const afterData = event.data?.after.data()
 
-// 檢查過期的備忘錄
+  // 輔助函式，用來建立快照物件
+  const createSnapshot = (data) => ({
+    // ✨ 核心修正: 將 medicalRecordNumber 加入快照
+    medicalRecordNumber: data.medicalRecordNumber || null,
+    firstDialysisDate: data.firstDialysisDate || null,
+    vascAccess: data.vascAccess || null,
+    accessCreationDate: data.accessCreationDate || null,
+    hospitalInfo: data.hospitalInfo || { source: '', transferOut: '' },
+    inpatientReason: data.inpatientReason || null,
+    dialysisReason: data.dialysisReason || null,
+  })
+
+  if (!beforeData && afterData) {
+    logger.info(`[History] 新增病人 ${afterData.name} (ID: ${patientId})`)
+    return db.collection('patient_history').add({
+      patientId,
+      patientName: afterData.name,
+      timestamp: FieldValue.serverTimestamp(),
+      eventType: 'CREATE',
+      eventDetails: { status: afterData.status },
+      snapshot: createSnapshot(afterData),
+    })
+  }
+
+  if (beforeData && afterData && beforeData.isDeleted === false && afterData.isDeleted === true) {
+    logger.info(`[History] 刪除病人 ${afterData.name} (ID: ${patientId})`)
+    return db.collection('patient_history').add({
+      patientId,
+      patientName: afterData.name,
+      timestamp: FieldValue.serverTimestamp(),
+      eventType: 'DELETE',
+      eventDetails: {
+        reason: afterData.deleteReason || '未知',
+        fromStatus: beforeData.status,
+      },
+      snapshot: createSnapshot(afterData),
+    })
+  }
+
+  if (beforeData && afterData && beforeData.status !== afterData.status) {
+    logger.info(
+      `[History] 轉移病人 ${afterData.name} 從 ${beforeData.status} 到 ${afterData.status}`,
+    )
+    return db.collection('patient_history').add({
+      patientId,
+      patientName: afterData.name,
+      timestamp: FieldValue.serverTimestamp(),
+      eventType: 'TRANSFER',
+      eventDetails: {
+        from: beforeData.status,
+        to: afterData.status,
+      },
+      snapshot: createSnapshot(afterData),
+    })
+  }
+
+  return null
+})
+
+// ... (所有其他函式，如 checkExpiredMemos, customLogin, syncMasterScheduleToFuture 等，保持不變) ...
 exports.checkExpiredMemos = onSchedule(
-  {
-    schedule: 'every day 02:00',
-    timeZone: 'Asia/Taipei',
-    timeoutSeconds: 540,
-  },
+  { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540 },
   async (event) => {
-    logger.info('[Scheduler] Running daily check for expired memos...')
+    /* ... no change ... */ logger.info('[Scheduler] Running daily check for expired memos...')
     const todayStr = formatDateForQuery(new Date())
     try {
       const query = db
@@ -270,16 +277,12 @@ exports.checkExpiredMemos = onSchedule(
     return null
   },
 )
-
-// 清理過期的例外
 exports.cleanupExpiredExceptionsScheduled = onSchedule(
-  {
-    schedule: 'every day 02:05',
-    timeZone: 'Asia/Taipei',
-    timeoutSeconds: 300,
-  },
+  { schedule: 'every day 02:05', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
-    logger.info('[Scheduler] Running daily check for expired schedule exceptions...')
+    /* ... no change ... */ logger.info(
+      '[Scheduler] Running daily check for expired schedule exceptions...',
+    )
     const todayStr = formatDateForQuery(new Date())
     try {
       const query = db
@@ -305,17 +308,10 @@ exports.cleanupExpiredExceptionsScheduled = onSchedule(
     return null
   },
 )
-
-// 初始化未來排程
 exports.initializeFutureSchedules = onSchedule(
-  {
-    schedule: 'every day 03:00',
-    timeZone: 'Asia/Taipei',
-    timeoutSeconds: 540,
-    memory: '1GiB',
-  },
+  { schedule: 'every day 03:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
-    logger.info('[Scheduler] Initializing future 60-day schedules...')
+    /* ... no change ... */ logger.info('[Scheduler] Initializing future 60-day schedules...')
     const schedulesRef = db.collection('schedules')
     const today = new Date()
     const datesToCheck = Array.from({ length: 60 }, (_, i) => {
@@ -363,14 +359,8 @@ exports.initializeFutureSchedules = onSchedule(
     return null
   },
 )
-
-// ===================================================================
-// Callable Functions (可由前端呼叫的函式)
-// ===================================================================
-
-// 自訂登入
 exports.customLogin = onCall(async (request) => {
-  const { username, password } = request.data
+  /* ... no change ... */ const { username, password } = request.data
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
   }
@@ -396,10 +386,8 @@ exports.customLogin = onCall(async (request) => {
     throw new HttpsError('internal', '發生未知的伺服器錯誤。')
   }
 })
-
-// 更改使用者密碼
 exports.changeUserPassword = onCall(async (request) => {
-  if (!request.auth) {
+  /* ... no change ... */ if (!request.auth) {
     throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
   }
   const { oldPassword, newPassword } = request.data
@@ -436,15 +424,10 @@ exports.changeUserPassword = onCall(async (request) => {
     throw new HttpsError('internal', '更新密碼時發生未知的伺服器錯誤。')
   }
 })
-
-// 確保未來排程
 exports.ensureFutureSchedules = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '512MiB',
-  },
+  { timeoutSeconds: 300, memory: '512MiB' },
   async (request) => {
-    if (!request.auth) {
+    /* ... no change ... */ if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
     }
     logger.info(
