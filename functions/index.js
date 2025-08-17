@@ -1,5 +1,4 @@
 // functions/index.js (✨ K-IDIT 數據追溯增強版 ✨)
-// ... (所有頂部引入和設定保持不變) ...
 const { setGlobalOptions } = require('firebase-functions/v2')
 setGlobalOptions({ region: 'asia-east1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 100 })
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
@@ -35,6 +34,13 @@ const FREQ_MAP_TO_DAY_INDEX = {
   三六: [2, 5],
   一五: [0, 4],
   二六: [1, 5],
+  每日: [0, 1, 2, 3, 4, 5],
+  每周一: [0],
+  每周二: [1],
+  每周三: [2],
+  每周四: [3],
+  每周五: [4],
+  每周六: [5],
 }
 const SHIFTS = ['early', 'noon', 'late']
 function generateDailyScheduleFromRules(masterRules, targetDate) {
