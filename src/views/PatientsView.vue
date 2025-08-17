@@ -746,7 +746,7 @@ onUnmounted(() => {
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
     />
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
-      <!-- ... (頂部區域不變) ... -->
+      <!-- ... (頂部區域和非刪除列表不變) ... -->
       <div class="desktop-only">
         <h1 class="page-title">透析病人管理</h1>
         <div class="main-stats-bar">
@@ -993,7 +993,7 @@ onUnmounted(() => {
                 <div class="flex-cell col-remarks">{{ p.remarks }}</div>
                 <div class="flex-cell col-updated">{{ formatDate(p.updatedAt) }}</div>
                 <div class="flex-cell col-actions">
-                  <div class="action-buttons icon-only">
+                  <div class="action-buttons">
                     <button
                       class="btn-icon btn-edit"
                       @click="openEditPatientModal(p)"
@@ -1014,32 +1014,33 @@ onUnmounted(() => {
                       :disabled="isPageLocked"
                       title="刪除"
                     >
-                      <i class="fas fa-trash-alt"></i></button
-                    ><button
+                      <i class="fas fa-trash-alt"></i>
+                    </button>
+                    <div class="action-divider"></div>
+                    <button
                       v-if="activeTab !== 'opd'"
-                      class="btn-icon btn-transfer"
+                      class="btn btn-transfer"
                       @click="transferPatient(p.id, 'opd')"
                       :disabled="isPageLocked"
-                      title="轉門診"
                     >
-                      <i class="fas fa-clinic-medical"></i></button
+                      <i class="fas fa-clinic-medical"></i> 轉門診</button
                     ><button
                       v-if="activeTab !== 'ipd'"
-                      class="btn-icon btn-transfer"
+                      class="btn btn-transfer"
                       @click="transferPatient(p.id, 'ipd')"
                       :disabled="isPageLocked"
-                      title="轉住院"
                     >
-                      <i class="fas fa-procedures"></i></button
+                      <i class="fas fa-procedures"></i> 轉住院</button
                     ><button
                       v-if="activeTab !== 'er'"
-                      class="btn-icon btn-transfer"
+                      class="btn btn-transfer"
                       @click="transferPatient(p.id, 'er')"
                       :disabled="isPageLocked"
-                      title="轉急診"
                     >
-                      <i class="fas fa-ambulance"></i></button
-                    ><button
+                      <i class="fas fa-ambulance"></i> 轉急診
+                    </button>
+                    <div class="action-divider"></div>
+                    <button
                       class="btn-icon btn-history"
                       @click="openHistoryModal(p.id)"
                       title="動向歷史"
@@ -1068,7 +1069,6 @@ onUnmounted(() => {
               <tr>
                 <th>刪除日期</th>
                 <th>姓名</th>
-                <!-- ✨ 核心修正: 新增病歷號標頭 -->
                 <th>病歷號</th>
                 <th>原狀態/原因</th>
                 <th>首次透析/日期</th>
@@ -1082,7 +1082,6 @@ onUnmounted(() => {
               <tr v-for="h in displayedDeletedHistory" :key="h.id" class="status-deleted">
                 <td>{{ formatDate(h.timestamp) }}</td>
                 <td>{{ h.patientName }}</td>
-                <!-- ✨ 核心修正: 顯示病歷號 -->
                 <td>{{ h.snapshot?.medicalRecordNumber || 'N/A' }}</td>
                 <td>
                   <div class="status-reason-cell">
@@ -1127,21 +1126,23 @@ onUnmounted(() => {
                     <div><span class="reason-label">透:</span> {{ h.snapshot.dialysisReason }}</div>
                   </div>
                 </td>
+
+                <!-- ✨ 核心修正: 混合使用文字按鈕和圖示按鈕 -->
                 <td class="col-actions">
-                  <div class="action-buttons icon-only" style="justify-content: center">
+                  <div class="action-buttons" style="justify-content: center">
+                    <button
+                      class="btn btn-restore"
+                      @click="restorePatient(h.patientId)"
+                      :disabled="isPageLocked"
+                    >
+                      復原
+                    </button>
                     <button
                       class="btn-icon btn-history"
                       @click="openHistoryModal(h.patientId)"
                       title="動向歷史"
                     >
-                      <i class="fas fa-history"></i></button
-                    ><button
-                      class="btn-icon btn-restore"
-                      @click="restorePatient(h.patientId)"
-                      :disabled="isPageLocked"
-                      title="復原"
-                    >
-                      <i class="fas fa-undo"></i>
+                      <i class="fas fa-history"></i>
                     </button>
                   </div>
                 </td>
@@ -1151,7 +1152,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- ... 行動版 & Modals (不變) ... -->
       <div class="tab-content-mobile mobile-only">
         <div v-if="activeTab !== 'deleted'" class="cards-container">
           <div
@@ -1168,7 +1168,11 @@ onUnmounted(() => {
                 }}</span>
               </div>
               <div class="card-actions-header">
-                <button class="btn-icon btn-history" @click="openHistoryModal(p)" title="動向歷史">
+                <button
+                  class="btn-icon btn-history"
+                  @click="openHistoryModal(p.id)"
+                  title="動向歷史"
+                >
                   <i class="fas fa-history"></i></button
                 ><button
                   class="btn-icon btn-delete"
@@ -1566,7 +1570,6 @@ onUnmounted(() => {
 .flex-table-row .flex-cell:last-child {
   border-right: none;
 }
-
 .col-name {
   flex: 0 0 140px;
 }
@@ -1600,7 +1603,7 @@ onUnmounted(() => {
   flex: 0 0 110px;
 }
 .col-actions {
-  flex: 0 0 250px;
+  flex: 0 0 420px;
   justify-content: flex-start;
 }
 .flex-table-header .flex-cell {
@@ -1645,12 +1648,53 @@ onUnmounted(() => {
 .status-icon-blood {
   color: #3b82f6;
 }
-.action-buttons.icon-only {
+.action-buttons {
   display: flex;
   flex-wrap: nowrap;
-  gap: 0.25rem;
+  gap: 0.5rem;
   align-items: center;
   width: 100%;
+}
+.btn {
+  padding: 5px 10px;
+  font-size: 0.9em;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: white;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+}
+.btn.btn-edit {
+  background-color: #007bff;
+  border-color: #007bff;
+}
+.btn.btn-order {
+  background-color: #ffc107;
+  color: #212529;
+  border-color: #ffc107;
+}
+.btn.btn-transfer {
+  background-color: #17a2b8;
+  border-color: #17a2b8;
+}
+.btn.btn-edit:hover:not(:disabled) {
+  background-color: #0069d9;
+}
+.btn.btn-order:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+.btn.btn-transfer:hover:not(:disabled) {
+  background-color: #138496;
+}
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 .btn-icon {
   background: none;
@@ -1701,18 +1745,11 @@ onUnmounted(() => {
 .btn-icon.btn-delete:hover:not(:disabled) {
   background-color: #fee2e2;
 }
-.btn.btn-restore,
-.btn-icon.btn-restore {
-  background-color: var(--success-color);
-  color: white;
-}
-.btn-icon.btn-restore {
-  background: none;
-  color: var(--success-color);
-}
-.btn.btn-restore:hover:not(:disabled),
-.btn-icon.btn-restore:hover:not(:disabled) {
-  background-color: #d1fae5;
+.action-divider {
+  width: 1px;
+  height: 24px;
+  background-color: #dee2e6;
+  margin: 0 0.25rem;
 }
 .flex-table-row.status-opd {
   background-color: var(--green-bg);
@@ -1809,8 +1846,6 @@ onUnmounted(() => {
   height: 1.5em;
   background-color: #ced4da;
 }
-
-/* ✨ 核心修正: 已刪除列表的新樣式 */
 .deleted-history-table th {
   text-align: center;
 }
@@ -1856,6 +1891,23 @@ onUnmounted(() => {
   font-weight: bold;
   color: #495057;
   margin-right: 0.5em;
+}
+
+/* ✨ 核心修正: 為復原按鈕添加明確樣式 */
+.btn-restore {
+  background-color: var(--success-color);
+  border-color: var(--success-color);
+  color: white;
+}
+.btn-restore:hover:not(:disabled) {
+  background-color: #15803d; /* 較深的綠色 */
+}
+.btn-icon.btn-restore {
+  background: none;
+  color: var(--success-color);
+}
+.btn-icon.btn-restore:hover:not(:disabled) {
+  background-color: #d1fae5;
 }
 
 .mobile-only {
