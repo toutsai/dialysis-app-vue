@@ -57,7 +57,7 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js' // 引入 useAuth 以獲取作者資訊
 
@@ -77,7 +77,7 @@ const emit = defineEmits(['close', 'record-updated']) // record-updated 用於�
 
 // --- Component State ---
 const activeTab = ref('records')
-const { createGlobalNotification } = useGlobalNotifier()
+const { addLocalNotification } = useRealtimeNotifications()
 const conditionRecordsApi = ApiManager('condition_records')
 const auth = useAuth() // 初始化 useAuth
 
@@ -90,7 +90,7 @@ function handleClose() {
 async function handleSaveConditionRecord(recordData) {
   try {
     await conditionRecordsApi.save(recordData)
-    createGlobalNotification(`已為 ${recordData.patientName} 新增病情紀錄`, 'schedule')
+    addLocalNotification(`已為 ${recordData.patientName} 新增病情紀錄`, 'schedule')
     emit('record-updated')
   } catch (error) {
     console.error('儲存病情紀錄失敗:', error)
@@ -102,7 +102,7 @@ async function handleSaveConditionRecord(recordData) {
 async function handleUpdateConditionRecord({ id, content }) {
   try {
     await conditionRecordsApi.update(id, { content })
-    createGlobalNotification('病情紀錄已更新', 'schedule')
+    addLocalNotification('病情紀錄已更新', 'schedule')
     emit('record-updated')
   } catch (error) {
     console.error('更新病情紀錄失敗:', error)
@@ -115,7 +115,7 @@ async function handleDeleteConditionRecord(recordId) {
   if (confirm('您確定要永久刪除這筆病情紀錄嗎？')) {
     try {
       await conditionRecordsApi.delete(recordId)
-      createGlobalNotification('病情紀錄已刪除', 'schedule')
+      addLocalNotification('病情紀錄已刪除', 'schedule')
       emit('record-updated')
     } catch (error) {
       console.error('刪除病情紀錄失敗:', error)
@@ -143,7 +143,7 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
       createdAt: new Date(),
     }
     await conditionRecordsApi.save(recordData)
-    createGlobalNotification(`已為 ${patient.name} 新增檢驗報告處置紀錄`, 'schedule')
+    addLocalNotification(`已為 ${patient.name} 新增檢驗報告處置紀錄`, 'schedule')
     emit('record-updated')
     // 儲存後自動切換到病情紀錄頁籤，讓使用者看到新增的紀錄
     activeTab.value = 'records'
