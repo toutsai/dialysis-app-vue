@@ -1,14 +1,13 @@
-<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (智慧衝突處理版) -->
+<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (區間調班邏輯修正版) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="close">
     <div class="dialog-content">
       <header class="dialog-header">
-        <!-- 🔥 動態標題 -->
-        <h2>{{ isEditingMode ? '解決排程衝突' : '新增排程例外申請' }}</h2>
+        <h2>{{ dialogTitle }}</h2>
         <button class="close-button" @click="close">×</button>
       </header>
       <main class="dialog-body">
-        <!-- Step 1: Select Patient -->
+        <!-- 步驟 1: 選擇病人 -->
         <div class="form-group">
           <label>步驟 1: 選擇病人</label>
           <button
@@ -25,102 +24,176 @@
           </button>
         </div>
 
-        <!-- Step 2: Select Exception Type -->
-        <div class="form-group" v-if="formData.patientId">
-          <label>步驟 2: 選擇例外類型</label>
-          <div class="radio-group">
-            <label
-              ><input type="radio" v-model="formData.type" value="MOVE" :disabled="isEditingMode" />
-              臨時調班</label
-            >
-            <label
-              ><input
-                type="radio"
-                v-model="formData.type"
-                value="SUSPEND"
-                :disabled="isEditingMode"
-              />
-              區間暫停</label
-            >
-          </div>
-        </div>
-
-        <!-- Details for MOVE (Temporary Transfer) -->
-        <div v-if="formData.patientId && formData.type === 'MOVE'" class="details-section">
-          <div class="form-group-grid">
-            <div class="form-group">
-              <label for="sourceDate">步驟 3: 選擇原始日期</label>
-              <input
-                type="date"
-                id="sourceDate"
-                v-model="formData.from.sourceDate"
-                @change="fetchSourceSchedule"
-                :disabled="isEditingMode"
-              />
+        <div class="subsequent-steps" :class="{ disabled: !formData.patientId }">
+          <!-- 步驟 2: 選擇例外類型 -->
+          <div class="form-group">
+            <label>步驟 2: 選擇例外類型</label>
+            <div class="radio-group">
+              <label
+                ><input
+                  type="radio"
+                  v-model="formData.type"
+                  value="MOVE"
+                  :disabled="isEditingMode"
+                />
+                臨時調班</label
+              >
+              <label
+                ><input
+                  type="radio"
+                  v-model="formData.type"
+                  value="SUSPEND"
+                  :disabled="isEditingMode"
+                />
+                區間暫停</label
+              >
+              <label
+                ><input
+                  type="radio"
+                  v-model="formData.type"
+                  value="ADD_SESSION"
+                  :disabled="isEditingMode"
+                />
+                臨時加洗</label
+              >
+              <label
+                ><input
+                  type="radio"
+                  v-model="formData.type"
+                  value="RANGE_MOVE"
+                  :disabled="isEditingMode"
+                />
+                區間調班</label
+              >
             </div>
-            <div class="form-group">
-              <label>原始排班</label>
-              <div class="info-box">
-                {{ sourceBedDisplay }}
+          </div>
+
+          <!-- 區塊：臨時調班 (MOVE) -->
+          <div v-if="formData.type === 'MOVE'" class="details-section">
+            <h3 class="section-title">步驟 3: 設定調班前後資訊</h3>
+            <div class="form-group-grid">
+              <div class="form-group">
+                <label for="sourceDate">原始日期</label>
+                <input
+                  type="date"
+                  id="sourceDate"
+                  v-model="formData.from.sourceDate"
+                  @change="fetchSourceSchedule"
+                  :disabled="isEditingMode"
+                />
+              </div>
+              <div class="form-group">
+                <label>原始排班</label>
+                <div class="info-box">{{ sourceBedDisplay }}</div>
+              </div>
+            </div>
+            <div class="form-group-grid" v-if="formData.from.bedNum">
+              <div class="form-group">
+                <label for="targetDate">目標日期</label>
+                <input
+                  type="date"
+                  id="targetDate"
+                  v-model="formData.to.goalDate"
+                  :disabled="isEditingMode"
+                />
+              </div>
+              <div class="form-group">
+                <label>目標床位</label>
+                <button
+                  class="select-btn"
+                  @click="openBedAssignmentForTarget"
+                  :disabled="!formData.to.goalDate || isSubmitting"
+                >
+                  {{ targetBedDisplay }}
+                </button>
               </div>
             </div>
           </div>
-          <div class="form-group-grid" v-if="formData.from.bedNum">
-            <div class="form-group">
-              <label for="targetDate">步驟 4: 選擇目標日期</label>
-              <input
-                type="date"
-                id="targetDate"
-                v-model="formData.to.goalDate"
-                :disabled="isEditingMode"
-              />
+
+          <!-- 區塊：區間暫停 (SUSPEND) -->
+          <div v-if="formData.type === 'SUSPEND'" class="details-section">
+            <h3 class="section-title">步驟 3: 設定暫停區間</h3>
+            <div class="form-group-grid">
+              <div class="form-group">
+                <label for="startDate">開始日期 (包含)</label>
+                <input
+                  type="date"
+                  id="startDate"
+                  v-model="formData.startDate"
+                  :disabled="isEditingMode"
+                />
+              </div>
+              <div class="form-group">
+                <label for="endDate">結束日期 (包含)</label>
+                <input
+                  type="date"
+                  id="endDate"
+                  v-model="formData.endDate"
+                  :disabled="isEditingMode"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- 區塊：臨時加洗 (ADD_SESSION) -->
+          <div v-if="formData.type === 'ADD_SESSION'" class="details-section">
+            <h3 class="section-title">步驟 3: 設定加洗日期與床位</h3>
+            <div class="form-group-grid">
+              <div class="form-group">
+                <label for="addSessionDate">加洗日期</label>
+                <input type="date" id="addSessionDate" v-model="formData.to.goalDate" />
+              </div>
+              <div class="form-group">
+                <label>目標床位</label>
+                <button
+                  class="select-btn"
+                  @click="openBedAssignmentForTarget"
+                  :disabled="!formData.to.goalDate || isSubmitting"
+                >
+                  {{ targetBedDisplay }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 區塊：區間調班 (RANGE_MOVE) -->
+          <div v-if="formData.type === 'RANGE_MOVE'" class="details-section">
+            <h3 class="section-title">步驟 3: 設定調班區間與目標床位</h3>
+            <div class="form-group-grid">
+              <div class="form-group">
+                <label for="rangeStartDate">開始日期 (包含)</label>
+                <input type="date" id="rangeStartDate" v-model="formData.startDate" />
+              </div>
+              <div class="form-group">
+                <label for="rangeEndDate">結束日期 (包含)</label>
+                <input type="date" id="rangeEndDate" v-model="formData.endDate" />
+              </div>
             </div>
             <div class="form-group">
-              <label>目標床位</label>
+              <label>目標床位 (將套用於整個區間)</label>
               <button
                 class="select-btn"
                 @click="openBedAssignmentForTarget"
-                :disabled="!formData.to.goalDate || isSubmitting"
+                :disabled="!formData.startDate || isSubmitting"
               >
                 {{ targetBedDisplay }}
               </button>
             </div>
+            <small class="form-text text-muted"
+              >系統將根據病人的固定頻率，查詢在整個時段都可用的床位。</small
+            >
           </div>
-        </div>
 
-        <!-- Details for SUSPEND (Suspend Schedule) -->
-        <div v-if="formData.patientId && formData.type === 'SUSPEND'" class="details-section">
-          <div class="form-group-grid">
-            <div class="form-group">
-              <label for="startDate">開始日期 (包含)</label>
-              <input
-                type="date"
-                id="startDate"
-                v-model="formData.startDate"
-                :disabled="isEditingMode"
-              />
-            </div>
-            <div class="form-group">
-              <label for="endDate">結束日期 (包含)</label>
-              <input
-                type="date"
-                id="endDate"
-                v-model="formData.endDate"
-                :disabled="isEditingMode"
-              />
-            </div>
+          <!-- 步驟 4: 原因說明 -->
+          <div class="form-group">
+            <label>步驟 4: 原因說明</label>
+            <textarea
+              v-model="formData.reason"
+              rows="2"
+              placeholder="請簡要說明原因"
+              :disabled="isEditingMode"
+            ></textarea>
           </div>
-        </div>
-
-        <!-- Step 5: Reason -->
-        <div class="form-group" v-if="isDetailsComplete">
-          <label>步驟 5: 原因說明</label>
-          <textarea
-            v-model="formData.reason"
-            rows="2"
-            placeholder="請簡要說明原因"
-            :disabled="isEditingMode"
-          ></textarea>
         </div>
       </main>
       <footer class="dialog-footer">
@@ -146,14 +219,15 @@
     @cancel="isPatientDialogVisible = false"
   />
   <BedAssignmentDialog
-    v-if="bedAssignmentProps"
+    v-if="isBedAssignmentVisible"
     :is-visible="isBedAssignmentVisible"
     :all-patients="[allPatients.find((p) => p.id === formData.patientId)]"
     :bed-layout="bedLayout"
     :schedule-data="bedAssignmentProps.scheduleData"
+    :target-date="bedAssignmentProps.targetDate"
     :shifts="shifts"
     :freq-map="freqMap"
-    :assignment-mode="'singleDay'"
+    :assignment-mode="bedAssignmentProps.assignmentMode"
     :hide-patient-list="true"
     @close="isBedAssignmentVisible = false"
     @assign-bed="handleTargetBedAssigned"
@@ -167,20 +241,17 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 
-// 🔥 核心修改：新增 initialData prop
 const props = defineProps({
   isVisible: Boolean,
   allPatients: Array,
   isPageLocked: Boolean,
-  initialData: {
-    type: Object,
-    default: null,
-  },
+  initialData: { type: Object, default: null },
 })
 const emit = defineEmits(['close', 'submit'])
 
 // --- API and Constants ---
 const schedulesApi = ApiManager('schedules')
+const baseSchedulesApi = ApiManager('base_schedules')
 const shifts = ORDERED_SHIFT_CODES
 const bedLayout = [
   1,
@@ -230,13 +301,20 @@ const bedLayout = [
   ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
 ]
 const freqMap = {
-  一三五: [1, 3, 5],
-  二四六: [2, 4, 6],
-  一四: [1, 4],
-  二五: [2, 5],
-  三六: [3, 6],
-  一五: [1, 5],
-  二六: [2, 6],
+  一三五: [0, 2, 4],
+  二四六: [1, 3, 5],
+  一四: [0, 3],
+  二五: [1, 4],
+  三六: [2, 5],
+  一五: [0, 4],
+  二六: [1, 5],
+  每日: [0, 1, 2, 3, 4, 5],
+  每周一: [0],
+  每周二: [1],
+  每周三: [2],
+  每周四: [3],
+  每周五: [4],
+  每周六: [5],
 }
 
 // --- Dialog State ---
@@ -246,26 +324,35 @@ const bedAssignmentProps = ref(null)
 const isSubmitting = ref(false)
 const isFetchingSource = ref(false)
 const sourceScheduleMessage = ref('')
+const masterSchedule = ref(null)
 
 // --- Form State ---
 const defaultFormData = () => ({
-  id: null, // 🔥 新增 id 欄位
+  id: null,
   patientId: '',
   patientName: '',
-  type: 'MOVE',
+  type: null,
   startDate: '',
   endDate: '',
   reason: '',
   from: { sourceDate: '', bedNum: null, shiftCode: null },
   to: { goalDate: '', bedNum: null, shiftCode: null },
 })
-
 const formData = reactive(defaultFormData())
 
 // --- Computed Properties ---
-// 🔥 新增：判斷是否為編輯模式
+const dialogTitle = computed(() => {
+  if (isEditingMode.value) return '解決排程衝突'
+  const typeMap = {
+    MOVE: '臨時調班',
+    SUSPEND: '區間暫停',
+    ADD_SESSION: '臨時加洗',
+    RANGE_MOVE: '區間調班',
+  }
+  const title = typeMap[formData.type] ? ` - ${typeMap[formData.type]}` : ''
+  return `新增排程例外申請${title}`
+})
 const isEditingMode = computed(() => !!props.initialData)
-
 const selectedPatientDisplay = computed(() => {
   if (!formData.patientId) return ''
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
@@ -277,12 +364,11 @@ const selectedPatientDisplay = computed(() => {
   let diseasesText = ''
   if (patient.diseases && patient.diseases.length > 0) {
     diseasesText = patient.diseases
-      .map((disease) => `<span class="patient-info-tag disease-tag">${disease}</span>`)
+      .map((d) => `<span class="patient-info-tag disease-tag">${d}</span>`)
       .join(' ')
   }
   return `${nameAndMRN}${freqText} ${diseasesText}`
 })
-
 const sourceBedDisplay = computed(() => {
   if (isFetchingSource.value) return '查詢中...'
   if (sourceScheduleMessage.value) return sourceScheduleMessage.value
@@ -296,7 +382,6 @@ const sourceBedDisplay = computed(() => {
   }
   return '待查詢...'
 })
-
 const targetBedDisplay = computed(() => {
   if (formData.to.bedNum && formData.to.shiftCode) {
     const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
@@ -308,59 +393,70 @@ const targetBedDisplay = computed(() => {
   }
   return '點擊以選擇目標床位...'
 })
-
 const isDetailsComplete = computed(() => {
-  if (formData.type === 'MOVE') {
-    return !!formData.from.bedNum && !!formData.to.bedNum && !!formData.to.goalDate
+  if (!formData.patientId || !formData.type) return false
+  switch (formData.type) {
+    case 'MOVE':
+      return !!formData.from.bedNum && !!formData.to.bedNum && !!formData.to.goalDate
+    case 'SUSPEND':
+      return !!formData.startDate && !!formData.endDate && formData.endDate >= formData.startDate
+    case 'ADD_SESSION':
+      return !!formData.to.goalDate && !!formData.to.bedNum && !!formData.to.shiftCode
+    case 'RANGE_MOVE':
+      return (
+        !!formData.startDate &&
+        !!formData.endDate &&
+        !!formData.to.bedNum &&
+        !!formData.to.shiftCode &&
+        formData.endDate >= formData.startDate
+      )
+    default:
+      return false
   }
-  if (formData.type === 'SUSPEND') {
-    return !!formData.startDate && !!formData.endDate && formData.endDate >= formData.startDate
-  }
-  return false
 })
-
-const isFormValid = computed(() => {
-  return isDetailsComplete.value && !!formData.reason.trim()
-})
+const isFormValid = computed(() => isDetailsComplete.value && !!formData.reason.trim())
 
 // --- Watchers ---
-// 🔥 核心修改：監聽 isVisible，並根據 initialData 決定如何初始化表單
 watch(
   () => props.isVisible,
   (isVisible) => {
     if (isVisible) {
       if (props.initialData) {
-        // 編輯模式：用 initialData 填充表單
-        console.log('Dialog opened in EDIT mode with data:', props.initialData)
         Object.assign(formData, {
           ...props.initialData,
-          // 🔥 關鍵：清空目標床位，強制使用者重新選擇
-          to: {
-            ...props.initialData.to,
-            bedNum: null,
-            shiftCode: null,
-          },
+          to: { ...props.initialData.to, bedNum: null, shiftCode: null },
         })
         sourceScheduleMessage.value = ''
       } else {
-        // 新增模式：重置為空表單
-        console.log('Dialog opened in CREATE mode.')
         Object.assign(formData, defaultFormData())
         sourceScheduleMessage.value = ''
       }
+    } else {
+      isBedAssignmentVisible.value = false
+      bedAssignmentProps.value = null
     }
   },
 )
-
-// (以下兩個 watcher 在新的邏輯下可以移除，因為重置邏輯已合併到 isVisible watcher 中)
-// watch(() => formData.patientId, ...);
-// watch(() => formData.type, ...);
+watch(
+  () => formData.type,
+  (newType, oldType) => {
+    if (oldType !== null) {
+      const keptData = {
+        id: null,
+        patientId: formData.patientId,
+        patientName: formData.patientName,
+        type: newType,
+      }
+      Object.assign(formData, { ...defaultFormData(), ...keptData })
+      sourceScheduleMessage.value = ''
+    }
+  },
+)
 
 // --- Methods ---
 function close() {
   emit('close')
 }
-
 function handlePatientSelected({ patientId }) {
   const patient = props.allPatients.find((p) => p.id === patientId)
   if (patient) {
@@ -369,15 +465,12 @@ function handlePatientSelected({ patientId }) {
   }
   isPatientDialogVisible.value = false
 }
-
 async function fetchSourceSchedule() {
   if (!formData.from.sourceDate || !formData.patientId) return
-
   isFetchingSource.value = true
   sourceScheduleMessage.value = ''
   formData.from.bedNum = null
   formData.from.shiftCode = null
-
   try {
     const record = await schedulesApi.fetchById(formData.from.sourceDate)
     if (record && record.schedule) {
@@ -402,25 +495,68 @@ async function fetchSourceSchedule() {
   }
 }
 
+async function fetchMasterSchedule() {
+  if (masterSchedule.value) return masterSchedule.value
+  try {
+    const record = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+    const scheduleRules = record ? record.schedule : {}
+
+    const formattedSchedule = {}
+    for (const patientId in scheduleRules) {
+      const rule = scheduleRules[patientId]
+      const dayIndices = freqMap[rule.freq] || []
+      dayIndices.forEach((dayIndex) => {
+        const weeklySlotId = `${rule.bedNum}-${rule.shiftIndex}-${dayIndex}`
+        formattedSchedule[weeklySlotId] = { ...rule, patientId }
+      })
+    }
+    masterSchedule.value = formattedSchedule
+    return masterSchedule.value
+  } catch (error) {
+    console.error('獲取總表規則失敗:', error)
+    alert('無法獲取總表規則資料，區間調班功能暫時無法使用。')
+    return {}
+  }
+}
+
 async function openBedAssignmentForTarget() {
-  // 1. 檢查目標日期是否存在 (保持不變)
-  if (!formData.to.goalDate) return
+  const patient = props.allPatients.find((p) => p.id === formData.patientId)
+  if (!patient) return
 
   try {
-    // 2. 直接從 Firestore 獲取目標日期【當天最原始、最準確】的排班紀錄
-    const scheduleRecord = await schedulesApi.fetchById(formData.to.goalDate)
-    const accurateScheduleData = scheduleRecord ? scheduleRecord.schedule : {}
+    let propsForDialog = {}
 
-    // 3. 將這份【未經任何前端修改】的、最準確的排班資料，直接傳遞給智慧排床
-    bedAssignmentProps.value = {
-      scheduleData: accurateScheduleData,
+    if (formData.type === 'RANGE_MOVE') {
+      // --- 區間調班邏輯 ---
+      if (!formData.startDate) return
+      if (!patient.freq) {
+        alert('此病人沒有設定固定頻率，無法使用區間調班功能。')
+        return
+      }
+      const masterScheduleData = await fetchMasterSchedule()
+      propsForDialog = {
+        scheduleData: masterScheduleData,
+        targetDate: null,
+        assignmentMode: 'frequency',
+      }
+    } else {
+      // --- 臨時調班 / 臨時加洗邏輯 ---
+      const dateForSchedule = formData.to.goalDate
+      if (!dateForSchedule) return
+      const scheduleRecord = await schedulesApi.fetchById(dateForSchedule)
+      const dailyScheduleData = scheduleRecord ? scheduleRecord.schedule : {}
+      propsForDialog = {
+        scheduleData: dailyScheduleData,
+        targetDate: dateForSchedule,
+        assignmentMode: 'singleDay',
+      }
     }
 
-    // 4. 打開智慧排床對話框
+    bedAssignmentProps.value = propsForDialog
     isBedAssignmentVisible.value = true
   } catch (error) {
-    console.error('載入目標日期排班失敗:', error)
-    alert('載入目標日期排班失敗，無法開啟智慧排床。')
+    console.error('開啟智慧排床失敗:', error)
+    alert('開啟智慧排床失敗，請稍後再試。')
   }
 }
 
@@ -429,17 +565,24 @@ function handleTargetBedAssigned({ bedNum, shiftCode }) {
   formData.to.shiftCode = shiftCode
   isBedAssignmentVisible.value = false
 }
-
 function submitForm() {
   if (!isFormValid.value) return
-
   const dataToSubmit = JSON.parse(JSON.stringify(formData))
-
-  if (dataToSubmit.type === 'MOVE') {
-    dataToSubmit.startDate = dataToSubmit.from.sourceDate
-    dataToSubmit.endDate = dataToSubmit.to.goalDate
+  switch (dataToSubmit.type) {
+    case 'MOVE':
+      dataToSubmit.startDate = dataToSubmit.from.sourceDate
+      dataToSubmit.endDate = dataToSubmit.to.goalDate
+      break
+    case 'ADD_SESSION':
+      dataToSubmit.startDate = dataToSubmit.to.goalDate
+      dataToSubmit.endDate = dataToSubmit.to.goalDate
+      dataToSubmit.from = null
+      break
+    case 'RANGE_MOVE':
+      dataToSubmit.from = null
+      dataToSubmit.to.goalDate = ''
+      break
   }
-
   emit('submit', dataToSubmit)
 }
 </script>
@@ -466,10 +609,10 @@ function submitForm() {
   border-radius: 8px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
   width: 100%;
-  max-width: 500px; /* 稍微縮小寬度，更適合表單 */
+  max-width: 550px;
   display: flex;
   flex-direction: column;
-  max-height: 90vh; /* 確保 Modal 不會超出視窗高度 */
+  max-height: 90vh;
 }
 .dialog-header {
   padding: 1.5rem;
@@ -495,7 +638,7 @@ function submitForm() {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  overflow-y: auto; /* 讓 body 內部可以滾動 */
+  overflow-y: auto;
 }
 .dialog-footer {
   padding: 1.5rem;
@@ -529,7 +672,8 @@ function submitForm() {
 }
 .radio-group {
   display: flex;
-  gap: 2rem;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 .btn {
   padding: 0.5rem 1rem;
@@ -575,7 +719,7 @@ function submitForm() {
   align-items: center;
   font-weight: 500;
   box-sizing: border-box;
-  font-size: 0.9rem; /* 稍微縮小字體 */
+  font-size: 0.9rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -605,15 +749,13 @@ function submitForm() {
 .select-btn:not(:disabled):hover {
   border-color: #007bff;
 }
-
-/* 病人資訊標籤樣式 */
 .patient-display-content {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: 1rem;
   line-height: 1.5;
-  flex-wrap: wrap; /* 允許標籤換行 */
+  flex-wrap: wrap;
 }
 :deep(.patient-info-tag) {
   display: inline-block;
@@ -633,18 +775,30 @@ function submitForm() {
   color: #721c24;
   border: 1px solid #f5c6cb;
 }
+.subsequent-steps.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.details-section .section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0056b3;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #dee2e6;
+}
+.form-text {
+  font-size: 0.875em;
+  color: #6c757d;
+}
 
-/* ================================== */
-/* ‼️        新增的響應式樣式        ‼️ */
-/* ================================== */
 @media (max-width: 768px) {
-  /* 在手機上，讓 Modal 從頂部對齊 */
   .dialog-overlay {
     align-items: flex-start;
   }
-
   .dialog-content {
-    padding: 0; /* 移除外層 padding，交由 header/body/footer 控制 */
+    padding: 0;
     margin-top: 5vh;
   }
   .dialog-header,
@@ -655,24 +809,18 @@ function submitForm() {
   .dialog-header h2 {
     font-size: 1.25rem;
   }
-
-  /* 核心修改：將兩欄的 Grid 佈局改為單欄 */
   .form-group-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
   }
-
   .info-box {
-    height: auto; /* 高度自動 */
+    height: auto;
     min-height: 48px;
   }
-
-  /* 讓底部按鈕垂直堆疊，並且主要按鈕在上方 */
   .dialog-footer {
     flex-direction: column-reverse;
     gap: 0.75rem;
   }
-
   .dialog-footer .btn {
     width: 100%;
   }

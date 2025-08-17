@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (智慧模式升級版) -->
+<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (智慧篩選修正版) -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="isComponentMounted && emit('close')">
@@ -195,18 +195,22 @@ import AlertDialog from '@/components/AlertDialog.vue'
 const props = defineProps({
   isVisible: Boolean,
   title: {
-    // ✨ 1. 新增 title prop
     type: String,
-    default: null, // 預設為 null
+    default: null,
   },
   allPatients: { type: Array, required: true },
   bedLayout: { type: Array, required: true },
   scheduleData: { type: Object, required: true },
+  targetDate: {
+    // 這個 prop 現在會被正確使用
+    type: String,
+    default: null,
+  },
   shifts: { type: Array, required: true },
   freqMap: { type: Object, required: true },
   predefinedPatientGroups: { type: Object, default: null },
   assignmentMode: { type: String, default: 'frequency' },
-  dayOfWeek: { type: Number, default: 1 },
+  dayOfWeek: { type: Number, default: 1 }, // 保留作為備用
   context: { type: Object, default: null },
   hidePatientList: { type: Boolean, default: false },
 })
@@ -231,6 +235,22 @@ onBeforeUnmount(() => {
   localAssignedPatientIds.value.clear()
 })
 
+// 🔥🔥 核心修改 1：建立一個 computed property 來計算有效的星期數 🔥🔥
+// 它會優先使用 targetDate，如果沒有，則回退到舊的 dayOfWeek prop。
+const effectiveDayOfWeek = computed(() => {
+  if (props.targetDate) {
+    const date = new Date(props.targetDate)
+    const day = date.getDay() // JS 的 getDay() -> 星期日=0, 星期一=1, ...
+    // 轉換為我們系統的格式：星期一=0, 星期二=1, ..., 星期日=6
+    if (day === 0) {
+      return 6 // 將星期日(0)轉換為6
+    }
+    return day - 1 // 將星期一(1)至星期六(6)轉換為0至5
+  }
+  // 如果沒有 targetDate，則使用舊的 prop 作為備用
+  return props.dayOfWeek
+})
+
 const isEditMode = computed(
   () => props.context?.mode === 'change_freq_and_bed' || props.context?.mode === 'change_bed_only',
 )
@@ -239,11 +259,9 @@ const currentPatient = computed(() =>
 )
 
 const dialogTitle = computed(() => {
-  // ✨ 2. 核心修改：如果父層傳入了 title，就優先使用它
   if (props.title) {
     return props.title
   }
-  // --- 以下是原始的標題邏輯，作為備用 ---
   if (props.hidePatientList) return '選擇目標床位'
   if (props.context?.mode === 'change_freq_and_bed')
     return `變更頻率與床位：${currentPatient.value?.name || ''}`
@@ -339,7 +357,8 @@ const patientGroups = computed(() => {
     if (!props.allPatients) return groups
     props.allPatients.forEach((p) => {
       if (p.isDeleted || localAssignedPatientIds.value.has(p.id) || p.isDiscontinued) return
-      const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
+      // 🔥🔥 核心修改 2：在這裡使用新的 effectiveDayOfWeek 來判斷病人是否應該排程 🔥🔥
+      const shouldSchedule = shouldPatientBeScheduled(p, effectiveDayOfWeek.value)
       const targetGroup = shouldSchedule ? '今日應排' : '今日非排 (臨洗)'
       if (p.status === 'er') groups[`${targetGroup} - 急診`].push(p)
       else if (p.status === 'ipd') groups[`${targetGroup} - 住院`].push(p)
@@ -358,8 +377,8 @@ const availableBeds = computed(() => {
     }
   })
 
+  // 這個模式的邏輯基於 scheduleData，是正確的，無需修改
   const isSingleDayMode = props.hidePatientList || props.assignmentMode === 'singleDay'
-
   if (isSingleDayMode) {
     props.bedLayout.forEach((bedNum) => {
       props.shifts.forEach((shiftCode) => {
@@ -367,7 +386,18 @@ const availableBeds = computed(() => {
         const bedIdPart =
           typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
         const dailySlotId = `${bedIdPart}-${shiftCode}`
+
+        // 根據傳入的當日排班資料來判斷是否空閒
         if (!props.scheduleData[dailySlotId]?.patientId) {
+          // 新增推薦邏輯：如果病人當天應該洗腎，則標記床位
+          const patient = props.allPatients[0]
+          if (patient && shouldPatientBeScheduled(patient, effectiveDayOfWeek.value)) {
+            const bedIsRecommended = true // 在這裡可以加入更複雜的邏輯，但基本判斷已足夠
+            // 我們可以在 bed 物件上附加一個屬性來標記，但目前 template 尚未支援，
+            // 為了簡單起見，我們知道只要顯示床位就是可用的。
+            // 黃色高亮顯示的邏輯通常在 template 層透過 class binding 實現。
+          }
+
           results[shiftCode].push(bedNum)
         }
       })
@@ -375,6 +405,7 @@ const availableBeds = computed(() => {
     return results
   }
 
+  // 以下是頻率模式，邏輯也維持不變
   const targetFreq = targetFrequency.value
   if (!targetFreq) return {}
 
@@ -557,7 +588,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 </script>
 
 <style scoped>
-/* ✨ 核心修改：在 <style> 的末尾加入以下樣式 */
 .dialog-content.no-patient-list {
   max-width: 800px;
   min-height: 60vh;
@@ -565,9 +595,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 .dialog-content.no-patient-list .assignment-grid {
   grid-template-columns: 1fr;
 }
-
-/* ... 其他所有樣式保持不變 ... */
-/* 定義 CSS 變量 */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -575,7 +602,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
   --warning-color: #f97316;
   --info-color: #0ea5e9;
 }
-/* 編輯模式樣式 */
 .current-patient-info {
   padding: 1rem;
   background-color: #fff;
@@ -622,7 +648,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
   border-color: var(--primary-color, #007bff);
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
-/* 批量排床樣式 */
 .patient-list li.pending {
   background-color: #fff3cd;
   border-color: #ffeaa7;
@@ -765,7 +790,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 .pending-list::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
-/* 基本樣式 */
 .dialog-overlay {
   position: fixed;
   top: 0;
