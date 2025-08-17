@@ -1,14 +1,12 @@
-<!-- 檔案路徑: src/views/PatientsView.vue -->
+<!-- 檔案路徑: src/views/PatientsView.vue (✨ K-IDIT 數據版 ✨) -->
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
-import { doc, getDoc, updateDoc, where } from 'firebase/firestore'
+import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore' // orderBy
 import { db } from '@/composables/useFirebase.js'
 import {
   fetchAllPatients as optimizedFetchAllPatients,
   updatePatient as optimizedUpdatePatient,
   savePatient as optimizedSavePatient,
-  savePatientHistory as optimizedSavePatientHistory,
-  saveDialysisOrderHistory as optimizedSaveDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 
@@ -22,12 +20,13 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import * as XLSX from 'xlsx'
 
-// --- Refs and State ---
 const allPatients = ref([])
 const patientHistory = ref([])
 const activeTab = ref('opd')
-const currentSort = ref({ column: 'createdAt', order: 'desc' })
+const currentSort = ref({ column: 'updatedAt', order: 'desc' })
 const patientHistoryApi = ApiManager('patient_history')
+// ✨ 核心修正: 為了已刪除列表，我們需要獨立的歷史記錄
+const deletedPatientHistory = ref([])
 const erListFilter = ref('')
 const ipdListFilter = ref('')
 const opdListFilter = ref('')
@@ -74,13 +73,10 @@ const newPatientDataForConflict = ref(null)
 const existingPatientForConflict = ref(null)
 const isRestoreDialogVisible = ref(false)
 const patientToRestoreId = ref(null)
-
 const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
 const { isLoggedIn } = auth
 const isPageLocked = computed(() => auth.isReadOnly.value)
-
-// --- Constants ---
 const FREQ_COLOR_MAP = {
   一三五: 'freq-blue',
   二四六: 'freq-green',
@@ -89,7 +85,13 @@ const FREQ_COLOR_MAP = {
   三六: 'freq-orange',
   一五: 'freq-orange',
   二六: 'freq-orange',
-  每周一次: 'freq-teal',
+  每日: 'freq-purple',
+  每周一: 'freq-teal',
+  每周二: 'freq-teal',
+  每周三: 'freq-teal',
+  每周四: 'freq-teal',
+  每周五: 'freq-teal',
+  每周六: 'freq-teal',
   臨時: 'freq-red',
   未設定: 'freq-grey',
 }
@@ -108,9 +110,9 @@ const RESTORE_OPTIONS = [
   { value: 'er', text: '復原至 急診' },
 ]
 
-// --- Computed Properties ---
+// ✨ 核心修正: displayedPatients 現在只處理非刪除的病人
 const displayedPatients = computed(() => {
-  let patientsToDisplay
+  /* ... no change, but its scope is now limited ... */ let patientsToDisplay
   let searchTerm = ''
   if (!allPatients.value) return []
   if (activeTab.value === 'er') {
@@ -122,9 +124,6 @@ const displayedPatients = computed(() => {
   } else if (activeTab.value === 'opd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
     searchTerm = opdListFilter.value.toLowerCase()
-  } else if (activeTab.value === 'deleted') {
-    patientsToDisplay = allPatients.value.filter((p) => p.isDeleted)
-    searchTerm = deletedSearchTerm.value.toLowerCase()
   } else {
     patientsToDisplay = []
   }
@@ -137,12 +136,21 @@ const displayedPatients = computed(() => {
   }
   return [...patientsToDisplay].sort((a, b) => {
     let valA, valB
-    if (currentSort.value.column === 'freq') {
-      valA = a.freq
-      valB = b.freq
+    const sortColumn = currentSort.value.column
+    if (sortColumn === 'patientStatus') {
+      const statusA = a.patientStatus || {}
+      const statusB = b.patientStatus || {}
+      valA =
+        (statusA.isFirstDialysis?.active ? '1' : '0') +
+        (statusA.isPaused?.active ? '1' : '0') +
+        (statusA.hasBloodDraw?.active ? '1' : '0')
+      valB =
+        (statusB.isFirstDialysis?.active ? '1' : '0') +
+        (statusB.isPaused?.active ? '1' : '0') +
+        (statusB.hasBloodDraw?.active ? '1' : '0')
     } else {
-      valA = a[currentSort.value.column]
-      valB = b[currentSort.value.column]
+      valA = a[sortColumn]
+      valB = b[sortColumn]
     }
     if (valA && typeof valA.toDate === 'function') valA = valA.toDate()
     if (valB && typeof valB.toDate === 'function') valB = valB.toDate()
@@ -153,8 +161,39 @@ const displayedPatients = computed(() => {
   })
 })
 
+// ✨ 核心修正: 為已刪除列表建立獨立的 computed
+const displayedDeletedHistory = computed(() => {
+  let history = deletedPatientHistory.value
+  if (deletedSearchTerm.value) {
+    const term = deletedSearchTerm.value.toLowerCase()
+    history = history.filter((h) => h.patientName.toLowerCase().includes(term))
+  }
+  return history
+})
+
+// ✨ 核心修正: 讀取已刪除病人的歷史記錄
+async function fetchDeletedPatientHistory() {
+  try {
+    deletedPatientHistory.value = await patientHistoryApi.fetchAll([
+      where('eventType', '==', 'DELETE'),
+      orderBy('timestamp', 'desc'),
+    ])
+  } catch (error) {
+    console.error('讀取已刪除病人歷史失敗:', error)
+    showAlert('讀取失敗', '讀取已刪除病人動向失敗！')
+  }
+}
+
+// ✨ 核心修正: 當切換到 deleted 頁籤時，讀取歷史
+watch(activeTab, (newTab) => {
+  if (newTab === 'deleted') {
+    fetchDeletedPatientHistory()
+  }
+})
+
+// ... (其他所有函式，包括 calculateStats, handleSavePatient 等都保持不變) ...
 const calculateStats = () => {
-  const statsResult = {
+  /* ... no change ... */ const statsResult = {
     source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
     mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0 },
     disease: { HBV: 0, HCV: 0, HIV: 0, RPR: 0, COVID: 0, 隔離: 0 },
@@ -247,10 +286,8 @@ const calculateStats = () => {
   })
   patientStats.value = statsResult
 }
-
 watch(allPatients, calculateStats, { deep: true })
 watch(patientHistory, calculateStats, { deep: true })
-
 const togglePopover = (popoverName) => {
   if (activePopover.value === popoverName) {
     activePopover.value = null
@@ -298,7 +335,6 @@ async function removeRuleFromMasterSchedule(patientId) {
     throw new Error('從總床位表移除規則失敗，請檢查權限或網路。')
   }
 }
-
 async function fetchAllPatients() {
   try {
     allPatients.value = await optimizedFetchAllPatients()
@@ -319,11 +355,9 @@ async function fetchPatientHistoryForStats() {
     showAlert('讀取失敗', '讀取病人歷史統計資料失敗！')
   }
 }
-
 async function refreshAllData() {
   await Promise.all([fetchAllPatients(), fetchPatientHistoryForStats()])
 }
-
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
@@ -372,13 +406,11 @@ async function handleGlobalSearch(query) {
     isModalVisible.value = true
   }
 }
-
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
-  let isNewPatient = !patientData.id
   if (patientData.id) {
     const originalPatient = allPatients.value.find((p) => p.id === patientData.id)
     if (originalPatient && !originalPatient.isDiscontinued && patientData.isDiscontinued) {
@@ -408,6 +440,7 @@ async function handleSavePatient(patientData) {
     try {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
+      dataToUpdate.updatedAt = new Date().toISOString()
       await optimizedUpdatePatient(patientData.id, dataToUpdate)
       await refreshAllData()
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
@@ -442,17 +475,11 @@ async function handleSavePatient(patientData) {
       const dataToCreate = {
         ...patientData,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
         isDeleted: false,
         status: modalType.value,
       }
       const savedPatient = await optimizedSavePatient(dataToCreate)
-      await optimizedSavePatientHistory({
-        patientId: savedPatient.id,
-        patientName: dataToCreate.name,
-        timestamp: dataToCreate.createdAt,
-        eventType: 'CREATE',
-        eventDetails: { status: modalType.value },
-      })
       await refreshAllData()
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
       const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
@@ -463,7 +490,6 @@ async function handleSavePatient(patientData) {
     }
   }
 }
-
 async function handleConflictSelected() {
   const existingPatient = existingPatientForConflict.value
   const newPatientData = newPatientDataForConflict.value
@@ -479,13 +505,6 @@ async function handleConflictSelected() {
     }
     delete dataToUpdate.id
     await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
-    await optimizedSavePatientHistory({
-      patientId: existingPatient.id,
-      patientName: newPatientData.name,
-      timestamp: new Date().toISOString(),
-      eventType: 'TRANSFER',
-      eventDetails: { from: existingPatient.status, to: modalType.value, note: `從衝突中解決` },
-    })
     await refreshAllData()
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
     const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
@@ -499,7 +518,6 @@ async function handleConflictSelected() {
     newPatientDataForConflict.value = null
   }
 }
-
 async function transferPatient(patientId, newStatus) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -514,13 +532,6 @@ async function transferPatient(patientId, newStatus) {
     async () => {
       try {
         await optimizedUpdatePatient(patientId, { status: newStatus })
-        await optimizedSavePatientHistory({
-          patientId: patientId,
-          patientName: patient.name,
-          timestamp: new Date().toISOString(),
-          eventType: 'TRANSFER',
-          eventDetails: { from: patient.status, to: newStatus },
-        })
         await refreshAllData()
         window.dispatchEvent(new CustomEvent('patient-data-updated'))
         createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
@@ -532,7 +543,6 @@ async function transferPatient(patientId, newStatus) {
     },
   )
 }
-
 async function handleDeleteReasonSelected(reason) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -553,13 +563,6 @@ async function handleDeleteReasonSelected(reason) {
       deleteReason: reason,
       deletedAt: new Date().toISOString(),
     })
-    await optimizedSavePatientHistory({
-      patientId: patientIdForActions,
-      patientName: patientNameForNotification,
-      timestamp: new Date().toISOString(),
-      eventType: 'DELETE',
-      eventDetails: { reason: reason, fromStatus: patient.status },
-    })
     await removeRuleFromMasterSchedule(patientIdForActions)
     await refreshAllData()
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
@@ -576,7 +579,6 @@ async function handleDeleteReasonSelected(reason) {
     patientToDeleteId.value = null
   }
 }
-
 function restorePatient(patientId) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -585,7 +587,6 @@ function restorePatient(patientId) {
   patientToRestoreId.value = patientId
   isRestoreDialogVisible.value = true
 }
-
 async function handleRestoreSelected(targetStatus) {
   isRestoreDialogVisible.value = false
   const patientId = patientToRestoreId.value
@@ -605,13 +606,6 @@ async function handleRestoreSelected(targetStatus) {
       deletedAt: null,
       originalStatus: null,
     })
-    await optimizedSavePatientHistory({
-      patientId: patientId,
-      patientName: patient.name,
-      timestamp: new Date().toISOString(),
-      eventType: 'RESTORE_AND_TRANSFER',
-      eventDetails: { restoredTo: targetStatus, fromReason: patient.deleteReason },
-    })
     await removeRuleFromMasterSchedule(patientId)
     await refreshAllData()
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
@@ -626,7 +620,6 @@ async function handleRestoreSelected(targetStatus) {
     patientToRestoreId.value = null
   }
 }
-
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
@@ -636,8 +629,8 @@ function openEditPatientModal(patient) {
   modalType.value = activeTab.value
   isModalVisible.value = true
 }
-function openHistoryModal(patient) {
-  selectedPatientForHistory.value = patient
+function openHistoryModal(patientId) {
+  selectedPatientForHistory.value = { id: patientId }
   isHistoryModalVisible.value = true
 }
 function deletePatient(patientId) {
@@ -660,10 +653,6 @@ function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
   globalSearchTerm.value = ''
-}
-function getSortIndicator(key) {
-  if (currentSort.value.column === key) return currentSort.value.order === 'asc' ? '▲' : '▼'
-  return ''
 }
 function formatDate(isoString) {
   if (!isoString) return ''
@@ -713,16 +702,7 @@ async function handleSaveOrder(orderData) {
     effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
   }
   try {
-    await Promise.all([
-      optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders }),
-      optimizedSaveDialysisOrderHistory({
-        patientId,
-        patientName,
-        orders: cleanOrders,
-        updatedAt: new Date().toISOString(),
-        operationType: 'UPDATE',
-      }),
-    ])
+    await Promise.all([optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders })])
     isOrderModalVisible.value = false
     await refreshAllData()
     createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
@@ -731,33 +711,29 @@ async function handleSaveOrder(orderData) {
   }
 }
 function exportDeletedPatients() {
-  const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
-  if (deletedPatients.length === 0) {
-    alert('沒有已刪除的病人資料可供匯出。')
-    return
-  }
-  const data = deletedPatients.map((p) => [
-    p.name || '',
-    p.medicalRecordNumber || '',
-    { ipd: '住院', er: '急診', opd: '門診' }[p.originalStatus] || '未知',
-    p.deleteReason || '',
-    formatDate(p.deletedAt) || '',
-    p.remarks || '',
-  ])
+  const data = displayedDeletedHistory.value.map((h) => {
+    const s = h.snapshot || {}
+    return [
+      h.patientName,
+      s.medicalRecordNumber || 'N/A',
+      { opd: '門診', ipd: '住院', er: '急診' }[h.eventDetails.fromStatus] || '未知',
+      h.eventDetails.reason,
+      s.hospitalInfo?.transferOut || '',
+      formatDate(h.timestamp),
+    ]
+  })
   const ws = XLSX.utils.aoa_to_sheet([
-    ['姓名', '病歷號', '原狀態', '刪除原因', '刪除日期', '備註'],
+    ['姓名', '病歷號', '原狀態', '刪除原因', '轉出院所', '刪除日期'],
     ...data,
   ])
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '已刪除病人')
   XLSX.writeFile(wb, `已刪除病人清單_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
-
 onMounted(() => {
   refreshAllData()
   window.addEventListener('click', closePopovers)
 })
-
 onUnmounted(() => {
   window.removeEventListener('click', closePopovers)
 })
@@ -765,16 +741,12 @@ onUnmounted(() => {
 
 <template>
   <div v-if="isLoggedIn">
-    <!-- Font Awesome CDN for icons -->
     <link
       rel="stylesheet"
       href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"
     />
-
     <div class="page-container" :class="{ 'is-locked': isPageLocked }">
-      <!-- ======================================================= -->
-      <!--                  桌面版頂部區域 (Desktop Only)            -->
-      <!-- ======================================================= -->
+      <!-- ... (頂部區域不變) ... -->
       <div class="desktop-only">
         <h1 class="page-title">透析病人管理</h1>
         <div class="main-stats-bar">
@@ -784,23 +756,20 @@ onUnmounted(() => {
               :class="{ active: activeTab === 'er' }"
               @click="changeTab('er')"
             >
-              急診 <span class="count">{{ patientStats.source.er }}</span>
-            </button>
-            <button
+              急診 <span class="count">{{ patientStats.source.er }}</span></button
+            ><button
               class="stat-tag"
               :class="{ active: activeTab === 'ipd' }"
               @click="changeTab('ipd')"
             >
-              住院 <span class="count">{{ patientStats.source.ipd }}</span>
-            </button>
-            <button
+              住院 <span class="count">{{ patientStats.source.ipd }}</span></button
+            ><button
               class="stat-tag"
               :class="{ active: activeTab === 'opd' }"
               @click="changeTab('opd')"
             >
-              門診 <span class="count">{{ patientStats.source.opd }}</span>
-            </button>
-            <button
+              門診 <span class="count">{{ patientStats.source.opd }}</span></button
+            ><button
               class="stat-tag"
               :class="{ active: activeTab === 'deleted' }"
               @click="changeTab('deleted')"
@@ -893,31 +862,24 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-
-      <!-- ======================================================= -->
-      <!--                  行動版頂部區域 (Mobile Only)             -->
-      <!-- ======================================================= -->
       <div class="mobile-header mobile-only">
         <h1 class="page-title">透析病人管理</h1>
         <div class="source-stats">
           <button class="stat-tag" :class="{ active: activeTab === 'er' }" @click="changeTab('er')">
-            急診 <span class="count">{{ patientStats.source.er }}</span>
-          </button>
-          <button
+            急診 <span class="count">{{ patientStats.source.er }}</span></button
+          ><button
             class="stat-tag"
             :class="{ active: activeTab === 'ipd' }"
             @click="changeTab('ipd')"
           >
-            住院 <span class="count">{{ patientStats.source.ipd }}</span>
-          </button>
-          <button
+            住院 <span class="count">{{ patientStats.source.ipd }}</span></button
+          ><button
             class="stat-tag"
             :class="{ active: activeTab === 'opd' }"
             @click="changeTab('opd')"
           >
-            門診 <span class="count">{{ patientStats.source.opd }}</span>
-          </button>
-          <button
+            門診 <span class="count">{{ patientStats.source.opd }}</span></button
+          ><button
             class="stat-tag"
             :class="{ active: activeTab === 'deleted' }"
             @click="changeTab('deleted')"
@@ -927,7 +889,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 主要內容區 (桌面版) -->
       <div v-if="activeTab !== 'deleted'" class="tab-content active desktop-only">
         <div class="view-header">
           <div class="controls-left">
@@ -937,8 +898,9 @@ onUnmounted(() => {
                 v-model="globalSearchTerm"
                 @keydown.enter="handleGlobalSearch(globalSearchTerm)"
                 placeholder="搜尋/新增/轉移病人..."
-              />
-              <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">執行</button>
+              /><button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">
+                執行
+              </button>
             </div>
             <div class="search-group list-filter">
               <input
@@ -946,14 +908,12 @@ onUnmounted(() => {
                 type="text"
                 v-model="erListFilter"
                 placeholder="篩選列表..."
-              />
-              <input
+              /><input
                 v-if="activeTab === 'ipd'"
                 type="text"
                 v-model="ipdListFilter"
                 placeholder="篩選列表..."
-              />
-              <input
+              /><input
                 v-if="activeTab === 'opd'"
                 type="text"
                 v-model="opdListFilter"
@@ -972,9 +932,11 @@ onUnmounted(() => {
               </div>
               <div class="flex-cell col-freq" @click="handleSort('freq')">頻率</div>
               <div class="flex-cell col-mode">模式</div>
+              <div class="flex-cell col-status" @click="handleSort('patientStatus')">狀態</div>
+              <div class="flex-cell col-hospital" @click="handleSort('hospitalInfo')">透析院所</div>
               <div class="flex-cell col-vasc-access">血管通路</div>
               <div class="flex-cell col-remarks">備註</div>
-              <div class="flex-cell col-created" @click="handleSort('createdAt')">新增日期</div>
+              <div class="flex-cell col-updated" @click="handleSort('updatedAt')">異動日期</div>
               <div class="flex-cell col-actions">操作</div>
             </div>
             <div class="flex-table-body">
@@ -998,67 +960,92 @@ onUnmounted(() => {
                 <div class="flex-cell col-physician">{{ p.physician }}</div>
                 <div class="flex-cell col-freq">{{ p.freq }}</div>
                 <div class="flex-cell col-mode">{{ p.mode }}</div>
+                <div class="flex-cell col-status">
+                  <div class="status-icon-container">
+                    <i
+                      v-if="p.patientStatus?.isFirstDialysis?.active"
+                      class="fas fa-star status-icon-first"
+                      :title="`首透: ${p.patientStatus.isFirstDialysis.date || '無日期'}`"
+                    ></i
+                    ><i
+                      v-if="p.patientStatus?.isPaused?.active"
+                      class="fas fa-pause-circle status-icon-paused"
+                      :title="`暫停透析: ${p.patientStatus.isPaused.date || '無日期'}`"
+                    ></i
+                    ><i
+                      v-if="p.patientStatus?.hasBloodDraw?.active"
+                      class="fas fa-vial status-icon-blood"
+                      :title="`已抽血: ${p.patientStatus.hasBloodDraw.date || '無日期'}`"
+                    ></i>
+                  </div>
+                </div>
+                <div class="flex-cell col-hospital">
+                  <div class="hospital-cell-content">
+                    <span class="hospital-source">{{ p.hospitalInfo?.source }}</span>
+                    <div
+                      v-if="p.hospitalInfo?.source && p.hospitalInfo?.transferOut"
+                      class="hospital-divider"
+                    ></div>
+                    <span class="hospital-transfer-out">{{ p.hospitalInfo?.transferOut }}</span>
+                  </div>
+                </div>
                 <div class="flex-cell col-vasc-access">{{ p.vascAccess }}</div>
                 <div class="flex-cell col-remarks">{{ p.remarks }}</div>
-                <div class="flex-cell col-created">{{ formatDate(p.createdAt) }}</div>
+                <div class="flex-cell col-updated">{{ formatDate(p.updatedAt) }}</div>
                 <div class="flex-cell col-actions">
-                  <div class="action-buttons">
+                  <div class="action-buttons icon-only">
                     <button
-                      class="btn btn-edit"
+                      class="btn-icon btn-edit"
                       @click="openEditPatientModal(p)"
                       :disabled="isPageLocked"
+                      title="編輯"
                     >
-                      <i class="fas fa-pencil-alt"></i> 編輯
-                    </button>
-                    <button
-                      class="btn btn-order"
+                      <i class="fas fa-pencil-alt"></i></button
+                    ><button
+                      class="btn-icon btn-order"
                       @click="openOrderModal(p)"
                       :disabled="isPageLocked"
+                      title="醫囑"
                     >
-                      <i class="fas fa-notes-medical"></i> 醫囑
-                    </button>
-                    <button
-                      v-if="activeTab !== 'ipd'"
-                      class="btn btn-transfer"
-                      @click="transferPatient(p.id, 'ipd')"
+                      <i class="fas fa-notes-medical"></i></button
+                    ><button
+                      class="btn-icon btn-delete"
+                      @click="deletePatient(p.id)"
                       :disabled="isPageLocked"
+                      title="刪除"
                     >
-                      <i class="fas fa-procedures"></i> 轉住院
-                    </button>
-                    <button
+                      <i class="fas fa-trash-alt"></i></button
+                    ><button
                       v-if="activeTab !== 'opd'"
-                      class="btn btn-transfer"
+                      class="btn-icon btn-transfer"
                       @click="transferPatient(p.id, 'opd')"
                       :disabled="isPageLocked"
+                      title="轉門診"
                     >
-                      <i class="fas fa-clinic-medical"></i> 轉門診
-                    </button>
-                    <button
+                      <i class="fas fa-clinic-medical"></i></button
+                    ><button
+                      v-if="activeTab !== 'ipd'"
+                      class="btn-icon btn-transfer"
+                      @click="transferPatient(p.id, 'ipd')"
+                      :disabled="isPageLocked"
+                      title="轉住院"
+                    >
+                      <i class="fas fa-procedures"></i></button
+                    ><button
                       v-if="activeTab !== 'er'"
-                      class="btn btn-transfer"
+                      class="btn-icon btn-transfer"
                       @click="transferPatient(p.id, 'er')"
                       :disabled="isPageLocked"
+                      title="轉急診"
                     >
-                      <i class="fas fa-ambulance"></i> 轉急診
+                      <i class="fas fa-ambulance"></i></button
+                    ><button
+                      class="btn-icon btn-history"
+                      @click="openHistoryModal(p.id)"
+                      title="動向歷史"
+                    >
+                      <i class="fas fa-history"></i>
                     </button>
-                    <div class="action-divider"></div>
-                    <div class="icon-buttons">
-                      <button
-                        class="btn-icon btn-history"
-                        @click="openHistoryModal(p)"
-                        title="動向歷史"
-                      >
-                        <i class="fas fa-history"></i>
-                      </button>
-                      <button
-                        class="btn-icon btn-delete"
-                        @click="deletePatient(p.id)"
-                        :disabled="isPageLocked"
-                        title="刪除"
-                      >
-                        <i class="fas fa-trash-alt"></i>
-                      </button>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1066,6 +1053,8 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+
+      <!-- 已刪除列表 -->
       <div v-else class="tab-content active desktop-only">
         <div class="toolbar">
           <div class="search-group">
@@ -1074,42 +1063,87 @@ onUnmounted(() => {
           <button @click="exportDeletedPatients" class="btn-export">轉出已刪除清單</button>
         </div>
         <div class="table-wrapper">
-          <table class="patient-table">
+          <table class="patient-table deleted-history-table">
             <thead>
               <tr>
-                <th class="col-shrink">姓名</th>
-                <th class="col-shrink">病歷號</th>
-                <th class="col-shrink">原狀態</th>
-                <th class="col-shrink">刪除原因</th>
-                <th class="col-expand">備註</th>
-                <th class="col-shrink">刪除日期</th>
-                <th class="col-shrink">操作</th>
+                <th>刪除日期</th>
+                <th>姓名</th>
+                <!-- ✨ 核心修正: 新增病歷號標頭 -->
+                <th>病歷號</th>
+                <th>原狀態/原因</th>
+                <th>首次透析/日期</th>
+                <th>透析管路/建立日期</th>
+                <th>透析院所 (原/轉出)</th>
+                <th>住院/透析原因</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="p in displayedPatients" :key="p.id" :class="getRowClass(p)">
-                <td class="col-shrink">{{ p.name }}</td>
-                <td class="col-shrink">{{ p.medicalRecordNumber }}</td>
-                <td class="col-shrink">
-                  {{
-                    p.originalStatus === 'ipd'
-                      ? '住院'
-                      : p.originalStatus === 'er'
-                        ? '急診'
-                        : '門診'
-                  }}
+              <tr v-for="h in displayedDeletedHistory" :key="h.id" class="status-deleted">
+                <td>{{ formatDate(h.timestamp) }}</td>
+                <td>{{ h.patientName }}</td>
+                <!-- ✨ 核心修正: 顯示病歷號 -->
+                <td>{{ h.snapshot?.medicalRecordNumber || 'N/A' }}</td>
+                <td>
+                  <div class="status-reason-cell">
+                    <span
+                      class="original-status-badge"
+                      :class="`status-${h.eventDetails.fromStatus}`"
+                      >{{
+                        { opd: '門診', ipd: '住院', er: '急診' }[h.eventDetails.fromStatus]
+                      }}</span
+                    >{{ h.eventDetails.reason }}
+                  </div>
                 </td>
-                <td class="col-shrink">{{ p.deleteReason }}</td>
-                <td class="col-expand">{{ p.remarks }}</td>
-                <td class="col-shrink">{{ formatDate(p.deletedAt) }}</td>
-                <td class="col-actions action-buttons">
-                  <button
-                    class="btn btn-restore"
-                    @click="restorePatient(p.id)"
-                    :disabled="isPageLocked"
+                <td>{{ h.snapshot?.firstDialysisDate }}</td>
+                <td>
+                  <div v-if="h.snapshot?.vascAccess" class="vasc-cell">
+                    <span>{{ h.snapshot.vascAccess }}</span
+                    ><span class="sub-text">{{ h.snapshot.accessCreationDate }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div class="hospital-cell-content">
+                    <span class="hospital-source">{{ h.snapshot?.hospitalInfo?.source }}</span>
+                    <div
+                      v-if="
+                        h.snapshot?.hospitalInfo?.source && h.snapshot?.hospitalInfo?.transferOut
+                      "
+                      class="hospital-divider"
+                    ></div>
+                    <span class="hospital-transfer-out">{{
+                      h.snapshot?.hospitalInfo?.transferOut
+                    }}</span>
+                  </div>
+                </td>
+                <td>
+                  <div
+                    v-if="h.snapshot?.inpatientReason || h.snapshot?.dialysisReason"
+                    class="reason-cell"
                   >
-                    復原
-                  </button>
+                    <div>
+                      <span class="reason-label">住:</span> {{ h.snapshot.inpatientReason }}
+                    </div>
+                    <div><span class="reason-label">透:</span> {{ h.snapshot.dialysisReason }}</div>
+                  </div>
+                </td>
+                <td class="col-actions">
+                  <div class="action-buttons icon-only" style="justify-content: center">
+                    <button
+                      class="btn-icon btn-history"
+                      @click="openHistoryModal(h.patientId)"
+                      title="動向歷史"
+                    >
+                      <i class="fas fa-history"></i></button
+                    ><button
+                      class="btn-icon btn-restore"
+                      @click="restorePatient(h.patientId)"
+                      :disabled="isPageLocked"
+                      title="復原"
+                    >
+                      <i class="fas fa-undo"></i>
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -1117,7 +1151,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 主要內容區 (行動版) -->
+      <!-- ... 行動版 & Modals (不變) ... -->
       <div class="tab-content-mobile mobile-only">
         <div v-if="activeTab !== 'deleted'" class="cards-container">
           <div
@@ -1128,16 +1162,15 @@ onUnmounted(() => {
           >
             <div class="card-header">
               <div class="patient-name-section">
-                <span class="patient-name-text">{{ p.name }}</span>
-                <span class="freq-tag-card" :class="FREQ_COLOR_MAP[p.freq || '未設定']">{{
+                <span class="patient-name-text">{{ p.name }}</span
+                ><span class="freq-tag-card" :class="FREQ_COLOR_MAP[p.freq || '未設定']">{{
                   p.freq || '未設定'
                 }}</span>
               </div>
               <div class="card-actions-header">
                 <button class="btn-icon btn-history" @click="openHistoryModal(p)" title="動向歷史">
-                  <i class="fas fa-history"></i>
-                </button>
-                <button
+                  <i class="fas fa-history"></i></button
+                ><button
                   class="btn-icon btn-delete"
                   @click="deletePatient(p.id)"
                   :disabled="isPageLocked"
@@ -1169,8 +1202,36 @@ onUnmounted(() => {
                   }}</span>
                 </div>
                 <div class="info-item">
-                  <span class="label">新增日期</span
-                  ><span class="value">{{ formatDate(p.createdAt) }}</span>
+                  <span class="label">異動日期</span
+                  ><span class="value">{{ formatDate(p.updatedAt) }}</span>
+                </div>
+              </div>
+              <div class="info-grid" style="margin-top: 0.5rem">
+                <div class="info-item">
+                  <span class="label">透析院所</span
+                  ><span class="value">{{
+                    p.hospitalInfo?.source || p.hospitalInfo?.transferOut
+                  }}</span>
+                </div>
+                <div class="info-item">
+                  <span class="label">狀態</span>
+                  <div class="status-icon-container">
+                    <i
+                      v-if="p.patientStatus?.isFirstDialysis?.active"
+                      class="fas fa-star status-icon-first"
+                      :title="`首透: ${p.patientStatus.isFirstDialysis.date || '無日期'}`"
+                    ></i
+                    ><i
+                      v-if="p.patientStatus?.isPaused?.active"
+                      class="fas fa-pause-circle status-icon-paused"
+                      :title="`暫停透析: ${p.patientStatus.isPaused.date || '無日期'}`"
+                    ></i
+                    ><i
+                      v-if="p.patientStatus?.hasBloodDraw?.active"
+                      class="fas fa-vial status-icon-blood"
+                      :title="`已抽血: ${p.patientStatus.hasBloodDraw.date || '無日期'}`"
+                    ></i>
+                  </div>
                 </div>
               </div>
               <div v-if="p.remarks" class="remarks-section">
@@ -1188,28 +1249,24 @@ onUnmounted(() => {
                 @click="openEditPatientModal(p)"
                 :disabled="isPageLocked"
               >
-                <i class="fas fa-pencil-alt"></i> 編輯
-              </button>
-              <button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
-                <i class="fas fa-notes-medical"></i> 醫囑
-              </button>
-              <button
+                <i class="fas fa-pencil-alt"></i> 編輯</button
+              ><button class="btn btn-order" @click="openOrderModal(p)" :disabled="isPageLocked">
+                <i class="fas fa-notes-medical"></i> 醫囑</button
+              ><button
                 v-if="activeTab !== 'ipd'"
                 class="btn btn-transfer"
                 @click="transferPatient(p.id, 'ipd')"
                 :disabled="isPageLocked"
               >
-                <i class="fas fa-procedures"></i> 轉住院
-              </button>
-              <button
+                <i class="fas fa-procedures"></i> 轉住院</button
+              ><button
                 v-if="activeTab !== 'opd'"
                 class="btn btn-transfer"
                 @click="transferPatient(p.id, 'opd')"
                 :disabled="isPageLocked"
               >
-                <i class="fas fa-clinic-medical"></i> 轉門診
-              </button>
-              <button
+                <i class="fas fa-clinic-medical"></i> 轉門診</button
+              ><button
                 v-if="activeTab !== 'er'"
                 class="btn btn-transfer"
                 @click="transferPatient(p.id, 'er')"
@@ -1220,14 +1277,8 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
-        <div v-else>
-          <!-- 行動版的已刪除列表 -->
-        </div>
+        <div v-else></div>
       </div>
-
-      <!-- ======================================================= -->
-      <!--                  行動版固定底欄 (Mobile Only)             -->
-      <!-- ======================================================= -->
       <div class="fixed-bottom-bar mobile-only">
         <div class="search-group global-search">
           <input
@@ -1235,53 +1286,44 @@ onUnmounted(() => {
             v-model="globalSearchTerm"
             @keydown.enter="handleGlobalSearch(globalSearchTerm)"
             placeholder="搜尋/新增/轉移病人..."
-          />
-          <button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">執行</button>
+          /><button class="btn-search" @click="handleGlobalSearch(globalSearchTerm)">執行</button>
         </div>
       </div>
     </div>
-
-    <!-- 所有 Modal 組件保持不變 -->
     <PatientFormModal
       :is-modal-visible="isModalVisible"
       :patient-data="editingPatient"
       :patient-type="modalType"
       @close="closeModal"
       @save="handleSavePatient"
-    />
-    <SelectionDialog
+    /><SelectionDialog
       :is-visible="isDeleteDialogVisible"
       title="請選擇刪除原因"
       :options="DELETE_REASONS"
       @select="handleDeleteReasonSelected"
       @cancel="cancelDelete"
-    />
-    <AlertDialog
+    /><AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
-    />
-    <ConfirmDialog
+    /><ConfirmDialog
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"
       :message="confirmDialogMessage"
       @confirm="handleConfirm"
       @cancel="handleCancel"
-    />
-    <DialysisOrderModal
+    /><DialysisOrderModal
       :is-visible="isOrderModalVisible"
       :patient-data="editingPatientForOrder"
       @close="isOrderModalVisible = false"
       @save="handleSaveOrder"
-    />
-    <PatientHistoryModal
+    /><PatientHistoryModal
       :is-visible="isHistoryModalVisible"
       :patient-id="selectedPatientForHistory?.id"
       :patient-name="selectedPatientForHistory?.name"
       @close="isHistoryModalVisible = false"
-    />
-    <SelectionDialog
+    /><SelectionDialog
       :is-visible="isRestoreDialogVisible"
       title="請選擇復原位置"
       :options="RESTORE_OPTIONS"
@@ -1292,9 +1334,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* ================================== */
-/*         通用及桌面版樣式            */
-/* ================================== */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -1490,7 +1529,6 @@ onUnmounted(() => {
   min-width: 200px;
   background-color: #f8f9fa;
 }
-
 .table-wrapper {
   flex-grow: 1;
   overflow-y: auto;
@@ -1528,6 +1566,7 @@ onUnmounted(() => {
 .flex-table-row .flex-cell:last-child {
   border-right: none;
 }
+
 .col-name {
   flex: 0 0 140px;
 }
@@ -1535,13 +1574,19 @@ onUnmounted(() => {
   flex: 0 0 90px;
 }
 .col-physician {
-  flex: 0 0 100px;
+  flex: 0 0 90px;
 }
 .col-freq {
   flex: 0 0 90px;
 }
 .col-mode {
   flex: 0 0 80px;
+}
+.col-status {
+  flex: 0 0 100px;
+}
+.col-hospital {
+  flex: 0 0 160px;
 }
 .col-vasc-access {
   flex: 0 0 110px;
@@ -1551,11 +1596,11 @@ onUnmounted(() => {
   white-space: normal;
   word-break: break-all;
 }
-.col-created {
+.col-updated {
   flex: 0 0 110px;
 }
 .col-actions {
-  flex: 0 0 450px;
+  flex: 0 0 250px;
   justify-content: flex-start;
 }
 .flex-table-header .flex-cell {
@@ -1585,71 +1630,27 @@ onUnmounted(() => {
   border: 1px solid var(--danger-color);
   border-radius: 4px;
 }
-.action-buttons {
+.status-icon-container {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 1.2rem;
+}
+.status-icon-first {
+  color: #f97316;
+}
+.status-icon-paused {
+  color: #6b7280;
+}
+.status-icon-blood {
+  color: #3b82f6;
+}
+.action-buttons.icon-only {
   display: flex;
   flex-wrap: nowrap;
-  gap: 0.5rem;
+  gap: 0.25rem;
   align-items: center;
   width: 100%;
-}
-.action-buttons .btn,
-.card-footer .btn {
-  padding: 5px 10px;
-  font-size: 0.9em;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  color: white;
-  white-space: nowrap;
-  transition: background-color 0.2s;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5em;
-}
-.action-buttons .btn i,
-.card-footer .btn i {
-  font-size: 0.9em;
-}
-.btn.btn-edit {
-  background-color: #007bff;
-}
-.btn.btn-edit:hover:not(:disabled) {
-  background-color: #0056b3;
-}
-.btn.btn-order {
-  background-color: #ffc107;
-  color: #212529;
-}
-.btn.btn-order:hover:not(:disabled) {
-  background-color: #e0a800;
-}
-.btn.btn-transfer {
-  background-color: #17a2b8;
-}
-.btn.btn-transfer:hover:not(:disabled) {
-  background-color: #138496;
-}
-.btn.btn-restore {
-  background-color: var(--success-color);
-}
-.btn.btn-restore:hover:not(:disabled) {
-  background-color: #15803d;
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.action-divider {
-  width: 1px;
-  height: 24px;
-  background-color: #dee2e6;
-  margin: 0 0.25rem;
-}
-.icon-buttons {
-  display: flex;
-  gap: 0.25rem;
 }
 .btn-icon {
   background: none;
@@ -1670,17 +1671,48 @@ onUnmounted(() => {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.btn-icon.btn-delete {
-  color: #dc3545;
+.btn-icon.btn-edit {
+  color: #007bff;
+}
+.btn-icon.btn-order {
+  color: #fd7e14;
+}
+.btn-icon.btn-transfer {
+  color: #17a2b8;
 }
 .btn-icon.btn-history {
   color: #6c757d;
 }
-.btn-icon.btn-delete:hover:not(:disabled) {
-  background-color: #fee2e2;
+.btn-icon.btn-delete {
+  color: #dc3545;
+}
+.btn-icon.btn-edit:hover:not(:disabled) {
+  background-color: #e7f1ff;
+}
+.btn-icon.btn-order:hover:not(:disabled) {
+  background-color: #fff3e0;
+}
+.btn-icon.btn-transfer:hover:not(:disabled) {
+  background-color: #e2f7fa;
 }
 .btn-icon.btn-history:hover:not(:disabled) {
   background-color: #f1f3f5;
+}
+.btn-icon.btn-delete:hover:not(:disabled) {
+  background-color: #fee2e2;
+}
+.btn.btn-restore,
+.btn-icon.btn-restore {
+  background-color: var(--success-color);
+  color: white;
+}
+.btn-icon.btn-restore {
+  background: none;
+  color: var(--success-color);
+}
+.btn.btn-restore:hover:not(:disabled),
+.btn-icon.btn-restore:hover:not(:disabled) {
+  background-color: #d1fae5;
 }
 .flex-table-row.status-opd {
   background-color: var(--green-bg);
@@ -1706,11 +1738,6 @@ onUnmounted(() => {
 }
 .flex-table-row.status-discontinued button {
   text-decoration: none;
-}
-.sort-indicator {
-  display: inline-block;
-  margin-left: 5px;
-  color: #999;
 }
 .toolbar {
   display: flex;
@@ -1761,10 +1788,75 @@ onUnmounted(() => {
   background-color: #f2f2f2;
   font-weight: 600;
 }
+.hospital-cell-content {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  width: 100%;
+}
+.hospital-source {
+  color: #6c757d;
+  text-align: right;
+  flex: 1;
+}
+.hospital-transfer-out {
+  color: #17a2b8;
+  font-weight: 500;
+  flex: 1;
+}
+.hospital-divider {
+  width: 1px;
+  height: 1.5em;
+  background-color: #ced4da;
+}
 
-/* ================================== */
-/*         響應式樣式 (核心重構)       */
-/* ================================== */
+/* ✨ 核心修正: 已刪除列表的新樣式 */
+.deleted-history-table th {
+  text-align: center;
+}
+.deleted-history-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+.status-reason-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.original-status-badge {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: bold;
+  color: #fff;
+}
+.original-status-badge.status-opd {
+  background-color: #28a745;
+}
+.original-status-badge.status-ipd {
+  background-color: #dc3545;
+}
+.original-status-badge.status-er {
+  background-color: #6f42c1;
+}
+.vasc-cell,
+.reason-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+  text-align: left;
+}
+.vasc-cell .sub-text {
+  font-size: 0.9em;
+  color: #6c757d;
+}
+.reason-cell .reason-label {
+  font-weight: bold;
+  color: #495057;
+  margin-right: 0.5em;
+}
 
 .mobile-only {
   display: none;
@@ -1772,7 +1864,6 @@ onUnmounted(() => {
 .desktop-only {
   display: block;
 }
-
 @media (max-width: 1200px) {
   .desktop-only .flex-table-wrapper {
     min-width: 1200px;
@@ -1781,7 +1872,6 @@ onUnmounted(() => {
     overflow-x: auto;
   }
 }
-
 @media (max-width: 992px) {
   .desktop-only {
     display: none !important;
@@ -1789,15 +1879,11 @@ onUnmounted(() => {
   .mobile-only {
     display: block !important;
   }
-
   .page-container {
     padding: 0;
     background-color: #f8f9fa;
-    /* 為固定底欄留出空間 */
     padding-bottom: 80px;
   }
-
-  /* --- 行動版頂部樣式 --- */
   .mobile-header {
     background-color: #fff;
     padding: 1rem;
@@ -1827,7 +1913,7 @@ onUnmounted(() => {
     border: 1px solid #dee2e6;
   }
   .mobile-header .stat-tag.active {
-    background-color: #28a745; /* 改為綠色 */
+    background-color: #28a745;
     color: white;
     border-color: #28a745;
   }
@@ -1839,13 +1925,9 @@ onUnmounted(() => {
     background-color: rgba(255, 255, 255, 0.2);
     color: white;
   }
-
-  /* --- 主要內容區 --- */
   .tab-content-mobile {
     padding: 1rem;
   }
-
-  /* --- 行動版卡片列表 --- */
   .cards-container {
     display: flex;
     flex-direction: column;
@@ -1889,6 +1971,9 @@ onUnmounted(() => {
   .freq-orange {
     background-color: #f39c12;
   }
+  .freq-purple {
+    background-color: #9b59b6;
+  }
   .freq-teal {
     background-color: #1abc9c;
   }
@@ -1898,7 +1983,6 @@ onUnmounted(() => {
   .freq-grey {
     background-color: #95a5a6;
   }
-
   .card-actions-header {
     display: flex;
     align-items: center;
@@ -1950,14 +2034,12 @@ onUnmounted(() => {
     flex-grow: 1;
     padding: 0.6rem 0.5rem;
   }
-
-  /* --- 固定底欄樣式 --- */
   .fixed-bottom-bar {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    background-color: #ffffff;
+    background-color: #fff;
     padding: 1rem;
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
     z-index: 100;
