@@ -99,6 +99,7 @@ export function generateAutoNote(patient) {
     if (patient.diseases.includes('RPR')) autoNotes.add('R')
     if (patient.diseases.includes('隔離')) autoNotes.add('隔')
     if (patient.diseases.includes('COVID')) autoNotes.add('冠')
+    if (patient.diseases.includes('BC肝?')) autoNotes.add('BC?')
   }
 
   return Array.from(autoNotes).join(' ')
