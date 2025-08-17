@@ -149,6 +149,12 @@ dist
 .env.development
 .env.production
 
+# Environment variables
+# Never commit sensitive keys!
+.env
+.env.*
+!.env.example
+
 serviceAccountKey.json
 
 # Firebase Emulator Data

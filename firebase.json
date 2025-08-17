@@ -16,10 +16,6 @@
     "hosting": {
       "port": 5000
     },
-    // ✨ 確保 pubsub 模擬器已啟用 ✨
-    "pubsub": {
-      "port": 8085
-    },
     "ui": {
       "enabled": true,
       "port": 4000

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (最終修正版) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (區間調班修正版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -15,7 +15,7 @@
         </div>
       </div>
       <p class="page-description">
-        此處用於處理「臨時調班」或「區間暫停排程」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
+        此處用於處理「臨時調班」、「區間暫停」或「臨時加洗」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
       </p>
     </header>
 
@@ -25,10 +25,9 @@
         <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
         <div v-else-if="exceptions.length === 0" class="empty-state">
           <i class="fas fa-check-circle"></i>
-          <p>目前沒有任何待處理或已生效的例外申請。</p>
+          <p>目前沒有任何待處理或已生效的調班。</p>
         </div>
 
-        <!-- ‼️‼️‼️ 這裡是核心修正：用一個 v-else 容器包裹兩個版本 ‼️‼️‼️ -->
         <div v-else>
           <!-- 桌機版表格 -->
           <table class="exceptions-table desktop-only">
@@ -61,15 +60,25 @@
                   <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
                 </td>
                 <td class="reason-cell">
+                  <!-- 【修改】更新此區塊以顯示新類型 -->
                   <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                    <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
                     <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
                     <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-
                     <small v-if="ex.status === 'error'" class="error-message"
                       >錯誤: {{ ex.errorMessage }}</small
                     >
                     <small v-else>原因: {{ ex.reason }}</small>
+                  </div>
+                  <div v-else-if="ex.type === 'ADD_SESSION' && ex.to">
+                    <div>新增於 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
+                    <small>原因: {{ ex.reason }}</small>
+                  </div>
+                  <div v-else-if="ex.type === 'RANGE_MOVE' && ex.to">
+                    <!-- 🔥🔥 核心修改：顯示具體床位 -->
+                    <div>
+                      區間內移至: <strong>{{ formatBedAndShift(ex.to) }}</strong>
+                    </div>
+                    <small>原因: {{ ex.reason }}</small>
                   </div>
                   <div v-else>
                     {{ ex.reason }}
@@ -119,11 +128,27 @@
                 <div class="info-row details">
                   <strong class="info-label">詳細內容:</strong>
                   <div class="info-value">
+                    <!-- 【修改】更新此區塊以顯示新類型 -->
                     <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                      <!-- ✨✨✨ --- 核心修正：呼叫新的格式化函式 --- ✨✨✨ -->
                       <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
                       <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-
+                      <small v-if="ex.status === 'error'" class="error-message"
+                        >錯誤: {{ ex.errorMessage }}</small
+                      >
+                      <small v-else>原因: {{ ex.reason }}</small>
+                    </div>
+                    <div v-else-if="ex.type === 'ADD_SESSION' && ex.to">
+                      <div>新增於 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
+                      <small v-if="ex.status === 'error'" class="error-message"
+                        >錯誤: {{ ex.errorMessage }}</small
+                      >
+                      <small v-else>原因: {{ ex.reason }}</small>
+                    </div>
+                    <div v-else-if="ex.type === 'RANGE_MOVE' && ex.to">
+                      <!-- 🔥🔥 核心修改：顯示具體床位 -->
+                      <div>
+                        區間內移至: <strong>{{ formatBedAndShift(ex.to) }}</strong>
+                      </div>
                       <small v-if="ex.status === 'error'" class="error-message"
                         >錯誤: {{ ex.errorMessage }}</small
                       >
@@ -184,15 +209,7 @@
 <script setup>
 import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  writeBatch,
-} from 'firebase/firestore'
+import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
@@ -241,17 +258,12 @@ const statusMap = {
 const typeMap = {
   MOVE: '臨時調班',
   SUSPEND: '區間暫停',
+  ADD_SESSION: '臨時加洗',
+  RANGE_MOVE: '區間調班',
 }
-
-const shiftMap = {
-  early: '早班',
-  noon: '午班',
-  late: '晚班',
-}
+const shiftMap = { early: '早班', noon: '午班', late: '晚班' }
 
 // --- Methods ---
-
-// ✨✨✨ --- 核心修正：將 formatTimestamp 函式加回來 --- ✨✨✨
 function formatTimestamp(ts) {
   if (!ts || !ts.toDate) return 'N/A'
   return ts.toDate().toLocaleString('zh-TW', {
@@ -269,9 +281,17 @@ function formatShiftInfo(shiftData) {
   const bedDisplay = String(shiftData.bedNum).startsWith('peripheral-')
     ? `外圍 ${String(shiftData.bedNum).split('-')[1]}`
     : `${shiftData.bedNum}床`
-  // 注意：這裡我們使用 shiftData.date，而不是 shiftData.sourceDate 或 goalDate
-  // 這是因為我們在模板中呼叫時已經統一傳遞了 `date` 屬性
   return `${shiftData.date || ''} (${shiftName} ${bedDisplay})`
+}
+
+// 【新增】一個更通用的格式化函式，用於顯示床位和班別
+function formatBedAndShift(targetData) {
+  if (!targetData || !targetData.bedNum || !targetData.shiftCode) return 'N/A'
+  const shiftName = shiftMap[targetData.shiftCode] || targetData.shiftCode
+  const bedDisplay = String(targetData.bedNum).startsWith('peripheral-')
+    ? `外圍 ${String(targetData.bedNum).split('-')[1]}`
+    : `${targetData.bedNum}床`
+  return `${bedDisplay} / ${shiftName}`
 }
 
 function openCreateDialog() {
@@ -287,6 +307,7 @@ function closeCreateDialog() {
   }, 300)
 }
 
+// 【修改】更新此函式以處理新類型的備忘錄
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
@@ -298,10 +319,10 @@ async function handleCreateException(formData) {
       patientName: formData.patientName,
       type: formData.type,
       reason: formData.reason,
-      startDate: formData.type === 'MOVE' ? formData.from.sourceDate : formData.startDate,
-      endDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
-      from: formData.type === 'MOVE' ? formData.from : null,
-      to: formData.type === 'MOVE' ? formData.to : null,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      from: formData.from,
+      to: formData.to,
       status: 'pending',
       createdAt: new Date(),
     }
@@ -309,29 +330,34 @@ async function handleCreateException(formData) {
     closeCreateDialog()
 
     const actionText = isUpdating ? '更新' : '新增'
-    const typeText = formData.type === 'MOVE' ? '臨時調班' : '區間暫停'
-    const message = `${actionText}調班申請: ${formData.patientName} (${typeText})`
+    const typeText = typeMap[formData.type] || '調班'
+    const message = `${actionText}申請: ${formData.patientName} (${typeText})`
     createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
 
-    const getBedDisplay = (bedNum) =>
-      typeof bedNum === 'string' && bedNum.startsWith('peripheral-')
-        ? `外圍 ${bedNum.split('-')[1]}`
-        : `${bedNum}床`
     let memoContent = ''
-    if (formData.type === 'MOVE') {
-      const fromShift =
-        formData.from.shiftCode === 'early'
-          ? '早'
-          : formData.from.shiftCode === 'noon'
-            ? '午'
-            : '晚'
-      const toShift =
-        formData.to.shiftCode === 'early' ? '早' : formData.to.shiftCode === 'noon' ? '午' : '晚'
-      const fromBedDisplay = getBedDisplay(formData.from.bedNum)
-      const toBedDisplay = getBedDisplay(formData.to.bedNum)
-      memoContent = `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay} / ${fromShift}班)\n新排班: ${formData.to.goalDate} (${toBedDisplay} / ${toShift}班)\n原因: ${formData.reason}`
-    } else if (formData.type === 'SUSPEND') {
-      memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}\n原因: ${formData.reason}`
+    const reasonText = `\n原因: ${formData.reason}`
+
+    switch (formData.type) {
+      case 'MOVE':
+        const fromBedDisplay = formatBedAndShift(formData.from)
+        const toBedDisplay = formatBedAndShift(formData.to)
+        memoContent =
+          `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay})\n新排班: ${formData.to.goalDate} (${toBedDisplay})` +
+          reasonText
+        break
+      case 'SUSPEND':
+        memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}` + reasonText
+        break
+      case 'ADD_SESSION':
+        const addBedDisplay = formatBedAndShift(formData.to)
+        memoContent = `【臨時加洗】\n日期: ${formData.to.goalDate} (${addBedDisplay})` + reasonText
+        break
+      case 'RANGE_MOVE': // 🔥🔥 核心修改：更新備忘錄內容
+        const targetBedDisplay = formatBedAndShift(formData.to)
+        memoContent =
+          `【區間調班】\n區間: ${formData.startDate} ~ ${formData.endDate}\n目標: 全部移至 ${targetBedDisplay}` +
+          reasonText
+        break
     }
 
     if (memoContent) {
@@ -363,7 +389,7 @@ async function executeDeleteException() {
     const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
     if (exceptionData) {
-      const typeText = exceptionData.type === 'MOVE' ? '臨時調班' : '區間暫停'
+      const typeText = typeMap[exceptionData.type] || '調班'
       const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
       createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
     }
@@ -474,7 +500,7 @@ watch(
         isCreateDialogVisible.value = true
         router.replace({ query: {} })
       } else {
-        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的例外申請。`)
+        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的調班申請。`)
       }
     }
   },
@@ -494,7 +520,6 @@ onUnmounted(() => {
 /* ================================== */
 /*         通用及桌面版樣式            */
 /* ================================== */
-/* [修正] 容器應填滿父層高度 (100%)，而非視窗高度 (100vh)，並移除外層 padding */
 .page-container {
   height: 100%;
   box-sizing: border-box;
@@ -503,33 +528,27 @@ onUnmounted(() => {
   background-color: #f8f9fa;
   padding: 10px;
 }
-
-/* [修正] 為 header 新增 padding，並減少邊距使其更緊湊 */
 .page-header {
   border-bottom: 2px solid #dee2e6;
   margin-bottom: 1.5rem;
   flex-shrink: 0;
 }
-
 .header-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
 .page-title {
   font-size: 32px;
   font-weight: 700;
   color: #343a40;
   margin: 0;
 }
-
 .page-description {
   margin-top: 0.5rem;
   font-size: 1rem;
   color: #6c757d;
 }
-
 .btn {
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -542,38 +561,30 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
 }
-
 .btn-primary {
   background-color: #007bff;
   color: white;
   border-color: #007bff;
 }
-
 .btn-primary:hover {
   background-color: #0069d9;
 }
-
 .btn-danger {
   background-color: #dc3545;
   color: white;
   border-color: #dc3545;
 }
-
 .btn-danger:hover {
   background-color: #c82333;
 }
-
 .btn-sm {
   padding: 0.25rem 0.5rem;
   font-size: 0.875rem;
 }
-
 button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
-
-/* [修正] 為 main 內容區加上 min-height: 0，確保滾動條在此元素上 */
 .page-main-content {
   flex-grow: 1;
   background-color: #fff;
@@ -581,21 +592,18 @@ button:disabled {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow-y: auto;
-  min-height: 0; /* ✨✨ 核心修正：約束 flex item 高度 ✨✨ */
+  min-height: 0;
 }
-
 .section-title {
   font-size: 1.5rem;
   margin-bottom: 1.5rem;
   color: #495057;
 }
-
 .exceptions-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.95rem;
 }
-
 .exceptions-table th,
 .exceptions-table td {
   padding: 0.75rem 1rem;
@@ -603,17 +611,14 @@ button:disabled {
   border-bottom: 1px solid #e9ecef;
   vertical-align: middle;
 }
-
 .exceptions-table th {
   background-color: #f8f9fa;
   font-weight: 600;
   color: #495057;
 }
-
 .exceptions-table tbody tr:hover {
   background-color: #f1f3f5;
 }
-
 .status-badge,
 .type-badge {
   padding: 0.25em 0.6em;
@@ -624,7 +629,6 @@ button:disabled {
   color: white;
   white-space: nowrap;
 }
-
 .status-pending,
 .status-processing {
   background-color: #ffc107;
@@ -643,38 +647,37 @@ button:disabled {
   background-color: #fd7e14;
   color: white;
 }
-
 .type-MOVE {
   background-color: #17a2b8;
 }
-
 .type-SUSPEND {
   background-color: #6610f2;
 }
-
+.type-ADD_SESSION {
+  background-color: #20c997;
+}
+.type-RANGE_MOVE {
+  background-color: #e83e8c;
+}
 .reason-cell small {
   color: #6c757d;
 }
-
 .loading-state,
 .empty-state {
   text-align: center;
   padding: 4rem 0;
   color: #6c757d;
 }
-
 .empty-state i {
   font-size: 3rem;
   color: #28a745;
   margin-bottom: 1rem;
 }
-
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 1.5rem;
 }
-
 .error-message {
   color: #dc3545;
   font-weight: bold;
@@ -683,7 +686,7 @@ button:disabled {
 }
 
 /* ================================== */
-/*         響應式樣式 (核心)         */
+/*         響應式樣式                 */
 /* ================================== */
 .exceptions-table.desktop-only {
   display: table;
@@ -713,38 +716,29 @@ button:disabled {
   .btn.desktop-only {
     display: none;
   }
-
-  /* [修正] 移除手機版的 page-container padding，因為內層已有 */
   .page-container {
     padding: 0;
   }
-
   .page-header {
     margin-bottom: 1rem;
-    padding: 1rem 1rem 0.75rem; /* 調整手機版 header padding */
+    padding: 1rem 1rem 0.75rem;
     border-radius: 0;
   }
-
   .page-title {
     font-size: 28px;
   }
-
   .page-description {
     font-size: 0.9rem;
   }
-
   .page-main-content {
     padding: 1rem;
     border-radius: 0;
     box-shadow: none;
   }
-
   .section-title {
     font-size: 1.3rem;
     margin-bottom: 1rem;
   }
-
-  /* 卡片樣式 */
   .exception-card {
     background-color: #fff;
     border-radius: 8px;
@@ -752,7 +746,6 @@ button:disabled {
     border-left: 5px solid #ccc;
     overflow: hidden;
   }
-
   .status-border-pending,
   .status-border-processing {
     border-left-color: #ffc107;
@@ -769,7 +762,6 @@ button:disabled {
   .status-border-conflict_requires_resolution {
     border-left-color: #fd7e14;
   }
-
   .card-header {
     display: flex;
     justify-content: space-between;
@@ -777,55 +769,45 @@ button:disabled {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
   }
-
   .header-left {
     display: flex;
     align-items: center;
     gap: 0.75rem;
   }
-
   .patient-name {
     font-size: 1.1rem;
     font-weight: 600;
   }
-
   .card-body {
     padding: 1rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
   }
-
   .info-row {
     display: grid;
     grid-template-columns: 100px 1fr;
     gap: 0.5rem;
     align-items: start;
   }
-
   .info-label {
     color: #6c757d;
     font-weight: bold;
   }
-
   .info-value {
     font-weight: 500;
   }
-
   .info-row.details .info-value {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
   }
-
   .card-footer {
     padding: 0.75rem 1rem;
     background-color: #f8f9fa;
     display: flex;
     justify-content: flex-end;
   }
-
-  /* 浮動操作按鈕 (FAB) */
   .fab {
     position: fixed;
     bottom: 2rem;

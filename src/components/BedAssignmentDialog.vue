@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (智慧模式升級版) -->
+<!-- 檔案路徑: src/components/BedAssignmentDialog.vue (智慧排序修正版) -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="isComponentMounted && emit('close')">
@@ -194,14 +194,11 @@ import AlertDialog from '@/components/AlertDialog.vue'
 
 const props = defineProps({
   isVisible: Boolean,
-  title: {
-    // ✨ 1. 新增 title prop
-    type: String,
-    default: null, // 預設為 null
-  },
+  title: { type: String, default: null },
   allPatients: { type: Array, required: true },
   bedLayout: { type: Array, required: true },
   scheduleData: { type: Object, required: true },
+  targetDate: { type: String, default: null },
   shifts: { type: Array, required: true },
   freqMap: { type: Object, required: true },
   predefinedPatientGroups: { type: Object, default: null },
@@ -231,6 +228,16 @@ onBeforeUnmount(() => {
   localAssignedPatientIds.value.clear()
 })
 
+const effectiveDayOfWeek = computed(() => {
+  if (props.targetDate) {
+    const date = new Date(props.targetDate)
+    const day = date.getDay()
+    if (day === 0) return 6
+    return day - 1
+  }
+  return props.dayOfWeek
+})
+
 const isEditMode = computed(
   () => props.context?.mode === 'change_freq_and_bed' || props.context?.mode === 'change_bed_only',
 )
@@ -239,11 +246,7 @@ const currentPatient = computed(() =>
 )
 
 const dialogTitle = computed(() => {
-  // ✨ 2. 核心修改：如果父層傳入了 title，就優先使用它
-  if (props.title) {
-    return props.title
-  }
-  // --- 以下是原始的標題邏輯，作為備用 ---
+  if (props.title) return props.title
   if (props.hidePatientList) return '選擇目標床位'
   if (props.context?.mode === 'change_freq_and_bed')
     return `變更頻率與床位：${currentPatient.value?.name || ''}`
@@ -264,12 +267,9 @@ const showFreqSelector = computed(
 const availableBedsTitle = computed(() => {
   const patient = props.allPatients[0]
   const freq = targetFrequency.value
-  if (props.hidePatientList) {
+  if (props.hidePatientList)
     return patient && freq ? `選擇目標空床 (${patient.name} - ${freq})` : '選擇目標空床'
-  }
-  if (freq && freq !== 'all') {
-    return `可用空床 (${freq})`
-  }
+  if (freq && freq !== 'all') return `可用空床 (${freq})`
   return '可用空床'
 })
 
@@ -306,10 +306,29 @@ const bedEmptyMessage = computed(() => {
   return '請從左側選擇病人，或從上方選擇一個頻率來查詢空床。'
 })
 
+// 🔥🔥 核心修改：重寫 patientGroups 的邏輯以實現自訂排序 🔥🔥
+const FREQ_ORDER_MAP = {
+  每日: 1,
+  一三五: 2,
+  二四六: 2,
+  一四: 3,
+  二五: 3,
+  三六: 3,
+  一五: 3,
+  二六: 3,
+  每周一: 4,
+  每周二: 4,
+  每周三: 4,
+  每周四: 4,
+  每周五: 4,
+  每周六: 4,
+}
+
 const patientGroups = computed(() => {
   if (props.predefinedPatientGroups) {
     return props.predefinedPatientGroups
   }
+
   if (props.assignmentMode === 'frequency' || props.assignmentMode === 'base') {
     const groups = { '未排床 - 急診': [], '未排床 - 住院': [], '未排床 - 門診': [] }
     const unassignedPatients = props.allPatients.filter(
@@ -327,25 +346,52 @@ const patientGroups = computed(() => {
     })
     return groups
   }
+
   if (props.assignmentMode === 'singleDay') {
-    const groups = {
-      '今日應排 - 急診': [],
-      '今日應排 - 住院': [],
-      '今日應排 - 門診': [],
-      '今日非排 (臨洗) - 急診': [],
-      '今日非排 (臨洗) - 住院': [],
-      '今日非排 (臨洗) - 門診': [],
+    // 1. 建立所有可能的分組
+    const tempGroups = {
+      should_ipd: [],
+      should_er: [],
+      should_opd: [],
+      not_should_ipd: [],
+      not_should_er: [],
+      not_should_opd: [],
     }
-    if (!props.allPatients) return groups
+    if (!props.allPatients) return {}
+
+    // 2. 將病人放入對應的臨時分組
     props.allPatients.forEach((p) => {
       if (p.isDeleted || localAssignedPatientIds.value.has(p.id) || p.isDiscontinued) return
-      const shouldSchedule = shouldPatientBeScheduled(p, props.dayOfWeek)
-      const targetGroup = shouldSchedule ? '今日應排' : '今日非排 (臨洗)'
-      if (p.status === 'er') groups[`${targetGroup} - 急診`].push(p)
-      else if (p.status === 'ipd') groups[`${targetGroup} - 住院`].push(p)
-      else if (p.status === 'opd') groups[`${targetGroup} - 門診`].push(p)
+      const shouldSchedule = shouldPatientBeScheduled(p, effectiveDayOfWeek.value)
+      const prefix = shouldSchedule ? 'should' : 'not_should'
+      const suffix = p.status // 'ipd', 'er', 'opd'
+      const groupKey = `${prefix}_${suffix}`
+      if (tempGroups[groupKey]) {
+        tempGroups[groupKey].push(p)
+      }
     })
-    return groups
+
+    // 3. 定義排序函式
+    const sortPatientsByFreq = (a, b) => {
+      const orderA = FREQ_ORDER_MAP[a.freq] || 99 // 未定義的頻率先排到後面
+      const orderB = FREQ_ORDER_MAP[b.freq] || 99
+      return orderA - orderB
+    }
+
+    // 4. 對每個臨時分組進行排序
+    for (const key in tempGroups) {
+      tempGroups[key].sort(sortPatientsByFreq)
+    }
+
+    // 5. 按照您要求的順序組裝最終的結果物件
+    return {
+      '今日應排 - 住院': tempGroups.should_ipd,
+      '今日應排 - 急診': tempGroups.should_er,
+      '今日應排 - 門診': tempGroups.should_opd,
+      '今日非排 (臨洗) - 住院': tempGroups.not_should_ipd,
+      '今日非排 (臨洗) - 急診': tempGroups.not_should_er,
+      '今日非排 (臨洗) - 門診': tempGroups.not_should_opd,
+    }
   }
   return {}
 })
@@ -359,7 +405,6 @@ const availableBeds = computed(() => {
   })
 
   const isSingleDayMode = props.hidePatientList || props.assignmentMode === 'singleDay'
-
   if (isSingleDayMode) {
     props.bedLayout.forEach((bedNum) => {
       props.shifts.forEach((shiftCode) => {
@@ -377,20 +422,15 @@ const availableBeds = computed(() => {
 
   const targetFreq = targetFrequency.value
   if (!targetFreq) return {}
-
   const dayIndices = props.freqMap[targetFreq]
   if (!dayIndices || dayIndices.length === 0) return {}
-
   const targetPatientId = isEditMode.value ? currentPatient.value?.id : null
   const temporarilyAssignedBeds = new Set(
     pendingAssignments.value.map((a) => `${a.bedNum}-${a.shiftCode}`),
   )
-
   props.bedLayout.forEach((bedNum) => {
     props.shifts.forEach((shiftCode, shiftIndex) => {
-      if (!results[shiftCode]) return
-      if (temporarilyAssignedBeds.has(`${bedNum}-${shiftCode}`)) return
-
+      if (!results[shiftCode] || temporarilyAssignedBeds.has(`${bedNum}-${shiftCode}`)) return
       let isFullyAvailable = true
       for (const dayIndex of dayIndices) {
         const slotIdToCheck = `${bedNum}-${shiftIndex}-${dayIndex}`
@@ -449,15 +489,12 @@ function handlePatientClick(patientId) {
   selectedPatientId.value = patientId
   selectedFreq.value = 'all'
 }
-
 function handleBedClick(bedNum, shiftCode) {
   if (!isComponentMounted.value) return
-
   let patientIdToAssign = selectedPatientId.value
   if (props.hidePatientList) {
     patientIdToAssign = props.allPatients[0]?.id
   }
-
   if (!patientIdToAssign && !isEditMode.value) {
     alertInfo.value = {
       isVisible: true,
@@ -466,23 +503,19 @@ function handleBedClick(bedNum, shiftCode) {
     }
     return
   }
-
   const patient = props.allPatients.find((p) => p.id === patientIdToAssign)
   const finalFreq = isEditMode.value
     ? props.context?.mode === 'change_freq_and_bed'
       ? newFreqSelection.value
       : currentPatient.value?.freq
     : patient?.freq
-
   if (!finalFreq && !props.hidePatientList && props.assignmentMode !== 'singleDay') {
     alertInfo.value = { isVisible: true, title: '操作提示', message: '病人頻率資訊不完整！' }
     return
   }
-
   const bedIdPart =
     typeof bedNum === 'string' && bedNum.startsWith('peripheral-') ? bedNum : `bed-${bedNum}`
   const shiftId = `${bedIdPart}-${shiftCode}`
-
   if (isEditMode.value || props.hidePatientList) {
     emit('assign-bed', {
       patientId: patientIdToAssign,
@@ -494,7 +527,6 @@ function handleBedClick(bedNum, shiftCode) {
     })
     return
   }
-
   if (!patient) return
   const existingIndex = pendingAssignments.value.findIndex((a) => a.patientId === patientIdToAssign)
   const newAssignment = {
@@ -512,7 +544,6 @@ function handleBedClick(bedNum, shiftCode) {
   localAssignedPatientIds.value.add(patientIdToAssign)
   selectedPatientId.value = null
 }
-
 function isPendingAssignment(patientId) {
   return pendingAssignments.value.some((a) => a.patientId === patientId)
 }
@@ -539,7 +570,7 @@ function confirmAllAssignments() {
   alertInfo.value = {
     isVisible: true,
     title: '批量排床成功',
-    message: `總共完成 ${pendingAssignments.value.length} 位病人的排床。`,
+    message: `總共排入 ${pendingAssignments.value.length} 位病人，請記得點選右上角"儲存床位"。`,
   }
   pendingAssignments.value = []
 }
@@ -557,7 +588,7 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 </script>
 
 <style scoped>
-/* ✨ 核心修改：在 <style> 的末尾加入以下樣式 */
+/* (所有樣式維持不變) */
 .dialog-content.no-patient-list {
   max-width: 800px;
   min-height: 60vh;
@@ -565,9 +596,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 .dialog-content.no-patient-list .assignment-grid {
   grid-template-columns: 1fr;
 }
-
-/* ... 其他所有樣式保持不變 ... */
-/* 定義 CSS 變量 */
 :root {
   --primary-color: #005a9c;
   --success-color: #16a34a;
@@ -575,7 +603,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
   --warning-color: #f97316;
   --info-color: #0ea5e9;
 }
-/* 編輯模式樣式 */
 .current-patient-info {
   padding: 1rem;
   background-color: #fff;
@@ -622,7 +649,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
   border-color: var(--primary-color, #007bff);
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
-/* 批量排床樣式 */
 .patient-list li.pending {
   background-color: #fff3cd;
   border-color: #ffeaa7;
@@ -765,7 +791,6 @@ const shiftDisplayNames = { early: '早班', noon: '午班', late: '晚班' }
 .pending-list::-webkit-scrollbar-thumb:hover {
   background: #a8a8a8;
 }
-/* 基本樣式 */
 .dialog-overlay {
   position: fixed;
   top: 0;
