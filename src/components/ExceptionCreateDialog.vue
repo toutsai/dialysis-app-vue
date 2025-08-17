@@ -25,9 +25,9 @@
         </div>
 
         <div class="subsequent-steps" :class="{ disabled: !formData.patientId }">
-          <!-- 步驟 2: 選擇例外類型 -->
+          <!-- 步驟 2: 選擇調班類型 -->
           <div class="form-group">
-            <label>步驟 2: 選擇例外類型</label>
+            <label>步驟 2: 選擇調班類型</label>
             <div class="radio-group">
               <label
                 ><input
@@ -353,7 +353,7 @@ const dialogTitle = computed(() => {
     RANGE_MOVE: '區間調班',
   }
   const title = typeMap[formData.type] ? ` - ${typeMap[formData.type]}` : ''
-  return `新增排程例外申請${title}`
+  return `新增調班申請${title}`
 })
 const isEditingMode = computed(() => !!props.initialData)
 const selectedPatientDisplay = computed(() => {
