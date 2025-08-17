@@ -25,7 +25,7 @@
         <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
         <div v-else-if="exceptions.length === 0" class="empty-state">
           <i class="fas fa-check-circle"></i>
-          <p>目前沒有任何待處理或已生效的例外申請。</p>
+          <p>目前沒有任何待處理或已生效的調班。</p>
         </div>
 
         <div v-else>
@@ -330,7 +330,7 @@ async function handleCreateException(formData) {
     closeCreateDialog()
 
     const actionText = isUpdating ? '更新' : '新增'
-    const typeText = typeMap[formData.type] || '例外申請'
+    const typeText = typeMap[formData.type] || '調班'
     const message = `${actionText}申請: ${formData.patientName} (${typeText})`
     createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
 
@@ -389,7 +389,7 @@ async function executeDeleteException() {
     const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
     if (exceptionData) {
-      const typeText = typeMap[exceptionData.type] || '例外申請'
+      const typeText = typeMap[exceptionData.type] || '調班'
       const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
       createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
     }
@@ -500,7 +500,7 @@ watch(
         isCreateDialogVisible.value = true
         router.replace({ query: {} })
       } else {
-        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的例外申請。`)
+        console.warn(`URL 帶有 conflictId ${conflictId}，但在列表中找不到對應的調班申請。`)
       }
     }
   },

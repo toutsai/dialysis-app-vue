@@ -56,6 +56,7 @@
                 />
                 臨時加洗</label
               >
+              <!--【暫時隱藏】將「區間調班」的選項註解掉
               <label
                 ><input
                   type="radio"
@@ -65,6 +66,7 @@
                 />
                 區間調班</label
               >
+              -->
             </div>
           </div>
 
@@ -156,7 +158,7 @@
             </div>
           </div>
 
-          <!-- 區塊：區間調班 (RANGE_MOVE) -->
+          <!-- 區塊：區間調班 (RANGE_MOVE) 【暫時隱藏】將「區間調班」的整個設定區塊註解掉
           <div v-if="formData.type === 'RANGE_MOVE'" class="details-section">
             <h3 class="section-title">步驟 3: 設定調班區間與目標床位</h3>
             <div class="form-group-grid">
@@ -183,6 +185,7 @@
               >系統將根據病人的固定頻率，查詢在整個時段都可用的床位。</small
             >
           </div>
+          -->
 
           <!-- 步驟 4: 原因說明 -->
           <div class="form-group">
