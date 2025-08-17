@@ -937,28 +937,55 @@ function handleTextareaInput() {
   }
 }
 
+// ✨✨✨ --- 使用這個全新的、時序更正確的 PDF 匯出函式 --- ✨✨✨
 async function exportToPDF() {
+  // 0. 如果本來就在載入中，就什麼都不做
   if (isLoading.value) {
-    showAlert('資料正在載入中，請稍後再試。')
+    showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
-  isLoading.value = true
-  await nextTick()
-  await new Promise((resolve) => setTimeout(resolve, 100))
-  const exportArea = document.getElementById('pdf-export-area')
-  if (!exportArea) {
-    showAlert('找不到要匯出的內容！')
-    isLoading.value = false
-    return
+
+  // 1. 準備工作：顯示一個不同的 Loading 提示
+  const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
+  const loadingOverlay = document.querySelector('.loading-overlay')
+  const loadingTextElement = document.querySelector('.loading-overlay p')
+
+  if (loadingOverlay) {
+    if (loadingTextElement) {
+      loadingTextElement.textContent = '正在準備匯出 PDF，請稍候...'
+    }
+    isLoading.value = true // 顯示 Loading 畫面
   }
-  exportArea.classList.add('pdf-export-mode')
+
+  // 給 DOM 一點時間來顯示 Loading 提示
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
   try {
+    // 2. 獲取要匯出的 DOM 元素
+    const exportArea = document.getElementById('pdf-export-area')
+    if (!exportArea) {
+      showAlert('錯誤', '找不到要匯出的內容！')
+      return
+    }
+
+    // 3. ✨ 關鍵步驟：在截圖前，【強制隱藏】Loading 畫面 ✨
+    isLoading.value = false
+    exportArea.classList.add('pdf-export-mode')
+
+    // 等待 Vue 將 Loading 畫面從 DOM 中移除，並套用 PDF 模式的 CSS
+    await nextTick()
+    await new Promise((resolve) => setTimeout(resolve, 100)) // 額外等待，確保渲染完成
+
+    // 4. 現在可以安全地進行截圖了
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
       backgroundColor: '#ffffff',
-      ignoreElements: (element) => element.classList.contains('header-right'),
+      ignoreElements: (element) =>
+        element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
+
+    // 5. 處理 Canvas 並生成 PDF (您的邏輯不變)
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
     const pdfWidth = 210
     const pdfHeight = 297
@@ -968,6 +995,7 @@ async function exportToPDF() {
     let leftHeight = contentHeight
     let position = 0
     const pdf = new jsPDF('p', 'mm', 'a4')
+
     if (leftHeight < pageHeight) {
       pdf.addImage(
         imgData,
@@ -994,14 +1022,26 @@ async function exportToPDF() {
         }
       }
     }
+
+    // 6. 觸發下載
     pdf.save(`血液透析中心工作日誌_${selectedDate.value}.pdf`)
   } catch (error) {
     console.error('匯出 PDF 失敗:', error)
-    showAlert('匯出 PDF 時發生錯誤，請檢查主控台訊息。')
+    showAlert('錯誤', '匯出 PDF 時發生錯誤，請檢查主控台訊息。')
   } finally {
-    exportArea.classList.remove('pdf-export-mode')
+    // 7. 清理工作：無論成功或失敗，都恢復頁面狀態
+    const exportArea = document.getElementById('pdf-export-area')
+    if (exportArea) {
+      exportArea.classList.remove('pdf-export-mode')
+    }
+    // 將 Loading 畫面的文字改回來
+    if (loadingTextElement) {
+      loadingTextElement.textContent = originalLoadingText
+    }
+    // 確保 Loading 畫面最終是關閉的
     isLoading.value = false
-    await loadDailyLog(selectedDate.value)
+    // ✨ 我們不再在匯出後自動重新載入資料，這通常不是使用者預期的行為
+    // await loadDailyLog(selectedDate.value);
   }
 }
 
