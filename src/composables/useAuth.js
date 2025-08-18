@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useAuth.js (已加入修改密碼功能)
+// 檔案路徑: src/composables/useAuth.js (已加入職稱 title)
 
 import { ref, computed, readonly } from 'vue'
 import { useRouter } from 'vue-router'
@@ -37,6 +37,9 @@ onAuthStateChanged(auth, async (user) => {
         uid: user.uid,
         name: idTokenResult.claims.name || '未命名',
         role: idTokenResult.claims.role || 'viewer',
+        // ✨✨✨ 核心修改: 從 token claims 中讀取 title ✨✨✨
+        // 假設您後端設定的欄位名稱為 'title'
+        title: idTokenResult.claims.title || '未知職稱',
         email: user.email,
         lastLogin: new Date().toISOString(),
       }
@@ -144,19 +147,12 @@ export function useAuth() {
     }
   }
 
-  // --- 修改密碼函式 (核心修正) ---
+  // --- 修改密碼函式 ---
   const updatePassword = async (oldPassword, newPassword) => {
-    // 確保當前有登入的使用者
     if (!auth.currentUser) {
       throw new Error('使用者未登入，無法更改密碼。')
     }
 
-    // [核心修正] 移除對 currentUser.email 的檢查，因為後端不再需要它
-    // if (!auth.currentUser.email) {
-    //   throw new Error('找不到使用者 Email，無法重新驗證身份。')
-    // }
-
-    // 使用 handleApiCall 包裝
     return handleApiCall(
       async () => {
         const changeUserPasswordFunction = httpsCallable(functions, 'changeUserPassword')
@@ -214,7 +210,7 @@ export function useAuth() {
     // 方法
     login,
     logout,
-    updatePassword, // <-- 匯出新函式
+    updatePassword,
     waitForAuthInit,
     hasPermission,
 

@@ -258,7 +258,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
 exports.checkExpiredMemos = onSchedule(
   { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540 },
   async (event) => {
-    /* ... no change ... */ logger.info('[Scheduler] Running daily check for expired memos...')
+    logger.info('[Scheduler] Running daily check for expired memos...')
     const todayStr = formatDateForQuery(new Date())
     try {
       const query = db
@@ -286,9 +286,7 @@ exports.checkExpiredMemos = onSchedule(
 exports.cleanupExpiredExceptionsScheduled = onSchedule(
   { schedule: 'every day 02:05', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
-    /* ... no change ... */ logger.info(
-      '[Scheduler] Running daily check for expired schedule exceptions...',
-    )
+    logger.info('[Scheduler] Running daily check for expired schedule exceptions...')
     const todayStr = formatDateForQuery(new Date())
     try {
       const query = db
@@ -317,7 +315,7 @@ exports.cleanupExpiredExceptionsScheduled = onSchedule(
 exports.initializeFutureSchedules = onSchedule(
   { schedule: 'every day 03:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
-    /* ... no change ... */ logger.info('[Scheduler] Initializing future 60-day schedules...')
+    logger.info('[Scheduler] Initializing future 60-day schedules...')
     const schedulesRef = db.collection('schedules')
     const today = new Date()
     const datesToCheck = Array.from({ length: 60 }, (_, i) => {
@@ -365,8 +363,9 @@ exports.initializeFutureSchedules = onSchedule(
     return null
   },
 )
+
 exports.customLogin = onCall(async (request) => {
-  /* ... no change ... */ const { username, password } = request.data
+  const { username, password } = request.data
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
   }
@@ -382,9 +381,17 @@ exports.customLogin = onCall(async (request) => {
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
     const uid = userDoc.id
-    const customToken = await admin
-      .auth()
-      .createCustomToken(uid, { role: userData.role, name: userData.name })
+
+    // ==========================================================
+    // ✨✨✨ 核心修改點在這裡 ✨✨✨
+    // ==========================================================
+    const customToken = await admin.auth().createCustomToken(uid, {
+      role: userData.role,
+      name: userData.name,
+      title: userData.title, // 從 Firestore user document 讀取 title 並加入 token
+    })
+    // ==========================================================
+
     return { token: customToken }
   } catch (error) {
     logger.error('[customLogin] Login function error:', error)
@@ -392,8 +399,9 @@ exports.customLogin = onCall(async (request) => {
     throw new HttpsError('internal', '發生未知的伺服器錯誤。')
   }
 })
+
 exports.changeUserPassword = onCall(async (request) => {
-  /* ... no change ... */ if (!request.auth) {
+  if (!request.auth) {
     throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
   }
   const { oldPassword, newPassword } = request.data
@@ -430,10 +438,11 @@ exports.changeUserPassword = onCall(async (request) => {
     throw new HttpsError('internal', '更新密碼時發生未知的伺服器錯誤。')
   }
 })
+
 exports.ensureFutureSchedules = onCall(
   { timeoutSeconds: 300, memory: '512MiB' },
   async (request) => {
-    /* ... no change ... */ if (!request.auth) {
+    if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
     }
     logger.info(
