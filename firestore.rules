@@ -78,28 +78,29 @@ service cloud.firestore {
       allow write: if isContributor();
     }
     match /lab_reports/{reportId} {
-      // 允許所有已登入的使用者讀取檢驗報告
       allow read: if isAuthenticated();
-      // 只有後端函式可以寫入，前端不允許直接寫入
       allow write: if false; 
     }
     match /nurse_assignments/{date} {
       allow read: if isAuthenticated();
-      allow write: if isEditor(); // 或只允許 Cloud Functions 寫入
+      allow write: if isEditor();
     }
-    // ==========================================================
-    // ✨ 新增：每日日誌 (Daily Logs) 的安全規則
-    // ==========================================================
     match /daily_logs/{logId} {
-      // 允許 admin, editor, contributor 角色讀取和寫入
-      // 文件 ID (logId) 必須是 YYYY-MM-DD 的格式
       allow read, write: if request.auth != null &&
                            request.auth.token.role in ['admin', 'editor'] &&
                            logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
-
-      // 允許 authenticated 使用者讀取 (如果未來需要開放給一般使用者查看)
-      // allow read: if request.auth != null;
     }
 
+    // ==========================================================
+    // ✨✨✨ 在這裡新增 tasks 集合的規則 ✨✨✨
+    // ==========================================================
+    match /tasks/{taskId} {
+      // 允許所有已登入的使用者讀取、建立和更新任務
+      allow read, create, update: if isAuthenticated();
+      
+      // 只有護理師組長 (Editor) 或更高等級的角色可以刪除
+      allow delete: if isEditor();
+    }
+    // ==========================================================
   }
 }
