@@ -1,9 +1,16 @@
-// scripts/seed-firestore.cjs (✨ K-IDIT 數據版 ✨)
-// ... (所有頂部引入和設定保持不變) ...
+// scripts/seed-firestore.cjs (✨ 修正版，會讀取 .env.emulator ✨)
+
+// ✨ 核心修改 1：引入必要的模組，並設定要讀取的 .env 檔案路徑
+const path = require('path')
+require('dotenv').config({ path: path.resolve(__dirname, '../.env.emulator') })
+
 const admin = require('firebase-admin')
 const { getFirestore, Timestamp } = require('firebase-admin/firestore')
 const { faker } = require('@faker-js/faker/locale/zh_TW')
-const projectId = 'my-dialysis-app-develop'
+
+// ✨ 核心修改 2：從 process.env 中讀取 Project ID，而不是寫死
+const projectId = process.env.VITE_FIREBASE_PROJECT_ID
+
 const USERS_TO_CREATE = [
   { uid: 'admin', username: 'admin', password: 'password123', name: '管理員', role: 'admin' },
   { uid: 'editor', username: 'editor', password: 'password123', name: '編輯人員', role: 'editor' },
@@ -26,13 +33,22 @@ const FREQUENCIES = [
   '每周五',
   '每周六',
 ]
+
+// --- 環境設定 ---
 process.env.FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
 process.env.FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
+
+// ✨ 核心修改 3：增加一個安全檢查，確保 Project ID 有被成功讀取
+if (!projectId) {
+  console.error('❌ 錯誤：無法從 .env.emulator 檔案中讀取 VITE_FIREBASE_PROJECT_ID。')
+  console.error('   請確認 scripts/seed-firestore.cjs 檔案中的路徑設定是否正確。')
+  process.exit(1) // 如果沒有讀取到，就中斷腳本執行
+}
+
 admin.initializeApp({ projectId })
 const db = getFirestore()
 
 function createRandomPatient(type) {
-  // ... (其他假資料產生邏輯不變) ...
   const createdAt = Timestamp.now()
   const updatedAt = new Date(
     createdAt.toMillis() + faker.number.int({ min: 0, max: 1000 * 60 * 60 * 24 * 5 }),
@@ -75,14 +91,13 @@ function createRandomPatient(type) {
     updatedAt: Timestamp.fromDate(updatedAt),
     patientStatus: patientStatus,
     hospitalInfo: hospitalInfo,
-    // ✨ 核心修正: 為住院/急診病人新增原因
     inpatientReason: type !== 'opd' ? faker.lorem.words(3) : '',
     dialysisReason: type !== 'opd' ? faker.lorem.words(4) : '',
   }
 }
-// ... (seedUsers, seedPatients, seedAllData 函式不變) ...
+
 async function seedUsers() {
-  /* ... */ console.log(`⏳ 正在建立 ${USERS_TO_CREATE.length} 位預設使用者...`)
+  console.log(`⏳ 正在建立 ${USERS_TO_CREATE.length} 位預設使用者...`)
   const authPromises = USERS_TO_CREATE.map(async (user) => {
     try {
       await admin.auth().createUser({ uid: user.uid, displayName: user.name })
@@ -103,8 +118,9 @@ async function seedUsers() {
   await Promise.all([...authPromises, firestoreBatch.commit()])
   console.log('✅ 所有使用者資料已寫入 Firestore。')
 }
+
 async function seedPatients() {
-  /* ... */ console.log(
+  console.log(
     `\n⏳ 準備產生總共 ${Object.values(PATIENT_COUNTS).reduce((a, b) => a + b, 0)} 筆病人資料...`,
   )
   let allPatients = []
@@ -140,6 +156,7 @@ async function seedPatients() {
   await batch.commit()
   console.log(`✅ 成功！已將 ${allPatients.length} 筆病人資料寫入 Firestore 模擬器。`)
 }
+
 async function seedAllData() {
   try {
     await seedUsers()
@@ -149,4 +166,5 @@ async function seedAllData() {
     console.error('❌ 資料填充過程中發生嚴重錯誤:', error)
   }
 }
+
 seedAllData()
