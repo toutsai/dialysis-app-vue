@@ -507,11 +507,9 @@ const myTasks = ref([])
 const mySentTasks = ref([])
 const allMessages = ref([])
 const isCreateModalVisible = ref(false)
-const allPatients = ref([]) // 儲存所有病人資料的快取
+const allPatients = ref([])
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
-
-// ✨ 核心修改 #1: 新增左欄頁籤狀態
-const leftPanelActiveTab = ref('all') // 'all', 'early', 'noon', 'late'
+const leftPanelActiveTab = ref('all')
 
 let taskUnsubscribe = null
 let sentTaskUnsubscribe = null
@@ -529,38 +527,37 @@ const weekdayDisplay = computed(() => {
   }
 })
 
-// ✨ 核心修改 #2: 重構 groupedPatients 來支援頁籤篩選
-const filteredPatients = computed(() => {
-  if (leftPanelActiveTab.value === 'all') {
-    return patientsForList.value
-  }
-  return patientsForList.value.filter((p) => p.shift === leftPanelActiveTab.value)
-})
-
+// ✨✨✨ 核心修正: 合併 filteredPatients 和 groupedPatients ✨✨✨
 const groupedPatients = computed(() => {
+  // 步驟 1: 最徹底的防呆檢查
+  if (!Array.isArray(patientsForList.value)) {
+    return {} // 如果來源資料不是陣列，直接返回空物件
+  }
+
+  // 步驟 2: 篩選
+  const patientsToGroup =
+    leftPanelActiveTab.value === 'all'
+      ? patientsForList.value
+      : patientsForList.value.filter((p) => p.shift === leftPanelActiveTab.value)
+
+  // 步驟 3: 分組
   const groups = { 早班: [], 午班: [], 晚班: [] }
-  // 使用 filteredPatients 進行分組
-  for (const patient of filteredPatients.value) {
+  for (const patient of patientsToGroup) {
     if (patient.shift === 'early') groups.早班.push(patient)
     else if (patient.shift === 'noon') groups.午班.push(patient)
     else if (patient.shift === 'late') groups.晚班.push(patient)
   }
-  // 如果是篩選模式，只保留對應的組別
-  if (leftPanelActiveTab.value !== 'all') {
-    if (leftPanelActiveTab.value !== 'early') delete groups.早班
-    if (leftPanelActiveTab.value !== 'noon') delete groups.午班
-    if (leftPanelActiveTab.value !== 'late') delete groups.晚班
-  }
 
-  // 移除空的組別
+  // 步驟 4: 清理空的組別
   if (groups.早班.length === 0) delete groups.早班
   if (groups.午班.length === 0) delete groups.午班
   if (groups.晚班.length === 0) delete groups.晚班
+
   return groups
 })
 
-// ... 其餘 computed properties 保持不變 ...
 const sortItems = (items) => {
+  if (!Array.isArray(items)) return []
   return [...items].sort((a, b) => {
     if (a.status === 'pending' && b.status !== 'pending') return -1
     if (a.status !== 'pending' && b.status === 'pending') return 1
@@ -573,26 +570,31 @@ const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedSelectedPatientMessages = computed(() => sortItems(selectedPatientMessages.value))
 const sortedFeedMessages = computed(() => sortItems(feedMessages.value))
 const selectedPatientMessages = computed(() => {
-  if (!selectedPatient.value) return []
+  if (!selectedPatient.value || !Array.isArray(allMessages.value)) return []
   return allMessages.value.filter((msg) => msg.patientId === selectedPatient.value.id)
 })
 const feedMessages = computed(() => {
+  if (!Array.isArray(patientsForList.value) || !Array.isArray(allMessages.value)) return []
   const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
   return allMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
 })
 
-// --- Methods ---
-
-// ✨ 核心修改 #3: 修改 fetchMyPatients 來加入床號並排序
+// ... (其餘所有 methods 和 lifecycle hooks 保持不變) ...
+async function fetchAllPatientDataOnce() {
+  try {
+    const patientApi = ApiManager('patients')
+    allPatients.value = await patientApi.fetchAll()
+  } catch (error) {
+    console.error('獲取所有病人資料失敗:', error)
+  }
+}
 async function fetchMyPatients() {
   isLoading.value.patients = true
   patientsForList.value = []
-  selectedPatient.value = null
   if (!userRole.value || !userTitle.value) {
     isLoading.value.patients = false
     return
   }
-
   try {
     const patientMap = new Map()
     const shouldSeeOnlyMyPatients = userRole.value === 'viewer' && userTitle.value === '護理師'
@@ -602,16 +604,13 @@ async function fetchMyPatients() {
       return
     }
     const scheduleData = schedules[0]?.schedule || {}
-
-    // Helper function to extract bed number
     const getBedNumber = (shiftId) => {
       const parts = shiftId.split('-')
       if (parts[0] === 'peripheral') {
-        return 1000 + parseInt(parts[1], 10) // 外圍床位排在後面
+        return 1000 + parseInt(parts[1], 10)
       }
       return parseInt(parts[1], 10)
     }
-
     if (shouldSeeOnlyMyPatients) {
       const assignments = await assignmentsApi.fetchAll([where('date', '==', displayDate.value)])
       if (assignments.length > 0) {
@@ -621,7 +620,6 @@ async function fetchMyPatients() {
             if (names[teamName] === currentUser.value.name) {
               for (const key in teams) {
                 const [patientId, shiftCode] = key.split('-')
-                // 找到這個病人在當天排班的 shiftId 來取得床號
                 const shiftId = Object.keys(scheduleData).find(
                   (sid) => scheduleData[sid].patientId === patientId && sid.endsWith(shiftCode),
                 )
@@ -658,11 +656,9 @@ async function fetchMyPatients() {
         }
       }
     }
-
     if (patientMap.size > 0) {
       const idArray = Array.from(patientMap.keys())
       const patientDetails = await queryWithInChunks('patients', documentId(), idArray)
-
       patientsForList.value = patientDetails
         .map((p) => ({
           ...p,
@@ -670,7 +666,6 @@ async function fetchMyPatients() {
           bed: patientMap.get(p.id)?.bed || 9999,
         }))
         .sort((a, b) => {
-          // 排序邏輯: 1. 班別 2. 床號
           const shiftOrder = { early: 1, noon: 2, late: 3 }
           if (a.shift !== b.shift) {
             return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
@@ -684,14 +679,13 @@ async function fetchMyPatients() {
     isLoading.value.patients = false
   }
 }
-
-// ... 其餘所有 methods 保持不變 ...
 function openCreateModal() {
   if (!currentUser.value) {
     return
   }
   const canPerformAction = hasPermission('viewer')
   if (!canPerformAction) {
+    console.warn('Permission denied.')
     return
   }
   isCreateModalVisible.value = true
@@ -829,7 +823,6 @@ function selectPatient(patient) {
 function handleTaskCreated() {
   console.log('Task created successfully.')
 }
-
 onMounted(async () => {
   await useAuth().waitForAuthInit()
   await fetchAllPatientDataOnce()
