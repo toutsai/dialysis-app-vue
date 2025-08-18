@@ -58,7 +58,9 @@
         <div class="management-section">
           <h3 class="section-title">後臺管理</h3>
           <ul class="sidebar-nav">
-            <li><RouterLink to="/daily-log" class="nav-link">工作日誌</RouterLink></li>
+            <li v-if="canEditSchedules">
+              <RouterLink to="/daily-log" class="nav-link">工作日誌</RouterLink>
+            </li>
             <li><RouterLink to="/collaboration" class="nav-link">訊息中心</RouterLink></li>
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
@@ -121,7 +123,7 @@ import { db, functions } from '@/composables/useFirebase.js'
 const patientsApi = ApiManager('patients')
 const router = useRouter()
 const route = useRoute()
-const { currentUser, logout, isAdmin } = useAuth()
+const { currentUser, logout, isAdmin, canEditSchedules } = useAuth()
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
