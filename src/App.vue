@@ -1,17 +1,37 @@
-<!-- 檔案路徑: src/App.vue (最終的、清理乾淨的版本) -->
+<!-- 檔案路徑: src/App.vue (整合 Pinia 數據觸發邏輯後的新版本) -->
 <template>
   <!--
-    App.vue 現在只包含一個頂級的 router-view。
-    它會根據路由設定，決定在此處渲染 LoginView 或 MainLayout。
-    所有需要登入才能執行的初始化邏輯，都已轉移到後端 Cloud Functions 中，
-    確保應用程式啟動時不會因權限問題而出錯。
+    App.vue 保持簡潔，只包含 router-view。
+    新增的 script setup 邏輯會在應用程式的生命週期早期，
+    以非阻塞的方式觸發全局數據的獲取。
   -->
   <router-view />
 </template>
 
 <script setup>
+import { onMounted, watch } from 'vue' // ✨ 新增 watch
+import { usePatientStore } from '@/stores/patientStore.js' // ✨ 1. 引入 Patient Store
+import { useAuth } from '@/composables/useAuth.js' // ✨ 2. 引入 useAuth 以監聽登入狀態
+
+const patientStore = usePatientStore() // ✨ 3. 實例化 Store
+const { isLoggedIn } = useAuth() // ✨ 4. 獲取 isLoggedIn 響應式狀態
+
+// ✨ 5. 監聽登入狀態的變化
+watch(
+  isLoggedIn,
+  (loggedIn) => {
+    if (loggedIn) {
+      // 如果使用者登入了，就觸發 Pinia Store 獲取病人數據。
+      // Action 內部的 'hasFetched' 旗標會防止重複的 API 請求。
+      console.log('[App.vue] User is logged in, triggering patient data fetch if needed.')
+      patientStore.fetchPatientsIfNeeded()
+    }
+  },
+  { immediate: true }, // immediate: true 確保應用程式載入時就會立即檢查一次登入狀態
+)
+
+// 下方的廣告攔截器檢測邏輯保持不變
 function detectAdBlocker() {
-  // 簡單的廣告攔截器檢測
   const testAd = document.createElement('div')
   testAd.innerHTML = '&nbsp;'
   testAd.className = 'adsbox'
@@ -19,29 +39,30 @@ function detectAdBlocker() {
 
   window.setTimeout(() => {
     if (testAd.offsetHeight === 0) {
-      // 可能有廣告攔截器
       console.warn('偵測到廣告攔截器，可能影響系統功能')
     }
     testAd.remove()
   }, 100)
 }
 
-// 在主要的異步操作中添加友善的錯誤處理
+// 在 onMounted 中執行檢測
+onMounted(() => {
+  detectAdBlocker()
+})
+
+// 錯誤處理邏輯也保持不變
 try {
-  // Firebase 操作
+  // 這裡可以放置可能受廣告攔截器影響的 Firebase 初始化代碼
 } catch (error) {
   if (error.message.includes('message channel closed')) {
     console.warn('連接被中斷，可能是廣告攔截器影響')
-    // 顯示友善的提示給用戶
   }
 }
 </script>
 
 <style>
 /*
-  這裡的 <style> 標籤沒有 "scoped" 屬性，
-  因此它定義的樣式將會是全局性的，應用到整個應用程式。
-  這是放置基礎樣式、CSS 變數和重置樣式的最佳位置。
+  全局樣式保持不變
 */
 
 /* CSS 基礎重置 */

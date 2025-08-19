@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (已新增工作日誌連結) -->
+<!-- 檔案路徑: src/layouts/MainLayout.vue (Pinia 過渡版本) -->
 <template>
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
@@ -47,7 +47,6 @@
             <div class="notification-footer-item">
               <span class="notification-user">by {{ notif.createdByName }}</span>
               <span class="notification-time">{{ notif.time }}</span>
-              <!-- [核心修改] 刪除按鈕已被移除 -->
             </div>
           </div>
         </transition-group>
@@ -109,40 +108,41 @@
   </div>
 </template>
 
-// 檔案路徑: src/layouts/MainLayout.vue (效能優化版)
-
 <script setup>
 import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import { httpsCallable } from 'firebase/functions'
-import ApiManager from '@/services/api_manager.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
 import { db, functions } from '@/composables/useFirebase.js'
 
-// ✨ 核心修改 #1: 移除 patientsApi 的直接使用
-// const patientsApi = ApiManager('patients')
-const memosApi = ApiManager('memos')
+// ✨ --- 核心修改開始 --- ✨
+import { storeToRefs } from 'pinia'
+import { usePatientStore } from '@/stores/patientStore.js'
+// ✨ --- 核心修改結束 --- ✨
+
 const router = useRouter()
 const route = useRoute()
 const { currentUser, logout, isAdmin, canEditSchedules } = useAuth()
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
-// ✨ 核心修改 #2: MainLayout 不再直接持有病人資料，只提供一個容器
-const allPatients = ref([]) // 這個 ref 將由子頁面填充
+
+// ✨ --- 核心修改：數據源變更 --- ✨
+const patientStore = usePatientStore()
+const { allPatients } = storeToRefs(patientStore)
+// 上面兩行取代了舊的: const allPatients = ref([])
+
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
 const memosForDialog = ref([])
 
-// ✨ 核心修改 #3: 將 allPatients 和一個更新它的函式 provide 給子元件
+// ✨ 核心修改：為尚未遷移的舊組件提供來自 Pinia 的數據
 provide('allPatients', allPatients)
-provide('updateAllPatients', (newPatientList) => {
-  allPatients.value = newPatientList
-})
+// 不再需要 provide 'updateAllPatients'
 
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
@@ -157,7 +157,6 @@ const patientWithMemoIds = computed(
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
-// ... (showPatientMemos, environmentTag, toggleSidebar, closeSidebar, handleNotificationClick, handleLogout 函式保持不變) ...
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
@@ -194,10 +193,9 @@ function handleLogout() {
   logout()
 }
 
-// ✨ 核心修改 #4: 簡化 startSharedDataListeners，不再監聽 patients
 let memoUnsubscribe = null
-// let patientUnsubscribe = null // 移除
 
+// ✨ 核心修改：簡化數據監聽器，只監聽 memos
 function startSharedDataListeners() {
   if (memoUnsubscribe) return
   console.log('🔄 [MainLayout] Starting to listen for active memos...')
@@ -206,10 +204,6 @@ function startSharedDataListeners() {
     activeMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
     console.log(`✅ [MainLayout] Active memos updated: ${activeMemos.value.length} items.`)
   })
-
-  // 不再監聽 patients
-  // if (patientUnsubscribe) return
-  // ...
 }
 function stopSharedDataListeners() {
   if (memoUnsubscribe) {
@@ -217,12 +211,19 @@ function stopSharedDataListeners() {
     memoUnsubscribe()
     memoUnsubscribe = null
   }
-  // 不再需要取消監聽 patients
-  // if (patientUnsubscribe) { ... }
 }
 
 const triggerScheduleCheck = async () => {
-  /* ... (此函式不變) ... */
+  if (sessionStorage.getItem('hasCheckedSchedules')) {
+    return
+  }
+  try {
+    const checkSchedules = httpsCallable(functions, 'checkSchedules')
+    await checkSchedules()
+    sessionStorage.setItem('hasCheckedSchedules', 'true')
+  } catch (error) {
+    console.error('觸發排程檢查失敗:', error)
+  }
 }
 
 watch(
@@ -230,16 +231,17 @@ watch(
   (newUser) => {
     if (newUser) {
       console.log('✅ [MainLayout] User logged in, starting services.')
-      startSharedDataListeners() // 只啟動 memo 監聽
+      startSharedDataListeners()
       triggerScheduleCheck()
       startListening()
+      // 注意：不再由 MainLayout 觸發獲取病人資料
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
       activeMemos.value = []
-      allPatients.value = [] // 登出時清空
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
+      patientStore.$reset() // ✨ 登出時重置 Store 狀態
     }
   },
   { immediate: true },

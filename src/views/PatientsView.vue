@@ -1,10 +1,9 @@
-<!-- 檔案路徑: src/views/PatientsView.vue (✨ K-IDIT 數據版 ✨) -->
+<!-- 檔案路徑: src/views/PatientsView.vue (✨ Pinia 遷移版 ✨) -->
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
-import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore' // orderBy
+import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import {
-  fetchAllPatients as optimizedFetchAllPatients,
   updatePatient as optimizedUpdatePatient,
   savePatient as optimizedSavePatient,
 } from '@/services/optimizedApiService.js'
@@ -20,12 +19,18 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import * as XLSX from 'xlsx'
 
-const allPatients = ref([])
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { allPatients } = storeToRefs(patientStore) // 直接從 Store 獲取 allPatients
+
 const patientHistory = ref([])
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'updatedAt', order: 'desc' })
 const patientHistoryApi = ApiManager('patient_history')
-// ✨ 核心修正: 為了已刪除列表，我們需要獨立的歷史記錄
 const deletedPatientHistory = ref([])
 const erListFilter = ref('')
 const ipdListFilter = ref('')
@@ -110,11 +115,10 @@ const RESTORE_OPTIONS = [
   { value: 'er', text: '復原至 急診' },
 ]
 
-// ✨ 核心修正: displayedPatients 現在只處理非刪除的病人
 const displayedPatients = computed(() => {
   let patientsToDisplay
   let searchTerm = ''
-  if (!allPatients.value) return []
+  if (!allPatients.value) return [] // 數據源已改為 store 的 allPatients
   if (activeTab.value === 'er') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
     searchTerm = erListFilter.value.toLowerCase()
@@ -161,7 +165,6 @@ const displayedPatients = computed(() => {
   })
 })
 
-// ✨ 核心修正: 為已刪除列表建立獨立的 computed
 const displayedDeletedHistory = computed(() => {
   let history = deletedPatientHistory.value
   if (deletedSearchTerm.value) {
@@ -171,7 +174,6 @@ const displayedDeletedHistory = computed(() => {
   return history
 })
 
-// ✨ 核心修正: 讀取已刪除病人的歷史記錄
 async function fetchDeletedPatientHistory() {
   try {
     deletedPatientHistory.value = await patientHistoryApi.fetchAll([
@@ -184,7 +186,6 @@ async function fetchDeletedPatientHistory() {
   }
 }
 
-// ✨ 核心修正: 當切換到 deleted 頁籤時，讀取歷史
 watch(activeTab, (newTab) => {
   if (newTab === 'deleted') {
     fetchDeletedPatientHistory()
@@ -287,6 +288,7 @@ const calculateStats = () => {
 }
 watch(allPatients, calculateStats, { deep: true })
 watch(patientHistory, calculateStats, { deep: true })
+
 const togglePopover = (popoverName) => {
   if (activePopover.value === popoverName) {
     activePopover.value = null
@@ -311,36 +313,14 @@ function showConfirm(title, message, onConfirm) {
   confirmAction.value = onConfirm
   isConfirmDialogVisible.value = true
 }
-async function removeRuleFromMasterSchedule(patientId) {
-  if (!patientId) {
-    console.error('[PatientsView] 無效的 patientId，無法從總表移除。')
-    return
-  }
-  const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
-  try {
-    const docSnap = await getDoc(masterScheduleRef)
-    if (docSnap.exists()) {
-      const masterRules = docSnap.data().schedule || {}
-      if (masterRules[patientId]) {
-        delete masterRules[patientId]
-        await updateDoc(masterScheduleRef, { schedule: masterRules })
-        console.log(`✅ [PatientsView] 已成功從總表中移除病人 ${patientId} 的規則。`)
-      } else {
-        console.log(`[PatientsView] 病人 ${patientId} 不在總表規則中，無需移除。`)
-      }
-    }
-  } catch (error) {
-    console.error(`❌ [PatientsView] 從總表移除病人規則時失敗:`, error)
-    throw new Error('從總床位表移除規則失敗，請檢查權限或網路。')
-  }
-}
-async function fetchAllPatients() {
-  try {
-    allPatients.value = await optimizedFetchAllPatients()
-  } catch (err) {
-    showAlert('讀取失敗', '讀取病人資料失敗！')
-  }
-}
+// ✨ 核心修改 #3: 移除本地的 removeRuleFromMasterSchedule，改用 Store 的 action
+// async function removeRuleFromMasterSchedule(patientId) { ... }
+
+// ✨ 核心修改 #4: 移除本地的 fetchAllPatients 和 refreshAllData
+// async function fetchAllPatients() { ... }
+// async function refreshAllData() { ... }
+// 未來將直接使用 patientStore.forceRefreshPatients()
+
 async function fetchPatientHistoryForStats() {
   try {
     const twoMonthsAgo = new Date()
@@ -354,9 +334,7 @@ async function fetchPatientHistoryForStats() {
     showAlert('讀取失敗', '讀取病人歷史統計資料失敗！')
   }
 }
-async function refreshAllData() {
-  await Promise.all([fetchAllPatients(), fetchPatientHistoryForStats()])
-}
+
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
@@ -424,8 +402,8 @@ async function handleSavePatient(patientData) {
               discontinuedDate:
                 patientData.discontinuedDate || new Date().toISOString().split('T')[0],
             })
-            await removeRuleFromMasterSchedule(patientData.id)
-            await refreshAllData()
+            await patientStore.removeRuleFromMasterSchedule(patientData.id) // 改用 Store action
+            await patientStore.forceRefreshPatients() // 強制刷新 Store
             window.dispatchEvent(new CustomEvent('patient-data-updated'))
             createGlobalNotification(`中止透析：${patientData.name}`, 'patient')
             showAlert('操作成功', `已將 ${patientData.name} 標記為中止透析。`)
@@ -441,7 +419,7 @@ async function handleSavePatient(patientData) {
       delete dataToUpdate.id
       dataToUpdate.updatedAt = new Date().toISOString()
       await optimizedUpdatePatient(patientData.id, dataToUpdate)
-      await refreshAllData()
+      await patientStore.forceRefreshPatients() // 強制刷新 Store
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
       createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
       closeModal()
@@ -479,7 +457,7 @@ async function handleSavePatient(patientData) {
         status: modalType.value,
       }
       const savedPatient = await optimizedSavePatient(dataToCreate)
-      await refreshAllData()
+      await patientStore.forceRefreshPatients() // 強制刷新 Store
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
       const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
       createGlobalNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
@@ -504,7 +482,7 @@ async function handleConflictSelected() {
     }
     delete dataToUpdate.id
     await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
-    await refreshAllData()
+    await patientStore.forceRefreshPatients() // 強制刷新 Store
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
     const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
     createGlobalNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
@@ -531,7 +509,7 @@ async function transferPatient(patientId, newStatus) {
     async () => {
       try {
         await optimizedUpdatePatient(patientId, { status: newStatus })
-        await refreshAllData()
+        await patientStore.forceRefreshPatients() // 強制刷新 Store
         window.dispatchEvent(new CustomEvent('patient-data-updated'))
         createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
         showAlert('轉移成功', `${patient.name} 已成功轉至${targetStatusText}。`)
@@ -562,8 +540,8 @@ async function handleDeleteReasonSelected(reason) {
       deleteReason: reason,
       deletedAt: new Date().toISOString(),
     })
-    await removeRuleFromMasterSchedule(patientIdForActions)
-    await refreshAllData()
+    await patientStore.removeRuleFromMasterSchedule(patientIdForActions) // 改用 Store action
+    await patientStore.forceRefreshPatients() // 強制刷新 Store
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
     createGlobalNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
     showAlert(
@@ -592,9 +570,14 @@ async function handleRestoreSelected(targetStatus) {
   if (!patientId || !targetStatus) return
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) {
-    showAlert('錯誤', '找不到該病人資料。')
-    return
+    // ✨ 新增健壯性：如果本地列表沒有，從 Store 再找一次
+    const patientFromStore = patientStore.patientMap.get(patientId)
+    if (!patientFromStore) {
+      showAlert('錯誤', '找不到該病人資料。')
+      return
+    }
   }
+  const patientName = patient?.name || patientStore.patientMap.get(patientId)?.name
   const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
   const targetStatusText = statusMap[targetStatus] || '列表'
   try {
@@ -605,13 +588,13 @@ async function handleRestoreSelected(targetStatus) {
       deletedAt: null,
       originalStatus: null,
     })
-    await removeRuleFromMasterSchedule(patientId)
-    await refreshAllData()
+    await patientStore.removeRuleFromMasterSchedule(patientId) // 復原時也應清除舊規則
+    await patientStore.forceRefreshPatients() // 強制刷新 Store
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
-    createGlobalNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
+    createGlobalNotification(`復原病人：${patientName} 至 ${targetStatusText}`, 'patient')
     showAlert(
       '復原成功',
-      `${patient.name} 已復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
+      `${patientName} 已復原並移至「${targetStatusText}」清單。如需排班，請至總床位表設定。`,
     )
   } catch (err) {
     showAlert('操作失敗', '復原病人時發生錯誤！')
@@ -619,6 +602,7 @@ async function handleRestoreSelected(targetStatus) {
     patientToRestoreId.value = null
   }
 }
+
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
@@ -701,9 +685,9 @@ async function handleSaveOrder(orderData) {
     effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
   }
   try {
-    await Promise.all([optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders })])
+    await optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders })
     isOrderModalVisible.value = false
-    await refreshAllData()
+    await patientStore.forceRefreshPatients() // 強制刷新 Store
     createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
   } catch (error) {
     showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
@@ -729,10 +713,14 @@ function exportDeletedPatients() {
   XLSX.utils.book_append_sheet(wb, ws, '已刪除病人')
   XLSX.writeFile(wb, `已刪除病人清單_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
+
 onMounted(() => {
-  refreshAllData()
+  // ✨ 核心修改 #5: onMounted 邏輯大幅簡化
+  // 不再需要呼叫 refreshAllData，因為 App.vue 已經觸發了
+  fetchPatientHistoryForStats() // 統計歷史數據仍然需要本地獲取
   window.addEventListener('click', closePopovers)
 })
+
 onUnmounted(() => {
   window.removeEventListener('click', closePopovers)
 })
