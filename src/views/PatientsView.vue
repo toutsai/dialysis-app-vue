@@ -112,7 +112,7 @@ const RESTORE_OPTIONS = [
 
 // ✨ 核心修正: displayedPatients 現在只處理非刪除的病人
 const displayedPatients = computed(() => {
-  /* ... no change, but its scope is now limited ... */ let patientsToDisplay
+  let patientsToDisplay
   let searchTerm = ''
   if (!allPatients.value) return []
   if (activeTab.value === 'er') {
@@ -191,9 +191,8 @@ watch(activeTab, (newTab) => {
   }
 })
 
-// ... (其他所有函式，包括 calculateStats, handleSavePatient 等都保持不變) ...
 const calculateStats = () => {
-  /* ... no change ... */ const statsResult = {
+  const statsResult = {
     source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
     mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0 },
     disease: { HBV: 0, HCV: 0, HIV: 0, RPR: 0, COVID: 0, 隔離: 0 },
