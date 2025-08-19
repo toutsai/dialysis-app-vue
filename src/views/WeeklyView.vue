@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (檔案結構與邏輯修正的最終完整版) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (Pinia 遷移版) -->
 <template>
   <div>
     <div class="page-container">
@@ -7,9 +7,9 @@
           <div class="toolbar-left">
             <h1 class="page-title">週排班表</h1>
             <div class="date-navigator">
-              <button @click="changeWeek(-7)">< 上一週</button>
+              <button @click="changeWeek(-7)">&lt; 上一週</button>
               <span class="week-display-text">{{ weekDisplay }}</span>
-              <button @click="changeWeek(7)">下一週 ></button>
+              <button @click="changeWeek(7)">下一週 &gt;</button>
             </div>
             <div class="main-actions">
               <button @click="goToToday">回到本週</button>
@@ -65,7 +65,6 @@
               size="compact"
             />
           </div>
-          <!-- ✨ 核心修正 1：將 show-memos 事件綁定到對應的函式 -->
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -119,7 +118,6 @@
       @close="isProblemSolverDialogVisible = false"
       @assign-bed="handleAssignBed"
     />
-    <!-- ✨ 核心修正 2：傳入 show-fill-options="true" -->
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
       title="選擇病人排班"
@@ -156,7 +154,6 @@
 import { ref, onMounted, computed, onUnmounted, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
 import {
-  fetchAllPatients as optimizedFetchAllPatients,
   fetchAllSchedules as optimizedFetchAllSchedules,
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
@@ -179,6 +176,14 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { allPatients, patientMap } = storeToRefs(patientStore)
 
 // --- Helper Functions ---
 function getStartOfWeek(date) {
@@ -290,7 +295,7 @@ const FREQ_MAP_TO_DAY_INDEX = {
 }
 
 // --- Reactive State ---
-const allPatients = ref([])
+// allPatients and patientMap are now from Pinia
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
 const activeMemos = ref([])
@@ -320,7 +325,7 @@ const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
 // --- Computed Properties ---
-const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+// patientMap is now from Pinia
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
@@ -365,8 +370,9 @@ const weekScheduleMap = computed(() => {
   })
   return combinedSchedule
 })
+
 const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
-  allPatients,
+  allPatients, // This now directly comes from Pinia
   weekScheduleMap,
   FREQ_MAP_TO_DAY_INDEX,
 )
@@ -383,7 +389,7 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
-  const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+  const localPatientMap = patientMap.value // Use patientMap from Pinia
 
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
@@ -391,13 +397,11 @@ const statsToolbarData = computed(() => {
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
 
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
-        // ✨ 核心修正：從遍歷 values 改為遍歷 entries (鍵值對)
         for (const [dailyShiftKey, slotData] of Object.entries(record.schedule)) {
           if (slotData && slotData.patientId) {
             const patient = localPatientMap.get(slotData.patientId)
             if (!patient) continue
 
-            // ✨ 核心修正：直接從 key (例如 "bed-1-early") 來解析班別，這是最可靠的來源
             const shiftCode = dailyShiftKey.split('-').pop()
 
             if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
@@ -697,7 +701,7 @@ async function saveChangesToCloud() {
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '週排班已成功儲存！'
     isAlertDialogVisible.value = true
-    await loadAllData()
+    await loadDataForWeek() // 改為呼叫新函式
   } catch (error) {
     console.error('❌ [WeeklyView] 儲存失敗:', error)
     statusText.value = '儲存失敗'
@@ -789,46 +793,54 @@ function changeWeek(days) {
       const newDate = new Date(currentWeekStartDate.value)
       newDate.setDate(newDate.getDate() + days)
       currentWeekStartDate.value = newDate
-      loadAllData()
+      loadDataForWeek() // 改為呼叫新函式
     })
   } else {
     const newDate = new Date(currentWeekStartDate.value)
     newDate.setDate(newDate.getDate() + days)
     currentWeekStartDate.value = newDate
-    loadAllData()
+    loadDataForWeek() // 改為呼叫新函式
   }
 }
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換到本週嗎？', () => {
       currentWeekStartDate.value = getStartOfWeek(new Date())
-      loadAllData()
+      loadDataForWeek() // 改為呼叫新函式
     })
   } else {
     currentWeekStartDate.value = getStartOfWeek(new Date())
-    loadAllData()
+    loadDataForWeek() // 改為呼叫新函式
   }
 }
-async function loadAllData() {
+
+// ✨ 核心修改 #3: 改造 loadAllData，使其依賴 Pinia Store
+async function loadDataForWeek() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
+    // 1. 確保 Pinia Store 中的病人數據已載入
+    await patientStore.fetchPatientsIfNeeded()
+
+    // 2. 獲取本週的排班和備忘錄數據
     const startDate = formatDateForQuery(currentWeekStartDate.value)
     const tempDate = new Date(currentWeekStartDate.value)
     tempDate.setDate(tempDate.getDate() + 5)
     const endDate = formatDateForQuery(tempDate)
-    const [patients, schedules, memos] = await Promise.all([
-      optimizedFetchAllPatients(),
+
+    const [schedules, memos] = await Promise.all([
       optimizedFetchAllSchedules([where('date', '>=', startDate), where('date', '<=', endDate)]),
       optimizedFetchAllMemos([where('status', '==', 'pending')]),
     ])
-    allPatients.value = patients.filter((p) => !p.isDeleted)
+
     activeMemos.value = memos
-    const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+    const localPatientMap = patientMap.value // 直接使用 Pinia 的 patientMap
+
     const newWeekRecords = new Map()
     weekDates.value.forEach((day) => {
       newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {} })
     })
+
     schedules.forEach((record) => {
       if (record.schedule) {
         for (const shiftId in record.schedule) {
@@ -854,11 +866,12 @@ async function loadAllData() {
     statusText.value = '讀取失敗'
   }
 }
+
 function handleScheduleUpdate(event) {
   const { date } = event.detail
   if (weekDates.value.some((d) => d.queryDate === date)) {
     console.log(`🔄 [WeeklyView] 監聽到日期 ${date} 的變更，正在重新載入本週資料...`)
-    loadAllData()
+    loadDataForWeek()
   }
 }
 function handleConfirm() {
@@ -1041,7 +1054,7 @@ function openBedAssignmentDialog() {
 
 onMounted(() => {
   console.log('🚀 [WeeklyView] 組件已掛載，開始初始化...')
-  loadAllData()
+  loadDataForWeek() // 改為呼叫新函式
   window.addEventListener('schedule-updated', handleScheduleUpdate)
 })
 onUnmounted(() => {

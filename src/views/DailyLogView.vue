@@ -519,16 +519,22 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { allPatients, patientMap } = storeToRefs(patientStore)
+
 const dailyLogsApi = ApiManager('daily_logs')
 const schedulesApi = ApiManager('schedules')
-const patientsApi = ApiManager('patients')
 
 // --- State ---
 const isLoading = ref(false)
 const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
-const allPatients = ref([])
-const patientMap = ref(new Map())
+// allPatients and patientMap are now from Pinia
 const { currentUser } = useAuth()
 const handoverTextarea = ref(null)
 const isWardDialogVisible = ref(false)
@@ -613,18 +619,14 @@ function formatDate(date) {
 async function saveLog(successMessage = '日誌已儲存！') {
   if (isLoading.value) return
   isLoading.value = true
-
-  // 清理空的動態行
   dailyLog.patientMovements = dailyLog.patientMovements.filter(
     (item) => item.name || item.medicalRecordNumber,
   )
   dailyLog.vascularAccessLog = dailyLog.vascularAccessLog.filter(
     (item) => item.name || item.medicalRecordNumber,
   )
-
   try {
     const dataToSave = JSON.parse(JSON.stringify(dailyLog))
-
     if (dailyLog.id) {
       await dailyLogsApi.update(dailyLog.id, dataToSave)
     } else {
@@ -632,7 +634,6 @@ async function saveLog(successMessage = '日誌已儲存！') {
       await dailyLogsApi.save(docId, dataToSave)
       dailyLog.id = docId
     }
-
     hasUnsavedChanges.value = false
     showAlert('操作成功', successMessage)
   } catch (error) {
@@ -651,6 +652,8 @@ async function loadDailyLog(dateStr) {
   currentSchedule.value = {}
 
   try {
+    await patientStore.fetchPatientsIfNeeded()
+
     const [logResult, scheduleData] = await Promise.all([
       dailyLogsApi.fetchById(dateStr),
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
@@ -672,6 +675,8 @@ async function loadDailyLog(dateStr) {
     showAlert('載入失敗', '載入日誌時發生錯誤')
   } finally {
     isLoading.value = false
+    await nextTick()
+    handleTextareaInput()
   }
 }
 
@@ -804,8 +809,7 @@ async function signAsLeader(shift) {
     dailyLog.leader[shift] = {
       userId: currentUser.value.uid,
       name: currentUser.value.name,
-      // ✨✨✨ 核心修正：記錄簽核時間 ✨✨✨
-      signedAt: new Date().toISOString(), // 使用 ISO 格式字串儲存
+      signedAt: new Date().toISOString(),
     }
     const successMsg = isOverride ? '覆蓋簽核成功！日誌已更新。' : '簽核成功！日誌已儲存。'
     await saveLog(successMsg)
@@ -828,7 +832,6 @@ async function signAsLeader(shift) {
   showConfirm(confirmTitle, confirmMsg, performSign)
 }
 
-// ✨✨✨ 新增一個格式化時間的輔助函式 ✨✨✨
 function formatSignTime(isoString) {
   if (!isoString) return ''
   const date = new Date(isoString)
@@ -911,10 +914,7 @@ async function handleWardNumberConfirm(newWardNumber) {
   if (!patientId) return
   try {
     await optimizedUpdatePatient(patientId, { wardNumber: newWardNumber })
-    const patientInList = allPatients.value.find((p) => p.id === patientId)
-    if (patientInList) patientInList.wardNumber = newWardNumber
-    const patientInMap = patientMap.value.get(patientId)
-    if (patientInMap) patientInMap.wardNumber = newWardNumber
+    await patientStore.forceRefreshPatients()
     showAlert('操作成功', '住院床號已更新！')
   } catch (error) {
     console.error('更新住院床號失敗:', error)
@@ -937,15 +937,11 @@ function handleTextareaInput() {
   }
 }
 
-// ✨✨✨ --- 使用這個全新的、時序更正確的 PDF 匯出函式 --- ✨✨✨
 async function exportToPDF() {
-  // 0. 如果本來就在載入中，就什麼都不做
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
-
-  // 1. 準備工作：顯示一個不同的 Loading 提示
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
@@ -954,29 +950,21 @@ async function exportToPDF() {
     if (loadingTextElement) {
       loadingTextElement.textContent = '正在準備匯出 PDF，請稍候...'
     }
-    isLoading.value = true // 顯示 Loading 畫面
+    isLoading.value = true
   }
 
-  // 給 DOM 一點時間來顯示 Loading 提示
   await new Promise((resolve) => setTimeout(resolve, 50))
 
   try {
-    // 2. 獲取要匯出的 DOM 元素
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
       showAlert('錯誤', '找不到要匯出的內容！')
       return
     }
-
-    // 3. ✨ 關鍵步驟：在截圖前，【強制隱藏】Loading 畫面 ✨
     isLoading.value = false
     exportArea.classList.add('pdf-export-mode')
-
-    // 等待 Vue 將 Loading 畫面從 DOM 中移除，並套用 PDF 模式的 CSS
     await nextTick()
-    await new Promise((resolve) => setTimeout(resolve, 100)) // 額外等待，確保渲染完成
-
-    // 4. 現在可以安全地進行截圖了
+    await new Promise((resolve) => setTimeout(resolve, 100))
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
@@ -984,8 +972,6 @@ async function exportToPDF() {
       ignoreElements: (element) =>
         element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
-
-    // 5. 處理 Canvas 並生成 PDF (您的邏輯不變)
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
     const pdfWidth = 210
     const pdfHeight = 297
@@ -1022,44 +1008,25 @@ async function exportToPDF() {
         }
       }
     }
-
-    // 6. 觸發下載
     pdf.save(`血液透析中心工作日誌_${selectedDate.value}.pdf`)
   } catch (error) {
     console.error('匯出 PDF 失敗:', error)
     showAlert('錯誤', '匯出 PDF 時發生錯誤，請檢查主控台訊息。')
   } finally {
-    // 7. 清理工作：無論成功或失敗，都恢復頁面狀態
     const exportArea = document.getElementById('pdf-export-area')
     if (exportArea) {
       exportArea.classList.remove('pdf-export-mode')
     }
-    // 將 Loading 畫面的文字改回來
     if (loadingTextElement) {
       loadingTextElement.textContent = originalLoadingText
     }
-    // 確保 Loading 畫面最終是關閉的
     isLoading.value = false
-    // ✨ 我們不再在匯出後自動重新載入資料，這通常不是使用者預期的行為
-    // await loadDailyLog(selectedDate.value);
   }
 }
 
 // --- Lifecycle & Watchers ---
 onMounted(async () => {
-  isLoading.value = true
-  try {
-    const patients = await patientsApi.fetchAll()
-    allPatients.value = patients
-    patientMap.value = new Map(patients.map((p) => [p.id, p]))
-    await loadDailyLog(selectedDate.value)
-    await nextTick()
-    handleTextareaInput()
-  } catch (error) {
-    showAlert('初始化失敗', '頁面初始化失敗')
-    console.error('初始化頁面失敗:', error)
-  }
-  isLoading.value = false
+  await loadDailyLog(selectedDate.value)
 })
 
 watch(selectedDate, (newDate) => {

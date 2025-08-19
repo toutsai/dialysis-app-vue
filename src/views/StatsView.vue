@@ -496,8 +496,15 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
 
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { patientMap } = storeToRefs(patientStore)
+
 const schedulesApi = ApiManager('schedules')
-const patientsApi = ApiManager('patients')
 const memosApi = ApiManager('memos')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 
@@ -556,7 +563,7 @@ const dutyAssignments = {
 const isFireDutyDropdownVisible = ref(false)
 
 const currentDate = ref(new Date())
-const allPatients = ref([])
+// allPatients 和 patientMap 已由 Pinia 提供
 const activeMemos = ref([])
 const statusIndicator = ref('')
 const isLoading = ref(false)
@@ -627,8 +634,6 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
-const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
-
 const weekdayDisplay = computed(() => {
   if (!currentDate.value) return ''
   return ['日', '一', '二', '三', '四', '五', '六'][new Date(currentDate.value).getDay()]
@@ -639,7 +644,6 @@ const effectiveStatsData = computed(() => {
     const stats = {}
     teams.forEach((team) => {
       stats[team] = {
-        // [修改] 讀取護理師姓名時，從 currentTeamsRecord.value 讀取
         nurseName: currentTeamsRecord.value.names?.[team] || '',
         totalOpdCount: 0,
         totalIpdCount: 0,
@@ -771,6 +775,7 @@ async function getEffectiveOrdersForDate(patientId, targetDate) {
   }
 }
 
+// ✨ 核心修改 #3: 改造 loadData，使其依賴 Pinia Store
 async function loadData(date) {
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -778,29 +783,50 @@ async function loadData(date) {
   isLoading.value = true
   const dateStr = formatDate(date)
   try {
-    const [dailyRecords, teamsData, patientsData, memosData] = await Promise.all([
+    // 1. 確保 Pinia Store 中的病人數據已載入
+    await patientStore.fetchPatientsIfNeeded()
+
+    // 2. 並行獲取當天的排程、護理分組和備忘錄數據
+    const [dailyRecords, teamsData, memosData] = await Promise.all([
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       fetchTeamsByDate(dateStr),
-      patientsApi.fetchAll(),
       memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
 
-    const patientsWithOrdersPromises = patientsData.map(async (patient) => ({
-      ...patient,
-      dialysisOrders: await getEffectiveOrdersForDate(patient.id, date),
-    }))
-    allPatients.value = await Promise.all(patientsWithOrdersPromises)
     activeMemos.value = memosData
 
+    // 處理排程數據
     const scheduleRecord =
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
     Object.assign(currentRecord, scheduleRecord)
 
+    // 處理護理分組數據
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
 
-    if (currentRecord.schedule && currentTeamsRecord.value.teams) {
-      const localPatientMap = new Map(allPatients.value.map((p) => [p.id, p]))
+    // ✨ 核心修改 #4: 醫囑獲取現在是一個獨立的步驟
+    // 我們只為當天有排班的病人獲取醫囑
+    const patientIdsInSchedule = Object.values(currentRecord.schedule)
+      .map((slot) => slot.patientId)
+      .filter(Boolean)
 
+    if (patientIdsInSchedule.length > 0) {
+      const patientsOnSchedule = patientStore.allPatients.filter((p) =>
+        patientIdsInSchedule.includes(p.id),
+      )
+      const patientsWithOrdersPromises = patientsOnSchedule.map(async (patient) => {
+        const orders = await getEffectiveOrdersForDate(patient.id, date)
+        // 直接更新 Store 中的數據
+        const patientInStore = patientMap.value.get(patient.id)
+        if (patientInStore) {
+          patientInStore.dialysisOrders = orders
+        }
+      })
+      await Promise.all(patientsWithOrdersPromises)
+    }
+
+    // 組合最終數據
+    if (currentRecord.schedule && currentTeamsRecord.value.teams) {
+      const localPatientMap = patientMap.value
       for (const shiftId in currentRecord.schedule) {
         const slot = currentRecord.schedule[shiftId]
         if (!slot || !slot.patientId) continue
@@ -840,13 +866,10 @@ function setTeamChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
-// [修改] 這是核心修正點
 async function saveChangesToCloud() {
   if (isPageLocked.value || !hasUnsavedChanges.value) return
-
   statusIndicator.value = '儲存中...'
   const promises = []
-
   try {
     if (hasUnsavedScheduleChanges.value) {
       const scheduleToSave = JSON.parse(JSON.stringify(currentRecord.schedule))
@@ -856,13 +879,7 @@ async function saveChangesToCloud() {
         delete scheduleToSave[key].nurseTeamOut
         delete scheduleToSave[key].autoNote
       }
-      // 確保從 schedule 資料中移除舊的 names 欄位
-      const scheduleData = {
-        date: currentRecord.date,
-        schedule: scheduleToSave,
-      }
-      // 注意：這裡不儲存 names
-
+      const scheduleData = { date: currentRecord.date, schedule: scheduleToSave }
       if (currentRecord.id) {
         promises.push(schedulesApi.update(currentRecord.id, scheduleData))
       } else if (Object.keys(scheduleData.schedule).length > 0) {
@@ -871,15 +888,12 @@ async function saveChangesToCloud() {
         )
       }
     }
-
     if (hasUnsavedTeamChanges.value) {
-      // 將 names 儲存到 teamsData 中
       const teamsData = {
         date: currentTeamsRecord.value.date,
         teams: currentTeamsRecord.value.teams || {},
-        names: currentTeamsRecord.value.names || {}, // <-- 關鍵新增點
+        names: currentTeamsRecord.value.names || {},
       }
-
       if (currentTeamsRecord.value.id) {
         promises.push(updateTeams(currentTeamsRecord.value.id, teamsData))
       } else {
@@ -888,9 +902,7 @@ async function saveChangesToCloud() {
         )
       }
     }
-
     await Promise.all(promises)
-
     hasUnsavedScheduleChanges.value = false
     hasUnsavedTeamChanges.value = false
     statusIndicator.value = '變更已儲存！'
@@ -922,11 +934,9 @@ function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) return
-
   const oldShiftCode = oldShiftId.split('-')[2]
   const newShiftCode =
     newResponsibility === 'earlyShift'
@@ -934,7 +944,6 @@ function onDrop(event, newTeam, newResponsibility) {
       : newResponsibility === 'lateShift'
         ? SHIFT_CODES.LATE
         : SHIFT_CODES.NOON
-
   if (newShiftCode !== oldShiftCode) {
     pendingChangeInfo.value = { patientDetail, newTeam, newResponsibility }
     bedChangeTargetShift.value = newShiftCode
@@ -949,14 +958,11 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
   const shiftId = patientDetail.shiftId
   const shiftCode = shiftId.split('-')[2]
   const teamKey = `${patientId}-${shiftCode}`
-
   if (!currentTeamsRecord.value.teams[teamKey]) {
     currentTeamsRecord.value.teams[teamKey] = {}
   }
-
   const teamInfo = currentTeamsRecord.value.teams[teamKey]
   const slotInfo = currentRecord.schedule[shiftId]
-
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     teamInfo.nurseTeam = newTeam
     slotInfo.nurseTeam = newTeam
@@ -967,7 +973,6 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
     teamInfo.nurseTeamOut = newTeam
     slotInfo.nurseTeamOut = newTeam
   }
-
   setTeamChange()
 }
 
@@ -993,16 +998,13 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     isBedChangeDialogVisible.value = false
     return
   }
-
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
   setScheduleChange()
-
   if (pendingChangeInfo.value) {
     const { patientDetail, newTeam, newResponsibility } = pendingChangeInfo.value
     const patientId = patientDetail.id
-
     const oldShiftCode = oldShiftId.split('-')[2]
     const oldTeamKey = `${patientId}-${oldShiftCode}`
     if (currentTeamsRecord.value.teams[oldTeamKey]) {
@@ -1014,18 +1016,15 @@ function handleBedChange({ oldShiftId, newShiftId }) {
         delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamIn
       if (patientDetail.sourceResponsibility === 'noonShiftOff')
         delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamOut
-
       if (Object.keys(currentTeamsRecord.value.teams[oldTeamKey]).length === 0) {
         delete currentTeamsRecord.value.teams[oldTeamKey]
       }
     }
-
     const newShiftCode = newShiftId.split('-')[2]
     const newTeamKey = `${patientId}-${newShiftCode}`
     if (!currentTeamsRecord.value.teams[newTeamKey]) {
       currentTeamsRecord.value.teams[newTeamKey] = {}
     }
-
     if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
       currentTeamsRecord.value.teams[newTeamKey].nurseTeam = newTeam
     } else if (newResponsibility === 'noonShiftOn') {
@@ -1035,25 +1034,20 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     }
     setTeamChange()
   }
-
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
 
-// [修改] 這是核心修正點
 function updateNurseName(teamId, event) {
   if (isPageLocked.value) {
     event.target.value = currentTeamsRecord.value.names?.[teamId] || ''
     return
   }
-  // 確保 names 物件存在
   if (!currentTeamsRecord.value.names) {
     currentTeamsRecord.value.names = {}
   }
-  // 更新 currentTeamsRecord 中的 names
   currentTeamsRecord.value.names[teamId] = event.target.value
-  // 標記為團隊資料變更
   setTeamChange()
 }
 
@@ -1117,10 +1111,9 @@ function triggerPrint() {
 }
 
 onMounted(() => {
+  // ✨ 核心修改 #5: onMounted 邏輯簡化
   loadData(currentDate.value)
 })
-
-onUnmounted(() => {})
 
 watch(currentDate, (newDate) => {
   loadData(newDate)

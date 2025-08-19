@@ -118,10 +118,8 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
 import { db, functions } from '@/composables/useFirebase.js'
 
-// ✨ --- 核心修改開始 --- ✨
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore.js'
-// ✨ --- 核心修改結束 --- ✨
 
 const router = useRouter()
 const route = useRoute()
@@ -130,20 +128,19 @@ const { notifications, startListening, stopListening } = useRealtimeNotification
 
 const isSidebarOpen = ref(false)
 
-// ✨ --- 核心修改：數據源變更 --- ✨
 const patientStore = usePatientStore()
+// ✨ 核心修改 #1: 雖然不再 provide `allPatients`，但 MainLayout 自身的功能 (如 patientMap) 仍然需要它
 const { allPatients } = storeToRefs(patientStore)
-// 上面兩行取代了舊的: const allPatients = ref([])
 
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
 const memosForDialog = ref([])
 
-// ✨ 核心修改：為尚未遷移的舊組件提供來自 Pinia 的數據
-provide('allPatients', allPatients)
-// 不再需要 provide 'updateAllPatients'
+// ✨ --- 核心修改 #2: 移除 provide('allPatients', allPatients) --- ✨
+// provide('allPatients', allPatients) // 👈 這行已被安全移除
 
+// 依賴 allPatients 的 computed 屬性仍然需要保留，供 showPatientMemos 函式使用
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () =>
@@ -154,6 +151,7 @@ const patientWithMemoIds = computed(
     ),
 )
 
+// 這兩個 provide 仍然是必要的，因為它們提供的是函式和衍生狀態，而不是原始數據
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
@@ -195,7 +193,6 @@ function handleLogout() {
 
 let memoUnsubscribe = null
 
-// ✨ 核心修改：簡化數據監聽器，只監聽 memos
 function startSharedDataListeners() {
   if (memoUnsubscribe) return
   console.log('🔄 [MainLayout] Starting to listen for active memos...')
@@ -234,14 +231,13 @@ watch(
       startSharedDataListeners()
       triggerScheduleCheck()
       startListening()
-      // 注意：不再由 MainLayout 觸發獲取病人資料
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
       activeMemos.value = []
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
-      patientStore.$reset() // ✨ 登出時重置 Store 狀態
+      patientStore.$reset()
     }
   },
   { immediate: true },
