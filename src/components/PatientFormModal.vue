@@ -27,7 +27,7 @@ const FREQ_OPTIONS = [
 ]
 const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP']
 const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
-const DISEASES = ['HIV', 'RPR', 'HBV', 'HCV', 'COVID', 'BC肝?', '隔離']
+const DISEASES = ['HIV', 'RPR', 'BC肝?', 'HBV', 'HCV', 'C肝治癒', 'COVID', '隔離']
 const isEditing = computed(() => !!(form.value && form.value.id))
 const patientTypeText = computed(() => {
   const map = { ipd: '住院', opd: '門診', er: '急診' }

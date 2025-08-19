@@ -12,9 +12,16 @@ const { faker } = require('@faker-js/faker/locale/zh_TW')
 const projectId = process.env.VITE_FIREBASE_PROJECT_ID
 
 const USERS_TO_CREATE = [
-  { uid: 'admin', username: 'admin', password: 'password123', name: '管理員', role: 'admin' },
-  { uid: 'editor', username: 'editor', password: 'password123', name: '編輯人員', role: 'editor' },
-  { uid: 'viewer', username: 'viewer', password: 'password123', name: '檢視人員', role: 'viewer' },
+  { uid: 'admin', username: 'admin', password: 'admin', name: '管理員', role: 'admin' },
+  { uid: 'editor', username: 'editor', password: 'editor', name: '編輯人員', role: 'editor' },
+  { uid: 'viewer', username: 'nurse', password: 'viewer', name: '護理師', role: 'viewer' },
+  {
+    uid: 'contributor',
+    username: 'doctor',
+    password: 'contributor',
+    name: '主治醫師',
+    role: 'contributor',
+  },
 ]
 const PATIENT_COUNTS = { outpatient: 200, inpatient: 12, emergency: 2 }
 const INFECTION_COUNTS = { HBV: 15, HCV: 2, COVID: 2, 'BC肝?': 3 }

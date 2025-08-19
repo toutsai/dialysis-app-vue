@@ -1,4 +1,4 @@
-// 檔案路徑: src/router/index.js (放寬例外管理頁面訪問權限)
+// 檔案路徑: src/router/index.js (已新增協作訊息中心路由)
 
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
@@ -17,32 +17,59 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: '', name: 'Home', redirect: '/schedule' },
-      { path: 'schedule', name: 'Schedule', component: () => import('../views/ScheduleView.vue') },
-      { path: 'weekly', name: 'Weekly', component: () => import('../views/WeeklyView.vue') },
+      {
+        path: 'schedule',
+        name: 'Schedule',
+        component: () => import('../views/ScheduleView.vue'),
+        meta: { title: '每日排程表' },
+      },
+      {
+        path: 'weekly',
+        name: 'Weekly',
+        component: () => import('../views/WeeklyView.vue'),
+        meta: { title: '週排班表' },
+      },
       {
         path: 'base-schedule',
         name: 'BaseSchedule',
         component: () => import('../views/BaseScheduleView.vue'),
+        meta: { title: '門急住床位總表' },
       },
       {
         path: 'exception-manager',
         name: 'ExceptionManager',
         component: () => import('../views/ExceptionManagerView.vue'),
-        meta: { requiresAuth: true }, // 所有已登入的使用者都能訪問
+        meta: { title: '調班管理', requiresAuth: true }, // 所有已登入的使用者都能訪問
       },
-      { path: 'patients', name: 'Patients', component: () => import('../views/PatientsView.vue') },
-      { path: 'stats', name: 'Stats', component: () => import('../views/StatsView.vue') },
-      { path: 'memo', name: 'Memo', component: () => import('../views/MemoView.vue') },
+      {
+        path: 'patients',
+        name: 'Patients',
+        component: () => import('../views/PatientsView.vue'),
+        meta: { title: '病人管理' },
+      },
+      {
+        path: 'stats',
+        name: 'Stats',
+        component: () => import('../views/StatsView.vue'),
+        meta: { title: '護理分組檢視' },
+      },
+      {
+        path: 'memo',
+        name: 'Memo',
+        component: () => import('../views/MemoView.vue'),
+        meta: { title: '交班備忘錄' },
+      },
       {
         path: 'reporting',
         name: 'Reporting',
         component: () => import('../views/ReportingView.vue'),
+        meta: { title: '統計報表' },
       },
       {
         path: 'user-management',
         name: 'UserManagement',
         component: () => import('../views/UserManagementView.vue'),
-        meta: { requiresAdmin: true },
+        meta: { title: '使用者管理', requiresAdmin: true },
       },
       {
         path: 'lab-reports',
@@ -54,13 +81,24 @@ const routes = [
         path: 'account-settings',
         name: 'AccountSettings',
         component: () => import('../views/AccountSettingsView.vue'),
+        meta: { title: '帳號設定' },
       },
       {
         path: '/daily-log',
         name: 'DailyLog',
-        component: () => import('../views/DailyLogView.vue'), // 假設您將下面的檔案命名為 DailyLogView.vue
-        meta: { requiresAuth: true },
+        component: () => import('../views/DailyLogView.vue'),
+        meta: { title: '工作日誌', requiresAuth: true },
       },
+      // ==========================================================
+      // ✨ 在這裡新增 ✨
+      // ==========================================================
+      {
+        path: '/collaboration',
+        name: 'Collaboration',
+        component: () => import('../views/CollaborationView.vue'),
+        meta: { title: '協作訊息中心', requiresAuth: true },
+      },
+      // ==========================================================
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
