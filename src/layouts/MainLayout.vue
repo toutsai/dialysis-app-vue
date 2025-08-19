@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (已新增工作日誌連結) -->
+<!-- 檔案路徑: src/layouts/MainLayout.vue (Pinia 過渡版本) -->
 <template>
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
@@ -47,7 +47,6 @@
             <div class="notification-footer-item">
               <span class="notification-user">by {{ notif.createdByName }}</span>
               <span class="notification-time">{{ notif.time }}</span>
-              <!-- [核心修改] 刪除按鈕已被移除 -->
             </div>
           </div>
         </transition-group>
@@ -115,24 +114,33 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import { httpsCallable } from 'firebase/functions'
-import ApiManager from '@/services/api_manager.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
 import { db, functions } from '@/composables/useFirebase.js'
 
-const patientsApi = ApiManager('patients')
+import { storeToRefs } from 'pinia'
+import { usePatientStore } from '@/stores/patientStore.js'
+
 const router = useRouter()
 const route = useRoute()
 const { currentUser, logout, isAdmin, canEditSchedules } = useAuth()
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
-const allPatients = ref([])
+
+const patientStore = usePatientStore()
+// ✨ 核心修改 #1: 雖然不再 provide `allPatients`，但 MainLayout 自身的功能 (如 patientMap) 仍然需要它
+const { allPatients } = storeToRefs(patientStore)
+
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
 const memosForDialog = ref([])
 
+// ✨ --- 核心修改 #2: 移除 provide('allPatients', allPatients) --- ✨
+// provide('allPatients', allPatients) // 👈 這行已被安全移除
+
+// 依賴 allPatients 的 computed 屬性仍然需要保留，供 showPatientMemos 函式使用
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () =>
@@ -143,26 +151,23 @@ const patientWithMemoIds = computed(
     ),
 )
 
+// 這兩個 provide 仍然是必要的，因為它們提供的是函式和衍生狀態，而不是原始數據
+provide('patientWithMemoIds', patientWithMemoIds)
+provide('showPatientMemos', showPatientMemos)
+
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   const memoPatientName = activeMemos.value.find((m) => m.patientId === patientId)?.patientName
-
   if (!patient && !memoPatientName) {
-    console.warn(`[MainLayout] Cannot find patient name for ID: ${patientId}`)
     return
   }
-
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && memo.status === 'pending',
   )
   patientNameForDialog.value = patient ? patient.name : memoPatientName
   isMemoDialogVisible.value = true
 }
-
-provide('patientWithMemoIds', patientWithMemoIds)
-provide('showPatientMemos', showPatientMemos)
-
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
     return { text: '(開發版)', class: 'env-tag-dev' }
@@ -171,61 +176,22 @@ const environmentTag = computed(() => {
   }
   return null
 })
-
 function toggleSidebar() {
   isSidebarOpen.value = !isSidebarOpen.value
 }
-
 function closeSidebar() {
   isSidebarOpen.value = false
 }
-
-// [核心修改] 簡化點擊事件，不再刪除通知
 function handleNotificationClick(notif) {
   if (notif.action) {
     notif.action()
   }
 }
-
 function handleLogout() {
   logout()
 }
 
-async function loadSharedData() {
-  try {
-    console.log('🔄 [MainLayout] Loading shared data (patients & memos)...')
-    const [patientsData, memosData] = await Promise.all([
-      patientsApi.fetchAll([where('isDeleted', '==', false)]),
-      memosApi.fetchAll([where('status', '==', 'pending')]),
-    ])
-    allPatients.value = patientsData
-    activeMemos.value = memosData
-    console.log(
-      `✅ [MainLayout] Shared data loaded: ${patientsData.length} patients, ${memosData.length} memos.`,
-    )
-  } catch (error) {
-    console.error('❌ [MainLayout] Failed to load shared data:', error)
-  }
-}
-
-const triggerScheduleCheck = async () => {
-  if (sessionStorage.getItem('hasCheckedSchedules')) {
-    return
-  }
-  console.log('🚀 [MainLayout] Triggering cloud function ensureFutureSchedules...')
-  try {
-    // ✨ 3. 直接使用從 useFirebase 引入的、已配置好區域的 functions 物件
-    const ensureSchedules = httpsCallable(functions, 'ensureFutureSchedules')
-    const result = await ensureSchedules()
-    console.log('✅ [MainLayout] Cloud function executed successfully:', result.data)
-    sessionStorage.setItem('hasCheckedSchedules', 'true')
-  } catch (error) {
-    console.error('❌ [MainLayout] Calling ensureFutureSchedules failed:', error)
-  }
-}
-
 let memoUnsubscribe = null
-let patientUnsubscribe = null
 
 function startSharedDataListeners() {
   if (memoUnsubscribe) return
@@ -235,14 +201,6 @@ function startSharedDataListeners() {
     activeMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
     console.log(`✅ [MainLayout] Active memos updated: ${activeMemos.value.length} items.`)
   })
-
-  if (patientUnsubscribe) return
-  console.log('🔄 [MainLayout] Starting to listen for patient data...')
-  const patientQuery = query(collection(db, 'patients'), where('isDeleted', '==', false))
-  patientUnsubscribe = onSnapshot(patientQuery, (snapshot) => {
-    allPatients.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    console.log(`✅ [MainLayout] Patient data updated: ${allPatients.value.length} patients.`)
-  })
 }
 function stopSharedDataListeners() {
   if (memoUnsubscribe) {
@@ -250,10 +208,18 @@ function stopSharedDataListeners() {
     memoUnsubscribe()
     memoUnsubscribe = null
   }
-  if (patientUnsubscribe) {
-    console.log('🛑 [MainLayout] Stopping patient listener.')
-    patientUnsubscribe()
-    patientUnsubscribe = null
+}
+
+const triggerScheduleCheck = async () => {
+  if (sessionStorage.getItem('hasCheckedSchedules')) {
+    return
+  }
+  try {
+    const checkSchedules = httpsCallable(functions, 'checkSchedules')
+    await checkSchedules()
+    sessionStorage.setItem('hasCheckedSchedules', 'true')
+  } catch (error) {
+    console.error('觸發排程檢查失敗:', error)
   }
 }
 
@@ -268,10 +234,10 @@ watch(
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
       activeMemos.value = []
-      allPatients.value = []
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
+      patientStore.$reset()
     }
   },
   { immediate: true },
@@ -285,7 +251,6 @@ watch(
     }
   },
 )
-
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()

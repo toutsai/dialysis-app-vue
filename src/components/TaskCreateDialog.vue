@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/TaskCreateDialog.vue (動態耗材補帳介面) -->
+<!-- 檔案路徑: src/components/TaskCreateDialog.vue (已新增耗衛材選項) -->
 <template>
   <div v-if="isVisible" class="modal-overlay" @click.self="close">
     <div class="modal-container">
@@ -7,7 +7,7 @@
         <button class="close-btn" @click="close">&times;</button>
       </header>
       <main class="modal-body">
-        <!-- 類型選擇 -->
+        <!-- ... (類型, 交辦給, 關聯病人, 目標日期 區塊不變) ... -->
         <div class="form-group">
           <label class="form-label">類型</label>
           <div class="radio-group">
@@ -24,7 +24,6 @@
           </div>
         </div>
 
-        <!-- 交辦對象 -->
         <div v-if="formData.category === 'task'" class="form-group">
           <label for="assignee" class="form-label">交辦給</label>
           <select id="assignee" v-model="formData.assigneeValue" class="form-control">
@@ -36,7 +35,6 @@
           </select>
         </div>
 
-        <!-- 關聯病人 -->
         <div class="form-group">
           <label for="patient" class="form-label">關聯病人 (可選)</label>
           <div v-if="selectedPatient" class="selected-patient-display">
@@ -48,7 +46,6 @@
           </button>
         </div>
 
-        <!-- 目標日期 (僅留言) -->
         <div v-if="formData.category === 'message'" class="form-group">
           <label for="targetDate" class="form-label">目標日期</label>
           <input type="date" id="targetDate" v-model="formData.targetDate" class="form-control" />
@@ -58,15 +55,12 @@
         <div class="form-group">
           <label for="content" class="form-label">內容</label>
 
-          <!-- ✨ 核心修改 #1: 條件化渲染動態耗材介面 -->
           <div v-if="isClerkSupplyTask" class="supply-container">
-            <!-- 動態耗材列表 -->
             <div
               v-for="(item, index) in dynamicSupplyItems"
               :key="item.id"
               class="dynamic-supply-item"
             >
-              <!-- 品項類型選擇 -->
               <select
                 v-model="item.type"
                 @change="onItemTypeChange(item)"
@@ -78,7 +72,7 @@
                 </option>
               </select>
 
-              <!-- 品項規格選擇 (條件化) -->
+              <!-- ✨ 核心修改 #6: 新增對 "耗衛材" 的條件渲染 -->
               <select v-if="item.type === 'AK'" v-model="item.spec" class="supply-spec-select">
                 <option disabled value="">選擇AK規格</option>
                 <option v-for="ak in akOptions" :key="ak" :value="ak">{{ ak }}</option>
@@ -99,10 +93,20 @@
                 <option disabled value="">選擇B液規格</option>
                 <option v-for="b in bLiquidOptions" :key="b" :value="b">{{ b }}</option>
               </select>
-              <!-- 佔位符，保持對齊 -->
+              <!-- 新增的衛材下拉選單 -->
+              <select
+                v-else-if="item.type === '耗衛材'"
+                v-model="item.spec"
+                class="supply-spec-select"
+              >
+                <option disabled value="">選擇衛材品項</option>
+                <option v-for="supply in medicalSuppliesOptions" :key="supply" :value="supply">
+                  {{ supply }}
+                </option>
+              </select>
+
               <div v-else class="spec-placeholder"></div>
 
-              <!-- 數量控制器 -->
               <div class="quantity-stepper">
                 <button @click="item.quantity > 0 && item.quantity--" class="quantity-btn">
                   -
@@ -111,13 +115,11 @@
                 <button @click="item.quantity++" class="quantity-btn">+</button>
               </div>
 
-              <!-- 移除按鈕 -->
               <button @click="removeSupplyItem(index)" class="remove-item-btn" title="移除此項">
                 ×
               </button>
             </div>
 
-            <!-- 新增按鈕 -->
             <button @click="addSupplyItem" class="btn btn-add-supply">
               <i class="fas fa-plus"></i> 新增耗材項目
             </button>
@@ -187,7 +189,7 @@ const formData = reactive({
   content: '',
 })
 
-// ✨ 核心修改 #2: 定義所有耗材選項
+// ✨ 核心修改 #1: 定義所有耗材與衛材的選項
 const akOptions = [
   '13M',
   '15S',
@@ -203,12 +205,23 @@ const akOptions = [
 ]
 const aLiquidOptions = ['2.5', '3.0', '3.5']
 const bLiquidOptions = ['5L B液', '罐裝B粉', '袋裝B粉']
+// 新增衛材選項
+const medicalSuppliesOptions = [
+  '傷口照護包',
+  '住院包',
+  'EKG貼片',
+  'OP site(每周)',
+  'OP site(每三天)',
+  '鼻導管',
+]
+// 更新類型選項，加入新的 "耗衛材"
 const supplyTypeOptions = ref([
   { value: 'AK', label: 'AK' },
   { value: 'A液', label: 'A液' },
   { value: 'B液', label: 'B液' },
   { value: 'Tubing', label: 'Tubing' },
   { value: 'NS', label: 'NS (500cc)' },
+  { value: '耗衛材', label: '耗衛材' },
 ])
 
 const dynamicSupplyItems = ref([])
@@ -217,18 +230,21 @@ const isClerkSupplyTask = computed(
   () => formData.category === 'task' && formData.assigneeValue === 'clerk',
 )
 
-// ✨ 核心修改 #3: 更新表單驗證邏輯
 const isFormValid = computed(() => {
   if (isClerkSupplyTask.value) {
-    // 每一項都必須選擇類型，且數量 > 0
-    const allItemsValid = dynamicSupplyItems.value.every((item) => item.type && item.quantity > 0)
-    // 列表為空時，看備註
+    const allItemsValid = dynamicSupplyItems.value.every((item) => {
+      // 如果類型需要規格，則規格也不能為空
+      if (['AK', 'A液', 'B液', '耗衛材'].includes(item.type)) {
+        return item.type && item.spec && item.quantity > 0
+      }
+      // 不需要規格的類型
+      return item.type && item.quantity > 0
+    })
     if (dynamicSupplyItems.value.length === 0) {
       return otherSupplyInfo.value.trim() !== ''
     }
     return allItemsValid
   }
-  // 其他情況，檢查通用內容
   if (!formData.content.trim()) return false
   if (formData.category === 'task' && !formData.assigneeValue) return false
   return true
@@ -241,10 +257,9 @@ watch(
   },
 )
 
-// ✨ 核心修改 #4: 動態列表操作函式
 function addSupplyItem() {
   dynamicSupplyItems.value.push({
-    id: Date.now(), // simple unique key
+    id: Date.now(),
     type: '',
     spec: '',
     quantity: 1,
@@ -253,7 +268,6 @@ function addSupplyItem() {
 function removeSupplyItem(index) {
   dynamicSupplyItems.value.splice(index, 1)
 }
-// 當類型改變時，重置規格
 function onItemTypeChange(item) {
   item.spec = ''
 }
@@ -278,13 +292,13 @@ function clearPatient() {
 }
 
 async function handleSubmit() {
-  // ✨ 核心修改 #5: 根據動態列表生成 content
   if (isClerkSupplyTask.value) {
     const parts = dynamicSupplyItems.value
       .filter((item) => item.type && item.quantity > 0)
       .map((item) => {
         let itemName =
           supplyTypeOptions.value.find((opt) => opt.value === item.type)?.label || item.type
+        // 如果有規格(spec)，就加上規格
         if (item.spec) {
           itemName += ` (${item.spec})`
         }

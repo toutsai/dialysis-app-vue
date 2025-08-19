@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (區間調班修正版) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -212,7 +212,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
-import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
@@ -220,6 +219,14 @@ import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
+
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { allPatients } = storeToRefs(patientStore) // 從 Store 獲取 allPatients
 
 // --- API & Services ---
 const exceptionsApi = ApiManager('schedule_exceptions')
@@ -234,7 +241,7 @@ const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
 
 // --- Component State ---
-const allPatients = ref([])
+// allPatients is now from Pinia
 const exceptions = ref([])
 const isLoading = ref(true)
 const isCreateDialogVisible = ref(false)
@@ -284,7 +291,6 @@ function formatShiftInfo(shiftData) {
   return `${shiftData.date || ''} (${shiftName} ${bedDisplay})`
 }
 
-// 【新增】一個更通用的格式化函式，用於顯示床位和班別
 function formatBedAndShift(targetData) {
   if (!targetData || !targetData.bedNum || !targetData.shiftCode) return 'N/A'
   const shiftName = shiftMap[targetData.shiftCode] || targetData.shiftCode
@@ -307,7 +313,6 @@ function closeCreateDialog() {
   }, 300)
 }
 
-// 【修改】更新此函式以處理新類型的備忘錄
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
@@ -352,7 +357,7 @@ async function handleCreateException(formData) {
         const addBedDisplay = formatBedAndShift(formData.to)
         memoContent = `【臨時加洗】\n日期: ${formData.to.goalDate} (${addBedDisplay})` + reasonText
         break
-      case 'RANGE_MOVE': // 🔥🔥 核心修改：更新備忘錄內容
+      case 'RANGE_MOVE':
         const targetBedDisplay = formatBedAndShift(formData.to)
         memoContent =
           `【區間調班】\n區間: ${formData.startDate} ~ ${formData.endDate}\n目標: 全部移至 ${targetBedDisplay}` +
@@ -416,7 +421,7 @@ function handleConflictAlertConfirm() {
   })
 }
 
-// --- Initialization Logic ---
+// ✨ 核心修改 #3: 改造 initializePageData
 async function initializePageData() {
   if (unsubscribe) {
     unsubscribe()
@@ -425,7 +430,10 @@ async function initializePageData() {
   isLoading.value = true
 
   try {
-    allPatients.value = await optimizedFetchAllPatients()
+    // 1. 確保 Pinia Store 中的病人數據已載入
+    await patientStore.fetchPatientsIfNeeded()
+
+    // 2. 只監聽本頁面需要的 exceptions 數據
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
 
     unsubscribe = onSnapshot(
@@ -455,10 +463,7 @@ async function initializePageData() {
         })
 
         exceptions.value = newExceptions
-
-        if (isLoading.value) {
-          isLoading.value = false
-        }
+        isLoading.value = false
       },
       (error) => {
         console.error('❌ Firestore 監聽器發生錯誤:', error)

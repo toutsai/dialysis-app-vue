@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/CollaborationView.vue (最終完整版) -->
+<!-- 檔案路徑: src/views/CollaborationView.vue (已修正桌面/行動版結構) -->
 <template>
   <div class="page-container collaboration-view">
     <header class="page-header">
@@ -18,31 +18,33 @@
     <!-- ================== -->
     <div class="collaboration-container desktop-only">
       <!-- 左欄 -->
-      <div class="patient-list-panel" v-show="activeMobileTab === 'patients'">
-        <!-- ✨ 核心修改 #4: 新增頁籤導覽 (僅在非護理師情況下顯示) -->
-        <div v-if="userTitle !== '護理師'" class="left-panel-tabs">
+      <div class="patient-list-panel">
+        <div v-if="isNurseStaff" class="left-panel-main-tabs">
           <button
-            :class="{ active: leftPanelActiveTab === 'all' }"
-            @click="leftPanelActiveTab = 'all'"
+            :class="{ active: mainPatientViewTab === 'my' }"
+            @click="mainPatientViewTab = 'my'"
           >
+            我的病人
+          </button>
+          <button
+            :class="{ active: mainPatientViewTab === 'all' }"
+            @click="mainPatientViewTab = 'all'"
+          >
+            全部病人
+          </button>
+        </div>
+
+        <div v-if="!isNurseStaff || mainPatientViewTab === 'all'" class="left-panel-shift-tabs">
+          <button :class="{ active: shiftFilterTab === 'all' }" @click="shiftFilterTab = 'all'">
             全部
           </button>
-          <button
-            :class="{ active: leftPanelActiveTab === 'early' }"
-            @click="leftPanelActiveTab = 'early'"
-          >
+          <button :class="{ active: shiftFilterTab === 'early' }" @click="shiftFilterTab = 'early'">
             早班
           </button>
-          <button
-            :class="{ active: leftPanelActiveTab === 'noon' }"
-            @click="leftPanelActiveTab = 'noon'"
-          >
+          <button :class="{ active: shiftFilterTab === 'noon' }" @click="shiftFilterTab = 'noon'">
             午班
           </button>
-          <button
-            :class="{ active: leftPanelActiveTab === 'late' }"
-            @click="leftPanelActiveTab = 'late'"
-          >
+          <button :class="{ active: shiftFilterTab === 'late' }" @click="shiftFilterTab = 'late'">
             晚班
           </button>
         </div>
@@ -51,7 +53,6 @@
           <div class="loading-spinner"></div>
           <span>載入病人列表...</span>
         </div>
-        <!-- ✨ 核心修改 #5: v-for 的目標改為 filteredPatients -->
         <div v-else class="patient-list-scroll-area">
           <div
             v-for="(shiftPatients, shiftName) in groupedPatients"
@@ -77,8 +78,11 @@
               </li>
             </ul>
           </div>
-          <div v-if="patientsForList.length === 0" class="panel-empty">
-            <p>今日您沒有負責的病人，或當天無排班資料。</p>
+          <div
+            v-if="Object.keys(groupedPatients).length === 0 && !isLoading.patients"
+            class="panel-empty"
+          >
+            <p>此條件下無病人資料。</p>
           </div>
         </div>
       </div>
@@ -172,7 +176,7 @@
       <!-- 右欄 -->
       <div class="task-panel">
         <div class="task-section inbox-tasks">
-          <h2 class="panel-title"><i class="fas fa-inbox"></i> 收件匣(交辦事項 to me)</h2>
+          <h2 class="panel-title"><i class="fas fa-inbox"></i> 收件匣(給我的交辦事項)</h2>
           <div v-if="isLoading.tasks" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
@@ -273,11 +277,43 @@
 
       <div class="mobile-content-area">
         <div v-show="activeMobileTab === 'patients'" class="patient-list-panel">
+          <!-- 行動版 左欄 -->
+          <div v-if="isNurseStaff" class="left-panel-main-tabs">
+            <button
+              :class="{ active: mainPatientViewTab === 'my' }"
+              @click="mainPatientViewTab = 'my'"
+            >
+              我的病人
+            </button>
+            <button
+              :class="{ active: mainPatientViewTab === 'all' }"
+              @click="mainPatientViewTab = 'all'"
+            >
+              全部病人
+            </button>
+          </div>
+          <div v-if="!isNurseStaff || mainPatientViewTab === 'all'" class="left-panel-shift-tabs">
+            <button :class="{ active: shiftFilterTab === 'all' }" @click="shiftFilterTab = 'all'">
+              全部
+            </button>
+            <button
+              :class="{ active: shiftFilterTab === 'early' }"
+              @click="shiftFilterTab = 'early'"
+            >
+              早班
+            </button>
+            <button :class="{ active: shiftFilterTab === 'noon' }" @click="shiftFilterTab = 'noon'">
+              午班
+            </button>
+            <button :class="{ active: shiftFilterTab === 'late' }" @click="shiftFilterTab = 'late'">
+              晚班
+            </button>
+          </div>
           <div v-if="isLoading.patients" class="panel-loading">
             <div class="loading-spinner"></div>
             <span>載入病人列表...</span>
           </div>
-          <div v-else>
+          <div v-else class="patient-list-scroll-area">
             <div
               v-for="(shiftPatients, shiftName) in groupedPatients"
               :key="shiftName"
@@ -292,17 +328,26 @@
                   :class="{ active: selectedPatient?.id === patient.id }"
                   @click="selectPatient(patient)"
                 >
-                  <span class="patient-name">{{ patient.name }}</span>
+                  <div class="patient-info">
+                    <span class="patient-bed">{{
+                      patient.bed > 999 ? `外${patient.bed - 1000}` : patient.bed
+                    }}</span>
+                    <span class="patient-name">{{ patient.name }}</span>
+                  </div>
                   <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
                 </li>
               </ul>
             </div>
-            <div v-if="patientsForList.length === 0" class="panel-empty">
-              <p>今日您沒有負責的病人，或當天無排班資料。</p>
+            <div
+              v-if="Object.keys(groupedPatients).length === 0 && !isLoading.patients"
+              class="panel-empty"
+            >
+              <p>此條件下無病人資料。</p>
             </div>
           </div>
         </div>
         <div v-show="activeMobileTab === 'messages'" class="message-panel">
+          <!-- 行動版 中欄 -->
           <div class="message-section patient-messages">
             <h2 class="panel-title">
               <i class="fas fa-user"></i>
@@ -387,6 +432,7 @@
           </div>
         </div>
         <div v-show="activeMobileTab === 'tasks'" class="task-panel">
+          <!-- 行動版 右欄 -->
           <div class="task-section inbox-tasks">
             <h2 class="panel-title"><i class="fas fa-inbox"></i> 我的交辦事項 (收件匣)</h2>
             <div v-if="isLoading.tasks" class="panel-loading small">
@@ -479,15 +525,17 @@ import {
   where,
   onSnapshot,
   documentId,
-  orderBy,
   doc,
   updateDoc,
-  Timestamp,
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import ApiManager from '@/services/api_manager.js'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
+
+// ✨ --- 核心修改開始 --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+// ✨ --- 核心修改結束 --- ✨
 
 // --- Hooks ---
 const route = useRoute()
@@ -495,21 +543,28 @@ const { currentUser, isPageLocked, hasPermission } = useAuth()
 const userTitle = computed(() => currentUser.value?.title)
 const userRole = computed(() => currentUser.value?.role)
 
+// ✨ --- 核心修改：實例化 Store --- ✨
+const patientStore = usePatientStore()
+
 // --- API & Services ---
 const schedulesApi = ApiManager('schedules')
 const assignmentsApi = ApiManager('nurse_assignments')
 
 // --- State ---
 const isLoading = ref({ patients: true, messages: true, tasks: true, sentTasks: true })
-const patientsForList = ref([])
+const allDailyPatients = ref([])
+const myAssignedPatients = ref([])
 const selectedPatient = ref(null)
 const myTasks = ref([])
 const mySentTasks = ref([])
 const allMessages = ref([])
 const isCreateModalVisible = ref(false)
-const allPatients = ref([])
-const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
-const leftPanelActiveTab = ref('all')
+
+// ✨ 核心修改：移除本地的 patientMap，直接從 store 的 getter 獲取
+const patientMap = computed(() => patientStore.patientMap)
+
+const mainPatientViewTab = ref('my')
+const shiftFilterTab = ref('all')
 
 let taskUnsubscribe = null
 let sentTaskUnsubscribe = null
@@ -517,45 +572,48 @@ let messageUnsubscribe = null
 const activeMobileTab = ref('patients')
 
 // --- Computed Properties ---
-const displayDate = computed(() => route.query.date || new Date().toISOString().slice(0, 10))
-const weekdayDisplay = computed(() => {
-  try {
-    const date = new Date(displayDate.value)
-    return ['日', '一', '二', '三', '四', '五', '六'][date.getDay()]
-  } catch {
-    return ''
-  }
+const isNurseStaff = computed(() => ['護理師', '護理師組長'].includes(userTitle.value))
+const patientsForList = computed(() => {
+  return mainPatientViewTab.value === 'my' && isNurseStaff.value
+    ? myAssignedPatients.value
+    : // ✨ 核心修改：這裡的 allPatients 是指當天的病人，不是全局的
+      allDailyPatients.value
 })
-
-// ✨✨✨ 核心修正: 合併 filteredPatients 和 groupedPatients ✨✨✨
-const groupedPatients = computed(() => {
-  // 步驟 1: 最徹底的防呆檢查
-  if (!Array.isArray(patientsForList.value)) {
-    return {} // 如果來源資料不是陣列，直接返回空物件
+const filteredByShiftPatients = computed(() => {
+  if (shiftFilterTab.value === 'all') {
+    return patientsForList.value
   }
-
-  // 步驟 2: 篩選
-  const patientsToGroup =
-    leftPanelActiveTab.value === 'all'
-      ? patientsForList.value
-      : patientsForList.value.filter((p) => p.shift === leftPanelActiveTab.value)
-
-  // 步驟 3: 分組
+  return patientsForList.value.filter((p) => p.shift === shiftFilterTab.value)
+})
+const groupedPatients = computed(() => {
   const groups = { 早班: [], 午班: [], 晚班: [] }
+  let patientsToGroup = []
+  if (isNurseStaff.value) {
+    patientsToGroup =
+      mainPatientViewTab.value === 'my' ? myAssignedPatients.value : filteredByShiftPatients.value
+  } else {
+    patientsToGroup = filteredByShiftPatients.value
+  }
+  if (!Array.isArray(patientsToGroup)) return {}
   for (const patient of patientsToGroup) {
     if (patient.shift === 'early') groups.早班.push(patient)
     else if (patient.shift === 'noon') groups.午班.push(patient)
     else if (patient.shift === 'late') groups.晚班.push(patient)
   }
-
-  // 步驟 4: 清理空的組別
   if (groups.早班.length === 0) delete groups.早班
   if (groups.午班.length === 0) delete groups.午班
   if (groups.晚班.length === 0) delete groups.晚班
-
   return groups
 })
-
+const displayDate = computed(() => route.query.date || new Date().toISOString().slice(0, 10))
+const weekdayDisplay = computed(() => {
+  try {
+    const d = new Date(displayDate.value)
+    return ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  } catch {
+    return ''
+  }
+})
 const sortItems = (items) => {
   if (!Array.isArray(items)) return []
   return [...items].sort((a, b) => {
@@ -579,99 +637,102 @@ const feedMessages = computed(() => {
   return allMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
 })
 
-// ... (其餘所有 methods 和 lifecycle hooks 保持不變) ...
-async function fetchAllPatientDataOnce() {
-  try {
-    const patientApi = ApiManager('patients')
-    allPatients.value = await patientApi.fetchAll()
-  } catch (error) {
-    console.error('獲取所有病人資料失敗:', error)
-  }
-}
-async function fetchMyPatients() {
-  isLoading.value.patients = true
-  patientsForList.value = []
-  if (!userRole.value || !userTitle.value) {
-    isLoading.value.patients = false
+// --- Methods ---
+
+// ✨ 核心修改：重寫整個資料載入函式，現在它會先等待 Pinia 的數據準備好
+async function loadAndProcessDataForDate(date) {
+  isLoading.value = { patients: true, messages: true, tasks: true, sentTasks: true }
+  allDailyPatients.value = []
+  myAssignedPatients.value = []
+  selectedPatient.value = null
+
+  if (!currentUser.value) {
+    Object.keys(isLoading.value).forEach((k) => (isLoading.value[k] = false))
     return
   }
+
   try {
-    const patientMap = new Map()
-    const shouldSeeOnlyMyPatients = userRole.value === 'viewer' && userTitle.value === '護理師'
-    const schedules = await schedulesApi.fetchAll([where('date', '==', displayDate.value)])
-    if (schedules.length === 0) {
+    // 步驟 0: 確保全局病人資料已載入
+    // App.vue 已經觸發了這個請求，這裡只是確保我們在繼續之前等待它完成。
+    // 如果數據已存在，這個函數會立即返回。
+    await patientStore.fetchPatientsIfNeeded()
+
+    // --- 步驟 1: 獲取當天排班表 (不變) ---
+    const schedules = await schedulesApi.fetchAll([where('date', '==', date)])
+    if (schedules.length === 0 || !schedules[0].schedule) {
       isLoading.value.patients = false
       return
     }
-    const scheduleData = schedules[0]?.schedule || {}
+    const scheduleData = schedules[0].schedule
+
+    // --- 步驟 2: 從排班表中提取當天所有病人的 ID (不變) ---
+    const allPatientIdsInSchedule = Array.from(
+      new Set(
+        Object.values(scheduleData)
+          .map((s) => s.patientId)
+          .filter(Boolean),
+      ),
+    )
+
+    if (allPatientIdsInSchedule.length === 0) {
+      isLoading.value.patients = false
+      return
+    }
+
+    // --- 步驟 3: 只需獲取護理分組 (不再需要獲取病人詳細資料) ---
+    const assignments = await assignmentsApi.fetchAll([where('date', '==', date)])
+
+    // ✨ 直接從 Store 的 getter 中獲取 patientMap
+    const localPatientMap = patientStore.patientMap
+
+    // --- 步驟 4: 在前端組合出完整的 allDailyPatients 列表 (不變) ---
     const getBedNumber = (shiftId) => {
       const parts = shiftId.split('-')
-      if (parts[0] === 'peripheral') {
-        return 1000 + parseInt(parts[1], 10)
-      }
-      return parseInt(parts[1], 10)
+      return parts[0] === 'peripheral' ? 1000 + parseInt(parts[1], 10) : parseInt(parts[1], 10)
     }
-    if (shouldSeeOnlyMyPatients) {
-      const assignments = await assignmentsApi.fetchAll([where('date', '==', displayDate.value)])
-      if (assignments.length > 0) {
-        const { names, teams } = assignments[0]
-        if (names && teams) {
-          for (const teamName in names) {
-            if (names[teamName] === currentUser.value.name) {
-              for (const key in teams) {
-                const [patientId, shiftCode] = key.split('-')
-                const shiftId = Object.keys(scheduleData).find(
-                  (sid) => scheduleData[sid].patientId === patientId && sid.endsWith(shiftCode),
-                )
-                if (shiftId) {
-                  const teamAssignment = teams[key]
-                  if (
-                    teamAssignment.nurseTeam === teamName ||
-                    teamAssignment.nurseTeamIn === teamName ||
-                    teamAssignment.nurseTeamOut === teamName
-                  ) {
-                    if (!patientMap.has(patientId)) {
-                      patientMap.set(patientId, {
-                        id: patientId,
-                        shift: shiftCode,
-                        bed: getBedNumber(shiftId),
-                      })
-                    }
-                  }
-                }
+
+    const tempAllDaily = []
+    for (const shiftId in scheduleData) {
+      const slot = scheduleData[shiftId]
+      if (slot?.patientId && localPatientMap.has(slot.patientId)) {
+        const patientDetail = localPatientMap.get(slot.patientId)
+        tempAllDaily.push({
+          ...patientDetail,
+          shift: shiftId.split('-').pop(),
+          bed: getBedNumber(shiftId),
+        })
+      }
+    }
+
+    const sortLogic = (a, b) => {
+      const shiftOrder = { early: 1, noon: 2, late: 3 }
+      if (a.shift !== b.shift) return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
+      return a.bed - b.bed
+    }
+    allDailyPatients.value = tempAllDaily.sort(sortLogic)
+
+    // --- 步驟 5: 在前端計算出 myAssignedPatients 列表 (不變) ---
+    if (isNurseStaff.value && assignments.length > 0 && assignments[0].teams) {
+      const { names, teams } = assignments[0]
+      const myAssignedIds = new Set()
+      if (names && teams) {
+        for (const teamName in names) {
+          if (names[teamName] === currentUser.value.name) {
+            for (const key in teams) {
+              const [patientId] = key.split('-')
+              const teamAssignment = teams[key]
+              if (
+                teamAssignment.nurseTeam === teamName ||
+                teamAssignment.nurseTeamIn === teamName ||
+                teamAssignment.nurseTeamOut === teamName
+              ) {
+                myAssignedIds.add(patientId)
               }
             }
           }
         }
       }
-    } else {
-      for (const shiftId in scheduleData) {
-        const slot = scheduleData[shiftId]
-        if (slot?.patientId && !patientMap.has(slot.patientId)) {
-          patientMap.set(slot.patientId, {
-            id: slot.patientId,
-            shift: shiftId.split('-').pop(),
-            bed: getBedNumber(shiftId),
-          })
-        }
-      }
-    }
-    if (patientMap.size > 0) {
-      const idArray = Array.from(patientMap.keys())
-      const patientDetails = await queryWithInChunks('patients', documentId(), idArray)
-      patientsForList.value = patientDetails
-        .map((p) => ({
-          ...p,
-          shift: patientMap.get(p.id)?.shift || 'unknown',
-          bed: patientMap.get(p.id)?.bed || 9999,
-        }))
-        .sort((a, b) => {
-          const shiftOrder = { early: 1, noon: 2, late: 3 }
-          if (a.shift !== b.shift) {
-            return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
-          }
-          return a.bed - b.bed
-        })
+      myAssignedPatients.value = allDailyPatients.value.filter((p) => myAssignedIds.has(p.id))
     }
   } catch (error) {
     console.error('獲取病人列表失敗:', error)
@@ -679,6 +740,7 @@ async function fetchMyPatients() {
     isLoading.value.patients = false
   }
 }
+
 function openCreateModal() {
   if (!currentUser.value) {
     return
@@ -736,14 +798,14 @@ function listenToMyTasks() {
   const q = query(
     collection(db, 'tasks'),
     where('category', '==', 'task'),
-    where('status', '==', 'pending'),
+    where('status', 'in', ['pending', 'completed']),
     where('assignee.type', '==', 'role'),
     where('assignee.value', 'in', uniqueTargetValues),
   )
   taskUnsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      myTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      myTasks.value = filterByStatusAndDate(snapshot.docs)
       isLoading.value.tasks = false
     },
     (error) => {
@@ -762,14 +824,13 @@ function listenToMySentTasks() {
   const q = query(
     collection(db, 'tasks'),
     where('category', '==', 'task'),
-    where('status', '==', 'pending'),
+    where('status', 'in', ['pending', 'completed']),
     where('creator.uid', '==', currentUser.value.uid),
-    orderBy('createdAt', 'desc'),
   )
   sentTaskUnsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      mySentTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      mySentTasks.value = filterByStatusAndDate(snapshot.docs)
       isLoading.value.sentTasks = false
     },
     (error) => {
@@ -784,15 +845,13 @@ function listenToMessages() {
   const q = query(
     collection(db, 'tasks'),
     where('category', '==', 'message'),
-    where('status', '==', 'pending'),
+    where('status', 'in', ['pending', 'completed']),
     where('targetDate', '>=', displayDate.value),
-    orderBy('targetDate', 'asc'),
-    orderBy('createdAt', 'desc'),
   )
   messageUnsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      allMessages.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      allMessages.value = filterByStatusAndDate(snapshot.docs)
       isLoading.value.messages = false
     },
     (error) => {
@@ -823,10 +882,30 @@ function selectPatient(patient) {
 function handleTaskCreated() {
   console.log('Task created successfully.')
 }
+function filterByStatusAndDate(docs) {
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const results = []
+  for (const doc of docs) {
+    const data = { id: doc.id, ...doc.data() }
+    if (data.status === 'pending') {
+      results.push(data)
+    } else if (data.status === 'completed' && data.resolvedAt) {
+      const resolvedDate = data.resolvedAt.toDate
+        ? data.resolvedAt.toDate()
+        : new Date(data.resolvedAt)
+      if (resolvedDate >= sevenDaysAgo) {
+        results.push(data)
+      }
+    }
+  }
+  return results
+}
+
 onMounted(async () => {
   await useAuth().waitForAuthInit()
-  await fetchAllPatientDataOnce()
-  fetchMyPatients()
+  // ✨ 核心修改：onMounted 裡的邏輯現在非常乾淨
+  await loadAndProcessDataForDate(displayDate.value)
   listenToMyTasks()
   listenToMySentTasks()
   listenToMessages()
@@ -840,7 +919,7 @@ watch(
   () => route.query.date,
   async (newDate, oldDate) => {
     if (newDate && newDate !== oldDate) {
-      await fetchMyPatients()
+      await loadAndProcessDataForDate(newDate)
       listenToMessages()
     }
   },
@@ -849,10 +928,13 @@ watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
+      // 確保數據在用戶變化時重新加載
+      loadAndProcessDataForDate(displayDate.value)
       listenToMyTasks()
       listenToMySentTasks()
       listenToMessages()
     } else {
+      // 清理監聽器
       if (taskUnsubscribe) taskUnsubscribe()
       if (sentTaskUnsubscribe) sentTaskUnsubscribe()
       if (messageUnsubscribe) messageUnsubscribe()
@@ -1048,25 +1130,19 @@ watch(
   font-size: 0.9em;
   margin-left: 0.25em;
 }
+.desktop-only {
+  display: block;
+}
+.mobile-only {
+  display: none;
+}
 
 /* ================================== */
 /*       ✨ 桌面版樣式 ✨             */
 /* ================================== */
-.collaboration-container {
-  display: none;
-} /* 預設隱藏 */
-
 @media (min-width: 993px) {
-  .desktop-only {
-    display: block;
-  }
-  /* ✨ 核心修正 #1: 強制隱藏所有 .mobile-only 元素 */
-  .mobile-only {
-    display: none !important;
-  }
-
   .collaboration-container {
-    display: grid !important;
+    display: grid;
     grid-template-columns: 280px 2fr 1.5fr;
     gap: 1.5rem;
     flex-grow: 1;
@@ -1082,14 +1158,43 @@ watch(
     overflow: hidden;
     background-color: #ffffff;
   }
-  .left-panel-tabs {
+
+  .left-panel-main-tabs {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.5rem;
+  }
+  .left-panel-main-tabs button {
+    flex: 1;
+    padding: 0.6rem;
+    border: 1px solid #007bff;
+    color: #007bff;
+    background: none;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .left-panel-main-tabs button:first-child {
+    border-radius: 6px 0 0 6px;
+  }
+  .left-panel-main-tabs button:last-child {
+    border-radius: 0 6px 6px 0;
+    border-left: none;
+  }
+  .left-panel-main-tabs button.active {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .left-panel-shift-tabs {
     display: flex;
     flex-shrink: 0;
     border-bottom: 1px solid #dee2e6;
     padding: 0.5rem 0.5rem 0;
     background-color: #ffffff;
   }
-  .left-panel-tabs button {
+  .left-panel-shift-tabs button {
     flex: 1;
     padding: 0.5rem;
     border: none;
@@ -1101,11 +1206,12 @@ watch(
     border-radius: 4px 4px 0 0;
     border-bottom: 3px solid transparent;
   }
-  .left-panel-tabs button.active {
+  .left-panel-shift-tabs button.active {
     color: #007bff;
     background-color: #f8f9fa;
     border-bottom-color: #007bff;
   }
+
   .patient-list-scroll-area {
     flex-grow: 1;
     overflow-y: auto;
@@ -1181,6 +1287,7 @@ watch(
     font-size: 0.9rem;
     color: #6c757d;
   }
+
   .message-panel {
     padding: 0;
     background-color: transparent;
@@ -1204,6 +1311,7 @@ watch(
   .message-list {
     padding: 1rem;
   }
+
   .task-panel {
     padding: 0;
     background-color: transparent;
@@ -1232,9 +1340,6 @@ watch(
 /* ================================== */
 /*       ✨ 行動版樣式 ✨             */
 /* ================================== */
-.mobile-container {
-  display: none;
-} /* 預設隱藏 */
 @media (max-width: 992px) {
   .desktop-only {
     display: none !important;
@@ -1253,6 +1358,7 @@ watch(
   .header-content h1 {
     font-size: 1.5rem;
   }
+
   .mobile-container {
     display: flex;
     flex-direction: column;
@@ -1286,6 +1392,7 @@ watch(
     color: #007bff;
     border-bottom-color: #007bff;
   }
+
   .mobile-content-area {
     padding: 1rem;
     overflow-y: auto;
@@ -1344,6 +1451,12 @@ watch(
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     font-size: 1.5rem;
     z-index: 100;
+  }
+
+  /* 行動版下的左側頁籤樣式 */
+  .left-panel-main-tabs,
+  .left-panel-shift-tabs {
+    width: 100%;
   }
 }
 </style>
