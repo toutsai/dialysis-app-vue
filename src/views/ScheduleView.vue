@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (Pinia 遷移版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (統計優化版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -37,9 +37,11 @@
           </button>
         </div>
         <div class="toolbar-right">
+          <!-- ✨ 修改點 #1: 為行動版工具列加上 show-patient-numbers -->
           <StatsToolbar
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
+            :show-patient-numbers="true"
             size="compact"
             class="mobile-and-print-only"
           />
@@ -58,7 +60,6 @@
       <!-- 第二列：控制面板 -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
-          <!-- ✨ 新增：臨床查閱的切換按鈕和容器 (僅桌面) ✨ -->
           <div class="view-toggle-wrapper desktop-only">
             <button
               class="view-toggle-btn"
@@ -104,11 +105,17 @@
           </div>
         </div>
         <div class="controls-right">
-          <StatsToolbar :stats-data="statsToolbarData" :weekdays="statsToolbarWeekdays" />
+          <!-- ✨ 修改點 #2: 為桌面版工具列加上 show-patient-numbers -->
+          <StatsToolbar
+            :stats-data="statsToolbarData"
+            :weekdays="statsToolbarWeekdays"
+            :show-patient-numbers="true"
+          />
         </div>
       </div>
     </header>
 
+    <!-- ... 其餘的 template 內容保持不變 ... -->
     <main class="page-main-content" :class="{ 'is-locked': isPageLocked }">
       <!-- (A) 臨床查閱模式 (桌面覆蓋層) -->
       <div v-if="isSimplifiedViewVisible" class="simplified-view-wrapper desktop-only">
