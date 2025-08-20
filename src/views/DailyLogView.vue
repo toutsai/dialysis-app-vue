@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/DailyLogView.vue -->
+<!-- 檔案路徑: src/views/DailyLogView.vue (已修正日期導覽列與按鈕樣式) -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -9,11 +9,20 @@
     <header class="log-page-header">
       <div class="header-left">
         <h1>血液透析中心工作日誌</h1>
+
         <div class="date-navigator">
           <button @click="changeDate(-1)">❮ 上一日</button>
-          <input type="date" v-model="selectedDate" />
-          <button @click="goToToday">今日</button>
+
+          <div class="date-display-wrapper">
+            <input type="date" v-model="selectedDate" class="hidden-date-input" />
+            <span class="current-date-text" @click="triggerDateInput">{{
+              selectedDateDisplay
+            }}</span>
+            <span class="weekday-display">{{ weekdayDisplay }}</span>
+          </div>
+
           <button @click="changeDate(1)">下一日 ❯</button>
+          <button @click="goToToday" class="btn-goto-today">今日</button>
         </div>
       </div>
       <div class="header-right">
@@ -202,7 +211,7 @@
         </div>
       </section>
 
-      <!-- ==================== 第二區: 病人動態表 ==================== -->
+      <!-- ... (其他 template 內容保持不變) ... -->
       <section class="log-section">
         <div class="section-header">
           <h2>病人動態表</h2>
@@ -269,7 +278,6 @@
         </div>
       </section>
 
-      <!-- ==================== 第三區: 血管通路阻塞 ==================== -->
       <section class="log-section">
         <div class="section-header">
           <h2>血管通路阻塞</h2>
@@ -358,7 +366,6 @@
         </div>
       </section>
 
-      <!-- ==================== 第四區: 其他事項 ==================== -->
       <section class="log-section">
         <h2>其他事項</h2>
         <div class="autoresize-textarea-wrapper">
@@ -519,22 +526,18 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 
-// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
 const dailyLogsApi = ApiManager('daily_logs')
 const schedulesApi = ApiManager('schedules')
 
-// --- State ---
 const isLoading = ref(false)
 const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
-// allPatients and patientMap are now from Pinia
 const { currentUser } = useAuth()
 const handoverTextarea = ref(null)
 const isWardDialogVisible = ref(false)
@@ -586,7 +589,24 @@ const inputRefs = reactive({})
 const isAutocompleteVisible = ref(false)
 const autocompleteStyle = reactive({ top: '0px', left: '0px', width: '0px' })
 
-// --- Computed ---
+const selectedDateDisplay = computed(() => {
+  const d = new Date(selectedDate.value)
+  if (isNaN(d.getTime())) return selectedDate.value
+  const year = d.getFullYear()
+  const month = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
+  return `${year}/${month}/${day}`
+})
+
+const weekdayDisplay = computed(() => {
+  try {
+    const d = new Date(selectedDate.value)
+    return ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  } catch {
+    return ''
+  }
+})
+
 const statusText = computed(() => {
   if (hasUnsavedChanges.value) {
     return '有未儲存的變更'
@@ -606,7 +626,6 @@ const totalPatients = computed(() => {
   return totals
 })
 
-// --- Utility Functions ---
 function formatDate(date) {
   const d = new Date(date)
   const year = d.getFullYear()
@@ -615,7 +634,6 @@ function formatDate(date) {
   return `${year}-${month}-${day}`
 }
 
-// --- Data Saving ---
 async function saveLog(successMessage = '日誌已儲存！') {
   if (isLoading.value) return
   isLoading.value = true
@@ -644,26 +662,21 @@ async function saveLog(successMessage = '日誌已儲存！') {
   }
 }
 
-// --- Data Fetching & Processing ---
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
-
   try {
     await patientStore.fetchPatientsIfNeeded()
-
     const [logResult, scheduleData] = await Promise.all([
       dailyLogsApi.fetchById(dateStr),
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
     ])
-
     if (logResult) {
       const mergedLog = { ...initialLogState(), ...logResult }
       Object.assign(dailyLog, mergedLog)
     }
-
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
       if (!logResult) {
@@ -681,24 +694,16 @@ async function loadDailyLog(dateStr) {
 }
 
 function calculateStatsFromSchedule(scheduleRecord) {
-  // 1. 先重置統計數據
   const stats = initialLogState().stats
   if (!scheduleRecord || !scheduleRecord.schedule) return
-
-  // 2. 遍歷當天的所有排班格
   for (const shiftKey in scheduleRecord.schedule) {
     const slotData = scheduleRecord.schedule[shiftKey]
     if (!slotData?.patientId) continue
-
     const patient = patientMap.value.get(slotData.patientId)
     if (!patient) continue
-
     const shiftCode = shiftKey.split('-').pop()
     const isPeripheral = shiftKey.startsWith('peripheral')
-
-    // ✨ --- 核心修正 START --- ✨
     if (isPeripheral) {
-      // 外圍床位的計算邏輯是正確的，保持不變
       stats.peripheral_beds[shiftCode].total++
       if (patient.status === 'ipd') {
         stats.peripheral_beds[shiftCode].ipd++
@@ -706,34 +711,29 @@ function calculateStatsFromSchedule(scheduleRecord) {
         stats.peripheral_beds[shiftCode].er++
       }
     } else {
-      // 洗腎中心床位的計算邏輯修正如下
       stats.main_beds[shiftCode].total++
       if (patient.status === 'opd') {
         stats.main_beds[shiftCode].opd++
       } else if (patient.status === 'ipd' || patient.status === 'er') {
-        // 使用明確的 else if，確保住院和急診都被累加到 ipd_er
         stats.main_beds[shiftCode].ipd_er++
       }
     }
-    // ✨ --- 核心修正 END --- ✨
   }
-
-  // 3. 將計算好的數據賦值給 dailyLog
   dailyLog.stats.main_beds = stats.main_beds
   dailyLog.stats.peripheral_beds = stats.peripheral_beds
 }
 
-// --- Event Handlers ---
 function changeDate(days) {
   const newDate = new Date(selectedDate.value)
   newDate.setDate(newDate.getDate() + days)
   selectedDate.value = formatDate(newDate)
 }
-
 function goToToday() {
   selectedDate.value = formatDate(new Date())
 }
-
+function triggerDateInput() {
+  document.querySelector('.hidden-date-input').showPicker()
+}
 function addRow(targetArrayKey) {
   const newId = Date.now()
   if (targetArrayKey === 'patientMovements') {
@@ -759,13 +759,11 @@ function addRow(targetArrayKey) {
     })
   }
 }
-
 function deleteRow(index, targetArrayKey) {
   showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
     dailyLog[targetArrayKey].splice(index, 1)
   })
 }
-
 function handlePatientSearch(index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   const query = targetArray[index].name.toLowerCase()
@@ -777,7 +775,6 @@ function handlePatientSearch(index, type) {
     (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
   )
 }
-
 function showAutocomplete(event, index, type) {
   activeSearch.value = { type, index }
   handlePatientSearch(index, type)
@@ -788,19 +785,16 @@ function showAutocomplete(event, index, type) {
   autocompleteStyle.width = `${rect.width}px`
   isAutocompleteVisible.value = true
 }
-
 function hideAutocomplete() {
   setTimeout(() => {
     isAutocompleteVisible.value = false
   }, 200)
 }
-
 function selectPatient(patient, index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   targetArray[index].name = patient.name
   targetArray[index].patientId = patient.id
   targetArray[index].medicalRecordNumber = patient.medicalRecordNumber
-
   if (type === 'movements') {
     targetArray[index].admissionDate = patient.admissionDate || ''
     targetArray[index].physician = patient.physician || ''
@@ -819,11 +813,8 @@ function selectPatient(patient, index, type) {
   }
   isAutocompleteVisible.value = false
 }
-
-// --- Signature & Edit Flow ---
 async function signAsLeader(shift) {
   if (!currentUser.value) return
-
   const performSign = async (isOverride = false) => {
     dailyLog.leader[shift] = {
       userId: currentUser.value.uid,
@@ -833,11 +824,9 @@ async function signAsLeader(shift) {
     const successMsg = isOverride ? '覆蓋簽核成功！日誌已更新。' : '簽核成功！日誌已儲存。'
     await saveLog(successMsg)
   }
-
   const existingLeader = dailyLog.leader[shift]
   let confirmMsg = `您確定要以「${currentUser.value.name}」的名義簽核此班別，並儲存所有變更嗎？`
   let confirmTitle = '確認簽核'
-
   if (existingLeader?.userId && existingLeader.userId !== currentUser.value.uid) {
     confirmTitle = '覆蓋簽核'
     confirmMsg = `此班別已由 ${existingLeader.name} 簽核。\n\n` + confirmMsg
@@ -847,10 +836,8 @@ async function signAsLeader(shift) {
   } else if (hasUnsavedChanges.value) {
     confirmTitle = '更新簽核並儲存'
   }
-
   showConfirm(confirmTitle, confirmMsg, performSign)
 }
-
 function formatSignTime(isoString) {
   if (!isoString) return ''
   const date = new Date(isoString)
@@ -858,15 +845,12 @@ function formatSignTime(isoString) {
   const minutes = date.getMinutes().toString().padStart(2, '0')
   return `${hours}:${minutes}`
 }
-
 async function unsignLeader(shift) {
   if (!currentUser.value) return
-
   const performUnsign = async () => {
     dailyLog.leader[shift] = { userId: null, name: null }
     await saveLog('撤銷簽核成功！日誌已更新。')
   }
-
   if (dailyLog.leader[shift]?.userId) {
     if (
       dailyLog.leader[shift]?.userId === currentUser.value.uid ||
@@ -882,8 +866,6 @@ async function unsignLeader(shift) {
     }
   }
 }
-
-// --- Dialogs ---
 function showConfirm(title, message, onConfirmCallback) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
@@ -907,8 +889,6 @@ function showAlert(title, message) {
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
-
-// --- Ward Number Logic ---
 function promptWardNumber(index) {
   const patientId = dailyLog.patientMovements[index]?.patientId
   if (!patientId) {
@@ -946,8 +926,6 @@ function handleWardNumberCancel() {
   isWardDialogVisible.value = false
   currentEditingMovementIndex.value = -1
 }
-
-// --- Other Handlers ---
 function handleTextareaInput() {
   const textarea = handoverTextarea.value
   if (textarea) {
@@ -955,7 +933,6 @@ function handleTextareaInput() {
     textarea.style.height = `${textarea.scrollHeight}px`
   }
 }
-
 async function exportToPDF() {
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
@@ -964,16 +941,13 @@ async function exportToPDF() {
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
-
   if (loadingOverlay) {
     if (loadingTextElement) {
       loadingTextElement.textContent = '正在準備匯出 PDF，請稍候...'
     }
     isLoading.value = true
   }
-
   await new Promise((resolve) => setTimeout(resolve, 50))
-
   try {
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
@@ -1000,7 +974,6 @@ async function exportToPDF() {
     let leftHeight = contentHeight
     let position = 0
     const pdf = new jsPDF('p', 'mm', 'a4')
-
     if (leftHeight < pageHeight) {
       pdf.addImage(
         imgData,
@@ -1042,18 +1015,14 @@ async function exportToPDF() {
     isLoading.value = false
   }
 }
-
-// --- Lifecycle & Watchers ---
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 })
-
 watch(selectedDate, (newDate) => {
   if (newDate) {
     loadDailyLog(newDate)
   }
 })
-
 watch(
   dailyLog,
   () => {
@@ -1095,54 +1064,86 @@ h1 {
 .date-navigator {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 10px;
 }
-.date-navigator input[type='date'] {
-  font-size: 1.1rem;
-  padding: 0.5rem;
-  border: 1px solid #ced4da;
-  border-radius: 6px;
-}
-.status-indicator {
-  font-style: italic;
-  color: #6c757d;
-  font-weight: 500;
-}
-button {
+
+/* ✨ START: 日期導航欄樣式修正 ✨ */
+.date-navigator button {
   padding: 0.6rem 1.2rem;
   font-size: 1rem;
   border: 1px solid #6c757d;
   background-color: #fff;
   border-radius: 6px;
   cursor: pointer;
+  font-weight: 500;
   transition: all 0.2s;
+  white-space: nowrap;
 }
-button:hover {
+.date-navigator button:hover {
   background-color: #e9ecef;
 }
-.save-btn {
-  background-color: #28a745;
-  color: white;
-  border-color: #28a745;
+.date-display-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background-color: #fff;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0 10px;
+  height: 45px;
+  cursor: pointer;
+}
+.hidden-date-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.current-date-text {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #343a40;
+  white-space: nowrap;
+}
+.weekday-display {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #007bff;
+}
+.btn-goto-today {
+  order: 3;
+}
+/* ✨ END: 日期導航欄樣式修正 ✨ */
+
+.status-indicator {
+  font-style: italic;
+  color: #6c757d;
   font-weight: 500;
 }
-.save-btn:hover:not(:disabled) {
-  background-color: #218838;
+.export-pdf-btn {
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+  background-color: #17a2b8;
+  color: white;
+  border-color: #17a2b8;
 }
-.save-btn:disabled,
+.export-pdf-btn:hover:not(:disabled) {
+  background-color: #138496;
+}
 .export-pdf-btn:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
   opacity: 0.7;
-}
-.export-pdf-btn {
-  background-color: #17a2b8;
-  color: white;
-  border-color: #17a2b8;
-  font-weight: 500;
-}
-.export-pdf-btn:hover:not(:disabled) {
-  background-color: #138496;
 }
 
 /* 主要內容區 */
@@ -1176,7 +1177,9 @@ button:hover {
   font-weight: 500;
   background-color: #007bff;
   color: white;
-  border-color: #007bff;
+  border: 1px solid #007bff;
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 /* 統計表格 */
@@ -1318,7 +1321,6 @@ button:hover {
   text-align: center;
 }
 
-/* 表格中的移除按鈕 (保持或統一風格) */
 .delete-btn {
   background-color: #dc3545;
   color: white;
@@ -1332,7 +1334,6 @@ button:hover {
 .delete-btn:hover {
   background-color: #c82333;
 }
-/* 統一的小文字按鈕基礎樣式 */
 .action-text-btn {
   padding: 0.4rem 0.8rem;
   font-size: 0.9rem;
@@ -1342,21 +1343,17 @@ button:hover {
   font-weight: 500;
   transition: all 0.2s;
 }
-
-/* “修正”按鈕的特定顏色 */
 .action-text-btn.edit-btn {
-  background-color: #6c757d; /* 灰色 */
+  background-color: #6c757d;
   color: white;
   border-color: #6c757d;
 }
 .action-text-btn.edit-btn:hover {
   background-color: #5a6268;
 }
-
-/* “撤銷”按鈕的特定顏色 */
 .action-text-btn.unsign-btn {
-  background-color: #ffc107; /* 黃色 */
-  color: #212529; /* 深色文字以確保可讀性 */
+  background-color: #ffc107;
+  color: #212529;
   border-color: #ffc107;
 }
 .action-text-btn.unsign-btn:hover {
@@ -1386,8 +1383,6 @@ button:hover {
   background-color: #e7f1ff;
   color: #0056b3;
 }
-
-/* Autocomplete */
 .autocomplete-wrapper {
   position: relative;
 }
@@ -1417,8 +1412,6 @@ button:hover {
   color: #6c757d;
   cursor: default;
 }
-
-/* Checkbox group */
 .checkbox-group {
   display: flex;
   gap: 1rem;
@@ -1429,8 +1422,6 @@ button:hover {
   align-items: center;
   gap: 0.3rem;
 }
-
-/* 其他事項 & Footer */
 .autoresize-textarea-wrapper {
   position: relative;
 }
@@ -1451,17 +1442,6 @@ button:hover {
   padding-top: 1.5rem;
   border-top: 1px solid #e9ecef;
 }
-
-/* ======================================= */
-/* ✨✨✨ 全新的組長簽核區塊樣式 (最終版) ✨✨✨ */
-/* ======================================= */
-
-.log-page-footer {
-  margin-top: 1rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid #e9ecef;
-}
-
 .leader-signature-grid {
   display: grid;
   grid-template-columns: 140px repeat(3, 1fr);
@@ -1469,38 +1449,38 @@ button:hover {
   gap: 1.5rem;
   max-width: 900px;
 }
-
 .leader-title {
   font-size: 1.2rem;
   font-weight: 500;
   color: #495057;
   justify-self: start;
 }
-
 .signature-slot {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 0.75rem;
 }
-
 .shift-label {
   font-size: 1.1rem;
   color: #495057;
   font-weight: 500;
   white-space: nowrap;
 }
-
 .sign-btn {
   width: 100px;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
   background-color: #007bff;
   color: white;
-  border: 1px solid #007bff; /* 確保邊框顏色一致 */
+  border: 1px solid #007bff;
 }
 .sign-btn:hover {
   background-color: #0056b3;
 }
-
 .signature-display {
   display: flex;
   align-items: center;
@@ -1508,24 +1488,21 @@ button:hover {
   width: 100%;
   height: 45px;
   padding: 4px 8px;
-  background-color: #f8f9fa; /* 給予淡淡的底色 */
+  background-color: #f8f9fa;
   border: 1px solid #dee2e6;
   border-radius: 6px;
   gap: 0.5rem;
   min-width: 160px;
 }
-
 .signature-info {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-
 .leader-name {
   font-size: 1.1rem;
   font-weight: bold;
 }
-
 .leader-stamp {
   font-family: 'KaiTi', '標楷體', serif;
   color: #c82333;
@@ -1539,7 +1516,6 @@ button:hover {
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
   white-space: nowrap;
 }
-
 .signature-time {
   font-size: 0.8rem;
   color: #6c757d;
@@ -1547,49 +1523,11 @@ button:hover {
   align-self: flex-end;
   padding-bottom: 2px;
 }
-
-/* 簽核區的操作按鈕容器 */
 .signature-actions {
   display: flex;
   align-items: center;
-  gap: 0.5rem; /* 按鈕之間的間距 */
+  gap: 0.5rem;
 }
-
-/* 修正按鈕樣式 */
-.signature-btn-edit {
-  padding: 4px 10px;
-  font-size: 0.8rem;
-  border-radius: 4px;
-  border: 1px solid #6c757d;
-  background-color: #6c757d;
-  color: white;
-  font-weight: 500;
-}
-.signature-btn-edit:hover {
-  background-color: #5a6268;
-}
-
-/* 撤銷按鈕樣式 */
-.signature-btn-undo {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 50%;
-  border: none;
-  font-size: 1.1rem; /* 加大 'x' 的字體 */
-  line-height: 1;
-  font-weight: bold;
-  background-color: #6c757d;
-  color: white;
-}
-.signature-btn-undo:hover {
-  background-color: #dc3545;
-}
-
-/* Loading Overlay */
 .loading-overlay {
   position: fixed;
   top: 0;
@@ -1620,8 +1558,6 @@ button:hover {
     transform: rotate(360deg);
   }
 }
-
-/* PDF 匯出模式 */
 .pdf-export-mode .log-page-header {
   padding-bottom: 0.5rem;
   margin-bottom: 1rem;
@@ -1665,8 +1601,6 @@ button:hover {
   box-shadow: none;
   border-width: 1px;
 }
-
-/* 響應式 */
 @media (max-width: 992px) {
   .leader-signature-grid {
     grid-template-columns: 1fr;
