@@ -954,7 +954,7 @@ watch(
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 1rem;
+  padding: 0.5rem;
   background-color: #f8f9fa;
   box-sizing: border-box;
 }

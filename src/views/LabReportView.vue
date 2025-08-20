@@ -1115,7 +1115,7 @@ function exportGroupReportToExcel() {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 2rem);
-  padding: 1rem;
+  padding: 0.5rem;
   background-color: #f8f9fa;
 }
 .page-header {

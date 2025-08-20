@@ -1036,7 +1036,7 @@ watch(
 <style scoped>
 /* 頁面與標題 */
 .log-page-container {
-  padding: 1rem;
+  padding: 0.5rem;
   background-color: #f8f9fa;
 }
 .log-page-header {

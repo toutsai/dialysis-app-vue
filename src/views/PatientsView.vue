@@ -1340,7 +1340,7 @@ onUnmounted(() => {
   --grey-text: #6c757d;
 }
 .page-container {
-  padding: 10px;
+  padding: 0.5rem;
   height: 100vh;
   display: flex;
   flex-direction: column;

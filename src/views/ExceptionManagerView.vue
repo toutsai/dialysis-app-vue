@@ -531,7 +531,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background-color: #f8f9fa;
-  padding: 10px;
+  padding: 0.5rem;
 }
 .page-header {
   border-bottom: 2px solid #dee2e6;
