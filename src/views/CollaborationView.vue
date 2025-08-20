@@ -1136,6 +1136,128 @@ watch(
 .mobile-only {
   display: none;
 }
+.patient-list-scroll-area {
+  flex-grow: 1;
+  overflow-y: auto;
+}
+.patient-list,
+.message-list,
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.shift-group {
+  border-bottom: 1px solid #e9ecef;
+}
+.shift-group:last-child {
+  border-bottom: none;
+}
+.shift-title {
+  font-size: 1rem;
+  font-weight: bold;
+  color: #495057;
+  padding: 0.75rem 1rem;
+  background-color: #f8f9fa;
+  margin: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.patient-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #f1f3f5;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.patient-item:last-child {
+  border-bottom: none;
+}
+.patient-item:hover {
+  background-color: #f8f9fa;
+}
+.patient-item.active {
+  background-color: #e7f1ff;
+  font-weight: bold;
+  color: #0056b3;
+}
+.patient-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.patient-bed {
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #007bff;
+  background-color: #e7f1ff;
+  border-radius: 4px;
+  padding: 2px 6px;
+  min-width: 30px;
+  text-align: center;
+}
+.patient-name {
+  font-size: 1rem;
+}
+.patient-mrn {
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+.left-panel-main-tabs,
+.left-panel-shift-tabs {
+  display: flex;
+  flex-shrink: 0;
+}
+.left-panel-main-tabs {
+  border-bottom: 1px solid #dee2e6;
+  padding: 0.5rem;
+}
+.left-panel-main-tabs button {
+  flex: 1;
+  padding: 0.6rem;
+  border: 1px solid #007bff;
+  color: #007bff;
+  background: none;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.left-panel-main-tabs button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.left-panel-main-tabs button:last-child {
+  border-radius: 0 6px 6px 0;
+  border-left: none;
+}
+.left-panel-main-tabs button.active {
+  background-color: #007bff;
+  color: white;
+}
+.left-panel-shift-tabs {
+  border-bottom: 1px solid #dee2e6;
+  padding: 0.5rem 0.5rem 0;
+  background-color: #ffffff;
+}
+.left-panel-shift-tabs button {
+  flex: 1;
+  padding: 0.5rem;
+  border: none;
+  background: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #6c757d;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  border-bottom: 3px solid transparent;
+}
+.left-panel-shift-tabs button.active {
+  color: #007bff;
+  background-color: #f8f9fa;
+  border-bottom-color: #007bff;
+}
 
 /* ================================== */
 /*       ✨ 桌面版樣式 ✨             */
@@ -1151,143 +1273,19 @@ watch(
   .patient-list-panel,
   .message-panel,
   .task-panel {
-    border: 1px solid #dee2e6;
-    border-radius: 8px;
     display: flex !important;
     flex-direction: column;
     overflow: hidden;
     background-color: #ffffff;
   }
-
-  .left-panel-main-tabs {
-    display: flex;
-    flex-shrink: 0;
-    border-bottom: 1px solid #dee2e6;
-    padding: 0.5rem;
-  }
-  .left-panel-main-tabs button {
-    flex: 1;
-    padding: 0.6rem;
-    border: 1px solid #007bff;
-    color: #007bff;
-    background: none;
-    cursor: pointer;
-    font-size: 1rem;
-    font-weight: 600;
-  }
-  .left-panel-main-tabs button:first-child {
-    border-radius: 6px 0 0 6px;
-  }
-  .left-panel-main-tabs button:last-child {
-    border-radius: 0 6px 6px 0;
-    border-left: none;
-  }
-  .left-panel-main-tabs button.active {
-    background-color: #007bff;
-    color: white;
-  }
-
-  .left-panel-shift-tabs {
-    display: flex;
-    flex-shrink: 0;
-    border-bottom: 1px solid #dee2e6;
-    padding: 0.5rem 0.5rem 0;
-    background-color: #ffffff;
-  }
-  .left-panel-shift-tabs button {
-    flex: 1;
-    padding: 0.5rem;
-    border: none;
-    background: none;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #6c757d;
-    cursor: pointer;
-    border-radius: 4px 4px 0 0;
-    border-bottom: 3px solid transparent;
-  }
-  .left-panel-shift-tabs button.active {
-    color: #007bff;
-    background-color: #f8f9fa;
-    border-bottom-color: #007bff;
-  }
-
-  .patient-list-scroll-area {
-    flex-grow: 1;
-    overflow-y: auto;
-  }
-  .patient-list,
   .message-list,
   .task-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
     flex-grow: 1;
     overflow-y: auto;
   }
   .patient-list {
     padding: 0.5rem 0;
   }
-  .shift-group {
-    border-bottom: 1px solid #e9ecef;
-  }
-  .shift-group:last-child {
-    border-bottom: none;
-  }
-  .shift-title {
-    font-size: 1rem;
-    font-weight: bold;
-    color: #495057;
-    padding: 0.75rem 1rem;
-    background-color: #f8f9fa;
-    margin: 0;
-    position: sticky;
-    top: 0;
-    z-index: 1;
-  }
-  .patient-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #f1f3f5;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-  .patient-item:last-child {
-    border-bottom: none;
-  }
-  .patient-item:hover {
-    background-color: #f8f9fa;
-  }
-  .patient-item.active {
-    background-color: #e7f1ff;
-    font-weight: bold;
-    color: #0056b3;
-  }
-  .patient-info {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .patient-bed {
-    font-size: 0.8rem;
-    font-weight: bold;
-    color: #007bff;
-    background-color: #e7f1ff;
-    border-radius: 4px;
-    padding: 2px 6px;
-    min-width: 30px;
-    text-align: center;
-  }
-  .patient-name {
-    font-size: 1rem;
-  }
-  .patient-mrn {
-    font-size: 0.9rem;
-    color: #6c757d;
-  }
-
   .message-panel {
     padding: 0;
     background-color: transparent;
@@ -1338,7 +1336,7 @@ watch(
 }
 
 /* ================================== */
-/*       ✨ 行動版樣式 ✨             */
+/*       ✨ 行動版樣式 (已修正) ✨     */
 /* ================================== */
 @media (max-width: 992px) {
   .desktop-only {
@@ -1397,25 +1395,27 @@ watch(
     padding: 1rem;
     overflow-y: auto;
     flex-grow: 1;
-    display: flex;
-    flex-direction: column;
   }
+
+  /* ✨ 核心修正：讓 v-show 控制顯示/隱藏 */
+  .mobile-content-area > div {
+    /* 預設無 display 屬性，由 v-show 控制 */
+  }
+  .mobile-content-area > div[style*='display: none;'] {
+    display: none !important;
+  }
+
+  /* ✨ 修正：確保面板在顯示時是 flex 容器 */
   .patient-list-panel,
   .message-panel,
   .task-panel {
-    display: none;
     border-radius: 8px;
     border: 1px solid #dee2e6;
     background-color: #ffffff;
     flex-grow: 1;
     min-height: 0;
+    display: flex;
     flex-direction: column;
-  }
-
-  .patient-list-panel[style*='display: block;'],
-  .message-panel[style*='display: block;'],
-  .task-panel[style*='display: block;'] {
-    display: flex !important;
   }
 
   .message-panel,
@@ -1433,6 +1433,8 @@ watch(
     margin: 0;
     border: 1px solid #dee2e6;
     border-radius: 8px;
+    display: flex;
+    flex-direction: column;
   }
 
   .fab-mobile {
@@ -1451,12 +1453,6 @@ watch(
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     font-size: 1.5rem;
     z-index: 100;
-  }
-
-  /* 行動版下的左側頁籤樣式 */
-  .left-panel-main-tabs,
-  .left-panel-shift-tabs {
-    width: 100%;
   }
 }
 </style>

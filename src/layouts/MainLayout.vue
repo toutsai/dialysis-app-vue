@@ -12,9 +12,7 @@
         </div>
         <ul class="sidebar-nav">
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
-          <li class="desktop-only-nav-item">
-            <RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink>
-          </li>
+          <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
           <li class="desktop-only-nav-item">
             <RouterLink to="/weekly" class="nav-link">週排班表</RouterLink>
           </li>

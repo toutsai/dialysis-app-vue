@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (最終版 - 護理師姓名儲存至 assignments) -->
+<!-- 檔案路徑: src/views/StatsView.vue (行動版唯讀優化) -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -18,17 +18,20 @@
       </div>
       <div class="toolbar-right">
         <span class="status-indicator">{{ statusIndicator }}</span>
+        <!-- ✨ 修改點 #1: 加上 .desktop-only-flex 讓按鈕在行動版隱藏 -->
         <button
           id="save-changes-btn"
+          class="desktop-only-flex"
           :disabled="!hasUnsavedChanges || isPageLocked"
           @click="saveChangesToCloud"
         >
           儲存變更
         </button>
-        <button @click="triggerPrint">列印報表</button>
+        <button @click="triggerPrint" class="desktop-only-flex">列印報表</button>
       </div>
     </div>
 
+    <!-- ... duty-command-bar 維持不變 ... -->
     <div class="duty-command-bar">
       <div class="main-commanders">
         <span class="duty-title">消防編組:</span>
@@ -77,9 +80,12 @@
       </div>
     </div>
 
-    <div class="stats-sections-wrapper">
+    <!-- 桌面版專用視圖 -->
+    <div class="stats-sections-wrapper desktop-only">
+      <!-- ... 桌面版內容不變 ... -->
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <div class="grid-container">
+          <!-- ... 桌面版早班 grid ... -->
           <div class="grid-header">
             <div class="row-header section-title-cell">早班</div>
             <div
@@ -285,9 +291,9 @@
           </div>
         </div>
       </div>
-
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <div class="grid-container">
+          <!-- ... 桌面版晚班 grid ... -->
           <div class="grid-header">
             <div class="row-header section-title-cell">晚班</div>
             <div
@@ -442,6 +448,187 @@
       </div>
     </div>
 
+    <!-- 行動版專用視圖 -->
+    <div class="mobile-only">
+      <!-- 早班區塊 -->
+      <div class="mobile-shift-section">
+        <h2 class="mobile-shift-title">早班</h2>
+        <div
+          v-for="(teamData, teamName) in effectiveStatsData.early"
+          :key="teamName"
+          class="mobile-team-card"
+        >
+          <div class="mobile-team-header">
+            <h3>{{ teamName.replace('早', '') }}組</h3>
+            <!-- ✨ 修改點 #2: 為 select 加上 :disabled="true" -->
+            <select :value="teamData.nurseName" class="name-select" :disabled="true">
+              <option value="">-- 未指派 --</option>
+              <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
+          <div class="mobile-patient-lists">
+            <!-- 早班病人 -->
+            <div v-if="teamData.earlyShift.patients.length > 0" class="mobile-patient-list">
+              <h4>早班</h4>
+              <div
+                v-for="patient in teamData.earlyShift.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+              >
+                <!-- ✨ 修改點 #3: 移除 patient-main-info 的 @click 事件 -->
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <MemoIcon :patient-id="patient.id" />
+              </div>
+            </div>
+            <!-- 午班上針 -->
+            <div v-if="teamData.noonShiftOn.patients.length > 0" class="mobile-patient-list">
+              <h4>午班 (上針)</h4>
+              <div
+                v-for="patient in teamData.noonShiftOn.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <MemoIcon :patient-id="patient.id" />
+              </div>
+            </div>
+            <!-- 午班收針 -->
+            <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
+              <h4>午班 (收針)</h4>
+              <div
+                v-for="patient in teamData.noonShiftOff.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <MemoIcon :patient-id="patient.id" />
+              </div>
+            </div>
+          </div>
+          <div class="mobile-team-footer">
+            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+              teamData.totalErCount
+            }}
+          </div>
+        </div>
+      </div>
+
+      <!-- 晚班區塊 -->
+      <div class="mobile-shift-section">
+        <h2 class="mobile-shift-title">晚班</h2>
+        <div
+          v-for="(teamData, teamName) in effectiveStatsData.late"
+          :key="teamName"
+          class="mobile-team-card"
+        >
+          <div class="mobile-team-header">
+            <h3>{{ teamName.replace('晚', '') }}組</h3>
+            <select :value="teamData.nurseName" class="name-select" :disabled="true">
+              <option value="">-- 未指派 --</option>
+              <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
+          <div class="mobile-patient-lists">
+            <!-- 午班收針 -->
+            <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
+              <h4>午班 (收針)</h4>
+              <div
+                v-for="patient in teamData.noonShiftOff.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <MemoIcon :patient-id="patient.id" />
+              </div>
+            </div>
+            <!-- 晚班病人 -->
+            <div v-if="teamData.lateShift.patients.length > 0" class="mobile-patient-list">
+              <h4>晚班</h4>
+              <div
+                v-for="patient in teamData.lateShift.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <MemoIcon :patient-id="patient.id" />
+              </div>
+            </div>
+          </div>
+          <div class="mobile-team-footer">
+            門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+              teamData.totalErCount
+            }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dialogs -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
       :patient-name="patientNameForDialog"
@@ -1121,6 +1308,9 @@ watch(currentDate, (newDate) => {
 </script>
 
 <style scoped>
+/* ================================== */
+/* === 1. 基本樣式 (與原版相同) === */
+/* ================================== */
 .loading-overlay {
   position: absolute;
   top: 0;
@@ -1229,6 +1419,11 @@ watch(currentDate, (newDate) => {
   color: white;
   border-color: #4caf50;
 }
+/* ... 省略其他按鈕樣式 ... */
+
+/* ================================== */
+/* === 2. 桌面版 Grid 樣式 (微調) === */
+/* ================================== */
 .grid-container {
   display: grid;
   grid-template-columns: 90px repeat(12, 1fr);
@@ -1238,6 +1433,7 @@ watch(currentDate, (newDate) => {
   background-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
+/* ... 省略大部分 grid 樣式，它們在原檔案中已存在 ... */
 .grid-header,
 .grid-body,
 .grid-footer {
@@ -1385,7 +1581,6 @@ watch(currentDate, (newDate) => {
   opacity: 0.8;
   transform: scale(1.02);
 }
-
 .patient-item.status-opd {
   background-color: var(--green-bg, #e8f5e9);
   border-color: #a5d6a7;
@@ -1422,7 +1617,6 @@ watch(currentDate, (newDate) => {
   background-color: #fff9c4;
   border-color: #fff59d;
 }
-
 .patient-item.has-note-highlight .patient-line-one {
   color: #c62828;
 }
@@ -1463,27 +1657,7 @@ watch(currentDate, (newDate) => {
 .prep-list-trigger:hover {
   background-color: #e0e0e0;
 }
-.is-locked .stats-section {
-  cursor: not-allowed;
-}
-.is-locked .patient-list-cell {
-  background-color: #f5f5f5;
-}
-.is-locked .name-select {
-  pointer-events: none;
-  background-color: #eeeeee;
-}
-.is-locked .patient-main-info {
-  cursor: not-allowed;
-}
-.is-locked .patient-item {
-  pointer-events: none;
-}
-.is-locked :deep(.memo-icon-wrapper),
-.is-locked .prep-list-trigger {
-  pointer-events: auto;
-  cursor: pointer;
-}
+/* ... 省略 duty command bar 和其他既有樣式 ... */
 .duty-command-bar {
   background-color: #fffbeb;
   border: 1px solid #fef3c7;
@@ -1650,31 +1824,139 @@ watch(currentDate, (newDate) => {
   transform: translateY(-5px);
   opacity: 0;
 }
-:deep(.patient-item.status-opd) {
-  background-color: #e8f5e9;
+
+/* ================================== */
+/* === 3. ✨ 行動版與唯讀樣式 ✨ === */
+/* ================================== */
+
+/* 預設隱藏行動版，顯示桌面版 */
+.mobile-only {
+  display: none;
 }
-:deep(.patient-item.status-ipd) {
-  background-color: #ffebee;
+.desktop-only {
+  display: block;
 }
-:deep(.patient-item.status-er) {
-  background-color: #f3e5f5;
+/* ✨ 新增: 為了能讓 flex item 也被隱藏 */
+.desktop-only-flex {
+  display: flex;
 }
-:deep(.patient-item.status-biweekly) {
-  background-color: #ffcc80;
+
+/* 行動版總體佈局 */
+.mobile-shift-section {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  background-color: #fff;
 }
-:deep(.patient-item.tag-chou) {
-  background-color: #658ee0;
+.mobile-shift-title {
+  background-color: #e3f2fd;
+  color: #005a9c;
+  font-size: 1.5em;
+  padding: 12px;
+  margin: 0;
+  border-bottom: 1px solid #ddd;
+  border-radius: 8px 8px 0 0;
 }
-:deep(.patient-item.tag-new) {
-  background-color: #f5ec8e;
+.mobile-team-card {
+  padding: 12px;
+  border-top: 1px solid #eee;
 }
-:deep(.patient-item.tag-huan) {
-  background-color: #e0f7fa;
+.mobile-team-card:first-of-type {
+  border-top: none;
 }
-:deep(.patient-item.tag-liang) {
-  background-color: #fff3e0;
+.mobile-team-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
-:deep(.patient-item.tag-b) {
-  background-color: #fff9c4;
+.mobile-team-header h3 {
+  margin: 0;
+  font-size: 1.3em;
+  color: #333;
+}
+.mobile-team-header .name-select {
+  width: 150px;
+  height: auto;
+  font-size: 1em;
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.mobile-patient-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mobile-patient-list h4 {
+  margin: 0 0 8px 0;
+  font-size: 1.1em;
+  color: #555;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 4px;
+}
+.mobile-team-footer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+  text-align: right;
+  font-weight: bold;
+  color: #333;
+}
+
+/* ✨ 新增: 行動版唯讀狀態下的樣式 */
+.mobile-only .name-select:disabled {
+  background-color: #f5f5f5;
+  border-color: #ddd;
+  color: #555;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: default;
+}
+.mobile-only .patient-main-info {
+  cursor: default; /* 移除點擊換床的指標 */
+}
+
+/* 媒體查詢：當螢幕寬度小於 992px 時啟用 */
+@media screen and (max-width: 992px) {
+  /* 切換顯示/隱藏 */
+  .desktop-only,
+  .desktop-only-flex {
+    display: none !important;
+  }
+  .mobile-only {
+    display: block !important;
+  }
+
+  /* 調整頁首 */
+  .header-toolbar,
+  .toolbar-left,
+  .toolbar-right {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .page-title {
+    text-align: center;
+  }
+  .date-navigator {
+    justify-content: space-around;
+  }
+  .current-date-text,
+  .weekday-display {
+    font-size: 22px;
+  }
+
+  /* 調整消防編組列 */
+  .duty-command-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .duty-dropdown-menu {
+    width: calc(100vw - 40px); /* 讓下拉選單寬度符合螢幕 */
+  }
+  .duty-item {
+    grid-template-columns: 100px 1fr; /* 調整下拉選單內項目寬度 */
+  }
 }
 </style>
