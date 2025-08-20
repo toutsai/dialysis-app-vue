@@ -189,15 +189,13 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
   }
 }
 
-// --- ✨ 核心修正: onDocumentWritten for patients ✨ ---
 exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
   const patientId = event.params.patientId
   const beforeData = event.data?.before.data()
   const afterData = event.data?.after.data()
 
-  // 輔助函式，用來建立快照物件
+  // 輔助函式，建立一個包含所有必要欄位的快照
   const createSnapshot = (data) => ({
-    // ✨ 核心修正: 將 medicalRecordNumber 加入快照
     medicalRecordNumber: data.medicalRecordNumber || null,
     firstDialysisDate: data.firstDialysisDate || null,
     vascAccess: data.vascAccess || null,
@@ -207,6 +205,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     dialysisReason: data.dialysisReason || null,
   })
 
+  // 情況 1: 新增病人 (文件被創建)
   if (!beforeData && afterData) {
     logger.info(`[History] 新增病人 ${afterData.name} (ID: ${patientId})`)
     return db.collection('patient_history').add({
@@ -219,6 +218,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     })
   }
 
+  // 情況 2: 刪除病人 (isDeleted 從 false 變為 true)
   if (beforeData && afterData && beforeData.isDeleted === false && afterData.isDeleted === true) {
     logger.info(`[History] 刪除病人 ${afterData.name} (ID: ${patientId})`)
     return db.collection('patient_history').add({
@@ -234,7 +234,30 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     })
   }
 
-  if (beforeData && afterData && beforeData.status !== afterData.status) {
+  // 情況 3: 復原病人 (isDeleted 從 true 變為 false)
+  if (beforeData && afterData && beforeData.isDeleted === true && afterData.isDeleted === false) {
+    logger.info(`[History] 復原病人 ${afterData.name} (ID: ${patientId}) 至 ${afterData.status}`)
+    return db.collection('patient_history').add({
+      patientId,
+      patientName: afterData.name,
+      timestamp: FieldValue.serverTimestamp(),
+      eventType: 'RESTORE_AND_TRANSFER',
+      eventDetails: {
+        restoredTo: afterData.status,
+        fromReason: beforeData.deleteReason || '未知',
+      },
+      snapshot: createSnapshot(afterData),
+    })
+  }
+
+  // 情況 4: 狀態轉移 (isDeleted 保持 false，但 status 改變)
+  if (
+    beforeData &&
+    afterData &&
+    beforeData.isDeleted === false &&
+    afterData.isDeleted === false &&
+    beforeData.status !== afterData.status
+  ) {
     logger.info(
       `[History] 轉移病人 ${afterData.name} 從 ${beforeData.status} 到 ${afterData.status}`,
     )
@@ -251,6 +274,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     })
   }
 
+  logger.info(`[History] 病人 ${patientId} 的一般資料更新，無需記錄動向歷史。`)
   return null
 })
 

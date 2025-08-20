@@ -73,13 +73,19 @@ const groupedHistory = computed(() => {
   const episodes = []
   let currentEpisode = []
 
-  history.value.forEach((entry) => {
-    const isStartEvent =
-      entry.eventType === 'CREATE' ||
-      entry.eventType === 'RESTORE' ||
-      (entry.eventType === 'TRANSFER' &&
-        entry.eventDetails.from === 'opd' &&
-        ['er', 'ipd'].includes(entry.eventDetails.to))
+  // ✨ 修正: 先對 history 進行一次排序，確保時間順序正確
+  const sortedHistory = [...history.value].sort((a, b) => {
+    const timeA = a.timestamp?.toDate
+      ? a.timestamp.toDate().getTime()
+      : new Date(a.timestamp).getTime()
+    const timeB = b.timestamp?.toDate
+      ? b.timestamp.toDate().getTime()
+      : new Date(b.timestamp).getTime()
+    return timeA - timeB
+  })
+
+  sortedHistory.forEach((entry) => {
+    const isStartEvent = entry.eventType === 'CREATE' || entry.eventType === 'RESTORE_AND_TRANSFER' // 簡化判斷邏輯
 
     if (isStartEvent && currentEpisode.length > 0) {
       episodes.push(currentEpisode)
@@ -117,9 +123,30 @@ async function fetchHistory() {
   }
 }
 
-function formatTimestamp(isoString) {
-  if (!isoString) return ''
-  const date = new Date(isoString)
+// ✨ --- START: 核心修正區域 formatTimestamp --- ✨
+function formatTimestamp(timestampInput) {
+  if (!timestampInput) return 'Invalid Date'
+
+  let date
+
+  // 情況 1: 處理 Firestore 原生的 Timestamp 物件
+  if (timestampInput && typeof timestampInput.toDate === 'function') {
+    date = timestampInput.toDate()
+  }
+  // 情況 2: 處理 ISO 格式的字串 (例如 "2025-08-20T03:48:23.979Z")
+  else if (typeof timestampInput === 'string') {
+    date = new Date(timestampInput)
+  }
+  // 情況 3: 其他可能的情況 (例如毫秒數)
+  else {
+    date = new Date(timestampInput)
+  }
+
+  // 最終檢查日期是否有效
+  if (isNaN(date.getTime())) {
+    return 'Invalid Date'
+  }
+
   return date.toLocaleString('zh-TW', {
     year: 'numeric',
     month: '2-digit',
@@ -128,8 +155,8 @@ function formatTimestamp(isoString) {
     minute: '2-digit',
   })
 }
+// ✨ --- END: 核心修正區域 formatTimestamp --- ✨
 
-// 【修改 3/3】: 精簡事件描述文字
 function formatEvent(entry) {
   const details = entry.eventDetails
   const getStatus = (s) => `<strong>${statusMap[s] || s}</strong>`
@@ -144,7 +171,7 @@ function formatEvent(entry) {
       return `${getStatus(details.from)} ➝ ${getStatus(details.to)}`
     case 'DELETE':
       return `<strong>結案 (${details.reason || '未說明'})</strong>`
-    case 'RESTORE':
+    case 'RESTORE_AND_TRANSFER': // ✨ 修正: 處理新的事件類型
       return `資料復原 ➝ ${getStatus(details.restoredTo)}`
     default:
       return `未知操作: ${entry.eventType}`
