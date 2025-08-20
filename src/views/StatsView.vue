@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (行動版唯讀優化) -->
+<!-- 檔案路徑: src/views/StatsView.vue (按鈕位置調整版) -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -14,11 +14,17 @@
           <span class="weekday-display">{{ weekdayDisplay }}</span>
           <button @click="changeDate(1)" class="date-nav-btn">下一天 ></button>
           <button @click="goToToday">回到今日</button>
+          <button
+            class="btn-primary"
+            @click="isCreateTaskModalVisible = true"
+            :disabled="!hasPermission('viewer')"
+          >
+            <i class="fas fa-plus"></i> 新增交辦/留言
+          </button>
         </div>
       </div>
       <div class="toolbar-right">
         <span class="status-indicator">{{ statusIndicator }}</span>
-        <!-- ✨ 修改點 #1: 加上 .desktop-only-flex 讓按鈕在行動版隱藏 -->
         <button
           id="save-changes-btn"
           class="desktop-only-flex"
@@ -31,7 +37,7 @@
       </div>
     </div>
 
-    <!-- ... duty-command-bar 維持不變 ... -->
+    <!-- ... 其餘 template 內容保持不變 ... -->
     <div class="duty-command-bar">
       <div class="main-commanders">
         <span class="duty-title">消防編組:</span>
@@ -80,12 +86,9 @@
       </div>
     </div>
 
-    <!-- 桌面版專用視圖 -->
     <div class="stats-sections-wrapper desktop-only">
-      <!-- ... 桌面版內容不變 ... -->
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <div class="grid-container">
-          <!-- ... 桌面版早班 grid ... -->
           <div class="grid-header">
             <div class="row-header section-title-cell">早班</div>
             <div
@@ -293,7 +296,6 @@
       </div>
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <div class="grid-container">
-          <!-- ... 桌面版晚班 grid ... -->
           <div class="grid-header">
             <div class="row-header section-title-cell">晚班</div>
             <div
@@ -448,9 +450,7 @@
       </div>
     </div>
 
-    <!-- 行動版專用視圖 -->
-    <div class="mobile-only">
-      <!-- 早班區塊 -->
+    <div class="mobile-only" :class="{ 'is-locked': isPageLocked }">
       <div class="mobile-shift-section">
         <h2 class="mobile-shift-title">早班</h2>
         <div
@@ -460,22 +460,25 @@
         >
           <div class="mobile-team-header">
             <h3>{{ teamName.replace('早', '') }}組</h3>
-            <!-- ✨ 修改點 #2: 為 select 加上 :disabled="true" -->
-            <select :value="teamData.nurseName" class="name-select" :disabled="true">
+            <select
+              :value="teamData.nurseName"
+              @change="updateNurseName(teamName, $event)"
+              class="name-select"
+              :disabled="true"
+            >
               <option value="">-- 未指派 --</option>
               <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
             </select>
           </div>
           <div class="mobile-patient-lists">
-            <!-- 早班病人 -->
             <div v-if="teamData.earlyShift.patients.length > 0" class="mobile-patient-list">
               <h4>早班</h4>
               <div
                 v-for="patient in teamData.earlyShift.patients"
                 :key="patient.shiftId"
                 :class="patient.classes"
+                :draggable="false"
               >
-                <!-- ✨ 修改點 #3: 移除 patient-main-info 的 @click 事件 -->
                 <div class="patient-main-info">
                   <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
                   <div class="patient-line-two">
@@ -493,13 +496,13 @@
                 <MemoIcon :patient-id="patient.id" />
               </div>
             </div>
-            <!-- 午班上針 -->
             <div v-if="teamData.noonShiftOn.patients.length > 0" class="mobile-patient-list">
               <h4>午班 (上針)</h4>
               <div
                 v-for="patient in teamData.noonShiftOn.patients"
                 :key="patient.shiftId"
                 :class="patient.classes"
+                :draggable="false"
               >
                 <div class="patient-main-info">
                   <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
@@ -518,13 +521,13 @@
                 <MemoIcon :patient-id="patient.id" />
               </div>
             </div>
-            <!-- 午班收針 -->
             <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
               <h4>午班 (收針)</h4>
               <div
                 v-for="patient in teamData.noonShiftOff.patients"
                 :key="patient.shiftId"
                 :class="patient.classes"
+                :draggable="false"
               >
                 <div class="patient-main-info">
                   <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
@@ -552,7 +555,6 @@
         </div>
       </div>
 
-      <!-- 晚班區塊 -->
       <div class="mobile-shift-section">
         <h2 class="mobile-shift-title">晚班</h2>
         <div
@@ -562,19 +564,24 @@
         >
           <div class="mobile-team-header">
             <h3>{{ teamName.replace('晚', '') }}組</h3>
-            <select :value="teamData.nurseName" class="name-select" :disabled="true">
+            <select
+              :value="teamData.nurseName"
+              @change="updateNurseName(teamName, $event)"
+              class="name-select"
+              :disabled="true"
+            >
               <option value="">-- 未指派 --</option>
               <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
             </select>
           </div>
           <div class="mobile-patient-lists">
-            <!-- 午班收針 -->
             <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
               <h4>午班 (收針)</h4>
               <div
                 v-for="patient in teamData.noonShiftOff.patients"
                 :key="patient.shiftId"
                 :class="patient.classes"
+                :draggable="false"
               >
                 <div class="patient-main-info">
                   <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
@@ -593,13 +600,13 @@
                 <MemoIcon :patient-id="patient.id" />
               </div>
             </div>
-            <!-- 晚班病人 -->
             <div v-if="teamData.lateShift.patients.length > 0" class="mobile-patient-list">
               <h4>晚班</h4>
               <div
                 v-for="patient in teamData.lateShift.patients"
                 :key="patient.shiftId"
                 :class="patient.classes"
+                :draggable="false"
               >
                 <div class="patient-main-info">
                   <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
@@ -628,40 +635,20 @@
       </div>
     </div>
 
-    <!-- Dialogs -->
-    <MemoDisplayDialog
-      :is-visible="isMemoDialogVisible"
-      :patient-name="patientNameForDialog"
-      :memos="memosForDialog"
-      @close="isMemoDialogVisible = false"
+    <TaskCreateDialog
+      :is-visible="isCreateTaskModalVisible"
+      :all-patients="patientStore.allPatients"
+      :preselected-patient="null"
+      @close="isCreateTaskModalVisible = false"
+      @submit="handleTaskCreated"
     />
-    <BedChangeDialog
-      :is-visible="isBedChangeDialogVisible"
-      :patient-info="editingPatientInfo"
-      :current-schedule="currentRecord.schedule"
-      :target-shift-filter="bedChangeTargetShift"
-      @confirm="handleBedChange"
-      @cancel="handleDialogCancel"
-    />
-    <AlertDialog
-      :is-visible="isAlertDialogVisible"
-      :title="alertDialogTitle"
-      :message="alertDialogMessage"
-      @confirm="isAlertDialogVisible = false"
-    />
-    <ConfirmDialog
-      :is-visible="isConfirmDialogVisible"
-      title="請確認"
-      :message="confirmDialogMessage"
-      @confirm="handleConfirm"
-      @cancel="handleCancel"
-    />
-    <PreparationPopover
-      :is-visible="isPrepPopoverVisible"
-      :patients="prepPopoverData.patients"
-      :target-element="prepPopoverData.targetElement"
-      @close="onPrepPopoverClose"
-    />
+    <button
+      class="btn-primary"
+      @click="isCreateTaskModalVisible = true"
+      :disabled="!hasPermission('viewer')"
+    >
+      <i class="fas fa-plus"></i> 新增交辦/留言
+    </button>
   </div>
 </template>
 
@@ -682,6 +669,7 @@ import MemoIcon from '@/components/MemoIcon.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
+import TaskCreateDialog from '@/components/TaskCreateDialog.vue' // ✨ 新增 import
 
 // ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -779,9 +767,11 @@ const pendingChangeInfo = ref(null)
 const bedChangeTargetShift = ref(null)
 const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({ patients: [], targetElement: null })
+const isCreateTaskModalVisible = ref(false) // ✨ 新增 ref
 
 const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
+const { hasPermission } = auth
 const isPageLocked = computed(() => {
   if (!auth.canEditSchedules.value) return true
   const today = new Date()
@@ -1293,6 +1283,10 @@ function handleDialogCancel() {
   bedChangeTargetShift.value = null
 }
 
+function handleTaskCreated() {
+  showAlert('操作成功', '交辦/留言已成功新增！')
+  isCreateTaskModalVisible.value = false
+}
 function triggerPrint() {
   window.print()
 }
@@ -1401,8 +1395,11 @@ watch(currentDate, (newDate) => {
   color: #757575;
   font-style: italic;
 }
+
+/* ✨ 核心修改：將按鈕樣式通用化 */
 .toolbar-left button,
-.toolbar-right button {
+.toolbar-right button,
+.date-navigator button {
   padding: 8px 15px;
   font-size: 1em;
   cursor: pointer;
@@ -1413,16 +1410,30 @@ watch(currentDate, (newDate) => {
     background-color 0.2s,
     border-color 0.2s;
   white-space: nowrap;
+  display: inline-flex; /* 確保 icon 和文字對齊 */
+  align-items: center;
+  gap: 0.5rem;
 }
+
 #save-changes-btn {
   background-color: #4caf50;
   color: white;
   border-color: #4caf50;
 }
-/* ... 省略其他按鈕樣式 ... */
+
+/* ✨ 新增：.btn-primary 樣式，用於「新增交辦/留言」按鈕 */
+button.btn-primary {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+button.btn-primary:hover:not(:disabled) {
+  background-color: #0069d9;
+  border-color: #0062cc;
+}
 
 /* ================================== */
-/* === 2. 桌面版 Grid 樣式 (微調) === */
+/* === 2. 桌面版 Grid 樣式 (不變) === */
 /* ================================== */
 .grid-container {
   display: grid;
@@ -1433,7 +1444,6 @@ watch(currentDate, (newDate) => {
   background-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
-/* ... 省略大部分 grid 樣式，它們在原檔案中已存在 ... */
 .grid-header,
 .grid-body,
 .grid-footer {
@@ -1657,7 +1667,6 @@ watch(currentDate, (newDate) => {
 .prep-list-trigger:hover {
   background-color: #e0e0e0;
 }
-/* ... 省略 duty command bar 和其他既有樣式 ... */
 .duty-command-bar {
   background-color: #fffbeb;
   border: 1px solid #fef3c7;
@@ -1824,24 +1833,46 @@ watch(currentDate, (newDate) => {
   transform: translateY(-5px);
   opacity: 0;
 }
+:deep(.patient-item.status-opd) {
+  background-color: #e8f5e9;
+}
+:deep(.patient-item.status-ipd) {
+  background-color: #ffebee;
+}
+:deep(.patient-item.status-er) {
+  background-color: #f3e5f5;
+}
+:deep(.patient-item.status-biweekly) {
+  background-color: #ffcc80;
+}
+:deep(.patient-item.tag-chou) {
+  background-color: #658ee0;
+}
+:deep(.patient-item.tag-new) {
+  background-color: #f5ec8e;
+}
+:deep(.patient-item.tag-huan) {
+  background-color: #e0f7fa;
+}
+:deep(.patient-item.tag-liang) {
+  background-color: #fff3e0;
+}
+:deep(.patient-item.tag-b) {
+  background-color: #fff9c4;
+}
 
 /* ================================== */
-/* === 3. ✨ 行動版與唯讀樣式 ✨ === */
+/* === 3. 行動版與唯讀樣式 (不變) === */
 /* ================================== */
-
-/* 預設隱藏行動版，顯示桌面版 */
 .mobile-only {
   display: none;
 }
 .desktop-only {
   display: block;
 }
-/* ✨ 新增: 為了能讓 flex item 也被隱藏 */
 .desktop-only-flex {
   display: flex;
 }
-
-/* 行動版總體佈局 */
 .mobile-shift-section {
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -1903,8 +1934,6 @@ watch(currentDate, (newDate) => {
   font-weight: bold;
   color: #333;
 }
-
-/* ✨ 新增: 行動版唯讀狀態下的樣式 */
 .mobile-only .name-select:disabled {
   background-color: #f5f5f5;
   border-color: #ddd;
@@ -1914,12 +1943,26 @@ watch(currentDate, (newDate) => {
   cursor: default;
 }
 .mobile-only .patient-main-info {
-  cursor: default; /* 移除點擊換床的指標 */
+  cursor: default;
 }
-
-/* 媒體查詢：當螢幕寬度小於 992px 時啟用 */
+.fab-mobile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  font-size: 1.5rem;
+  z-index: 100;
+}
 @media screen and (max-width: 992px) {
-  /* 切換顯示/隱藏 */
   .desktop-only,
   .desktop-only-flex {
     display: none !important;
@@ -1927,8 +1970,9 @@ watch(currentDate, (newDate) => {
   .mobile-only {
     display: block !important;
   }
-
-  /* 調整頁首 */
+  .page-container {
+    padding: 0;
+  }
   .header-toolbar,
   .toolbar-left,
   .toolbar-right {
@@ -1941,22 +1985,25 @@ watch(currentDate, (newDate) => {
   }
   .date-navigator {
     justify-content: space-around;
+    flex-wrap: wrap; /* ✨ 允許日期導航換行 */
+  }
+  .date-navigator > button {
+    /* ✨ 給按鈕一些邊距 */
+    margin: 4px 0;
   }
   .current-date-text,
   .weekday-display {
     font-size: 22px;
   }
-
-  /* 調整消防編組列 */
   .duty-command-bar {
     flex-direction: column;
     align-items: stretch;
   }
   .duty-dropdown-menu {
-    width: calc(100vw - 40px); /* 讓下拉選單寬度符合螢幕 */
+    width: calc(100vw - 40px);
   }
   .duty-item {
-    grid-template-columns: 100px 1fr; /* 調整下拉選單內項目寬度 */
+    grid-template-columns: 100px 1fr;
   }
 }
 </style>
