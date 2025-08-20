@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/MemoView.vue (優化版) -->
+<!-- 檔案路徑: src/views/MemoView.vue (Pinia 遷移版) -->
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -8,13 +8,21 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { allPatients, isLoading: isPatientsLoading } = storeToRefs(patientStore) // 從 Store 獲取 allPatients 和 isLoading 狀態
+
 // --- API 實例 ---
 const memosApi = ApiManager('memos')
-const patientsApi = ApiManager('patients')
+// const patientsApi = ApiManager('patients') // 不再需要
 
 // --- 核心狀態 ---
 const memos = ref([])
-const allPatients = ref([])
+// const allPatients = ref([]) // 由 Pinia 提供
 const contentInput = ref('')
 const dateInput = ref('')
 
@@ -29,7 +37,7 @@ const isFormModalVisible = ref(false)
 const isLoading = ref(false)
 const isSubmitting = ref(false)
 const isMemosLoading = ref(false)
-const isPatientsLoading = ref(false)
+// const isPatientsLoading = ref(false) // 由 Pinia 提供
 
 // --- Dialog State ---
 const isAlertDialogVisible = ref(false)
@@ -113,22 +121,16 @@ async function fetchMemos() {
   }
 }
 
-async function fetchAllPatients() {
-  if (isPatientsLoading.value) return
-  isPatientsLoading.value = true
-  try {
-    allPatients.value = await patientsApi.fetchAll()
-  } catch (err) {
-    handleError('獲取病人列表失敗', err)
-  } finally {
-    isPatientsLoading.value = false
-  }
-}
+// ✨ 核心修改 #3: 移除本地的 fetchAllPatients
+// async function fetchAllPatients() { ... }
 
 async function initializeData() {
   isLoading.value = true
   try {
-    await Promise.all([fetchMemos(), fetchAllPatients()])
+    // ✨ 核心修改 #4: 確保 Store 中的數據已載入，並只獲取本頁面需要的 memos
+    await patientStore.fetchPatientsIfNeeded()
+    await fetchMemos()
+
     const patientIdFromQuery = route.query.patientId
     if (patientIdFromQuery && allPatients.value.length > 0) {
       const patient = allPatients.value.find((p) => p.id === patientIdFromQuery)
@@ -212,7 +214,6 @@ function clearPatientSelection() {
   router.replace({ query: {} })
 }
 
-// ✨ 修正：補上通知邏輯
 async function updateMemoStatus(id, resolve, isFromExpired = false) {
   const memoIndex = memos.value.findIndex((m) => m.id === id)
   if (memoIndex === -1) return
@@ -239,7 +240,6 @@ async function updateMemoStatus(id, resolve, isFromExpired = false) {
   }
 }
 
-// ✨ 修正：補上 deleteMemo 函式的完整實作
 async function deleteMemo(id) {
   confirmDialogTitle.value = '確認刪除'
   confirmDialogMessage.value = '您確定要刪除這筆備忘錄嗎？此操作無法復原。'

@@ -337,6 +337,15 @@ import { db, functions } from '@/composables/useFirebase.js'
 import * as XLSX from 'xlsx'
 import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
+import { httpsCallable } from 'firebase/functions'
+
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store --- ✨
+const patientStore = usePatientStore()
+const { allPatients, patientMap } = storeToRefs(patientStore)
 
 // --- Router and State ---
 const route = useRoute()
@@ -356,7 +365,7 @@ const isFindingMissing = ref(false)
 const manualEntryGroup = reactive({
   freq: '一三五',
   shift: 'early',
-  month: new Date().toISOString().slice(0, 7), // ✨ 新增此行
+  month: new Date().toISOString().slice(0, 7),
 })
 const missingPatients = ref([])
 const searchedForMissing = ref(false)
@@ -460,7 +469,6 @@ const labItemDisplayNames = {
 }
 
 // --- API Manager ---
-const patientsApi = ApiManager('patients')
 const labReportsApi = ApiManager('lab_reports')
 const baseSchedulesApi = ApiManager('base_schedules')
 
@@ -537,13 +545,16 @@ async function generateAlertReport() {
   isLoadingAlerts.value = true
   alertList.value = []
   try {
-    const allOpdPatients = await patientsApi.fetchAll([where('status', '==', 'opd')])
+    await patientStore.fetchPatientsIfNeeded()
+    const allOpdPatients = patientStore.opdPatients
+
     const range = alertMonthRange.value
     const startDate = new Date(range.start + '-01')
     const endDate = new Date(range.end + '-01')
     endDate.setMonth(endDate.getMonth() + 1)
     const scheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     const scheduleRules = scheduleDoc?.schedule || {}
+
     for (const patient of allOpdPatients) {
       const reports = await labReportsApi.fetchAll([
         where('patientId', '==', patient.id),
@@ -574,10 +585,11 @@ async function generateAlertReport() {
       const abnormalities = findAbnormalities(processedData, requiredMonths)
       if (abnormalities.length > 0) {
         const scheduleInfo = scheduleRules[patient.id]
-        patient.shiftIndex = scheduleInfo?.shiftIndex
-        patient.defaultShift = ['早', '午', '晚'][scheduleInfo?.shiftIndex] || 'N/A'
-        patient.defaultBed = scheduleInfo?.bedNum || 'N/A'
-        alertList.value.push({ patient, abnormalities })
+        const patientDataForReport = { ...patient } // Create a copy
+        patientDataForReport.shiftIndex = scheduleInfo?.shiftIndex
+        patientDataForReport.defaultShift = ['早', '午', '晚'][scheduleInfo?.shiftIndex] || 'N/A'
+        patientDataForReport.defaultBed = scheduleInfo?.bedNum || 'N/A'
+        alertList.value.push({ patient: patientDataForReport, abnormalities })
       }
     }
   } catch (error) {
@@ -658,25 +670,14 @@ function showPatientHistory(patient) {
 }
 
 function exportToExcel() {
-  // 防呆機制：確保有資料可供匯出
   if (groupedAlerts.value.length === 0) {
     alert('目前沒有可匯出的警示報告資料。')
     return
   }
-
-  // 1. 準備工作簿和通用的資訊
   const wb = XLSX.utils.book_new()
   const { start, end } = alertMonthRange.value
-
-  // 2. 遍歷每個警示群組 (例如 Hb, Albumin)，為每個群組創建一個獨立的工作表
   groupedAlerts.value.forEach((group) => {
-    // 步驟 A：準備該工作表的所有資料
-
-    // A-1. 創建主標題，包含警示項目和日期區間
     const title = `警示報告 (${labItemDisplayNames[group.key] || group.key}) - 區間: ${start} ~ ${end}`
-    const titleRow = [title]
-
-    // A-2. 創建表頭
     const headers = [
       '頻率',
       '預設班別',
@@ -686,8 +687,6 @@ function exportToExcel() {
       '病因分析',
       '建議處置',
     ]
-
-    // A-3. 創建資料列，並包含使用者在 textarea 中輸入的內容
     const sortedItems = sortAlertItems(group.items)
     const dataRows = sortedItems.map((item) => [
       item.patient.freq || 'N/A',
@@ -695,64 +694,39 @@ function exportToExcel() {
       item.patient.defaultBed || 'N/A',
       item.patient.name,
       formatAbnormalityReason(item.abnormality),
-      item.analysisText, // 匯出「病因分析」的文字
-      item.suggestionText, // 匯出「建議處置」的文字
+      item.analysisText,
+      item.suggestionText,
     ])
-
-    // 步驟 B：將所有部分組合成一個給 Excel 使用的二維陣列
-    const sheetData = [
-      titleRow,
-      [], // 插入一個空行
-      headers,
-      ...dataRows,
-    ]
-
-    // 步驟 C：創建工作表並設定合併儲存格與欄寬
+    const sheetData = [[title], [], headers, ...dataRows]
     const ws = XLSX.utils.aoa_to_sheet(sheetData)
-
-    // C-1. 合併標題列的儲存格
     const numCols = headers.length
     if (!ws['!merges']) ws['!merges'] = []
-    ws['!merges'].push({
-      s: { r: 0, c: 0 }, // 開始: 第 0 行, 第 0 欄
-      e: { r: 0, c: numCols - 1 }, // 結束: 第 0 行, 最後一欄
-    })
-
-    // C-2. (優化) 設定建議的欄位寬度，讓報表更易讀
+    ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } })
     ws['!cols'] = [
-      { wch: 8 }, // 頻率
-      { wch: 10 }, // 預設班別
-      { wch: 10 }, // 預設床號
-      { wch: 12 }, // 姓名
-      { wch: 30 }, // 不合格項目詳情
-      { wch: 40 }, // 病因分析 (較寬)
-      { wch: 40 }, // 建議處置 (較寬)
+      { wch: 8 },
+      { wch: 10 },
+      { wch: 10 },
+      { wch: 12 },
+      { wch: 30 },
+      { wch: 40 },
+      { wch: 40 },
     ]
-
-    // 步驟 D：將格式化好的工作表加入工作簿
     const sheetName = (labItemDisplayNames[group.key] || group.key).replace(/[%()/]/g, '')
     XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))
   })
-
-  // 步驟 E：生成檔名並觸發下載
   const fileName = `警示報告_${start}_${end}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
 
-// ✨✨✨ --- 全新的、獨立的缺漏查找函式 --- ✨✨✨
 async function findMissingPatients() {
-  // 檢查月份是否已選擇
   if (!manualEntryGroup.month) {
     alert('請先選擇要查詢的月份。')
     return
   }
-
   isFindingMissing.value = true
-  searchedForMissing.value = true // 標記已執行過查詢
+  searchedForMissing.value = true
   missingPatients.value = []
-
   try {
-    // 1. 根據選擇的群組，從總表獲取應有名單
     const shiftIndex = SHIFT_MAP[manualEntryGroup.shift]
     const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     const masterRules = masterScheduleDoc?.schedule || {}
@@ -760,43 +734,24 @@ async function findMissingPatients() {
       (id) =>
         masterRules[id].freq === manualEntryGroup.freq && masterRules[id].shiftIndex === shiftIndex,
     )
-
     if (allPatientIdsInGroup.length === 0) {
-      console.warn(`在 ${manualEntryGroup.freq} ${manualEntryGroup.shift} 班別中沒有找到任何病人。`)
       return
     }
-
-    // 2. 查詢這個群組的病人在【指定月份】的所有報告
     const [year, month] = manualEntryGroup.month.split('-').map(Number)
     const startDate = new Date(year, month - 1, 1)
     const endDate = new Date(year, month, 1)
-
-    // 使用分塊查詢獲取這些病人在該月份的報告
     const reportsInMonth = await queryWithInChunks(
-      'lab_reports', // 集合名稱
-      'patientId', // 要查詢的欄位
-      allPatientIdsInGroup, // 要查詢的 ID 列表
-      [
-        // 額外的 where 條件
-        where('reportDate', '>=', startDate),
-        where('reportDate', '<', endDate),
-      ],
+      'lab_reports',
+      'patientId',
+      allPatientIdsInGroup,
+      [where('reportDate', '>=', startDate), where('reportDate', '<', endDate)],
     )
-
-    // 3. 找出有報告的病人ID
     const patientIdsWithReport = new Set(reportsInMonth.map((report) => report.patientId))
-
-    // 4. 進行比對，找出真正缺漏的病人ID
     const missingIds = allPatientIdsInGroup.filter((id) => !patientIdsWithReport.has(id))
-
     if (missingIds.length === 0) {
-      return // 沒有缺漏者，直接結束
+      return
     }
-
-    // 5. 獲取缺漏病人的詳細資料以便顯示
     const missingPatientDetails = await queryWithInChunks('patients', documentId(), missingIds)
-
-    // 6. 準備好要顯示在畫面上的資料結構
     missingPatients.value = missingPatientDetails.map((patientData) => {
       const labData = {}
       manualEntryItems.forEach((item) => {
@@ -861,7 +816,9 @@ async function generateAndUploadManualData() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await patientStore.fetchPatientsIfNeeded()
+
   const patientIdFromQuery = route.query.patientId
   const tabFromQuery = route.query.tab
   if (patientIdFromQuery) {
@@ -869,12 +826,11 @@ onMounted(() => {
     setActiveTab('query')
     searchType.value = 'individual'
     isSearchVisible.value = true
-    patientsApi.fetchById(patientIdFromQuery).then((patient) => {
-      if (patient) {
-        individualSearchQuery.value = patient.name
-        handleSearch()
-      }
-    })
+    const patient = patientStore.patientMap.get(patientIdFromQuery)
+    if (patient) {
+      individualSearchQuery.value = patient.name
+      handleSearch()
+    }
   } else if (tabFromQuery === 'alert') {
     setActiveTab('alert')
   } else if (window.innerWidth <= 768) {
@@ -898,7 +854,6 @@ async function handleUpload() {
   searchedForMissing.value = false
   try {
     const fileContentBase64 = await toBase64(selectedFile.value)
-    // ✨ 3. 直接使用從 useFirebase 引入的、已配置好區域的 functions 物件
     const processLabReport = httpsCallable(functions, 'processLabReport')
     const result = await processLabReport({
       fileName: selectedFile.value.name,
@@ -921,6 +876,7 @@ function toBase64(file) {
     reader.onerror = (error) => reject(error)
   })
 }
+
 async function handleSearch() {
   isLoadingReports.value = true
   searchPerformed.value = true
@@ -928,6 +884,7 @@ async function handleSearch() {
     isSearchVisible.value = false
   }
   try {
+    await patientStore.fetchPatientsIfNeeded() // 確保查詢前數據可用
     if (searchType.value === 'group') {
       await searchGroupReports()
     } else {
@@ -955,9 +912,7 @@ watch(searchType, (newType) => {
   }
 })
 
-// ✨✨✨ --- 全新、修正合併邏輯的 searchGroupReports 函式 --- ✨✨✨
 async function searchGroupReports() {
-  // 1. 獲取群組病人名單 (邏輯不變)
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
@@ -965,13 +920,11 @@ async function searchGroupReports() {
     (id) =>
       masterRules[id].freq === groupSearchParams.freq && masterRules[id].shiftIndex === shiftIndex,
   )
-
   if (allPatientIdsInGroup.length === 0) {
     reportData.value = []
     return
   }
 
-  // 2. 獲取病人詳細資料 (邏輯不變)
   const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
   const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
 
@@ -987,7 +940,6 @@ async function searchGroupReports() {
     return
   }
 
-  // 3. 獲取該群組在指定月份的所有報告 (邏輯不變)
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
@@ -998,38 +950,23 @@ async function searchGroupReports() {
     allPatientIdsInGroup,
     [where('reportDate', '>=', startDate), where('reportDate', '<', endDate)],
   )
-
-  // 4. ✨✨✨ 核心修正：合併報告資料，而不是只取最新 ✨✨✨
   const aggregatedReports = new Map()
-
   allReportsInMonth.forEach((report) => {
     const patientId = report.patientId
-
-    // 如果 Map 中還沒有這位病人的資料，則初始化一個空物件
     if (!aggregatedReports.has(patientId)) {
       aggregatedReports.set(patientId, {})
     }
-
     const patientLabData = aggregatedReports.get(patientId)
-
-    // 遍歷該筆報告中的所有檢驗項目
     for (const itemKey in report.data) {
-      // 只有當聚合資料中【尚未】存在該項目時，才將其加入。
-      // 這隱含了一個規則：我們會優先採用時間上較早的報告數據。
-      // 如果您希望採用較新的，可以反轉這個判斷 `if (!patientLabData[itemKey] || some_date_logic)`
       if (patientLabData[itemKey] === undefined) {
         patientLabData[itemKey] = report.data[itemKey]
       }
     }
   })
 
-  // 5. 組合最終資料 (邏輯變更)
   reportData.value = patientList
     .map((p) => {
-      // 從聚合後的報告中獲取資料
       const labData = aggregatedReports.get(p.patientId) || {}
-
-      // 後續的衍生計算保持不變
       if (labData.Ca && labData.P) labData.CaXP = (labData.Ca * labData.P).toFixed(2)
       if (labData.Iron && labData.TIBC > 0)
         labData.TSAT = ((labData.Iron / labData.TIBC) * 100).toFixed(1)
@@ -1037,7 +974,6 @@ async function searchGroupReports() {
         labData.URR = (((labData.BUN - labData.PostBUN) / labData.BUN) * 100).toFixed(1)
         labData['Kt/V'] = Math.log(labData.BUN / labData.PostBUN).toFixed(2)
       }
-
       return {
         patientId: p.patientId,
         patientName: p.patientName,
@@ -1051,12 +987,13 @@ async function searchGroupReports() {
 async function searchIndividualReports() {
   if (!individualSearchQuery.value.trim()) return
   const query = individualSearchQuery.value.trim().toLowerCase()
-  const allPatients = await patientsApi.fetchAll()
-  const foundPatient = allPatients.find(
+
+  const foundPatient = allPatients.value.find(
     (p) =>
       p.medicalRecordNumber?.toLowerCase().includes(query) || p.name?.toLowerCase().includes(query),
   )
   if (!foundPatient) throw new Error(`找不到病人: ${individualSearchQuery.value}`)
+
   const year = individualSearchYear.value
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year + 1, 0, 1)
@@ -1076,11 +1013,13 @@ async function searchIndividualReports() {
       data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
     reportsRaw.push({ id: doc.id, ...data })
   })
+
   const processedData = {}
   const monthSet = new Set()
   for (let i = 1; i <= 12; i++) {
     monthSet.add(`${year}-${String(i).padStart(2, '0')}`)
   }
+
   reportsRaw.forEach((report) => {
     const monthKey = report.reportDate.slice(0, 7)
     const labData = report.data
@@ -1093,6 +1032,7 @@ async function searchIndividualReports() {
       }
     }
   })
+
   for (const monthKey of monthSet) {
     const bun = processedData['BUN']?.[monthKey]
     const postBun = processedData['PostBUN']?.[monthKey]
@@ -1115,9 +1055,11 @@ async function searchIndividualReports() {
       processedData['Kt/V'][monthKey] = Math.log(bun / postBun).toFixed(2)
     }
   }
+
   reportData.value = processedData
   reportColumns.value = Array.from(monthSet).sort().reverse()
 }
+
 function changeYear(offset) {
   individualSearchYear.value += offset
   if (individualSearchQuery.value.trim()) handleSearch()
@@ -1131,31 +1073,20 @@ function handleFileDrop(event) {
   }
 }
 function exportGroupReportToExcel() {
-  // 防呆機制 (不變)
   if (searchType.value !== 'group' || reportData.value.length === 0) {
     alert('目前沒有可匯出的群組報告資料。')
     return
   }
-
-  // 步驟一：準備所有需要的資料和標頭
   const { freq, shift, month } = groupSearchParams
   const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
   const shiftName = shiftNameMap[shift] || shift
-
-  // 1. 創建主標題列 (這將是 Excel 的第一行)
   const title = `檢驗報告查詢結果: ${freq} / ${shiftName} / ${month}`
-  const titleRow = [title] // 放在一個陣列中
-
-  // 2. 創建表頭 (Header)
   const headers = [
     '床號',
     '姓名',
     ...prioritizedLabItems.map((key) => labItemDisplayNames[key] || key),
   ]
-
-  // 3. 創建所有資料列 (Data Rows)
   const dataRows = reportData.value.map((row) => {
-    // 按照 headers 的順序將資料放入陣列
     return [
       row.bedNum || '-',
       row.patientName,
@@ -1165,32 +1096,13 @@ function exportGroupReportToExcel() {
       }),
     ]
   })
-
-  // 步驟二：將所有部分組合成一個給 Excel 使用的二維陣列
-  // 結構：[ [標題], [空行], [表頭], [資料1], [資料2], ... ]
-  const sheetData = [
-    titleRow,
-    [], // 插入一個空行，讓標題和表格分開，更美觀
-    headers,
-    ...dataRows,
-  ]
-
-  // 步驟三：使用 xlsx 函式庫創建工作表
+  const sheetData = [[title], [], headers, ...dataRows]
   const ws = XLSX.utils.aoa_to_sheet(sheetData)
-
-  // 步驟四：(關鍵) 設定標題列的「合併儲存格」
-  // 我們要讓標題從 A1 儲存格橫跨到最後一欄
   const numCols = headers.length
   if (!ws['!merges']) ws['!merges'] = []
-  ws['!merges'].push({
-    s: { r: 0, c: 0 }, // s = start, r = row, c = column (皆從 0 開始)
-    e: { r: 0, c: numCols - 1 }, // e = end
-  })
-
-  // 步驟五：創建工作簿並觸發下載 (邏輯不變)
+  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '報告查詢結果')
-
   const fileName = `檢驗報告查詢_${freq}_${shiftName}_${month}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
@@ -1203,7 +1115,7 @@ function exportGroupReportToExcel() {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 2rem);
-  padding: 1rem;
+  padding: 0.5rem;
   background-color: #f8f9fa;
 }
 .page-header {

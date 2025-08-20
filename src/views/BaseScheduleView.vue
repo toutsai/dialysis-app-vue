@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (最終清理版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (Pinia 遷移版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -9,8 +9,6 @@
           <button class="btn btn-info" @click="openBaseAssignmentDialog" :disabled="isPageLocked">
             智慧排床
           </button>
-
-          <!-- ✨ 已移除：衝突處理按鈕 -->
 
           <div class="search-container">
             <input
@@ -83,7 +81,7 @@
       </div>
     </main>
 
-    <!-- 原有的 Dialogs -->
+    <!-- Dialogs -->
     <SelectionDialog
       :is-visible="isActionDialogVisible"
       :title="`操作病人：${actionTarget.patientName}`"
@@ -137,7 +135,6 @@
 <script setup>
 import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
 import {
-  fetchAllPatients as optimizedFetchAllPatients,
   updatePatient,
   fetchAllMemos as optimizedFetchAllMemos,
 } from '@/services/optimizedApiService.js'
@@ -154,6 +151,14 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+const patientStore = usePatientStore()
+const { allPatients, patientMap } = storeToRefs(patientStore)
 
 // --- API and Constants ---
 const baseSchedulesApi = ApiManager('base_schedules')
@@ -235,7 +240,7 @@ const ACTION_OPTIONS = [
 ]
 
 // --- Reactive State ---
-const allPatients = ref([])
+// allPatients 和 patientMap 已由 Pinia 提供
 const masterRecord = ref(null)
 const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
@@ -262,34 +267,22 @@ const isActionDialogVisible = ref(false)
 const actionTarget = ref({ patientId: null, patientName: '' })
 const isAssignmentDialogVisible = ref(false)
 const assignmentContext = ref({ mode: 'base', patient: null })
-const tableKey = ref(Date.now()) // 使用時間戳作為初始 key
+const tableKey = ref(Date.now())
 
 // --- Computed Properties ---
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
-const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+// patientMap 已由 Pinia 提供
 const patientWithMemoIds = computed(
   () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
 )
 
-// ✨✨✨ --- 核心修正：讓 weekScheduleMap 依賴 patientMap --- ✨✨✨
+// weekScheduleMap 現在直接依賴 Pinia 的 patientMap
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
-
-  // 1. 在計算開始前，先讀取一次 patientMap.value.size。
-  //    這一步操作本身沒有意義，但它的副作用是告訴 Vue，這個 computed 屬性
-  //    依賴於 patientMap。因此，當 patientMap 改變時，這個 computed 也會重新計算。
-  const patientCount = patientMap.value.size
-  if (patientCount === 0 && allPatients.value.length > 0) {
-    // 確保在 patientMap 第一次建立時觸發
-    console.log('Patient map is being initialized.')
-  }
-
-  if (!masterRecord.value || !masterRecord.value.schedule) {
+  if (!masterRecord.value || !masterRecord.value.schedule || !patientMap.value) {
     return combinedSchedule
   }
-
   for (const patientId in masterRecord.value.schedule) {
-    // 2. 只有當病人的資料存在於 patientMap 中時，我們才將其加入排班表
     if (patientMap.value.has(patientId)) {
       const ruleData = masterRecord.value.schedule[patientId]
       if (ruleData && ruleData.freq) {
@@ -311,24 +304,20 @@ const weekScheduleMap = computed(() => {
   return combinedSchedule
 })
 
-// ✨✨✨ --- 核心修正：建立一個專門計算樣式的 computed 屬性 --- ✨✨✨
 const weeklyCellStyleMap = computed(() => {
   const styleMap = new Map()
-  // 這個 computed 現在同時依賴 weekScheduleMap 和 patientMap
   const currentSchedule = weekScheduleMap.value
   const currentPatientMap = patientMap.value
 
   for (const slotId in currentSchedule) {
     const slotData = currentSchedule[slotId]
     const patient = currentPatientMap.get(slotData?.patientId)
-    // 預先計算好所有格子的樣式，並儲存在一個 Map 中
     styleMap.set(slotId, getUnifiedCellStyle(slotData, patient))
   }
   return styleMap
 })
 
 const statsToolbarData = computed(() => {
-  // 1. 初始化一個空的每日計數陣列
   const dailyCounts = Array.from({ length: 6 }, () => ({
     counts: {
       early: { total: 0, opd: 0, ipd: 0, er: 0 },
@@ -337,38 +326,22 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
-
-  // 2. 確保 masterRecord 和 schedule 存在
   if (!masterRecord.value || !masterRecord.value.schedule) {
     return dailyCounts
   }
-
-  // 3. 遍歷 masterRecord 中的每一條規則
   for (const patientId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[patientId]
-
-    // 確保規則和相關資料有效
     if (ruleData && ruleData.freq && ruleData.shiftIndex !== undefined) {
-      const patient = patientMap.value.get(patientId)
-
-      // 如果在 patientMap 中找不到病人資料，則跳過此規則的計算
+      const patient = patientMap.value.get(patientId) // 直接從 Pinia 的 patientMap 獲取
       if (!patient) continue
 
-      // 從規則中獲取班別代碼 (early, noon, late)
       const shiftCode = SHIFTS[ruleData.shiftIndex]
-      // 從規則中獲取該頻率對應的星期幾索引 (0=週一, 1=週二, ...)
       const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
-
-      // 4. 遍歷該規則生效的每一天
       dayIndices.forEach((dayIndex) => {
-        // 確保星期和班別代碼都有效
         if (dayIndex >= 0 && dayIndex < 6 && shiftCode && dailyCounts[dayIndex].counts[shiftCode]) {
           const shiftStats = dailyCounts[dayIndex].counts[shiftCode]
-
-          // 5. 根據病人狀態進行計數
           shiftStats.total++
-          dailyCounts[dayIndex].total++ // 當天的總人數也增加
-
+          dailyCounts[dayIndex].total++
           switch (patient.status) {
             case 'opd':
               shiftStats.opd++
@@ -384,7 +357,6 @@ const statsToolbarData = computed(() => {
       })
     }
   }
-
   return dailyCounts
 })
 
@@ -513,8 +485,8 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   if (newFreq && patient.freq !== newFreq) {
     try {
       await updatePatient(patientId, { freq: newFreq })
-      const patientInList = allPatients.value.find((p) => p.id === patientId)
-      if (patientInList) patientInList.freq = newFreq
+      // ✨ 核心修改: 不再手動更新本地 allPatients，改為強制刷新 Store
+      await patientStore.forceRefreshPatients()
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
     } catch (error) {
       console.error('更新病人頻率失敗:', error)
@@ -581,8 +553,7 @@ function handlePatientSelect({ patientId }) {
   currentSlotId.value = null
   console.log(`✅ [BaseScheduleView] 已為病人 ${patient.name} 建立新規則`)
 }
-// ✨✨✨ --- 核心修正：修改 getBaseCellStyle 函式 --- ✨✨✨
-// 這個函式現在不再進行計算，而是直接從預先計算好的 Map 中取值
+
 function getBaseCellStyle(slotId) {
   return weeklyCellStyleMap.value.get(slotId) || {}
 }
@@ -813,32 +784,23 @@ function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 
-async function fetchPatientAndMemoData() {
-  try {
-    const [patients, memos] = await Promise.all([
-      optimizedFetchAllPatients(),
-      optimizedFetchAllMemos([where('status', '==', 'pending')]),
-    ])
-    allPatients.value = patients
-    activeMemos.value = memos
+// ✨ 核心修改 #3: 移除本地的 fetchPatientAndMemoData
+// async function fetchPatientAndMemoData() { ... }
 
-    // ✨✨✨ 核心修正 2：在成功更新 allPatients 後，立即更新 tableKey 的值 ✨✨✨
-    tableKey.value = Date.now() // 賦予一個新的、獨一無二的值
-
-    console.log('✅ [BaseScheduleView] 病人與備忘資料已刷新，並更新 tableKey 以強制重新渲染。')
-  } catch (error) {
-    console.error('❌ [BaseScheduleView] 獲取病人與備忘資料失敗:', error)
-  }
-}
-
+// ✨ 核心修改 #4: 改造 loadAllData，使其依賴 Pinia Store
 async function loadAllData() {
   statusText.value = '讀取中...'
   try {
-    // ✨✨✨ --- 核心修正：修正 Promise.all 的解構賦值 --- ✨✨✨
-    const [_, baseScheduleDoc] = await Promise.all([
-      fetchPatientAndMemoData(),
+    // 1. 確保 Pinia Store 中的病人數據已載入
+    await patientStore.fetchPatientsIfNeeded()
+
+    // 2. 並行獲取備忘錄和總表數據
+    const [memos, baseScheduleDoc] = await Promise.all([
+      optimizedFetchAllMemos([where('status', '==', 'pending')]),
       baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
     ])
+
+    activeMemos.value = memos
 
     if (baseScheduleDoc && baseScheduleDoc.schedule) {
       masterRecord.value = { id: baseScheduleDoc.id, schedule: baseScheduleDoc.schedule }
@@ -852,13 +814,25 @@ async function loadAllData() {
     masterRecord.value = { id: 'MASTER_SCHEDULE', schedule: {} }
   }
 }
+
+// ✨ 核心修改 #5: 改造事件監聽器，只重新載入非病人相關的數據
 function handlePatientDataUpdate() {
-  console.log('🔄 [BaseScheduleView] 收到病人資料更新通知，正在重新獲取...')
-  fetchPatientAndMemoData()
+  console.log('🔄 [BaseScheduleView] 收到病人資料更新通知，正在強制重新渲染...')
+  // 病人數據已由 Pinia 自動更新，我們只需觸發 computed 重新計算
+  tableKey.value = Date.now()
 }
 function handleScheduleUpdate() {
-  console.log('🔄 [BaseScheduleView] 收到排程儲存通知，正在重新載入所有資料...')
-  loadAllData()
+  console.log('🔄 [BaseScheduleView] 收到排程儲存通知，正在重新載入總表資料...')
+  // 只重新載入總表資料，不再重新獲取病人
+  async function reloadSchedule() {
+    const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+    if (baseScheduleDoc && baseScheduleDoc.schedule) {
+      masterRecord.value = { id: baseScheduleDoc.id, schedule: baseScheduleDoc.schedule }
+    } else {
+      masterRecord.value = { id: 'MASTER_SCHEDULE', schedule: {} }
+    }
+  }
+  reloadSchedule()
 }
 
 onMounted(() => {
