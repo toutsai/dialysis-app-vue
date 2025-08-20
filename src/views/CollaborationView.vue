@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/CollaborationView.vue (已修正桌面/行動版結構) -->
+<!-- 檔案路徑: src/views/CollaborationView.vue (最終版 - 保留5天歷史記錄) -->
 <template>
   <div class="page-container collaboration-view">
     <header class="page-header">
@@ -225,8 +225,13 @@
           <div v-if="isLoading.sentTasks" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
-          <ul v-else-if="mySentTasks.length > 0" class="task-list">
-            <li v-for="task in mySentTasks" :key="task.id" class="task-item sent">
+          <ul v-else-if="sortedMySentTasks.length > 0" class="task-list">
+            <li
+              v-for="task in sortedMySentTasks"
+              :key="task.id"
+              class="task-item sent"
+              :class="{ 'is-completed': task.status === 'completed' }"
+            >
               <p class="item-content">
                 <strong>To {{ getAssigneeName(task.assignee) }}:</strong> {{ task.content }}
               </p>
@@ -235,7 +240,12 @@
                   ><i class="fas fa-user"></i> patient: {{ task.patientName || 'N/A' }}</small
                 >
                 <div class="item-actions">
-                  <span class="sent-status"><i class="far fa-clock"></i> 處理中...</span>
+                  <span v-if="task.status === 'pending'" class="sent-status">
+                    <i class="far fa-clock"></i> 處理中...
+                  </span>
+                  <div v-else class="completed-info">
+                    <i class="fas fa-check-double"></i> 由 {{ task.resolvedBy?.name }} 完成
+                  </div>
                 </div>
               </div>
             </li>
@@ -478,8 +488,13 @@
             <div v-if="isLoading.sentTasks" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
-            <ul v-else-if="mySentTasks.length > 0" class="task-list">
-              <li v-for="task in mySentTasks" :key="task.id" class="task-item sent">
+            <ul v-else-if="sortedMySentTasks.length > 0" class="task-list">
+              <li
+                v-for="task in sortedMySentTasks"
+                :key="task.id"
+                class="task-item sent"
+                :class="{ 'is-completed': task.status === 'completed' }"
+              >
                 <p class="item-content">
                   <strong>To {{ getAssigneeName(task.assignee) }}:</strong> {{ task.content }}
                 </p>
@@ -488,7 +503,12 @@
                     ><i class="fas fa-user"></i> patient: {{ task.patientName || 'N/A' }}</small
                   >
                   <div class="item-actions">
-                    <span class="sent-status"><i class="far fa-clock"></i> 處理中...</span>
+                    <span v-if="task.status === 'pending'" class="sent-status">
+                      <i class="far fa-clock"></i> 處理中...
+                    </span>
+                    <div v-else class="completed-info">
+                      <i class="fas fa-check-double"></i> 由 {{ task.resolvedBy?.name }} 完成
+                    </div>
                   </div>
                 </div>
               </li>
@@ -519,38 +539,22 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  documentId,
-  doc,
-  updateDoc,
-} from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
-import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import ApiManager from '@/services/api_manager.js'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
-
-// ✨ --- 核心修改開始 --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
-// ✨ --- 核心修改結束 --- ✨
 
-// --- Hooks ---
 const route = useRoute()
 const { currentUser, isPageLocked, hasPermission } = useAuth()
 const userTitle = computed(() => currentUser.value?.title)
 const userRole = computed(() => currentUser.value?.role)
 
-// ✨ --- 核心修改：實例化 Store --- ✨
 const patientStore = usePatientStore()
 
-// --- API & Services ---
 const schedulesApi = ApiManager('schedules')
 const assignmentsApi = ApiManager('nurse_assignments')
 
-// --- State ---
 const isLoading = ref({ patients: true, messages: true, tasks: true, sentTasks: true })
 const allDailyPatients = ref([])
 const myAssignedPatients = ref([])
@@ -560,7 +564,6 @@ const mySentTasks = ref([])
 const allMessages = ref([])
 const isCreateModalVisible = ref(false)
 
-// ✨ 核心修改：移除本地的 patientMap，直接從 store 的 getter 獲取
 const patientMap = computed(() => patientStore.patientMap)
 
 const mainPatientViewTab = ref('my')
@@ -571,13 +574,11 @@ let sentTaskUnsubscribe = null
 let messageUnsubscribe = null
 const activeMobileTab = ref('patients')
 
-// --- Computed Properties ---
 const isNurseStaff = computed(() => ['護理師', '護理師組長'].includes(userTitle.value))
 const patientsForList = computed(() => {
   return mainPatientViewTab.value === 'my' && isNurseStaff.value
     ? myAssignedPatients.value
-    : // ✨ 核心修改：這裡的 allPatients 是指當天的病人，不是全局的
-      allDailyPatients.value
+    : allDailyPatients.value
 })
 const filteredByShiftPatients = computed(() => {
   if (shiftFilterTab.value === 'all') {
@@ -614,19 +615,23 @@ const weekdayDisplay = computed(() => {
     return ''
   }
 })
+
 const sortItems = (items) => {
   if (!Array.isArray(items)) return []
   return [...items].sort((a, b) => {
     if (a.status === 'pending' && b.status !== 'pending') return -1
     if (a.status !== 'pending' && b.status === 'pending') return 1
-    const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0)
-    const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0)
+    const dateA = a.resolvedAt?.toDate() || a.createdAt?.toDate() || new Date(0)
+    const dateB = b.resolvedAt?.toDate() || b.createdAt?.toDate() || new Date(0)
     return dateB - dateA
   })
 }
+
 const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedSelectedPatientMessages = computed(() => sortItems(selectedPatientMessages.value))
 const sortedFeedMessages = computed(() => sortItems(feedMessages.value))
+const sortedMySentTasks = computed(() => sortItems(mySentTasks.value)) // ✨ 新增
+
 const selectedPatientMessages = computed(() => {
   if (!selectedPatient.value || !Array.isArray(allMessages.value)) return []
   return allMessages.value.filter((msg) => msg.patientId === selectedPatient.value.id)
@@ -637,9 +642,6 @@ const feedMessages = computed(() => {
   return allMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
 })
 
-// --- Methods ---
-
-// ✨ 核心修改：重寫整個資料載入函式，現在它會先等待 Pinia 的數據準備好
 async function loadAndProcessDataForDate(date) {
   isLoading.value = { patients: true, messages: true, tasks: true, sentTasks: true }
   allDailyPatients.value = []
@@ -652,20 +654,13 @@ async function loadAndProcessDataForDate(date) {
   }
 
   try {
-    // 步驟 0: 確保全局病人資料已載入
-    // App.vue 已經觸發了這個請求，這裡只是確保我們在繼續之前等待它完成。
-    // 如果數據已存在，這個函數會立即返回。
     await patientStore.fetchPatientsIfNeeded()
-
-    // --- 步驟 1: 獲取當天排班表 (不變) ---
     const schedules = await schedulesApi.fetchAll([where('date', '==', date)])
     if (schedules.length === 0 || !schedules[0].schedule) {
       isLoading.value.patients = false
       return
     }
     const scheduleData = schedules[0].schedule
-
-    // --- 步驟 2: 從排班表中提取當天所有病人的 ID (不變) ---
     const allPatientIdsInSchedule = Array.from(
       new Set(
         Object.values(scheduleData)
@@ -679,13 +674,8 @@ async function loadAndProcessDataForDate(date) {
       return
     }
 
-    // --- 步驟 3: 只需獲取護理分組 (不再需要獲取病人詳細資料) ---
     const assignments = await assignmentsApi.fetchAll([where('date', '==', date)])
-
-    // ✨ 直接從 Store 的 getter 中獲取 patientMap
     const localPatientMap = patientStore.patientMap
-
-    // --- 步驟 4: 在前端組合出完整的 allDailyPatients 列表 (不變) ---
     const getBedNumber = (shiftId) => {
       const parts = shiftId.split('-')
       return parts[0] === 'peripheral' ? 1000 + parseInt(parts[1], 10) : parseInt(parts[1], 10)
@@ -711,7 +701,6 @@ async function loadAndProcessDataForDate(date) {
     }
     allDailyPatients.value = tempAllDaily.sort(sortLogic)
 
-    // --- 步驟 5: 在前端計算出 myAssignedPatients 列表 (不變) ---
     if (isNurseStaff.value && assignments.length > 0 && assignments[0].teams) {
       const { names, teams } = assignments[0]
       const myAssignedIds = new Set()
@@ -742,9 +731,7 @@ async function loadAndProcessDataForDate(date) {
 }
 
 function openCreateModal() {
-  if (!currentUser.value) {
-    return
-  }
+  if (!currentUser.value) return
   const canPerformAction = hasPermission('viewer')
   if (!canPerformAction) {
     console.warn('Permission denied.')
@@ -883,8 +870,8 @@ function handleTaskCreated() {
   console.log('Task created successfully.')
 }
 function filterByStatusAndDate(docs) {
-  const sevenDaysAgo = new Date()
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const fiveDaysAgo = new Date()
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5)
   const results = []
   for (const doc of docs) {
     const data = { id: doc.id, ...doc.data() }
@@ -894,17 +881,15 @@ function filterByStatusAndDate(docs) {
       const resolvedDate = data.resolvedAt.toDate
         ? data.resolvedAt.toDate()
         : new Date(data.resolvedAt)
-      if (resolvedDate >= sevenDaysAgo) {
+      if (resolvedDate >= fiveDaysAgo) {
         results.push(data)
       }
     }
   }
   return results
 }
-
 onMounted(async () => {
   await useAuth().waitForAuthInit()
-  // ✨ 核心修改：onMounted 裡的邏輯現在非常乾淨
   await loadAndProcessDataForDate(displayDate.value)
   listenToMyTasks()
   listenToMySentTasks()
@@ -928,13 +913,11 @@ watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      // 確保數據在用戶變化時重新加載
       loadAndProcessDataForDate(displayDate.value)
       listenToMyTasks()
       listenToMySentTasks()
       listenToMessages()
     } else {
-      // 清理監聽器
       if (taskUnsubscribe) taskUnsubscribe()
       if (sentTaskUnsubscribe) sentTaskUnsubscribe()
       if (messageUnsubscribe) messageUnsubscribe()
@@ -944,6 +927,7 @@ watch(
 </script>
 
 <style scoped>
+/* (樣式部分與您提供的版本相同，此處省略) */
 /* 引入 Font Awesome */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
 
@@ -1397,15 +1381,10 @@ watch(
     flex-grow: 1;
   }
 
-  /* ✨ 核心修正：讓 v-show 控制顯示/隱藏 */
-  .mobile-content-area > div {
-    /* 預設無 display 屬性，由 v-show 控制 */
-  }
   .mobile-content-area > div[style*='display: none;'] {
     display: none !important;
   }
 
-  /* ✨ 修正：確保面板在顯示時是 flex 容器 */
   .patient-list-panel,
   .message-panel,
   .task-panel {

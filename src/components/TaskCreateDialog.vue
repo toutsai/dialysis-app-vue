@@ -13,7 +13,7 @@
           <div class="radio-group">
             <label class="radio-label"
               ><input type="radio" v-model="formData.category" value="message" /><span
-                >留言</span
+                >病人留言</span
               ></label
             >
             <label class="radio-label"
