@@ -681,25 +681,44 @@ async function loadDailyLog(dateStr) {
 }
 
 function calculateStatsFromSchedule(scheduleRecord) {
+  // 1. 先重置統計數據
   const stats = initialLogState().stats
   if (!scheduleRecord || !scheduleRecord.schedule) return
+
+  // 2. 遍歷當天的所有排班格
   for (const shiftKey in scheduleRecord.schedule) {
     const slotData = scheduleRecord.schedule[shiftKey]
     if (!slotData?.patientId) continue
+
     const patient = patientMap.value.get(slotData.patientId)
     if (!patient) continue
+
     const shiftCode = shiftKey.split('-').pop()
     const isPeripheral = shiftKey.startsWith('peripheral')
+
+    // ✨ --- 核心修正 START --- ✨
     if (isPeripheral) {
+      // 外圍床位的計算邏輯是正確的，保持不變
       stats.peripheral_beds[shiftCode].total++
-      if (patient.status === 'ipd') stats.peripheral_beds[shiftCode].ipd++
-      if (patient.status === 'er') stats.peripheral_beds[shiftCode].er++
+      if (patient.status === 'ipd') {
+        stats.peripheral_beds[shiftCode].ipd++
+      } else if (patient.status === 'er') {
+        stats.peripheral_beds[shiftCode].er++
+      }
     } else {
+      // 洗腎中心床位的計算邏輯修正如下
       stats.main_beds[shiftCode].total++
-      if (patient.status === 'opd') stats.main_beds[shiftCode].opd++
-      if (['ipd', 'er'].includes(patient.status)) stats.main_beds[shiftCode].ipd_er++
+      if (patient.status === 'opd') {
+        stats.main_beds[shiftCode].opd++
+      } else if (patient.status === 'ipd' || patient.status === 'er') {
+        // 使用明確的 else if，確保住院和急診都被累加到 ipd_er
+        stats.main_beds[shiftCode].ipd_er++
+      }
     }
+    // ✨ --- 核心修正 END --- ✨
   }
+
+  // 3. 將計算好的數據賦值給 dailyLog
   dailyLog.stats.main_beds = stats.main_beds
   dailyLog.stats.peripheral_beds = stats.peripheral_beds
 }
