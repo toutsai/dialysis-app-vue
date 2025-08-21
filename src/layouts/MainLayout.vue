@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (Pinia 過渡版本) -->
+<!-- 檔案路徑: src/layouts/MainLayout.vue (已整合訊息中心通知角標) -->
 <template>
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
@@ -11,6 +11,16 @@
           </span>
         </div>
         <ul class="sidebar-nav">
+          <!-- ✨ [核心修改] 在訊息中心連結上加入通知角標 -->
+          <li>
+            <RouterLink to="/collaboration" class="nav-link">
+              <span>訊息中心</span>
+              <span v-if="todayTaskCount > 0" class="notification-badge">
+                {{ todayTaskCount }}
+              </span>
+            </RouterLink>
+          </li>
+
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
           <li class="desktop-only-nav-item">
@@ -21,7 +31,6 @@
           </li>
           <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
-          <li><RouterLink to="/lab-reports" class="nav-link">檢驗報告管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
         </ul>
       </div>
@@ -58,7 +67,7 @@
             <li v-if="canEditSchedules">
               <RouterLink to="/daily-log" class="nav-link">工作日誌</RouterLink>
             </li>
-            <li><RouterLink to="/collaboration" class="nav-link">訊息中心</RouterLink></li>
+            <li><RouterLink to="/lab-reports" class="nav-link">檢驗報告管理</RouterLink></li>
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
               <RouterLink v-if="isAdmin" to="/user-management" class="nav-link"
@@ -118,6 +127,8 @@ import { db, functions } from '@/composables/useFirebase.js'
 
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore.js'
+// ✨ [核心修改] 1. 引入新的 taskStore
+import { useTaskStore } from '@/stores/taskStore.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -127,18 +138,17 @@ const { notifications, startListening, stopListening } = useRealtimeNotification
 const isSidebarOpen = ref(false)
 
 const patientStore = usePatientStore()
-// ✨ 核心修改 #1: 雖然不再 provide `allPatients`，但 MainLayout 自身的功能 (如 patientMap) 仍然需要它
 const { allPatients } = storeToRefs(patientStore)
+
+// ✨ [核心修改] 2. 實例化 taskStore 並獲取響應式狀態
+const taskStore = useTaskStore()
+const { todayTaskCount } = storeToRefs(taskStore)
 
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
 const memosForDialog = ref([])
 
-// ✨ --- 核心修改 #2: 移除 provide('allPatients', allPatients) --- ✨
-// provide('allPatients', allPatients) // 👈 這行已被安全移除
-
-// 依賴 allPatients 的 computed 屬性仍然需要保留，供 showPatientMemos 函式使用
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () =>
@@ -149,7 +159,6 @@ const patientWithMemoIds = computed(
     ),
 )
 
-// 這兩個 provide 仍然是必要的，因為它們提供的是函式和衍生狀態，而不是原始數據
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
@@ -229,6 +238,8 @@ watch(
       startSharedDataListeners()
       triggerScheduleCheck()
       startListening()
+      // ✨ [核心修改] 3. 使用者登入時，開始監聽任務
+      taskStore.startListeningForTodayTasks()
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
       activeMemos.value = []
@@ -236,6 +247,8 @@ watch(
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
       patientStore.$reset()
+      // ✨ [核心修改] 4. 使用者登出時，停止監聽
+      taskStore.stopListening()
     }
   },
   { immediate: true },
@@ -252,6 +265,8 @@ watch(
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
+  // ✨ [核心修改] 5. 元件卸載時，也確保停止監聽
+  taskStore.stopListening()
 })
 </script>
 
@@ -343,7 +358,10 @@ onUnmounted(() => {
   margin: 0;
 }
 .nav-link {
+  /* ✨ [核心修改] 6. 修改樣式以容納角標 */
+  position: relative;
   display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 12px;
   color: #ecf0f1;
@@ -364,6 +382,23 @@ onUnmounted(() => {
   background-color: var(--primary-color, #1abc9c);
   color: white;
   font-weight: bold;
+}
+
+/* ✨ [核心修改] 7. 新增通知角標的 CSS 樣式 */
+.notification-badge {
+  background-color: #e74c3c; /* 紅色背景 */
+  color: white; /* 白色數字 */
+  border-radius: 50%; /* 圓形 */
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: bold;
+  line-height: 1;
+  /* 加上一個與背景同色的邊框，創造視覺間隔 */
+  box-shadow: 0 0 0 2px #2c3e50;
 }
 
 .content-area {
@@ -498,9 +533,9 @@ onUnmounted(() => {
 }
 .notification-footer-item {
   display: flex;
-  justify-content: flex-start; /* [修改] 改為從頭開始排列 */
+  justify-content: flex-start;
   align-items: center;
-  gap: 0.5rem; /* [新增] 增加姓名和時間之間的間距 */
+  gap: 0.5rem;
   padding-left: 24px;
   margin-top: 4px;
 }
@@ -513,7 +548,6 @@ onUnmounted(() => {
   font-size: 0.8rem;
   opacity: 0.85;
 }
-/* [核心修改] 刪除按鈕的 CSS 已被移除 */
 
 .notification-list-enter-active,
 .notification-list-leave-active {
@@ -531,9 +565,6 @@ onUnmounted(() => {
   transition: transform 0.3s ease;
 }
 
-/* ================================== */
-/*         響應式樣式               */
-/* ================================== */
 .sidebar-overlay,
 .main-header {
   display: none;
@@ -543,7 +574,6 @@ onUnmounted(() => {
   .desktop-only-nav-item {
     display: none;
   }
-
   .sidebar {
     position: fixed;
     top: 0;
