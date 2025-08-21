@@ -21,24 +21,23 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { db } from '@/composables/useFirebase.js'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 
+// --- 核心修改：使用 Pinia Store 但調整數據刷新策略 ---
 const patientStore = usePatientStore()
+// storeToRefs 讓 allPatients 保持響應性
 const { allPatients } = storeToRefs(patientStore)
+// 直接解構 actions
 const {
-  addPatientInStore,
-  updatePatientInStore,
-  removePatientInStore,
+  forceRefreshPatients, // 我們將主要使用強制刷新來確保數據同步
   removeRuleFromMasterSchedule,
 } = patientStore
 
-const patientsApi = ApiManager('patients')
+const patientsApi = ApiManager('patients') // 保留用於統計
 const patientHistoryApi = ApiManager('patient_history')
 
-// --- 狀態定義 ---
+// --- 狀態定義 (與您的最新版基本一致) ---
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'updatedAt', order: 'desc' })
-// ✨ [需求 1] 新增已刪除列表的排序狀態
 const deletedSort = ref({ column: 'timestamp', order: 'desc' })
-
 const deletedPatientHistory = ref([])
 const erListFilter = ref('')
 const ipdListFilter = ref('')
@@ -84,6 +83,7 @@ const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
 const { isLoggedIn } = auth
 const isPageLocked = computed(() => auth.isReadOnly.value)
+// --- 常量定義 (與您的最新版一致) ---
 const FREQ_COLOR_MAP = {
   一三五: 'freq-blue',
   二四六: 'freq-green',
@@ -116,25 +116,15 @@ const RESTORE_OPTIONS = [
   { value: 'er', text: '復原至 急診' },
 ]
 
-// --- ✨ [需求 2 核心修正] 建立一個萬用的日期轉換函式 ---
-/**
- * 將 Firestore Timestamp 物件或 ISO 字串標準化為 JavaScript Date 物件。
- * @param {object|string} dateInput - 可能是 Timestamp 或 ISO 字串。
- * @returns {Date|null} - 返回 Date 物件，如果輸入無效則返回 null。
- */
+// --- 日期格式兼容性修正 (保留) ---
 function normalizeDateObject(dateInput) {
   if (!dateInput) return null
-  // 如果是 Firestore Timestamp 物件，它會有 toDate 方法
-  if (typeof dateInput.toDate === 'function') {
-    return dateInput.toDate()
-  }
-  // 否則，嘗試當作字串來解析
+  if (typeof dateInput.toDate === 'function') return dateInput.toDate()
   const date = new Date(dateInput)
-  // 檢查解析結果是否為有效日期
   return isNaN(date.getTime()) ? null : date
 }
 
-// --- computed properties ---
+// --- computed properties (保留最新版的排序和篩選邏輯) ---
 const displayedPatients = computed(() => {
   let patientsToDisplay
   let searchTerm = ''
@@ -176,14 +166,10 @@ const displayedPatients = computed(() => {
       valA = a[sortColumn]
       valB = b[sortColumn]
     }
-
-    // ✨ [需求 2 修正] 使用新的日期轉換函式
     const dateA = normalizeDateObject(valA)
     const dateB = normalizeDateObject(valB)
-
     valA = dateA || valA || ''
     valB = dateB || valB || ''
-
     const compare = String(valA).localeCompare(String(valB), 'zh-Hant')
     return currentSort.value.order === 'asc' ? compare : -compare
   })
@@ -195,24 +181,15 @@ const displayedDeletedHistory = computed(() => {
     const term = deletedSearchTerm.value.toLowerCase()
     history = history.filter((h) => h.patientName.toLowerCase().includes(term))
   }
-
-  // ✨ [需求 1 新增] 加入排序邏輯
   return [...history].sort((a, b) => {
     const sortColumn = deletedSort.value.column
-    // Helper to get nested property
     const getNestedValue = (obj, path) => path.split('.').reduce((o, key) => o && o[key], obj)
-
     let valA = getNestedValue(a, sortColumn)
     let valB = getNestedValue(b, sortColumn)
-
-    // ✨ [需求 2 修正] 同樣使用新的日期轉換函式處理 timestamp
     const dateA = normalizeDateObject(valA)
     const dateB = normalizeDateObject(valB)
-
     valA = dateA || valA || ''
     valB = dateB || valB || ''
-
-    // Handle numeric comparison for MRN if possible
     if (sortColumn === 'snapshot.medicalRecordNumber') {
       const numA = parseInt(valA, 10)
       const numB = parseInt(valB, 10)
@@ -220,7 +197,6 @@ const displayedDeletedHistory = computed(() => {
         return deletedSort.value.order === 'asc' ? numA - numB : numB - numA
       }
     }
-
     const compare = String(valA).localeCompare(String(valB), 'zh-Hant')
     return deletedSort.value.order === 'asc' ? compare : -compare
   })
@@ -252,7 +228,7 @@ const sortedFreqStats = computed(() => {
   })
 })
 
-// --- 統計函式 ---
+// --- 統計與數據刷新函式 (融合) ---
 async function fetchPatientHistoryForStats() {
   try {
     const twoMonthsAgo = new Date()
@@ -267,17 +243,15 @@ async function fetchPatientHistoryForStats() {
 }
 
 const calculateStats = (allPatientsWithDeleted, patientHistory) => {
-  // --- ✨ [需求 2 修正] 輔助函式改用新的 normalizeDateObject ---
   const toUTCDateString = (dateInput) => {
     const date = normalizeDateObject(dateInput)
     if (!date) return ''
-    return date.toISOString().split('T')[0] // 直接使用 ISO 格式的日期部分
+    return date.toISOString().split('T')[0]
   }
-
   const transferOutReasons = ['轉外院透析', '轉PD', '腎臟移植', '轉安寧', '腎功能恢復不須透析']
   const opdChangesDetailsTemplate = {}
-  transferOutReasons.forEach((reason) => {
-    opdChangesDetailsTemplate[reason] = 0
+  transferOutReasons.forEach((r) => {
+    opdChangesDetailsTemplate[r] = 0
   })
   const statsResult = {
     source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
@@ -289,12 +263,9 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
       thisMonth: { new: 0, transferOut: 0, death: 0, details: { ...opdChangesDetailsTemplate } },
     },
   }
-
-  // --- 統一使用 UTC 日期來定義月份邊界 ---
   const today = new Date()
   const currentYear = today.getUTCFullYear()
   const currentMonth = today.getUTCMonth()
-
   const firstDayThisMonthStr = new Date(Date.UTC(currentYear, currentMonth, 1))
     .toISOString()
     .split('T')[0]
@@ -305,7 +276,6 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
     .toISOString()
     .split('T')[0]
   const todayStr = toUTCDateString(today)
-
   allPatientsWithDeleted.forEach((p) => {
     if (p.isDeleted) {
       statsResult.source.deleted++
@@ -324,7 +294,6 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
         statsResult.freq[p.freq]++
       }
     }
-
     if (p.isDeleted && p.originalStatus === 'opd') {
       const deletedAtStr = toUTCDateString(p.deletedAt)
       if (deletedAtStr) {
@@ -347,7 +316,6 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
       }
     }
   })
-
   patientHistory.forEach((history) => {
     const eventTimeStr = toUTCDateString(history.timestamp)
     if (eventTimeStr) {
@@ -372,21 +340,18 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
   patientStats.value = statsResult
 }
 
-async function refreshAllStatsData() {
-  const [allPatientsWithDeleted, patientHistory] = await Promise.all([
-    patientsApi.fetchAll(),
+// --- 核心功能恢復：使用舊版的數據刷新邏輯 ---
+async function refreshAllData() {
+  // 使用 Pinia 的 action 來刷新數據，這樣整個 App 的狀態是一致的
+  const [allPatientsWithDeleted, patientHistoryForStats] = await Promise.all([
+    forceRefreshPatients(), // 強制從後端獲取最新病人列表並更新 store
     fetchPatientHistoryForStats(),
   ])
-  calculateStats(allPatientsWithDeleted, patientHistory)
+  calculateStats(allPatientsWithDeleted, patientHistoryForStats)
+  // Pinia store 更新後，這個組件的 allPatients 會自動更新，無需手動賦值
 }
 
-function refreshStatsWithDelay() {
-  setTimeout(() => {
-    refreshAllStatsData()
-  }, 1500)
-}
-
-// --- 其他輔助函式 ---
+// --- 其他輔助函式 (恢復舊版功能) ---
 async function fetchDeletedPatientHistory() {
   try {
     deletedPatientHistory.value = await patientHistoryApi.fetchAll([
@@ -398,22 +363,17 @@ async function fetchDeletedPatientHistory() {
     showAlert('讀取失敗', '讀取已刪除病人動向失敗！')
   }
 }
+
 watch(activeTab, (newTab) => {
   if (newTab === 'deleted') {
     fetchDeletedPatientHistory()
   }
 })
 const togglePopover = (popoverName) => {
-  if (activePopover.value === popoverName) {
-    activePopover.value = null
-  } else {
-    activePopover.value = popoverName
-  }
+  activePopover.value = activePopover.value === popoverName ? null : popoverName
 }
 const closePopovers = (event) => {
-  if (event && event.target.closest('.stats-popover-wrapper')) {
-    return
-  }
+  if (event && event.target.closest('.stats-popover-wrapper')) return
   activePopover.value = null
 }
 function showAlert(title, message) {
@@ -427,6 +387,8 @@ function showConfirm(title, message, onConfirm) {
   confirmAction.value = onConfirm
   isConfirmDialogVisible.value = true
 }
+
+// --- 核心功能恢復：恢復舊版的全局搜尋邏輯 ---
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
@@ -434,6 +396,7 @@ async function handleGlobalSearch(query) {
   }
   const searchTerm = query.trim()
   const searchTermLower = searchTerm.toLowerCase()
+  // 直接從 store 的 allPatients 搜尋，確保數據是最新的
   const searchResults = allPatients.value.filter(
     (p) =>
       (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)) ||
@@ -448,16 +411,18 @@ async function handleGlobalSearch(query) {
   const targetStatusText = statusMap[activeTab.value] || '列表'
   if (foundPatient) {
     if (foundPatient.isDeleted) {
+      // 復原邏輯與新版類似，但使用了更豐富的提示訊息
+      const originalStatusText = statusMap[foundPatient.originalStatus] || '未知'
       showConfirm(
         '找到已刪除病人',
-        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除...`,
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原為${originalStatusText}，原因: ${foundPatient.deleteReason || '未知'})。\n\n是否要復原並移至「${targetStatusText}」清單？`,
         () => restorePatient(foundPatient.id),
       )
     } else if (foundPatient.status !== activeTab.value) {
       const currentStatusText = statusMap[foundPatient.status] || '未知'
       showConfirm(
         '找到病人 (不同表單)',
-        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前在「${currentStatusText}」清單中...`,
+        `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 目前在「${currentStatusText}」清單中。\n\n是否要移至「${targetStatusText}」清單？`,
         () => transferPatient(foundPatient.id, activeTab.value),
       )
     } else {
@@ -476,6 +441,7 @@ async function handleGlobalSearch(query) {
   }
 }
 
+// --- 核心功能恢復：所有修改操作都恢復為「後端優先，成功後刷新」模式 ---
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -483,62 +449,46 @@ async function handleSavePatient(patientData) {
   }
 
   if (patientData.id) {
+    // 編輯病人
     const originalPatient = allPatients.value.find((p) => p.id === patientData.id)
-    if (!originalPatient) {
-      showAlert('錯誤', '找不到原始病人資料，無法更新。')
-      return
-    }
-
-    if (!originalPatient.isDiscontinued && patientData.isDiscontinued) {
-      showConfirm('確認中止透析', `您確定要將「${patientData.name}」標記為中止透析...`, () => {
-        closeModal()
-        const backupPatient = { ...originalPatient }
-        const updateData = {
-          isDiscontinued: true,
-          discontinuedDate: patientData.discontinuedDate || new Date().toISOString().split('T')[0],
-        }
-        updatePatientInStore({ id: patientData.id, ...updateData })
-        Promise.all([
-          optimizedUpdatePatient(patientData.id, updateData),
-          removeRuleFromMasterSchedule(patientData.id),
-        ])
-          .then(() => {
-            console.log(`[Optimistic] Backend discontinued successful for ${patientData.name}.`)
-            refreshStatsWithDelay()
+    if (originalPatient && !originalPatient.isDiscontinued && patientData.isDiscontinued) {
+      showConfirm(
+        '確認中止透析',
+        `您確定要將「${patientData.name}」標記為中止透析...`,
+        async () => {
+          try {
+            closeModal()
+            await optimizedUpdatePatient(patientData.id, {
+              isDiscontinued: true,
+              discontinuedDate:
+                patientData.discontinuedDate || new Date().toISOString().split('T')[0],
+            })
+            await removeRuleFromMasterSchedule(patientData.id)
+            await refreshAllData() // 成功後刷新
             createGlobalNotification(`中止透析：${patientData.name}`, 'patient')
             showAlert('操作成功', `已將 ${patientData.name} 標記為中止透析。`)
-          })
-          .catch((err) => {
-            console.error('[Optimistic] Backend discontinued failed:', err)
-            updatePatientInStore(backupPatient)
-            showAlert('操作失敗', `中止透析操作失敗，資料已自動復原。錯誤：${err.message}`)
-          })
-      })
+          } catch (err) {
+            showAlert('操作失敗', err.message || '中止透析操作失敗！')
+          }
+        },
+      )
       return
     }
-
-    const backupPatient = { ...originalPatient }
-    const dataToUpdate = {
-      ...patientData,
-      updatedAt: new Date().toISOString(),
+    try {
+      const dataToUpdate = { ...patientData }
+      delete dataToUpdate.id
+      dataToUpdate.updatedAt = new Date().toISOString()
+      await optimizedUpdatePatient(patientData.id, dataToUpdate)
+      await refreshAllData() // 成功後刷新
+      createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
+      closeModal()
+    } catch (err) {
+      showAlert('操作失敗', '更新病人資料失敗！')
     }
-    delete dataToUpdate.id
-    updatePatientInStore({ id: patientData.id, ...dataToUpdate })
-    closeModal()
-    optimizedUpdatePatient(patientData.id, dataToUpdate)
-      .then(() => {
-        console.log(`[Optimistic] Backend save successful for ${patientData.name}.`)
-        refreshStatsWithDelay()
-        createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
-      })
-      .catch((err) => {
-        console.error('[Optimistic] Backend save failed:', err)
-        updatePatientInStore(backupPatient)
-        showAlert('操作失敗', `更新病人資料失敗，資料已自動復原。錯誤：${err.message}`)
-      })
     return
   }
 
+  // 新增病人
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
@@ -547,18 +497,20 @@ async function handleSavePatient(patientData) {
     (p) => p.medicalRecordNumber === patientData.medicalRecordNumber,
   )
   if (existingPatient) {
+    // 處理衝突
     const statusMap = { ipd: '住院', opd: '門診', er: '急診' }
     const currentStatusText = existingPatient.isDeleted
-      ? `已刪除...`
+      ? `已刪除 (原為${statusMap[existingPatient.originalStatus] || '未知'})`
       : statusMap[existingPatient.status] || '未知'
     showConfirm(
       '病歷號重複',
-      `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在...`,
+      `病歷號 ${patientData.medicalRecordNumber} (${existingPatient.name}) 已存在於「${currentStatusText}」清單中。您是否要直接將其轉移並更新資料？`,
       () => handleConflictSelected(),
     )
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
   } else {
+    // 正常新增
     try {
       const dataToCreate = {
         ...patientData,
@@ -567,14 +519,13 @@ async function handleSavePatient(patientData) {
         isDeleted: false,
         status: modalType.value,
       }
-      const newPatientWithId = await optimizedSavePatient(dataToCreate)
-      addPatientInStore(newPatientWithId)
-      refreshStatsWithDelay()
+      await optimizedSavePatient(dataToCreate)
+      await refreshAllData() // 成功後刷新
       const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
       createGlobalNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
       closeModal()
     } catch (err) {
-      showAlert('操作失敗', `新增病人失敗！錯誤：${err.message}`)
+      showAlert('操作失敗', '新增病人失敗！')
     }
   }
 }
@@ -594,12 +545,7 @@ async function handleConflictSelected() {
     }
     delete dataToUpdate.id
     await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
-    if (existingPatient.isDeleted) {
-      addPatientInStore({ ...existingPatient, ...dataToUpdate })
-    } else {
-      updatePatientInStore({ id: existingPatient.id, ...dataToUpdate })
-    }
-    refreshStatsWithDelay()
+    await refreshAllData() // 成功後刷新
     const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
     createGlobalNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
     showAlert('操作成功', `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`)
@@ -620,37 +566,23 @@ async function transferPatient(patientId, newStatus) {
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
   const targetStatusText = { ipd: '住院', opd: '門診', er: '急診' }[newStatus] || '未知'
-
   showConfirm(
     `確認轉為${targetStatusText}`,
     `您確定要將「${patient.name}」轉為${targetStatusText}嗎？`,
-    () => {
-      const originalStatus = patient.status
-      const originalWardNumber = patient.wardNumber
-      const updateData = { status: newStatus }
-      const optimisticUpdateData = { status: newStatus }
-
-      if ((originalStatus === 'ipd' || originalStatus === 'er') && newStatus === 'opd') {
-        updateData.wardNumber = null
-        optimisticUpdateData.wardNumber = null
+    async () => {
+      try {
+        const updateData = { status: newStatus }
+        if ((patient.status === 'ipd' || patient.status === 'er') && newStatus === 'opd') {
+          updateData.wardNumber = null
+        } // 清空床號
+        await optimizedUpdatePatient(patientId, updateData)
+        await refreshAllData() // 成功後刷新
+        createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
+        showAlert('轉移成功', `${patient.name} 已成功轉至${targetStatusText}。`)
+        globalSearchTerm.value = ''
+      } catch (err) {
+        showAlert('操作失敗', err.message || '轉床失敗！')
       }
-      updatePatientInStore({ id: patientId, ...optimisticUpdateData })
-      optimizedUpdatePatient(patientId, updateData)
-        .then(() => {
-          console.log(`[Optimistic] Backend update successful for ${patient.name}.`)
-          refreshStatsWithDelay()
-          createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
-          globalSearchTerm.value = ''
-        })
-        .catch((err) => {
-          console.error('[Optimistic] Backend update failed:', err)
-          updatePatientInStore({
-            id: patientId,
-            status: originalStatus,
-            wardNumber: originalWardNumber,
-          })
-          showAlert('操作失敗', `轉床失敗，資料已自動復原。錯誤：${err.message}`)
-        })
     },
   )
 }
@@ -662,34 +594,27 @@ async function handleDeleteReasonSelected(reason) {
   }
   const patientId = patientToDeleteId.value
   if (!patientId) return
-  const patientIndex = allPatients.value.findIndex((p) => p.id === patientId)
-  if (patientIndex === -1) {
-    showAlert('錯誤', '在列表中找不到該病人資料。')
+  const patient = allPatients.value.find((p) => p.id === patientId)
+  if (!patient) {
+    showAlert('錯誤', '找不到該病人資料。')
     return
   }
-  const patientToDelete = { ...allPatients.value[patientIndex] }
-  const patientNameForNotification = patientToDelete.name
-  removePatientInStore(patientId)
+  const patientNameForNotification = patient.name
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
   try {
-    await Promise.all([
-      optimizedUpdatePatient(patientId, {
-        isDeleted: true,
-        originalStatus: patientToDelete.status,
-        deleteReason: reason,
-        deletedAt: new Date().toISOString(),
-      }),
-      removeRuleFromMasterSchedule(patientId),
-    ])
-    console.log(`[Optimistic] Backend delete successful for ${patientNameForNotification}.`)
-    refreshStatsWithDelay()
+    await optimizedUpdatePatient(patientId, {
+      isDeleted: true,
+      originalStatus: patient.status,
+      deleteReason: reason,
+      deletedAt: new Date().toISOString(),
+    })
+    await removeRuleFromMasterSchedule(patientId)
+    await refreshAllData() // 成功後刷新
     createGlobalNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
     showAlert('刪除成功', `${patientNameForNotification} 已被刪除...`)
   } catch (err) {
-    console.error('[Optimistic] Backend delete failed:', err)
-    allPatients.value.splice(patientIndex, 0, patientToDelete)
-    showAlert('操作失敗', `刪除病人失敗，資料已自動復原。錯誤：${err.message}`)
+    showAlert('操作失敗', `刪除病人失敗。錯誤：${err.message}`)
   }
 }
 
@@ -708,63 +633,66 @@ function normalizePatientData(patientData) {
     vascAccess: null,
     remarks: '',
   }
-
-  const normalized = {
+  return {
     ...defaults,
     ...patientData,
     hospitalInfo: { ...defaults.hospitalInfo, ...(patientData.hospitalInfo || {}) },
     patientStatus: { ...defaults.patientStatus, ...(patientData.patientStatus || {}) },
   }
-
-  return normalized
 }
 
 async function handleRestoreSelected(targetStatus) {
   isRestoreDialogVisible.value = false
   const patientId = patientToRestoreId.value
   if (!patientId || !targetStatus) return
-
   const historyEntry = deletedPatientHistory.value.find((h) => h.patientId === patientId)
   if (!historyEntry) {
+    // 如果歷史裡沒有，嘗試從主列表找（舊版邏輯）
+    const patientFromAll = allPatients.value.find((p) => p.id === patientId)
+    if (patientFromAll) {
+      // 走舊版復原邏輯
+      const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+      const targetStatusText = statusMap[targetStatus] || '列表'
+      try {
+        await optimizedUpdatePatient(patientId, {
+          isDeleted: false,
+          status: targetStatus,
+          deleteReason: null,
+          deletedAt: null,
+          originalStatus: null,
+        })
+        await refreshAllData() // 成功後刷新
+        createGlobalNotification(
+          `復原病人：${patientFromAll.name} 至 ${targetStatusText}`,
+          'patient',
+        )
+        showAlert('復原成功', `${patientFromAll.name} 已復原並移至「${targetStatusText}」清單。`)
+      } catch (err) {
+        showAlert('操作失敗', `復原病人時發生錯誤：${err.message}`)
+      } finally {
+        patientToRestoreId.value = null
+      }
+      return
+    }
     showAlert('錯誤', '在刪除歷史中找不到該病人資料，無法復原。')
     patientToRestoreId.value = null
     return
   }
-
+  // 走新版快照復原邏輯
   const patientName = historyEntry.patientName
   const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
   const targetStatusText = statusMap[targetStatus] || '列表'
-
   try {
-    const updateData = {
+    const dataToRestore = {
+      ...normalizePatientData(historyEntry.snapshot || {}),
       isDeleted: false,
       status: targetStatus,
       deleteReason: null,
       deletedAt: null,
       originalStatus: null,
     }
-
-    const normalizedSnapshot = normalizePatientData(historyEntry.snapshot || {})
-
-    const dataToRestore = {
-      ...normalizedSnapshot,
-      ...updateData,
-    }
-
     await optimizedUpdatePatient(patientId, dataToRestore)
-
-    const indexToRemove = deletedPatientHistory.value.findIndex((h) => h.patientId === patientId)
-    if (indexToRemove > -1) {
-      deletedPatientHistory.value.splice(indexToRemove, 1)
-    }
-
-    addPatientInStore({
-      id: patientId,
-      name: patientName,
-      ...dataToRestore,
-    })
-
-    refreshStatsWithDelay()
+    await refreshAllData() // 成功後刷新
     createGlobalNotification(`復原病人：${patientName} 至 ${targetStatusText}`, 'patient')
     showAlert('復原成功', `${patientName} 已復原並移至「${targetStatusText}」清單。`)
   } catch (err) {
@@ -792,9 +720,8 @@ async function handleSaveOrder(orderData) {
     effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
   }
   try {
-    const updateData = { dialysisOrders: cleanOrders }
-    await optimizedUpdatePatient(patientId, updateData)
-    updatePatientInStore({ id: patientId, ...updateData })
+    await optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders })
+    await refreshAllData() // 成功後刷新
     isOrderModalVisible.value = false
     createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
   } catch (error) {
@@ -818,17 +745,12 @@ async function handleWardNumberConfirm(value) {
   if (!editingPatientForWardNumber.value?.id) return
   const patientId = editingPatientForWardNumber.value.id
   const patientName = editingPatientForWardNumber.value.name
-
   try {
-    const originalValue = editingPatientForWardNumber.value.wardNumber
-    updatePatientInStore({ id: patientId, wardNumber: trimmedValue })
     await optimizedUpdatePatient(patientId, { wardNumber: trimmedValue })
-    console.log(`[Optimistic] Ward number updated for ${patientName}.`)
+    await refreshAllData() // 成功後刷新
     createGlobalNotification(`更新床號：${patientName} -> ${trimmedValue || '無'}`, 'patient')
   } catch (error) {
-    console.error('更新床號失敗:', error)
-    updatePatientInStore({ id: patientId, wardNumber: originalValue })
-    showAlert('操作失敗', `更新床號失敗，資料已復原: ${error.message}`)
+    showAlert('操作失敗', `更新床號失敗: ${error.message}`)
   } finally {
     isWardDialogVisible.value = false
     editingPatientForWardNumber.value = null
@@ -836,7 +758,7 @@ async function handleWardNumberConfirm(value) {
   }
 }
 
-// --- 其他 UI 相關函式 ---
+// --- UI 相關函式 (保留最新版功能) ---
 function cancelDelete() {
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
@@ -874,29 +796,24 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
-// ✨ [需求 1 新增] 為已刪除列表新增排序處理函式
 function handleDeletedSort(key) {
   if (deletedSort.value.column === key) {
     deletedSort.value.order = deletedSort.value.order === 'asc' ? 'desc' : 'asc'
   } else {
     deletedSort.value.column = key
-    deletedSort.value.order = 'desc' // 預設降序
+    deletedSort.value.order = 'desc'
   }
 }
-
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
   globalSearchTerm.value = ''
 }
-
-// --- ✨ [需求 2 修正] 更新 formatDate 函式以使用新 helper ---
 function formatDate(dateInput) {
   const date = normalizeDateObject(dateInput)
   if (!date) return ''
   return date.toISOString().split('T')[0]
 }
-
 function getRowClass(p) {
   if (p.isDiscontinued) return 'status-discontinued'
   if (p.isDeleted) return 'status-deleted'
@@ -943,13 +860,29 @@ function exportDeletedPatients() {
 }
 
 onMounted(() => {
-  refreshAllStatsData()
+  // 使用 Pinia 的 action 進行初始數據加載
+  patientStore.fetchPatientsIfNeeded().then(() => {
+    // 初始統計計算
+    refreshAllData()
+  })
   window.addEventListener('click', closePopovers)
 })
-
 onUnmounted(() => {
   window.removeEventListener('click', closePopovers)
 })
+
+// ✨ 核心功能恢復：監聽 Pinia store 的變化來重新計算統計數據
+//    這樣可以確保統計數據在任何地方更新病人資料後都能保持最新
+watch(
+  allPatients,
+  (newPatients) => {
+    // 僅在 store 數據變化時重新計算，避免重複調用 API
+    fetchPatientHistoryForStats().then((patientHistoryForStats) => {
+      calculateStats(newPatients, patientHistoryForStats)
+    })
+  },
+  { deep: true },
+)
 </script>
 
 <template>
