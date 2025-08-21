@@ -606,10 +606,25 @@ const groupedPatients = computed(() => {
   if (groups.晚班.length === 0) delete groups.晚班
   return groups
 })
-const displayDate = computed(() => route.query.date || new Date().toISOString().slice(0, 10))
+
+// 建立一個輔助函式來取得本地日期的 YYYY-MM-DD 格式
+const getLocalDateString = (date) => {
+  const year = date.getFullYear()
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+// 修正 displayDate，使其預設使用本地日期
+const displayDate = computed(() => route.query.date || getLocalDateString(new Date()))
+
+// 修正 weekdayDisplay，確保它正確地將日期字串解析為本地時間
 const weekdayDisplay = computed(() => {
+  if (!displayDate.value) return ''
   try {
-    const d = new Date(displayDate.value)
+    // 附加 'T00:00:00' 是為了讓 Date() 建構函式明確地將其視為本地時間，
+    // 而非 UTC 時間，從而避免時區造成的 off-by-one 錯誤。
+    const d = new Date(displayDate.value + 'T00:00:00')
     return ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
   } catch {
     return ''
