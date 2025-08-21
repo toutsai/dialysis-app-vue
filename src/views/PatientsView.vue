@@ -1549,18 +1549,45 @@ watch(
   --grey-bg: #f8f9fa;
   --grey-text: #6c757d;
 }
+
+/* ✨ 核心修改 Start ✨ */
 .page-container {
-  padding: 0.5rem;
-  height: 100vh;
+  /* 移除固定的 vh 高度，讓它從父層(content-wrapper)繼承高度 */
+  height: 100%;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
+  background-color: #fff; /* 新增背景色，避免看到後面的灰色 */
+  padding: 1rem; /* 調整 padding */
 }
+
+.page-title,
+.main-stats-bar,
+.view-header,
+.toolbar {
+  /* 確保所有頭部元素都不會被壓縮 */
+  flex-shrink: 0;
+}
+
+.tab-content {
+  flex-grow: 1;
+  min-height: 0; /* 關鍵屬性 */
+  display: flex;
+  flex-direction: column;
+}
+
+.table-wrapper {
+  flex-grow: 1;
+  min-height: 0; /* 關鍵屬性 */
+  overflow-y: auto; /* 只有這個元素可以滾動 */
+}
+/* ✨ 核心修改 End ✨ */
+
 .page-title {
   margin-bottom: 1rem;
   color: #333;
   font-weight: bold;
-  flex-shrink: 0;
+  flex-shrink: 0; /* ✨確保標題不會被壓縮 */
 }
 .main-stats-bar {
   display: flex;
@@ -1571,7 +1598,6 @@ watch(
   gap: 1rem;
   padding-bottom: 1rem;
   border-bottom: 2px solid #dee2e6;
-  flex-shrink: 0;
 }
 .source-stats {
   display: flex;
@@ -1672,9 +1698,10 @@ watch(
   border-top: 1px solid #e9ecef;
   margin: 0.5rem 0;
 }
+/* ✨ 2. 核心修改：讓頁籤內容區也成為 Flex 容器，並設定其佔用剩餘空間 */
 .tab-content {
-  flex-grow: 1;
-  min-height: 0;
+  flex-grow: 1; /* ✨ 讓這個元素撐滿父容器剩餘的所有空間 */
+  min-height: 0; /* ✨ 關鍵屬性！允許子元素的高度小於其內容，從而啟用內部滾動 */
   display: flex;
   flex-direction: column;
 }
@@ -1685,7 +1712,7 @@ watch(
   gap: 20px;
   flex-wrap: wrap;
   margin-bottom: 15px;
-  flex-shrink: 0;
+  flex-shrink: 0; /* ✨ 確保搜尋框等不會被壓縮 */
 }
 .controls-left {
   display: flex;
@@ -1730,11 +1757,15 @@ watch(
   min-width: 200px;
   background-color: #f8f9fa;
 }
+
+/* ✨ 3. 核心修改：讓表格容器可以內部滾動 */
 .table-wrapper {
-  flex-grow: 1;
-  overflow-y: auto;
-  min-height: 0;
+  flex-grow: 1; /* ✨ 讓表格撐滿 tab-content 的剩餘空間 */
+  overflow-y: auto; /* ✨ 關鍵屬性！當內容超出時，顯示垂直滾動條 */
+  min-height: 0; /* ✨ 同樣關鍵，允許容器收縮 */
 }
+
+/* ... (中間大部分樣式不變) ... */
 .flex-table-wrapper {
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -1769,6 +1800,9 @@ watch(
 }
 .col-name {
   flex: 0 0 140px;
+}
+.col-ward-number {
+  flex: 0 0 100px;
 }
 .col-mrn {
   flex: 0 0 90px;
@@ -1980,6 +2014,7 @@ watch(
   margin-bottom: 15px;
   flex-wrap: wrap;
   gap: 15px;
+  flex-shrink: 0; /* ✨ 確保工具列不會被壓縮 */
 }
 .toolbar button {
   padding: 8px 15px;
@@ -2089,7 +2124,6 @@ watch(
   color: #495057;
   margin-right: 0.5em;
 }
-
 .btn-restore {
   background-color: var(--success-color);
   border-color: var(--success-color);
@@ -2105,18 +2139,12 @@ watch(
 .btn-icon.btn-restore:hover:not(:disabled) {
   background-color: #d1fae5;
 }
-
 .mobile-only {
   display: none;
 }
 .desktop-only {
   display: block;
 }
-/* ✨ [需求 1] 新增住院床號欄位和儲存格的樣式 */
-.col-ward-number {
-  flex: 0 0 100px;
-}
-
 .ward-number-cell {
   width: 100%;
   height: 100%;
@@ -2127,11 +2155,9 @@ watch(
   border-radius: 4px;
   transition: background-color 0.2s;
 }
-
 .ward-number-cell.is-editable {
   cursor: pointer;
 }
-
 .ward-number-cell.is-editable:hover {
   background-color: #e9ecef;
 }
@@ -2144,6 +2170,7 @@ watch(
   }
 }
 @media (max-width: 992px) {
+  /* ✨ 4. 核心修改：行動版佈局也要調整 */
   .desktop-only {
     display: none !important;
   }
@@ -2152,8 +2179,7 @@ watch(
   }
   .page-container {
     padding: 0;
-    background-color: #f8f9fa;
-    padding-bottom: 80px;
+    background-color: #f8f9fa; /* 移除 padding-bottom，讓內容自己滾動 */
   }
   .mobile-header {
     background-color: #fff;
@@ -2162,6 +2188,7 @@ watch(
     position: sticky;
     top: 0;
     z-index: 10;
+    flex-shrink: 0;
   }
   .mobile-header .page-title {
     text-align: center;
@@ -2198,7 +2225,9 @@ watch(
   }
   .tab-content-mobile {
     padding: 1rem;
-  }
+    overflow-y: auto;
+    flex-grow: 1;
+  } /* ✨ 讓行動版內容區可以滾動 */
   .cards-container {
     display: flex;
     flex-direction: column;
@@ -2314,6 +2343,7 @@ watch(
     padding: 1rem;
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
     z-index: 100;
+    flex-shrink: 0;
   }
   .fixed-bottom-bar .search-group {
     display: flex;

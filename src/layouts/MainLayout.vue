@@ -11,16 +11,6 @@
           </span>
         </div>
         <ul class="sidebar-nav">
-          <!-- ✨ [核心修改] 在訊息中心連結上加入通知角標 -->
-          <li>
-            <RouterLink to="/collaboration" class="nav-link">
-              <span>訊息中心</span>
-              <span v-if="todayTaskCount > 0" class="notification-badge">
-                {{ todayTaskCount }}
-              </span>
-            </RouterLink>
-          </li>
-
           <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
           <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
           <li class="desktop-only-nav-item">
@@ -32,6 +22,15 @@
           <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
           <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
           <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
+          <!-- ✨ [核心修改] 在訊息中心連結上加入通知角標 -->
+          <li>
+            <RouterLink to="/collaboration" class="nav-link">
+              <span>訊息中心</span>
+              <span v-if="todayTaskCount > 0" class="notification-badge">
+                {{ todayTaskCount }}
+              </span>
+            </RouterLink>
+          </li>
         </ul>
       </div>
 
@@ -410,8 +409,12 @@ onUnmounted(() => {
 }
 .content-wrapper {
   flex-grow: 1;
-  overflow-y: auto;
+  overflow-y: auto; /* ✨ 關鍵：將滾動責任交給 wrapper，但我們稍後會覆蓋它 */
   padding: 1.2rem;
+  /* ✨ 新增下面這三行 */
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* 確保 wrapper 嘗試撐滿 content-area */
 }
 
 .management-section {
