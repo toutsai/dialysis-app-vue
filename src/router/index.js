@@ -16,7 +16,7 @@ const routes = [
     component: MainLayout,
     meta: { requiresAuth: true },
     children: [
-      { path: '', name: 'Home', redirect: '/schedule' },
+      { path: '', name: 'Home', redirect: '/collaboration' },
       {
         path: 'schedule',
         name: 'Schedule',
@@ -125,7 +125,7 @@ router.beforeEach(async (to, from, next) => {
     next({ name: 'Login', query: { redirect: to.fullPath } })
     // 2. 如果使用者已登入，但試圖訪問登入頁
   } else if (to.name === 'Login' && isLoggedIn.value) {
-    next({ name: 'Schedule' }) // 直接導向首頁
+    next({ name: 'Collaboration' }) // 直接導向首頁
     // 3. 如果路由需要管理員權限
   } else if (requiresAdmin) {
     if (isAdmin.value) {
