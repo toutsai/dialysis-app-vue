@@ -75,8 +75,90 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
   }
   return dailySchedule
 }
+
+// ✨ [第 1 步] 請將這個新的輔助函式完整地複製到您的檔案頂部
+/**
+ * 清理指定病人在未來排程中的附加資料 (護理師分組、手動備註)。
+ * @param {string} patientId 病人 ID。
+ * @param {object} options 清理選項。
+ * @param {boolean} options.clearTeams 是否清理護理師分組。
+ * @param {boolean} options.clearManualNote 是否清空手動備註。
+ */
+async function cleanupFuturePatientMetadata(patientId, options = {}) {
+  const { clearTeams = false, clearManualNote = false } = options
+
+  if (!clearTeams && !clearManualNote) {
+    logger.info(
+      `[Metadata Cleanup] No cleanup options provided for patient ${patientId}. Skipping.`,
+    )
+    return
+  }
+
+  logger.info(`[Metadata Cleanup] Starting for patient ${patientId}...`, options)
+  const todayStr = formatDateForQuery(new Date())
+
+  const batch = db.batch()
+  let updatesCount = 0
+
+  try {
+    // 1. 清理 nurse_assignments
+    if (clearTeams) {
+      const assignmentsSnapshot = await db
+        .collection('nurse_assignments')
+        .where('date', '>=', todayStr)
+        .get()
+
+      assignmentsSnapshot.forEach((doc) => {
+        const teamsData = doc.data().teams || {}
+        const updates = {}
+        let needsUpdate = false
+        for (const teamKey in teamsData) {
+          if (teamKey.startsWith(patientId + '-')) {
+            updates[`teams.${teamKey}`] = FieldValue.delete()
+            needsUpdate = true
+          }
+        }
+        if (needsUpdate) {
+          batch.update(doc.ref, updates)
+          updatesCount++
+        }
+      })
+    }
+
+    // 2. 清理 schedules 中的 manualNote
+    if (clearManualNote) {
+      const schedulesSnapshot = await db.collection('schedules').where('date', '>=', todayStr).get()
+
+      schedulesSnapshot.forEach((doc) => {
+        const scheduleData = doc.data().schedule || {}
+        const updates = {}
+        let needsUpdate = false
+        for (const shiftId in scheduleData) {
+          if (scheduleData[shiftId]?.patientId === patientId) {
+            updates[`schedule.${shiftId}.manualNote`] = ''
+            needsUpdate = true
+          }
+        }
+        if (needsUpdate) {
+          batch.update(doc.ref, updates)
+          updatesCount++
+        }
+      })
+    }
+
+    if (updatesCount > 0) {
+      await batch.commit()
+      logger.info(`[Metadata Cleanup] Successfully committed cleanup for patient ${patientId}.`)
+    } else {
+      logger.info(`[Metadata Cleanup] No future metadata found to clean for patient ${patientId}.`)
+    }
+  } catch (error) {
+    logger.error(`[Metadata Cleanup] Error cleaning metadata for patient ${patientId}:`, error)
+  }
+}
+
 async function reapplyAllExceptionsInternal(baseSchedules) {
-  /* ... no change ... */ logger.info('🔄 [ReapplyExceptions] 開始兩階段調班處理')
+  logger.info('🔄 [ReapplyExceptions] 開始兩階段調班處理')
   try {
     const exceptionsSnapshot = await db
       .collection('schedule_exceptions')
@@ -189,10 +271,14 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
   }
 }
 
+// ✨ [第 2 步] 請用以下完整函式替換您現有的 onPatientDataChange
 exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
   const patientId = event.params.patientId
   const beforeData = event.data?.before.data()
   const afterData = event.data?.after.data()
+
+  // 建立一個任務陣列，用來收集所有需要執行的非同步操作
+  const tasks = []
 
   // 輔助函式，建立一個包含所有必要欄位的快照
   const createSnapshot = (data) => ({
@@ -205,53 +291,72 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     dialysisReason: data.dialysisReason || null,
   })
 
-  // 情況 1: 新增病人 (文件被創建)
+  // --- 任務 1: 寫入病人歷史記錄 ---
+  let historyWritten = false
+
+  // 情況 1: 新增病人
   if (!beforeData && afterData) {
     logger.info(`[History] 新增病人 ${afterData.name} (ID: ${patientId})`)
-    return db.collection('patient_history').add({
-      patientId,
-      patientName: afterData.name,
-      timestamp: FieldValue.serverTimestamp(),
-      eventType: 'CREATE',
-      eventDetails: { status: afterData.status },
-      snapshot: createSnapshot(afterData),
-    })
+    tasks.push(
+      db.collection('patient_history').add({
+        patientId,
+        patientName: afterData.name,
+        timestamp: FieldValue.serverTimestamp(),
+        eventType: 'CREATE',
+        eventDetails: { status: afterData.status },
+        snapshot: createSnapshot(afterData),
+      }),
+    )
+    historyWritten = true
   }
-
-  // 情況 2: 刪除病人 (isDeleted 從 false 變為 true)
-  if (beforeData && afterData && beforeData.isDeleted === false && afterData.isDeleted === true) {
+  // 情況 2: 刪除病人
+  else if (
+    beforeData &&
+    afterData &&
+    beforeData.isDeleted === false &&
+    afterData.isDeleted === true
+  ) {
     logger.info(`[History] 刪除病人 ${afterData.name} (ID: ${patientId})`)
-    return db.collection('patient_history').add({
-      patientId,
-      patientName: afterData.name,
-      timestamp: FieldValue.serverTimestamp(),
-      eventType: 'DELETE',
-      eventDetails: {
-        reason: afterData.deleteReason || '未知',
-        fromStatus: beforeData.status,
-      },
-      snapshot: createSnapshot(afterData),
-    })
+    tasks.push(
+      db.collection('patient_history').add({
+        patientId,
+        patientName: afterData.name,
+        timestamp: FieldValue.serverTimestamp(),
+        eventType: 'DELETE',
+        eventDetails: {
+          reason: afterData.deleteReason || '未知',
+          fromStatus: beforeData.status,
+        },
+        snapshot: createSnapshot(afterData),
+      }),
+    )
+    historyWritten = true
   }
-
-  // 情況 3: 復原病人 (isDeleted 從 true 變為 false)
-  if (beforeData && afterData && beforeData.isDeleted === true && afterData.isDeleted === false) {
+  // 情況 3: 復原病人
+  else if (
+    beforeData &&
+    afterData &&
+    beforeData.isDeleted === true &&
+    afterData.isDeleted === false
+  ) {
     logger.info(`[History] 復原病人 ${afterData.name} (ID: ${patientId}) 至 ${afterData.status}`)
-    return db.collection('patient_history').add({
-      patientId,
-      patientName: afterData.name,
-      timestamp: FieldValue.serverTimestamp(),
-      eventType: 'RESTORE_AND_TRANSFER',
-      eventDetails: {
-        restoredTo: afterData.status,
-        fromReason: beforeData.deleteReason || '未知',
-      },
-      snapshot: createSnapshot(afterData),
-    })
+    tasks.push(
+      db.collection('patient_history').add({
+        patientId,
+        patientName: afterData.name,
+        timestamp: FieldValue.serverTimestamp(),
+        eventType: 'RESTORE_AND_TRANSFER',
+        eventDetails: {
+          restoredTo: afterData.status,
+          fromReason: beforeData.deleteReason || '未知',
+        },
+        snapshot: createSnapshot(afterData),
+      }),
+    )
+    historyWritten = true
   }
-
-  // 情況 4: 狀態轉移 (isDeleted 保持 false，但 status 改變)
-  if (
+  // 情況 4: 狀態轉移
+  else if (
     beforeData &&
     afterData &&
     beforeData.isDeleted === false &&
@@ -261,20 +366,66 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     logger.info(
       `[History] 轉移病人 ${afterData.name} 從 ${beforeData.status} 到 ${afterData.status}`,
     )
-    return db.collection('patient_history').add({
-      patientId,
-      patientName: afterData.name,
-      timestamp: FieldValue.serverTimestamp(),
-      eventType: 'TRANSFER',
-      eventDetails: {
-        from: beforeData.status,
-        to: afterData.status,
-      },
-      snapshot: createSnapshot(afterData),
-    })
+    tasks.push(
+      db.collection('patient_history').add({
+        patientId,
+        patientName: afterData.name,
+        timestamp: FieldValue.serverTimestamp(),
+        eventType: 'TRANSFER',
+        eventDetails: {
+          from: beforeData.status,
+          to: afterData.status,
+        },
+        snapshot: createSnapshot(afterData),
+      }),
+    )
+    historyWritten = true
   }
 
-  logger.info(`[History] 病人 ${patientId} 的一般資料更新，無需記錄動向歷史。`)
+  if (!historyWritten) {
+    logger.info(`[History] 病人 ${patientId} 的一般資料更新，無需記錄動向歷史。`)
+  }
+
+  // --- 任務 2: 根據狀態變更，執行資料清理 ---
+
+  // 情況 A: 病人被標記為刪除。
+  if (beforeData && afterData && beforeData.isDeleted === false && afterData.isDeleted === true) {
+    logger.info(`[Cleanup Trigger] Patient ${patientId} was deleted. Cleaning up...`)
+    // 清理護理師分組 (排程本身會由 syncMasterScheduleToFuture 處理)
+    tasks.push(cleanupFuturePatientMetadata(patientId, { clearTeams: true }))
+    // 如果病人身上還有 wardNumber，則清空它
+    if (afterData.wardNumber) {
+      tasks.push(event.data.after.ref.update({ wardNumber: null }))
+    }
+  }
+
+  // 情況 B: 病人從住院/急診轉為門診。
+  if (
+    beforeData &&
+    afterData &&
+    !afterData.isDeleted &&
+    (beforeData.status === 'ipd' || beforeData.status === 'er') &&
+    afterData.status === 'opd'
+  ) {
+    logger.info(`[Cleanup Trigger] Patient ${patientId} transferred to OPD. Cleaning up...`)
+    // 清理未來的 manualNote 和護理師分組
+    tasks.push(cleanupFuturePatientMetadata(patientId, { clearManualNote: true, clearTeams: true }))
+    // 如果病人身上還有 wardNumber，則清空它
+    if (afterData.wardNumber) {
+      tasks.push(event.data.after.ref.update({ wardNumber: null }))
+    }
+  }
+
+  // --- 統一執行所有收集到的任務 ---
+  try {
+    if (tasks.length > 0) {
+      await Promise.all(tasks)
+      logger.info(`Successfully executed ${tasks.length} tasks for patient ${patientId}.`)
+    }
+  } catch (error) {
+    logger.error(`Error executing tasks for patient ${patientId}:`, error)
+  }
+
   return null
 })
 
