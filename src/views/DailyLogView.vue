@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/views/DailyLogView.vue (已修正日期導覽列與按鈕樣式) -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -34,6 +33,14 @@
     <main class="log-page-main">
       <!-- ==================== 第一區: 營運統計 ==================== -->
       <section class="log-section">
+        <!-- ✨ [Template 修改] 新增 section-header 來包裹標題和同步按鈕 ✨ -->
+        <div class="section-header">
+          <h2>營運統計</h2>
+          <button @click="syncStatsWithSchedule" class="sync-stats-btn">
+            <i class="fas fa-sync-alt"></i> 同步排班人數
+          </button>
+        </div>
+
         <div class="stats-grid">
           <!-- Grid Headers -->
           <div class="grid-header cell-item">項目</div>
@@ -211,7 +218,6 @@
         </div>
       </section>
 
-      <!-- ... (其他 template 內容保持不變) ... -->
       <section class="log-section">
         <div class="section-header">
           <h2>病人動態表</h2>
@@ -383,8 +389,6 @@
       <footer class="log-page-footer">
         <div class="leader-signature-grid">
           <div class="leader-title">組長簽核</div>
-
-          <!-- 第一班 -->
           <div class="signature-slot">
             <span class="shift-label">第一班：</span>
             <div v-if="dailyLog.leader.early.name" class="signature-display">
@@ -413,8 +417,6 @@
             </div>
             <button v-else @click="signAsLeader('early')" class="sign-btn">簽核</button>
           </div>
-
-          <!-- 第二班 -->
           <div class="signature-slot">
             <span class="shift-label">第二班：</span>
             <div v-if="dailyLog.leader.noon.name" class="signature-display">
@@ -443,8 +445,6 @@
             </div>
             <button v-else @click="signAsLeader('noon')" class="sign-btn">簽核</button>
           </div>
-
-          <!-- 第三班 -->
           <div class="signature-slot">
             <span class="shift-label">第三班：</span>
             <div v-if="dailyLog.leader.late.name" class="signature-display">
@@ -693,9 +693,27 @@ async function loadDailyLog(dateStr) {
   }
 }
 
+// ✨ [Script 修改] 微調函式，讓它只更新特定部分的 stats
 function calculateStatsFromSchedule(scheduleRecord) {
-  const stats = initialLogState().stats
-  if (!scheduleRecord || !scheduleRecord.schedule) return
+  const newStats = {
+    main_beds: {
+      early: { opd: 0, ipd_er: 0, total: 0 },
+      noon: { opd: 0, ipd_er: 0, total: 0 },
+      late: { opd: 0, ipd_er: 0, total: 0 },
+    },
+    peripheral_beds: {
+      early: { ipd: 0, er: 0, total: 0 },
+      noon: { ipd: 0, er: 0, total: 0 },
+      late: { ipd: 0, er: 0, total: 0 },
+    },
+  }
+
+  if (!scheduleRecord || !scheduleRecord.schedule) {
+    dailyLog.stats.main_beds = newStats.main_beds
+    dailyLog.stats.peripheral_beds = newStats.peripheral_beds
+    return
+  }
+
   for (const shiftKey in scheduleRecord.schedule) {
     const slotData = scheduleRecord.schedule[shiftKey]
     if (!slotData?.patientId) continue
@@ -704,23 +722,50 @@ function calculateStatsFromSchedule(scheduleRecord) {
     const shiftCode = shiftKey.split('-').pop()
     const isPeripheral = shiftKey.startsWith('peripheral')
     if (isPeripheral) {
-      stats.peripheral_beds[shiftCode].total++
+      newStats.peripheral_beds[shiftCode].total++
       if (patient.status === 'ipd') {
-        stats.peripheral_beds[shiftCode].ipd++
+        newStats.peripheral_beds[shiftCode].ipd++
       } else if (patient.status === 'er') {
-        stats.peripheral_beds[shiftCode].er++
+        newStats.peripheral_beds[shiftCode].er++
       }
     } else {
-      stats.main_beds[shiftCode].total++
+      newStats.main_beds[shiftCode].total++
       if (patient.status === 'opd') {
-        stats.main_beds[shiftCode].opd++
+        newStats.main_beds[shiftCode].opd++
       } else if (patient.status === 'ipd' || patient.status === 'er') {
-        stats.main_beds[shiftCode].ipd_er++
+        newStats.main_beds[shiftCode].ipd_er++
       }
     }
   }
-  dailyLog.stats.main_beds = stats.main_beds
-  dailyLog.stats.peripheral_beds = stats.peripheral_beds
+
+  dailyLog.stats.main_beds = newStats.main_beds
+  dailyLog.stats.peripheral_beds = newStats.peripheral_beds
+}
+
+// ✨ [Script 修改] 新增同步按鈕的處理函式
+async function syncStatsWithSchedule() {
+  showConfirm(
+    '確認同步人數',
+    '此操作將會用最新的「每日排程表」資料覆蓋上方的「洗腎中心床位」與「急重症床位」統計。您手動填寫的其他欄位（如病人照護、護理人力）將不受影響。確定要繼續嗎？',
+    async () => {
+      isLoading.value = true
+      try {
+        const scheduleData = await schedulesApi.fetchAll([where('date', '==', selectedDate.value)])
+        if (scheduleData.length > 0) {
+          calculateStatsFromSchedule(scheduleData[0])
+          hasUnsavedChanges.value = true
+          showAlert('同步成功', '人數統計已更新，請記得儲存變更！')
+        } else {
+          showAlert('同步失敗', `找不到 ${selectedDate.value} 的排班資料。`)
+        }
+      } catch (error) {
+        console.error('同步排班統計失敗:', error)
+        showAlert('同步失敗', '同步人數統計時發生錯誤。')
+      } finally {
+        isLoading.value = false
+      }
+    },
+  )
 }
 
 function changeDate(days) {
@@ -1034,6 +1079,9 @@ watch(
 </script>
 
 <style scoped>
+/* ✨ [Style 修改] 引入 Font Awesome (如果全域沒有的話) 和新增按鈕樣式 ✨ */
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+
 /* 頁面與標題 */
 .log-page-container {
   padding: 0.5rem;
@@ -1066,8 +1114,6 @@ h1 {
   align-items: center;
   gap: 10px;
 }
-
-/* ✨ START: 日期導航欄樣式修正 ✨ */
 .date-navigator button {
   padding: 0.6rem 1.2rem;
   font-size: 1rem;
@@ -1118,8 +1164,6 @@ h1 {
 .btn-goto-today {
   order: 3;
 }
-/* ✨ END: 日期導航欄樣式修正 ✨ */
-
 .status-indicator {
   font-style: italic;
   color: #6c757d;
@@ -1158,6 +1202,8 @@ h1 {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
+
+/* ✨ [Style 修改] 新增同步按鈕和 section-header 樣式 ✨ */
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -1170,6 +1216,29 @@ h1 {
   border: none;
   font-size: 1.5rem;
   color: #495057;
+}
+.sync-stats-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  background-color: #6c757d;
+  color: white;
+  border: 1px solid #6c757d;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sync-stats-btn:hover {
+  background-color: #5a6268;
+}
+.sync-stats-btn .fa-sync-alt {
+  animation: none;
+}
+.sync-stats-btn:active .fa-sync-alt {
+  animation: spin 1s linear infinite;
 }
 .add-row-btn-header {
   padding: 0.5rem 1rem;
@@ -1190,6 +1259,7 @@ h1 {
   border-radius: 8px;
   overflow: hidden;
 }
+/* ... (其餘所有樣式保持不變) ... */
 .stats-grid > div {
   padding: 0.75rem;
   border-bottom: 1px solid #e9ecef;
@@ -1244,8 +1314,6 @@ h1 {
   text-align: center;
   font-size: 1.1rem;
 }
-
-/* 動態表格 */
 .dynamic-table-container {
   width: 100%;
   overflow-x: auto;
@@ -1279,8 +1347,6 @@ h1 {
   outline: none;
   border-color: #80bdff;
 }
-
-/* 欄位寬度 */
 .dynamic-table .col-name {
   width: 12%;
   min-width: 120px;
@@ -1320,7 +1386,6 @@ h1 {
   min-width: 80px;
   text-align: center;
 }
-
 .delete-btn {
   background-color: #dc3545;
   color: white;

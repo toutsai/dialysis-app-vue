@@ -133,7 +133,7 @@
           </div>
         </div>
         <div class="message-section feed-messages">
-          <h2 class="panel-title"><i class="fas fa-stream"></i> 我的病人資訊流</h2>
+          <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
           <div v-if="isLoading.messages" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
