@@ -15,7 +15,6 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import PatientHistoryModal from '@/components/PatientHistoryModal.vue'
-// ✨ [需求 1] 引入 WardNumberDialog 元件
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
@@ -37,6 +36,9 @@ const patientHistoryApi = ApiManager('patient_history')
 // --- 狀態定義 ---
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'updatedAt', order: 'desc' })
+// ✨ [需求 1] 新增已刪除列表的排序狀態
+const deletedSort = ref({ column: 'timestamp', order: 'desc' })
+
 const deletedPatientHistory = ref([])
 const erListFilter = ref('')
 const ipdListFilter = ref('')
@@ -74,8 +76,6 @@ const newPatientDataForConflict = ref(null)
 const existingPatientForConflict = ref(null)
 const isRestoreDialogVisible = ref(false)
 const patientToRestoreId = ref(null)
-
-// ✨ [需求 1] 新增控制 WardNumberDialog 的 ref
 const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const editingPatientForWardNumber = ref(null)
@@ -115,6 +115,24 @@ const RESTORE_OPTIONS = [
   { value: 'ipd', text: '復原至 住院' },
   { value: 'er', text: '復原至 急診' },
 ]
+
+// --- ✨ [需求 2 核心修正] 建立一個萬用的日期轉換函式 ---
+/**
+ * 將 Firestore Timestamp 物件或 ISO 字串標準化為 JavaScript Date 物件。
+ * @param {object|string} dateInput - 可能是 Timestamp 或 ISO 字串。
+ * @returns {Date|null} - 返回 Date 物件，如果輸入無效則返回 null。
+ */
+function normalizeDateObject(dateInput) {
+  if (!dateInput) return null
+  // 如果是 Firestore Timestamp 物件，它會有 toDate 方法
+  if (typeof dateInput.toDate === 'function') {
+    return dateInput.toDate()
+  }
+  // 否則，嘗試當作字串來解析
+  const date = new Date(dateInput)
+  // 檢查解析結果是否為有效日期
+  return isNaN(date.getTime()) ? null : date
+}
 
 // --- computed properties ---
 const displayedPatients = computed(() => {
@@ -158,10 +176,14 @@ const displayedPatients = computed(() => {
       valA = a[sortColumn]
       valB = b[sortColumn]
     }
-    if (valA && typeof valA.toDate === 'function') valA = valA.toDate()
-    if (valB && typeof valB.toDate === 'function') valB = valB.toDate()
-    valA = valA || ''
-    valB = valB || ''
+
+    // ✨ [需求 2 修正] 使用新的日期轉換函式
+    const dateA = normalizeDateObject(valA)
+    const dateB = normalizeDateObject(valB)
+
+    valA = dateA || valA || ''
+    valB = dateB || valB || ''
+
     const compare = String(valA).localeCompare(String(valB), 'zh-Hant')
     return currentSort.value.order === 'asc' ? compare : -compare
   })
@@ -173,7 +195,35 @@ const displayedDeletedHistory = computed(() => {
     const term = deletedSearchTerm.value.toLowerCase()
     history = history.filter((h) => h.patientName.toLowerCase().includes(term))
   }
-  return history
+
+  // ✨ [需求 1 新增] 加入排序邏輯
+  return [...history].sort((a, b) => {
+    const sortColumn = deletedSort.value.column
+    // Helper to get nested property
+    const getNestedValue = (obj, path) => path.split('.').reduce((o, key) => o && o[key], obj)
+
+    let valA = getNestedValue(a, sortColumn)
+    let valB = getNestedValue(b, sortColumn)
+
+    // ✨ [需求 2 修正] 同樣使用新的日期轉換函式處理 timestamp
+    const dateA = normalizeDateObject(valA)
+    const dateB = normalizeDateObject(valB)
+
+    valA = dateA || valA || ''
+    valB = dateB || valB || ''
+
+    // Handle numeric comparison for MRN if possible
+    if (sortColumn === 'snapshot.medicalRecordNumber') {
+      const numA = parseInt(valA, 10)
+      const numB = parseInt(valB, 10)
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return deletedSort.value.order === 'asc' ? numA - numB : numB - numA
+      }
+    }
+
+    const compare = String(valA).localeCompare(String(valB), 'zh-Hant')
+    return deletedSort.value.order === 'asc' ? compare : -compare
+  })
 })
 
 const sortedFreqStats = computed(() => {
@@ -215,12 +265,12 @@ async function fetchPatientHistoryForStats() {
     return []
   }
 }
+
 const calculateStats = (allPatientsWithDeleted, patientHistory) => {
-  // --- 輔助函式：將 Date 物件或 Timestamp 轉為 UTC YYYY-MM-DD 字串 ---
+  // --- ✨ [需求 2 修正] 輔助函式改用新的 normalizeDateObject ---
   const toUTCDateString = (dateInput) => {
-    if (!dateInput) return ''
-    const date = dateInput.toDate ? dateInput.toDate() : new Date(dateInput)
-    if (isNaN(date.getTime())) return ''
+    const date = normalizeDateObject(dateInput)
+    if (!date) return ''
     return date.toISOString().split('T')[0] // 直接使用 ISO 格式的日期部分
   }
 
@@ -245,15 +295,12 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
   const currentYear = today.getUTCFullYear()
   const currentMonth = today.getUTCMonth()
 
-  // 本月第一天 (UTC)
   const firstDayThisMonthStr = new Date(Date.UTC(currentYear, currentMonth, 1))
     .toISOString()
     .split('T')[0]
-  // 上個月第一天 (UTC)
   const firstDayLastMonthStr = new Date(Date.UTC(currentYear, currentMonth - 1, 1))
     .toISOString()
     .split('T')[0]
-  // 本月第一天的前一天，即為上個月最後一天 (UTC)
   const lastDayLastMonthStr = new Date(Date.UTC(currentYear, currentMonth, 0))
     .toISOString()
     .split('T')[0]
@@ -278,7 +325,6 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
       }
     }
 
-    // --- 使用字串比較 ---
     if (p.isDeleted && p.originalStatus === 'opd') {
       const deletedAtStr = toUTCDateString(p.deletedAt)
       if (deletedAtStr) {
@@ -647,12 +693,6 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
-// ✨ [第 1 步] 新增這個輔助函式，可以放在 handleRestoreSelected 上方
-/**
- * 確保病人物件具有完整的資料結構，補全缺少的欄位。
- * @param {object} patientData - 從歷史快照中讀取的不完整病人資料。
- * @returns {object} - 結構完整的病人物件。
- */
 function normalizePatientData(patientData) {
   const defaults = {
     diseases: [],
@@ -662,7 +702,6 @@ function normalizePatientData(patientData) {
       isPaused: { active: false, date: null },
       hasBloodDraw: { active: false, date: null },
     },
-    // 也可以在這裡加入其他可能缺少的欄位的預設值
     physician: '',
     freq: null,
     mode: 'HD',
@@ -670,12 +709,9 @@ function normalizePatientData(patientData) {
     remarks: '',
   }
 
-  // 使用展開運算符來合併預設值和實際值
-  // 這樣如果 patientData 中有該欄位，就會使用它的值；如果沒有，就會用 defaults 的值。
   const normalized = {
     ...defaults,
     ...patientData,
-    // 特別處理深層物件，確保它們的結構也完整
     hospitalInfo: { ...defaults.hospitalInfo, ...(patientData.hospitalInfo || {}) },
     patientStatus: { ...defaults.patientStatus, ...(patientData.patientStatus || {}) },
   }
@@ -683,7 +719,6 @@ function normalizePatientData(patientData) {
   return normalized
 }
 
-// ✨ [第 2 步] 用這個完整版本替換您現有的 handleRestoreSelected 函式
 async function handleRestoreSelected(targetStatus) {
   isRestoreDialogVisible.value = false
   const patientId = patientToRestoreId.value
@@ -709,35 +744,26 @@ async function handleRestoreSelected(targetStatus) {
       originalStatus: null,
     }
 
-    // ✨ [核心修正] 在更新後端之前，先補全快照資料
     const normalizedSnapshot = normalizePatientData(historyEntry.snapshot || {})
 
-    // 將補全後的資料與最新的狀態合併，準備寫回後端
-    // 這樣做也能順便修復資料庫中的舊資料
     const dataToRestore = {
       ...normalizedSnapshot,
       ...updateData,
     }
 
-    // 呼叫後端更新，傳入完整的病人物件
     await optimizedUpdatePatient(patientId, dataToRestore)
 
-    // --- 後端成功後，才更新前端 UI ---
-
-    // 1. 從 deletedPatientHistory 列表中移除
     const indexToRemove = deletedPatientHistory.value.findIndex((h) => h.patientId === patientId)
     if (indexToRemove > -1) {
       deletedPatientHistory.value.splice(indexToRemove, 1)
     }
 
-    // 2. 將結構完整的病人物件加回到 Pinia Store
     addPatientInStore({
       id: patientId,
       name: patientName,
       ...dataToRestore,
     })
 
-    // 3. 觸發後續操作
     refreshStatsWithDelay()
     createGlobalNotification(`復原病人：${patientName} 至 ${targetStatusText}`, 'patient')
     showAlert('復原成功', `${patientName} 已復原並移至「${targetStatusText}」清單。`)
@@ -828,7 +854,6 @@ function deletePatient(patientId) {
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
-// ✨ [核心修正] 新增缺失的 restorePatient 函式
 function restorePatient(patientId) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -849,17 +874,29 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
+// ✨ [需求 1 新增] 為已刪除列表新增排序處理函式
+function handleDeletedSort(key) {
+  if (deletedSort.value.column === key) {
+    deletedSort.value.order = deletedSort.value.order === 'asc' ? 'desc' : 'asc'
+  } else {
+    deletedSort.value.column = key
+    deletedSort.value.order = 'desc' // 預設降序
+  }
+}
+
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
   globalSearchTerm.value = ''
 }
-function formatDate(isoString) {
-  if (!isoString) return ''
-  const date = typeof isoString.toDate === 'function' ? isoString.toDate() : new Date(isoString)
-  if (isNaN(date.getTime())) return ''
+
+// --- ✨ [需求 2 修正] 更新 formatDate 函式以使用新 helper ---
+function formatDate(dateInput) {
+  const date = normalizeDateObject(dateInput)
+  if (!date) return ''
   return date.toISOString().split('T')[0]
 }
+
 function getRowClass(p) {
   if (p.isDiscontinued) return 'status-discontinued'
   if (p.isDeleted) return 'status-deleted'
@@ -1283,8 +1320,8 @@ onUnmounted(() => {
           <table class="patient-table deleted-history-table">
             <thead>
               <tr>
-                <th>刪除日期</th>
-                <th>姓名</th>
+                <th @click="handleDeletedSort('timestamp')">刪除日期</th>
+                <th @click="handleDeletedSort('patientName')">姓名</th>
                 <th>病歷號</th>
                 <th>原狀態/原因</th>
                 <th>首次透析/日期</th>
