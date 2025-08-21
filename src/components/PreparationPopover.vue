@@ -1,6 +1,3 @@
-<!-- 檔案路徑: src/components/PreparationPopover.vue -->
-// 檔案路徑: src/components/PreparationPopover.vue
-
 <script setup>
 import { ref, watch, onUnmounted, nextTick, computed } from 'vue'
 
@@ -15,32 +12,39 @@ const emit = defineEmits(['close'])
 const popoverRef = ref(null)
 const popoverStyle = ref({})
 
+// ✨ 核心修改: 定位計算邏輯更新
 const calculatePosition = () => {
-  // 保留這個檢查是個好習慣，以防萬一
   if (!props.targetElement || !popoverRef.value) return
 
   const targetRect = props.targetElement.getBoundingClientRect()
   const popoverRect = popoverRef.value.getBoundingClientRect()
-  const viewportWidth = window.innerWidth
-  const viewportHeight = window.innerHeight
 
-  let top = targetRect.bottom + window.scrollY + 5
-  let left = targetRect.left + window.scrollX
+  // 1. 計算理想位置：預設在目標元素的「正上方」，並水平居中
+  let top = targetRect.top - popoverRect.height - 10 // 向上偏移 10px 的間距
+  let left = targetRect.left + targetRect.width / 2 - popoverRect.width / 2
 
-  // 避免彈出框超出視窗右邊界
-  if (left + popoverRect.width > viewportWidth) {
-    left = viewportWidth - popoverRect.width - 10
-  }
-  // 避免彈出框超出視窗下邊界
-  if (top + popoverRect.height > viewportHeight) {
-    top = targetRect.top + window.scrollY - popoverRect.height - 5
+  // 2. 邊界檢查
+  // 如果上方空間不足，則改為顯示在「正下方」
+  if (top < 10) {
+    // 10px 是距離螢幕頂部的安全邊距
+    top = targetRect.bottom + 10 // 向下偏移 10px
   }
 
-  // 避免彈出框小於0
-  if (top < 0) top = 5
-  if (left < 0) left = 5
+  // 如果左側超出螢幕，則向右移動到安全邊距
+  if (left < 10) {
+    left = 10
+  }
 
+  // 如果右側超出螢幕，則向左移動到安全邊距
+  const screenWidth = window.innerWidth
+  if (left + popoverRect.width > screenWidth - 10) {
+    left = screenWidth - popoverRect.width - 10
+  }
+
+  // 3. 應用樣式
   popoverStyle.value = {
+    // ✨ 使用 fixed 定位，可以無視頁面滾動，定位更精準
+    position: 'fixed',
     top: `${top}px`,
     left: `${left}px`,
   }
@@ -50,79 +54,73 @@ const handleClickOutside = (event) => {
   if (
     popoverRef.value &&
     !popoverRef.value.contains(event.target) &&
+    props.targetElement && // 增加檢查 props.targetElement 是否存在
     !props.targetElement.contains(event.target)
   ) {
     emit('close')
   }
 }
 
-// ✨ --- 核心修正 --- ✨
-// 使用 watch 來動態管理事件監聽器
 watch(
   () => props.isVisible,
-  (newValue, oldValue) => {
+  (newValue) => {
     if (newValue) {
-      // 當彈出框變為可見時
       nextTick(() => {
-        calculatePosition() // 先計算一次位置
-        // 新增監聽器
+        calculatePosition()
         window.addEventListener('resize', calculatePosition)
-        document.addEventListener('mousedown', handleClickOutside)
+        document.addEventListener('mousedown', handleClickOutside, true) // 使用捕獲模式
       })
-    } else if (oldValue) {
-      // 當彈出框從「可見」變為「不可見」時
-      // 立刻移除監聽器
+    } else {
       window.removeEventListener('resize', calculatePosition)
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('mousedown', handleClickOutside, true)
     }
   },
-  { immediate: true }, // ✨ 新增 immediate: true，確保元件初始顯示時也能正確加上監聽器
 )
 
-// ✨ --- 核心修正 --- ✨
-// onMounted 被移除，因為邏輯已經移到 watch 中
-// onUnmounted 仍然保留，作為最後的保險，確保元件銷毀時徹底清除監聽器
 onUnmounted(() => {
   window.removeEventListener('resize', calculatePosition)
-  document.removeEventListener('mousedown', handleClickOutside)
+  document.removeEventListener('mousedown', handleClickOutside, true)
 })
 
 const hasPatients = computed(() => props.patients && props.patients.length > 0)
 </script>
 
 <template>
-  <div v-if="isVisible" ref="popoverRef" class="preparation-popover" :style="popoverStyle">
-    <div v-if="hasPatients" class="popover-content">
-      <table>
-        <thead>
-          <tr>
-            <th>姓名</th>
-            <th>AK</th>
-            <th>Ca</th>
-            <th>Heparin</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="patient in patients" :key="patient.id">
-            <td>{{ patient.name }}</td>
-            <td>{{ patient.dialysisOrders?.ak || '–' }}</td>
-            <td>{{ patient.dialysisOrders?.dialysateCa || '–' }}</td>
-            <td>
-              {{ patient.dialysisOrders?.heparinInitial || '–' }}/{{
-                patient.dialysisOrders?.heparinMaintenance || '–'
-              }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+  <!-- ✨ 核心修改: 使用 Teleport 將彈出框渲染到 body 層級，避免被父元件的樣式影響 -->
+  <Teleport to="body">
+    <div v-if="isVisible" ref="popoverRef" class="preparation-popover" :style="popoverStyle">
+      <div v-if="hasPatients" class="popover-content">
+        <table>
+          <thead>
+            <tr>
+              <th>姓名</th>
+              <th>AK</th>
+              <th>Ca</th>
+              <th>Heparin</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="patient in patients" :key="patient.id">
+              <td>{{ patient.name }}</td>
+              <td>{{ patient.dialysisOrders?.ak || '–' }}</td>
+              <td>{{ patient.dialysisOrders?.dialysateCa || '–' }}</td>
+              <td>
+                {{ patient.dialysisOrders?.heparinInitial || '–' }}/{{
+                  patient.dialysisOrders?.heparinMaintenance || '–'
+                }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="empty-state">沒有需要備物的病人</div>
     </div>
-    <div v-else class="empty-state">沒有需要備物的病人</div>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .preparation-popover {
-  position: absolute;
+  /* ✨ 核心修改: 移除 position: absolute，改由 JS 控制 */
   z-index: 1010;
   background-color: white;
   border: 1px solid #ccc;
