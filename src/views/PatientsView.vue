@@ -430,82 +430,52 @@ async function handleSavePatient(patientData) {
     return
   }
 
+  // --- 編輯現有病人的邏輯 ---
   if (patientData.id) {
-    // 這是編輯病人的邏輯
     const originalPatient = allPatients.value.find((p) => p.id === patientData.id)
     if (!originalPatient) {
       showAlert('錯誤', '找不到原始病人資料，無法更新。')
       return
     }
 
-    // ✨ START: 新增/修改的暫停透析邏輯 ✨
+    // 統一檢查 isPaused 狀態是否從 false 變為 true
     const wasPaused = originalPatient.patientStatus?.isPaused?.active || false
     const isNowPaused = patientData.patientStatus?.isPaused?.active || false
 
-    // 只有當狀態從「未暫停」變為「暫停」時，才觸發
+    // 情況 1: 觸發了「暫停/中止透析」
     if (!wasPaused && isNowPaused) {
       showConfirm(
-        '確認暫停透析',
-        `您確定要將「${patientData.name}」標記為暫停透析嗎？\n\n此操作將會從「總床位表」中移除該病人的固定排班規則，未來的排程將不再自動生成。`,
+        '確認暫停/中止透析',
+        `您確定要將「${patientData.name}」標記為暫停/中止透析嗎？\n\n此操作將會從「總床位表」中移除该病人的固定排班规则。`,
         async () => {
           try {
             closeModal()
 
-            // 1. 先更新病人的狀態
             const dataToUpdate = { ...patientData }
             delete dataToUpdate.id
             dataToUpdate.updatedAt = new Date().toISOString()
 
-            // 將兩個後端操作打包在一起，確保它們都完成
+            // 同時更新病人的狀態 和 移除總表規則
             await Promise.all([
               optimizedUpdatePatient(patientData.id, dataToUpdate),
-              removeRuleFromMasterSchedule(patientData.id), // 2. 呼叫現有的函式移除總表規則
-            ])
-
-            await refreshAllData()
-            createGlobalNotification(`暫停透析：${patientData.name}`, 'patient')
-            showAlert(
-              '操作成功',
-              `已將 ${patientData.name} 標記為暫停透析，並已從總表中移除其固定排班。`,
-            )
-          } catch (err) {
-            showAlert('操作失敗', `暫停透析操作失敗：${err.message}`)
-          }
-        },
-      )
-      return // 結束函式，避免執行後續的常規儲存
-    }
-    // ✨ END: 暫停透析邏輯 ✨
-
-    // 中止透析邏輯 (保持不變)
-    if (!originalPatient.isDiscontinued && patientData.isDiscontinued) {
-      showConfirm(
-        '確認中止透析',
-        `您確定要將「${patientData.name}」標記為中止透析...`,
-        async () => {
-          try {
-            closeModal()
-            // 注意：這裡也呼叫了 removeRuleFromMasterSchedule，邏輯是一致的
-            await Promise.all([
-              optimizedUpdatePatient(patientData.id, {
-                isDiscontinued: true,
-                discontinuedDate:
-                  patientData.discontinuedDate || new Date().toISOString().split('T')[0],
-              }),
               removeRuleFromMasterSchedule(patientData.id),
             ])
+
             await refreshAllData()
-            createGlobalNotification(`中止透析：${patientData.name}`, 'patient')
-            showAlert('操作成功', `已將 ${patientData.name} 標記為中止透析。`)
+            createGlobalNotification(`暫停/中止透析：${patientData.name}`, 'patient')
+            showAlert(
+              '操作成功',
+              `已將 ${patientData.name} 標記為暫停/中止，並已從總表中移除其固定排班。`,
+            )
           } catch (err) {
-            showAlert('操作失敗', err.message || '中止透析操作失敗！')
+            showAlert('操作失敗', `操作失敗：${err.message}`)
           }
         },
       )
-      return
+      return // 結束函式，不執行後續的常規儲存
     }
 
-    // 常規編輯的邏輯
+    // 情況 2: 常規資料編輯 (包括從暫停恢復為不暫停)
     try {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
@@ -519,6 +489,8 @@ async function handleSavePatient(patientData) {
     }
     return
   }
+
+  // --- 新增病人的邏輯 (保持不變) ---
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
@@ -622,14 +594,21 @@ async function handleDeleteReasonSelected(reason) {
   }
   const patientId = patientToDeleteId.value
   if (!patientId) return
+
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) {
     showAlert('錯誤', '找不到該病人資料。')
     return
   }
+
+  // ✨ 1. 取得更詳細的資訊用於提示
   const patientNameForNotification = patient.name
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+  const fromStatusText = statusMap[patient.status] || '目前列表'
+
   isDeleteDialogVisible.value = false
   patientToDeleteId.value = null
+
   try {
     await optimizedUpdatePatient(patientId, {
       isDeleted: true,
@@ -638,10 +617,18 @@ async function handleDeleteReasonSelected(reason) {
       deletedAt: new Date().toISOString(),
     })
     await removeRuleFromMasterSchedule(patientId)
+
+    // 刷新所有相關數據
     await refreshAllData()
-    await fetchDeletedPatientHistory() // ✨ [問題2 修正] 刪除後立即刷新已刪除列表
+    await fetchDeletedPatientHistory()
+
     createGlobalNotification(`刪除病人：${patientNameForNotification} (${reason})`, 'patient')
-    showAlert('刪除成功', `${patientNameForNotification} 已被刪除...`)
+
+    // ✨ 2. 修改為更專業、更詳細的提示訊息
+    showAlert(
+      '操作成功',
+      `病人 "${patientNameForNotification}" 已從「${fromStatusText}」清單中刪除。\n系統將會同步更新並移除其未來的固定排程。`,
+    )
   } catch (err) {
     showAlert('操作失敗', `刪除病人失敗。錯誤：${err.message}`)
   }
