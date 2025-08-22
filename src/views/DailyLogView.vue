@@ -31,448 +31,588 @@
     </header>
 
     <main class="log-page-main">
-      <!-- ==================== 第一區: 營運統計 ==================== -->
-      <section class="log-section">
-        <!-- ✨ [Template 修改] 新增 section-header 來包裹標題和同步按鈕 ✨ -->
-        <div class="section-header">
-          <h2>營運統計</h2>
-          <button @click="syncStatsWithSchedule" class="sync-stats-btn">
-            <i class="fas fa-sync-alt"></i> 同步排班人數
-          </button>
-        </div>
-
-        <div class="stats-grid">
-          <!-- Grid Headers -->
-          <div class="grid-header cell-item">項目</div>
-          <div class="grid-header cell-category">班別</div>
-          <div class="grid-header cell-shift">第一班 (7-12)</div>
-          <div class="grid-header cell-shift">第二班 (12-3)</div>
-          <div class="grid-header cell-shift">第三班 (3-11)</div>
-          <div class="grid-header cell-total">合計</div>
-
-          <!-- 洗腎中心床位 -->
-          <div class="cell-item rowspan-3">洗腎中心床位 (限44床)</div>
-          <div class="cell-category">門診</div>
-          <div class="cell-data">{{ dailyLog.stats.main_beds.early.opd }}</div>
-          <div class="cell-data">{{ dailyLog.stats.main_beds.noon.opd }}</div>
-          <div class="cell-data">{{ dailyLog.stats.main_beds.late.opd }}</div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.main_beds.early.opd || 0) +
-              (dailyLog.stats.main_beds.noon.opd || 0) +
-              (dailyLog.stats.main_beds.late.opd || 0)
-            }}
+      <!-- ================================== -->
+      <!-- ✨ 桌面版容器 ✨ -->
+      <!-- ================================== -->
+      <div class="desktop-only">
+        <!-- 營運統計 -->
+        <section class="log-section">
+          <div class="section-header">
+            <h2>營運統計</h2>
+            <button @click="syncStatsWithSchedule" class="sync-stats-btn">
+              <i class="fas fa-sync-alt"></i> 同步排班人數
+            </button>
           </div>
 
-          <div class="cell-category">住院+急診</div>
-          <div class="cell-data">{{ dailyLog.stats.main_beds.early.ipd_er }}</div>
-          <div class="cell-data">{{ dailyLog.stats.main_beds.noon.ipd_er }}</div>
-          <div class="cell-data">{{ dailyLog.stats.main_beds.late.ipd_er }}</div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.main_beds.early.ipd_er || 0) +
-              (dailyLog.stats.main_beds.noon.ipd_er || 0) +
-              (dailyLog.stats.main_beds.late.ipd_er || 0)
-            }}
-          </div>
+          <div class="stats-grid">
+            <!-- Grid Headers -->
+            <div class="grid-header cell-item">項目</div>
+            <div class="grid-header cell-category">班別</div>
+            <div class="grid-header cell-shift">第一班 (7-12)</div>
+            <div class="grid-header cell-shift">第二班 (12-3)</div>
+            <div class="grid-header cell-shift">第三班 (3-11)</div>
+            <div class="grid-header cell-total">合計</div>
 
-          <div class="cell-category">HDR開床數 (A)</div>
-          <div class="cell-data total-a">{{ dailyLog.stats.main_beds.early.total }}</div>
-          <div class="cell-data total-a">{{ dailyLog.stats.main_beds.noon.total }}</div>
-          <div class="cell-data total-a">{{ dailyLog.stats.main_beds.late.total }}</div>
-          <div class="cell-total total-a">
-            {{
-              (dailyLog.stats.main_beds.early.total || 0) +
-              (dailyLog.stats.main_beds.noon.total || 0) +
-              (dailyLog.stats.main_beds.late.total || 0)
-            }}
-          </div>
+            <!-- 洗腎中心床位 -->
+            <div class="cell-item rowspan-3">洗腎中心床位 (限44床)</div>
+            <div class="cell-category">門診</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.early.opd }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.noon.opd }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.late.opd }}</div>
+            <div class="cell-total">
+              {{
+                (dailyLog.stats.main_beds.early.opd || 0) +
+                (dailyLog.stats.main_beds.noon.opd || 0) +
+                (dailyLog.stats.main_beds.late.opd || 0)
+              }}
+            </div>
 
-          <!-- 急重症床位 -->
-          <div class="cell-item rowspan-2">急重症 (外圍)</div>
-          <div class="cell-category">加護病房+RCC (B)</div>
-          <div class="cell-data">{{ dailyLog.stats.peripheral_beds.early.ipd }}</div>
-          <div class="cell-data">{{ dailyLog.stats.peripheral_beds.noon.ipd }}</div>
-          <div class="cell-data">{{ dailyLog.stats.peripheral_beds.late.ipd }}</div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.peripheral_beds.early.ipd || 0) +
-              (dailyLog.stats.peripheral_beds.noon.ipd || 0) +
-              (dailyLog.stats.peripheral_beds.late.ipd || 0)
-            }}
-          </div>
+            <div class="cell-category">住院+急診</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.early.ipd_er }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.noon.ipd_er }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.late.ipd_er }}</div>
+            <div class="cell-total">
+              {{
+                (dailyLog.stats.main_beds.early.ipd_er || 0) +
+                (dailyLog.stats.main_beds.noon.ipd_er || 0) +
+                (dailyLog.stats.main_beds.late.ipd_er || 0)
+              }}
+            </div>
 
-          <div class="cell-category">急診 (C)</div>
-          <div class="cell-data">{{ dailyLog.stats.peripheral_beds.early.er }}</div>
-          <div class="cell-data">{{ dailyLog.stats.peripheral_beds.noon.er }}</div>
-          <div class="cell-data">{{ dailyLog.stats.peripheral_beds.late.er }}</div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.peripheral_beds.early.er || 0) +
-              (dailyLog.stats.peripheral_beds.noon.er || 0) +
-              (dailyLog.stats.peripheral_beds.late.er || 0)
-            }}
-          </div>
+            <div class="cell-category">HDR開床數 (A)</div>
+            <div class="cell-data total-a">{{ dailyLog.stats.main_beds.early.total }}</div>
+            <div class="cell-data total-a">{{ dailyLog.stats.main_beds.noon.total }}</div>
+            <div class="cell-data total-a">{{ dailyLog.stats.main_beds.late.total }}</div>
+            <div class="cell-total total-a">
+              {{
+                (dailyLog.stats.main_beds.early.total || 0) +
+                (dailyLog.stats.main_beds.noon.total || 0) +
+                (dailyLog.stats.main_beds.late.total || 0)
+              }}
+            </div>
 
-          <!-- 總人次 -->
-          <div class="cell-item">總人次</div>
-          <div class="cell-category">(A)+(B)+(C)</div>
-          <div class="cell-data total-final">{{ totalPatients.early }}</div>
-          <div class="cell-data total-final">{{ totalPatients.noon }}</div>
-          <div class="cell-data total-final">{{ totalPatients.late }}</div>
-          <div class="cell-total total-final">
-            {{ totalPatients.early + totalPatients.noon + totalPatients.late }}
-          </div>
+            <!-- 急重症床位 -->
+            <div class="cell-item rowspan-2">急重症 (外圍)</div>
+            <div class="cell-category">加護病房+RCC (B)</div>
+            <div class="cell-data">{{ dailyLog.stats.peripheral_beds.early.ipd }}</div>
+            <div class="cell-data">{{ dailyLog.stats.peripheral_beds.noon.ipd }}</div>
+            <div class="cell-data">{{ dailyLog.stats.peripheral_beds.late.ipd }}</div>
+            <div class="cell-total">
+              {{
+                (dailyLog.stats.peripheral_beds.early.ipd || 0) +
+                (dailyLog.stats.peripheral_beds.noon.ipd || 0) +
+                (dailyLog.stats.peripheral_beds.late.ipd || 0)
+              }}
+            </div>
 
-          <!-- 病人照護 -->
-          <div class="cell-item rowspan-3">病人照護</div>
-          <div class="cell-category">ON D/L 病患</div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.onDL.early" />
-          </div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.onDL.noon" />
-          </div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.onDL.late" />
-          </div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.patient_care.onDL.early || 0) +
-              (dailyLog.stats.patient_care.onDL.noon || 0) +
-              (dailyLog.stats.patient_care.onDL.late || 0)
-            }}
-          </div>
+            <div class="cell-category">急診 (C)</div>
+            <div class="cell-data">{{ dailyLog.stats.peripheral_beds.early.er }}</div>
+            <div class="cell-data">{{ dailyLog.stats.peripheral_beds.noon.er }}</div>
+            <div class="cell-data">{{ dailyLog.stats.peripheral_beds.late.er }}</div>
+            <div class="cell-total">
+              {{
+                (dailyLog.stats.peripheral_beds.early.er || 0) +
+                (dailyLog.stats.peripheral_beds.noon.er || 0) +
+                (dailyLog.stats.peripheral_beds.late.er || 0)
+              }}
+            </div>
 
-          <div class="cell-category">AK 凝固更換病患</div>
-          <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.akChange.early"
-            />
-          </div>
-          <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.akChange.noon"
-            />
-          </div>
-          <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.akChange.late"
-            />
-          </div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.patient_care.akChange.early || 0) +
-              (dailyLog.stats.patient_care.akChange.noon || 0) +
-              (dailyLog.stats.patient_care.akChange.late || 0)
-            }}
-          </div>
+            <!-- 總人次 -->
+            <div class="cell-item">總人次</div>
+            <div class="cell-category">(A)+(B)+(C)</div>
+            <div class="cell-data total-final">{{ totalPatients.early }}</div>
+            <div class="cell-data total-final">{{ totalPatients.noon }}</div>
+            <div class="cell-data total-final">{{ totalPatients.late }}</div>
+            <div class="cell-total total-final">
+              {{ totalPatients.early + totalPatients.noon + totalPatients.late }}
+            </div>
 
-          <div class="cell-category">預約未到病患</div>
-          <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.noShow.early"
-            />
-          </div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.noShow.noon" />
-          </div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.noShow.late" />
-          </div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.patient_care.noShow.early || 0) +
-              (dailyLog.stats.patient_care.noShow.noon || 0) +
-              (dailyLog.stats.patient_care.noShow.late || 0)
-            }}
-          </div>
+            <!-- 病人照護 -->
+            <div class="cell-item rowspan-3">病人照護</div>
+            <div class="cell-category">ON D/L 病患</div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.onDL.early" />
+            </div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.onDL.noon" />
+            </div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.onDL.late" />
+            </div>
+            <div class="cell-total">-</div>
 
-          <!-- 護理人力 -->
-          <div class="cell-item">護理人力</div>
-          <div class="cell-category"></div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.staffing.early" />
-          </div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.staffing.noon" />
-          </div>
-          <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.staffing.late" />
-          </div>
-          <div class="cell-total">
-            {{
-              (dailyLog.stats.staffing.early || 0) +
-              (dailyLog.stats.staffing.noon || 0) +
-              (dailyLog.stats.staffing.late || 0)
-            }}
-          </div>
-        </div>
-      </section>
+            <div class="cell-category">AK 凝固更換病患</div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.akChange.early" />
+            </div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.akChange.noon" />
+            </div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.akChange.late" />
+            </div>
+            <div class="cell-total">-</div>
 
-      <section class="log-section">
-        <div class="section-header">
-          <h2>病人動態表</h2>
-          <button @click="addRow('patientMovements')" class="add-row-btn-header">新增動態</button>
-        </div>
-        <div v-if="dailyLog.patientMovements.length > 0" class="dynamic-table-container">
-          <table class="dynamic-table">
-            <thead>
-              <tr>
-                <th class="col-name">姓名</th>
-                <th class="col-mrn">病歷號</th>
-                <th class="col-bed">床號</th>
-                <th class="col-date">住院日</th>
-                <th class="col-date">出院日</th>
-                <th class="col-physician">會診醫師</th>
-                <th class="col-reason-wide">住院原因</th>
-                <th class="col-remarks-wide">備註</th>
-                <th class="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(item, index) in dailyLog.patientMovements" :key="item.id">
-                <td class="col-name">
-                  <div class="autocomplete-wrapper">
-                    <input
-                      type="text"
-                      :ref="(el) => (inputRefs[`movements-${index}`] = el)"
-                      v-model="item.name"
-                      @input="handlePatientSearch(index, 'movements')"
-                      @focus="showAutocomplete($event, index, 'movements')"
-                      @blur="hideAutocomplete"
-                      placeholder="搜尋病人..."
-                    />
-                  </div>
-                </td>
-                <td class="col-mrn"><input type="text" v-model="item.medicalRecordNumber" /></td>
-                <td class="col-bed">
-                  <div
-                    class="bed-change-cell"
-                    :class="{
-                      'is-clickable': ['ipd', 'er'].includes(
-                        patientMap.get(item.patientId)?.status,
-                      ),
-                    }"
-                    @click="promptWardNumber(index)"
-                    title="點擊編輯住院床號"
+            <div class="cell-category">預約未到病患</div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.noShow.early" />
+            </div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.noShow.noon" />
+            </div>
+            <div class="cell-input">
+              <input type="text" v-model="dailyLog.stats.patient_care.noShow.late" />
+            </div>
+            <div class="cell-total">-</div>
+
+            <!-- 護理人力 -->
+            <div class="cell-item">護理人力</div>
+            <div class="cell-category"></div>
+            <div class="cell-input">
+              <input type="number" min="0" v-model.number="dailyLog.stats.staffing.early" />
+            </div>
+            <div class="cell-input">
+              <input type="number" min="0" v-model.number="dailyLog.stats.staffing.noon" />
+            </div>
+            <div class="cell-input">
+              <input type="number" min="0" v-model.number="dailyLog.stats.staffing.late" />
+            </div>
+            <div class="cell-total">
+              {{
+                (dailyLog.stats.staffing.early || 0) +
+                (dailyLog.stats.staffing.noon || 0) +
+                (dailyLog.stats.staffing.late || 0)
+              }}
+            </div>
+          </div>
+        </section>
+
+        <!-- 病人動態表 -->
+        <section class="log-section">
+          <div class="section-header">
+            <h2>病人動態表</h2>
+            <button @click="addRow('patientMovements')" class="add-row-btn-header">新增動態</button>
+          </div>
+          <div v-if="dailyLog.patientMovements.length > 0" class="dynamic-table-container">
+            <table class="dynamic-table">
+              <thead>
+                <tr>
+                  <th class="col-name">姓名</th>
+                  <th class="col-mrn">病歷號</th>
+                  <th class="col-bed">床號</th>
+                  <th class="col-date">住院日</th>
+                  <th class="col-date">出院日</th>
+                  <th class="col-physician">會診醫師</th>
+                  <th class="col-reason-wide">住院原因</th>
+                  <th class="col-remarks-wide">備註</th>
+                  <th class="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, index) in dailyLog.patientMovements" :key="item.id">
+                  <td class="col-name">
+                    <div class="autocomplete-wrapper">
+                      <input
+                        type="text"
+                        :ref="(el) => (inputRefs[`movements-${index}`] = el)"
+                        v-model="item.name"
+                        @input="handlePatientSearch(index, 'movements')"
+                        @focus="showAutocomplete($event, index, 'movements')"
+                        @blur="hideAutocomplete"
+                        placeholder="搜尋病人..."
+                      />
+                    </div>
+                  </td>
+                  <td class="col-mrn"><input type="text" v-model="item.medicalRecordNumber" /></td>
+                  <td class="col-bed">
+                    <div
+                      class="bed-change-cell"
+                      :class="{
+                        'is-clickable': ['ipd', 'er'].includes(
+                          patientMap.get(item.patientId)?.status,
+                        ),
+                      }"
+                      @click="promptWardNumber(index)"
+                      title="點擊編輯住院床號"
+                    >
+                      {{ patientMap.get(item.patientId)?.wardNumber || '點擊設定' }}
+                    </div>
+                  </td>
+                  <td class="col-date"><input type="date" v-model="item.admissionDate" /></td>
+                  <td class="col-date"><input type="date" v-model="item.dischargeDate" /></td>
+                  <td class="col-physician"><input type="text" v-model="item.physician" /></td>
+                  <td class="col-reason-wide"><input type="text" v-model="item.reason" /></td>
+                  <td class="col-remarks-wide"><input type="text" v-model="item.remarks" /></td>
+                  <td class="col-actions">
+                    <button @click="deleteRow(index, 'patientMovements')" class="delete-btn">
+                      移除
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 血管通路阻塞 -->
+        <section class="log-section">
+          <div class="section-header">
+            <h2>血管通路阻塞</h2>
+            <button @click="addRow('vascularAccessLog')" class="add-row-btn-header">
+              新增處置
+            </button>
+          </div>
+          <div v-if="dailyLog.vascularAccessLog.length > 0" class="dynamic-table-container">
+            <table class="dynamic-table">
+              <thead>
+                <tr>
+                  <th class="col-name">姓名</th>
+                  <th class="col-mrn">病歷號</th>
+                  <th class="col-date">日期</th>
+                  <th class="col-interventions-wide">處置</th>
+                  <th class="col-location">處置院所</th>
+                  <th class="col-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, index) in dailyLog.vascularAccessLog" :key="item.id">
+                  <td class="col-name">
+                    <div class="autocomplete-wrapper">
+                      <input
+                        type="text"
+                        :ref="(el) => (inputRefs[`vascular-${index}`] = el)"
+                        v-model="item.name"
+                        @input="handlePatientSearch(index, 'vascular')"
+                        @focus="showAutocomplete($event, index, 'vascular')"
+                        @blur="hideAutocomplete"
+                        placeholder="搜尋病人..."
+                      />
+                    </div>
+                  </td>
+                  <td class="col-mrn"><input type="text" v-model="item.medicalRecordNumber" /></td>
+                  <td class="col-date"><input type="date" v-model="item.date" /></td>
+                  <td class="col-interventions-wide">
+                    <div class="checkbox-group">
+                      <label
+                        ><input
+                          type="checkbox"
+                          value="PTA"
+                          v-model="item.interventions"
+                        />PTA</label
+                      >
+                      <label
+                        ><input
+                          type="checkbox"
+                          value="新建"
+                          v-model="item.interventions"
+                        />新建</label
+                      >
+                      <label
+                        ><input
+                          type="checkbox"
+                          value="重建"
+                          v-model="item.interventions"
+                        />重建</label
+                      >
+                      <label
+                        ><input
+                          type="checkbox"
+                          value="清血塊"
+                          v-model="item.interventions"
+                        />清血塊</label
+                      >
+                      <label
+                        ><input
+                          type="checkbox"
+                          value="PERM-Cath"
+                          v-model="item.interventions"
+                        />PERM-Cath</label
+                      >
+                      <label
+                        ><input
+                          type="checkbox"
+                          value="例行返診"
+                          v-model="item.interventions"
+                        />例行返診</label
+                      >
+                    </div>
+                  </td>
+                  <td class="col-location"><input type="text" v-model="item.location" /></td>
+                  <td class="col-actions">
+                    <button @click="deleteRow(index, 'vascularAccessLog')" class="delete-btn">
+                      移除
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 其他事項 -->
+        <section class="log-section">
+          <h2>其他事項</h2>
+          <div class="autoresize-textarea-wrapper">
+            <textarea
+              v-model="dailyLog.handoverNotes"
+              ref="handoverTextarea"
+              class="handover-textarea"
+              rows="1"
+              placeholder="請輸入交班事項..."
+              @input="handleTextareaInput"
+            ></textarea>
+          </div>
+        </section>
+
+        <!-- 簽核 -->
+        <footer class="log-page-footer">
+          <div class="leader-signature-grid">
+            <div class="leader-title">組長簽核</div>
+            <div class="signature-slot">
+              <span class="shift-label">第一班：</span>
+              <div v-if="dailyLog.leader.early.name" class="signature-display">
+                <div class="signature-info">
+                  <span class="leader-name leader-stamp">{{ dailyLog.leader.early.name }}</span>
+                  <span class="signature-time">{{
+                    formatSignTime(dailyLog.leader.early.signedAt)
+                  }}</span>
+                </div>
+                <div class="signature-actions">
+                  <button
+                    @click="signAsLeader('early')"
+                    class="action-text-btn edit-btn"
+                    title="修正或更新簽核"
                   >
-                    {{ patientMap.get(item.patientId)?.wardNumber || '點擊設定' }}
-                  </div>
-                </td>
-                <td class="col-date"><input type="date" v-model="item.admissionDate" /></td>
-                <td class="col-date"><input type="date" v-model="item.dischargeDate" /></td>
-                <td class="col-physician"><input type="text" v-model="item.physician" /></td>
-                <td class="col-reason-wide"><input type="text" v-model="item.reason" /></td>
-                <td class="col-remarks-wide"><input type="text" v-model="item.remarks" /></td>
-                <td class="col-actions">
-                  <button @click="deleteRow(index, 'patientMovements')" class="delete-btn">
-                    移除
+                    修正
                   </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="log-section">
-        <div class="section-header">
-          <h2>血管通路阻塞</h2>
-          <button @click="addRow('vascularAccessLog')" class="add-row-btn-header">新增處置</button>
-        </div>
-        <div v-if="dailyLog.vascularAccessLog.length > 0" class="dynamic-table-container">
-          <table class="dynamic-table">
-            <thead>
-              <tr>
-                <th class="col-name">姓名</th>
-                <th class="col-mrn">病歷號</th>
-                <th class="col-date">日期</th>
-                <th class="col-interventions-wide">處置</th>
-                <th class="col-location">處置院所</th>
-                <th class="col-actions">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="(item, index) in dailyLog.vascularAccessLog" :key="item.id">
-                <td class="col-name">
-                  <div class="autocomplete-wrapper">
-                    <input
-                      type="text"
-                      :ref="(el) => (inputRefs[`vascular-${index}`] = el)"
-                      v-model="item.name"
-                      @input="handlePatientSearch(index, 'vascular')"
-                      @focus="showAutocomplete($event, index, 'vascular')"
-                      @blur="hideAutocomplete"
-                      placeholder="搜尋病人..."
-                    />
-                  </div>
-                </td>
-                <td class="col-mrn"><input type="text" v-model="item.medicalRecordNumber" /></td>
-                <td class="col-date"><input type="date" v-model="item.date" /></td>
-                <td class="col-interventions-wide">
-                  <div class="checkbox-group">
-                    <label
-                      ><input type="checkbox" value="PTA" v-model="item.interventions" />PTA</label
-                    >
-                    <label
-                      ><input
-                        type="checkbox"
-                        value="新建"
-                        v-model="item.interventions"
-                      />新建</label
-                    >
-                    <label
-                      ><input
-                        type="checkbox"
-                        value="重建"
-                        v-model="item.interventions"
-                      />重建</label
-                    >
-                    <label
-                      ><input
-                        type="checkbox"
-                        value="清血塊"
-                        v-model="item.interventions"
-                      />清血塊</label
-                    >
-                    <label
-                      ><input
-                        type="checkbox"
-                        value="PERM-Cath"
-                        v-model="item.interventions"
-                      />PERM-Cath</label
-                    >
-                    <label
-                      ><input
-                        type="checkbox"
-                        value="例行返診"
-                        v-model="item.interventions"
-                      />例行返診</label
-                    >
-                  </div>
-                </td>
-                <td class="col-location"><input type="text" v-model="item.location" /></td>
-                <td class="col-actions">
-                  <button @click="deleteRow(index, 'vascularAccessLog')" class="delete-btn">
-                    移除
+                  <button
+                    @click="unsignLeader('early')"
+                    class="action-text-btn unsign-btn"
+                    title="撤銷簽核"
+                  >
+                    撤銷
                   </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="log-section">
-        <h2>其他事項</h2>
-        <div class="autoresize-textarea-wrapper">
-          <textarea
-            v-model="dailyLog.handoverNotes"
-            ref="handoverTextarea"
-            class="handover-textarea"
-            rows="1"
-            placeholder="請輸入交班事項..."
-            @input="handleTextareaInput"
-          ></textarea>
-        </div>
-      </section>
-
-      <footer class="log-page-footer">
-        <div class="leader-signature-grid">
-          <div class="leader-title">組長簽核</div>
-          <div class="signature-slot">
-            <span class="shift-label">第一班：</span>
-            <div v-if="dailyLog.leader.early.name" class="signature-display">
-              <div class="signature-info">
-                <span class="leader-name leader-stamp">{{ dailyLog.leader.early.name }}</span>
-                <span class="signature-time">{{
-                  formatSignTime(dailyLog.leader.early.signedAt)
-                }}</span>
+                </div>
               </div>
-              <div class="signature-actions">
-                <button
-                  @click="signAsLeader('early')"
-                  class="action-text-btn edit-btn"
-                  title="修正或更新簽核"
-                >
-                  修正
-                </button>
-                <button
-                  @click="unsignLeader('early')"
-                  class="action-text-btn unsign-btn"
-                  title="撤銷簽核"
-                >
-                  撤銷
-                </button>
-              </div>
+              <button v-else @click="signAsLeader('early')" class="sign-btn">簽核</button>
             </div>
-            <button v-else @click="signAsLeader('early')" class="sign-btn">簽核</button>
-          </div>
-          <div class="signature-slot">
-            <span class="shift-label">第二班：</span>
-            <div v-if="dailyLog.leader.noon.name" class="signature-display">
-              <div class="signature-info">
-                <span class="leader-name leader-stamp">{{ dailyLog.leader.noon.name }}</span>
-                <span class="signature-time">{{
-                  formatSignTime(dailyLog.leader.noon.signedAt)
-                }}</span>
+            <div class="signature-slot">
+              <span class="shift-label">第二班：</span>
+              <div v-if="dailyLog.leader.noon.name" class="signature-display">
+                <div class="signature-info">
+                  <span class="leader-name leader-stamp">{{ dailyLog.leader.noon.name }}</span>
+                  <span class="signature-time">{{
+                    formatSignTime(dailyLog.leader.noon.signedAt)
+                  }}</span>
+                </div>
+                <div class="signature-actions">
+                  <button
+                    @click="signAsLeader('noon')"
+                    class="action-text-btn edit-btn"
+                    title="修正或更新簽核"
+                  >
+                    修正
+                  </button>
+                  <button
+                    @click="unsignLeader('noon')"
+                    class="action-text-btn unsign-btn"
+                    title="撤銷簽核"
+                  >
+                    撤銷
+                  </button>
+                </div>
               </div>
-              <div class="signature-actions">
-                <button
-                  @click="signAsLeader('noon')"
-                  class="action-text-btn edit-btn"
-                  title="修正或更新簽核"
-                >
-                  修正
-                </button>
-                <button
-                  @click="unsignLeader('noon')"
-                  class="action-text-btn unsign-btn"
-                  title="撤銷簽核"
-                >
-                  撤銷
-                </button>
-              </div>
+              <button v-else @click="signAsLeader('noon')" class="sign-btn">簽核</button>
             </div>
-            <button v-else @click="signAsLeader('noon')" class="sign-btn">簽核</button>
+            <div class="signature-slot">
+              <span class="shift-label">第三班：</span>
+              <div v-if="dailyLog.leader.late.name" class="signature-display">
+                <span class="leader-name leader-stamp">{{ dailyLog.leader.late.name }}</span>
+                <span class="signature-time">{{
+                  formatSignTime(dailyLog.leader.late.signedAt)
+                }}</span>
+                <div class="signature-actions">
+                  <button
+                    @click="signAsLeader('late')"
+                    class="action-text-btn edit-btn"
+                    title="修正或更新簽核"
+                  >
+                    修正
+                  </button>
+                  <button
+                    @click="unsignLeader('late')"
+                    class="action-text-btn unsign-btn"
+                    title="撤銷簽核"
+                  >
+                    撤銷
+                  </button>
+                </div>
+              </div>
+              <button v-else @click="signAsLeader('late')" class="sign-btn">簽核</button>
+            </div>
           </div>
-          <div class="signature-slot">
-            <span class="shift-label">第三班：</span>
-            <div v-if="dailyLog.leader.late.name" class="signature-display">
-              <span class="leader-name leader-stamp">{{ dailyLog.leader.late.name }}</span>
-              <span class="signature-time">{{
-                formatSignTime(dailyLog.leader.late.signedAt)
+        </footer>
+      </div>
+
+      <!-- ================================== -->
+      <!-- ✨ 全新的行動版容器 ✨ -->
+      <!-- ================================== -->
+      <div class="mobile-only">
+        <!-- 行動版：營運統計 -->
+        <div class="mobile-section-card">
+          <h2 class="mobile-section-title">營運統計</h2>
+          <div class="mobile-stats-container">
+            <!-- 總人次 -->
+            <div class="stat-highlight-card">
+              <div class="stat-value">
+                {{ totalPatients.early + totalPatients.noon + totalPatients.late }}
+              </div>
+              <div class="stat-label">總人次</div>
+            </div>
+            <!-- HDR 開床數 -->
+            <div class="stat-card">
+              <div class="stat-value">
+                {{
+                  dailyLog.stats.main_beds.early.total +
+                  dailyLog.stats.main_beds.noon.total +
+                  dailyLog.stats.main_beds.late.total
+                }}
+              </div>
+              <div class="stat-label">HDR開床數 (A)</div>
+            </div>
+            <!-- 加護病房+RCC -->
+            <div class="stat-card">
+              <div class="stat-value">
+                {{
+                  dailyLog.stats.peripheral_beds.early.ipd +
+                  dailyLog.stats.peripheral_beds.noon.ipd +
+                  dailyLog.stats.peripheral_beds.late.ipd
+                }}
+              </div>
+              <div class="stat-label">加護病房+RCC (B)</div>
+            </div>
+            <!-- 急診 -->
+            <div class="stat-card">
+              <div class="stat-value">
+                {{
+                  dailyLog.stats.peripheral_beds.early.er +
+                  dailyLog.stats.peripheral_beds.noon.er +
+                  dailyLog.stats.peripheral_beds.late.er
+                }}
+              </div>
+              <div class="stat-label">急診 (C)</div>
+            </div>
+          </div>
+          <!-- 病人照護文字顯示 -->
+          <div class="mobile-text-stats">
+            <div class="text-stat-item">
+              <strong>ON D/L:</strong>
+              <span>{{
+                [
+                  dailyLog.stats.patient_care.onDL.early,
+                  dailyLog.stats.patient_care.onDL.noon,
+                  dailyLog.stats.patient_care.onDL.late,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || '無'
               }}</span>
-              <div class="signature-actions">
-                <button
-                  @click="signAsLeader('late')"
-                  class="action-text-btn edit-btn"
-                  title="修正或更新簽核"
-                >
-                  修正
-                </button>
-                <button
-                  @click="unsignLeader('late')"
-                  class="action-text-btn unsign-btn"
-                  title="撤銷簽核"
-                >
-                  撤銷
-                </button>
-              </div>
             </div>
-            <button v-else @click="signAsLeader('late')" class="sign-btn">簽核</button>
+            <div class="text-stat-item">
+              <strong>AK 更換:</strong>
+              <span>{{
+                [
+                  dailyLog.stats.patient_care.akChange.early,
+                  dailyLog.stats.patient_care.akChange.noon,
+                  dailyLog.stats.patient_care.akChange.late,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || '無'
+              }}</span>
+            </div>
+            <div class="text-stat-item">
+              <strong>預約未到:</strong>
+              <span>{{
+                [
+                  dailyLog.stats.patient_care.noShow.early,
+                  dailyLog.stats.patient_care.noShow.noon,
+                  dailyLog.stats.patient_care.noShow.late,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || '無'
+              }}</span>
+            </div>
           </div>
         </div>
-      </footer>
+
+        <!-- 行動版：病人動態表 -->
+        <div class="mobile-section-card">
+          <h2 class="mobile-section-title">病人動態表</h2>
+          <div v-if="dailyLog.patientMovements.length > 0" class="log-entry-list">
+            <div v-for="item in dailyLog.patientMovements" :key="item.id" class="log-entry-card">
+              <div class="entry-header">
+                <strong>{{ item.name }}</strong> ({{ item.medicalRecordNumber }})
+              </div>
+              <div class="entry-body">
+                <div><strong>會診醫師:</strong> {{ item.physician || 'N/A' }}</div>
+                <div><strong>住院原因:</strong> {{ item.reason || 'N/A' }}</div>
+                <div><strong>備註:</strong> {{ item.remarks || 'N/A' }}</div>
+              </div>
+            </div>
+          </div>
+          <p v-else class="no-data-text">本日無病人動態</p>
+        </div>
+
+        <!-- 行動版：血管通路阻塞 -->
+        <div class="mobile-section-card">
+          <h2 class="mobile-section-title">血管通路阻塞</h2>
+          <div v-if="dailyLog.vascularAccessLog.length > 0" class="log-entry-list">
+            <div v-for="item in dailyLog.vascularAccessLog" :key="item.id" class="log-entry-card">
+              <div class="entry-header">
+                <strong>{{ item.name }}</strong> ({{ item.medicalRecordNumber }})
+              </div>
+              <div class="entry-body">
+                <div><strong>處置:</strong> {{ item.interventions.join(', ') || 'N/A' }}</div>
+                <div><strong>院所:</strong> {{ item.location || 'N/A' }}</div>
+              </div>
+            </div>
+          </div>
+          <p v-else class="no-data-text">本日無血管通路處置記錄</p>
+        </div>
+
+        <!-- 行動版：其他事項 -->
+        <div class="mobile-section-card">
+          <h2 class="mobile-section-title">其他事項</h2>
+          <p v-if="dailyLog.handoverNotes" class="handover-notes-display">
+            {{ dailyLog.handoverNotes }}
+          </p>
+          <p v-else class="no-data-text">無其他交班事項</p>
+        </div>
+
+        <!-- 行動版：組長簽核 -->
+        <div class="mobile-section-card">
+          <h2 class="mobile-section-title">組長簽核</h2>
+          <div class="mobile-signatures">
+            <div class="signature-item">
+              <strong>第一班:</strong>
+              <span :class="{ signed: dailyLog.leader.early.name }">{{
+                dailyLog.leader.early.name || '未簽核'
+              }}</span>
+            </div>
+            <div class="signature-item">
+              <strong>第二班:</strong>
+              <span :class="{ signed: dailyLog.leader.noon.name }">{{
+                dailyLog.leader.noon.name || '未簽核'
+              }}</span>
+            </div>
+            <div class="signature-item">
+              <strong>第三班:</strong>
+              <span :class="{ signed: dailyLog.leader.late.name }">{{
+                dailyLog.leader.late.name || '未簽核'
+              }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
 
     <ul v-if="isAutocompleteVisible" class="global-autocomplete-results" :style="autocompleteStyle">
@@ -566,9 +706,9 @@ const initialLogState = () => ({
       late: { ipd: 0, er: 0, total: 0 },
     },
     patient_care: {
-      onDL: { early: null, noon: null, late: null },
-      akChange: { early: null, noon: null, late: null },
-      noShow: { early: null, noon: null, late: null },
+      onDL: { early: '', noon: '', late: '' },
+      akChange: { early: '', noon: '', late: '' },
+      noShow: { early: '', noon: '', late: '' },
     },
     staffing: { early: null, noon: null, late: null },
   },
@@ -693,7 +833,6 @@ async function loadDailyLog(dateStr) {
   }
 }
 
-// ✨ [Script 修改] 微調函式，讓它只更新特定部分的 stats
 function calculateStatsFromSchedule(scheduleRecord) {
   const newStats = {
     main_beds: {
@@ -742,7 +881,6 @@ function calculateStatsFromSchedule(scheduleRecord) {
   dailyLog.stats.peripheral_beds = newStats.peripheral_beds
 }
 
-// ✨ [Script 修改] 新增同步按鈕的處理函式
 async function syncStatsWithSchedule() {
   showConfirm(
     '確認同步人數',
@@ -1666,18 +1804,183 @@ h1 {
   box-shadow: none;
   border-width: 1px;
 }
+/* ================================== */
+/*     ✨ 響應式與行動版樣式 ✨       */
+/* ================================== */
+
+/* 預設隱藏行動版 */
+.mobile-only {
+  display: none;
+}
+.desktop-only {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+/* 當螢幕寬度小於 992px 時，切換顯示 */
 @media (max-width: 992px) {
-  .leader-signature-grid {
-    grid-template-columns: 1fr;
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-only {
+    display: flex;
+    flex-direction: column;
     gap: 1rem;
   }
-  .leader-title {
-    grid-column: 1 / -1;
-    text-align: center;
-    margin-bottom: 0.5rem;
+  .log-page-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
-  .signature-slot {
+  h1 {
+    font-size: 1.5rem;
+  }
+  .date-navigator {
+    width: 100%;
     justify-content: space-between;
   }
+  .current-date-text,
+  .weekday-display {
+    font-size: 1.2rem;
+  }
+}
+
+.mobile-section-card {
+  background-color: #fff;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-section-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+/* 營運統計 */
+.mobile-stats-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stat-card,
+.stat-highlight-card {
+  padding: 1rem;
+  border-radius: 6px;
+  text-align: center;
+}
+
+.stat-card {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+}
+
+.stat-highlight-card {
+  grid-column: 1 / -1; /* 佔滿整行 */
+  background-color: #e3fafc;
+  border: 1px solid #a5f3fc;
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #007bff;
+}
+
+.stat-highlight-card .stat-value {
+  color: #0891b2;
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.mobile-text-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  background-color: #f8f9fa;
+  padding: 0.75rem;
+  border-radius: 6px;
+}
+.text-stat-item span {
+  color: #343a40;
+}
+
+/* 病人動態、血管通路 */
+.log-entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.log-entry-card {
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.entry-header {
+  padding: 0.5rem 0.75rem;
+  background-color: #f8f9fa;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.entry-body {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.entry-body strong {
+  color: #495057;
+}
+
+.no-data-text {
+  color: #6c757d;
+  font-style: italic;
+  padding: 1rem 0;
+  text-align: center;
+}
+
+/* 其他事項 */
+.handover-notes-display {
+  white-space: pre-wrap;
+  background-color: #f8f9fa;
+  padding: 0.75rem;
+  border-radius: 6px;
+  line-height: 1.6;
+}
+
+/* 簽核 */
+.mobile-signatures {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  font-size: 1rem;
+}
+.signature-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #f1f3f5;
+}
+.signature-item:last-child {
+  border-bottom: none;
+}
+.signature-item .signed {
+  font-weight: bold;
+  color: #16a34a; /* 綠色 */
 }
 </style>

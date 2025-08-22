@@ -376,58 +376,69 @@
           </div>
         </div>
         <div v-show="activeMobileTab === 'messages'" class="message-panel">
-          <!-- 行動版 中欄 -->
-          <div class="message-section patient-messages">
-            <h2 class="panel-title">
-              <i class="fas fa-user"></i>
-              {{ selectedPatient ? `與 ${selectedPatient.name} 相關的留言` : '病人相關留言' }}
-            </h2>
-            <div v-if="isLoading.messages" class="panel-loading small">
+          <!-- ==================================================== -->
+          <!-- ✨ 行動版 中欄 (已更新為新版公告欄) ✨ -->
+          <!-- ==================================================== -->
+
+          <!-- 每日公告欄 (與桌面版結構相同) -->
+          <div class="message-section bulletin-board-section">
+            <h2 class="panel-title"><i class="fas fa-bullhorn"></i> 每日公告</h2>
+            <div v-if="isLoading.bulletin" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
-            <ul v-else-if="sortedSelectedPatientMessages.length > 0" class="message-list">
-              <li
-                v-for="msg in sortedSelectedPatientMessages"
-                :key="msg.id"
-                class="message-item"
-                :class="{ 'is-completed': msg.status === 'completed' }"
-              >
-                <p class="item-content">{{ msg.content }}</p>
-                <div class="item-footer">
-                  <div class="item-meta">
-                    <small v-if="msg.targetDate" class="target-date-info">
-                      <i class="fas fa-calendar-alt"></i> 關聯
-                      {{ msg.targetDate.slice(5).replace('-', '/') }}
-                    </small>
-                    <small class="creator-info"
-                      ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
-                      {{ formatTimestamp(msg.createdAt) }}</small
-                    >
-                  </div>
-                  <div v-if="msg.status === 'pending'" class="item-actions">
-                    <button
-                      class="btn-action btn-complete"
-                      @click="updateTaskStatus(msg.id, 'completed')"
-                    >
-                      <i class="fas fa-check"></i> 已讀
-                    </button>
-                  </div>
-                  <div v-else class="completed-info">
-                    <i class="fas fa-check-double"></i> 由 {{ msg.resolvedBy?.name }} 於
-                    {{ formatTimestamp(msg.resolvedAt) }} 標示
-                  </div>
+            <div v-else class="bulletin-content">
+              <!-- 1. 同步前一天的工作日誌 -->
+              <div v-if="yesterdaysLogItems.length > 0" class="bulletin-group">
+                <h3 class="bulletin-group-title">昨日工作日誌同步事項</h3>
+                <ul class="bulletin-list">
+                  <li
+                    v-for="(item, index) in yesterdaysLogItems"
+                    :key="`log-mobile-${index}`"
+                    class="log-item"
+                  >
+                    {{ item }}
+                  </li>
+                </ul>
+              </div>
+
+              <!-- 2. 顯示本日手動新增的公告 -->
+              <div class="bulletin-group">
+                <h3 class="bulletin-group-title">本日新增公告</h3>
+                <ul v-if="todaysAnnouncements.length > 0" class="bulletin-list">
+                  <li v-for="item in todaysAnnouncements" :key="item.id" class="announcement-item">
+                    <p class="item-content">{{ item.content }}</p>
+                    <div class="item-footer">
+                      <div class="item-meta">
+                        <small class="creator-info"
+                          ><i class="fas fa-user-edit"></i> {{ item.creator.name }} 於
+                          {{ formatTimestamp(item.createdAt) }}</small
+                        >
+                      </div>
+                    </div>
+                  </li>
+                </ul>
+                <div v-else class="panel-empty small" style="padding: 1rem 0">
+                  <p>尚無本日公告</p>
                 </div>
-              </li>
-            </ul>
-            <div v-else class="panel-empty small">
-              <p>
-                <i class="fas fa-inbox"></i>
-                {{ selectedPatient ? '此病人尚無留言' : '請先從左側選擇病人' }}
-              </p>
+              </div>
+
+              <!-- 3. 手動輸入新公告的區域 (有權限才顯示) -->
+              <div class="announcement-input-area" v-if="canPostAnnouncement">
+                <textarea
+                  v-model="newAnnouncementText"
+                  placeholder="在此輸入想公布的事情..."
+                  rows="3"
+                ></textarea>
+                <button @click="handleSaveAnnouncement" :disabled="!newAnnouncementText.trim()">
+                  發布公告
+                </button>
+              </div>
             </div>
           </div>
+
+          <!-- 病人留言板 (與桌面版結構相同) -->
           <div class="message-section feed-messages">
-            <h2 class="panel-title"><i class="fas fa-stream"></i> 我的病人資訊流</h2>
+            <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
             <div v-if="isLoading.messages" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
