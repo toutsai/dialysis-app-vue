@@ -86,14 +86,17 @@ service cloud.firestore {
       allow write: if isEditor();
     }
     match /daily_logs/{logId} {
-      allow read, write: if request.auth != null &&
-                           request.auth.token.role in ['admin', 'editor'] &&
-                           logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
-    }
+      // 讀取權限：
+      // 允許任何已登入的使用者，讀取格式為 'YYYY-MM-DD' 的文件
+      allow read: if request.auth != null &&
+                     logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
 
-    // ==========================================================
-    // ✨✨✨ 在這裡新增 tasks 集合的規則 ✨✨✨
-    // ==========================================================
+      // 寫入權限 (create, update, delete)：
+      // 保持原本的嚴格規則，只允許 admin 和 editor 寫入
+      allow write: if request.auth != null &&
+                      request.auth.token.role in ['admin', 'editor'] &&
+                      logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
     match /tasks/{taskId} {
       // 允許所有已登入的使用者讀取、建立和更新任務
       allow read, create, update: if isAuthenticated();

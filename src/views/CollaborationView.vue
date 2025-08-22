@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/views/CollaborationView.vue (最終版 - 保留5天歷史記錄) -->
 <template>
   <div class="page-container collaboration-view">
     <header class="page-header">
@@ -89,47 +88,61 @@
 
       <!-- 中欄 -->
       <div class="message-panel">
-        <div class="message-section patient-messages">
-          <h2 class="panel-title">
-            <i class="fas fa-user"></i>
-            {{ selectedPatient ? `與 ${selectedPatient.name} 相關的留言` : '病人相關留言' }}
-          </h2>
-          <div v-if="isLoading.messages" class="panel-loading small">
+        <!-- ==================================================== -->
+        <!-- ✨ 每日公告欄 ✨ -->
+        <!-- ==================================================== -->
+        <div class="message-section bulletin-board-section">
+          <h2 class="panel-title"><i class="fas fa-bullhorn"></i> 每日公告</h2>
+          <div v-if="isLoading.bulletin" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
-          <ul v-else-if="sortedSelectedPatientMessages.length > 0" class="message-list">
-            <li
-              v-for="msg in sortedSelectedPatientMessages"
-              :key="msg.id"
-              class="message-item"
-              :class="{ 'is-completed': msg.status === 'completed' }"
-            >
-              <p class="item-content">{{ msg.content }}</p>
-              <div class="item-footer">
-                <small class="creator-info"
-                  ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} at
-                  {{ formatTimestamp(msg.createdAt) }}</small
+          <div v-else class="bulletin-content">
+            <!-- 1. 同步前一天的工作日誌 -->
+            <div v-if="yesterdaysLogItems.length > 0" class="bulletin-group">
+              <h3 class="bulletin-group-title">昨日工作日誌同步事項</h3>
+              <ul class="bulletin-list">
+                <li
+                  v-for="(item, index) in yesterdaysLogItems"
+                  :key="`log-${index}`"
+                  class="log-item"
                 >
-                <div v-if="msg.status === 'pending'" class="item-actions">
-                  <button
-                    class="btn-action btn-complete"
-                    @click="updateTaskStatus(msg.id, 'completed')"
-                  >
-                    <i class="fas fa-check"></i> 已讀
-                  </button>
-                </div>
-                <div v-else class="completed-info">
-                  <i class="fas fa-check-double"></i> 由 {{ msg.resolvedBy?.name }} 於
-                  {{ formatTimestamp(msg.resolvedAt) }} 標示
-                </div>
+                  {{ item }}
+                </li>
+              </ul>
+            </div>
+
+            <!-- 2. 顯示本日手動新增的公告 -->
+            <div class="bulletin-group">
+              <h3 class="bulletin-group-title">本日新增公告</h3>
+              <ul v-if="todaysAnnouncements.length > 0" class="bulletin-list">
+                <li v-for="item in todaysAnnouncements" :key="item.id" class="announcement-item">
+                  <p class="item-content">{{ item.content }}</p>
+                  <div class="item-footer">
+                    <div class="item-meta">
+                      <small class="creator-info"
+                        ><i class="fas fa-user-edit"></i> {{ item.creator.name }} 於
+                        {{ formatTimestamp(item.createdAt) }}</small
+                      >
+                    </div>
+                  </div>
+                </li>
+              </ul>
+              <div v-else class="panel-empty small" style="padding: 1rem 0">
+                <p>尚無本日公告</p>
               </div>
-            </li>
-          </ul>
-          <div v-else class="panel-empty small">
-            <p>
-              <i class="fas fa-inbox"></i>
-              {{ selectedPatient ? '此病人尚無留言' : '請先從左側選擇病人' }}
-            </p>
+            </div>
+
+            <!-- 3. 手動輸入新公告的區域 -->
+            <div class="announcement-input-area" v-if="canPostAnnouncement">
+              <textarea
+                v-model="newAnnouncementText"
+                placeholder="在此輸入想公布的事情..."
+                rows="3"
+              ></textarea>
+              <button @click="handleSaveAnnouncement" :disabled="!newAnnouncementText.trim()">
+                發布公告
+              </button>
+            </div>
           </div>
         </div>
         <div class="message-section feed-messages">
@@ -148,10 +161,16 @@
                 <strong>{{ msg.patientName }}:</strong> {{ msg.content }}
               </p>
               <div class="item-footer">
-                <small class="creator-info"
-                  ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} at
-                  {{ formatTimestamp(msg.createdAt) }}</small
-                >
+                <div class="item-meta">
+                  <small v-if="msg.targetDate" class="target-date-info">
+                    <i class="fas fa-calendar-alt"></i> 關聯
+                    {{ msg.targetDate.slice(5).replace('-', '/') }}
+                  </small>
+                  <small class="creator-info"
+                    ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
+                    {{ formatTimestamp(msg.createdAt) }}</small
+                  >
+                </div>
                 <div v-if="msg.status === 'pending'" class="item-actions">
                   <button
                     class="btn-action btn-complete"
@@ -375,10 +394,16 @@
               >
                 <p class="item-content">{{ msg.content }}</p>
                 <div class="item-footer">
-                  <small class="creator-info"
-                    ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} at
-                    {{ formatTimestamp(msg.createdAt) }}</small
-                  >
+                  <div class="item-meta">
+                    <small v-if="msg.targetDate" class="target-date-info">
+                      <i class="fas fa-calendar-alt"></i> 關聯
+                      {{ msg.targetDate.slice(5).replace('-', '/') }}
+                    </small>
+                    <small class="creator-info"
+                      ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
+                      {{ formatTimestamp(msg.createdAt) }}</small
+                    >
+                  </div>
                   <div v-if="msg.status === 'pending'" class="item-actions">
                     <button
                       class="btn-action btn-complete"
@@ -417,10 +442,16 @@
                   <strong>{{ msg.patientName }}:</strong> {{ msg.content }}
                 </p>
                 <div class="item-footer">
-                  <small class="creator-info"
-                    ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} at
-                    {{ formatTimestamp(msg.createdAt) }}</small
-                  >
+                  <div class="item-meta">
+                    <small v-if="msg.targetDate" class="target-date-info">
+                      <i class="fas fa-calendar-alt"></i> 關聯
+                      {{ msg.targetDate.slice(5).replace('-', '/') }}
+                    </small>
+                    <small class="creator-info"
+                      ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
+                      {{ formatTimestamp(msg.createdAt) }}</small
+                    >
+                  </div>
                   <div v-if="msg.status === 'pending'" class="item-actions">
                     <button
                       class="btn-action btn-complete"
@@ -539,7 +570,16 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore'
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  doc,
+  updateDoc,
+  setDoc,
+  arrayUnion,
+} from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager.js'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
@@ -554,8 +594,15 @@ const patientStore = usePatientStore()
 
 const schedulesApi = ApiManager('schedules')
 const assignmentsApi = ApiManager('nurse_assignments')
+const logsApi = ApiManager('daily_logs')
 
-const isLoading = ref({ patients: true, messages: true, tasks: true, sentTasks: true })
+const isLoading = ref({
+  patients: true,
+  messages: true,
+  tasks: true,
+  sentTasks: true,
+  bulletin: true,
+})
 const allDailyPatients = ref([])
 const myAssignedPatients = ref([])
 const selectedPatient = ref(null)
@@ -563,6 +610,10 @@ const myTasks = ref([])
 const mySentTasks = ref([])
 const allMessages = ref([])
 const isCreateModalVisible = ref(false)
+
+const yesterdaysLogItems = ref([])
+const todaysAnnouncements = ref([])
+const newAnnouncementText = ref('')
 
 const patientMap = computed(() => patientStore.patientMap)
 
@@ -572,9 +623,15 @@ const shiftFilterTab = ref('all')
 let taskUnsubscribe = null
 let sentTaskUnsubscribe = null
 let messageUnsubscribe = null
+let bulletinUnsubscribe = null
 const activeMobileTab = ref('patients')
 
 const isNurseStaff = computed(() => ['護理師', '護理師組長'].includes(userTitle.value))
+const canPostAnnouncement = computed(() => {
+  if (!currentUser.value) return false
+  // 只有 admin 或 editor 角色可以發布
+  return ['admin', 'editor'].includes(currentUser.value.role)
+})
 const patientsForList = computed(() => {
   return mainPatientViewTab.value === 'my' && isNurseStaff.value
     ? myAssignedPatients.value
@@ -607,7 +664,6 @@ const groupedPatients = computed(() => {
   return groups
 })
 
-// 建立一個輔助函式來取得本地日期的 YYYY-MM-DD 格式
 const getLocalDateString = (date) => {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -615,21 +671,94 @@ const getLocalDateString = (date) => {
   return `${year}-${month}-${day}`
 }
 
-// 修正 displayDate，使其預設使用本地日期
 const displayDate = computed(() => route.query.date || getLocalDateString(new Date()))
 
-// 修正 weekdayDisplay，確保它正確地將日期字串解析為本地時間
 const weekdayDisplay = computed(() => {
   if (!displayDate.value) return ''
   try {
-    // 附加 'T00:00:00' 是為了讓 Date() 建構函式明確地將其視為本地時間，
-    // 而非 UTC 時間，從而避免時區造成的 off-by-one 錯誤。
     const d = new Date(displayDate.value + 'T00:00:00')
     return ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
   } catch {
     return ''
   }
 })
+
+function listenToBulletinData(dateStr) {
+  if (bulletinUnsubscribe) bulletinUnsubscribe()
+  isLoading.value.bulletin = true
+  yesterdaysLogItems.value = []
+  todaysAnnouncements.value = []
+
+  const today = new Date(dateStr + 'T00:00:00')
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  const yesterdayStr = getLocalDateString(yesterday)
+
+  logsApi
+    .fetchById(yesterdayStr)
+    .then((log) => {
+      if (log && log.handoverNotes && typeof log.handoverNotes === 'string') {
+        const notes = log.handoverNotes
+          .split(/[\d]+\.\s*/)
+          .map((item) => item.trim())
+          .filter((item) => item)
+        yesterdaysLogItems.value = notes
+      }
+    })
+    .catch((err) => {
+      // console.log("找不到昨日日誌:", err.message);
+    })
+
+  const todayLogRef = doc(db, 'daily_logs', dateStr)
+  bulletinUnsubscribe = onSnapshot(
+    todayLogRef,
+    (docSnap) => {
+      if (docSnap.exists() && docSnap.data().announcements) {
+        todaysAnnouncements.value = docSnap
+          .data()
+          .announcements.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
+      } else {
+        todaysAnnouncements.value = []
+      }
+      isLoading.value.bulletin = false
+    },
+    (error) => {
+      console.error('監聽本日公告失敗:', error)
+      isLoading.value.bulletin = false
+    },
+  )
+}
+
+async function handleSaveAnnouncement() {
+  if (!newAnnouncementText.value.trim() || !currentUser.value) return
+
+  const dateStr = displayDate.value
+  const logDocRef = doc(db, 'daily_logs', dateStr)
+
+  const newAnnouncement = {
+    id: Date.now().toString(),
+    content: newAnnouncementText.value.trim(),
+    creator: {
+      uid: currentUser.value.uid,
+      name: currentUser.value.name,
+    },
+    createdAt: new Date(),
+  }
+
+  try {
+    await setDoc(
+      logDocRef,
+      {
+        announcements: arrayUnion(newAnnouncement),
+      },
+      { merge: true },
+    )
+    newAnnouncementText.value = ''
+  } catch (error) {
+    console.error('發布公告失敗:', error)
+    alert('發布公告失敗，請檢查網路連線或聯繫管理員。')
+  }
+}
 
 const sortItems = (items) => {
   if (!Array.isArray(items)) return []
@@ -645,7 +774,7 @@ const sortItems = (items) => {
 const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedSelectedPatientMessages = computed(() => sortItems(selectedPatientMessages.value))
 const sortedFeedMessages = computed(() => sortItems(feedMessages.value))
-const sortedMySentTasks = computed(() => sortItems(mySentTasks.value)) // ✨ 新增
+const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
 
 const selectedPatientMessages = computed(() => {
   if (!selectedPatient.value || !Array.isArray(allMessages.value)) return []
@@ -658,7 +787,13 @@ const feedMessages = computed(() => {
 })
 
 async function loadAndProcessDataForDate(date) {
-  isLoading.value = { patients: true, messages: true, tasks: true, sentTasks: true }
+  isLoading.value = {
+    patients: true,
+    messages: true,
+    tasks: true,
+    sentTasks: true,
+    bulletin: true,
+  }
   allDailyPatients.value = []
   myAssignedPatients.value = []
   selectedPatient.value = null
@@ -763,6 +898,7 @@ function formatTimestamp(ts) {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   })
 }
 const roleDisplayNames = {
@@ -906,6 +1042,7 @@ function filterByStatusAndDate(docs) {
 onMounted(async () => {
   await useAuth().waitForAuthInit()
   await loadAndProcessDataForDate(displayDate.value)
+  listenToBulletinData(displayDate.value)
   listenToMyTasks()
   listenToMySentTasks()
   listenToMessages()
@@ -914,12 +1051,14 @@ onUnmounted(() => {
   if (taskUnsubscribe) taskUnsubscribe()
   if (sentTaskUnsubscribe) sentTaskUnsubscribe()
   if (messageUnsubscribe) messageUnsubscribe()
+  if (bulletinUnsubscribe) bulletinUnsubscribe()
 })
 watch(
   () => route.query.date,
   async (newDate, oldDate) => {
     if (newDate && newDate !== oldDate) {
       await loadAndProcessDataForDate(newDate)
+      listenToBulletinData(newDate)
       listenToMessages()
     }
   },
@@ -929,6 +1068,7 @@ watch(
   (newUser) => {
     if (newUser) {
       loadAndProcessDataForDate(displayDate.value)
+      listenToBulletinData(displayDate.value)
       listenToMyTasks()
       listenToMySentTasks()
       listenToMessages()
@@ -936,6 +1076,7 @@ watch(
       if (taskUnsubscribe) taskUnsubscribe()
       if (sentTaskUnsubscribe) sentTaskUnsubscribe()
       if (messageUnsubscribe) messageUnsubscribe()
+      if (bulletinUnsubscribe) bulletinUnsubscribe()
     }
   },
 )
@@ -1298,7 +1439,7 @@ watch(
     border: 1px solid #dee2e6;
     border-radius: 8px;
   }
-  .message-section.patient-messages {
+  .message-section.bulletin-board-section {
     height: 33.33%;
     margin-bottom: 1.5rem;
   }
@@ -1448,5 +1589,103 @@ watch(
     font-size: 1.5rem;
     z-index: 100;
   }
+}
+/* ================================== */
+/*       ✨ 公告欄新增樣式 ✨         */
+/* ================================== */
+.bulletin-board-section .panel-title {
+  background-color: #fffbe6; /* 淡黃色背景 */
+  color: #b45309;
+}
+
+.bulletin-content {
+  flex-grow: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.bulletin-group-title {
+  font-size: 0.9rem;
+  font-weight: bold;
+  color: #4b5563;
+  margin: 0 0 0.5rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.bulletin-list {
+  list-style-type: decimal; /* 顯示 1. 2. 3. */
+  padding-left: 1.5rem;
+  margin: 0;
+}
+
+.log-item,
+.announcement-item {
+  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.log-item {
+  color: #374151;
+}
+
+.announcement-item .item-content {
+  margin-bottom: 0.25rem;
+}
+
+.announcement-input-area {
+  margin-top: auto; /* 將輸入區推到底部 */
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.announcement-input-area textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  resize: vertical;
+}
+
+.announcement-input-area button {
+  align-self: flex-end; /* 按鈕靠右 */
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background-color: #f97316; /* 橘色 */
+  color: white;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.announcement-input-area button:disabled {
+  background-color: #d1d5db;
+  cursor: not-allowed;
+}
+
+.item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.target-date-info {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #0d6efd; /* 醒目的藍色 */
+  background-color: #e7f1ff; /* 淡藍色背景 */
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 </style>
