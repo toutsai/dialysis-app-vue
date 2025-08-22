@@ -128,72 +128,50 @@
           <div class="cell-item rowspan-3">病人照護</div>
           <div class="cell-category">ON D/L 病患</div>
           <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.onDL.early" />
+            <!-- ✨ 修正: 改為文字輸入框 -->
+            <input type="text" v-model="dailyLog.stats.patient_care.onDL.early" />
           </div>
           <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.onDL.noon" />
+            <input type="text" v-model="dailyLog.stats.patient_care.onDL.noon" />
           </div>
           <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.onDL.late" />
+            <input type="text" v-model="dailyLog.stats.patient_care.onDL.late" />
           </div>
           <div class="cell-total">
-            {{
-              (dailyLog.stats.patient_care.onDL.early || 0) +
-              (dailyLog.stats.patient_care.onDL.noon || 0) +
-              (dailyLog.stats.patient_care.onDL.late || 0)
-            }}
+            <!-- ✨ 修正: 移除計算，顯示橫線 -->
+            -
           </div>
 
           <div class="cell-category">AK 凝固更換病患</div>
           <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.akChange.early"
-            />
+            <!-- ✨ 修正: 改為文字輸入框 -->
+            <input type="text" v-model="dailyLog.stats.patient_care.akChange.early" />
           </div>
           <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.akChange.noon"
-            />
+            <input type="text" v-model="dailyLog.stats.patient_care.akChange.noon" />
           </div>
           <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.akChange.late"
-            />
+            <input type="text" v-model="dailyLog.stats.patient_care.akChange.late" />
           </div>
           <div class="cell-total">
-            {{
-              (dailyLog.stats.patient_care.akChange.early || 0) +
-              (dailyLog.stats.patient_care.akChange.noon || 0) +
-              (dailyLog.stats.patient_care.akChange.late || 0)
-            }}
+            <!-- ✨ 修正: 移除計算，顯示橫線 -->
+            -
           </div>
 
           <div class="cell-category">預約未到病患</div>
           <div class="cell-input">
-            <input
-              type="number"
-              min="0"
-              v-model.number="dailyLog.stats.patient_care.noShow.early"
-            />
+            <!-- ✨ 修正: 改為文字輸入框 -->
+            <input type="text" v-model="dailyLog.stats.patient_care.noShow.early" />
           </div>
           <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.noShow.noon" />
+            <input type="text" v-model="dailyLog.stats.patient_care.noShow.noon" />
           </div>
           <div class="cell-input">
-            <input type="number" min="0" v-model.number="dailyLog.stats.patient_care.noShow.late" />
+            <input type="text" v-model="dailyLog.stats.patient_care.noShow.late" />
           </div>
           <div class="cell-total">
-            {{
-              (dailyLog.stats.patient_care.noShow.early || 0) +
-              (dailyLog.stats.patient_care.noShow.noon || 0) +
-              (dailyLog.stats.patient_care.noShow.late || 0)
-            }}
+            <!-- ✨ 修正: 移除計算，顯示橫線 -->
+            -
           </div>
 
           <!-- 護理人力 -->
@@ -566,9 +544,10 @@ const initialLogState = () => ({
       late: { ipd: 0, er: 0, total: 0 },
     },
     patient_care: {
-      onDL: { early: null, noon: null, late: null },
-      akChange: { early: null, noon: null, late: null },
-      noShow: { early: null, noon: null, late: null },
+      // ✨ 修正: 初始值從 null 改為空字串 ''
+      onDL: { early: '', noon: '', late: '' },
+      akChange: { early: '', noon: '', late: '' },
+      noShow: { early: '', noon: '', late: '' },
     },
     staffing: { early: null, noon: null, late: null },
   },
