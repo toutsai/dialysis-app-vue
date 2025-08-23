@@ -1,24 +1,15 @@
-<!-- 檔案路徑: src/views/UserManagementView.vue (已遷移到 Firebase Auth) -->
+<!-- 檔案路徑: src/views/UserManagementView.vue (已加入響應式設計) -->
 <script setup>
-import { ref, onMounted, computed, onUnmounted } from 'vue'
-// ✨ 1. 引入 Firebase 相關模組 ✨
-import { db, functions } from '@/composables/useFirebase.js'
-import {
-  collection,
-  onSnapshot,
-  doc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-} from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
-
+import { ref, onMounted, computed } from 'vue'
+import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js' // 假設這個 composable 存在
 import UserFormModal from '@/components/UserFormModal.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
-// --- State ---
+// --- API and State ---
+const usersApi = ApiManager('users')
 const users = ref([])
 const isLoading = ref(true)
 const searchTerm = ref('')
@@ -30,7 +21,6 @@ const sortBy = ref('name')
 const sortOrder = ref('asc')
 const isSubmitting = ref(false)
 const isDeletingUser = ref(null)
-let unsubscribeUsers = null // 用來存放 onSnapshot 的取消訂閱函式
 
 // --- Dialog State ---
 const alertInfo = ref({ isVisible: false, title: '', message: '' })
@@ -44,13 +34,13 @@ const confirmInfo = ref({
 
 // --- 權限控制 ---
 const { isAdmin } = useAuth()
+const { createGlobalNotification } = useGlobalNotifier()
 
 // --- Helper Functions ---
 function formatDate(timestamp) {
   if (!timestamp) return 'N/A'
-  // Firestore 的 serverTimestamp() 在前端會先是 null，之後才更新
   const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
-  if (isNaN(date)) return '處理中...'
+  if (isNaN(date)) return '無效日期'
   return date.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
@@ -139,23 +129,15 @@ function clearSearch() {
   selectedRole.value = 'all'
 }
 
-// [查] Read Users
-function fetchUsers() {
+async function fetchUsers() {
   isLoading.value = true
-  const usersCollection = collection(db, 'users')
-  // 使用 onSnapshot 實現即時更新
-  unsubscribeUsers = onSnapshot(
-    usersCollection,
-    (snapshot) => {
-      users.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-      isLoading.value = false
-    },
-    (error) => {
-      console.error('載入用戶列表失敗:', error)
-      showAlert('載入失敗', '無法獲取用戶列表，請檢查網路連線。')
-      isLoading.value = false
-    },
-  )
+  try {
+    users.value = await usersApi.fetchAll()
+  } catch (error) {
+    console.error('載入用戶失敗:', error)
+  } finally {
+    isLoading.value = false
+  }
 }
 
 function handleAddUser() {
@@ -172,56 +154,62 @@ function handleEditUser(user) {
   isModalVisible.value = true
 }
 
-// [刪] Delete User
 async function handleDeleteUser(userId, userName) {
   if (!isAdmin.value) return
-  showConfirm(
-    '確認刪除',
-    `您確定要刪除使用者 "${userName}" 嗎？此操作將同時刪除登入帳號和資料，無法復原。`,
-    async () => {
-      isDeletingUser.value = userId
-      try {
-        // 刪除使用者現在需要呼叫後端 Cloud Function
-        const deleteUserFunction = httpsCallable(functions, 'deleteUser')
-        await deleteUserFunction({ uid: userId })
-        // onSnapshot 會自動將被刪除的使用者從列表中移除
-        showAlert('成功', '使用者已成功刪除。')
-      } catch (error) {
-        console.error('刪除使用者失敗:', error)
-        showAlert('刪除失敗', error.message || '刪除使用者時發生錯誤。')
-      } finally {
-        isDeletingUser.value = null
+  showConfirm('確認刪除', `您確定要刪除使用者 "${userName}" 嗎？此操作無法復原。`, async () => {
+    isDeletingUser.value = userId
+    const userIndex = users.value.findIndex((user) => user.id === userId)
+    let removedUser = null
+    if (userIndex !== -1) {
+      removedUser = users.value.splice(userIndex, 1)[0]
+    }
+    try {
+      await usersApi.delete(userId)
+      showAlert('成功', '使用者已成功刪除。')
+    } catch (error) {
+      if (removedUser && userIndex !== -1) {
+        users.value.splice(userIndex, 0, removedUser)
       }
-    },
-  )
+      showAlert('刪除失敗', '刪除使用者時發生錯誤，請稍後再試。')
+    } finally {
+      isDeletingUser.value = null
+    }
+  })
 }
 
-// [增/改] Create/Update User
 async function handleSaveUser(userData) {
   if (!isAdmin.value) return
   isSubmitting.value = true
   try {
     if (isEditing.value) {
-      // [改] Update
       const { id, ...updateData } = userData
-      // 移除密碼欄位，因為更新時不應處理密碼
-      delete updateData.password
-      updateData.updatedAt = serverTimestamp() // 使用伺服器時間
-      const userDocRef = doc(db, 'users', id)
-      await updateDoc(userDocRef, updateData)
-      showAlert('成功', '使用者資料已更新。')
+      updateData.updatedAt = new Date()
+      const userIndex = users.value.findIndex((user) => user.id === id)
+      let originalUser = null
+      if (userIndex !== -1) {
+        originalUser = { ...users.value[userIndex] }
+        users.value[userIndex] = { ...users.value[userIndex], ...updateData }
+      }
+      try {
+        await usersApi.update(id, updateData)
+        showAlert('成功', '使用者資料已更新。')
+      } catch (error) {
+        if (originalUser && userIndex !== -1) {
+          users.value[userIndex] = originalUser
+        }
+        throw error
+      }
     } else {
-      // [增] Create
-      // 新增使用者現在需要呼叫後端 Cloud Function
-      const createUserFunction = httpsCallable(functions, 'createUser')
-      await createUserFunction(userData)
-      // onSnapshot 會自動將新使用者加入列表
+      const { id, ...dataToSave } = userData
+      dataToSave.createdAt = new Date()
+      dataToSave.updatedAt = new Date()
+      const newUser = await usersApi.save(dataToSave)
+      users.value.unshift(newUser)
       showAlert('成功', '使用者已新增。')
     }
     isModalVisible.value = false
   } catch (error) {
-    console.error('儲存使用者失敗:', error)
-    showAlert('儲存失敗', error.message || '儲存使用者資料時發生錯誤。')
+    showAlert('儲存失敗', '儲存使用者資料時發生錯誤。')
   } finally {
     isSubmitting.value = false
   }
@@ -241,15 +229,6 @@ onMounted(() => {
     fetchUsers()
   } else {
     isLoading.value = false
-    // 如果不是管理員，顯示權限不足的訊息
-    showAlert('權限不足', '您沒有權限管理使用者帳號。')
-  }
-})
-
-// 在元件卸載時，取消對 Firestore 的監聽，以避免記憶體洩漏
-onUnmounted(() => {
-  if (unsubscribeUsers) {
-    unsubscribeUsers()
   }
 })
 </script>
@@ -322,14 +301,8 @@ onUnmounted(() => {
       <p>正在載入用戶列表...</p>
     </div>
 
-    <div v-else-if="!isAdmin" class="empty-state">
-      <div class="empty-icon">🚫</div>
-      <h3>權限不足</h3>
-      <p>您沒有權限查看此頁面。</p>
-    </div>
-
     <div v-else-if="filteredUsers.length > 0" class="user-table-container">
-      <!-- 桌機版表格 -->
+      <!-- ‼️ 桌機版表格 -->
       <table class="user-table desktop-only">
         <thead>
           <tr>
@@ -391,7 +364,7 @@ onUnmounted(() => {
         </tbody>
       </table>
 
-      <!-- 手機版卡片列表 -->
+      <!-- ‼️ 手機版卡片列表 -->
       <div class="user-cards-container mobile-only">
         <div
           v-for="user in filteredUsers"

@@ -1,134 +1,163 @@
-// src/composables/useAuth.js (修改為標準 Firebase Auth 模式 ✅)
+// 檔案路徑: src/composables/useAuth.js (已加入職稱 title)
 
-import { ref, computed, readonly, onUnmounted } from 'vue'
+import { ref, computed, readonly } from 'vue'
 import { useRouter } from 'vue-router'
-// ✨ 我們不再需要 functions，但需要從 Firestore 讀取使用者資料 ✨
-import { auth, db } from '@/composables/useFirebase.js'
-import { doc, getDoc, onSnapshot } from 'firebase/firestore'
+import { auth, functions } from '@/composables/useFirebase.js'
 
-// ✨ 引入標準的 Firebase Auth 函式 ✨
+// 從 firebase/auth 引入必要的函式
 import {
-  signInWithEmailAndPassword,
+  signInWithCustomToken,
   onAuthStateChanged,
   signOut,
-  updatePassword as firebaseUpdatePassword, // 重新命名以避免衝突
-  EmailAuthProvider,
-  reauthenticateWithCredential,
+  setPersistence,
+  browserSessionPersistence,
 } from 'firebase/auth'
 
+import { httpsCallable } from 'firebase/functions'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
 // --- 全局狀態 ---
-// currentUser 現在只儲存 Auth 提供的基本資訊
 const currentUser = ref(null)
-// userProfile 專門用來儲存從 Firestore 讀取的詳細資料 (role, title 等)
-const userProfile = ref(null)
 const authLoading = ref(true)
 
-// --- 認證狀態監聽 (這是新架構的核心) ---
-// onAuthStateChanged 會在登入、登出、頁面重載時自動執行
-const unsubscribe = onAuthStateChanged(auth, async (user) => {
+// --- 建立一個只 resolve 一次的 Promise ---
+let authReadyResolve
+const authReadyPromise = new Promise((resolve) => {
+  authReadyResolve = resolve
+})
+
+// --- 認證狀態監聽 ---
+onAuthStateChanged(auth, async (user) => {
   authLoading.value = true
   if (user) {
-    // 使用者已登入，儲存 Auth 基本資料
-    currentUser.value = {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
+    try {
+      const idTokenResult = await user.getIdTokenResult()
+      const userData = {
+        id: user.uid,
+        uid: user.uid,
+        name: idTokenResult.claims.name || '未命名',
+        role: idTokenResult.claims.role || 'viewer',
+        // ✨✨✨ 核心修改: 從 token claims 中讀取 title ✨✨✨
+        // 假設您後端設定的欄位名稱為 'title'
+        title: idTokenResult.claims.title || '未知職稱',
+        email: user.email,
+        lastLogin: new Date().toISOString(),
+      }
+      currentUser.value = userData
+      console.log('✅ Auth state changed: User is logged in.', currentUser.value)
+    } catch (error) {
+      console.error('❌ Error getting user token result:', error)
+      currentUser.value = null
+      await signOut(auth) // 發生錯誤時強制登出
     }
-
-    // ✨ 從 Firestore 讀取並即時監聽使用者的詳細設定檔 ✨
-    const userDocRef = doc(db, 'users', user.uid)
-    // 使用 onSnapshot 可以讓使用者資料 (例如角色) 在被管理員修改後即時更新
-    onSnapshot(
-      userDocRef,
-      (docSnap) => {
-        if (docSnap.exists()) {
-          userProfile.value = { id: docSnap.id, ...docSnap.data() }
-          console.log('✅ Auth state changed: User is logged in with profile.', userProfile.value)
-        } else {
-          // 這是一個異常情況：Auth 有使用者，但 Firestore 沒有對應資料
-          console.error(`❌ Firestore 中找不到 UID 為 ${user.uid} 的使用者資料！`)
-          userProfile.value = null
-          signOut(auth) // 強制登出
-        }
-      },
-      (error) => {
-        console.error('❌ 監聽使用者資料時發生錯誤:', error)
-        userProfile.value = null
-        signOut(auth) // 強制登出
-      },
-    )
   } else {
-    // 使用者已登出
     currentUser.value = null
-    userProfile.value = null
     console.log('🚪 Auth state changed: User is logged out.')
   }
   authLoading.value = false
+  // 當第一次狀態確認後，resolve a Promise
+  authReadyResolve()
 })
 
 // --- 主要的 Composable 函式 ---
 export function useAuth() {
   const router = useRouter()
-  const { handleApiCall } = useErrorHandler()
+  const { handleApiCall, validateInput, validationRules } = useErrorHandler()
 
   // 局部加載狀態
   const loginLoading = ref(false)
   const logoutLoading = ref(false)
 
-  // --- 登入函式 (大幅簡化) ---
+  // --- 登入函式 ---
   const login = async (username, password) => {
     loginLoading.value = true
-    const email = `${username}@example.com`
+
+    const usernameValidation = validateInput(username, [
+      validationRules.required('使用者名稱為必填'),
+    ])
+    const passwordValidation = validateInput(password, [validationRules.required('密碼為必填')])
+    if (!usernameValidation.isValid) {
+      loginLoading.value = false
+      throw new Error(usernameValidation.errors[0])
+    }
+    if (!passwordValidation.isValid) {
+      loginLoading.value = false
+      throw new Error(passwordValidation.errors[0])
+    }
 
     try {
-      await signInWithEmailAndPassword(auth, email, password)
-      // 登入成功後，上面的 onAuthStateChanged 會自動處理使用者資料的載入
-      const redirectPath = router.currentRoute.value.query.redirect || '/schedule'
-      await router.replace(redirectPath)
+      const result = await handleApiCall(
+        async () => {
+          // 設定身份驗證的持久性為 SESSION
+          await setPersistence(auth, browserSessionPersistence)
+
+          // 呼叫後端 Cloud Function
+          const customLoginFunction = httpsCallable(functions, 'customLogin')
+          const response = await customLoginFunction({ username, password })
+
+          const token = response?.data?.token
+          if (!token) {
+            throw new Error('從伺服器獲取登入憑證(token)失敗。')
+          }
+
+          // 使用 custom token 登入 Firebase Auth
+          await signInWithCustomToken(auth, token)
+
+          // 導航到目標頁面
+          const redirectPath = router.currentRoute.value.query.redirect || '/schedule'
+          await router.replace(redirectPath)
+
+          return { success: true, redirectPath }
+        },
+        {
+          loadingMessage: '登入中...',
+          successMessage: '登入成功！',
+          errorPrefix: '登入失敗',
+          showNotification: false,
+        },
+      )
+      return result
     } catch (error) {
-      console.error('[Auth] Login failed:', error)
-      if (
-        error.code === 'auth/user-not-found' ||
-        error.code === 'auth/wrong-password' ||
-        error.code === 'auth/invalid-credential'
-      ) {
-        throw new Error('使用者名稱或密碼錯誤。')
-      }
-      throw new Error('登入失敗，請稍後再試。')
+      console.error('[Auth] Login process failed:', error)
+      throw error
     } finally {
       loginLoading.value = false
     }
   }
 
-  // --- 登出函式 (小幅修改) ---
+  // --- 登出函式 ---
   const logout = async () => {
     logoutLoading.value = true
     try {
-      await signOut(auth)
-      // 登出後，onAuthStateChanged 會自動清理狀態
-      await router.push({ name: 'Login' })
-    } catch (error) {
-      console.error('[Auth] Logout failed:', error)
+      return await handleApiCall(
+        async () => {
+          await signOut(auth)
+          await router.push({ name: 'Login' })
+          return { success: true }
+        },
+        {
+          loadingMessage: '登出中...',
+          successMessage: '已安全登出',
+          errorPrefix: '登出失敗',
+          showNotification: false,
+        },
+      )
     } finally {
       logoutLoading.value = false
     }
   }
 
-  // --- 修改密碼函式 (使用標準 Firebase Auth 流程) ---
+  // --- 修改密碼函式 ---
   const updatePassword = async (oldPassword, newPassword) => {
     if (!auth.currentUser) {
       throw new Error('使用者未登入，無法更改密碼。')
     }
-    // 標準流程需要使用者先「重新驗證」自己，以策安全
-    const user = auth.currentUser
-    const credential = EmailAuthProvider.credential(user.email, oldPassword)
 
     return handleApiCall(
       async () => {
-        await reauthenticateWithCredential(user, credential)
-        await firebaseUpdatePassword(user, newPassword)
+        const changeUserPasswordFunction = httpsCallable(functions, 'changeUserPassword')
+        const result = await changeUserPasswordFunction({ oldPassword, newPassword })
+        return result.data
       },
       {
         loadingMessage: '正在更新密碼...',
@@ -139,52 +168,63 @@ export function useAuth() {
     )
   }
 
-  // --- 權限判斷 (現在從 userProfile 讀取 role) ---
+  // --- 等待認證初始化 ---
+  const waitForAuthInit = () => {
+    return authReadyPromise
+  }
+
+  // --- 權限判斷 ---
   const hasPermission = (requiredRole) => {
-    if (!userProfile.value) return false
+    if (!currentUser.value) return false
     const roleHierarchy = {
       viewer: 1,
       contributor: 2,
       editor: 3,
       admin: 4,
     }
-    const userLevel = roleHierarchy[userProfile.value.role] || 0
+    const userLevel = roleHierarchy[currentUser.value.role] || 0
     const requiredLevel = roleHierarchy[requiredRole] || 999
     return userLevel >= requiredLevel
   }
 
-  // --- 計算屬性 (從 currentUser 和 userProfile 組合) ---
-  const isLoggedIn = computed(() => !!currentUser.value && !!userProfile.value)
-  const combinedUser = computed(() => {
-    if (!isLoggedIn.value) return null
-    return { ...currentUser.value, ...userProfile.value }
-  })
-
+  // --- 計算屬性 ---
+  const isLoggedIn = computed(() => !!currentUser.value)
+  const isAdmin = computed(() => hasPermission('admin'))
+  const canEditSchedules = computed(() => hasPermission('editor'))
+  const isContributor = computed(() => hasPermission('contributor'))
+  const canEditPatients = computed(() => hasPermission('contributor'))
+  const isReadOnly = computed(() => !hasPermission('contributor'))
   const isAnyLoading = computed(
     () => authLoading.value || loginLoading.value || logoutLoading.value,
   )
-  const canManagePhysicianSchedule = computed(
-    () => hasPermission('contributor') || hasPermission('admin'),
-  )
-
-  // 當 Vue 元件卸載時，停止監聽，避免記憶體洩漏
-  onUnmounted(() => {
-    if (unsubscribe) unsubscribe()
+  const canManagePhysicianSchedule = computed(() => {
+    if (!currentUser.value) return false
+    // 直接檢查 role 是否為 'admin' 或 'contributor'
+    return ['admin', 'contributor'].includes(currentUser.value.role)
   })
 
   return {
     // 狀態
-    currentUser: readonly(combinedUser), // 回傳組合後的使用者資訊
+    currentUser: readonly(currentUser),
     isLoggedIn: readonly(isLoggedIn),
     authLoading: readonly(authLoading),
+    loginLoading: readonly(loginLoading),
+    logoutLoading: readonly(logoutLoading),
+    isAnyLoading: readonly(isAnyLoading),
+    canManagePhysicianSchedule,
 
     // 方法
     login,
     logout,
     updatePassword,
-
-    // 權限判斷
+    waitForAuthInit,
     hasPermission,
-    canManagePhysicianSchedule,
+
+    // 權限計算屬性
+    isAdmin,
+    isContributor,
+    canEditSchedules,
+    canEditPatients,
+    isReadOnly,
   }
 }

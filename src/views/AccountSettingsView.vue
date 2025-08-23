@@ -45,37 +45,23 @@ async function handleChangePassword() {
   }
 
   try {
-    // 呼叫新的 updatePassword 函式
     await updatePassword(oldPassword.value, newPassword.value)
-
-    message.value = '密碼已成功更新！您下次登入時請使用新密碼。'
+    message.value = '密碼已成功更新！'
     messageType.value = 'success'
-
-    // 清空輸入框
     oldPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
   } catch (error) {
-    // ✨✨✨ 核心修改：處理 Firebase Auth SDK 的錯誤 ✨✨✨
-    console.error('更新密碼時發生錯誤:', error.code, error.message)
-
-    // 根據 Firebase Auth 的標準錯誤碼來顯示訊息
-    switch (error.code) {
-      case 'auth/wrong-password':
-      case 'auth/invalid-credential': // 當 reauthenticate 失敗時會是這個 code
-        message.value = '舊密碼不正確，請重新輸入。'
-        break
-      case 'auth/weak-password':
-        message.value = '新密碼強度不足，請使用更複雜的密碼。'
-        break
-      case 'auth/requires-recent-login':
-        message.value = '此操作需要您最近曾登入過。請先登出再重新登入後再試一次。'
-        break
-      default:
-        // 顯示一個通用的錯誤訊息
-        message.value = error.message || '發生未知錯誤，請稍後再試。'
+    // =========================================================
+    // [核心修正] 檢查從 Cloud Function 回傳的正確錯誤代碼
+    // =========================================================
+    // Firebase Functions 的錯誤代碼會被包裝，例如 'unauthenticated' 會變成 'functions/unauthenticated'
+    if (error.code === 'functions/unauthenticated') {
+      message.value = '舊密碼不正確，請重新輸入。'
+    } else {
+      // 顯示從 handleApiCall 傳來的、已經格式化過的通用錯誤訊息
+      message.value = error.message || '發生未知錯誤，請稍後再試。'
     }
-
     messageType.value = 'error'
   } finally {
     isLoading.value = false
@@ -83,8 +69,7 @@ async function handleChangePassword() {
 }
 
 function handleCancel() {
-  // 可以根據你的路由設定調整，例如回到上一頁或首頁
-  router.back()
+  router.push({ name: 'Home' })
 }
 </script>
 
