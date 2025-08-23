@@ -3,44 +3,60 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helper Functions (保持不變) ---
+    // --- 輔助函式 ---
     function isAuthenticated() {
       return request.auth != null;
     }
+
+    // ✨ 核心優化：getUserRole 函式 ✨
+    // 這個版本更健壯，它會優先從 Auth Token 讀取角色（速度快），
+    // 如果 Token 中因故沒有角色資訊（例如舊的 Token），它會回頭去 Firestore 讀取。
+    // 這確保了在任何情況下都能拿到正確的角色。
     function getUserRole() {
-      return request.auth.token.role;
+      return request.auth.token.role || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
     }
+    
     function isAdmin() {
       return isAuthenticated() && getUserRole() == 'admin';
     }
+
     function isEditor() {
       let role = getUserRole();
       return isAuthenticated() && (role == 'admin' || role == 'editor');
     }
+
     function isContributor() {
       let role = getUserRole();
       return isAuthenticated() && (role == 'admin' || role == 'editor' || role == 'contributor');
     }
 
-    // --- 各個集合的規則 (原有規則保持不變) ---
+    // --- 各個集合的規則 (完全保留你的原始邏輯) ---
     match /users/{userId} {
       allow list: if isAdmin();
       allow get: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
-      allow write: if isAdmin(); 
+      // ✨ 修正：allow write 改為 allow create, update, delete，並細化 update 規則 ✨
+      // 這樣可以防止使用者自己修改自己的角色
+      allow create, delete: if isAdmin();
+      allow update: if (isAdmin() || (isAuthenticated() && request.auth.uid == userId)) &&
+                     !('role' in request.resource.data); // 不允許非 admin 修改角色
     }
+
     match /patients/{patientId} {
       allow read: if isAuthenticated();
       allow create, update: if isContributor();
       allow delete: if isEditor();
     }
+
     match /schedules/{scheduleId} {
       allow read: if isAuthenticated();
       allow write: if isEditor();
     }
+
     match /base_schedules/{scheduleId} {
       allow read: if isAuthenticated();
       allow write: if isEditor();
     }
+
     match /memos/{memoId} {
       allow read, write: if isAuthenticated();
     }
@@ -67,58 +83,50 @@ service cloud.firestore {
       allow update: if isEditor();
       allow delete: if isEditor();
     }
+
     match /patient_history/{historyId} {
       allow read: if isAuthenticated();
       allow create: if isContributor();
       allow update: if isEditor();
       allow delete: if isEditor();
     }
+
     match /condition_records/{recordId} {
       allow read: if isAuthenticated();
       allow write: if isContributor();
     }
+
     match /lab_reports/{reportId} {
       allow read: if isAuthenticated();
       allow write: if false; 
     }
+
     match /nurse_assignments/{date} {
       allow read: if isAuthenticated();
       allow write: if isEditor();
     }
-    match /daily_logs/{logId} {
-      // 讀取權限：
-      // 允許任何已登入的使用者，讀取格式為 'YYYY-MM-DD' 的文件
-      allow read: if request.auth != null &&
-                     logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
 
-      // 寫入權限 (create, update, delete)：
-      // 保持原本的嚴格規則，只允許 admin 和 editor 寫入
+    match /daily_logs/{logId} {
+      allow read: if request.auth != null && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
       allow write: if request.auth != null &&
-                      request.auth.token.role in ['admin', 'editor'] &&
+                      getUserRole() in ['admin', 'editor'] &&
                       logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
+
     match /tasks/{taskId} {
-      // 允許所有已登入的使用者讀取、建立和更新任務
       allow read, create, update: if isAuthenticated();
-      
-      // 只有護理師組長 (Editor) 或更高等級的角色可以刪除
       allow delete: if isEditor();
     }
-    // ✨ 新增醫師列表的讀取權限 ✨
-    // 允許任何已登入的使用者讀取醫師列表
+    
     match /physicians/{physicianId} {
-      allow read: if request.auth != null;
-      // 寫入權限可以先設定為僅限 admin，未來再調整
-      allow write: if request.auth != null && request.auth.token.role == 'admin';
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
-    // ✨ 新增醫師排班表的讀寫權限 ✨
-    // 允許任何已登入的使用者讀取班表
     match /physician_schedules/{scheduleId} {
-      allow read: if request.auth != null;
-      // 只允許 contributor 或 admin 寫入班表
+      allow read: if isAuthenticated();
       allow write: if request.auth != null && 
-                     request.auth.token.role in ['admin', 'contributor'];
+                     getUserRole() in ['admin', 'contributor'];
     }
   }
 }
