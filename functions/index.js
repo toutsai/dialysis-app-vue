@@ -10,6 +10,7 @@ const {
 } = require('firebase-functions/v2/firestore')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
+const functions = require('firebase-functions')
 const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
@@ -44,7 +45,7 @@ const FREQ_MAP_TO_DAY_INDEX = {
 }
 const SHIFTS = ['early', 'noon', 'late']
 function generateDailyScheduleFromRules(masterRules, targetDate) {
-  /* ... no change ... */ const dailySchedule = {}
+  const dailySchedule = {}
   const dayOfWeek = targetDate.getDay()
   const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
   for (const patientId in masterRules) {
@@ -572,6 +573,37 @@ exports.customLogin = onCall(async (request) => {
     logger.error('[customLogin] Login function error:', error)
     if (error instanceof HttpsError) throw error
     throw new HttpsError('internal', '發生未知的伺服器錯誤。')
+  }
+})
+
+// ✨ 新增這個函式，作為獲取台灣行事曆的代理 ✨
+const axios = require('axios')
+const cors = require('cors')({ origin: true })
+
+exports.getTaiwanHolidays = functions.https.onCall(async (data, context) => {
+  // 1. 從 data 物件中獲取參數，而不是 req.query
+  const year = data.year
+
+  // 2. 參數驗證
+  if (!year || typeof year !== 'number') {
+    // 拋出一個標準的 HttpsError，前端可以更好地處理
+    throw new functions.https.HttpsError(
+      'invalid-argument',
+      'The function must be called with a "year" argument which is a number.',
+    )
+  }
+
+  const rocYear = year - 1911
+  const targetApiUrl = `https://data.ntpc.gov.tw/api/v1/rest/datastore/382000000A-000077-002?year=${rocYear}`
+
+  try {
+    const apiResponse = await axios.get(targetApiUrl)
+    // 3. 直接 return 資料，Firebase 會自動將其序列化並回傳給前端
+    return apiResponse.data
+  } catch (error) {
+    console.error('Error fetching data from government API:', error)
+    // 拋出一個錯誤，讓前端知道發生了問題
+    throw new functions.https.HttpsError('internal', 'Failed to fetch holiday data.')
   }
 })
 
