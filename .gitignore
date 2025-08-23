@@ -169,3 +169,6 @@ saved-data/
 # 忽略 Firebase 的除錯日誌檔案
 firebase-debug.log
 functions/index.js.backup-20250816
+
+# ✨✨✨ 忽略所有一次性的遷移腳本 ✨✨✨
+/_one-off-scripts/
