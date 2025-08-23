@@ -578,32 +578,68 @@ exports.customLogin = onCall(async (request) => {
 
 // ✨ 新增這個函式，作為獲取台灣行事曆的代理 ✨
 const axios = require('axios')
-const cors = require('cors')({ origin: true })
 
-exports.getTaiwanHolidays = functions.https.onCall(async (data, context) => {
-  // 1. 從 data 物件中獲取參數，而不是 req.query
-  const year = data.year
+/**
+ * @name getTaiwanHolidays
+ * @description (升級版) 獲取台灣行事曆，若官方 API 無資料則提供後備假日。
+ * @param {object} request - 包含年份的請求物件。
+ * @param {number} request.data.year - 要查詢的西元年份 (e.g., 2025)。
+ * @returns {Promise<object>} - 回傳行事曆資料。
+ */
+exports.getTaiwanHolidays = onCall(async (request) => {
+  const year = request.data.year
 
-  // 2. 參數驗證
+  // 1. 嚴格的後端驗證
   if (!year || typeof year !== 'number') {
-    // 拋出一個標準的 HttpsError，前端可以更好地處理
-    throw new functions.https.HttpsError(
+    logger.error("getTaiwanHolidays 錯誤：'year' 參數遺失或型別不正確。", {
+      received: year,
+      type: typeof year,
+    })
+    throw new HttpsError(
       'invalid-argument',
       'The function must be called with a "year" argument which is a number.',
     )
   }
 
+  // 2. 建立後備假日資料 (只包含固定日期或可預測的假日)
+  // 注意：資料格式需與官方 API 保持一致，方便前端處理
+  const fallbackHolidays = [
+    { date: `${year}0101`, isHoliday: '是', description: '中華民國開國紀念日' },
+    { date: `${year}0228`, isHoliday: '是', description: '和平紀念日' },
+    { date: `${year}0404`, isHoliday: '是', description: '兒童節' },
+    { date: `${year}0405`, isHoliday: '是', description: '民族掃墓節' },
+    { date: `${year}1010`, isHoliday: '是', description: '國慶日' },
+    // 注意：農曆新年、端午、中秋等浮動假日較難預測，此處暫不列入後備清單。
+    // 待官方公布後，API 會自動提供正確日期。
+  ]
+
   const rocYear = year - 1911
-  const targetApiUrl = `https://data.ntpc.gov.tw/api/v1/rest/datastore/382000000A-000077-002?year=${rocYear}`
+  const targetApiUrl = `https://www.dgpa.gov.tw/openapi/v1/holiday?year=${rocYear}`
+
+  logger.info(`[getTaiwanHolidays] 正在請求 API: ${targetApiUrl}`)
 
   try {
+    // 3. 優先嘗試請求官方 API
     const apiResponse = await axios.get(targetApiUrl)
-    // 3. 直接 return 資料，Firebase 會自動將其序列化並回傳給前端
-    return apiResponse.data
+
+    // 4. 智慧判斷：檢查 API 是否有回傳有效的資料
+    if (apiResponse.data && Array.isArray(apiResponse.data) && apiResponse.data.length > 0) {
+      logger.info(
+        `[getTaiwanHolidays] 成功從官方 API 獲取 ${year} 年的 ${apiResponse.data.length} 筆資料。`,
+      )
+      // API 有資料，直接回傳
+      return { success: true, result: { data: apiResponse.data } }
+    } else {
+      // API 回傳空陣列 (例如 2025 年資料尚未公布)，使用後備資料
+      logger.warn(
+        `[getTaiwanHolidays] 官方 API 未回傳 ${year} 年的資料，將使用內建的後備假日清單。`,
+      )
+      return { success: true, result: { data: fallbackHolidays } }
+    }
   } catch (error) {
-    console.error('Error fetching data from government API:', error)
-    // 拋出一個錯誤，讓前端知道發生了問題
-    throw new functions.https.HttpsError('internal', 'Failed to fetch holiday data.')
+    // 5. 錯誤處理：如果 API 請求本身就失敗了，同樣使用後備資料
+    logger.error(`[getTaiwanHolidays] 請求官方 API 時發生錯誤，將使用後備假日清單:`, error.message)
+    return { success: true, result: { data: fallbackHolidays } }
   }
 })
 
