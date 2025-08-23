@@ -143,6 +143,8 @@ dist
 
 # Firebase service account key
 /serviceAccountKey.json
+# 忽略 Firebase 服務帳號金鑰，避免上傳到 Git
+my-dialysis-app-develop-key.json
 
 # Local environment variables
 .env.local
