@@ -197,6 +197,11 @@ export function useAuth() {
   const isAnyLoading = computed(
     () => authLoading.value || loginLoading.value || logoutLoading.value,
   )
+  const canManagePhysicianSchedule = computed(() => {
+    if (!currentUser.value) return false
+    // 直接檢查 role 是否為 'admin' 或 'contributor'
+    return ['admin', 'contributor'].includes(currentUser.value.role)
+  })
 
   return {
     // 狀態
@@ -206,6 +211,7 @@ export function useAuth() {
     loginLoading: readonly(loginLoading),
     logoutLoading: readonly(logoutLoading),
     isAnyLoading: readonly(isAnyLoading),
+    canManagePhysicianSchedule,
 
     // 方法
     login,

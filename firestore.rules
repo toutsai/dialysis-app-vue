@@ -104,6 +104,21 @@ service cloud.firestore {
       // 只有護理師組長 (Editor) 或更高等級的角色可以刪除
       allow delete: if isEditor();
     }
-    // ==========================================================
+    // ✨ 新增醫師列表的讀取權限 ✨
+    // 允許任何已登入的使用者讀取醫師列表
+    match /physicians/{physicianId} {
+      allow read: if request.auth != null;
+      // 寫入權限可以先設定為僅限 admin，未來再調整
+      allow write: if request.auth != null && request.auth.token.role == 'admin';
+    }
+
+    // ✨ 新增醫師排班表的讀寫權限 ✨
+    // 允許任何已登入的使用者讀取班表
+    match /physician_schedules/{scheduleId} {
+      allow read: if request.auth != null;
+      // 只允許 contributor 或 admin 寫入班表
+      allow write: if request.auth != null && 
+                     request.auth.token.role in ['admin', 'contributor'];
+    }
   }
 }
