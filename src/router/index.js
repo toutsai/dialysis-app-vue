@@ -1,8 +1,11 @@
-// 檔案路徑: src/router/index.js (已新增協作訊息中心路由)
+// 檔案路徑: src/router/index.js
 
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import MainLayout from '@/layouts/MainLayout.vue'
+
+// ✨ 1. 在頂部引入醫師排班相關的元件
+import PhysicianScheduleView from '../views/PhysicianScheduleView.vue'
 
 const routes = [
   {
@@ -35,11 +38,40 @@ const routes = [
         component: () => import('../views/BaseScheduleView.vue'),
         meta: { title: '門急住床位總表' },
       },
+      // ==========================================================
+      // ✨ 2. 在這裡新增醫師排班的路由規則 ✨
+      // ==========================================================
+      {
+        path: 'physician-schedule', // 注意：子路由的路徑不需要開頭的 '/'
+        component: PhysicianScheduleView,
+        redirect: '/physician-schedule/rounding', // 預設打開查房頁籤
+        meta: { title: '醫師排班', roles: ['admin', 'contributor'] },
+        children: [
+          {
+            // 當 URL 是 /physician-schedule/rounding 時，
+            // RoundingSchedule 元件會被渲染到 PhysicianScheduleView 的 <router-view> 中
+            path: 'rounding',
+            name: 'PhysicianRoundingSchedule',
+            // 我們可以直接在這裡建立一個空的元件，未來再把查房班表的邏輯放進去
+            // 為了讓它現在就能運作，我們先指向父元件本身
+            component: PhysicianScheduleView,
+            meta: { title: '查房班表' },
+          },
+          {
+            // 預留未來會診班表的路由
+            path: 'consultation',
+            name: 'PhysicianConsultationSchedule',
+            component: () => import('../views/PlaceholderView.vue'), // 建議建立一個預留位置元件
+            meta: { title: '會診班表' },
+          },
+        ],
+      },
+      // ==========================================================
       {
         path: 'exception-manager',
         name: 'ExceptionManager',
         component: () => import('../views/ExceptionManagerView.vue'),
-        meta: { title: '調班管理', requiresAuth: true }, // 所有已登入的使用者都能訪問
+        meta: { title: '調班管理', requiresAuth: true },
       },
       {
         path: 'patients',
@@ -84,21 +116,17 @@ const routes = [
         meta: { title: '帳號設定' },
       },
       {
-        path: '/daily-log',
+        path: 'daily-log', // ✨ 修正：子路由的路徑應該是相對路徑
         name: 'DailyLog',
         component: () => import('../views/DailyLogView.vue'),
         meta: { title: '工作日誌', requiresAuth: true },
       },
-      // ==========================================================
-      // ✨ 在這裡新增 ✨
-      // ==========================================================
       {
-        path: '/collaboration',
+        path: 'collaboration', // ✨ 修正：子路由的路徑應該是相對路徑
         name: 'Collaboration',
         component: () => import('../views/CollaborationView.vue'),
         meta: { title: '協作訊息中心', requiresAuth: true },
       },
-      // ==========================================================
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -109,34 +137,29 @@ const router = createRouter({
   routes,
 })
 
-// ✨ --- 核心修正：更新路由守衛 --- ✨
+// 路由守衛保持不變
 router.beforeEach(async (to, from, next) => {
-  // 從最新的 useAuth 中解構出需要的函式和計算屬性
   const { isLoggedIn, isAdmin, waitForAuthInit, currentUser } = useAuth()
-
-  // 等待 Firebase Auth 狀態初始化完成
   await waitForAuthInit()
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
 
-  // 1. 如果路由需要認證，但使用者未登入
+  // 檢查特定角色權限
+  const requiredRoles = to.matched.flatMap((record) => record.meta.roles || [])
+
   if (requiresAuth && !isLoggedIn.value) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
-    // 2. 如果使用者已登入，但試圖訪問登入頁
   } else if (to.name === 'Login' && isLoggedIn.value) {
-    next({ name: 'Collaboration' }) // 直接導向首頁
-    // 3. 如果路由需要管理員權限
-  } else if (requiresAdmin) {
-    if (isAdmin.value) {
-      next() // 有權限，放行
-    } else {
-      console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問管理員頁面。`)
-      next({ name: 'Schedule' }) // 無權限，導向首頁
-    }
-    // 4. 其他所有情況
+    next({ name: 'Collaboration' })
+  } else if (requiresAdmin && !isAdmin.value) {
+    console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問管理員頁面。`)
+    next({ name: 'Schedule' })
+  } else if (requiredRoles.length > 0 && !requiredRoles.includes(currentUser.value?.role)) {
+    console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問此頁面。`)
+    next({ name: 'Schedule' }) // 或導向一個 '權限不足' 的頁面
   } else {
-    next() // 不需要特殊權限，直接放行
+    next()
   }
 })
 
