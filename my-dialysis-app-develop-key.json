@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "my-dialysis-app-develop",
+  "private_key_id": "b809791e95ee8ace3f9679a1991d92c9231ba860",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCjNK5b+enliJNc\nSuj/T/wmn3ojs23EGrdvPSFqIK3u6rkPrXc3RVs61t64GowehV/GZLdU//+7eLlq\n3m0jfvp2XjbfcVWJIdHx3kBqwOGMm2bhfHGeSjLAYPjFZjv/TmTjp70XMNoaDlCs\nUa8w0+SEhZLwc8mRE/a2aWNdtNmTMKY5ayaTURH6EZHo33CQYZ/M1emRYvH5iRFm\nFw6BFRnZGx7uEn5FhzbUzmrH7VFj9g8J3XzKUzqMJMZkmID31ugAl8XTBzBYNIbR\nAH7rtJ8gcDiplCSLksZLqUC1OT86ZaTF0zOs4LvBG2QCqQNUYfh212oyeg4DuHRO\nVgp2OlBVAgMBAAECggEAGyU1hQXV0gA75mNtSp3upivrYEnFTZNWBFIKH0FNPMpc\nuo9TH2XRTUGU7NE5khAEBJcW6TPlQLTNPkm9pGRH221DOjn7DKKL7WtWkor/WOg2\nHfYZXccglt/qMMcW3pmW7UimildtR10vLOIvPfNYdHRVItpXYeKMq/1uchUVBUaT\nmB8CtgqV81b3Pt9tEuz/G6OxpNoEROIVxN8lGdjXCqWIp2nOEWvnUHZtdTMXJKGG\nD3CmERocNJ8qM6FcJ97CSNilCZUS6BnmEmkrM5VJA6hGnih8avs4uE2O4ztCWGbe\nMI/nCmllrLAYLAu3EoM/R9OagMc3swW/E3yU6BezcQKBgQDZNNlJbn3KxqeJHdzQ\ndQW6BsRlT5guzJqvmJw7ObOlUvD10ZdnXmwwvL6N7UFJfAGDZrIWRskwJT0LWgwy\ntcoJK5uPuACeAL+Cnrps0h9GKvmVzd2tHN+GJUHR7ZAnZ4HP6gvMOHI0MtVFGero\nxfPbovFncJFTIbW5dH+3m/9ETQKBgQDAWs4JaYMuoxmPePL2SgW3zF36R9XwQfQt\n5sZ7v/Rzj76veJoyLOp2czzHqubsclxzeNUmqdzjmVq31x02037yK2aICjstvSQD\nEtVK1YwUj0XN1nAaa5LKE+oojW/2rrTA2c3TLIKJbr0fkz9dAJWAiEFoQ1qoNN4a\nOv3aB2ngKQKBgGuiQLqewj8lygesgKvcEYZprBD4LFWkllLFsUW4Bkm6nCV0Qy66\nH6rXHSZ/l4auqKFQ1pcrZK8zBNkHOlw2sXNx5JiHeebSQBSeS4t5ZH4E9cFCTsNm\nN23mMIOy0Wh1ZmJ9fHMq1Y0AU6b2fO30ii8gw7ealKk5XzAThuaZqxlRAoGBAKbR\nGUZIXyAfCpfGiM7XO0Y+0nGvwvXt/Nmh/hhsTI+75d8/dFp3YY8AOYHf0QzV0R/D\ndvdk8M/huy8cO5XErZ9PzEfGt7PfCFAyERApSqa56gutIOOIz3C4/KXWo3cH5HIr\ncbjmLP8LLrEnfhgl3YHuqOrHHuQplUSiTGy9aTChAoGAUArXMXcMirr/48HivXLU\nm1fUm4zZyEGmybpuaJ0Z25CyG5IlUDsfMleOIuxJA0+saORUYRmm+azaGL1/+KLL\nFGUbxyomnc1hrbD86jVTx8mgGZP6/pfqJL2+7LmxS7LpqIrez7sWcCrfOB1ebg5U\nyTtNCvrY6yf8pI+Y2beBeIg=\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@my-dialysis-app-develop.iam.gserviceaccount.com",
+  "client_id": "113498425436263968128",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40my-dialysis-app-develop.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
