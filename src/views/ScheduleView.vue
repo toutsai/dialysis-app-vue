@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue (統計優化版) -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (最終整合版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -37,7 +37,6 @@
           </button>
         </div>
         <div class="toolbar-right">
-          <!-- ✨ 修改點 #1: 為行動版工具列加上 show-patient-numbers -->
           <StatsToolbar
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
@@ -69,43 +68,55 @@
               {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
             </button>
           </div>
-          <div class="team-highlight-container">
-            <div class="team-group">
-              <span class="team-group-label">早</span>
-              <div class="team-buttons">
-                <button
-                  v-for="team in baseTeams"
-                  :key="`early-${team}`"
-                  class="team-btn"
-                  :class="{
-                    active: highlightedTeam?.type === 'early' && highlightedTeam?.team === team,
-                  }"
-                  @click="toggleHighlight('early', team)"
-                >
-                  {{ team }}
-                </button>
+
+          <!-- ✨ 方案一：team-highlight-container 已被移除 -->
+        </div>
+        <div class="controls-right">
+          <!-- ✨ 新增：每日負責人資訊面板 ✨ -->
+          <div class="daily-staff-panel horizontal">
+            <div class="staff-item shift-early">
+              <span class="staff-label">早班</span>
+              <div class="staff-details">
+                <span class="staff-name">{{ dailyPhysicians.early?.name || '--' }}</span>
+                <span v-if="dailyPhysicians.early" class="staff-contact">
+                  (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.early.phone || 'N/A'
+                  }})
+                </span>
               </div>
             </div>
-            <div class="team-group">
-              <span class="team-group-label">晚</span>
-              <div class="team-buttons">
-                <button
-                  v-for="team in baseTeams"
-                  :key="`late-${team}`"
-                  class="team-btn"
-                  :class="{
-                    active: highlightedTeam?.type === 'late' && highlightedTeam?.team === team,
-                  }"
-                  @click="toggleHighlight('late', team)"
-                >
-                  {{ team }}
-                </button>
+            <div class="staff-item shift-noon">
+              <span class="staff-label">午班</span>
+              <div class="staff-details">
+                <span class="staff-name">{{ dailyPhysicians.noon?.name || '--' }}</span>
+                <span v-if="dailyPhysicians.noon" class="staff-contact">
+                  (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.noon.phone || 'N/A'
+                  }})
+                </span>
+              </div>
+            </div>
+            <div class="staff-item shift-late">
+              <span class="staff-label">晚班</span>
+              <div class="staff-details">
+                <span class="staff-name">{{ dailyPhysicians.late?.name || '--' }}</span>
+                <span v-if="dailyPhysicians.late" class="staff-contact">
+                  (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.late.phone || 'N/A'
+                  }})
+                </span>
+              </div>
+            </div>
+            <div class="staff-item shift-specialist">
+              <span class="staff-label">專師</span>
+              <div class="staff-details">
+                <span class="staff-name">賴若蕎</span>
+                <span class="staff-contact">(電: 665129)</span>
               </div>
             </div>
           </div>
-        </div>
-        <div class="controls-right">
-          <!-- ✨ 修改點 #2: 為桌面版工具列加上 show-patient-numbers -->
+
+          <!-- 原本的統計工具列 -->
           <StatsToolbar
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
@@ -115,7 +126,6 @@
       </div>
     </header>
 
-    <!-- ... 其餘的 template 內容保持不變 ... -->
     <main class="page-main-content" :class="{ 'is-locked': isPageLocked }">
       <!-- (A) 臨床查閱模式 (桌面覆蓋層) -->
       <div v-if="isSimplifiedViewVisible" class="simplified-view-wrapper desktop-only">
@@ -267,7 +277,6 @@
                       :class="[
                         getPatientCellStyle(`bed-${bedNum}-${shiftCode}`),
                         { 'split-shift': shiftCode === SHIFT_CODES.NOON },
-                        { 'highlighted-slot': isSlotHighlighted(`bed-${bedNum}-${shiftCode}`) },
                       ]"
                     >
                       <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
@@ -311,7 +320,6 @@
                           {{ team }}組
                         </option>
                       </select>
-                      <!-- [修改] 將原本的 patient-name 區塊替換成以下結構 -->
                       <div
                         class="patient-name"
                         :draggable="!isPageLocked && !!getPatientName(`bed-${bedNum}-${shiftCode}`)"
@@ -327,11 +335,9 @@
                           v-if="getPatientName(`bed-${bedNum}-${shiftCode}`)"
                           class="patient-cell-layout"
                         >
-                          <!-- 第一行：姓名 -->
                           <div class="patient-name-text">
                             {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
                           </div>
-                          <!-- 第二行：圖示列 -->
                           <div class="patient-icons-row">
                             <span
                               v-if="
@@ -373,7 +379,6 @@
                         </div>
                         <span v-else class="empty-slot-placeholder">+</span>
                       </div>
-                      <!-- 備註區純粹顯示醫療備註 -->
                       <div
                         class="patient-tag"
                         :contenteditable="!isPageLocked"
@@ -401,10 +406,7 @@
                   v-for="shiftCode in ORDERED_SHIFT_CODES"
                   :key="shiftCode"
                   class="peripheral-shift-row"
-                  :class="[
-                    getPatientCellStyle(`peripheral-${i}-${shiftCode}`),
-                    { 'highlighted-slot': isSlotHighlighted(`peripheral-${i}-${shiftCode}`) },
-                  ]"
+                  :class="[getPatientCellStyle(`peripheral-${i}-${shiftCode}`)]"
                 >
                   <div class="shift-label">{{ getShiftDisplayName(shiftCode) }}</div>
                   <select
@@ -437,7 +439,6 @@
                       {{ team }}組
                     </option>
                   </select>
-                  <!-- 外圍床位：床號獨立欄位 -->
                   <div
                     class="peripheral-bed-number"
                     @click="
@@ -500,11 +501,9 @@
                       v-if="getPatientName(`peripheral-${i}-${shiftCode}`)"
                       class="patient-cell-layout"
                     >
-                      <!-- 第一行：姓名 -->
                       <div class="patient-name-text">
                         {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
                       </div>
-                      <!-- 第二行：圖示列 -->
                       <div class="patient-icons-row">
                         <MemoIcon
                           :patient-id="
@@ -515,7 +514,6 @@
                     </div>
                     <span v-else class="empty-slot-placeholder">+</span>
                   </div>
-                  <!-- 備註區純粹顯示醫療備註 -->
                   <div
                     class="patient-tag"
                     :contenteditable="!isPageLocked"
@@ -710,14 +708,8 @@
       @confirm="handleWardNumberConfirm"
       @cancel="isWardDialogVisible = false"
     />
-    <!-- ======================================================= -->
-    <!--                  ✨ 全新：專為列印設計的區塊 ✨            -->
-    <!-- ======================================================= -->
     <div class="print-only-view">
-      <!-- 1. 列印頁首 -->
       <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
-
-      <!-- 2. 人數統計 -->
       <div v-if="statsToolbarData[0]" class="print-stats">
         <span class="stat-item"><strong>本日總計:</strong> {{ statsToolbarData[0].total }}人</span>
         <span class="stat-item"
@@ -730,10 +722,7 @@
           ><strong>晚班:</strong> {{ statsToolbarData[0].counts.late.total }}人</span
         >
       </div>
-
       <hr class="print-divider" />
-
-      <!-- 3. A4 表格 -->
       <table class="simplified-table print-table">
         <thead>
           <tr>
@@ -744,7 +733,6 @@
           </tr>
         </thead>
         <tbody>
-          <!-- 主要床位 -->
           <tr v-for="bedNum in sortedBedNumbers" :key="`print-bed-${bedNum}`">
             <td class="col-bed">{{ bedNum }}</td>
             <td
@@ -767,7 +755,6 @@
               </div>
             </td>
           </tr>
-          <!-- 外圍床位 -->
           <tr v-for="i in peripheralBedCount" :key="`print-p-${i}`">
             <td class="col-bed">外圍 {{ i }}</td>
             <td
@@ -854,6 +841,8 @@ const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
 const conditionRecordsApi = ApiManager('condition_records')
+const usersApi = ApiManager('users') // ✨ 新增
+
 const layoutData = {
   leftWingRows: [
     ['空', 32, 31],
@@ -913,7 +902,6 @@ const memosForDialog = ref([])
 const patientNameForDialog = ref('')
 const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
-const highlightedTeam = ref(null)
 const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const onConfirmAction = ref(null)
@@ -924,6 +912,10 @@ const selectedPatientForDetail = ref(null)
 const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
+
+// ✨ 新增
+const dailyPhysicians = ref({ early: null, noon: null, late: null })
+const specialistNurse = ref({ name: '賴若蕎', phone: '讀取中...' })
 
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -952,6 +944,7 @@ const dayOfWeek = computed(() => {
   const day = currentDate.value.getDay()
   return day === 0 ? 7 : day
 })
+
 const { scheduledPatientIds, getDailyUnassignedPatients, getDailyTemporaryPatients } =
   useScheduleAnalysis(
     allPatients,
@@ -979,7 +972,6 @@ const patientGroupsForDialog = computed(() => {
   })
   return groups
 })
-
 const statsToolbarData = computed(() => {
   const counts = {}
   ORDERED_SHIFT_CODES.forEach((shiftCode) => {
@@ -1005,7 +997,6 @@ const statsToolbarData = computed(() => {
   }
   return [dailyData]
 })
-
 const statsToolbarWeekdays = computed(() => ['本日'])
 const latestRecordDateByPatientId = computed(() => {
   const map = new Map()
@@ -1090,6 +1081,42 @@ function setTeamChange() {
   statusIndicator.value = '有未儲存的變更'
 }
 
+// ✨ 新增
+async function loadDailyStaffInfo(date) {
+  try {
+    const dateStr = formatDate(date).substring(0, 7) // "YYYY-MM"
+    const physicianSchedulesApi = ApiManager('physician_schedules')
+
+    // 步驟 1: 取得當月的醫師班表
+    const monthScheduleDoc = await physicianSchedulesApi.fetchById(dateStr)
+
+    // 步驟 2: 只取得所有「主治醫師」的詳細資料
+    const physiciansSnapshot = await usersApi.fetchAll([where('title', '==', '主治醫師')])
+    const userMap = new Map(physiciansSnapshot.map((u) => [u.id, u]))
+
+    // 步驟 3: (已移除) 不再需要處理專師資料
+
+    // 步驟 4: 處理當日三班醫師
+    if (monthScheduleDoc && monthScheduleDoc.schedule) {
+      const dayOfMonth = date.getDate()
+      const daySchedule = monthScheduleDoc.schedule[dayOfMonth]
+
+      if (daySchedule) {
+        dailyPhysicians.value.early = userMap.get(daySchedule.early?.physicianId) || null
+        dailyPhysicians.value.noon = userMap.get(daySchedule.noon?.physicianId) || null
+        dailyPhysicians.value.late = userMap.get(daySchedule.late?.physicianId) || null
+      } else {
+        dailyPhysicians.value = { early: null, noon: null, late: null }
+      }
+    } else {
+      dailyPhysicians.value = { early: null, noon: null, late: null }
+    }
+  } catch (error) {
+    console.error('載入每日負責人資訊失敗:', error)
+    dailyPhysicians.value = { early: null, noon: null, late: null }
+  }
+}
+
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1134,7 +1161,6 @@ async function loadDataForDay(date) {
     isLoading.value = false
   }
 }
-
 async function saveDataToCloud() {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足或日期已過。')
@@ -1195,8 +1221,6 @@ async function fetchRecentRecords() {
     return []
   }
 }
-
-// ✨ --- 核心修正：將此函式加回來 --- ✨
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
@@ -1204,7 +1228,6 @@ function getPatientCellStyle(shiftId) {
   if (!patient) return {}
   return getUnifiedCellStyle(slotData, patient)
 }
-
 function getPatientWardNumber(patientId) {
   if (!patientId) return ''
   const patient = patientMap.value.get(patientId)
@@ -1235,7 +1258,6 @@ async function handleWardNumberConfirm(value) {
   if (!slot?.patientId) return
   try {
     await optimizedUpdatePatient(slot.patientId, { wardNumber: value })
-    // 強制刷新 Store 以確保所有地方的數據都更新
     await patientStore.forceRefreshPatients()
     showAlert('操作成功', '床號已更新')
   } catch (error) {
@@ -1309,32 +1331,6 @@ function showPatientMemos(patientId) {
   memosForDialog.value = activeMemos.value.filter((memo) => memo.patientId === patientId)
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
-}
-function toggleHighlight(type, team) {
-  const currentHighlight = highlightedTeam.value
-  if (currentHighlight && currentHighlight.type === type && currentHighlight.team === team) {
-    highlightedTeam.value = null
-  } else {
-    highlightedTeam.value = { type, team }
-  }
-}
-function isSlotHighlighted(shiftId) {
-  if (!highlightedTeam.value) return false
-  const slot = currentRecord.schedule[shiftId]
-  if (!slot?.patientId) return false
-  const shiftCode = shiftId.split('-').pop()
-  const key = `${slot.patientId}-${shiftCode}`
-  const teamData = currentTeamsRecord.value.teams[key]
-  if (!teamData) return false
-  const { type, team } = highlightedTeam.value
-  if (type === 'early') {
-    if (shiftCode === SHIFT_CODES.EARLY && teamData.nurseTeam === `早${team}`) return true
-    if (shiftCode === SHIFT_CODES.NOON && teamData.nurseTeamIn === `早${team}`) return true
-  } else if (type === 'late') {
-    if (shiftCode === SHIFT_CODES.LATE && teamData.nurseTeam === `晚${team}`) return true
-    if (shiftCode === SHIFT_CODES.NOON && teamData.nurseTeamOut === `晚${team}`) return true
-  }
-  return false
 }
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
@@ -1418,10 +1414,7 @@ function handleSlotUpdate(shiftId, patientId, fullSlotData = null) {
     if (fullSlotData) {
       newSlotData = { ...fullSlotData, patientId: patientId }
     } else {
-      newSlotData = {
-        patientId: patientId,
-        manualNote: patient.status === 'ipd' ? '住' : '',
-      }
+      newSlotData = { patientId: patientId, manualNote: patient.status === 'ipd' ? '住' : '' }
     }
     newSlotData.autoNote = generateAutoNote(patient)
     newSlotData.shiftId = correctShiftCode
@@ -1582,8 +1575,8 @@ function executeAutoAssignment() {
         const bedNumber = parseInt(bedNumberStr, 10)
         return {
           id: slot.patientId,
-          shiftId: shiftId,
-          shiftCode: shiftCode,
+          shiftId,
+          shiftCode,
           status: patientData.status,
           isHepatitis: !isNaN(bedNumber) && hepatitisBeds.includes(bedNumber),
           isPeripheral: shiftId.startsWith('peripheral'),
@@ -1638,15 +1631,8 @@ function executeAutoAssignment() {
   noonOnAssignments['早外圍'] = peripheral(allNoonPatients)
   const lateTeamsToUse = baseTeams.filter((t) => t <= 'H').map((t) => `晚${t}`)
   const lateRules = {
-    priorityTeams: {
-      hepatitis: '晚F',
-      inPatientTeams: ['晚H'],
-      inPatientCapacity: { 晚H: 2 },
-    },
-    mainDistribution: {
-      specialTeam: null,
-      regularTeams: lateTeamsToUse,
-    },
+    priorityTeams: { hepatitis: '晚F', inPatientTeams: ['晚H'], inPatientCapacity: { 晚H: 2 } },
+    mainDistribution: { specialTeam: null, regularTeams: lateTeamsToUse },
   }
   const noonOffAssignments = distributePatients(sort(noonMain), lateTeamsToUse, lateRules)
   noonOffAssignments['晚外圍'] = peripheral(allNoonPatients)
@@ -1698,16 +1684,21 @@ function executeAutoAssignment() {
 onMounted(async () => {
   isLoading.value = true
   await auth.waitForAuthInit()
-  // ✨ 核心修改: 不再需要 loadAllData，因為病人資料由 App.vue 觸發載入
-  await loadDataForDay(currentDate.value)
+  await Promise.all([loadDataForDay(currentDate.value), loadDailyStaffInfo(currentDate.value)])
   isLoading.value = false
 })
 
 watch(currentDate, (newDate, oldDate) => {
   if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
     loadDataForDay(newDate)
+    loadDailyStaffInfo(newDate)
   }
 })
+
+// ✨ 方案一：以下函式和 ref 已被移除
+// const highlightedTeam = ref(null)
+// function toggleHighlight(...) { ... }
+// function isSlotHighlighted(...) { ... }
 </script>
 
 <style scoped>
@@ -1850,6 +1841,7 @@ watch(currentDate, (newDate, oldDate) => {
   justify-content: space-between;
   align-items: center;
   margin-top: 1rem;
+  padding: 0 0 0.3rem 0.3rem;
 }
 .controls-left,
 .controls-right {
@@ -2182,64 +2174,9 @@ button:disabled {
   background-color: #fce4ec;
   color: #c2185b;
 }
-.team-highlight-container {
-  display: flex;
-  gap: 1rem;
-  padding: 8px;
-  background-color: #e9ecef;
-  border-radius: 8px;
-}
-.team-group {
-  display: flex;
-  align-items: center;
-}
-.team-group-label {
-  font-weight: bold;
-  font-size: 1.2rem;
-  color: #495057;
-  margin-right: 8px;
-  writing-mode: vertical-rl;
-  background-color: #ced4da;
-  padding: 8px 4px;
-  border-radius: 4px;
-}
-.team-group:first-of-type .team-group-label {
-  background-color: #ffe082;
-  color: #333;
-}
-.team-group:last-of-type .team-group-label {
-  background-color: #90caf9;
-  color: #333;
-}
-.team-buttons {
-  display: flex;
-  border: 1px solid #ced4da;
-  border-radius: 6px;
-  overflow: hidden;
-}
-.team-btn {
-  padding: 6px 12px;
-  font-size: 0.9em;
-  min-width: 40px;
-  border: none;
-  border-left: 1px solid #ced4da;
-  background-color: #fff;
-  transition: all 0.2s;
-}
-.team-buttons .team-btn:first-child {
-  border-left: none;
-}
-.team-btn.active {
-  background-color: #dc3545;
-  color: white;
-  border-color: #c82333;
-}
-.shift-row.highlighted-slot,
-.peripheral-shift-row.highlighted-slot {
-  outline: 3px solid #dc3545;
-  outline-offset: -3px;
-  z-index: 1;
-}
+
+/* ✨ 方案一：team-highlight-container 的樣式已被移除 */
+
 .memo-icon-inline {
   position: relative;
   z-index: 2;
@@ -2247,43 +2184,32 @@ button:disabled {
 .patient-name {
   position: relative;
 }
-/* 新增：病人儲存格的兩行佈局容器 */
 .patient-cell-layout {
   display: flex;
   flex-direction: column;
-  justify-content: center; /* 垂直置中 */
-  align-items: center; /* 水平置中 */
+  justify-content: center;
+  align-items: center;
   width: 100%;
   height: 100%;
-  gap: 2px; /* 上下兩行之間的間距 */
+  gap: 2px;
   line-height: 1.2;
 }
-
-/* 新增：病人姓名的樣式 */
 .patient-name-text {
   font-weight: bold;
 }
-
-/* 新增：下方圖示列的容器 */
 .patient-icons-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px; /* 圖示之間的間距 */
+  gap: 6px;
 }
-
-/* 微調：讓 patient-name 容器支援 flex 佈局 */
 .patient-name,
 .peripheral-patient-name {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 移除原有的 padding，交給內層容器處理 */
   padding: 2px;
 }
-/* =================================================================== */
-/* === 2. 整合後的響應式與新增功能樣式 === */
-/* =================================================================== */
 .mobile-and-print-only {
   display: none;
 }
@@ -2383,14 +2309,12 @@ button:disabled {
   font-size: 1rem;
   line-height: 1;
 }
-
-/* 桌面版臨床查閱模式的字體顏色 */
 .desktop-only :deep(.simplified-table td[class*='status-']) .patient-mrn-name {
-  color: #212529; /* 將整個病歷號+姓名容器設為黑色 */
-  font-weight: 600; /* 將整個病歷號+姓名容器設為粗體 */
+  color: #212529;
+  font-weight: 600;
 }
 .desktop-only :deep(.simplified-table td[class*='status-']) .patient-note {
-  color: #dc3545; /* 保持備註的紅色不變 */
+  color: #dc3545;
 }
 
 @media screen and (min-width: 993px) {
@@ -2452,14 +2376,11 @@ button:disabled {
   }
 }
 
-/* 臨床查閱模式的床號顯示 */
 .ward-number-display {
   font-weight: bold;
   color: #007bff;
   margin-right: 8px;
 }
-
-/* 外圍床位的床號欄位 */
 .peripheral-bed-number {
   font-size: 0.9em;
   min-width: 80px;
@@ -2470,18 +2391,14 @@ button:disabled {
   align-items: center;
   justify-content: center;
 }
-
 .peripheral-bed-number:focus {
   outline: 2px solid #007bff;
   outline-offset: -2px;
   background-color: #f0f8ff;
 }
-
 .peripheral-bed-number[contenteditable='false'] {
   background-color: #f5f5f5;
 }
-
-/* 外圍床位的床號徽章 */
 .peripheral-bed-number .ward-number-badge {
   display: inline-block;
   background-color: #007bff;
@@ -2493,11 +2410,9 @@ button:disabled {
   cursor: pointer;
   transition: background-color 0.2s;
 }
-
 .peripheral-bed-number .ward-number-badge:hover {
   background-color: #0056b3;
 }
-
 .peripheral-bed-number .ward-edit-icon {
   font-size: 0.9em;
   padding: 0;
@@ -2507,20 +2422,14 @@ button:disabled {
   opacity: 0.6;
   line-height: 1;
 }
-/* =================================================================== */
-/* === 3. 專業列印模式樣式 (最終解決方案) === */
-/* =================================================================== */
-
-/* ✨ 核心修正: 使用新的視覺隱藏技巧，而不是 display: none */
 .print-only-view {
   position: absolute;
-  left: -9999px; /* 移到螢幕外 */
+  left: -9999px;
   top: auto;
   width: 1px;
   height: 1px;
   overflow: hidden;
 }
-
 .print-header {
   text-align: center;
   font-size: 16pt;
@@ -2565,20 +2474,15 @@ button:disabled {
 }
 
 @media print {
-  /* 1. 徹底隱藏整個主應用程式容器 */
   :deep(body > #app > *) {
     display: none !important;
   }
-
-  /* 2. 只讓 page-container 內的 print-only-view 顯示出來 */
   :deep(body > #app > .page-container) {
     display: block !important;
   }
   .page-container > :not(.print-only-view) {
     display: none !important;
   }
-
-  /* 3. 讓列印區塊正常顯示 */
   .print-only-view {
     display: block !important;
     position: static;
@@ -2586,8 +2490,6 @@ button:disabled {
     height: auto;
     overflow: visible;
   }
-
-  /* 4. 移除頁面邊距和背景 */
   @page {
     size: A4 landscape;
     margin: 1cm;
@@ -2598,8 +2500,6 @@ button:disabled {
     margin: 0 !important;
     background: none !important;
   }
-
-  /* 5. 確保表格內容不斷開 */
   tr,
   .patient-info-cell {
     page-break-inside: avoid;
@@ -2608,33 +2508,26 @@ button:disabled {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
-  /* 新增：病人儲存格的兩行佈局容器 */
   .patient-cell-layout {
     display: flex;
     flex-direction: column;
-    justify-content: center; /* 垂直置中 */
-    align-items: center; /* 水平置中 */
+    justify-content: center;
+    align-items: center;
     width: 100%;
     height: 100%;
-    gap: 2px; /* 上下兩行之間的間距 */
+    gap: 2px;
     line-height: 1.2;
-    padding: 2px 0; /* 給予一點垂直內距 */
+    padding: 2px 0;
   }
-
-  /* 新增：病人姓名的樣式 */
   .patient-name-text {
     font-weight: bold;
   }
-
-  /* 新增：下方圖示列的容器 */
   .patient-icons-row {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 6px; /* 圖示之間的間距 */
+    gap: 6px;
   }
-
-  /* 微調：讓 patient-name 容器支援 flex 佈局 */
   .patient-name,
   .peripheral-patient-name {
     display: flex;
@@ -2642,5 +2535,78 @@ button:disabled {
     justify-content: center;
     padding: 2px;
   }
+}
+
+/* ✨ 新增：每日負責人資訊面板的樣式 ✨ */
+.daily-staff-panel.horizontal {
+  display: flex;
+  gap: 12px;
+  background-color: #f8f9fa; /* 與背景色融合 */
+  border: none; /* 移除邊框 */
+  padding: 0;
+  align-items: stretch; /* 讓所有項目等高 */
+}
+
+.staff-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 20px; /* 膠囊形狀 */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  transition: all 0.2s ease-in-out;
+}
+
+.staff-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.staff-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-right: 10px;
+  color: white;
+}
+
+.staff-details {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.staff-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.staff-contact {
+  font-size: 0.8rem;
+  opacity: 0.9;
+}
+
+/* 顏色設定，參考班表統計 */
+.staff-item.shift-early {
+  background-color: #28a745;
+  color: white;
+}
+.staff-item.shift-noon {
+  background-color: #ffc107;
+  color: #212529; /* 黃色背景搭配深色字 */
+}
+.staff-item.shift-noon .staff-label {
+  color: #212529;
+}
+.staff-item.shift-late {
+  background-color: #17a2b8;
+  color: white;
+}
+.staff-item.shift-specialist {
+  background-color: #6c757d;
+  color: white;
+}
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
 }
 </style>

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (功能完整最終版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (最終版面佈局) -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -37,51 +37,99 @@
       </div>
     </div>
 
-    <div class="duty-command-bar">
-      <div class="main-commanders">
-        <span class="duty-title">消防編組:</span>
-        <span class="duty-role-tag role-commander">總指揮官</span>
-        <span class="duty-person">廖丁瑩主任</span>
-        <span class="duty-divider"></span>
-        <span class="duty-role-tag role-reporter">通報班</span>
-        <span class="duty-person">謝淑琴書記</span>
-        <span class="duty-divider"></span>
-        <span class="duty-role-tag role-field-commander">現場指揮官</span>
-        <span class="duty-person">莊明月護理長</span>
-        <span class="duty-divider"></span>
-        <span class="duty-role-tag role-guide">引導救護班</span>
-        <span class="duty-person">工友</span>
+    <!-- ✨ 1. 新增的每日資訊總覽列 ✨ -->
+    <div class="daily-info-bar">
+      <!-- 每日負責人資訊面板 (結構不變) -->
+      <div class="daily-staff-panel horizontal">
+        <div class="staff-item shift-early">
+          <span class="staff-label">早</span>
+          <div class="staff-details">
+            <span class="staff-name">{{ dailyPhysicians.early?.name || '--' }}</span>
+            <span v-if="dailyPhysicians.early" class="staff-contact">
+              (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
+                dailyPhysicians.early.phone || 'N/A'
+              }})
+            </span>
+          </div>
+        </div>
+        <div class="staff-item shift-noon">
+          <span class="staff-label">午</span>
+          <div class="staff-details">
+            <span class="staff-name">{{ dailyPhysicians.noon?.name || '--' }}</span>
+            <span v-if="dailyPhysicians.noon" class="staff-contact">
+              (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
+                dailyPhysicians.noon.phone || 'N/A'
+              }})
+            </span>
+          </div>
+        </div>
+        <div class="staff-item shift-late">
+          <span class="staff-label">晚</span>
+          <div class="staff-details">
+            <span class="staff-name">{{ dailyPhysicians.late?.name || '--' }}</span>
+            <span v-if="dailyPhysicians.late" class="staff-contact">
+              (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
+                dailyPhysicians.late.phone || 'N/A'
+              }})
+            </span>
+          </div>
+        </div>
+        <div class="staff-item shift-specialist">
+          <span class="staff-label">專</span>
+          <div class="staff-details">
+            <span class="staff-name">賴若蕎</span>
+            <span class="staff-contact">(電: 665129)</span>
+          </div>
+        </div>
       </div>
-      <div class="duty-dropdown-wrapper">
-        <button
-          class="duty-dropdown-trigger"
-          @click="isFireDutyDropdownVisible = !isFireDutyDropdownVisible"
-        >
-          <span>勤務分組詳情</span>
-          <span class="toggle-arrow" :class="{ 'is-rotated': isFireDutyDropdownVisible }">▼</span>
-        </button>
-        <transition name="slide-fade">
-          <div v-if="isFireDutyDropdownVisible" class="duty-dropdown-menu">
-            <div v-for="(duties, shift) in dutyAssignments" :key="shift" class="duty-shift-group">
-              <h4 class="duty-shift-header">
-                {{ shift === 'early' ? '早班' : shift === 'late' ? '午/晚班' : '夜班' }}
-              </h4>
-              <div class="duty-item" v-for="(teams, dutyName) in duties" :key="dutyName">
-                <div class="duty-name" :class="getDutyTagClass(dutyName)">{{ dutyName }}</div>
-                <div class="duty-teams">
-                  <span
-                    v-if="Array.isArray(teams)"
-                    v-for="team in teams"
-                    :key="team"
-                    class="duty-team-tag"
-                    >{{ team }}</span
-                  >
-                  <span v-else class="duty-team-tag">{{ teams }}</span>
+
+      <!-- 消防編組列 (結構不變，但會透過 CSS 改變其外觀) -->
+      <div class="duty-command-bar">
+        <div class="main-commanders">
+          <span class="duty-title">消防編組:</span>
+          <span class="duty-role-tag role-commander">總指揮官</span>
+          <span class="duty-person">廖丁瑩主任</span>
+          <span class="duty-divider"></span>
+          <span class="duty-role-tag role-reporter">通報班</span>
+          <span class="duty-person">謝淑琴書記</span>
+          <span class="duty-divider"></span>
+          <span class="duty-role-tag role-field-commander">現場指揮官</span>
+          <span class="duty-person">莊明月護理長</span>
+          <span class="duty-divider"></span>
+          <span class="duty-role-tag role-guide">引導救護班</span>
+          <span class="duty-person">工友</span>
+        </div>
+        <div class="duty-dropdown-wrapper">
+          <button
+            class="duty-dropdown-trigger"
+            @click="isFireDutyDropdownVisible = !isFireDutyDropdownVisible"
+          >
+            <span>勤務分組詳情</span>
+            <span class="toggle-arrow" :class="{ 'is-rotated': isFireDutyDropdownVisible }">▼</span>
+          </button>
+          <transition name="slide-fade">
+            <div v-if="isFireDutyDropdownVisible" class="duty-dropdown-menu">
+              <div v-for="(duties, shift) in dutyAssignments" :key="shift" class="duty-shift-group">
+                <h4 class="duty-shift-header">
+                  {{ shift === 'early' ? '早班' : shift === 'late' ? '午/晚班' : '夜班' }}
+                </h4>
+                <div class="duty-item" v-for="(teams, dutyName) in duties" :key="dutyName">
+                  <div class="duty-name" :class="getDutyTagClass(dutyName)">{{ dutyName }}</div>
+                  <div class="duty-teams">
+                    <span
+                      v-if="Array.isArray(teams)"
+                      v-for="team in teams"
+                      :key="team"
+                      class="duty-team-tag"
+                      >{{ team }}</span
+                    >
+                    <span v-else class="duty-team-tag">{{ teams }}</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </transition>
+          </transition>
+        </div>
       </div>
     </div>
 
@@ -703,6 +751,7 @@ const { patientMap } = storeToRefs(patientStore)
 const schedulesApi = ApiManager('schedules')
 const memosApi = ApiManager('memos')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
+const usersApi = ApiManager('users')
 
 // 常數定義
 const nurseNameList = [
@@ -788,6 +837,8 @@ const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({ patients: [], targetElement: null })
 const isCreateTaskModalVisible = ref(false)
 
+const dailyPhysicians = ref({ early: null, noon: null, late: null })
+
 // Hooks
 const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
@@ -802,11 +853,9 @@ const isPageLocked = computed(() => {
   currentDay.setHours(0, 0, 0, 0)
   return currentDay < today
 })
-const weekdayDisplay = computed(() => {
-  if (!currentDate.value) return ''
-  return ['日', '一', '二', '三', '四', '五', '六'][new Date(currentDate.value).getDay()]
-})
-
+const weekdayDisplay = computed(
+  () => ['日', '一', '二', '三', '四', '五', '六'][new Date(currentDate.value).getDay()],
+)
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams) => {
     const stats = {}
@@ -859,7 +908,7 @@ const effectiveStatsData = computed(() => {
       mode: patient.mode,
       wardNumber: patient.wardNumber || '',
       dialysisBed: shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || '',
-      finalTags: finalTags,
+      finalTags,
       classes:
         'patient-item ' +
         Object.entries(getUnifiedCellStyle(shiftDetails, patient))
@@ -918,6 +967,40 @@ const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+}
+
+async function loadDailyStaffInfo(date) {
+  try {
+    const dateStr = formatDate(date).substring(0, 7)
+    const physicianSchedulesApi = ApiManager('physician_schedules')
+
+    const [monthScheduleDoc, usersSnapshot] = await Promise.all([
+      physicianSchedulesApi.fetchById(dateStr),
+      usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
+    ])
+
+    const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
+
+    if (monthScheduleDoc && monthScheduleDoc.schedule) {
+      const dayOfMonth = date.getDate()
+      const daySchedule = monthScheduleDoc.schedule[dayOfMonth]
+
+      dailyPhysicians.value.early = daySchedule
+        ? userMap.get(daySchedule.early?.physicianId) || null
+        : null
+      dailyPhysicians.value.noon = daySchedule
+        ? userMap.get(daySchedule.noon?.physicianId) || null
+        : null
+      dailyPhysicians.value.late = daySchedule
+        ? userMap.get(daySchedule.late?.physicianId) || null
+        : null
+    } else {
+      dailyPhysicians.value = { early: null, noon: null, late: null }
+    }
+  } catch (error) {
+    console.error('載入每日負責人資訊失敗:', error)
+    dailyPhysicians.value = { early: null, noon: null, late: null }
+  }
 }
 async function getEffectiveOrdersForDate(patientId, targetDate) {
   if (!patientId || !targetDate) return {}
@@ -996,16 +1079,6 @@ async function loadData(date) {
     isLoading.value = false
   }
 }
-function setScheduleChange() {
-  if (isPageLocked.value) return
-  hasUnsavedScheduleChanges.value = true
-  statusIndicator.value = '有未儲存的變更'
-}
-function setTeamChange() {
-  if (isPageLocked.value) return
-  hasUnsavedTeamChanges.value = true
-  statusIndicator.value = '有未儲存的變更'
-}
 async function saveChangesToCloud() {
   if (isPageLocked.value || !hasUnsavedChanges.value) return
   statusIndicator.value = '儲存中...'
@@ -1068,8 +1141,6 @@ function getDutyTagClass(dutyName) {
   if (dutyName.includes('通報')) return 'role-reporter'
   return 'role-default'
 }
-
-// ✨ [修正] #1: 建立一個共用的函式來處理排程與分組的變更
 function applyTeamAndScheduleChange(
   patientDetail,
   oldShiftId,
@@ -1077,18 +1148,13 @@ function applyTeamAndScheduleChange(
   newTeam,
   newResponsibility,
 ) {
-  // 1. 移動排程資料
   const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
   setScheduleChange()
-
-  // 2. 更新分組資料
   const patientId = patientDetail.id
   const oldShiftCode = oldShiftId.split('-')[2]
   const oldTeamKey = `${patientId}-${oldShiftCode}`
-
-  // 2a. 清理舊的分組指派
   if (currentTeamsRecord.value.teams[oldTeamKey]) {
     if (
       patientDetail.sourceResponsibility === 'earlyShift' ||
@@ -1099,23 +1165,17 @@ function applyTeamAndScheduleChange(
       delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamIn
     if (patientDetail.sourceResponsibility === 'noonShiftOff')
       delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamOut
-
-    // 如果該病人在舊班別已無任何分組，則移除整個 key
     if (Object.keys(currentTeamsRecord.value.teams[oldTeamKey]).length === 0) {
       delete currentTeamsRecord.value.teams[oldTeamKey]
     }
   }
-
-  // 2b. 建立新的分組指派
   const newShiftCode = newShiftId.split('-')[2]
   const newTeamKey = `${patientId}-${newShiftCode}`
   if (!currentTeamsRecord.value.teams[newTeamKey]) {
     currentTeamsRecord.value.teams[newTeamKey] = {}
   }
-
   const teamInfo = currentTeamsRecord.value.teams[newTeamKey]
   const slotInfo = currentRecord.schedule[newShiftId]
-
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     teamInfo.nurseTeam = newTeam
     slotInfo.nurseTeam = newTeam
@@ -1128,17 +1188,13 @@ function applyTeamAndScheduleChange(
   }
   setTeamChange()
 }
-
-// ✨ [修正] #2: onDrop 函式加入完整邏輯判斷
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) return
-
   const oldShiftCode = oldShiftId.split('-')[2]
   const newShiftCode =
     newResponsibility === 'earlyShift'
@@ -1146,25 +1202,16 @@ function onDrop(event, newTeam, newResponsibility) {
       : newResponsibility === 'lateShift'
         ? SHIFT_CODES.LATE
         : SHIFT_CODES.NOON
-
-  // 判斷是否為跨班別拖曳
   if (newShiftCode !== oldShiftCode) {
-    // --- 這是跨班別拖曳的核心邏輯 ---
-    const shiftIdParts = oldShiftId.split('-') // e.g., ['area', '15', 'E']
+    const shiftIdParts = oldShiftId.split('-')
     const area = shiftIdParts[0]
     const bed = shiftIdParts[1]
-
-    // 組合出目標班別的同一個床位 ID
     const potentialNewShiftId = `${area}-${bed}-${newShiftCode}`
-
-    // 檢查目標床位是否已被佔用
     if (currentRecord.schedule[potentialNewShiftId]) {
-      // 情況 A: 床位已被佔用，必須跳出智慧排床對話框
       pendingChangeInfo.value = { patientDetail, newTeam, newResponsibility }
       bedChangeTargetShift.value = newShiftCode
       openBedChangeDialog(patientDetail)
     } else {
-      // 情況 B: 床位是空的，直接執行換班換組
       applyTeamAndScheduleChange(
         patientDetail,
         oldShiftId,
@@ -1174,12 +1221,9 @@ function onDrop(event, newTeam, newResponsibility) {
       )
     }
   } else {
-    // --- 這是同班別拖曳的邏輯 ---
-    // 只需更換組別，不換床
     performTeamChange(patientDetail, newTeam, newResponsibility)
   }
 }
-
 function performTeamChange(patientDetail, newTeam, newResponsibility) {
   const patientId = patientDetail.id
   const shiftId = patientDetail.shiftId
@@ -1207,7 +1251,6 @@ function onDragStart(event, patientDetail, responsibility) {
     event.preventDefault()
     return
   }
-  // ✨ [關鍵] 確保 sourceResponsibility 被加入，以便後續清理舊分組
   const detailWithSource = { ...patientDetail, sourceResponsibility: responsibility }
   event.dataTransfer.setData('application/json', JSON.stringify(detailWithSource))
   event.dataTransfer.setData('text/plain', responsibility)
@@ -1218,27 +1261,19 @@ function openBedChangeDialog(patientDetail) {
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
-
-// ✨ [修正] #3: 調整 handleBedChange，讓它呼叫共用函式
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value || !oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     isBedChangeDialogVisible.value = false
     return
   }
-
-  // 從 pendingChangeInfo 中取得分組變更的資訊
   if (pendingChangeInfo.value) {
     const { patientDetail, newTeam, newResponsibility } = pendingChangeInfo.value
-    // 使用共用函式處理所有資料變更
     applyTeamAndScheduleChange(patientDetail, oldShiftId, newShiftId, newTeam, newResponsibility)
   }
-
-  // 重置狀態
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
-
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
@@ -1323,10 +1358,11 @@ function triggerPrint() {
 
 // Lifecycle Hooks
 onMounted(() => {
-  loadData(currentDate.value)
+  Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
 watch(currentDate, (newDate) => {
   loadData(newDate)
+  loadDailyStaffInfo(newDate)
 })
 </script>
 
@@ -1716,8 +1752,7 @@ button.btn-primary:hover:not(:disabled) {
   background-color: #fffbeb;
   border: 1px solid #fef3c7;
   padding: 4px 16px;
-  border-radius: 8px;
-  margin-bottom: 20px;
+  border-radius: 8px; /* margin-bottom: 20px; */
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -2049,5 +2084,104 @@ button.btn-primary:hover:not(:disabled) {
   .duty-item {
     grid-template-columns: 100px 1fr;
   }
+}
+
+/* ✨ 新版樣式 ✨ */
+/* 新的容器，現在使用 flexbox 來水平排列子項目 */
+.daily-info-bar {
+  display: flex;
+  flex-wrap: wrap; /* 在螢幕寬度不足時允許換行 */
+  justify-content: space-between; /* 讓左右兩塊內容分開 */
+  align-items: center; /* 垂直置中 */
+  gap: 1.5rem; /* 左右區塊之間的間距 */
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+
+/* 每日負責人面板 (左側) */
+.daily-staff-panel.horizontal {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex-wrap: wrap; /* 在螢幕寬度不足時允許換行 */
+}
+
+/* 消防編組列 (右側) - 縮小字體和間距，讓它更緊湊 */
+.duty-command-bar {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 0;
+  gap: 12px; /* 縮小內部間距 */
+}
+
+.main-commanders {
+  gap: 8px; /* 縮小內部間距 */
+}
+
+.duty-title {
+  font-size: 1em; /* 縮小字體 */
+}
+
+.duty-role-tag {
+  font-size: 0.8em; /* 縮小字體 */
+  padding: 2px 6px;
+}
+
+.duty-person {
+  font-size: 0.9em; /* 縮小字體 */
+  margin-left: -2px;
+}
+/* (以下是 staff-item 的樣式，保持不變) */
+.staff-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 25px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+.staff-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-right: 8px;
+  color: white;
+}
+.staff-details {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.staff-name {
+  font-weight: 600;
+  font-size: 1rem;
+}
+.staff-contact {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+.staff-item.shift-early {
+  background-color: #28a745;
+  color: white;
+}
+.staff-item.shift-noon {
+  background-color: #ffc107;
+  color: #212529;
+}
+.staff-item.shift-noon .staff-label {
+  color: #212529;
+}
+.staff-item.shift-late {
+  background-color: #17a2b8;
+  color: white;
+}
+.staff-item.shift-specialist {
+  background-color: #6c757d;
+  color: white;
 }
 </style>
