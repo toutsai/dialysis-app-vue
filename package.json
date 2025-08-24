@@ -30,6 +30,7 @@
     "run:init-schedules": "firebase functions:scheduler:run initializefutureschedules --project develop"
   },
   "dependencies": {
+    "axios": "^1.11.0",
     "firebase": "^11.10.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^3.0.1",

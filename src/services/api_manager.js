@@ -1,4 +1,4 @@
-// src/services/api_manager.js (修正版 - 恢復為純 default export)
+// src/services/api_manager.js
 
 // 1. 從 Firebase SDK 中，引入所有我們需要用到的函式
 import {
@@ -72,7 +72,7 @@ const ApiManager = (resourceType) => {
         const id = idOrData
         const dataToSave = data
         const docRef = doc(db, resourceType, id)
-        await setDoc(docRef, dataToSave)
+        await setDoc(docRef, dataToSave, { merge: true }) // ✨ 建議：加上 merge: true，避免意外覆蓋整個文件
         console.log(`[ApiManager] Set document with ID ${id} in ${resourceType}`)
         return { id, ...dataToSave }
       }
@@ -93,7 +93,6 @@ const ApiManager = (resourceType) => {
    * @returns {Promise<object>} - 返回包含 id 和已更新資料的物件。
    */
   const update = async (id, data) => {
-    // 【健壯性增強】在執行操作前，檢查 ID 是否為有效的字串。
     if (!id || typeof id !== 'string') {
       const errorMessage = `[ApiManager] Invalid or missing ID for update in ${resourceType}. ID must be a non-empty string.`
       console.error(errorMessage)
@@ -117,9 +116,12 @@ const ApiManager = (resourceType) => {
    * @returns {Promise<object|null>} - 返回文件物件，如果不存在則返回 null。
    */
   const fetchById = async (id) => {
-    // 【健壯性增強】您原本這裡的檢查就做得很好
     if (!id || typeof id !== 'string') {
-      throw new Error('Document ID is required and must be a string.')
+      // 修正：當ID為空時，不應該拋出錯誤，而是直接返回 null，讓呼叫端處理
+      console.warn(
+        `[ApiManager] fetchById called with invalid ID in ${resourceType}. Returning null.`,
+      )
+      return null
     }
 
     try {
@@ -145,12 +147,10 @@ const ApiManager = (resourceType) => {
    * @returns {Promise<{id: string}>} - 返回被刪除文件的 ID。
    */
   const deleteDocument = async (id) => {
-    // 【修正重點】在執行操作前，嚴格檢查 ID 是否為有效的字串。
-    // 這能從根本上解決 "even number of segments" 的問題。
     if (!id || typeof id !== 'string') {
       const errorMessage = `[ApiManager] Invalid or missing ID for deletion in ${resourceType}. ID must be a non-empty string.`
       console.error(errorMessage)
-      throw new Error(errorMessage) // 直接拋出明確錯誤，而不是讓 Firebase 拋出模糊的錯誤。
+      throw new Error(errorMessage)
     }
 
     try {
@@ -164,6 +164,17 @@ const ApiManager = (resourceType) => {
     }
   }
 
+  // ✨✨✨ 核心修正點 ✨✨✨
+  /**
+   * 新增一個文件，並讓 Firebase 自動生成 ID。
+   * @param {object} data - 要新增的資料。
+   * @returns {Promise<object>} - 返回包含新 ID 和已儲存資料的物件。
+   */
+  const create = async (data) => {
+    // 直接呼叫您已經寫好的 save 函式的第一種情況
+    return save(data)
+  }
+
   // 返回所有可用的 API 函式
   return {
     fetchAll,
@@ -171,8 +182,8 @@ const ApiManager = (resourceType) => {
     update,
     delete: deleteDocument, // 'delete' 是關鍵字，這樣賦值是標準做法
     fetchById,
+    create, // ✨ 將新的 create 函式匯出
   }
 }
 
-// ✨ 核心修正：移除 named export，只保留 default export
 export default ApiManager

@@ -61,10 +61,23 @@
       <!-- 固定的底部容器 -->
       <div class="bottom-fixed-section">
         <div class="management-section">
-          <h3 class="section-title">後臺管理</h3>
-          <ul class="sidebar-nav">
+          <!-- 將 h3 改為可點擊的按鈕，並加上箭頭圖示 -->
+          <h3
+            class="section-title is-collapsible"
+            @click="isManagementSectionCollapsed = !isManagementSectionCollapsed"
+            :class="{ 'is-collapsed': isManagementSectionCollapsed }"
+          >
+            <span>後臺管理</span>
+            <i class="fas fa-chevron-down"></i>
+          </h3>
+
+          <!-- 用 v-if 控制列表的顯示/隱藏 -->
+          <ul v-if="!isManagementSectionCollapsed" class="sidebar-nav">
             <li v-if="canEditSchedules">
               <RouterLink to="/daily-log" class="nav-link">工作日誌</RouterLink>
+            </li>
+            <li v-if="canManagePhysicianSchedule">
+              <RouterLink to="/physician-schedule" class="nav-link">醫師排班</RouterLink>
             </li>
             <li><RouterLink to="/lab-reports" class="nav-link">檢驗報告管理</RouterLink></li>
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
@@ -131,10 +144,11 @@ import { useTaskStore } from '@/stores/taskStore.js'
 
 const router = useRouter()
 const route = useRoute()
-const { currentUser, logout, isAdmin, canEditSchedules } = useAuth()
+const { currentUser, logout, isAdmin, canEditSchedules, canManagePhysicianSchedule } = useAuth()
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
+const isManagementSectionCollapsed = ref(true)
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
@@ -571,6 +585,38 @@ onUnmounted(() => {
 .sidebar-overlay,
 .main-header {
   display: none;
+}
+/* ================================== */
+/*     ✨ 後臺管理收合功能樣式 ✨     */
+/* ================================== */
+.section-title.is-collapsible {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  padding: 8px 15px; /* 增加點擊區域 */
+  margin: 0;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.section-title.is-collapsible:hover {
+  background-color: #34495e;
+}
+
+.section-title.is-collapsible .fa-chevron-down {
+  transition: transform 0.3s ease;
+  font-size: 0.8em;
+}
+
+.section-title.is-collapsible.is-collapsed .fa-chevron-down {
+  transform: rotate(-90deg);
+}
+
+/* 為 ul 加上一點過渡效果 (可選) */
+.management-section .sidebar-nav {
+  /* 如果您想要滑動效果，可以嘗試用 transition，但 v-if 的效果更直接 */
+  overflow: hidden;
 }
 
 @media (max-width: 992px) {

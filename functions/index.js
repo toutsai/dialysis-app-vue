@@ -10,6 +10,7 @@ const {
 } = require('firebase-functions/v2/firestore')
 const { logger } = require('firebase-functions')
 const admin = require('firebase-admin')
+const functions = require('firebase-functions')
 const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
@@ -44,7 +45,7 @@ const FREQ_MAP_TO_DAY_INDEX = {
 }
 const SHIFTS = ['early', 'noon', 'late']
 function generateDailyScheduleFromRules(masterRules, targetDate) {
-  /* ... no change ... */ const dailySchedule = {}
+  const dailySchedule = {}
   const dayOfWeek = targetDate.getDay()
   const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
   for (const patientId in masterRules) {
