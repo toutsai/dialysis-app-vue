@@ -206,35 +206,6 @@
                     </td>
                   </tr>
                 </template>
-                <tr class="add-physician-row">
-                  <td>
-                    <input
-                      type="text"
-                      v-model="newPhysician.name"
-                      placeholder="新醫師姓名"
-                      class="form-input"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="text"
-                      v-model="newPhysician.staffId"
-                      placeholder="員工編號"
-                      class="form-input"
-                    />
-                  </td>
-                  <td>
-                    <div class="add-action-cell">
-                      <input
-                        type="text"
-                        v-model="newPhysician.phone"
-                        placeholder="電話號碼"
-                        class="form-input"
-                      />
-                      <button @click="addPhysician" class="add-btn" title="新增醫師">+</button>
-                    </div>
-                  </td>
-                </tr>
               </tbody>
             </table>
           </div>
@@ -409,19 +380,20 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { where } from 'firebase/firestore'
+import { where } from 'firebase/firestore' // ✨ 1. 確保 'where' 已被引入
 import ApiManager from '@/services/api_manager.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- API 管理器 ---
-const physiciansApi = ApiManager('physicians')
+// ✨ 2. 刪除 physiciansApi，改用 usersApi 來統一管理醫師資料
+const usersApi = ApiManager('users')
 const physicianSchedulesApi = ApiManager('physician_schedules')
 
 // --- 頁面狀態 (Refs) ---
 const isLoading = ref(true)
 const selectedDate = ref(new Date())
-const availablePhysicians = ref([])
+const availablePhysicians = ref([]) // ✨ 這個 ref 現在會存放從 'users' 集合讀取的主治醫師
 const scheduleData = ref({})
 const scheduleNotes = ref('')
 const hasUnsavedChanges = ref(false)
@@ -437,7 +409,8 @@ const reportDate1 = ref('')
 const reportDate2 = ref('')
 const managedHolidays = ref([])
 const holidayForm = ref({ name: '', customName: '', date: '' })
-const newPhysician = ref({ name: '', staffId: '', phone: '' }) // ✨ 修正：只保留此處的 newPhysician 宣告
+// ✨ 3. 移除 newPhysician ref，因為醫師現在統一由 UserManagementView 管理
+// const newPhysician = ref({ name: '', staffId: '', phone: '' })
 
 // --- 對話框狀態 (Refs) ---
 const isAlertDialogVisible = ref(false)
@@ -548,78 +521,59 @@ const weeklyData = computed(() => {
   return weeks
 })
 
-// ✨ ✨ ✨ 請用此版本完整替換舊的 scheduleStats ✨ ✨ ✨
 const scheduleStats = computed(() => {
-  // 對每一位醫師進行計算
   return availablePhysicians.value.map((doc) => {
-    // 初始化這位醫師的統計物件
     const stats = {
       name: doc.name,
-      // 本月統計
-      monthlyWeekday: 0, // 新定義: 週一至五 (含落在週一至五的國定假日)
-      monthlyWeekend: 0, // 新定義: 週六日
-      // 年度累計
-      ytdTotal: 0, // 新定義: 全部都算
-      ytdHolidays: 0, // 新定義: 週一至五的國定假日
-      ytdWeekends: 0, // 新定義: 累計的週末班 (六日)
+      monthlyWeekday: 0,
+      monthlyWeekend: 0,
+      ytdTotal: 0,
+      ytdHolidays: 0,
+      ytdWeekends: 0,
     }
-
-    // --- 1. 計算本月統計 (使用前端響應式的 scheduleData) ---
     const currentMonthData = scheduleData.value
     const currentMonthHolidays = new Set(managedHolidays.value.map((h) => h.date))
-
     if (Object.keys(currentMonthData).length > 0) {
       daysInMonth.value.forEach((dayInfo) => {
         const day = dayInfo.day
-        const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-        const isHoliday = currentMonthHolidays.has(dateStr)
-
+        const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(
+          2,
+          '0',
+        )}-${String(day).padStart(2, '0')}`
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (currentMonthData[day]?.[shift]?.physicianId === doc.id) {
-            // 規則 1: 只要是週六或週日，就是「本月週末班」
             if (dayInfo.isWeekend) {
               stats.monthlyWeekend++
-            }
-            // 規則 2: 其他日子 (週一至五)，都算是「本月平日班」，包含落在平日的國定假日
-            else {
+            } else {
               stats.monthlyWeekday++
             }
           }
         })
       })
     }
-
-    // --- 2. 計算年度累計統計 (遍歷從雲端抓回來的 yearScheduleData) ---
     for (const monthKey in yearScheduleData.value) {
       const monthScheduleData = yearScheduleData.value[monthKey]
       if (!monthScheduleData || !monthScheduleData.schedule) continue
-
       const monthSchedule = monthScheduleData.schedule
-      // 取得該月份手動設定的假日
       const monthHolidays = new Set((monthScheduleData.managedHolidays || []).map((h) => h.date))
-
       const year = monthScheduleData.year
       const monthNum = monthScheduleData.month
       const daysInThisMonth = new Date(year, monthNum, 0).getDate()
-
       for (let day = 1; day <= daysInThisMonth; day++) {
         const date = new Date(year, monthNum - 1, day)
         const dayOfWeek = date.getDay()
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(
+          2,
+          '0',
+        )}`
         const isHoliday = monthHolidays.has(dateStr)
-
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (monthSchedule[day]?.[shift]?.physicianId === doc.id) {
-            // 規則 3: 累計總班數 (全部都算)
             stats.ytdTotal++
-
-            // 規則 4: 累計平日假日班 (必須是國定假日，且 *不是* 週末)
             if (isHoliday && !isWeekend) {
               stats.ytdHolidays++
             }
-
-            // 規則 5: 累計週末班 (只要是週六或週日就累加)
             if (isWeekend) {
               stats.ytdWeekends++
             }
@@ -627,8 +581,6 @@ const scheduleStats = computed(() => {
         })
       }
     }
-
-    // 返回這位醫師的最終統計結果
     return stats
   })
 })
@@ -642,31 +594,9 @@ const physicianClassMap = computed(() => {
 })
 
 // --- Functions (方法) ---
-async function addPhysician() {
-  if (!newPhysician.value.name.trim()) {
-    showAlert('資料不完整', '請至少輸入新醫師的姓名。')
-    return
-  }
-  isLoading.value = true
-  try {
-    const physicianData = {
-      name: newPhysician.value.name.trim(),
-      staffId: newPhysician.value.staffId.trim() || null,
-      phone: newPhysician.value.phone.trim() || null,
-      clinicHours: [],
-    }
-    await physiciansApi.create(physicianData)
-    showAlert('新增成功', `醫師 "${physicianData.name}" 已成功新增！`)
-    newPhysician.value = { name: '', staffId: '', phone: '' }
-    await fetchPhysicians()
-    await loadScheduleForDate(selectedDate.value)
-  } catch (error) {
-    console.error('新增醫師失敗:', error)
-    showAlert('新增失敗', '儲存新醫師時發生錯誤，請檢查主控台訊息。')
-  } finally {
-    isLoading.value = false
-  }
-}
+
+// ✨ 4. 移除 addPhysician 函式，因為此頁面不再負責新增醫師
+// async function addPhysician() { ... }
 
 function addHoliday() {
   const name =
@@ -804,9 +734,12 @@ function generateBlankSchedule(year, month, physicians) {
   return blankSchedule
 }
 
+// ✨ 5. 使用新版本替換舊的 fetchPhysicians 函式
 async function fetchPhysicians() {
   try {
-    const physicians = await physiciansApi.fetchAll()
+    // 從 'users' 集合中，查詢 title 為 '主治醫師' 的所有文件
+    const physicians = await usersApi.fetchAll([where('title', '==', '主治醫師')])
+
     const desiredOrder = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政', '林天佑']
     physicians.sort((a, b) => {
       const indexA = desiredOrder.indexOf(a.name)
@@ -816,6 +749,7 @@ async function fetchPhysicians() {
       if (indexB !== -1) return 1
       return a.name.localeCompare(b.name, 'zh-Hant')
     })
+
     const clinicSelections = {}
     physicians.forEach((doc) => {
       const hours = Array.isArray(doc.clinicHours) ? doc.clinicHours : []
@@ -824,8 +758,8 @@ async function fetchPhysicians() {
     physicianClinicSelections.value = clinicSelections
     availablePhysicians.value = physicians
   } catch (error) {
-    console.error('讀取醫師列表失敗:', error)
-    showAlert('錯誤', '無法讀取醫師列表，請檢查網路或聯繫管理員。')
+    console.error('讀取主治醫師列表失敗:', error)
+    showAlert('錯誤', '無法從使用者列表讀取主治醫師資料，請檢查網路或聯繫管理員。')
   }
 }
 
@@ -923,21 +857,28 @@ async function loadScheduleForDate(date) {
   }
 }
 
+// ✨ 6. 使用新版本替換舊的 saveAllChanges 函式
 async function saveAllChanges() {
   isLoading.value = true
   const schedulePromise = saveScheduleOnly()
+
+  // 將門診時間更新回 'users' 集合
   const clinicUpdatePromises = availablePhysicians.value.map((doc) => {
     const selectedHours = physicianClinicSelections.value[doc.id] || []
     const newClinicHours = selectedHours.filter((hour) => hour)
     const originalHours = (doc.clinicHours || []).sort().join(',')
     const newHours = [...newClinicHours].sort().join(',')
+
     if (originalHours !== newHours) {
-      return physiciansApi.update(doc.id, { clinicHours: newClinicHours })
+      // 使用 usersApi 來更新
+      return usersApi.update(doc.id, { clinicHours: newClinicHours })
     }
     return Promise.resolve()
   })
+
   try {
     await Promise.all([...clinicUpdatePromises, schedulePromise])
+    // 儲存後重新載入醫師資料，以確保資料同步
     await fetchPhysicians()
     await loadScheduleForDate(selectedDate.value)
     hasUnsavedChanges.value = false
@@ -961,13 +902,11 @@ function saveScheduleOnly() {
       bloodDraw1: bloodDrawDate1.value,
       bloodDraw2: bloodDrawDate2.value,
       report1: reportDate1.value,
-      // ✨ 核心修正：將 reportDate2 改為 report2 ✨
       report2: reportDate2.value,
     },
     pdClinicHours: {},
     managedHolidays: managedHolidays.value,
   }
-
   for (const docId in monthlyPdClinicSelections.value) {
     const validPdHours = monthlyPdClinicSelections.value[docId].filter((pd) => pd.date && pd.shift)
     if (validPdHours.length > 0) {
