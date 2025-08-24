@@ -1,5 +1,6 @@
+<!-- src/components/UserFormModal.vue (修改版) -->
 <script setup>
-import { ref, watch, reactive } from 'vue'
+import { watch, reactive } from 'vue'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -17,12 +18,12 @@ const form = reactive({
   title: '護理師',
   role: 'viewer',
   email: '',
+  staffId: '', // ✨ 1. 新增 staffId
+  phone: '', // ✨ 2. 新增 phone
+  clinicHours: [], // ✨ 3. 新增 clinicHours
 })
 
-// 職稱選項
 const titles = ['主治醫師', '護理長', '護理師', '專科護理師', '管理員', '書記']
-
-// 角色選項
 const roles = [
   { value: 'admin', text: 'Admin (主任/護理長/管理員)' },
   { value: 'contributor', text: 'Contributor (醫師/專師)' },
@@ -32,14 +33,17 @@ const roles = [
 
 watch(
   () => props.isVisible,
-  (newVal, oldVal) => {
-    if (newVal && !oldVal) {
+  (newVal) => {
+    if (newVal) {
       if (props.isEditing && props.user) {
-        // 編輯模式
-        Object.assign(form, props.user)
+        Object.assign(form, {
+          ...props.user,
+          staffId: props.user.staffId || '',
+          phone: props.user.phone || '',
+          clinicHours: props.user.clinicHours || [],
+        })
         form.password = ''
       } else {
-        // 新增模式
         Object.assign(form, {
           id: '',
           name: '',
@@ -48,8 +52,23 @@ watch(
           title: '護理師',
           role: 'viewer',
           email: '',
+          staffId: '',
+          phone: '',
+          clinicHours: [],
         })
       }
+    }
+  },
+)
+
+// ✨ 4. 監聽職稱變化，如果不是主治醫師就清空相關資料
+watch(
+  () => form.title,
+  (newTitle) => {
+    if (newTitle !== '主治醫師') {
+      form.staffId = ''
+      form.phone = ''
+      form.clinicHours = []
     }
   },
 )
@@ -58,6 +77,12 @@ function handleSubmit() {
   const dataToSave = { ...form }
   if (props.isEditing && !dataToSave.password) {
     delete dataToSave.password
+  }
+  // 如果不是主治醫師，就不要儲存醫師相關欄位
+  if (dataToSave.title !== '主治醫師') {
+    delete dataToSave.staffId
+    delete dataToSave.phone
+    delete dataToSave.clinicHours
   }
   emit('save', dataToSave)
 }
@@ -72,7 +97,7 @@ function handleSubmit() {
       </header>
       <main class="modal-body">
         <form @submit.prevent="handleSubmit" class="user-form">
-          <!-- 第一列：姓名、職稱 -->
+          <!-- ... 其他 form-row ... -->
           <div class="form-row">
             <div class="form-group">
               <label for="name">姓名</label>
@@ -87,8 +112,6 @@ function handleSubmit() {
               </select>
             </div>
           </div>
-
-          <!-- 第二列：帳號、密碼 -->
           <div class="form-row">
             <div class="form-group">
               <label for="username">帳號 (Username)</label>
@@ -111,8 +134,6 @@ function handleSubmit() {
               />
             </div>
           </div>
-
-          <!-- 第三列：角色、Email -->
           <div class="form-row">
             <div class="form-group">
               <label for="role">角色 (Role)</label>
@@ -129,6 +150,21 @@ function handleSubmit() {
             <div class="form-group">
               <label for="email">Email</label>
               <input id="email" type="email" v-model="form.email" />
+            </div>
+          </div>
+
+          <!-- ✨ 5. 新增：只有當職稱是主治醫師時才顯示的區塊 ✨ -->
+          <div v-if="form.title === '主治醫師'" class="physician-fields">
+            <hr class="field-separator" />
+            <div class="form-row">
+              <div class="form-group">
+                <label for="staffId">員工編號</label>
+                <input id="staffId" type="text" v-model="form.staffId" />
+              </div>
+              <div class="form-group">
+                <label for="phone">電話</label>
+                <input id="phone" type="tel" v-model="form.phone" />
+              </div>
             </div>
           </div>
         </form>
@@ -263,7 +299,15 @@ function handleSubmit() {
 .btn-save:hover {
   background-color: #0056b3;
 }
-
+/* ✨ 6. 新增：分隔線和醫師欄位區塊的樣式 ✨ */
+.physician-fields {
+  margin-top: 1rem;
+}
+.field-separator {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 1rem 0;
+}
 /* ================================== */
 /* ‼️        新增的響應式樣式        ‼️ */
 /* ================================== */
