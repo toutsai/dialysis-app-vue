@@ -515,8 +515,8 @@ const weeklyData = computed(() => {
   })
   return weeks
 })
+
 const scheduleStats = computed(() => {
-  // ... (scheduleStats 邏輯保持不變) ...
   return availablePhysicians.value.map((doc) => {
     const stats = {
       name: doc.name,
@@ -526,23 +526,28 @@ const scheduleStats = computed(() => {
       ytdHolidays: 0,
       ytdWeekends: 0,
     }
+
+    // --- 1. 計算本月統計 ---
     const currentMonthData = scheduleData.value
-    const currentMonthHolidays = new Set(managedHolidays.value.map((h) => h.date))
     if (Object.keys(currentMonthData).length > 0) {
       daysInMonth.value.forEach((dayInfo) => {
         const day = dayInfo.day
-        const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day).padStart(2, '0')}`
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (currentMonthData[day]?.[shift]?.physicianId === doc.id) {
-            if (dayInfo.isWeekend || currentMonthHolidays.has(dateStr)) {
+            // 正確的邏輯: 只有週六日 (isWeekend) 才算週末班
+            if (dayInfo.isWeekend) {
               stats.monthlyWeekend++
-            } else {
+            }
+            // 其他日子 (週一至五，包含國定假日) 都算平日班
+            else {
               stats.monthlyWeekday++
             }
           }
         })
       })
     }
+
+    // --- 2. 計算年度累計統計 ---
     for (const monthKey in yearScheduleData.value) {
       const monthScheduleData = yearScheduleData.value[monthKey]
       if (!monthScheduleData || !monthScheduleData.schedule) continue
@@ -551,18 +556,22 @@ const scheduleStats = computed(() => {
       const year = monthScheduleData.year
       const monthNum = monthScheduleData.month
       const daysInThisMonth = new Date(year, monthNum, 0).getDate()
+
       for (let day = 1; day <= daysInThisMonth; day++) {
         const date = new Date(year, monthNum - 1, day)
         const dayOfWeek = date.getDay()
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
         const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
         const isHoliday = monthHolidays.has(dateStr)
+
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (monthSchedule[day]?.[shift]?.physicianId === doc.id) {
             stats.ytdTotal++
+            // 累計平日假日班 (必須是國定假日，且 *不是* 週末)
             if (isHoliday && !isWeekend) {
               stats.ytdHolidays++
             }
+            // 累計週末班 (只要是週六或週日就累加)
             if (isWeekend) {
               stats.ytdWeekends++
             }
@@ -573,6 +582,7 @@ const scheduleStats = computed(() => {
     return stats
   })
 })
+
 const physicianClassMap = computed(() => {
   const map = new Map()
   availablePhysicians.value.forEach((doc, index) => {
