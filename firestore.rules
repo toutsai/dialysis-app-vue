@@ -23,9 +23,11 @@ service cloud.firestore {
     }
 
     // --- 各個集合的規則 (原有規則保持不變) ---
-    match /users/{userId} {
-      allow list: if isAdmin();
-      allow get: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+     match /users/{userId} {
+      // ✨ 核心修正：將 list 和 get 的權限，開放給所有已登入的使用者 ✨
+      allow list, get: if isAuthenticated();
+
+      // ✨ 寫入權限保持不變，仍然只有 Admin 可以修改使用者資料 ✨
       allow write: if isAdmin(); 
     }
     match /patients/{patientId} {
