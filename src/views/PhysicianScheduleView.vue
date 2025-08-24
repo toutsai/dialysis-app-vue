@@ -908,7 +908,7 @@ function saveScheduleOnly() {
       bloodDraw1: bloodDrawDate1.value,
       bloodDraw2: bloodDrawDate2.value,
       report1: reportDate1.value,
-      report2: reportDate2.value, // 確保這裡也是 report2
+      report2: reportDate2.value,
     },
     pdClinicHours: {},
     managedHolidays: managedHolidays.value,
@@ -924,12 +924,18 @@ function saveScheduleOnly() {
 
   // 遍歷所有排班資料，準備儲存
   for (const day in scheduleData.value) {
+    // 確保 scheduleData[day] 是一個物件
+    if (typeof scheduleData.value[day] !== 'object' || scheduleData.value[day] === null) {
+      continue // 如果不是物件，就跳過這一天
+    }
+
     dataToSave.schedule[day] = {}
     for (const shift of ['early', 'noon', 'late']) {
-      const physicianId = scheduleData.value[day][shift]?.physicianId // 使用可選串聯 ?. 避免錯誤
+      // ✨ 核心修正點：使用可選串聯 ?. 來安全地取值 ✨
+      // 即使 scheduleData.value[day][shift] 是 undefined，這行程式碼也不會報錯
+      const physicianId = scheduleData.value[day][shift]?.physicianId
 
-      // ✨ 核心修正點 ✨
-      // 如果有 physicianId，才建立這個班別的物件
+      // 只有當 physicianId 是一個有效值 (非 null, 非 undefined) 時，才建立這個班別的物件
       if (physicianId) {
         dataToSave.schedule[day][shift] = {
           physicianId: physicianId,
@@ -937,7 +943,6 @@ function saveScheduleOnly() {
           name: physicianMap.get(physicianId) || null,
         }
       }
-      // 如果連 physicianId 都沒有，就完全不要建立這個 shift 物件，保持資料庫乾淨
     }
     // 如果某一天三個班別都沒有人，就從要儲存的資料中移除這一天
     if (Object.keys(dataToSave.schedule[day]).length === 0) {
