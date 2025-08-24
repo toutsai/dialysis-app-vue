@@ -1,5 +1,6 @@
+<!-- src/components/UserFormModal.vue (已整合預設班表設定) -->
 <script setup>
-import { ref, watch, reactive } from 'vue'
+import { watch, reactive, computed } from 'vue' // ✨ 1. 引入 computed
 
 const props = defineProps({
   isVisible: Boolean,
@@ -9,20 +10,24 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'save'])
 
-const form = reactive({
+// ✨ 2. 在預設表單結構中，加入 defaultSchedules 陣列
+const defaultFormState = {
   id: '',
   name: '',
   username: '',
-  password: '',
+  password: '123456',
   title: '護理師',
   role: 'viewer',
   email: '',
-})
+  staffId: '',
+  phone: '',
+  clinicHours: [],
+  defaultSchedules: [],
+}
 
-// 職稱選項
+const form = reactive({ ...defaultFormState })
+
 const titles = ['主治醫師', '護理長', '護理師', '專科護理師', '管理員', '書記']
-
-// 角色選項
 const roles = [
   { value: 'admin', text: 'Admin (主任/護理長/管理員)' },
   { value: 'contributor', text: 'Contributor (醫師/專師)' },
@@ -30,26 +35,55 @@ const roles = [
   { value: 'viewer', text: 'Viewer (護理師/書記)' },
 ]
 
+// ✨ 3. 定義預設班表的選項資料，供 template 使用
+const scheduleOptions = computed(() => {
+  const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日']
+  const shifts = { early: '早', noon: '午', late: '夜' }
+  const options = []
+  // dayOfWeek: 0=週日, 1=週一, ..., 6=週六 (符合 JS Date.getDay() 的回傳值)
+  for (let i = 0; i < days.length; i++) {
+    const dayOfWeek = (i + 1) % 7
+    for (const shiftCode in shifts) {
+      options.push({
+        value: `${dayOfWeek}-${shiftCode}`, // e.g., "1-early"
+        label: `${days[i]}${shifts[shiftCode]}`, // e.g., "週一早"
+      })
+    }
+  }
+  return options
+})
+
 watch(
   () => props.isVisible,
-  (newVal, oldVal) => {
-    if (newVal && !oldVal) {
+  (newVal) => {
+    if (newVal) {
       if (props.isEditing && props.user) {
-        // 編輯模式
-        Object.assign(form, props.user)
+        // ✨ 4. 在編輯模式下，確保能正確載入已儲存的 defaultSchedules
+        Object.assign(form, defaultFormState, {
+          ...props.user,
+          staffId: props.user.staffId || '',
+          phone: props.user.phone || '',
+          clinicHours: props.user.clinicHours || [],
+          defaultSchedules: props.user.defaultSchedules || [], // 確保有預設空陣列
+        })
         form.password = ''
       } else {
-        // 新增模式
-        Object.assign(form, {
-          id: '',
-          name: '',
-          username: '',
-          password: '123456',
-          title: '護理師',
-          role: 'viewer',
-          email: '',
-        })
+        // 新增模式，重置為預設狀態
+        Object.assign(form, defaultFormState)
       }
+    }
+  },
+)
+
+watch(
+  () => form.title,
+  (newTitle) => {
+    // ✨ 5. 當職稱不是主治醫師時，清空所有醫師相關欄位
+    if (newTitle !== '主治醫師') {
+      form.staffId = ''
+      form.phone = ''
+      form.clinicHours = []
+      form.defaultSchedules = [] // 清空預設班表
     }
   },
 )
@@ -58,6 +92,14 @@ function handleSubmit() {
   const dataToSave = { ...form }
   if (props.isEditing && !dataToSave.password) {
     delete dataToSave.password
+  }
+
+  // ✨ 6. 在儲存時，如果不是主治醫師，移除所有醫師相關欄位
+  if (dataToSave.title !== '主治醫師') {
+    delete dataToSave.staffId
+    delete dataToSave.phone
+    delete dataToSave.clinicHours
+    delete dataToSave.defaultSchedules // 移除預設班表
   }
   emit('save', dataToSave)
 }
@@ -72,7 +114,6 @@ function handleSubmit() {
       </header>
       <main class="modal-body">
         <form @submit.prevent="handleSubmit" class="user-form">
-          <!-- 第一列：姓名、職稱 -->
           <div class="form-row">
             <div class="form-group">
               <label for="name">姓名</label>
@@ -87,8 +128,6 @@ function handleSubmit() {
               </select>
             </div>
           </div>
-
-          <!-- 第二列：帳號、密碼 -->
           <div class="form-row">
             <div class="form-group">
               <label for="username">帳號 (Username)</label>
@@ -111,8 +150,6 @@ function handleSubmit() {
               />
             </div>
           </div>
-
-          <!-- 第三列：角色、Email -->
           <div class="form-row">
             <div class="form-group">
               <label for="role">角色 (Role)</label>
@@ -129,6 +166,36 @@ function handleSubmit() {
             <div class="form-group">
               <label for="email">Email</label>
               <input id="email" type="email" v-model="form.email" />
+            </div>
+          </div>
+
+          <div v-if="form.title === '主治醫師'" class="physician-fields">
+            <hr class="field-separator" />
+            <div class="form-row">
+              <div class="form-group">
+                <label for="staffId">員工編號</label>
+                <input id="staffId" type="text" v-model="form.staffId" />
+              </div>
+              <div class="form-group">
+                <label for="phone">電話</label>
+                <input id="phone" type="tel" v-model="form.phone" />
+              </div>
+            </div>
+
+            <!-- ✨ 7. 新增：預設班表設定 UI ✨ -->
+            <div class="form-group">
+              <label>預設班表</label>
+              <div class="schedule-checkbox-group">
+                <div v-for="option in scheduleOptions" :key="option.value" class="checkbox-wrapper">
+                  <input
+                    type="checkbox"
+                    :id="`sched-${option.value}`"
+                    :value="option.value"
+                    v-model="form.defaultSchedules"
+                  />
+                  <label :for="`sched-${option.value}`">{{ option.label }}</label>
+                </div>
+              </div>
             </div>
           </div>
         </form>
@@ -156,17 +223,16 @@ function handleSubmit() {
   justify-content: center;
   align-items: center;
   z-index: 1000;
-  padding: 1rem; /* ✨ 新增: 給 overlay 一點邊距，避免內容緊貼螢幕邊緣 */
+  padding: 1rem;
 }
 
 .modal-content {
   background: white;
   padding: 2rem;
   border-radius: 8px;
-  width: 100%; /* ✨ 修改: 寬度設為 100% */
+  width: 100%;
   max-width: 650px;
   box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-  /* ✨ 新增: 讓 Modal 內部可以滾動，以應對小螢幕 */
   max-height: 90vh;
   overflow-y: auto;
 }
@@ -225,8 +291,8 @@ function handleSubmit() {
   border: 1px solid #ccc;
   border-radius: 4px;
   font-size: 1rem;
-  width: 100%; /* ✨ 新增: 確保輸入框填滿容器 */
-  box-sizing: border-box; /* ✨ 新增: 確保 padding 不會讓寬度溢出 */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .modal-footer {
@@ -264,27 +330,56 @@ function handleSubmit() {
   background-color: #0056b3;
 }
 
+.physician-fields {
+  margin-top: 1rem;
+}
+.field-separator {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 1rem 0;
+}
+
+/* ✨ 8. 新增：預設班表 checkboxes 的樣式 ✨ */
+.schedule-checkbox-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+}
+.checkbox-wrapper input[type='checkbox'] {
+  width: auto; /* 覆蓋 .form-group input 的 width: 100% */
+  margin-right: 8px;
+}
+.checkbox-wrapper label {
+  font-weight: normal; /* 取消 label 的粗體 */
+  margin-bottom: 0; /* 覆蓋掉 .form-group label 的 margin */
+  cursor: pointer; /* 增加點擊區域 */
+}
+
 /* ================================== */
 /* ‼️        新增的響應式樣式        ‼️ */
 /* ================================== */
 @media (max-width: 768px) {
-  /* 在手機上，讓 Modal 從頂部對齊 */
   .modal-overlay {
     align-items: flex-start;
   }
 
   .modal-content {
     padding: 1.5rem;
-    margin-top: 5vh; /* 距離頂部一點距離 */
+    margin-top: 5vh;
   }
 
-  /* 核心修改：將兩欄的 Grid 佈局改為單欄 */
   .form-row {
     grid-template-columns: 1fr;
-    gap: 1rem; /* 縮小垂直間距 */
+    gap: 1rem;
   }
 
-  /* 讓底部按鈕垂直堆疊，並且主要按鈕在上方 */
   .modal-footer {
     flex-direction: column-reverse;
     gap: 0.75rem;
