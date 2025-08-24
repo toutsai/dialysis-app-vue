@@ -696,41 +696,67 @@ function getShiftCellClass(day) {
   return ''
 }
 
+// ✨✨✨ 請用此版本完整替換您現有的 generateBlankSchedule ✨✨✨
 function generateBlankSchedule(year, month, physicians) {
   const blankSchedule = {}
   const daysCount = new Date(year, month, 0).getDate()
-  const findPhysicianId = (name) => physicians.find((p) => p.name === name)?.id || null
-  const liaoId = findPhysicianId('廖丁瑩')
-  const tsaiYiId = findPhysicianId('蔡宜潔')
-  const suId = findPhysicianId('蘇哲弘')
-  const tsaiHengId = findPhysicianId('蔡亨政')
+
+  /**
+   * 輔助函式：根據醫師中文名字，從傳入的 physicians 陣列中
+   * 找到對應的醫師物件 { id, name, ... }。
+   * @param {string} name - 醫師的中文名字
+   * @returns {object|null} - 完整的醫師物件，或 null
+   */
+  const findPhysicianByName = (name) => {
+    return physicians.find((p) => p.name === name) || null
+  }
+
+  // 預先找出所有需要的醫師「物件」
+  const liao = findPhysicianByName('廖丁瑩')
+  const tsaiYi = findPhysicianByName('蔡宜潔')
+  const su = findPhysicianByName('蘇哲弘')
+  const tsaiHeng = findPhysicianByName('蔡亨政')
+
   for (let i = 1; i <= daysCount; i++) {
     const date = new Date(year, month - 1, i)
-    const dayOfWeek = date.getDay()
+    const dayOfWeek = date.getDay() // 0=週日, 1=週一, ...
+
     const shifts = {
       early: { physicianId: null, name: null },
       noon: { physicianId: null, name: null },
       late: { physicianId: null, name: null },
     }
+
+    // 根據星期幾，填入對應的醫師物件中的 id 和 name
     switch (dayOfWeek) {
-      case 1:
-        shifts.early.physicianId = liaoId
-        shifts.late.physicianId = liaoId
+      case 1: // 星期一
+        if (liao) {
+          shifts.early = { physicianId: liao.id, name: liao.name }
+          shifts.late = { physicianId: liao.id, name: liao.name }
+        }
         break
-      case 2:
-        shifts.late.physicianId = tsaiHengId
+      case 2: // 星期二
+        if (tsaiHeng) {
+          shifts.late = { physicianId: tsaiHeng.id, name: tsaiHeng.name }
+        }
         break
-      case 3:
-        shifts.early.physicianId = tsaiYiId
-        shifts.late.physicianId = tsaiYiId
+      case 3: // 星期三
+        if (tsaiYi) {
+          shifts.early = { physicianId: tsaiYi.id, name: tsaiYi.name }
+          shifts.late = { physicianId: tsaiYi.id, name: tsaiYi.name }
+        }
         break
-      case 5:
-        shifts.early.physicianId = suId
-        shifts.late.physicianId = suId
+      case 5: // 星期五
+        if (su) {
+          shifts.early = { physicianId: su.id, name: su.name }
+          shifts.late = { physicianId: su.id, name: su.name }
+        }
         break
     }
+
     blankSchedule[i] = shifts
   }
+
   return blankSchedule
 }
 
@@ -739,6 +765,9 @@ async function fetchPhysicians() {
   try {
     // 從 'users' 集合中，查詢 title 為 '主治醫師' 的所有文件
     const physicians = await usersApi.fetchAll([where('title', '==', '主治醫師')])
+    // ✨ 1. 在這裡加上 console.log，看看從 Firestore 抓到了什麼 ✨
+    console.log('--- 步驟 1: fetchPhysicians ---')
+    console.log('從 Firestore 抓取到的醫師原始資料:', JSON.parse(JSON.stringify(physicians)))
 
     const desiredOrder = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政', '林天佑']
     physicians.sort((a, b) => {
