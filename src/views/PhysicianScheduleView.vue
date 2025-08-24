@@ -378,22 +378,23 @@
   </div>
 </template>
 
+// PhysicianScheduleView.vue (最終前端方案)
+
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { where } from 'firebase/firestore' // ✨ 1. 確保 'where' 已被引入
+import { where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // --- API 管理器 ---
-// ✨ 2. 刪除 physiciansApi，改用 usersApi 來統一管理醫師資料
-const usersApi = ApiManager('users')
+const usersApi = ApiManager('users') // 主要的醫師資料來源
 const physicianSchedulesApi = ApiManager('physician_schedules')
 
 // --- 頁面狀態 (Refs) ---
 const isLoading = ref(true)
 const selectedDate = ref(new Date())
-const availablePhysicians = ref([]) // ✨ 這個 ref 現在會存放從 'users' 集合讀取的主治醫師
+const availablePhysicians = ref([])
 const scheduleData = ref({})
 const scheduleNotes = ref('')
 const hasUnsavedChanges = ref(false)
@@ -409,8 +410,6 @@ const reportDate1 = ref('')
 const reportDate2 = ref('')
 const managedHolidays = ref([])
 const holidayForm = ref({ name: '', customName: '', date: '' })
-// ✨ 3. 移除 newPhysician ref，因為醫師現在統一由 UserManagementView 管理
-// const newPhysician = ref({ name: '', staffId: '', phone: '' })
 
 // --- 對話框狀態 (Refs) ---
 const isAlertDialogVisible = ref(false)
@@ -445,6 +444,7 @@ const physicianColorClasses = [
 ]
 
 // --- Computed (計算屬性) ---
+// ... (所有 computed 屬性保持不變) ...
 const statusText = computed(() => {
   return hasUnsavedChanges.value ? '有未儲存的變更' : '所有變更已儲存'
 })
@@ -486,10 +486,7 @@ const daysInMonth = computed(() => {
   const days = []
   while (date.getMonth() === month) {
     const dayOfWeek = date.getDay()
-    days.push({
-      day: date.getDate(),
-      isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
-    })
+    days.push({ day: date.getDate(), isWeekend: dayOfWeek === 0 || dayOfWeek === 6 })
     date.setDate(date.getDate() + 1)
   }
   return days
@@ -506,9 +503,7 @@ const weeklyData = computed(() => {
   daysInMonth.value.forEach((dayInfo, index) => {
     currentWeek.push({
       ...dayInfo,
-      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
-        dayInfo.day,
-      ).padStart(2, '0')}`,
+      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(dayInfo.day).padStart(2, '0')}`,
     })
     if (currentWeek.length === 7 || index === daysInMonth.value.length - 1) {
       while (currentWeek.length < 7) {
@@ -520,8 +515,8 @@ const weeklyData = computed(() => {
   })
   return weeks
 })
-
 const scheduleStats = computed(() => {
+  // ... (scheduleStats 邏輯保持不變) ...
   return availablePhysicians.value.map((doc) => {
     const stats = {
       name: doc.name,
@@ -536,13 +531,10 @@ const scheduleStats = computed(() => {
     if (Object.keys(currentMonthData).length > 0) {
       daysInMonth.value.forEach((dayInfo) => {
         const day = dayInfo.day
-        const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(
-          2,
-          '0',
-        )}-${String(day).padStart(2, '0')}`
+        const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day).padStart(2, '0')}`
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (currentMonthData[day]?.[shift]?.physicianId === doc.id) {
-            if (dayInfo.isWeekend) {
+            if (dayInfo.isWeekend || currentMonthHolidays.has(dateStr)) {
               stats.monthlyWeekend++
             } else {
               stats.monthlyWeekday++
@@ -563,10 +555,7 @@ const scheduleStats = computed(() => {
         const date = new Date(year, monthNum - 1, day)
         const dayOfWeek = date.getDay()
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(
-          2,
-          '0',
-        )}`
+        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
         const isHoliday = monthHolidays.has(dateStr)
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (monthSchedule[day]?.[shift]?.physicianId === doc.id) {
@@ -584,7 +573,6 @@ const scheduleStats = computed(() => {
     return stats
   })
 })
-
 const physicianClassMap = computed(() => {
   const map = new Map()
   availablePhysicians.value.forEach((doc, index) => {
@@ -595,9 +583,197 @@ const physicianClassMap = computed(() => {
 
 // --- Functions (方法) ---
 
-// ✨ 4. 移除 addPhysician 函式，因為此頁面不再負責新增醫師
-// async function addPhysician() { ... }
+// ✨ 1. ✨ 用這個新版本替換舊的 fetchPhysicians
+async function fetchPhysicians() {
+  try {
+    // 從 'users' 集合中，查詢 title 為 '主治醫師' 的所有文件
+    const physicians = await usersApi.fetchAll([where('title', '==', '主治醫師')])
 
+    const desiredOrder = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政', '林天佑'] // 排序用
+    physicians.sort((a, b) => {
+      const indexA = desiredOrder.indexOf(a.name)
+      const indexB = desiredOrder.indexOf(b.name)
+      if (indexA !== -1 && indexB !== -1) return indexA - indexB
+      if (indexA !== -1) return -1
+      if (indexB !== -1) return 1
+      return a.name.localeCompare(b.name, 'zh-Hant')
+    })
+
+    // 初始化門診時間選擇
+    const clinicSelections = {}
+    physicians.forEach((doc) => {
+      const hours = Array.isArray(doc.clinicHours) ? doc.clinicHours : []
+      clinicSelections[doc.id] = [hours[0] || '', hours[1] || '', hours[2] || '', hours[3] || '']
+    })
+    physicianClinicSelections.value = clinicSelections
+
+    // 將最終的醫師列表存入 ref
+    availablePhysicians.value = physicians
+  } catch (error) {
+    console.error('讀取主治醫師列表失敗:', error)
+    showAlert('錯誤', '無法從使用者列表讀取主治醫師資料，請檢查網路或聯繫管理員。')
+  }
+}
+
+// ✨ 2. ✨ 用這個新版本替換舊的 generateBlankSchedule
+/**
+ * 根據所有醫師的預設規則，在前端生成一個新的月份班表範本。
+ * @param {number} year 年份
+ * @param {number} month 月份
+ * @param {Array<object>} physicians - 從 users 集合讀取的所有主治醫師列表
+ * @returns {object} - 生成的班表物件
+ */
+function generateBlankSchedule(year, month, physicians) {
+  const blankSchedule = {}
+  const daysCount = new Date(year, month, 0).getDate()
+
+  // 步驟 1: 先建立一個完全空白的月份結構
+  for (let i = 1; i <= daysCount; i++) {
+    blankSchedule[i] = {
+      early: { physicianId: null, name: null },
+      noon: { physicianId: null, name: null },
+      late: { physicianId: null, name: null },
+    }
+  }
+
+  // 步驟 2: 遍歷每一位醫師，將他們的預設規則填入空白班表
+  physicians.forEach((physician) => {
+    if (Array.isArray(physician.defaultSchedules) && physician.defaultSchedules.length > 0) {
+      // 遍歷該醫師的所有預設規則
+      physician.defaultSchedules.forEach((rule) => {
+        const [ruleDayOfWeek, ruleShift] = rule.split('-') // e.g., "1-early"
+
+        // 遍歷這個月的所有天
+        for (let day = 1; day <= daysCount; day++) {
+          const date = new Date(year, month - 1, day)
+          if (date.getDay() == ruleDayOfWeek) {
+            // 注意：JS getDay() 0=週日, 1=週一...
+            // 如果這一天符合規則，就把醫師填進去
+            if (blankSchedule[day] && blankSchedule[day][ruleShift]) {
+              blankSchedule[day][ruleShift] = {
+                physicianId: physician.id,
+                name: physician.name,
+              }
+            }
+          }
+        }
+      })
+    }
+  })
+
+  return blankSchedule
+}
+
+// ✨ 3. ✨ 用這個新版本替換舊的 loadScheduleForDate
+async function loadScheduleForDate(date) {
+  isLoading.value = true
+  hasUnsavedChanges.value = false
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const yearMonth = `${year}-${String(month).padStart(2, '0')}`
+
+  try {
+    await fetchAllYearSchedules(year, month) // 載入年度統計資料
+
+    // 嘗試從雲端讀取本月班表
+    const existingSchedule = await physicianSchedulesApi.fetchById(yearMonth)
+
+    // 清空現有資料，準備填入新的
+    Object.keys(scheduleData.value).forEach((key) => delete scheduleData.value[key])
+    const pdSelections = {}
+    availablePhysicians.value.forEach((doc) => {
+      pdSelections[doc.id] = [
+        { date: '', shift: '' },
+        { date: '', shift: '' },
+      ]
+    })
+
+    if (existingSchedule) {
+      // --- 情況 A: 雲端有資料，直接使用 ---
+      console.log(`[Schedule] 成功讀取 ${yearMonth} 的已存班表。`)
+      const finalSchedule = { ...(existingSchedule.schedule || {}) }
+      Object.assign(scheduleData.value, finalSchedule)
+
+      // 載入其他相關資料
+      scheduleNotes.value = existingSchedule.notes || ''
+      const dates = existingSchedule.specialDates || {}
+      bloodDrawDate1.value = dates.bloodDraw1 || ''
+      bloodDrawDate2.value = dates.bloodDraw2 || ''
+      reportDate1.value = dates.report1 || ''
+      reportDate2.value = dates.report2 || ''
+      managedHolidays.value = existingSchedule.managedHolidays || []
+      if (existingSchedule.pdClinicHours) {
+        for (const docId in existingSchedule.pdClinicHours) {
+          if (pdSelections[docId]) {
+            const savedPd = existingSchedule.pdClinicHours[docId]
+            pdSelections[docId] = [
+              savedPd[0] || { date: '', shift: '' },
+              savedPd[1] || { date: '', shift: '' },
+            ]
+          }
+        }
+      }
+    } else {
+      // --- 情況 B: 雲端沒有資料，呼叫 generateBlankSchedule 產生初始範本 ---
+      console.log(`[Schedule] ${yearMonth} 班表不存在，正在生成初始範本...`)
+      const newSchedule = generateBlankSchedule(year, month, availablePhysicians.value)
+      Object.assign(scheduleData.value, newSchedule)
+
+      // 重置其他相關資料為空
+      scheduleNotes.value = ''
+      bloodDrawDate1.value = ''
+      bloodDrawDate2.value = ''
+      reportDate1.value = ''
+      reportDate2.value = ''
+      managedHolidays.value = []
+    }
+    monthlyPdClinicSelections.value = pdSelections
+  } catch (error) {
+    console.error(`讀取 ${yearMonth} 班表失敗:`, error)
+    showAlert('讀取失敗', `讀取 ${yearMonth} 班表時發生錯誤。`)
+    Object.keys(scheduleData.value).forEach((key) => delete scheduleData.value[key])
+  } finally {
+    isLoading.value = false
+    nextTick(() => {
+      hasUnsavedChanges.value = false
+    })
+  }
+}
+
+// ✨ 4. ✨ 用這個新版本替換舊的 saveAllChanges
+async function saveAllChanges() {
+  isLoading.value = true
+  const schedulePromise = saveScheduleOnly()
+
+  // 將門診時間更新回 'users' 集合
+  const clinicUpdatePromises = availablePhysicians.value.map((doc) => {
+    const selectedHours = physicianClinicSelections.value[doc.id] || []
+    const newClinicHours = selectedHours.filter((hour) => hour)
+    const originalHours = (doc.clinicHours || []).sort().join(',')
+    const newHours = [...newClinicHours].sort().join(',')
+
+    if (originalHours !== newHours) {
+      return usersApi.update(doc.id, { clinicHours: newClinicHours })
+    }
+    return Promise.resolve()
+  })
+
+  try {
+    await Promise.all([...clinicUpdatePromises, schedulePromise])
+    // 儲存後重新載入醫師資料，以確保門診時間等資料同步
+    await fetchPhysicians()
+    await loadScheduleForDate(selectedDate.value)
+    hasUnsavedChanges.value = false
+    showAlert('儲存成功', `所有變更已成功儲存！`)
+  } catch (error) {
+    console.error('儲存所有變更失敗:', error)
+    showAlert('儲存失敗', '儲存時發生錯誤。')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ... (其他所有函式，如 addHoliday, checkClinicConflict, saveScheduleOnly, goToNextMonth 等都保持不變) ...
 function addHoliday() {
   const name =
     holidayForm.value.name === 'custom' ? holidayForm.value.customName : holidayForm.value.name
@@ -614,11 +790,9 @@ function addHoliday() {
   managedHolidays.value.sort((a, b) => a.date.localeCompare(b.date))
   holidayForm.value = { name: '', customName: '', date: '' }
 }
-
 function removeHoliday(index) {
   managedHolidays.value.splice(index, 1)
 }
-
 function checkClinicConflict(event, day, shift) {
   const newPhysicianId = event.target.value
   if (!newPhysicianId) return
@@ -626,9 +800,7 @@ function checkClinicConflict(event, day, shift) {
   if (!physician) return
   const date = new Date(selectedYear.value, selectedMonth.value - 1, day.day)
   const dayOfWeek = date.getDay()
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
-    day.day,
-  ).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
   const shiftMap = { early: 'AM', noon: 'PM', late: 'NT' }
   const currentShiftCode = shiftMap[shift]
   let conflictType = null
@@ -659,139 +831,33 @@ function checkClinicConflict(event, day, shift) {
     isConfirmDialogVisible.value = true
   }
 }
-
 function getDisplayName(physician) {
   if (physician.name === '蔡亨政') return '政'
   return physician.name.charAt(0)
 }
-
 function getPhysicianClassById(physicianId) {
   return physicianClassMap.value.get(physicianId) || ''
 }
-
 function getPhysicianClass(day, shift) {
   if (!day || !day.day) return ''
   const physicianId = scheduleData.value[day.day]?.[shift]?.physicianId
   return physicianId ? physicianClassMap.value.get(physicianId) : ''
 }
-
 function getDayClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
-    day.day,
-  ).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
   if (specialDatesSet.value.has(dateStr)) return 'is-special-date'
   if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday'
   if (day.isWeekend) return 'is-weekend'
   return 'is-weekday'
 }
-
 function getShiftCellClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
-    day.day,
-  ).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
   if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday-text-only'
   if (day.isWeekend) return 'is-weekend-text-only'
   return ''
 }
-
-// ✨✨✨ 請用此版本完整替換您現有的 generateBlankSchedule ✨✨✨
-function generateBlankSchedule(year, month, physicians) {
-  const blankSchedule = {}
-  const daysCount = new Date(year, month, 0).getDate()
-
-  /**
-   * 輔助函式：根據醫師中文名字，從傳入的 physicians 陣列中
-   * 找到對應的醫師物件 { id, name, ... }。
-   * @param {string} name - 醫師的中文名字
-   * @returns {object|null} - 完整的醫師物件，或 null
-   */
-  const findPhysicianByName = (name) => {
-    return physicians.find((p) => p.name === name) || null
-  }
-
-  // 預先找出所有需要的醫師「物件」
-  const liao = findPhysicianByName('廖丁瑩')
-  const tsaiYi = findPhysicianByName('蔡宜潔')
-  const su = findPhysicianByName('蘇哲弘')
-  const tsaiHeng = findPhysicianByName('蔡亨政')
-
-  for (let i = 1; i <= daysCount; i++) {
-    const date = new Date(year, month - 1, i)
-    const dayOfWeek = date.getDay() // 0=週日, 1=週一, ...
-
-    const shifts = {
-      early: { physicianId: null, name: null },
-      noon: { physicianId: null, name: null },
-      late: { physicianId: null, name: null },
-    }
-
-    // 根據星期幾，填入對應的醫師物件中的 id 和 name
-    switch (dayOfWeek) {
-      case 1: // 星期一
-        if (liao) {
-          shifts.early = { physicianId: liao.id, name: liao.name }
-          shifts.late = { physicianId: liao.id, name: liao.name }
-        }
-        break
-      case 2: // 星期二
-        if (tsaiHeng) {
-          shifts.late = { physicianId: tsaiHeng.id, name: tsaiHeng.name }
-        }
-        break
-      case 3: // 星期三
-        if (tsaiYi) {
-          shifts.early = { physicianId: tsaiYi.id, name: tsaiYi.name }
-          shifts.late = { physicianId: tsaiYi.id, name: tsaiYi.name }
-        }
-        break
-      case 5: // 星期五
-        if (su) {
-          shifts.early = { physicianId: su.id, name: su.name }
-          shifts.late = { physicianId: su.id, name: su.name }
-        }
-        break
-    }
-
-    blankSchedule[i] = shifts
-  }
-
-  return blankSchedule
-}
-
-// ✨ 5. 使用新版本替換舊的 fetchPhysicians 函式
-async function fetchPhysicians() {
-  try {
-    // 從 'users' 集合中，查詢 title 為 '主治醫師' 的所有文件
-    const physicians = await usersApi.fetchAll([where('title', '==', '主治醫師')])
-    // ✨ 1. 在這裡加上 console.log，看看從 Firestore 抓到了什麼 ✨
-    console.log('--- 步驟 1: fetchPhysicians ---')
-    console.log('從 Firestore 抓取到的醫師原始資料:', JSON.parse(JSON.stringify(physicians)))
-
-    const desiredOrder = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政', '林天佑']
-    physicians.sort((a, b) => {
-      const indexA = desiredOrder.indexOf(a.name)
-      const indexB = desiredOrder.indexOf(b.name)
-      if (indexA !== -1 && indexB !== -1) return indexA - indexB
-      if (indexA !== -1) return -1
-      if (indexB !== -1) return 1
-      return a.name.localeCompare(b.name, 'zh-Hant')
-    })
-
-    const clinicSelections = {}
-    physicians.forEach((doc) => {
-      const hours = Array.isArray(doc.clinicHours) ? doc.clinicHours : []
-      clinicSelections[doc.id] = [hours[0] || '', hours[1] || '', hours[2] || '', hours[3] || '']
-    })
-    physicianClinicSelections.value = clinicSelections
-    availablePhysicians.value = physicians
-  } catch (error) {
-    console.error('讀取主治醫師列表失敗:', error)
-    showAlert('錯誤', '無法從使用者列表讀取主治醫師資料，請檢查網路或聯繫管理員。')
-  }
-}
-
 async function fetchAllYearSchedules(year, endMonth) {
   try {
     const schedules = await physicianSchedulesApi.fetchAll([
@@ -808,7 +874,6 @@ async function fetchAllYearSchedules(year, endMonth) {
     throw new Error(`獲取 ${year} 年的年度排班資料時發生錯誤。`)
   }
 }
-
 async function loadAllData() {
   isLoading.value = true
   try {
@@ -821,105 +886,6 @@ async function loadAllData() {
     isLoading.value = false
   }
 }
-
-async function loadScheduleForDate(date) {
-  isLoading.value = true
-  hasUnsavedChanges.value = false
-  const year = date.getFullYear()
-  const month = date.getMonth() + 1
-  const yearMonth = `${year}-${String(month).padStart(2, '0')}`
-  try {
-    await fetchAllYearSchedules(year, month)
-    const existingSchedule = await physicianSchedulesApi.fetchById(yearMonth)
-    Object.keys(scheduleData.value).forEach((key) => delete scheduleData.value[key])
-    const pdSelections = {}
-    availablePhysicians.value.forEach((doc) => {
-      pdSelections[doc.id] = [
-        { date: '', shift: '' },
-        { date: '', shift: '' },
-      ]
-    })
-    if (existingSchedule) {
-      const blank = generateBlankSchedule(year, month, availablePhysicians.value)
-      const finalSchedule = { ...blank, ...(existingSchedule.schedule || {}) }
-      Object.assign(scheduleData.value, finalSchedule)
-      scheduleNotes.value = existingSchedule.notes || ''
-      const dates = existingSchedule.specialDates || {}
-      bloodDrawDate1.value = dates.bloodDraw1 || ''
-      bloodDrawDate2.value = dates.bloodDraw2 || ''
-      reportDate1.value = dates.report1 || ''
-      reportDate2.value = dates.report2 || ''
-      managedHolidays.value = existingSchedule.managedHolidays || []
-      if (existingSchedule.pdClinicHours) {
-        for (const docId in existingSchedule.pdClinicHours) {
-          if (pdSelections[docId]) {
-            const savedPd = existingSchedule.pdClinicHours[docId]
-            pdSelections[docId] = [
-              savedPd[0] || { date: '', shift: '' },
-              savedPd[1] || { date: '', shift: '' },
-            ]
-          }
-        }
-      }
-    } else {
-      const newSchedule = generateBlankSchedule(year, month, availablePhysicians.value)
-      Object.assign(scheduleData.value, newSchedule)
-      scheduleNotes.value = ''
-      bloodDrawDate1.value = ''
-      bloodDrawDate2.value = ''
-      reportDate1.value = ''
-      reportDate2.value = ''
-      managedHolidays.value = []
-    }
-    monthlyPdClinicSelections.value = pdSelections
-  } catch (error) {
-    console.error(`讀取 ${yearMonth} 班表失敗:`, error)
-    showAlert('讀取失敗', `讀取 ${yearMonth} 班表時發生錯誤。`)
-    Object.keys(scheduleData.value).forEach((key) => delete scheduleData.value[key])
-    const blank = generateBlankSchedule(year, month, availablePhysicians.value)
-    Object.assign(scheduleData.value, blank)
-  } finally {
-    isLoading.value = false
-    nextTick(() => {
-      hasUnsavedChanges.value = false
-    })
-  }
-}
-
-// ✨ 6. 使用新版本替換舊的 saveAllChanges 函式
-async function saveAllChanges() {
-  isLoading.value = true
-  const schedulePromise = saveScheduleOnly()
-
-  // 將門診時間更新回 'users' 集合
-  const clinicUpdatePromises = availablePhysicians.value.map((doc) => {
-    const selectedHours = physicianClinicSelections.value[doc.id] || []
-    const newClinicHours = selectedHours.filter((hour) => hour)
-    const originalHours = (doc.clinicHours || []).sort().join(',')
-    const newHours = [...newClinicHours].sort().join(',')
-
-    if (originalHours !== newHours) {
-      // 使用 usersApi 來更新
-      return usersApi.update(doc.id, { clinicHours: newClinicHours })
-    }
-    return Promise.resolve()
-  })
-
-  try {
-    await Promise.all([...clinicUpdatePromises, schedulePromise])
-    // 儲存後重新載入醫師資料，以確保資料同步
-    await fetchPhysicians()
-    await loadScheduleForDate(selectedDate.value)
-    hasUnsavedChanges.value = false
-    showAlert('儲存成功', `所有變更已成功儲存！`)
-  } catch (error) {
-    console.error('儲存所有變更失敗:', error)
-    showAlert('儲存失敗', '儲存時發生錯誤。')
-  } finally {
-    isLoading.value = false
-  }
-}
-
 function saveScheduleOnly() {
   const physicianMap = new Map(availablePhysicians.value.map((p) => [p.id, p.name]))
   const dataToSave = {
@@ -954,7 +920,6 @@ function saveScheduleOnly() {
   }
   return physicianSchedulesApi.save(selectedYearMonth.value, dataToSave)
 }
-
 function goToPreviousMonth() {
   const performNavigation = () => {
     selectedDate.value = new Date(selectedDate.value.setMonth(selectedDate.value.getMonth() - 1))
@@ -969,7 +934,6 @@ function goToPreviousMonth() {
     performNavigation()
   }
 }
-
 function goToNextMonth() {
   const performNavigation = () => {
     selectedDate.value = new Date(selectedDate.value.setMonth(selectedDate.value.getMonth() + 1))
@@ -984,21 +948,18 @@ function goToNextMonth() {
     performNavigation()
   }
 }
-
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
   }
   resetConfirmDialog()
 }
-
 function handleCancel() {
   if (typeof cancelAction.value === 'function') {
     cancelAction.value()
   }
   resetConfirmDialog()
 }
-
 function resetConfirmDialog() {
   isConfirmDialogVisible.value = false
   confirmDialogTitle.value = ''
@@ -1006,7 +967,6 @@ function resetConfirmDialog() {
   confirmAction.value = null
   cancelAction.value = null
 }
-
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
