@@ -15,7 +15,6 @@
         </div>
       </div>
       <div class="header-right">
-        <!-- ✨ 核心修改 1：新增狀態列 -->
         <span class="status-indicator" :class="{ 'has-changes': hasUnsavedChanges }">{{
           statusText
         }}</span>
@@ -176,7 +175,7 @@
                           </option>
                         </select>
                         <select
-                          v-if="physicianClinicSelections[doc.id]"
+                          vif="physicianClinicSelections[doc.id]"
                           v-model="physicianClinicSelections[doc.id][2]"
                           class="clinic-select"
                         >
@@ -207,6 +206,35 @@
                     </td>
                   </tr>
                 </template>
+                <tr class="add-physician-row">
+                  <td>
+                    <input
+                      type="text"
+                      v-model="newPhysician.name"
+                      placeholder="新醫師姓名"
+                      class="form-input"
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      v-model="newPhysician.staffId"
+                      placeholder="員工編號"
+                      class="form-input"
+                    />
+                  </td>
+                  <td>
+                    <div class="add-action-cell">
+                      <input
+                        type="text"
+                        v-model="newPhysician.phone"
+                        placeholder="電話號碼"
+                        class="form-input"
+                      />
+                      <button @click="addPhysician" class="add-btn" title="新增醫師">+</button>
+                    </div>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -329,6 +357,37 @@
             placeholder="請在此輸入排班規則、醫師預約不值班等備註事項..."
           ></textarea>
         </div>
+
+        <div class="notes-panel">
+          <h2>國定假日管理 (本月)</h2>
+          <div class="holiday-manager">
+            <div class="holiday-add-form">
+              <select v-model="holidayForm.name" class="holiday-input">
+                <option disabled value="">選擇或自訂假日</option>
+                <option v-for="holiday in holidays2025" :key="holiday.date" :value="holiday.name">
+                  {{ holiday.name }} ({{ holiday.date }})
+                </option>
+                <option value="custom">-- 自訂假日 --</option>
+              </select>
+              <input
+                v-if="holidayForm.name === 'custom'"
+                type="text"
+                v-model="holidayForm.customName"
+                placeholder="輸入假日名稱"
+                class="holiday-input"
+              />
+              <input type="date" v-model="holidayForm.date" class="holiday-input" />
+              <button @click="addHoliday" class="add-holiday-btn">新增</button>
+            </div>
+            <ul v-if="managedHolidays.length > 0" class="holiday-list">
+              <li v-for="(holiday, index) in managedHolidays" :key="index">
+                <span>{{ holiday.name }} ({{ holiday.date }})</span>
+                <button @click="removeHoliday(index)" class="remove-holiday-btn">×</button>
+              </li>
+            </ul>
+            <p v-else class="no-holidays-text">本月沒有設定國定假日。</p>
+          </div>
+        </div>
       </div>
     </main>
 
@@ -350,48 +409,72 @@
 
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
-import { httpsCallable } from 'firebase/functions'
 import { where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { functions } from '@/composables/useFirebase.js'
 
+// --- API 管理器 ---
 const physiciansApi = ApiManager('physicians')
 const physicianSchedulesApi = ApiManager('physician_schedules')
 
+// --- 頁面狀態 (Refs) ---
 const isLoading = ref(true)
 const selectedDate = ref(new Date())
 const availablePhysicians = ref([])
 const scheduleData = ref({})
 const scheduleNotes = ref('')
 const hasUnsavedChanges = ref(false)
+const physicianClinicSelections = ref({})
+const monthlyPdClinicSelections = ref({})
+const statsViewMode = ref('monthly')
+const yearScheduleData = ref({})
+
+// --- 面板資料 (Refs) ---
 const bloodDrawDate1 = ref('')
 const bloodDrawDate2 = ref('')
 const reportDate1 = ref('')
 const reportDate2 = ref('')
-const physicianClinicSelections = ref({})
-const monthlyPdClinicSelections = ref({})
-const holidays = ref(new Set())
-const workdays = ref(new Set())
-const fullYearHolidays = ref(new Set())
+const managedHolidays = ref([])
+const holidayForm = ref({ name: '', customName: '', date: '' })
+const newPhysician = ref({ name: '', staffId: '', phone: '' }) // ✨ 修正：只保留此處的 newPhysician 宣告
+
+// --- 對話框狀態 (Refs) ---
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
-// ✨ 核心修改 3：新增 ConfirmDialog 相關的 ref
 const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const cancelAction = ref(null)
 
-// ✨ 核心修改 4：新增 statusText 的 computed 屬性
+// --- 靜態資料 ---
+const holidays2025 = [
+  { name: '中華民國開國紀念日', date: '2025-01-01' },
+  { name: '農曆除夕', date: '2025-01-28' },
+  { name: '農曆春節', date: '2025-01-29' },
+  { name: '農曆春節', date: '2025-01-30' },
+  { name: '農曆春節', date: '2025-01-31' },
+  { name: '和平紀念日', date: '2025-02-28' },
+  { name: '兒童節', date: '2025-04-04' },
+  { name: '民族掃墓節(清明節)', date: '2025-04-05' },
+  { name: '端午節', date: '2025-05-31' },
+  { name: '中秋節', date: '2025-10-06' },
+  { name: '國慶日', date: '2025-10-10' },
+]
+const physicianColorClasses = [
+  'physician-color-1',
+  'physician-color-2',
+  'physician-color-3',
+  'physician-color-4',
+  'physician-color-5',
+]
+
+// --- Computed (計算屬性) ---
 const statusText = computed(() => {
   return hasUnsavedChanges.value ? '有未儲存的變更' : '所有變更已儲存'
 })
-const statsViewMode = ref('monthly')
-const yearScheduleData = ref({})
-
 const selectedYear = computed(() => selectedDate.value.getFullYear())
 const selectedMonth = computed(() => selectedDate.value.getMonth() + 1)
 const selectedYearMonth = computed(
@@ -450,7 +533,9 @@ const weeklyData = computed(() => {
   daysInMonth.value.forEach((dayInfo, index) => {
     currentWeek.push({
       ...dayInfo,
-      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(dayInfo.day).padStart(2, '0')}`,
+      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+        dayInfo.day,
+      ).padStart(2, '0')}`,
     })
     if (currentWeek.length === 7 || index === daysInMonth.value.length - 1) {
       while (currentWeek.length < 7) {
@@ -462,8 +547,6 @@ const weeklyData = computed(() => {
   })
   return weeks
 })
-
-// ✨ 核心修改 2：根據您的最終定義，重寫整個 scheduleStats
 const scheduleStats = computed(() => {
   return availablePhysicians.value.map((doc) => {
     const stats = {
@@ -471,59 +554,55 @@ const scheduleStats = computed(() => {
       monthlyWeekday: 0,
       monthlyWeekend: 0,
       ytdTotal: 0,
-      ytdHolidays: 0, // 累計平日假日班
-      ytdWeekends: 0, // 累計週末班
+      ytdHolidays: 0,
+      ytdWeekends: 0,
       ytdDoubleWeekends: 0,
     }
-
-    // --- 1. 計算本月統計 (使用前端的 scheduleData) ---
     const currentMonthData = scheduleData.value
+    const currentMonthHolidays = new Set(managedHolidays.value.map((h) => h.date))
     if (Object.keys(currentMonthData).length > 0) {
       daysInMonth.value.forEach((dayInfo) => {
         const day = dayInfo.day
+        const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(
+          2,
+          '0',
+        )}-${String(day).padStart(2, '0')}`
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (currentMonthData[day]?.[shift]?.physicianId === doc.id) {
-            if (dayInfo.isWeekend) {
-              stats.monthlyWeekend++ // 週六日 => 週末班
+            if (dayInfo.isWeekend || currentMonthHolidays.has(dateStr)) {
+              stats.monthlyWeekend++
             } else {
-              stats.monthlyWeekday++ // 週一至五 (含國定假日) => 平日班
+              stats.monthlyWeekday++
             }
           }
         })
       })
     }
-
-    // --- 2. 計算年度累計統計 (使用雲端的 yearScheduleData) ---
     const weekendCountsByMonth = {}
     for (const monthKey in yearScheduleData.value) {
       const monthScheduleData = yearScheduleData.value[monthKey]
       if (!monthScheduleData || !monthScheduleData.schedule) continue
-
       const monthSchedule = monthScheduleData.schedule
+      const monthHolidays = new Set((monthScheduleData.managedHolidays || []).map((h) => h.date))
       weekendCountsByMonth[monthKey] = 0
-
       const year = monthScheduleData.year
       const monthNum = monthScheduleData.month
       const daysInThisMonth = new Date(year, monthNum, 0).getDate()
-
       for (let day = 1; day <= daysInThisMonth; day++) {
         const date = new Date(year, monthNum - 1, day)
         const dayOfWeek = date.getDay()
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-        const isHoliday = fullYearHolidays.value.has(dateStr)
-
+        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(
+          2,
+          '0',
+        )}`
+        const isHoliday = monthHolidays.has(dateStr)
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (monthSchedule[day]?.[shift]?.physicianId === doc.id) {
-            // 累計總班數
             stats.ytdTotal++
-
-            // 累計平日假日班 (非週末的國定假日)
             if (isHoliday && !isWeekend) {
               stats.ytdHolidays++
             }
-
-            // 累計週末班 (純粹的週六日)
             if (isWeekend) {
               stats.ytdWeekends++
               weekendCountsByMonth[monthKey]++
@@ -532,110 +611,12 @@ const scheduleStats = computed(() => {
         })
       }
     }
-    // 多次週末月數
     stats.ytdDoubleWeekends = Object.values(weekendCountsByMonth).filter(
       (count) => count > 1,
     ).length
-
     return stats
   })
 })
-
-function checkClinicConflict(event, day, shift) {
-  const newPhysicianId = event.target.value
-  if (!newPhysicianId) return
-
-  const physician = availablePhysicians.value.find((p) => p.id === newPhysicianId)
-  if (!physician) return
-
-  const date = new Date(selectedYear.value, selectedMonth.value - 1, day.day)
-  const dayOfWeek = date.getDay()
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
-  const shiftMap = { early: 'AM', noon: 'PM', late: 'NT' }
-  const currentShiftCode = shiftMap[shift]
-
-  let conflictType = null
-
-  // 檢查常規門診
-  const regularClinicHours = physicianClinicSelections.value[newPhysicianId] || []
-  const regularConflictCode = `${dayOfWeek === 0 ? 7 : dayOfWeek}-${currentShiftCode}`
-  if (regularClinicHours.includes(regularConflictCode)) {
-    conflictType = '常規門診'
-  }
-
-  // 檢查 PD 門診
-  const pdClinicHours = monthlyPdClinicSelections.value[newPhysicianId] || []
-  const pdConflict = pdClinicHours.some(
-    (pd) => pd.date === dateStr && pd.shift === currentShiftCode,
-  )
-  if (pdConflict) {
-    conflictType = 'PD 門診'
-  }
-
-  if (conflictType) {
-    const weekdayMap = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']
-    const shiftNameMap = { early: '早班', noon: '午班', late: '夜班' }
-    const originalPhysicianId = scheduleData.value[day.day][shift].physicianId
-
-    // 設定對話框
-    confirmDialogTitle.value = '門診時間衝突'
-    confirmDialogMessage.value = `提醒：${physician.name} 醫師在該時段有${conflictType}，您確定要排此班嗎？`
-
-    // 設定確認後執行的動作 (什麼都不做，讓 v-model 完成更新)
-    confirmAction.value = () => {
-      // 由於 v-model 已經更新了 scheduleData，所以這裡不需要做任何事
-      isConfirmDialogVisible.value = false
-    }
-
-    // 設定取消後執行的動作 (將值改回去)
-    cancelAction.value = () => {
-      scheduleData.value[day.day][shift].physicianId = originalPhysicianId
-      event.target.value = originalPhysicianId // 手動將 select 的值改回去
-      isConfirmDialogVisible.value = false
-    }
-
-    isConfirmDialogVisible.value = true
-  }
-}
-
-// ✨ 核心修改 6：新增處理 ConfirmDialog 的函式
-function handleConfirm() {
-  if (typeof confirmAction.value === 'function') {
-    confirmAction.value()
-  }
-  resetConfirmDialog()
-}
-
-function handleCancel() {
-  if (typeof cancelAction.value === 'function') {
-    cancelAction.value()
-  }
-  resetConfirmDialog()
-}
-
-function resetConfirmDialog() {
-  isConfirmDialogVisible.value = false
-  confirmDialogTitle.value = ''
-  confirmDialogMessage.value = ''
-  confirmAction.value = null
-  cancelAction.value = null
-}
-function getDisplayName(physician) {
-  if (physician.name === '蔡亨政') return '政'
-  return physician.name.charAt(0)
-}
-function showAlert(title, message) {
-  alertDialogTitle.value = title
-  alertDialogMessage.value = message
-  isAlertDialogVisible.value = true
-}
-const physicianColorClasses = [
-  'physician-color-1',
-  'physician-color-2',
-  'physician-color-3',
-  'physician-color-4',
-  'physician-color-5',
-]
 const physicianClassMap = computed(() => {
   const map = new Map()
   availablePhysicians.value.forEach((doc, index) => {
@@ -643,56 +624,132 @@ const physicianClassMap = computed(() => {
   })
   return map
 })
+
+// --- Functions (方法) ---
+async function addPhysician() {
+  if (!newPhysician.value.name.trim()) {
+    showAlert('資料不完整', '請至少輸入新醫師的姓名。')
+    return
+  }
+  isLoading.value = true
+  try {
+    const physicianData = {
+      name: newPhysician.value.name.trim(),
+      staffId: newPhysician.value.staffId.trim() || null,
+      phone: newPhysician.value.phone.trim() || null,
+      clinicHours: [],
+    }
+    await physiciansApi.create(physicianData)
+    showAlert('新增成功', `醫師 "${physicianData.name}" 已成功新增！`)
+    newPhysician.value = { name: '', staffId: '', phone: '' }
+    await fetchPhysicians()
+    await loadScheduleForDate(selectedDate.value)
+  } catch (error) {
+    console.error('新增醫師失敗:', error)
+    showAlert('新增失敗', '儲存新醫師時發生錯誤，請檢查主控台訊息。')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+function addHoliday() {
+  const name =
+    holidayForm.value.name === 'custom' ? holidayForm.value.customName : holidayForm.value.name
+  const date = holidayForm.value.date
+  if (!name || !date) {
+    showAlert('輸入不完整', '請提供完整的假日名稱和日期。')
+    return
+  }
+  if (managedHolidays.value.some((h) => h.date === date)) {
+    showAlert('日期重複', '這個日期已經被設定為假日了。')
+    return
+  }
+  managedHolidays.value.push({ name, date })
+  managedHolidays.value.sort((a, b) => a.date.localeCompare(b.date))
+  holidayForm.value = { name: '', customName: '', date: '' }
+}
+
+function removeHoliday(index) {
+  managedHolidays.value.splice(index, 1)
+}
+
+function checkClinicConflict(event, day, shift) {
+  const newPhysicianId = event.target.value
+  if (!newPhysicianId) return
+  const physician = availablePhysicians.value.find((p) => p.id === newPhysicianId)
+  if (!physician) return
+  const date = new Date(selectedYear.value, selectedMonth.value - 1, day.day)
+  const dayOfWeek = date.getDay()
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+    day.day,
+  ).padStart(2, '0')}`
+  const shiftMap = { early: 'AM', noon: 'PM', late: 'NT' }
+  const currentShiftCode = shiftMap[shift]
+  let conflictType = null
+  const regularClinicHours = physicianClinicSelections.value[newPhysicianId] || []
+  const regularConflictCode = `${dayOfWeek === 0 ? 7 : dayOfWeek}-${currentShiftCode}`
+  if (regularClinicHours.includes(regularConflictCode)) {
+    conflictType = '常規門診'
+  }
+  const pdClinicHours = monthlyPdClinicSelections.value[newPhysicianId] || []
+  const pdConflict = pdClinicHours.some(
+    (pd) => pd.date === dateStr && pd.shift === currentShiftCode,
+  )
+  if (pdConflict) {
+    conflictType = 'PD 門診'
+  }
+  if (conflictType) {
+    const originalPhysicianId = scheduleData.value[day.day][shift].physicianId
+    confirmDialogTitle.value = '門診時間衝突'
+    confirmDialogMessage.value = `提醒：${physician.name} 醫師在該時段有${conflictType}，您確定要排此班嗎？`
+    confirmAction.value = () => {
+      isConfirmDialogVisible.value = false
+    }
+    cancelAction.value = () => {
+      scheduleData.value[day.day][shift].physicianId = originalPhysicianId
+      event.target.value = originalPhysicianId
+      isConfirmDialogVisible.value = false
+    }
+    isConfirmDialogVisible.value = true
+  }
+}
+
+function getDisplayName(physician) {
+  if (physician.name === '蔡亨政') return '政'
+  return physician.name.charAt(0)
+}
+
 function getPhysicianClassById(physicianId) {
   return physicianClassMap.value.get(physicianId) || ''
 }
+
 function getPhysicianClass(day, shift) {
   if (!day || !day.day) return ''
   const physicianId = scheduleData.value[day.day]?.[shift]?.physicianId
   return physicianId ? physicianClassMap.value.get(physicianId) : ''
 }
+
 function getDayClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+    day.day,
+  ).padStart(2, '0')}`
   if (specialDatesSet.value.has(dateStr)) return 'is-special-date'
-  if (holidays.value.has(dateStr)) return 'is-holiday'
-  if (workdays.value.has(dateStr)) return 'is-workday'
+  if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday'
   if (day.isWeekend) return 'is-weekend'
   return 'is-weekday'
 }
+
 function getShiftCellClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
-  if (holidays.value.has(dateStr)) return 'is-holiday-text-only'
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+    day.day,
+  ).padStart(2, '0')}`
+  if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday-text-only'
   if (day.isWeekend) return 'is-weekend-text-only'
   return ''
 }
-async function fetchHolidayData(year, isFullYear = false) {
-  try {
-    const getHolidays = httpsCallable(functions, 'getTaiwanHolidays')
-    const response = await getHolidays({ year: Number(year) })
-    const data = response.data
-    const holidaySet = new Set()
-    const workdaySet = new Set()
-    if (data.success && data.result && Array.isArray(data.result.data)) {
-      data.result.data.forEach((record) => {
-        const date = record.date.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3')
-        if (record.isHoliday === '是') holidaySet.add(date)
-        if (record.isHoliday === '否' && record.description.includes('補行上班'))
-          workdaySet.add(date)
-      })
-    }
-    if (isFullYear) {
-      fullYearHolidays.value = holidaySet
-    } else {
-      holidays.value = holidaySet
-      workdays.value = workdaySet
-    }
-  } catch (error) {
-    console.error('獲取台灣行事曆資料失敗:', error)
-    showAlert('警告', '無法自動載入國定假日，月曆顏色可能不完全準確。')
-  }
-}
+
 function generateBlankSchedule(year, month, physicians) {
   const blankSchedule = {}
   const daysCount = new Date(year, month, 0).getDate()
@@ -730,6 +787,7 @@ function generateBlankSchedule(year, month, physicians) {
   }
   return blankSchedule
 }
+
 async function fetchPhysicians() {
   try {
     const physicians = await physiciansApi.fetchAll()
@@ -755,25 +813,17 @@ async function fetchPhysicians() {
   }
 }
 
-// ✨ 核心修改 1：修正 fetchAllYearSchedules 的查詢方式
 async function fetchAllYearSchedules(year, endMonth) {
   try {
-    // 建立查詢條件，查詢 year 欄位等於當前年份，且 month 欄位小於等於當前月份
     const schedules = await physicianSchedulesApi.fetchAll([
       where('year', '==', year),
       where('month', '<=', endMonth),
     ])
-
     const data = {}
     schedules.forEach((doc) => {
-      // 使用文件 ID (YYYY-MM) 作為 key
       data[doc.id] = doc
     })
     yearScheduleData.value = data
-
-    if (fullYearHolidays.value.size === 0) {
-      await fetchHolidayData(year, true)
-    }
   } catch (error) {
     console.error(`獲取 ${year} 年排班資料失敗:`, error)
     throw new Error(`獲取 ${year} 年的年度排班資料時發生錯誤。`)
@@ -784,7 +834,6 @@ async function loadAllData() {
   isLoading.value = true
   try {
     await fetchPhysicians()
-    await fetchHolidayData(selectedYear.value, true)
     await loadScheduleForDate(selectedDate.value)
   } catch (error) {
     console.error('初始化載入失敗:', error)
@@ -793,9 +842,9 @@ async function loadAllData() {
     isLoading.value = false
   }
 }
+
 async function loadScheduleForDate(date) {
   isLoading.value = true
-  // 先將 hasUnsavedChanges 設為 false，避免 watch 在載入過程中觸發
   hasUnsavedChanges.value = false
   const year = date.getFullYear()
   const month = date.getMonth() + 1
@@ -821,6 +870,7 @@ async function loadScheduleForDate(date) {
       bloodDrawDate2.value = dates.bloodDraw2 || ''
       reportDate1.value = dates.report1 || ''
       reportDate2.value = dates.report2 || ''
+      managedHolidays.value = existingSchedule.managedHolidays || []
       if (existingSchedule.pdClinicHours) {
         for (const docId in existingSchedule.pdClinicHours) {
           if (pdSelections[docId]) {
@@ -840,6 +890,7 @@ async function loadScheduleForDate(date) {
       bloodDrawDate2.value = ''
       reportDate1.value = ''
       reportDate2.value = ''
+      managedHolidays.value = []
     }
     monthlyPdClinicSelections.value = pdSelections
   } catch (error) {
@@ -855,6 +906,7 @@ async function loadScheduleForDate(date) {
     })
   }
 }
+
 async function saveAllChanges() {
   isLoading.value = true
   const schedulePromise = saveScheduleOnly()
@@ -871,7 +923,7 @@ async function saveAllChanges() {
   try {
     await Promise.all([...clinicUpdatePromises, schedulePromise])
     await fetchPhysicians()
-    await loadScheduleForDate(selectedDate.value) // 儲存後重新載入當月資料以刷新統計
+    await loadScheduleForDate(selectedDate.value)
     hasUnsavedChanges.value = false
     showAlert('儲存成功', `所有變更已成功儲存！`)
   } catch (error) {
@@ -881,11 +933,10 @@ async function saveAllChanges() {
     isLoading.value = false
   }
 }
-// ✨ 核心修改 2：修正 saveScheduleOnly 的儲存內容
+
 function saveScheduleOnly() {
   const physicianMap = new Map(availablePhysicians.value.map((p) => [p.id, p.name]))
   const dataToSave = {
-    // 確保 year 和 month 作為數字欄位被儲存
     year: selectedYear.value,
     month: selectedMonth.value,
     schedule: {},
@@ -894,11 +945,13 @@ function saveScheduleOnly() {
       bloodDraw1: bloodDrawDate1.value,
       bloodDraw2: bloodDrawDate2.value,
       report1: reportDate1.value,
-      reportDate2: reportDate2.value,
+      // ✨ 核心修正：將 reportDate2 改為 report2 ✨
+      report2: reportDate2.value,
     },
     pdClinicHours: {},
+    managedHolidays: managedHolidays.value,
   }
-  // 過濾掉空的 PD 門診設定
+
   for (const docId in monthlyPdClinicSelections.value) {
     const validPdHours = monthlyPdClinicSelections.value[docId].filter((pd) => pd.date && pd.shift)
     if (validPdHours.length > 0) {
@@ -918,7 +971,6 @@ function saveScheduleOnly() {
   return physicianSchedulesApi.save(selectedYearMonth.value, dataToSave)
 }
 
-// ✨ 核心修改 7：在 goToPreviousMonth 和 goToNextMonth 中加入未儲存提示
 function goToPreviousMonth() {
   const performNavigation = () => {
     selectedDate.value = new Date(selectedDate.value.setMonth(selectedDate.value.getMonth() - 1))
@@ -927,7 +979,7 @@ function goToPreviousMonth() {
     confirmDialogTitle.value = '未儲存的變更'
     confirmDialogMessage.value = '您有未儲存的變更，確定要離開嗎？'
     confirmAction.value = performNavigation
-    cancelAction.value = null // 取消就是關閉對話框
+    cancelAction.value = null
     isConfirmDialogVisible.value = true
   } else {
     performNavigation()
@@ -948,6 +1000,36 @@ function goToNextMonth() {
     performNavigation()
   }
 }
+
+function handleConfirm() {
+  if (typeof confirmAction.value === 'function') {
+    confirmAction.value()
+  }
+  resetConfirmDialog()
+}
+
+function handleCancel() {
+  if (typeof cancelAction.value === 'function') {
+    cancelAction.value()
+  }
+  resetConfirmDialog()
+}
+
+function resetConfirmDialog() {
+  isConfirmDialogVisible.value = false
+  confirmDialogTitle.value = ''
+  confirmDialogMessage.value = ''
+  confirmAction.value = null
+  cancelAction.value = null
+}
+
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
+}
+
+// --- Lifecycle & Watchers ---
 onMounted(() => {
   loadAllData()
 })
@@ -956,12 +1038,17 @@ watch(selectedYearMonth, (newVal, oldVal) => {
     loadScheduleForDate(selectedDate.value)
   }
 })
-watch(selectedYear, (newYear, oldYear) => {
-  if (newYear !== oldYear) {
-    fullYearHolidays.value = new Set()
-    fetchHolidayData(newYear, true)
-  }
-})
+watch(
+  () => holidayForm.value.name,
+  (newName) => {
+    if (newName && newName !== 'custom') {
+      const found = holidays2025.find((h) => h.name === newName)
+      if (found) {
+        holidayForm.value.date = found.date
+      }
+    }
+  },
+)
 watch(
   scheduleData,
   (newValue, oldValue) => {
@@ -993,6 +1080,13 @@ watch(
 )
 watch(
   monthlyPdClinicSelections,
+  () => {
+    if (!isLoading.value) hasUnsavedChanges.value = true
+  },
+  { deep: true },
+)
+watch(
+  managedHolidays,
   () => {
     if (!isLoading.value) hasUnsavedChanges.value = true
   },
@@ -1111,11 +1205,10 @@ watch(
   color: #495057;
 }
 
-/* ✨ 核心修改 1：重構成 Flexbox 佈局以實現獨立滾動 */
 .schedule-content.new-layout {
   flex-grow: 1;
-  min-height: 0; /* 關鍵！ */
-  display: flex; /* 改為 flex */
+  min-height: 0;
+  display: flex;
   gap: 1.5rem;
   background-color: transparent;
   padding: 0;
@@ -1124,9 +1217,9 @@ watch(
 }
 
 .schedule-grid-container {
-  flex: 2.5; /* 分配比例 */
-  min-width: 0; /* 關鍵！ */
-  overflow-y: auto; /* 啟用獨立滾動 */
+  flex: 2.5;
+  min-width: 0;
+  overflow-y: auto;
   background-color: #fff;
   border: 1px solid #dee2e6;
   border-radius: 8px;
@@ -1134,13 +1227,12 @@ watch(
 }
 
 .panels-container {
-  flex: 1; /* 分配比例 */
-  min-width: 0; /* 關鍵！ */
-  overflow-y: auto; /* 啟用獨立滾動 */
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
-  /* ✨ 新增：為右側面板增加一些內距，避免滾動條太貼邊 */
   padding-right: 8px;
 }
 
@@ -1251,7 +1343,7 @@ tr.date-row {
   border-radius: 8px;
   border: 1px solid #dee2e6;
   flex-shrink: 0;
-} /* ✨ 新增 flex-shrink: 0 */
+}
 .statistics-panel h2,
 .notes-panel h2,
 .physician-legend-panel h2,
@@ -1395,6 +1487,46 @@ tr.date-row {
   outline: 0;
   box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
+/* ✨ 新增：用於新增醫師的樣式 ✨ */
+.add-physician-row td {
+  padding: 8px !important;
+  background-color: #f8f9fa;
+}
+.form-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  box-sizing: border-box; /* 確保 padding 不會讓寬度超出 */
+}
+.form-input:focus {
+  border-color: #80bdff;
+  outline: 0;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+.add-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.add-btn {
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  font-size: 1.5rem;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 32px; /* 讓 '+' 垂直置中 */
+  flex-shrink: 0; /* 防止按鈕被壓縮 */
+  transition: background-color 0.2s;
+}
+.add-btn:hover {
+  background-color: #218838;
+}
 .physician-info-row.physician-color-1 .physician-name-cell .legend-char {
   color: #4a148c;
 }
@@ -1427,7 +1559,6 @@ tr.date-row {
 }
 
 /* PD Clinic Section */
-.pd-clinic-section,
 .pd-clinic-panel {
   border-top: 2px solid #007bff;
   margin-top: 1rem;
@@ -1439,11 +1570,6 @@ tr.date-row {
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #e9ecef;
-}
-.pd-clinic-section h4 {
-  margin-top: 0;
-  font-size: 1rem;
-  color: #0056b3;
 }
 .pd-clinic-grid {
   display: flex;
@@ -1464,19 +1590,65 @@ tr.date-row {
   display: flex;
   gap: 4px;
 }
-.pd-input-group input[type='date'] {
-  width: 100%;
-  padding: 4px;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
+.pd-input-group input[type='date'],
 .pd-input-group select {
   width: 100%;
   padding: 4px;
   border: 1px solid #ced4da;
   border-radius: 4px;
   font-size: 0.85rem;
+}
+
+/* ✨ 新增：假日管理面板樣式 */
+.holiday-add-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 1rem;
+}
+.holiday-input {
+  padding: 6px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  flex: 1;
+}
+.add-holiday-btn {
+  padding: 6px 12px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.add-holiday-btn:hover {
+  background-color: #0056b3;
+}
+.holiday-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.holiday-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+.remove-holiday-btn {
+  background: none;
+  border: none;
+  color: #dc3545;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+.no-holidays-text {
+  color: #6c757d;
+  font-style: italic;
 }
 
 /* Loading Overlay */
