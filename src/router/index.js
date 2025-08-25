@@ -38,35 +38,26 @@ const routes = [
         component: () => import('../views/BaseScheduleView.vue'),
         meta: { title: '門急住床位總表' },
       },
-      // ==========================================================
-      // ✨ 2. 在這裡新增醫師排班的路由規則 ✨
-      // ==========================================================
       {
-        path: 'physician-schedule', // 注意：子路由的路徑不需要開頭的 '/'
+        path: 'physician-schedule',
         component: PhysicianScheduleView,
-        redirect: '/physician-schedule/rounding', // 預設打開查房頁籤
+        redirect: '/physician-schedule/rounding',
         meta: { title: '醫師排班', roles: ['admin', 'contributor'] },
         children: [
           {
-            // 當 URL 是 /physician-schedule/rounding 時，
-            // RoundingSchedule 元件會被渲染到 PhysicianScheduleView 的 <router-view> 中
             path: 'rounding',
             name: 'PhysicianRoundingSchedule',
-            // 我們可以直接在這裡建立一個空的元件，未來再把查房班表的邏輯放進去
-            // 為了讓它現在就能運作，我們先指向父元件本身
             component: PhysicianScheduleView,
             meta: { title: '查房班表' },
           },
           {
-            // 預留未來會診班表的路由
             path: 'consultation',
             name: 'PhysicianConsultationSchedule',
-            component: () => import('../views/PlaceholderView.vue'), // 建議建立一個預留位置元件
+            component: () => import('../views/PlaceholderView.vue'),
             meta: { title: '會診班表' },
           },
         ],
       },
-      // ==========================================================
       {
         path: 'exception-manager',
         name: 'ExceptionManager',
@@ -103,11 +94,16 @@ const routes = [
         component: () => import('../views/UserManagementView.vue'),
         meta: { title: '使用者管理', requiresAdmin: true },
       },
+      // ==========================================================
+      // ✨✨✨ 核心修正 ✨✨✨
+      // 移除 roles 屬性，這樣路由守衛就不會進行角色檢查，
+      // 只會檢查 requiresAuth，確保用戶已登入即可。
+      // ==========================================================
       {
         path: 'lab-reports',
         name: 'LabReports',
         component: () => import('../views/LabReportView.vue'),
-        meta: { title: '檢驗報告管理', requiresAuth: true, roles: ['admin', 'editor'] },
+        meta: { title: '檢驗報告管理', requiresAuth: true }, // <-- 移除 roles: ['admin', 'editor']
       },
       {
         path: 'account-settings',
@@ -116,13 +112,13 @@ const routes = [
         meta: { title: '帳號設定' },
       },
       {
-        path: 'daily-log', // ✨ 修正：子路由的路徑應該是相對路徑
+        path: 'daily-log',
         name: 'DailyLog',
         component: () => import('../views/DailyLogView.vue'),
         meta: { title: '工作日誌', requiresAuth: true },
       },
       {
-        path: 'collaboration', // ✨ 修正：子路由的路徑應該是相對路徑
+        path: 'collaboration',
         name: 'Collaboration',
         component: () => import('../views/CollaborationView.vue'),
         meta: { title: '協作訊息中心', requiresAuth: true },
@@ -144,8 +140,6 @@ router.beforeEach(async (to, from, next) => {
 
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
-
-  // 檢查特定角色權限
   const requiredRoles = to.matched.flatMap((record) => record.meta.roles || [])
 
   if (requiresAuth && !isLoggedIn.value) {
@@ -157,7 +151,7 @@ router.beforeEach(async (to, from, next) => {
     next({ name: 'Schedule' })
   } else if (requiredRoles.length > 0 && !requiredRoles.includes(currentUser.value?.role)) {
     console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問此頁面。`)
-    next({ name: 'Schedule' }) // 或導向一個 '權限不足' 的頁面
+    next({ name: 'Schedule' })
   } else {
     next()
   }
