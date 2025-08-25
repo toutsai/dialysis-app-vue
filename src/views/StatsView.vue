@@ -981,6 +981,17 @@ const formatDate = (date) => {
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
 }
 
+function setScheduleChange() {
+  if (isPageLocked.value) return
+  hasUnsavedScheduleChanges.value = true
+  statusIndicator.value = '有未儲存的變更'
+}
+
+function setTeamChange() {
+  if (isPageLocked.value) return
+  hasUnsavedTeamChanges.value = true
+  statusIndicator.value = '有未儲存的變更'
+}
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
