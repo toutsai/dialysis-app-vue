@@ -14,7 +14,6 @@
           <button @click="goToNextMonth" title="下一個月">❯</button>
         </div>
       </div>
-      <!-- ✨ 1. 將儲存按鈕和狀態提示包裝起來，以便在行動版上隱藏 ✨ -->
       <div class="header-right hide-on-mobile">
         <span class="status-indicator" :class="{ 'has-changes': hasUnsavedChanges }">{{
           statusText
@@ -41,9 +40,9 @@
     </div>
 
     <main class="schedule-content new-layout">
-      <!-- 班表容器 -->
+      <!-- 左欄：班表 -->
       <div class="schedule-grid-container">
-        <!-- 桌機/行動版週曆視圖 (原有表格，但在行動版會變為唯讀) -->
+        <!-- 桌機/行動版週曆視圖 -->
         <div class="desktop-view" :class="{ 'mobile-week-view': mobileDisplayMode === 'week' }">
           <table v-if="!isLoading" class="schedule-table weekly-grid">
             <thead>
@@ -77,7 +76,6 @@
                   :key="day.fullDate || `empty-early-${weekIndex}-${dayIndex}`"
                   :class="[getPhysicianClass(day, 'early'), getShiftCellClass(day)]"
                 >
-                  <!-- ✨ 2. 桌機版顯示可編輯的 select ✨ -->
                   <select
                     v-if="day.day && scheduleData[day.day]"
                     v-model="scheduleData[day.day].early.physicianId"
@@ -89,7 +87,6 @@
                       {{ getDisplayName(doc) }}
                     </option>
                   </select>
-                  <!-- 行動週曆版顯示純文字 (透過 CSS 覆蓋) -->
                   <span class="mobile-readonly-text">{{
                     getPhysicianDisplayName(day, 'early')
                   }}</span>
@@ -144,7 +141,7 @@
             </tbody>
           </table>
         </div>
-        <!-- 行動版日曆列表視圖 (全新唯讀結構) -->
+        <!-- 行動版日曆列表視圖 -->
         <div class="mobile-day-view" v-if="mobileDisplayMode === 'day'">
           <div
             v-for="day in dailyData"
@@ -157,22 +154,21 @@
               <span class="weekday">{{ getWeekday(day.fullDate) }}</span>
             </div>
             <div class="mobile-day-shifts">
-              <!-- ✨ 3. 行動版日曆直接顯示醫師代號，而不是 select ✨ -->
               <div class="mobile-shift-row" :class="getPhysicianClass(day, 'early')">
-                <span class="mobile-shift-label">早</span>
-                <span class="mobile-physician-name">{{
+                <span class="mobile-shift-label">早</span
+                ><span class="mobile-physician-name">{{
                   getPhysicianDisplayName(day, 'early')
                 }}</span>
               </div>
               <div class="mobile-shift-row" :class="getPhysicianClass(day, 'noon')">
-                <span class="mobile-shift-label">午</span>
-                <span class="mobile-physician-name">{{
+                <span class="mobile-shift-label">午</span
+                ><span class="mobile-physician-name">{{
                   getPhysicianDisplayName(day, 'noon')
                 }}</span>
               </div>
               <div class="mobile-shift-row" :class="getPhysicianClass(day, 'late')">
-                <span class="mobile-shift-label">晚</span>
-                <span class="mobile-physician-name">{{
+                <span class="mobile-shift-label">晚</span
+                ><span class="mobile-physician-name">{{
                   getPhysicianDisplayName(day, 'late')
                 }}</span>
               </div>
@@ -180,275 +176,520 @@
           </div>
         </div>
       </div>
-      <!-- 右欄：所有輔助面板 (行動版變成可折疊) -->
+
+      <!-- 右欄：所有輔助面板 -->
       <div class="panels-container">
-        <div class="panel-group">
-          <div class="panel physician-legend-panel">
-            <button class="panel-toggle" @click="toggleMobilePanel('physicians')">
-              <h2>醫師資訊與門診設定</h2>
-              <i class="fas fa-chevron-down"></i>
-            </button>
-            <div class="panel-content" v-show="activeMobilePanel === 'physicians'">
-              <div class="legend-table-wrapper">
-                <table class="legend-table styled-legend">
-                  <thead>
-                    <tr>
-                      <th>醫師</th>
-                      <th>員編</th>
-                      <th>電話</th>
+        <!-- 1. 桌面版面板結構 (預設顯示) -->
+        <div class="desktop-panels">
+          <div class="physician-legend-panel">
+            <h2>醫師資訊與門診設定</h2>
+            <div class="legend-table-wrapper">
+              <table class="legend-table styled-legend">
+                <thead>
+                  <tr>
+                    <th>醫師</th>
+                    <th>員編</th>
+                    <th>電話</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="doc in availablePhysicians" :key="doc.id">
+                    <tr class="physician-info-row" :class="getPhysicianClassById(doc.id)">
+                      <td class="physician-name-cell">
+                        <span class="legend-char">{{ getDisplayName(doc) }}</span
+                        >{{ doc.name }}
+                      </td>
+                      <td>{{ doc.staffId || 'N/A' }}</td>
+                      <td>{{ doc.phone || 'N/A' }}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    <template v-for="doc in availablePhysicians" :key="doc.id">
-                      <tr class="physician-info-row" :class="getPhysicianClassById(doc.id)">
-                        <td class="physician-name-cell">
-                          <span class="legend-char">{{ getDisplayName(doc) }}</span
-                          >{{ doc.name }}
-                        </td>
-                        <td>{{ doc.staffId || 'N/A' }}</td>
-                        <td>{{ doc.phone || 'N/A' }}</td>
-                      </tr>
-                      <tr class="clinic-schedule-row" :class="getPhysicianClassById(doc.id)">
-                        <td colspan="3">
-                          <div class="clinic-select-container">
-                            <select
-                              v-if="physicianClinicSelections[doc.id]"
-                              v-model="physicianClinicSelections[doc.id][0]"
-                              class="clinic-select"
+                    <tr class="clinic-schedule-row" :class="getPhysicianClassById(doc.id)">
+                      <td colspan="3">
+                        <div class="clinic-select-container">
+                          <select
+                            v-if="physicianClinicSelections[doc.id]"
+                            v-model="physicianClinicSelections[doc.id][0]"
+                            class="clinic-select"
+                          >
+                            <option value="">門診一</option>
+                            <option
+                              v-for="option in clinicOptions"
+                              :key="option.value"
+                              :value="option.value"
                             >
-                              <option value="">門診一</option>
-                              <option
-                                v-for="option in clinicOptions"
-                                :key="option.value"
-                                :value="option.value"
-                              >
-                                {{ option.text }}
-                              </option>
-                            </select>
-                            <select
-                              v-if="physicianClinicSelections[doc.id]"
-                              v-model="physicianClinicSelections[doc.id][1]"
-                              class="clinic-select"
+                              {{ option.text }}
+                            </option>
+                          </select>
+                          <select
+                            v-if="physicianClinicSelections[doc.id]"
+                            v-model="physicianClinicSelections[doc.id][1]"
+                            class="clinic-select"
+                          >
+                            <option value="">門診二</option>
+                            <option
+                              v-for="option in clinicOptions"
+                              :key="option.value"
+                              :value="option.value"
                             >
-                              <option value="">門診二</option>
-                              <option
-                                v-for="option in clinicOptions"
-                                :key="option.value"
-                                :value="option.value"
-                              >
-                                {{ option.text }}
-                              </option>
-                            </select>
-                            <select
-                              v-if="physicianClinicSelections[doc.id]"
-                              v-model="physicianClinicSelections[doc.id][2]"
-                              class="clinic-select"
+                              {{ option.text }}
+                            </option>
+                          </select>
+                          <select
+                            v-if="physicianClinicSelections[doc.id]"
+                            v-model="physicianClinicSelections[doc.id][2]"
+                            class="clinic-select"
+                          >
+                            <option value="">門診三</option>
+                            <option
+                              v-for="option in clinicOptions"
+                              :key="option.value"
+                              :value="option.value"
                             >
-                              <option value="">門診三</option>
-                              <option
-                                v-for="option in clinicOptions"
-                                :key="option.value"
-                                :value="option.value"
-                              >
-                                {{ option.text }}
-                              </option>
-                            </select>
-                            <select
-                              v-if="physicianClinicSelections[doc.id]"
-                              v-model="physicianClinicSelections[doc.id][3]"
-                              class="clinic-select"
+                              {{ option.text }}
+                            </option>
+                          </select>
+                          <select
+                            v-if="physicianClinicSelections[doc.id]"
+                            v-model="physicianClinicSelections[doc.id][3]"
+                            class="clinic-select"
+                          >
+                            <option value="">門診四</option>
+                            <option
+                              v-for="option in clinicOptions"
+                              :key="option.value"
+                              :value="option.value"
                             >
-                              <option value="">門診四</option>
-                              <option
-                                v-for="option in clinicOptions"
-                                :key="option.value"
-                                :value="option.value"
-                              >
-                                {{ option.text }}
-                              </option>
-                            </select>
-                          </div>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          <div class="panel pd-clinic-panel">
-            <button class="panel-toggle" @click="toggleMobilePanel('pd')">
-              <h2>腹膜透析(PD)門診</h2>
-              <i class="fas fa-chevron-down"></i>
-            </button>
-            <div class="panel-content" v-show="activeMobilePanel === 'pd'">
-              <div class="pd-clinic-grid">
-                <div v-for="doc in availablePhysicians" :key="`pd-${doc.id}`" class="pd-clinic-row">
-                  <span class="pd-doctor-name">{{ doc.name }}</span>
-                  <div class="pd-input-group">
-                    <input
-                      type="date"
-                      v-if="monthlyPdClinicSelections[doc.id]"
-                      v-model="monthlyPdClinicSelections[doc.id][0].date"
-                    />
-                    <select
-                      v-if="monthlyPdClinicSelections[doc.id]"
-                      v-model="monthlyPdClinicSelections[doc.id][0].shift"
-                    >
-                      <option value="">班別</option>
-                      <option value="AM">上午</option>
-                      <option value="PM">下午</option>
-                      <option value="NT">晚上</option>
-                    </select>
-                  </div>
-                  <div class="pd-input-group">
-                    <input
-                      type="date"
-                      v-if="monthlyPdClinicSelections[doc.id]"
-                      v-model="monthlyPdClinicSelections[doc.id][1].date"
-                    />
-                    <select
-                      v-if="monthlyPdClinicSelections[doc.id]"
-                      v-model="monthlyPdClinicSelections[doc.id][1].shift"
-                    >
-                      <option value="">班別</option>
-                      <option value="AM">上午</option>
-                      <option value="PM">下午</option>
-                      <option value="NT">晚上</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="panel statistics-panel">
-            <button class="panel-toggle" @click="toggleMobilePanel('stats')">
-              <h2>排班統計</h2>
-              <i class="fas fa-chevron-down"></i>
-            </button>
-            <div class="panel-content" v-show="activeMobilePanel === 'stats'">
-              <div class="stats-header">
-                <div class="stats-mode-toggle">
-                  <button
-                    :class="{ active: statsViewMode === 'monthly' }"
-                    @click="statsViewMode = 'monthly'"
-                  >
-                    本月
-                  </button>
-                  <button
-                    :class="{ active: statsViewMode === 'ytd' }"
-                    @click="statsViewMode = 'ytd'"
-                  >
-                    今年累計
-                  </button>
-                </div>
-              </div>
-              <table class="stats-table">
-                <thead v-if="statsViewMode === 'monthly'">
-                  <tr>
-                    <th>醫師</th>
-                    <th>平日班</th>
-                    <th>週末班</th>
-                  </tr>
-                </thead>
-                <tbody v-if="statsViewMode === 'monthly'">
-                  <tr v-for="stat in scheduleStats" :key="stat.name">
-                    <td>{{ stat.name }}</td>
-                    <td>{{ stat.monthlyWeekday }}</td>
-                    <td :class="{ 'has-multiple-weekends': stat.monthlyWeekend > 1 }">
-                      {{ stat.monthlyWeekend }}
-                    </td>
-                  </tr>
-                </tbody>
-                <thead v-if="statsViewMode === 'ytd'">
-                  <tr>
-                    <th>醫師</th>
-                    <th>總班數</th>
-                    <th>假日班</th>
-                    <th>週末班</th>
-                  </tr>
-                </thead>
-                <tbody v-if="statsViewMode === 'ytd'">
-                  <tr v-for="stat in scheduleStats" :key="stat.name">
-                    <td>{{ stat.name }}</td>
-                    <td>{{ stat.ytdTotal }}</td>
-                    <td>{{ stat.ytdHolidays }}</td>
-                    <td>{{ stat.ytdWeekends }}</td>
-                  </tr>
+                              {{ option.text }}
+                            </option>
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
                 </tbody>
               </table>
             </div>
           </div>
-          <div class="panel special-dates-panel">
-            <button class="panel-toggle" @click="toggleMobilePanel('specialDates')">
-              <h2>註記日期</h2>
-              <i class="fas fa-chevron-down"></i>
-            </button>
-            <div class="panel-content" v-show="activeMobilePanel === 'specialDates'">
-              <div class="date-input-group">
-                <label>月抽血日：</label><input type="date" v-model="bloodDrawDate1" /><input
-                  type="date"
-                  v-model="bloodDrawDate2"
-                />
-              </div>
-              <div class="date-input-group">
-                <label>解釋報告日：</label><input type="date" v-model="reportDate1" /><input
-                  type="date"
-                  v-model="reportDate2"
-                />
-              </div>
-            </div>
-          </div>
-          <div class="panel notes-panel">
-            <button class="panel-toggle" @click="toggleMobilePanel('notes')">
-              <h2>排班規則與備註</h2>
-              <i class="fas fa-chevron-down"></i>
-            </button>
-            <div class="panel-content" v-show="activeMobilePanel === 'notes'">
-              <textarea
-                v-model="scheduleNotes"
-                class="notes-textarea"
-                rows="5"
-                placeholder="請在此輸入排班規則..."
-              ></textarea>
-            </div>
-          </div>
-          <div class="panel notes-panel">
-            <button class="panel-toggle" @click="toggleMobilePanel('holidays')">
-              <h2>國定假日管理 (本月)</h2>
-              <i class="fas fa-chevron-down"></i>
-            </button>
-            <div class="panel-content" v-show="activeMobilePanel === 'holidays'">
-              <div class="holiday-manager">
-                <div class="holiday-add-form">
-                  <select v-model="holidayForm.name" class="holiday-input">
-                    <option disabled value="">選擇或自訂假日</option>
-                    <option
-                      v-for="holiday in holidays2025"
-                      :key="holiday.date"
-                      :value="holiday.name"
-                    >
-                      {{ holiday.name }} ({{ holiday.date }})
-                    </option>
-                    <option value="custom">-- 自訂假日 --</option>
-                  </select>
+          <div class="pd-clinic-panel">
+            <h2>腹膜透析(PD)門診</h2>
+            <div class="pd-clinic-grid">
+              <div v-for="doc in availablePhysicians" :key="`pd-${doc.id}`" class="pd-clinic-row">
+                <span class="pd-doctor-name">{{ doc.name }}</span>
+                <div class="pd-input-group">
                   <input
-                    v-if="holidayForm.name === 'custom'"
-                    type="text"
-                    v-model="holidayForm.customName"
-                    placeholder="輸入假日名稱"
-                    class="holiday-input"
-                  />
-                  <input type="date" v-model="holidayForm.date" class="holiday-input" />
-                  <button @click="addHoliday" class="add-holiday-btn">新增</button>
+                    type="date"
+                    v-if="monthlyPdClinicSelections[doc.id]"
+                    v-model="monthlyPdClinicSelections[doc.id][0].date"
+                  /><select
+                    v-if="monthlyPdClinicSelections[doc.id]"
+                    v-model="monthlyPdClinicSelections[doc.id][0].shift"
+                  >
+                    <option value="">班別</option>
+                    <option value="AM">上午</option>
+                    <option value="PM">下午</option>
+                    <option value="NT">晚上</option>
+                  </select>
                 </div>
-                <ul v-if="managedHolidays.length > 0" class="holiday-list">
-                  <li v-for="(holiday, index) in managedHolidays" :key="index">
-                    <span>{{ holiday.name }} ({{ holiday.date }})</span
-                    ><button @click="removeHoliday(index)" class="remove-holiday-btn">×</button>
-                  </li>
-                </ul>
-                <p v-else class="no-holidays-text">本月沒有設定國定假日。</p>
+                <div class="pd-input-group">
+                  <input
+                    type="date"
+                    v-if="monthlyPdClinicSelections[doc.id]"
+                    v-model="monthlyPdClinicSelections[doc.id][1].date"
+                  /><select
+                    v-if="monthlyPdClinicSelections[doc.id]"
+                    v-model="monthlyPdClinicSelections[doc.id][1].shift"
+                  >
+                    <option value="">班別</option>
+                    <option value="AM">上午</option>
+                    <option value="PM">下午</option>
+                    <option value="NT">晚上</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="statistics-panel">
+            <div class="stats-header">
+              <h2>排班統計</h2>
+              <div class="stats-mode-toggle">
+                <button
+                  :class="{ active: statsViewMode === 'monthly' }"
+                  @click="statsViewMode = 'monthly'"
+                >
+                  本月</button
+                ><button
+                  :class="{ active: statsViewMode === 'ytd' }"
+                  @click="statsViewMode = 'ytd'"
+                >
+                  今年累計
+                </button>
+              </div>
+            </div>
+            <table class="stats-table">
+              <thead v-if="statsViewMode === 'monthly'">
+                <tr>
+                  <th>醫師姓名</th>
+                  <th>本月平日(含國定假日)班</th>
+                  <th>本月週末班</th>
+                </tr>
+              </thead>
+              <tbody v-if="statsViewMode === 'monthly'">
+                <tr v-for="stat in scheduleStats" :key="stat.name">
+                  <td>{{ stat.name }}</td>
+                  <td>{{ stat.monthlyWeekday }}</td>
+                  <td :class="{ 'has-multiple-weekends': stat.monthlyWeekend > 1 }">
+                    {{ stat.monthlyWeekend }}
+                  </td>
+                </tr>
+              </tbody>
+              <thead v-if="statsViewMode === 'ytd'">
+                <tr>
+                  <th>醫師姓名</th>
+                  <th>累計總班數</th>
+                  <th>累計平日假日班</th>
+                  <th>累計週末班</th>
+                </tr>
+              </thead>
+              <tbody v-if="statsViewMode === 'ytd'">
+                <tr v-for="stat in scheduleStats" :key="stat.name">
+                  <td>{{ stat.name }}</td>
+                  <td>{{ stat.ytdTotal }}</td>
+                  <td>{{ stat.ytdHolidays }}</td>
+                  <td>{{ stat.ytdWeekends }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="special-dates-panel">
+            <h2>註記日期</h2>
+            <div class="date-input-group">
+              <label>月抽血日：</label><input type="date" v-model="bloodDrawDate1" /><input
+                type="date"
+                v-model="bloodDrawDate2"
+              />
+            </div>
+            <div class="date-input-group">
+              <label>解釋報告日：</label><input type="date" v-model="reportDate1" /><input
+                type="date"
+                v-model="reportDate2"
+              />
+            </div>
+          </div>
+          <div class="notes-panel">
+            <h2>排班規則與備註</h2>
+            <textarea
+              v-model="scheduleNotes"
+              class="notes-textarea"
+              rows="5"
+              placeholder="請在此輸入排班規則、醫師預約不值班等備註事項..."
+            ></textarea>
+          </div>
+          <div class="notes-panel">
+            <h2>國定假日管理 (本月)</h2>
+            <div class="holiday-manager">
+              <div class="holiday-add-form">
+                <select v-model="holidayForm.name" class="holiday-input">
+                  <option disabled value="">選擇或自訂假日</option>
+                  <option v-for="holiday in holidays2025" :key="holiday.date" :value="holiday.name">
+                    {{ holiday.name }} ({{ holiday.date }})
+                  </option>
+                  <option value="custom">-- 自訂假日 --</option></select
+                ><input
+                  v-if="holidayForm.name === 'custom'"
+                  type="text"
+                  v-model="holidayForm.customName"
+                  placeholder="輸入假日名稱"
+                  class="holiday-input"
+                /><input type="date" v-model="holidayForm.date" class="holiday-input" /><button
+                  @click="addHoliday"
+                  class="add-holiday-btn"
+                >
+                  新增
+                </button>
+              </div>
+              <ul v-if="managedHolidays.length > 0" class="holiday-list">
+                <li v-for="(holiday, index) in managedHolidays" :key="index">
+                  <span>{{ holiday.name }} ({{ holiday.date }})</span
+                  ><button @click="removeHoliday(index)" class="remove-holiday-btn">×</button>
+                </li>
+              </ul>
+              <p v-else class="no-holidays-text">本月沒有設定國定假日。</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 行動版面板結構 (預設隱藏) -->
+        <div class="mobile-panels">
+          <div class="panel-group">
+            <div class="panel physician-legend-panel">
+              <button class="panel-toggle" @click="toggleMobilePanel('physicians')">
+                <h2>醫師資訊與門診設定</h2>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="panel-content" v-show="activeMobilePanel === 'physicians'">
+                <div class="legend-table-wrapper">
+                  <table class="legend-table styled-legend">
+                    <thead>
+                      <tr>
+                        <th>醫師</th>
+                        <th>員編</th>
+                        <th>電話</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template v-for="doc in availablePhysicians" :key="doc.id">
+                        <tr class="physician-info-row" :class="getPhysicianClassById(doc.id)">
+                          <td class="physician-name-cell">
+                            <span class="legend-char">{{ getDisplayName(doc) }}</span
+                            >{{ doc.name }}
+                          </td>
+                          <td>{{ doc.staffId || 'N/A' }}</td>
+                          <td>{{ doc.phone || 'N/A' }}</td>
+                        </tr>
+                        <tr class="clinic-schedule-row" :class="getPhysicianClassById(doc.id)">
+                          <td colspan="3">
+                            <div class="clinic-select-container">
+                              <select
+                                v-if="physicianClinicSelections[doc.id]"
+                                v-model="physicianClinicSelections[doc.id][0]"
+                                class="clinic-select"
+                              >
+                                <option value="">門診一</option>
+                                <option
+                                  v-for="option in clinicOptions"
+                                  :key="option.value"
+                                  :value="option.value"
+                                >
+                                  {{ option.text }}
+                                </option>
+                              </select>
+                              <select
+                                v-if="physicianClinicSelections[doc.id]"
+                                v-model="physicianClinicSelections[doc.id][1]"
+                                class="clinic-select"
+                              >
+                                <option value="">門診二</option>
+                                <option
+                                  v-for="option in clinicOptions"
+                                  :key="option.value"
+                                  :value="option.value"
+                                >
+                                  {{ option.text }}
+                                </option>
+                              </select>
+                              <select
+                                v-if="physicianClinicSelections[doc.id]"
+                                v-model="physicianClinicSelections[doc.id][2]"
+                                class="clinic-select"
+                              >
+                                <option value="">門診三</option>
+                                <option
+                                  v-for="option in clinicOptions"
+                                  :key="option.value"
+                                  :value="option.value"
+                                >
+                                  {{ option.text }}
+                                </option>
+                              </select>
+                              <select
+                                v-if="physicianClinicSelections[doc.id]"
+                                v-model="physicianClinicSelections[doc.id][3]"
+                                class="clinic-select"
+                              >
+                                <option value="">門診四</option>
+                                <option
+                                  v-for="option in clinicOptions"
+                                  :key="option.value"
+                                  :value="option.value"
+                                >
+                                  {{ option.text }}
+                                </option>
+                              </select>
+                            </div>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="panel pd-clinic-panel">
+              <button class="panel-toggle" @click="toggleMobilePanel('pd')">
+                <h2>腹膜透析(PD)門診</h2>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="panel-content" v-show="activeMobilePanel === 'pd'">
+                <div class="pd-clinic-grid">
+                  <div
+                    v-for="doc in availablePhysicians"
+                    :key="`pd-mobile-${doc.id}`"
+                    class="pd-clinic-row"
+                  >
+                    <span class="pd-doctor-name">{{ doc.name }}</span>
+                    <div class="pd-input-group">
+                      <input
+                        type="date"
+                        v-if="monthlyPdClinicSelections[doc.id]"
+                        v-model="monthlyPdClinicSelections[doc.id][0].date"
+                      /><select
+                        v-if="monthlyPdClinicSelections[doc.id]"
+                        v-model="monthlyPdClinicSelections[doc.id][0].shift"
+                      >
+                        <option value="">班別</option>
+                        <option value="AM">上午</option>
+                        <option value="PM">下午</option>
+                        <option value="NT">晚上</option>
+                      </select>
+                    </div>
+                    <div class="pd-input-group">
+                      <input
+                        type="date"
+                        v-if="monthlyPdClinicSelections[doc.id]"
+                        v-model="monthlyPdClinicSelections[doc.id][1].date"
+                      /><select
+                        v-if="monthlyPdClinicSelections[doc.id]"
+                        v-model="monthlyPdClinicSelections[doc.id][1].shift"
+                      >
+                        <option value="">班別</option>
+                        <option value="AM">上午</option>
+                        <option value="PM">下午</option>
+                        <option value="NT">晚上</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="panel statistics-panel">
+              <button class="panel-toggle" @click="toggleMobilePanel('stats')">
+                <h2>排班統計</h2>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="panel-content" v-show="activeMobilePanel === 'stats'">
+                <div class="stats-header">
+                  <div class="stats-mode-toggle">
+                    <button
+                      :class="{ active: statsViewMode === 'monthly' }"
+                      @click="statsViewMode = 'monthly'"
+                    >
+                      本月</button
+                    ><button
+                      :class="{ active: statsViewMode === 'ytd' }"
+                      @click="statsViewMode = 'ytd'"
+                    >
+                      今年累計
+                    </button>
+                  </div>
+                </div>
+                <table class="stats-table">
+                  <thead v-if="statsViewMode === 'monthly'">
+                    <tr>
+                      <th>醫師</th>
+                      <th>平日班</th>
+                      <th>週末班</th>
+                    </tr>
+                  </thead>
+                  <tbody v-if="statsViewMode === 'monthly'">
+                    <tr v-for="stat in scheduleStats" :key="stat.name + '-mobile'">
+                      <td>{{ stat.name }}</td>
+                      <td>{{ stat.monthlyWeekday }}</td>
+                      <td :class="{ 'has-multiple-weekends': stat.monthlyWeekend > 1 }">
+                        {{ stat.monthlyWeekend }}
+                      </td>
+                    </tr>
+                  </tbody>
+                  <thead v-if="statsViewMode === 'ytd'">
+                    <tr>
+                      <th>醫師</th>
+                      <th>總班數</th>
+                      <th>假日班</th>
+                      <th>週末班</th>
+                    </tr>
+                  </thead>
+                  <tbody v-if="statsViewMode === 'ytd'">
+                    <tr v-for="stat in scheduleStats" :key="stat.name + '-mobile-ytd'">
+                      <td>{{ stat.name }}</td>
+                      <td>{{ stat.ytdTotal }}</td>
+                      <td>{{ stat.ytdHolidays }}</td>
+                      <td>{{ stat.ytdWeekends }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="panel special-dates-panel">
+              <button class="panel-toggle" @click="toggleMobilePanel('specialDates')">
+                <h2>註記日期</h2>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="panel-content" v-show="activeMobilePanel === 'specialDates'">
+                <div class="date-input-group">
+                  <label>月抽血日：</label><input type="date" v-model="bloodDrawDate1" /><input
+                    type="date"
+                    v-model="bloodDrawDate2"
+                  />
+                </div>
+                <div class="date-input-group">
+                  <label>解釋報告日：</label><input type="date" v-model="reportDate1" /><input
+                    type="date"
+                    v-model="reportDate2"
+                  />
+                </div>
+              </div>
+            </div>
+            <div class="panel notes-panel">
+              <button class="panel-toggle" @click="toggleMobilePanel('notes')">
+                <h2>排班規則與備註</h2>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="panel-content" v-show="activeMobilePanel === 'notes'">
+                <textarea
+                  v-model="scheduleNotes"
+                  class="notes-textarea"
+                  rows="5"
+                  placeholder="請在此輸入排班規則..."
+                ></textarea>
+              </div>
+            </div>
+            <div class="panel notes-panel">
+              <button class="panel-toggle" @click="toggleMobilePanel('holidays')">
+                <h2>國定假日管理 (本月)</h2>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <div class="panel-content" v-show="activeMobilePanel === 'holidays'">
+                <div class="holiday-manager">
+                  <div class="holiday-add-form">
+                    <select v-model="holidayForm.name" class="holiday-input">
+                      <option disabled value="">選擇或自訂假日</option>
+                      <option
+                        v-for="holiday in holidays2025"
+                        :key="holiday.date"
+                        :value="holiday.name"
+                      >
+                        {{ holiday.name }} ({{ holiday.date }})
+                      </option>
+                      <option value="custom">-- 自訂假日 --</option></select
+                    ><input
+                      v-if="holidayForm.name === 'custom'"
+                      type="text"
+                      v-model="holidayForm.customName"
+                      placeholder="輸入假日名稱"
+                      class="holiday-input"
+                    /><input type="date" v-model="holidayForm.date" class="holiday-input" /><button
+                      @click="addHoliday"
+                      class="add-holiday-btn"
+                    >
+                      新增
+                    </button>
+                  </div>
+                  <ul v-if="managedHolidays.length > 0" class="holiday-list">
+                    <li v-for="(holiday, index) in managedHolidays" :key="index + '-mobile'">
+                      <span>{{ holiday.name }} ({{ holiday.date }})</span
+                      ><button @click="removeHoliday(index)" class="remove-holiday-btn">×</button>
+                    </li>
+                  </ul>
+                  <p v-else class="no-holidays-text">本月沒有設定國定假日。</p>
+                </div>
               </div>
             </div>
           </div>
@@ -472,7 +713,6 @@
 </template>
 
 <script setup>
-// ... (之前的 <script setup> 內容保持不變，除了新增一個函式) ...
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
@@ -1104,12 +1344,14 @@ watch(
 </script>
 
 <style scoped>
-/* ... (大部分之前的 CSS 保持不變，只在 RWD 區塊做修改) ... */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
 
 :root {
   --panel-border-color: #dee2e6;
 }
+/* =================================== */
+/*             通用佈局與元件             */
+/* =================================== */
 .page-container {
   padding: 1rem;
   background-color: #f8f9fa;
@@ -1117,6 +1359,8 @@ watch(
   display: flex;
   flex-direction: column;
 }
+
+/* --- 頁首 --- */
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -1192,6 +1436,8 @@ watch(
   cursor: not-allowed;
   opacity: 0.7;
 }
+
+/* --- 頁籤與主內容 --- */
 .tabs-container {
   display: flex;
   justify-content: space-between;
@@ -1224,6 +1470,42 @@ watch(
   display: flex;
   gap: 1.5rem;
 }
+
+/* --- 載入中動畫 --- */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+.loading-spinner {
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid #007bff;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* =================================== */
+/*            桌面版主要樣式              */
+/* =================================== */
 .schedule-grid-container {
   flex: 2.5;
   min-width: 0;
@@ -1241,6 +1523,7 @@ watch(
   gap: 1.5rem;
   padding-right: 8px;
 }
+/* --- 班表表格 --- */
 .schedule-table.weekly-grid {
   width: 100%;
   border-collapse: collapse;
@@ -1293,27 +1576,6 @@ tr.date-row {
   display: inline-block;
   min-width: 50px;
 }
-.is-weekend {
-  background-color: #fff0f1;
-  color: #dc3545;
-}
-.is-holiday {
-  background-color: #ffe8e6;
-  color: #d90429;
-  font-weight: bold;
-}
-.is-empty {
-  background-color: #fafafa;
-}
-.is-special-date {
-  background-color: #fffbe3;
-  color: #b45309;
-  font-weight: bold;
-}
-.is-holiday-text-only,
-.is-weekend-text-only {
-  color: #dc3545;
-}
 .physician-select {
   width: 100%;
   height: 100%;
@@ -1335,109 +1597,30 @@ tr.date-row {
 .physician-select:focus-within {
   background-color: rgba(0, 123, 255, 0.05);
 }
-.mobile-view-toggle,
-.mobile-day-view,
-.mobile-readonly-text {
-  display: none;
-}
-.panel-group {
-  width: 100%;
+
+/* --- 右側面板通用 --- */
+.desktop-panels {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
-.panel {
+.desktop-panels > div {
+  /* 直接子元素就是各個 panel */
   background-color: #fff;
   padding: 1rem;
   border-radius: 8px;
   border: 1px solid #dee2e6;
   flex-shrink: 0;
 }
-.panel-toggle {
-  display: none;
-}
-.statistics-panel h2,
-.notes-panel h2,
-.physician-legend-panel h2,
-.special-dates-panel h2,
-.pd-clinic-panel h2 {
+.desktop-panels h2 {
   margin-top: 0;
   font-size: 1.2rem;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #e9ecef;
 }
-.stats-table,
-.legend-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.stats-table th,
-.stats-table td,
-.legend-table th,
-.legend-table td {
-  border: 1px solid #e9ecef;
-  padding: 0.75rem;
-  text-align: center;
-}
-.stats-table th,
-.legend-table th {
-  background-color: #f8f9fa;
-}
-.stats-table .has-multiple-weekends {
-  font-weight: bold;
-  color: #dc3545;
-  font-size: 1.2em;
-}
-.notes-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.75rem;
-  border: 1px solid #ced4da;
-  border-radius: 6px;
-  font-size: 1rem;
-  line-height: 1.6;
-  resize: vertical;
-}
-.special-dates-panel .date-input-group {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-.special-dates-panel label {
-  font-weight: 500;
-  white-space: nowrap;
-}
-.special-dates-panel input[type='date'] {
-  padding: 0.5rem;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  flex-grow: 1;
-}
-.stats-header {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-.stats-mode-toggle {
-  display: flex;
-  border: 1px solid #ced4da;
-  border-radius: 6px;
-  overflow: hidden;
-}
-.stats-mode-toggle button {
-  background-color: #fff;
-  border: none;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-.stats-mode-toggle button.active {
-  background-color: #007bff;
-  color: white;
-}
+
+/* --- 醫師圖例/門診設定 --- */
 .legend-table-wrapper {
   overflow-x: auto;
 }
@@ -1446,6 +1629,7 @@ tr.date-row {
   border-collapse: separate;
   border: 1px solid #dee2e6;
   border-radius: 6px;
+  width: 100%;
 }
 .legend-table.styled-legend thead th {
   border-bottom-width: 2px;
@@ -1457,10 +1641,15 @@ tr.date-row {
 .legend-table.styled-legend th {
   border: none;
   vertical-align: middle;
+  padding: 0.75rem;
+  text-align: center;
 }
 .legend-table.styled-legend td:not(:last-child),
 .legend-table.styled-legend th:not(:last-child) {
   border-right: 1px solid #e9ecef;
+}
+.legend-table.styled-legend th {
+  background-color: #f8f9fa;
 }
 .physician-info-row td {
   background-color: #fdfdff;
@@ -1499,35 +1688,75 @@ tr.date-row {
   outline: 0;
   box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
-.physician-info-row.physician-color-1 .legend-char {
-  color: #4a148c;
+
+/* --- 統計 --- */
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
 }
-.physician-color-1 {
-  background-color: #f3e5f5;
+.stats-table th,
+.stats-table td {
+  border: 1px solid #e9ecef;
+  padding: 0.75rem;
+  text-align: center;
 }
-.physician-info-row.physician-color-2 .legend-char {
-  color: #880e4f;
+.stats-table th {
+  background-color: #f8f9fa;
 }
-.physician-color-2 {
-  background-color: #fce4ec;
+.stats-table .has-multiple-weekends {
+  font-weight: bold;
+  color: #dc3545;
+  font-size: 1.2em;
 }
-.physician-info-row.physician-color-3 .legend-char {
-  color: #0d47a1;
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
-.physician-color-3 {
-  background-color: #e3f2fd;
+.stats-mode-toggle {
+  display: flex;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  overflow: hidden;
 }
-.physician-info-row.physician-color-4 .legend-char {
-  color: #1b5e20;
+.stats-mode-toggle button {
+  background-color: #fff;
+  border: none;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
 }
-.physician-color-4 {
-  background-color: #e8f5e9;
+.stats-mode-toggle button.active {
+  background-color: #007bff;
+  color: white;
 }
-.physician-info-row.physician-color-5 .legend-char {
-  color: #ff6f00;
+
+/* --- 其他面板 --- */
+.notes-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.75rem;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 1rem;
+  line-height: 1.6;
+  resize: vertical;
 }
-.physician-color-5 {
-  background-color: #fff8e1;
+.special-dates-panel .date-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.special-dates-panel label {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.special-dates-panel input[type='date'] {
+  padding: 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  flex-grow: 1;
 }
 .pd-clinic-grid {
   display: flex;
@@ -1608,42 +1837,85 @@ tr.date-row {
   color: #6c757d;
   font-style: italic;
 }
-.loading-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(255, 255, 255, 0.8);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
+
+/* --- 顏色與狀態 --- */
+.is-weekend {
+  background-color: #fff0f1;
+  color: #dc3545;
 }
-.loading-spinner {
-  border: 8px solid #f3f3f3;
-  border-top: 8px solid #007bff;
-  border-radius: 50%;
-  width: 60px;
-  height: 60px;
-  animation: spin 1s linear infinite;
-  margin-bottom: 1rem;
+.is-holiday {
+  background-color: #ffe8e6;
+  color: #d90429;
+  font-weight: bold;
 }
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
+.is-empty {
+  background-color: #fafafa;
+}
+.is-special-date {
+  background-color: #fffbe3;
+  color: #b45309;
+  font-weight: bold;
+}
+.is-holiday-text-only,
+.is-weekend-text-only {
+  color: #dc3545;
+}
+.physician-info-row.physician-color-1 .legend-char {
+  color: #4a148c;
+}
+.physician-color-1 {
+  background-color: #f3e5f5;
+}
+.physician-info-row.physician-color-2 .legend-char {
+  color: #880e4f;
+}
+.physician-color-2 {
+  background-color: #fce4ec;
+}
+.physician-info-row.physician-color-3 .legend-char {
+  color: #0d47a1;
+}
+.physician-color-3 {
+  background-color: #e3f2fd;
+}
+.physician-info-row.physician-color-4 .legend-char {
+  color: #1b5e20;
+}
+.physician-color-4 {
+  background-color: #e8f5e9;
+}
+.physician-info-row.physician-color-5 .legend-char {
+  color: #ff6f00;
+}
+.physician-color-5 {
+  background-color: #fff8e1;
 }
 
-/* ✨✨✨ 行動版響應式樣式 (RWD) - 唯讀模式 ✨✨✨ */
+/* =================================== */
+/*             行動版響應式樣式           */
+/* =================================== */
+
+/* --- 初始隱藏行動版專用元件 --- */
+.mobile-view-toggle,
+.mobile-day-view,
+.mobile-readonly-text,
+.mobile-panels {
+  display: none;
+}
+
 @media (max-width: 992px) {
-  .hide-on-mobile {
+  /* --- 隱藏桌面版專用元件 --- */
+  .hide-on-mobile,
+  .desktop-panels {
     display: none !important;
   }
+
+  /* --- 顯示行動版專用元件 --- */
+  .mobile-panels {
+    display: block;
+  }
+
+  /* --- 調整整體佈局 --- */
   .page-container {
     padding: 0.5rem;
   }
@@ -1661,12 +1933,8 @@ tr.date-row {
   .month-display {
     font-size: 1.2rem;
   }
-
-  .desktop-view:not(.mobile-week-view) {
-    display: none;
-  }
-  .mobile-day-view {
-    display: block;
+  .schedule-content.new-layout {
+    flex-direction: column;
   }
   .schedule-grid-container {
     border: none;
@@ -1674,27 +1942,12 @@ tr.date-row {
     background-color: transparent;
     overflow-y: visible;
   }
-  .desktop-view.mobile-week-view {
-    overflow-x: auto;
-  }
-  /* ✨ 5. 關鍵修改：在行動版的週曆模式中，隱藏 select，顯示唯讀文字 ✨ */
-  .mobile-week-view .physician-select {
-    display: none;
-  }
-  .mobile-week-view .mobile-readonly-text {
-    display: block;
-    font-size: 1.5rem;
-    font-weight: bold;
-  }
-
-  .schedule-content.new-layout {
-    flex-direction: column;
-  }
   .panels-container {
     padding-right: 0;
     overflow-y: visible;
   }
 
+  /* --- 視圖切換器 --- */
   .mobile-view-toggle {
     display: flex;
     border: 1px solid #007bff;
@@ -1716,6 +1969,28 @@ tr.date-row {
     color: white;
   }
 
+  /* --- 班表顯示模式 --- */
+  .desktop-view:not(.mobile-week-view) {
+    display: none;
+  }
+  .mobile-day-view {
+    display: block;
+  }
+  .desktop-view.mobile-week-view {
+    overflow-x: auto;
+  }
+
+  /* 週曆唯讀模式 */
+  .mobile-week-view .physician-select {
+    display: none;
+  }
+  .mobile-week-view .mobile-readonly-text {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: bold;
+  }
+
+  /* 日曆卡片模式 */
   .mobile-day-card {
     background-color: #fff;
     border: 1px solid #dee2e6;
@@ -1734,7 +2009,6 @@ tr.date-row {
     border-left-color: #b45309;
     background-color: #fffbe3;
   }
-
   .mobile-day-header {
     display: flex;
     justify-content: space-between;
@@ -1774,13 +2048,17 @@ tr.date-row {
     padding: 0.5rem;
   }
 
-  /* 行動版可折疊面板 */
+  /* --- 行動版可折疊面板 --- */
   .panel-group {
+    display: flex;
+    flex-direction: column;
     gap: 1rem;
   }
   .panel {
     padding: 0;
     overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid #dee2e6;
   }
   .panel-toggle {
     display: flex;
@@ -1804,15 +2082,13 @@ tr.date-row {
   }
   .panel-content[style*='display: none;'] + .panel-toggle .fa-chevron-down {
     transform: rotate(-90deg);
-  } /* Vue 2 might need different selector */
-  .panel .panel-toggle[aria-expanded='false'] .fa-chevron-down {
-    transform: rotate(-90deg);
-  } /* Better for Vue 3 v-show */
-
+  }
   .panel-content {
     padding: 1rem;
     border-top: 1px solid #dee2e6;
   }
+
+  /* 微調行動版面板內部樣式 */
   .stats-header {
     justify-content: space-between;
     flex-wrap: wrap;
