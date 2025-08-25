@@ -342,10 +342,12 @@ import { httpsCallable } from 'firebase/functions'
 // ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
+import { useAuth } from '@/composables/useAuth.js'
 
 // ✨ --- 核心修改 #2: 實例化 Store --- ✨
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
+const auth = useAuth()
 
 // --- Router and State ---
 const route = useRoute()
@@ -1109,7 +1111,6 @@ function exportGroupReportToExcel() {
 </script>
 
 <style scoped>
-/* --- 您的所有 CSS 樣式 ... --- */
 /* --- 基礎樣式 --- */
 .page-container {
   display: flex;

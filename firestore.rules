@@ -3,52 +3,65 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helper Functions (保持不變) ---
+    // --- 權限輔助函式 (強化版) ---
     function isAuthenticated() {
       return request.auth != null;
     }
+
+    // ✨ 核心修正 #1: 改為直接從 token 讀取角色，更高效、更可靠 ✨
     function getUserRole() {
       return request.auth.token.role;
     }
+
     function isAdmin() {
       return isAuthenticated() && getUserRole() == 'admin';
     }
+    
     function isEditor() {
       let role = getUserRole();
       return isAuthenticated() && (role == 'admin' || role == 'editor');
     }
+
     function isContributor() {
       let role = getUserRole();
       return isAuthenticated() && (role == 'admin' || role == 'editor' || role == 'contributor');
     }
 
-    // --- 各個集合的規則 (原有規則保持不變) ---
-     match /users/{userId} {
-      // ✨ 核心修正：將 list 和 get 的權限，開放給所有已登入的使用者 ✨
-      allow list, get: if isAuthenticated();
-
-      // ✨ 寫入權限保持不變，仍然只有 Admin 可以修改使用者資料 ✨
-      allow write: if isAdmin(); 
+    // isViewer 現在只代表 "任何已登入的使用者"
+    function isViewer() {
+      return isAuthenticated();
     }
+    
+    // --- 集合規則 ---
+    
+    match /users/{userId} {
+      allow list, get: if isViewer();
+      allow write: if isAdmin();
+    }
+    
     match /patients/{patientId} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow create, update: if isContributor();
       allow delete: if isEditor();
     }
+    
+    // ✨ 核心修正 #2: 確保所有已登入用戶 (isViewer) 都能讀取排程 ✨
     match /schedules/{scheduleId} {
-      allow read: if isAuthenticated();
-      allow write: if isEditor();
+      allow read: if isViewer();
+      allow write: if isEditor(); // 寫入權限保持不變
     }
+    
     match /base_schedules/{scheduleId} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow write: if isEditor();
     }
+    
     match /memos/{memoId} {
-      allow read, write: if isAuthenticated();
+      allow read, write: if isViewer();
     }
     
     match /schedule_exceptions/{exceptionId} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow create, delete: if isEditor();
       allow update: if false; 
     }
@@ -58,69 +71,58 @@ service cloud.firestore {
     }
     
     match /notifications/{notificationId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
+      allow read: if isViewer();
+      allow create: if isViewer();
       allow update, delete: if false;
     }
 
     match /dialysis_orders_history/{historyId} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow create: if isContributor();
       allow update: if isEditor();
       allow delete: if isEditor();
     }
+
     match /patient_history/{historyId} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow create: if isContributor();
       allow update: if isEditor();
       allow delete: if isEditor();
     }
+
     match /condition_records/{recordId} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow write: if isContributor();
     }
+    
     match /lab_reports/{reportId} {
-      allow read: if isAuthenticated();
-      allow write: if false; 
+      allow read: if isViewer();
+      allow write: if isViewer(); 
     }
+
     match /nurse_assignments/{date} {
-      allow read: if isAuthenticated();
+      allow read: if isViewer();
       allow write: if isEditor();
     }
-    match /daily_logs/{logId} {
-      // 讀取權限：
-      // 允許任何已登入的使用者，讀取格式為 'YYYY-MM-DD' 的文件
-      allow read: if request.auth != null &&
-                     logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
 
-      // 寫入權限 (create, update, delete)：
-      // 保持原本的嚴格規則，只允許 admin 和 editor 寫入
-      allow write: if request.auth != null &&
-                      request.auth.token.role in ['admin', 'editor'] &&
-                      logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    match /daily_logs/{logId} {
+      allow read: if isViewer() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+      allow write: if isEditor() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
+
     match /tasks/{taskId} {
-      // 允許所有已登入的使用者讀取、建立和更新任務
-      allow read, create, update: if isAuthenticated();
-      
-      // 只有護理師組長 (Editor) 或更高等級的角色可以刪除
+      allow read, create, update: if isViewer();
       allow delete: if isEditor();
     }
-    // ✨ 新增醫師列表的讀取權限 ✨
-    // 允許任何已登入的使用者讀取醫師列表
+    
     match /physicians/{physicianId} {
-      allow read: if request.auth != null;
-      // 寫入權限可以先設定為僅限 admin，未來再調整
-      allow write: if request.auth != null && request.auth.token.role == 'admin';
+      allow read: if isViewer();
+      allow write: if isAdmin();
     }
 
-    // ✨ 新增醫師排班表的讀寫權限 ✨
-    // 允許任何已登入的使用者讀取班表
     match /physician_schedules/{scheduleId} {
-      allow read: if request.auth != null;
-      // 只允許 contributor 或 admin 寫入班表
-      allow write: if request.auth != null && 
-                     request.auth.token.role in ['admin', 'contributor'];
+      allow read: if isViewer();
+      allow write: if isContributor();
     }
   }
 }

@@ -202,6 +202,7 @@ export function useAuth() {
     // 直接檢查 role 是否為 'admin' 或 'contributor'
     return ['admin', 'contributor'].includes(currentUser.value.role)
   })
+  const canUploadLabReport = computed(() => isLoggedIn.value)
 
   return {
     // 狀態
@@ -212,6 +213,7 @@ export function useAuth() {
     logoutLoading: readonly(logoutLoading),
     isAnyLoading: readonly(isAnyLoading),
     canManagePhysicianSchedule,
+    canUploadLabReport,
 
     // 方法
     login,
