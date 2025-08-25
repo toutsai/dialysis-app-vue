@@ -77,7 +77,11 @@
             <div class="staff-item shift-early">
               <span class="staff-label">早班</span>
               <div class="staff-details">
-                <span class="staff-name">{{ dailyPhysicians.early?.name || '--' }}</span>
+                <div class="staff-name">
+                  <!-- ✨ 在姓名前加上 "醫師" ✨ -->
+                  <span class="staff-job-title">醫師</span>
+                  {{ dailyPhysicians.early?.name || '--' }}
+                </div>
                 <span v-if="dailyPhysicians.early" class="staff-contact">
                   (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
                     dailyPhysicians.early.phone || 'N/A'
@@ -88,10 +92,14 @@
             <div class="staff-item shift-noon">
               <span class="staff-label">午班</span>
               <div class="staff-details">
-                <span class="staff-name">{{ dailyPhysicians.noon?.name || '--' }}</span>
-                <span v-if="dailyPhysicians.noon" class="staff-contact">
-                  (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.noon.phone || 'N/A'
+                <div class="staff-name">
+                  <!-- ✨ 在姓名前加上 "醫師" ✨ -->
+                  <span class="staff-job-title">醫師</span>
+                  {{ dailyPhysicians.early?.name || '--' }}
+                </div>
+                <span v-if="dailyPhysicians.early" class="staff-contact">
+                  (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.early.phone || 'N/A'
                   }})
                 </span>
               </div>
@@ -99,10 +107,14 @@
             <div class="staff-item shift-late">
               <span class="staff-label">晚班</span>
               <div class="staff-details">
-                <span class="staff-name">{{ dailyPhysicians.late?.name || '--' }}</span>
-                <span v-if="dailyPhysicians.late" class="staff-contact">
-                  (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.late.phone || 'N/A'
+                <div class="staff-name">
+                  <!-- ✨ 在姓名前加上 "醫師" ✨ -->
+                  <span class="staff-job-title">醫師</span>
+                  {{ dailyPhysicians.early?.name || '--' }}
+                </div>
+                <span v-if="dailyPhysicians.early" class="staff-contact">
+                  (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.early.phone || 'N/A'
                   }})
                 </span>
               </div>
@@ -2608,5 +2620,19 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 1.5rem;
+}
+/* ✨ 新增：醫師職稱的樣式 ✨ */
+.staff-name {
+  display: flex; /* 讓 "醫師" 和姓名可以並排 */
+  align-items: baseline; /* 讓文字底部對齊 */
+  gap: 0.3em; /* 增加一點間距 */
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.staff-job-title {
+  font-size: 0.85em; /* 讓 "醫師" 兩個字稍微小一點 */
+  font-weight: 500;
+  opacity: 0.9;
 }
 </style>

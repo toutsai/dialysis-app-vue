@@ -924,30 +924,28 @@ function saveScheduleOnly() {
 
   // 遍歷所有排班資料，準備儲存
   for (const day in scheduleData.value) {
-    // 確保 scheduleData[day] 是一個物件
+    // 防呆：確保 scheduleData[day] 是一個物件，避免意外的資料污染
     if (typeof scheduleData.value[day] !== 'object' || scheduleData.value[day] === null) {
       continue // 如果不是物件，就跳過這一天
     }
 
     dataToSave.schedule[day] = {}
     for (const shift of ['early', 'noon', 'late']) {
-      // ✨ 核心修正點：使用可選串聯 ?. 來安全地取值 ✨
-      // 即使 scheduleData.value[day][shift] 是 undefined，這行程式碼也不會報錯
-      const physicianId = scheduleData.value[day][shift]?.physicianId
+      // ✨ 核心修正點 ✨
+      // 1. 使用可選串聯 ?. 來安全地取值，即使 scheduleData.value[day][shift] 是 undefined 也不會報錯。
+      // 2. 如果 physicianId 不存在，就給它一個 null 的預設值。
+      const physicianId = scheduleData.value[day][shift]?.physicianId || null
 
-      // 只有當 physicianId 是一個有效值 (非 null, 非 undefined) 時，才建立這個班別的物件
-      if (physicianId) {
-        dataToSave.schedule[day][shift] = {
-          physicianId: physicianId,
-          // 防呆處理：如果從 map 中找不到名字，就存入 null，而不是 undefined
-          name: physicianMap.get(physicianId) || null,
-        }
+      // 3. 無論 physicianId 是否為 null，都建立這個班別的物件。
+      //    這確保了儲存到 Firebase 的資料結構永遠是完整的。
+      dataToSave.schedule[day][shift] = {
+        physicianId: physicianId,
+        // 如果 physicianId 是 null，name 自然也是 null
+        name: physicianMap.get(physicianId) || null,
       }
     }
-    // 如果某一天三個班別都沒有人，就從要儲存的資料中移除這一天
-    if (Object.keys(dataToSave.schedule[day]).length === 0) {
-      delete dataToSave.schedule[day]
-    }
+    // 註：原本用來刪除空日期的邏輯 (if Object.keys... a) 已不再需要，
+    // 因為現在每天都會有 'early', 'noon', 'late' 三個 key，保持結構一致性更為重要。
   }
 
   return physicianSchedulesApi.save(selectedYearMonth.value, dataToSave)
