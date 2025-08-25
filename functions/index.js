@@ -1271,7 +1271,6 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 // Lab Report Functions (檢驗報告相關函式)
 // ===================================================================
 
-// 處理檢驗報告
 exports.processLabReport = onCall(
   {
     timeoutSeconds: 300,
@@ -1347,6 +1346,7 @@ exports.processLabReport = onCall(
         副甲狀腺素: 'iPTH',
         '血中尿素氮(洗後專用)': 'PostBUN',
         鐵蛋白: 'Ferritin',
+        // ✨ 您可以根據新的 Excel 內容，在這裡增加更多對應項目
       }
       const reports = new Map()
       let errors = []
@@ -1356,12 +1356,20 @@ exports.processLabReport = onCall(
         if (medicalRecordNumber) {
           medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
         }
-        const reportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
+
+        // ✨ ===================== 核心修正點在這裡 ===================== ✨
+        // 1. 讀取原始的、可能包含時分秒的日期字串
+        let originalReportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
+
+        // 2. 標準化日期：只取前 8 位 (YYYYMMDD)，忽略後面的時分秒
+        const reportDateStr = originalReportDateStr.substring(0, 8)
+        // ✨ ========================================================== ✨
+
         const labItemName = String(rowArray[headerToIndex['細項名稱']] || '').trim()
         const labResult = rowArray[headerToIndex['結果']]
         if (
           !medicalRecordNumber ||
-          !reportDateStr ||
+          !reportDateStr || // 使用標準化後的日期字串做判斷
           !labItemName ||
           labResult === undefined ||
           labResult === null
@@ -1378,7 +1386,10 @@ exports.processLabReport = onCall(
           })
           continue
         }
+
+        // 使用標準化後的 reportDateStr 來建立 key，確保同一天的資料能聚合
         const reportKey = `${medicalRecordNumber}_${reportDateStr}`
+
         if (!reports.has(reportKey)) {
           let patientDoc
           if (patientCache.has(medicalRecordNumber)) {
@@ -1400,6 +1411,8 @@ exports.processLabReport = onCall(
             errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
             continue
           }
+
+          // 解析日期時，同樣使用標準化後的 reportDateStr
           const year = reportDateStr.substring(0, 4)
           const month = reportDateStr.substring(4, 6)
           const day = reportDateStr.substring(6, 8)
