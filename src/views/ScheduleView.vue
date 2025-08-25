@@ -95,11 +95,11 @@
                 <div class="staff-name">
                   <!-- ✨ 在姓名前加上 "醫師" ✨ -->
                   <span class="staff-job-title">醫師</span>
-                  {{ dailyPhysicians.early?.name || '--' }}
+                  {{ dailyPhysicians.noon?.name || '--' }}
                 </div>
-                <span v-if="dailyPhysicians.early" class="staff-contact">
-                  (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.early.phone || 'N/A'
+                <span v-if="dailyPhysicians.noon" class="staff-contact">
+                  (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.noon.phone || 'N/A'
                   }})
                 </span>
               </div>
@@ -110,11 +110,11 @@
                 <div class="staff-name">
                   <!-- ✨ 在姓名前加上 "醫師" ✨ -->
                   <span class="staff-job-title">醫師</span>
-                  {{ dailyPhysicians.early?.name || '--' }}
+                  {{ dailyPhysicians.late?.name || '--' }}
                 </div>
-                <span v-if="dailyPhysicians.early" class="staff-contact">
-                  (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.early.phone || 'N/A'
+                <span v-if="dailyPhysicians.late" class="staff-contact">
+                  (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
+                    dailyPhysicians.late.phone || 'N/A'
                   }})
                 </span>
               </div>
