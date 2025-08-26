@@ -59,17 +59,23 @@
       <!-- 第二列：控制面板 -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
-          <div class="view-toggle-wrapper desktop-only">
-            <button
-              class="view-toggle-btn"
-              @click="isSimplifiedViewVisible = !isSimplifiedViewVisible"
-            >
-              <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
-              {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
-            </button>
-          </div>
-
-          <!-- ✨ 方案一：team-highlight-container 已被移除 -->
+          <!-- 按鈕一 -->
+          <button
+            class="view-toggle-btn desktop-only"
+            @click="isSimplifiedViewVisible = !isSimplifiedViewVisible"
+          >
+            <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
+            {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
+          </button>
+          <!-- 按鈕二 -->
+          <button
+            class="btn-secondary desktop-only"
+            @click="isInpatientRoundsDialogVisible = true"
+            :disabled="todayInpatients.length === 0"
+            title="顯示今日住院病人總覽"
+          >
+            <i class="fas fa-walking"></i> 住院病人趴趴走 ({{ todayInpatients.length }})
+          </button>
         </div>
         <div class="controls-right">
           <!-- ✨ 新增：每日負責人資訊面板 ✨ -->
@@ -720,6 +726,11 @@
       @confirm="handleWardNumberConfirm"
       @cancel="isWardDialogVisible = false"
     />
+    <InpatientRoundsDialog
+      :is-visible="isInpatientRoundsDialogVisible"
+      :patients-on-schedule="todayInpatients"
+      @close="isInpatientRoundsDialogVisible = false"
+    />
     <div class="print-only-view">
       <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
       <div v-if="statsToolbarData[0]" class="print-stats">
@@ -845,6 +856,7 @@ import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PatientDetailModal from '@/components/PatientDetailModal.vue'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
+import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
@@ -924,6 +936,7 @@ const selectedPatientForDetail = ref(null)
 const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
+const isInpatientRoundsDialogVisible = ref(false)
 
 // ✨ 新增
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
@@ -1038,6 +1051,55 @@ const patientHasNotification = computed(() => {
     }
   }
   return patientIdsWithInfo
+})
+
+// ✨ [新增] 計算今日住院病人的 computed 屬性
+const todayInpatients = computed(() => {
+  const inpatients = []
+  // [修正] 移除 .value，並增加對 currentRecord 本身的檢查
+  if (!currentRecord || !currentRecord.schedule || patientMap.value.size === 0) {
+    return inpatients
+  }
+
+  // [修正] 移除所有 .value
+  for (const shiftId in currentRecord.schedule) {
+    const slot = currentRecord.schedule[shiftId]
+    if (slot && slot.patientId) {
+      const patient = patientMap.value.get(slot.patientId)
+      // 只篩選出住院 (ipd) 和急診 (er) 的病人
+      if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
+        const shiftCode = shiftId.split('-')[2] // 'early', 'noon', 'late'
+
+        // 確保 dialysisBed 有值
+        const dialysisBed = String(
+          shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || 'N/A',
+        )
+
+        inpatients.push({
+          id: `${patient.id}-${shiftId}`, // 確保 key 的唯一性
+          dialysisBed,
+          medicalRecordNumber: patient.medicalRecordNumber,
+          name: patient.name,
+          wardNumber: patient.wardNumber || '未登錄',
+          shift: shiftCode,
+          transportMethod: '推床', // 預設值
+        })
+      }
+    }
+  }
+
+  // 排序：先依班別，再依床號
+  inpatients.sort((a, b) => {
+    const shiftOrder = { early: 1, noon: 2, late: 3 }
+    if (a.shift !== b.shift) {
+      return shiftOrder[a.shift] - shiftOrder[b.shift]
+    }
+    const bedA = a.dialysisBed === '外圍' ? 999 : parseInt(a.dialysisBed)
+    const bedB = b.dialysisBed === '外圍' ? 999 : parseInt(b.dialysisBed)
+    return bedA - bedB
+  })
+
+  return inpatients
 })
 
 // --- Functions ---
@@ -1859,7 +1921,17 @@ watch(currentDate, (newDate, oldDate) => {
 .controls-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* ✨ 我們不再依賴 gap，而是讓子元素自己產生間距 */
+}
+
+/* ✨ [核心修正] 使用 > 子選擇器來精確指定目標 */
+.controls-left > button {
+  margin-right: 12px; /* 為每個按鈕增加右邊距 */
+}
+
+/* ✨ 為了避免最後一個按鈕也有多餘的邊距，我們把它移除 */
+.controls-left > button:last-child {
+  margin-right: 0;
 }
 .btn,
 button {
@@ -1899,6 +1971,7 @@ button {
   background-color: #6c757d;
   color: white;
   border-color: #6c757d;
+  gap: 20px;
 }
 .btn-secondary:hover:not(:disabled) {
   background-color: #545b62;
@@ -2503,7 +2576,7 @@ button:disabled {
     overflow: visible;
   }
   @page {
-    size: A4 landscape;
+    size: A4 horizontal;
     margin: 1cm;
   }
   body,
