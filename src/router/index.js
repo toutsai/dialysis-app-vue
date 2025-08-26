@@ -106,6 +106,12 @@ const routes = [
         meta: { title: '檢驗報告管理', requiresAuth: true }, // <-- 移除 roles: ['admin', 'editor']
       },
       {
+        path: 'consumables', // 頁面網址
+        name: 'Consumables', // 路由名稱
+        component: () => import('../views/ConsumablesView.vue'), // 指向您剛才建立的檔案
+        meta: { title: '每月耗材總表', requiresAuth: true }, // 設定頁面標題和權限
+      },
+      {
         path: 'account-settings',
         name: 'AccountSettings',
         component: () => import('../views/AccountSettingsView.vue'),

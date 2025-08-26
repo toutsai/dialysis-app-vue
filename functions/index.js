@@ -1271,7 +1271,6 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 // Lab Report Functions (檢驗報告相關函式)
 // ===================================================================
 
-// 處理檢驗報告
 exports.processLabReport = onCall(
   {
     timeoutSeconds: 300,
@@ -1347,6 +1346,7 @@ exports.processLabReport = onCall(
         副甲狀腺素: 'iPTH',
         '血中尿素氮(洗後專用)': 'PostBUN',
         鐵蛋白: 'Ferritin',
+        // ✨ 您可以根據新的 Excel 內容，在這裡增加更多對應項目
       }
       const reports = new Map()
       let errors = []
@@ -1356,12 +1356,20 @@ exports.processLabReport = onCall(
         if (medicalRecordNumber) {
           medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
         }
-        const reportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
+
+        // ✨ ===================== 核心修正點在這裡 ===================== ✨
+        // 1. 讀取原始的、可能包含時分秒的日期字串
+        let originalReportDateStr = String(rowArray[headerToIndex['報告日']] || '').trim()
+
+        // 2. 標準化日期：只取前 8 位 (YYYYMMDD)，忽略後面的時分秒
+        const reportDateStr = originalReportDateStr.substring(0, 8)
+        // ✨ ========================================================== ✨
+
         const labItemName = String(rowArray[headerToIndex['細項名稱']] || '').trim()
         const labResult = rowArray[headerToIndex['結果']]
         if (
           !medicalRecordNumber ||
-          !reportDateStr ||
+          !reportDateStr || // 使用標準化後的日期字串做判斷
           !labItemName ||
           labResult === undefined ||
           labResult === null
@@ -1378,7 +1386,10 @@ exports.processLabReport = onCall(
           })
           continue
         }
+
+        // 使用標準化後的 reportDateStr 來建立 key，確保同一天的資料能聚合
         const reportKey = `${medicalRecordNumber}_${reportDateStr}`
+
         if (!reports.has(reportKey)) {
           let patientDoc
           if (patientCache.has(medicalRecordNumber)) {
@@ -1400,6 +1411,8 @@ exports.processLabReport = onCall(
             errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
             continue
           }
+
+          // 解析日期時，同樣使用標準化後的 reportDateStr
           const year = reportDateStr.substring(0, 4)
           const month = reportDateStr.substring(4, 6)
           const day = reportDateStr.substring(6, 8)
@@ -1443,6 +1456,190 @@ exports.processLabReport = onCall(
       }
     } catch (error) {
       logger.error(`處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
+    }
+  },
+)
+
+// ===================================================================
+// Consumables Report Functions (耗材報告相關函式) - v3.1 (支援同類型多項目)
+// ===================================================================
+
+exports.processConsumables = onCall(
+  {
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async (request) => {
+    const XLSX = require('xlsx')
+    const allowedRoles = ['admin', 'editor', 'contributor']
+    if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
+    }
+
+    const { fileName, fileContent } = request.data
+    if (!fileName || !fileContent) {
+      throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
+    }
+
+    logger.info(`[Consumables V3.1] 接收到檔案 ${fileName}，開始解析...`)
+
+    try {
+      // (步驟 1-5 的邏輯與之前相同，保持不變)
+      const buffer = Buffer.from(fileContent, 'base64')
+      const workbook = XLSX.read(buffer, { type: 'buffer' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const sheetAsArray = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+
+      if (sheetAsArray.length < 3) {
+        throw new HttpsError('invalid-argument', 'Excel 檔案內容行數不足。')
+      }
+
+      const dateString = sheetAsArray[1][0] || ''
+      const monthMatch = dateString.match(/&起日(\d{4})(\d{2})/)
+      if (!monthMatch) {
+        throw new HttpsError('invalid-argument', 'Excel 格式錯誤，在第二列找不到有效的起日。')
+      }
+      const reportMonth = `${monthMatch[1]}-${monthMatch[2]}`
+
+      let headerRowIndex = -1
+      for (let i = 0; i < sheetAsArray.length; i++) {
+        if (sheetAsArray[i].includes('病歷號')) {
+          headerRowIndex = i
+          break
+        }
+      }
+      if (headerRowIndex === -1) {
+        throw new HttpsError('invalid-argument', "找不到有效的標題行 (需包含 '病歷號')。")
+      }
+
+      const headers = sheetAsArray[headerRowIndex]
+      const dataRows = sheetAsArray.slice(headerRowIndex + 1)
+
+      let consumableHeader = ''
+      let firestoreField = ''
+      if (headers.includes('人工腎臟')) {
+        consumableHeader = '人工腎臟'
+        firestoreField = 'artificialKidney'
+      } else if (headers.includes('透析藥水CA')) {
+        consumableHeader = '透析藥水CA'
+        firestoreField = 'dialysateCa'
+      } else if (headers.includes('B液種類')) {
+        consumableHeader = 'B液種類'
+        firestoreField = 'bicarbonateType'
+      } else {
+        throw new HttpsError('invalid-argument', '在標題行中找不到關鍵的耗材欄位。')
+      }
+
+      const headerToIndex = {}
+      headers.forEach((header, index) => {
+        if (header) headerToIndex[String(header).trim()] = index
+      })
+
+      // (步驟 6 的邏輯進行核心修改)
+      const patientCache = new Map()
+      const updatesMap = new Map()
+      let errors = []
+      let processedRowCount = 0
+
+      for (const rowArray of dataRows) {
+        let medicalRecordNumber = String(rowArray[headerToIndex['病歷號']] || '').trim()
+        const consumableValue = rowArray[headerToIndex[consumableHeader]]
+        const count = rowArray[headerToIndex['COUNT(*)']]
+
+        if (!medicalRecordNumber || consumableValue === undefined || consumableValue === null) {
+          if (
+            rowArray.every(
+              (cell) => cell === null || cell === undefined || String(cell).trim() === '',
+            )
+          )
+            continue
+          errors.push({ rowData: JSON.stringify(rowArray), reason: '該行缺少病歷號或耗材數值' })
+          continue
+        }
+
+        medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
+
+        let patientData
+        if (patientCache.has(medicalRecordNumber)) {
+          patientData = patientCache.get(medicalRecordNumber)
+        } else {
+          const patientQuery = await db
+            .collection('patients')
+            .where('medicalRecordNumber', '==', medicalRecordNumber)
+            .limit(1)
+            .get()
+          patientData = patientQuery.empty
+            ? null
+            : { id: patientQuery.docs[0].id, ...patientQuery.docs[0].data() }
+          patientCache.set(medicalRecordNumber, patientData)
+        }
+
+        if (!patientData) {
+          errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
+          continue
+        }
+
+        const reportId = `${reportMonth}_${patientData.id}`
+        if (!updatesMap.has(reportId)) {
+          updatesMap.set(reportId, {
+            patientId: patientData.id,
+            patientName: patientData.name,
+            medicalRecordNumber: patientData.medicalRecordNumber,
+            data: {},
+          })
+        }
+
+        const patientUpdate = updatesMap.get(reportId)
+
+        // ✨ --- 核心修正：將資料存為陣列 --- ✨
+        // 1. 如果這個耗材類別的陣列還不存在，就先建立一個空陣列
+        if (!patientUpdate.data[firestoreField]) {
+          patientUpdate.data[firestoreField] = []
+        }
+        // 2. 將新的耗材物件 push 進這個陣列
+        patientUpdate.data[firestoreField].push({
+          item: consumableValue,
+          count: count || 0,
+        })
+        // ✨ --- (修正結束) --- ✨
+
+        processedRowCount++
+      }
+
+      // (步驟 7 的邏輯不變)
+      if (updatesMap.size > 0) {
+        const batch = db.batch()
+        for (const [reportId, updateData] of updatesMap.entries()) {
+          const docRef = db.collection('consumables_reports').doc(reportId)
+          batch.set(
+            docRef,
+            {
+              patientId: updateData.patientId,
+              patientName: updateData.patientName,
+              medicalRecordNumber: updateData.medicalRecordNumber,
+              reportDate: new Date(`${reportMonth}-01`),
+              sourceFile: fileName,
+              updatedAt: FieldValue.serverTimestamp(),
+              data: updateData.data,
+            },
+            { merge: true },
+          )
+        }
+        await batch.commit()
+      }
+
+      return {
+        success: true,
+        message: `處理完成！成功處理 ${processedRowCount} 筆耗材資料，聚合為 ${updatesMap.size} 份月報表，發現 ${errors.length} 個問題行。`,
+        processedCount: updatesMap.size,
+        errorCount: errors.length,
+        errors: errors.slice(0, 50),
+      }
+    } catch (error) {
+      logger.error(`[Consumables V3.1] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      if (error instanceof HttpsError) throw error
       throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
     }
   },

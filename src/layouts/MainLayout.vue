@@ -80,6 +80,7 @@
               <RouterLink to="/physician-schedule" class="nav-link">醫師班表</RouterLink>
             </li>
             <li><RouterLink to="/lab-reports" class="nav-link">檢驗報告管理</RouterLink></li>
+            <li><RouterLink to="/consumables" class="nav-link">每月耗材總表</RouterLink></li>
             <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
               <RouterLink v-if="isAdmin" to="/user-management" class="nav-link"

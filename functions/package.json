@@ -15,11 +15,12 @@
   "main": "index.js",
   "dependencies": {
     "@google-cloud/pubsub": "^5.1.0",
+    "axios": "^1.11.0",
+    "cors": "^2.8.5",
     "firebase-admin": "^12.1.1",
     "firebase-functions": "^5.0.1",
     "lodash": "^4.17.21",
-    "axios": "^1.11.0",
-    "cors": "^2.8.5"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "eslint": "^8.15.0",
