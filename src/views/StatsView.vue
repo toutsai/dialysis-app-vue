@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (最終版面佈局) -->
+<!-- 檔案路徑: src/views/StatsView.vue -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -9,10 +9,10 @@
       <div class="toolbar-left">
         <h1 class="page-title">護理分組檢視</h1>
         <div class="date-navigator">
-          <button @click="changeDate(-1)" class="date-nav-btn">< 上一天</button>
+          <button @click="changeDate(-1)" class="date-nav-btn">&lt; 上一天</button>
           <span class="current-date-text">{{ formatDate(currentDate) }}</span>
           <span class="weekday-display">{{ weekdayDisplay }}</span>
-          <button @click="changeDate(1)" class="date-nav-btn">下一天 ></button>
+          <button @click="changeDate(1)" class="date-nav-btn">下一天 &gt;</button>
           <button @click="goToToday">回到今日</button>
           <button
             class="btn-primary"
@@ -20,6 +20,16 @@
             :disabled="!hasPermission('viewer')"
           >
             <i class="fas fa-plus"></i> 新增交辦/留言
+          </button>
+          <!-- ✨ [修改] 按鈕已移動至此處，並使用 v-if 控制顯示 -->
+          <button
+            v-if="!lateShiftTakeOffExists"
+            @click="promptDuplicateLateShift"
+            class="duplicate-shift-btn"
+            title="為晚班建立獨立的收針分組"
+            :disabled="isPageLocked"
+          >
+            <i class="fas fa-copy"></i> 新增夜班收針分組
           </button>
         </div>
       </div>
@@ -37,15 +47,12 @@
       </div>
     </div>
 
-    <!-- ✨ 1. 新增的每日資訊總覽列 ✨ -->
     <div class="daily-info-bar">
-      <!-- 每日負責人資訊面板 (結構不變) -->
       <div class="daily-staff-panel horizontal">
         <div class="staff-item shift-early">
           <span class="staff-label">早</span>
           <div class="staff-details">
             <div class="staff-name">
-              <!-- ✨ 在姓名前加上 "醫師" ✨ -->
               <span class="staff-job-title">醫師</span>
               {{ dailyPhysicians.early?.name || '--' }}
             </div>
@@ -60,7 +67,6 @@
           <span class="staff-label">午</span>
           <div class="staff-details">
             <div class="staff-name">
-              <!-- ✨ 在姓名前加上 "醫師" ✨ -->
               <span class="staff-job-title">醫師</span>
               {{ dailyPhysicians.noon?.name || '--' }}
             </div>
@@ -75,7 +81,6 @@
           <span class="staff-label">晚</span>
           <div class="staff-details">
             <div class="staff-name">
-              <!-- ✨ 在姓名前加上 "醫師" ✨ -->
               <span class="staff-job-title">醫師</span>
               {{ dailyPhysicians.late?.name || '--' }}
             </div>
@@ -94,8 +99,6 @@
           </div>
         </div>
       </div>
-
-      <!-- 消防編組列 (結構不變，但會透過 CSS 改變其外觀) -->
       <div class="duty-command-bar">
         <div class="main-commanders">
           <span class="duty-title">消防編組:</span>
@@ -146,6 +149,7 @@
     </div>
 
     <div class="stats-sections-wrapper desktop-only">
+      <!-- 早班區塊 -->
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <div class="grid-container">
           <div class="grid-header">
@@ -353,10 +357,13 @@
           </div>
         </div>
       </div>
+
+      <!-- 晚班區塊 -->
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
         <div class="grid-container">
           <div class="grid-header">
             <div class="row-header section-title-cell">晚班</div>
+            <!-- ✨ [修改] 此處的按鈕容器已移除，版面簡化 -->
             <div
               v-for="(_, teamName) in effectiveStatsData.late"
               :key="teamName"
@@ -507,9 +514,132 @@
           </div>
         </div>
       </div>
+
+      <!-- 夜班收針區塊 -->
+      <div
+        v-if="lateShiftTakeOffExists"
+        class="stats-section late-takeoff-section"
+        :class="{ 'is-locked': isPageLocked }"
+      >
+        <div class="grid-container">
+          <!-- [修正] grid-header 結構調整，以正確處理雙層表頭 -->
+          <div class="grid-header">
+            <div class="row-header section-title-cell takeoff-title-cell">夜班收針</div>
+            <div class="takeoff-action-bar">
+              <button
+                @click="promptRemoveLateShiftTakeOff"
+                class="duplicate-shift-btn remove"
+                title="移除夜班收針分組"
+                :disabled="isPageLocked"
+              >
+                <i class="fas fa-trash"></i> 移除收針分組
+              </button>
+            </div>
+            <!-- 使用一個空的 display:contents wrapper 來確保 v-for 的元素被視為 grid 的直接子元素 -->
+            <div style="display: contents">
+              <div
+                v-for="(_, teamName) in effectiveStatsData.lateTakeOff"
+                :key="teamName"
+                class="team-header-cell"
+              >
+                {{ teamName.replace('夜間收針', '') }}組
+              </div>
+            </div>
+          </div>
+          <div class="grid-body">
+            <div class="grid-row">
+              <div class="row-header">姓名</div>
+              <div
+                v-for="(teamData, teamName) in effectiveStatsData.lateTakeOff"
+                :key="teamName"
+                class="grid-cell name-cell"
+              >
+                <select
+                  :value="teamData.nurseName"
+                  @change="updateNurseName(teamName, $event)"
+                  class="name-select"
+                  :disabled="isPageLocked"
+                >
+                  <option value="">-- 未指派 --</option>
+                  <option v-for="name in nurseNameList" :key="name" :value="name">
+                    {{ name }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">夜班收針</div>
+              <div
+                v-for="(teamData, teamName) in effectiveStatsData.lateTakeOff"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                @drop="!isPageLocked && onDrop($event, teamName, 'lateShiftTakeOff')"
+                @dragover.prevent="!isPageLocked && onDragOver($event)"
+                @dragleave="onDragLeave"
+              >
+                <div class="patient-wrapper">
+                  <div
+                    v-for="patient in teamData.lateShiftTakeOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="!isPageLocked"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'lateShiftTakeOff')"
+                  >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      title="點擊換床"
+                    >
+                      <div class="patient-line-one">
+                        {{ patient.dialysisBed }} - {{ patient.name }}
+                      </div>
+                      <div class="patient-line-two">
+                        <span v-if="patient.wardNumber" class="ward-number-display">{{
+                          patient.wardNumber
+                        }}</span>
+                        <span
+                          v-if="patient.mode && patient.mode !== 'HD'"
+                          class="stats-special-mode"
+                          >({{ patient.mode }})</span
+                        >
+                        <span v-if="patient.finalTags" class="note-display">{{
+                          patient.finalTags
+                        }}</span>
+                      </div>
+                    </div>
+                    <MemoIcon :patient-id="patient.id" />
+                  </div>
+                </div>
+                <div
+                  class="prep-list-trigger"
+                  v-if="teamData.lateShiftTakeOff.patients.length > 0"
+                  @click="showPrepPopover($event, teamData, 'lateShiftTakeOff')"
+                  title="顯示備物清單"
+                >
+                  📋
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
+            <div
+              v-for="(teamData, teamName) in effectiveStatsData.lateTakeOff"
+              :key="teamName"
+              class="total-count-summary"
+            >
+              門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+                teamData.totalErCount
+              }}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
+    <!-- 行動版檢視 -->
     <div class="mobile-only" :class="{ 'is-locked': isPageLocked }">
+      <!-- 早班 -->
       <div class="mobile-shift-section">
         <h2 class="mobile-shift-title">早班</h2>
         <div
@@ -613,6 +743,7 @@
           </div>
         </div>
       </div>
+      <!-- 晚班 -->
       <div class="mobile-shift-section">
         <h2 class="mobile-shift-title">晚班</h2>
         <div
@@ -690,8 +821,62 @@
             }}
           </div>
         </div>
+        <!-- 夜班收針 (行動版) -->
+        <div v-if="lateShiftTakeOffExists">
+          <h2 class="mobile-shift-title" style="margin-top: 1rem; border-top: 2px solid #007bff">
+            夜班收針
+          </h2>
+          <div
+            v-for="(teamData, teamName) in effectiveStatsData.lateTakeOff"
+            :key="teamName"
+            class="mobile-team-card"
+          >
+            <div class="mobile-team-header">
+              <h3>{{ teamName.replace('夜間收針', '') }}組</h3>
+              <select :value="teamData.nurseName" class="name-select" :disabled="true">
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+            <div class="mobile-patient-lists">
+              <div v-if="teamData.lateShiftTakeOff.patients.length > 0" class="mobile-patient-list">
+                <h4>夜班收針</h4>
+                <div
+                  v-for="patient in teamData.lateShiftTakeOff.patients"
+                  :key="patient.shiftId"
+                  :class="patient.classes"
+                  :draggable="false"
+                >
+                  <div class="patient-main-info">
+                    <div class="patient-line-one">
+                      {{ patient.dialysisBed }} - {{ patient.name }}
+                    </div>
+                    <div class="patient-line-two">
+                      <span v-if="patient.wardNumber" class="ward-number-display">{{
+                        patient.wardNumber
+                      }}</span>
+                      <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                        >({{ patient.mode }})</span
+                      >
+                      <span v-if="patient.finalTags" class="note-display">{{
+                        patient.finalTags
+                      }}</span>
+                    </div>
+                  </div>
+                  <MemoIcon :patient-id="patient.id" />
+                </div>
+              </div>
+            </div>
+            <div class="mobile-team-footer">
+              門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
+                teamData.totalErCount
+              }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
+
     <TaskCreateDialog
       :is-visible="isCreateTaskModalVisible"
       :all-patients="patientStore.allPatients"
@@ -848,7 +1033,6 @@ const bedChangeTargetShift = ref(null)
 const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({ patients: [], targetElement: null })
 const isCreateTaskModalVisible = ref(false)
-
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
 
 // Hooks
@@ -868,8 +1052,14 @@ const isPageLocked = computed(() => {
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][new Date(currentDate.value).getDay()],
 )
+const lateShiftTakeOffExists = computed(() => {
+  return Object.values(currentTeamsRecord.value.teams || {}).some(
+    (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
+  )
+})
+
 const effectiveStatsData = computed(() => {
-  const createTeamStats = (teams) => {
+  const createTeamStats = (teams, shiftType) => {
     const stats = {}
     teams.forEach((team) => {
       stats[team] = {
@@ -878,40 +1068,46 @@ const effectiveStatsData = computed(() => {
         totalIpdCount: 0,
         totalErCount: 0,
       }
+      if (shiftType === 'early') {
+        stats[team].earlyShift = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+        stats[team].noonShiftOn = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+        stats[team].noonShiftOff = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+      } else if (shiftType === 'late') {
+        stats[team].noonShiftOff = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+        stats[team].lateShift = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+      } else if (shiftType === 'lateTakeOff') {
+        stats[team].lateShiftTakeOff = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+      }
     })
     return stats
   }
-  const earlyShiftStats = createTeamStats(earlyTeams)
-  earlyTeams.forEach((team) => {
-    earlyShiftStats[team] = {
-      ...earlyShiftStats[team],
-      earlyShift: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
-      noonShiftOn: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
-      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
-    }
-  })
-  const lateShiftStats = createTeamStats(lateTeams)
-  lateTeams.forEach((team) => {
-    lateShiftStats[team] = {
-      ...lateShiftStats[team],
-      noonShiftOff: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
-      lateShift: { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 },
-    }
-  })
+
+  const lateTakeOffTeams = lateBaseTeams.map((t) => `夜間收針${t}`)
+
+  const earlyShiftStats = createTeamStats(earlyTeams, 'early')
+  const lateShiftStats = createTeamStats(lateTeams, 'late')
+  const lateTakeOffStats = createTeamStats(lateTakeOffTeams, 'lateTakeOff')
+
   if (!currentRecord.schedule || patientMap.value.size === 0) {
-    return { early: earlyShiftStats, late: lateShiftStats }
+    return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
   }
+
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
+
     const patient = patientMap.value.get(shiftDetails.patientId)
     if (!patient) continue
-    const { patientId, autoNote, manualNote, nurseTeam, nurseTeamIn, nurseTeamOut } = shiftDetails
-    const autoTags = (autoNote || '').split(' ').filter(Boolean)
-    const manualTags = (manualNote || '').split(' ').filter(Boolean)
-    const finalTags = [...new Set([...autoTags, ...manualTags])]
-      .filter((tag) => !['住', '急'].includes(tag))
-      .join(' ')
+
+    const {
+      patientId,
+      autoNote,
+      manualNote,
+      nurseTeam,
+      nurseTeamIn,
+      nurseTeamOut,
+      nurseTeamTakeOff,
+    } = shiftDetails || {}
     const detail = {
       id: patientId,
       shiftId,
@@ -920,7 +1116,9 @@ const effectiveStatsData = computed(() => {
       mode: patient.mode,
       wardNumber: patient.wardNumber || '',
       dialysisBed: shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || '',
-      finalTags,
+      finalTags: [...new Set([...(autoNote || '').split(' '), ...(manualNote || '').split(' ')])]
+        .filter((tag) => tag && !['住', '急'].includes(tag))
+        .join(' '),
       classes:
         'patient-item ' +
         Object.entries(getUnifiedCellStyle(shiftDetails, patient))
@@ -929,6 +1127,7 @@ const effectiveStatsData = computed(() => {
           .join(' '),
       dialysisOrders: patient.dialysisOrders || {},
     }
+
     const assignAndCount = (group, pDetail) => {
       if (!group) return
       group.patients.push(pDetail)
@@ -936,14 +1135,22 @@ const effectiveStatsData = computed(() => {
       else if (pDetail.status === 'er') group.erCount++
       else group.opdCount++
     }
+
     const shiftCode = shiftId.split('-')[2]
-    if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam])
+
+    if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
       assignAndCount(earlyShiftStats[nurseTeam].earlyShift, detail)
-    else if (shiftCode === SHIFT_CODES.LATE && nurseTeam && lateShiftStats[nurseTeam])
-      assignAndCount(lateShiftStats[nurseTeam].lateShift, detail)
-    else if (shiftCode === SHIFT_CODES.NOON) {
-      if (nurseTeamIn && earlyShiftStats[nurseTeamIn])
+    } else if (shiftCode === SHIFT_CODES.LATE) {
+      if (nurseTeam && lateShiftStats[nurseTeam]) {
+        assignAndCount(lateShiftStats[nurseTeam].lateShift, detail)
+      }
+      if (nurseTeamTakeOff && lateTakeOffStats[nurseTeamTakeOff]) {
+        assignAndCount(lateTakeOffStats[nurseTeamTakeOff].lateShiftTakeOff, detail)
+      }
+    } else if (shiftCode === SHIFT_CODES.NOON) {
+      if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
         assignAndCount(earlyShiftStats[nurseTeamIn].noonShiftOn, detail)
+      }
       if (nurseTeamOut) {
         if (lateShiftStats[nurseTeamOut])
           assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
@@ -952,26 +1159,44 @@ const effectiveStatsData = computed(() => {
       }
     }
   }
+
   const sortPatientsByBed = (a, b) =>
     (a.dialysisBed === '外圍' ? 100 : parseInt(a.dialysisBed, 10)) -
     (b.dialysisBed === '外圍' ? 100 : parseInt(b.dialysisBed, 10))
-  for (const team in earlyShiftStats) {
-    Object.values(earlyShiftStats[team]).forEach((group) => group.patients?.sort(sortPatientsByBed))
-    const teamData = earlyShiftStats[team]
-    teamData.totalOpdCount =
-      (teamData.earlyShift.opdCount || 0) + (teamData.noonShiftOn.opdCount || 0)
-    teamData.totalIpdCount =
-      (teamData.earlyShift.ipdCount || 0) + (teamData.noonShiftOn.ipdCount || 0)
-    teamData.totalErCount = (teamData.earlyShift.erCount || 0) + (teamData.noonShiftOn.erCount || 0)
-  }
-  for (const team in lateShiftStats) {
-    Object.values(lateShiftStats[team]).forEach((group) => group.patients?.sort(sortPatientsByBed))
-    const teamData = lateShiftStats[team]
-    teamData.totalOpdCount = teamData.lateShift.opdCount || 0
-    teamData.totalIpdCount = teamData.lateShift.ipdCount || 0
-    teamData.totalErCount = teamData.lateShift.erCount || 0
-  }
-  return { early: earlyShiftStats, late: lateShiftStats }
+
+  ;[earlyShiftStats, lateShiftStats, lateTakeOffStats].forEach((stats, index) => {
+    for (const team in stats) {
+      const teamData = stats[team]
+      if (!teamData) continue
+      Object.values(teamData).forEach((group) => {
+        if (group && Array.isArray(group.patients)) {
+          group.patients.sort(sortPatientsByBed)
+        }
+      })
+
+      if (index === 0) {
+        // early
+        teamData.totalOpdCount =
+          (teamData.earlyShift?.opdCount || 0) + (teamData.noonShiftOn?.opdCount || 0)
+        teamData.totalIpdCount =
+          (teamData.earlyShift?.ipdCount || 0) + (teamData.noonShiftOn?.ipdCount || 0)
+        teamData.totalErCount =
+          (teamData.earlyShift?.erCount || 0) + (teamData.noonShiftOn?.erCount || 0)
+      } else if (index === 1) {
+        // late
+        teamData.totalOpdCount = teamData.lateShift?.opdCount || 0
+        teamData.totalIpdCount = teamData.lateShift?.ipdCount || 0
+        teamData.totalErCount = teamData.lateShift?.erCount || 0
+      } else {
+        // lateTakeOff
+        teamData.totalOpdCount = teamData.lateShiftTakeOff?.opdCount || 0
+        teamData.totalIpdCount = teamData.lateShiftTakeOff?.ipdCount || 0
+        teamData.totalErCount = teamData.lateShiftTakeOff?.erCount || 0
+      }
+    }
+  })
+
+  return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
 })
 
 // Functions
@@ -1060,6 +1285,7 @@ async function loadData(date) {
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
+
     const patientIdsInSchedule = Object.values(currentRecord.schedule)
       .map((slot) => slot.patientId)
       .filter(Boolean)
@@ -1076,6 +1302,7 @@ async function loadData(date) {
       })
       await Promise.all(patientsWithOrdersPromises)
     }
+
     if (currentRecord.schedule && currentTeamsRecord.value.teams) {
       const localPatientMap = patientMap.value
       for (const shiftId in currentRecord.schedule) {
@@ -1091,6 +1318,7 @@ async function loadData(date) {
           slot.nurseTeam = teamInfo.nurseTeam || null
           slot.nurseTeamIn = teamInfo.nurseTeamIn || null
           slot.nurseTeamOut = teamInfo.nurseTeamOut || null
+          slot.nurseTeamTakeOff = teamInfo.nurseTeamTakeOff || null // 載入收針分組
         }
       }
     }
@@ -1113,6 +1341,7 @@ async function saveChangesToCloud() {
         delete scheduleToSave[key].nurseTeam
         delete scheduleToSave[key].nurseTeamIn
         delete scheduleToSave[key].nurseTeamOut
+        delete scheduleToSave[key].nurseTeamTakeOff
         delete scheduleToSave[key].autoNote
       }
       const scheduleData = { date: currentRecord.date, schedule: scheduleToSave }
@@ -1144,16 +1373,12 @@ async function saveChangesToCloud() {
     statusIndicator.value = '變更已儲存！'
     const message = `修改護理分組: ${currentRecord.date}`
     createGlobalNotification(message, 'team', { routePath: `/stats?date=${currentRecord.date}` })
-    alertDialogTitle.value = '操作成功'
-    alertDialogMessage.value = '變更儲存成功！'
-    isAlertDialogVisible.value = true
+    showAlert('操作成功', '變更儲存成功！')
     await loadData(currentDate.value)
   } catch (error) {
     console.error('儲存變更失敗:', error)
     statusIndicator.value = '儲存失敗'
-    alertDialogTitle.value = '儲存失敗'
-    alertDialogMessage.value = `儲存失敗: ${error.message}`
-    isAlertDialogVisible.value = true
+    showAlert('儲存失敗', `儲存失敗: ${error.message}`)
   }
 }
 function getDutyTagClass(dutyName) {
@@ -1175,73 +1400,61 @@ function applyTeamAndScheduleChange(
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
   setScheduleChange()
+
   const patientId = patientDetail.id
   const oldShiftCode = oldShiftId.split('-')[2]
   const oldTeamKey = `${patientId}-${oldShiftCode}`
-  if (currentTeamsRecord.value.teams[oldTeamKey]) {
-    if (
-      patientDetail.sourceResponsibility === 'earlyShift' ||
-      patientDetail.sourceResponsibility === 'lateShift'
-    )
+
+  if (currentTeamsRecord.value.teams && currentTeamsRecord.value.teams[oldTeamKey]) {
+    const sourceResp = patientDetail.sourceResponsibility
+    if (sourceResp === 'earlyShift' || sourceResp === 'lateShift')
       delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeam
-    if (patientDetail.sourceResponsibility === 'noonShiftOn')
-      delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamIn
-    if (patientDetail.sourceResponsibility === 'noonShiftOff')
+    if (sourceResp === 'noonShiftOn') delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamIn
+    if (sourceResp === 'noonShiftOff')
       delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamOut
+    if (sourceResp === 'lateShiftTakeOff')
+      delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamTakeOff
+
     if (Object.keys(currentTeamsRecord.value.teams[oldTeamKey]).length === 0) {
       delete currentTeamsRecord.value.teams[oldTeamKey]
     }
   }
+
   const newShiftCode = newShiftId.split('-')[2]
   const newTeamKey = `${patientId}-${newShiftCode}`
+  if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
   if (!currentTeamsRecord.value.teams[newTeamKey]) {
     currentTeamsRecord.value.teams[newTeamKey] = {}
   }
-  const teamInfo = currentTeamsRecord.value.teams[newTeamKey]
-  const slotInfo = currentRecord.schedule[newShiftId]
-  if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
-    teamInfo.nurseTeam = newTeam
-    slotInfo.nurseTeam = newTeam
-  } else if (newResponsibility === 'noonShiftOn') {
-    teamInfo.nurseTeamIn = newTeam
-    slotInfo.nurseTeamIn = newTeam
-  } else if (newResponsibility === 'noonShiftOff') {
-    teamInfo.nurseTeamOut = newTeam
-    slotInfo.nurseTeamOut = newTeam
-  }
-  setTeamChange()
+
+  performTeamChange({ ...patientDetail, shiftId: newShiftId }, newTeam, newResponsibility)
 }
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
+
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) return
+
   const oldShiftCode = oldShiftId.split('-')[2]
   const newShiftCode =
     newResponsibility === 'earlyShift'
       ? SHIFT_CODES.EARLY
-      : newResponsibility === 'lateShift'
+      : newResponsibility === 'lateShift' || newResponsibility === 'lateShiftTakeOff'
         ? SHIFT_CODES.LATE
         : SHIFT_CODES.NOON
+
   if (newShiftCode !== oldShiftCode) {
     const shiftIdParts = oldShiftId.split('-')
-    const area = shiftIdParts[0]
-    const bed = shiftIdParts[1]
-    const potentialNewShiftId = `${area}-${bed}-${newShiftCode}`
-    if (currentRecord.schedule[potentialNewShiftId]) {
+    const newShiftId = `${shiftIdParts[0]}-${shiftIdParts[1]}-${newShiftCode}`
+    if (currentRecord.schedule[newShiftId]) {
       pendingChangeInfo.value = { patientDetail, newTeam, newResponsibility }
       bedChangeTargetShift.value = newShiftCode
       openBedChangeDialog(patientDetail)
     } else {
-      applyTeamAndScheduleChange(
-        patientDetail,
-        oldShiftId,
-        potentialNewShiftId,
-        newTeam,
-        newResponsibility,
-      )
+      applyTeamAndScheduleChange(patientDetail, oldShiftId, newShiftId, newTeam, newResponsibility)
     }
   } else {
     performTeamChange(patientDetail, newTeam, newResponsibility)
@@ -1252,11 +1465,16 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
   const shiftId = patientDetail.shiftId
   const shiftCode = shiftId.split('-')[2]
   const teamKey = `${patientId}-${shiftCode}`
+
+  if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
   if (!currentTeamsRecord.value.teams[teamKey]) {
     currentTeamsRecord.value.teams[teamKey] = {}
   }
+
   const teamInfo = currentTeamsRecord.value.teams[teamKey]
   const slotInfo = currentRecord.schedule[shiftId]
+  if (!slotInfo) return
+
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     teamInfo.nurseTeam = newTeam
     slotInfo.nurseTeam = newTeam
@@ -1266,7 +1484,11 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
   } else if (newResponsibility === 'noonShiftOff') {
     teamInfo.nurseTeamOut = newTeam
     slotInfo.nurseTeamOut = newTeam
+  } else if (newResponsibility === 'lateShiftTakeOff') {
+    teamInfo.nurseTeamTakeOff = newTeam
+    slotInfo.nurseTeamTakeOff = newTeam
   }
+
   setTeamChange()
 }
 function onDragStart(event, patientDetail, responsibility) {
@@ -1276,31 +1498,57 @@ function onDragStart(event, patientDetail, responsibility) {
   }
   const detailWithSource = { ...patientDetail, sourceResponsibility: responsibility }
   event.dataTransfer.setData('application/json', JSON.stringify(detailWithSource))
-  event.dataTransfer.setData('text/plain', responsibility)
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
+
+  // ✨ 核心修正：只有在 bedChangeTargetShift 未被設定時 (例如：從點擊觸發)，
+  // 才從病人身上解析當前班別作為篩選條件。
+  // 如果是從拖曳觸發，onDrop 函式已經預先設定好了目標班別，這裡就不會執行。
+  if (!bedChangeTargetShift.value) {
+    const currentShiftCode = patientDetail.shiftId.split('-')[2]
+    bedChangeTargetShift.value = currentShiftCode
+  }
+
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
+
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value || !oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     isBedChangeDialogVisible.value = false
     return
   }
+
+  // 情況一：處理拖曳換班 (此邏輯保持不變)
   if (pendingChangeInfo.value) {
     const { patientDetail, newTeam, newResponsibility } = pendingChangeInfo.value
     applyTeamAndScheduleChange(patientDetail, oldShiftId, newShiftId, newTeam, newResponsibility)
+  } else {
+    // 情況二：處理點擊換床 (現在已簡化為只處理同班換床)
+    const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+
+    // 1. 更新 schedule 資料
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = movingSlotData
+    setScheduleChange()
+
+    // 2. 因為點擊換床被限制為同班，所以 teamKey 不會改變，
+    //    因此不再需要對 currentTeamsRecord.value.teams 進行任何操作。
   }
+
+  // 重置所有狀態並關閉對話框
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
+
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
-  bedChangeTargetShift.value = null
+  bedChangeTargetShift.value = null // 確保取消時也重置
 }
 function onDragOver(event) {
   if (isPageLocked.value) return
@@ -1379,6 +1627,93 @@ function triggerPrint() {
   window.print()
 }
 
+function promptDuplicateLateShift() {
+  if (isPageLocked.value) return
+  confirmDialogMessage.value =
+    '您確定要為夜班建立一個獨立的「收針」分組嗎？\n這將會複製目前的夜班病人分配，讓您可以單獨調整。'
+  onConfirmAction.value = duplicateLateShiftForTakeOff
+  isConfirmDialogVisible.value = true
+}
+
+function duplicateLateShiftForTakeOff() {
+  if (isPageLocked.value) return
+
+  // 步驟 1: 複製病人的分組 (這部分維持不變)
+  for (const shiftId in currentRecord.schedule) {
+    const slot = currentRecord.schedule[shiftId]
+    if (!slot) continue
+    const shiftCode = shiftId.split('-')[2]
+
+    if (shiftCode === SHIFT_CODES.LATE && slot.patientId) {
+      const teamKey = `${slot.patientId}-${shiftCode}`
+      if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
+      const teamInfo = currentTeamsRecord.value.teams[teamKey] || {}
+
+      if (teamInfo.nurseTeam) {
+        const newTeamName = teamInfo.nurseTeam.replace('晚', '夜間收針')
+        teamInfo.nurseTeamTakeOff = newTeamName
+        slot.nurseTeamTakeOff = newTeamName
+      }
+      currentTeamsRecord.value.teams[teamKey] = teamInfo
+    }
+  }
+
+  // ✨ --- 新增邏輯：複製護理師姓名 --- ✨
+  // 步驟 2: 遍歷所有已指派的護理師姓名，並將晚班的指派複製到夜間收針
+  if (currentTeamsRecord.value.names) {
+    for (const teamName in currentTeamsRecord.value.names) {
+      // 確保我們只複製 "晚班" 的護理師 (例如 "晚A", "晚B")
+      if (teamName.startsWith('晚')) {
+        const nurseName = currentTeamsRecord.value.names[teamName]
+        if (nurseName) {
+          // 只複製有指派的護理師
+          // 建立對應的夜間收針組別名稱 (例如 "晚A" -> "夜間收針A")
+          const newTakeOffTeamName = teamName.replace('晚', '夜間收針')
+          // 將護理師姓名指派給新的組別
+          currentTeamsRecord.value.names[newTakeOffTeamName] = nurseName
+        }
+      }
+    }
+  }
+  // ✨ --- 新增邏輯結束 --- ✨
+
+  setTeamChange()
+  showAlert('操作成功', '夜班收針分組已建立，您可以開始調整。')
+}
+
+function promptRemoveLateShiftTakeOff() {
+  if (isPageLocked.value) return
+  confirmDialogMessage.value =
+    '您確定要移除「夜班收針」分組嗎？\n所有收針的分配將會被刪除，此操作無法復原。'
+  onConfirmAction.value = removeLateShiftTakeOff
+  isConfirmDialogVisible.value = true
+}
+
+function removeLateShiftTakeOff() {
+  if (isPageLocked.value) return
+
+  for (const shiftId in currentRecord.schedule) {
+    const slot = currentRecord.schedule[shiftId]
+    if (!slot) continue
+    const shiftCode = shiftId.split('-')[2]
+
+    if (shiftCode === SHIFT_CODES.LATE && slot.patientId) {
+      const teamKey = `${slot.patientId}-${shiftCode}`
+      const teamInfo = currentTeamsRecord.value.teams[teamKey]
+
+      if (teamInfo && typeof teamInfo.nurseTeamTakeOff !== 'undefined') {
+        delete teamInfo.nurseTeamTakeOff
+      }
+      if (typeof slot.nurseTeamTakeOff !== 'undefined') {
+        delete slot.nurseTeamTakeOff
+      }
+    }
+  }
+
+  setTeamChange()
+  showAlert('操作成功', '夜班收針分組已移除。')
+}
+
 // Lifecycle Hooks
 onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
@@ -1391,7 +1726,7 @@ watch(currentDate, (newDate) => {
 
 <style scoped>
 /* ================================== */
-/* === 1. 基本樣式 (與原版相同) === */
+/* === 1. 基本樣式 === */
 /* ================================== */
 .loading-overlay {
   position: absolute;
@@ -1516,7 +1851,7 @@ button.btn-primary:hover:not(:disabled) {
 }
 
 /* ================================== */
-/* === 2. 桌面版 Grid 樣式 (不變) === */
+/* === 2. 桌面版 Grid 樣式 === */
 /* ================================== */
 .grid-container {
   display: grid;
@@ -1527,7 +1862,9 @@ button.btn-primary:hover:not(:disabled) {
   background-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
-.grid-header,
+.grid-header {
+  display: contents; /* 讓內部元素直接成為 grid 的子項目 */
+}
 .grid-body,
 .grid-footer {
   display: contents;
@@ -1544,7 +1881,7 @@ button.btn-primary:hover:not(:disabled) {
   padding: 8px;
   word-wrap: break-word;
 }
-.grid-container div:nth-child(13n) {
+.grid-container div:last-child {
   border-right: none;
 }
 .grid-footer > div {
@@ -1565,12 +1902,12 @@ button.btn-primary:hover:not(:disabled) {
   background-color: #e3f2fd;
   font-weight: bold;
   text-align: center;
-  position: sticky;
-  top: 0;
-  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .section-title-cell {
   font-size: 1.5em;
@@ -1771,32 +2108,110 @@ button.btn-primary:hover:not(:disabled) {
   pointer-events: auto;
   cursor: pointer;
 }
+
+/* ================================== */
+/* === 3. 每日資訊列 & 消防編組樣式 === */
+/* ================================== */
+.daily-info-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+}
+.daily-staff-panel.horizontal {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.staff-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 25px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+.staff-label {
+  font-weight: 700;
+  font-size: 0.9rem;
+  margin-right: 8px;
+  color: white;
+}
+.staff-details {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.staff-name {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  font-weight: 600;
+  font-size: 1rem;
+}
+.staff-job-title {
+  font-size: 0.85em;
+  font-weight: 500;
+  opacity: 0.9;
+}
+.staff-contact {
+  font-size: 0.75rem;
+  opacity: 0.9;
+}
+.staff-item.shift-early {
+  background-color: #28a745;
+  color: white;
+}
+.staff-item.shift-noon {
+  background-color: #ffc107;
+  color: #212529;
+}
+.staff-item.shift-noon .staff-label {
+  color: #212529;
+}
+.staff-item.shift-late {
+  background-color: #17a2b8;
+  color: white;
+}
+.staff-item.shift-specialist {
+  background-color: #6c757d;
+  color: white;
+}
 .duty-command-bar {
-  background-color: #fffbeb;
-  border: 1px solid #fef3c7;
-  padding: 4px 16px;
-  border-radius: 8px; /* margin-bottom: 20px; */
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 12px;
 }
 .main-commanders {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .duty-title {
   font-weight: 600;
-  font-size: 1.1em;
+  font-size: 1em;
   color: #b45309;
 }
 .duty-role-tag {
-  font-size: 0.85em;
+  font-size: 0.8em;
   font-weight: 600;
-  padding: 3px 8px;
+  padding: 2px 6px;
   border-radius: 12px;
   color: #fff;
 }
@@ -1818,7 +2233,8 @@ button.btn-primary:hover:not(:disabled) {
 .duty-person {
   font-weight: 500;
   color: #1e293b;
-  margin-left: -4px;
+  font-size: 0.9em;
+  margin-left: -2px;
 }
 .duty-divider {
   width: 1px;
@@ -1936,50 +2352,84 @@ button.btn-primary:hover:not(:disabled) {
   transform: translateY(-5px);
   opacity: 0;
 }
-:deep(.patient-item.status-opd) {
-  background-color: #e8f5e9;
+
+/* ================================== */
+/* === 4. 夜班收針功能的新增/修正樣式 === */
+/* ================================== */
+.duplicate-shift-btn {
+  padding: 8px 15px;
+  font-size: 1em;
+  border: 1px solid #007bff;
+  background-color: #e7f1ff;
+  color: #0056b3;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s;
 }
-:deep(.patient-item.status-ipd) {
-  background-color: #ffebee;
+.duplicate-shift-btn:hover:not(:disabled) {
+  background-color: #cce0ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
-:deep(.patient-item.status-er) {
-  background-color: #f3e5f5;
-}
-:deep(.patient-item.status-biweekly) {
-  background-color: #ffcc80;
-}
-:deep(.patient-item.tag-chou) {
-  background-color: #658ee0;
-}
-:deep(.patient-item.tag-new) {
-  background-color: #f5ec8e;
-}
-:deep(.patient-item.tag-huan) {
-  background-color: #e0f7fa;
-}
-:deep(.patient-item.tag-liang) {
-  background-color: #fff3e0;
-}
-:deep(.patient-item.tag-b) {
-  background-color: #fff9c4;
-}
-/* ✨ 新增：醫師職稱的樣式 ✨ */
-.staff-name {
-  display: flex; /* 讓 "醫師" 和姓名可以並排 */
-  align-items: baseline; /* 讓文字底部對齊 */
-  gap: 0.3em; /* 增加一點間距 */
-  font-weight: 600;
-  font-size: 1rem;
+.duplicate-shift-btn:disabled {
+  border-color: #ced4da;
+  background-color: #f8f9fa;
+  color: #6c757d;
+  cursor: not-allowed;
 }
 
-.staff-job-title {
-  font-size: 0.85em; /* 讓 "醫師" 兩個字稍微小一點 */
+/* 夜班收針區塊的整體樣式 */
+.late-takeoff-section {
+  border-top: 4px solid #007bff;
+  margin-top: 1.5rem;
+}
+.late-takeoff-section .section-title-cell {
+  background-color: #e3f2fd;
+  color: #005a9c;
+}
+
+/* [修正] 針對夜班收針表格的表頭進行網格佈局修正 */
+.takeoff-title-cell {
+  grid-row: 1 / 3; /* 讓標題儲存格垂直合併，佔據兩行的高度 */
+  z-index: 3; /* 確保它在最上層 */
+}
+
+.takeoff-action-bar {
+  grid-column: 2 / -1; /* 讓按鈕區塊從第二欄開始，橫跨到最後一欄 */
+  grid-row: 1; /* 定位在第一行 */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid #ddd;
+  background-color: #f8f9fa;
+  border-right: 1px solid #ddd;
+}
+
+/* 夜班收針表格的組別標題不需要 sticky 定位 */
+.late-takeoff-section .team-header-cell {
+  position: relative;
+  top: 0;
+}
+
+/* 移除按鈕樣式 */
+.duplicate-shift-btn.remove {
+  padding: 6px 12px;
+  font-size: 0.9rem;
   font-weight: 500;
-  opacity: 0.9;
+  border: 1px solid #dc3545;
+  background-color: #f8d7da;
+  color: #721c24;
+}
+.duplicate-shift-btn.remove:hover:not(:disabled) {
+  background-color: #f5c6cb;
 }
 
 /* ================================== */
-/* === 3. 行動版與唯讀樣式 (不變) === */
+/* === 5. 行動版與媒體查詢 === */
 /* ================================== */
 .mobile-only {
   display: none;
@@ -2079,6 +2529,7 @@ button.btn-primary:hover:not(:disabled) {
   font-size: 1.5rem;
   z-index: 100;
 }
+
 @media screen and (max-width: 992px) {
   .desktop-only,
   .desktop-only-flex {
@@ -2121,104 +2572,5 @@ button.btn-primary:hover:not(:disabled) {
   .duty-item {
     grid-template-columns: 100px 1fr;
   }
-}
-
-/* ✨ 新版樣式 ✨ */
-/* 新的容器，現在使用 flexbox 來水平排列子項目 */
-.daily-info-bar {
-  display: flex;
-  flex-wrap: wrap; /* 在螢幕寬度不足時允許換行 */
-  justify-content: space-between; /* 讓左右兩塊內容分開 */
-  align-items: center; /* 垂直置中 */
-  gap: 1.5rem; /* 左右區塊之間的間距 */
-  padding: 0.75rem;
-  background-color: #ffffff;
-  border-radius: 8px;
-  margin-bottom: 1.5rem;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-}
-
-/* 每日負責人面板 (左側) */
-.daily-staff-panel.horizontal {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-  flex-wrap: wrap; /* 在螢幕寬度不足時允許換行 */
-}
-
-/* 消防編組列 (右側) - 縮小字體和間距，讓它更緊湊 */
-.duty-command-bar {
-  background-color: transparent;
-  border: none;
-  padding: 0;
-  margin-bottom: 0;
-  gap: 12px; /* 縮小內部間距 */
-}
-
-.main-commanders {
-  gap: 8px; /* 縮小內部間距 */
-}
-
-.duty-title {
-  font-size: 1em; /* 縮小字體 */
-}
-
-.duty-role-tag {
-  font-size: 0.8em; /* 縮小字體 */
-  padding: 2px 6px;
-}
-
-.duty-person {
-  font-size: 0.9em; /* 縮小字體 */
-  margin-left: -2px;
-}
-/* (以下是 staff-item 的樣式，保持不變) */
-.staff-item {
-  display: flex;
-  align-items: center;
-  padding: 6px 14px;
-  border-radius: 25px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-.staff-label {
-  font-weight: 700;
-  font-size: 0.9rem;
-  margin-right: 8px;
-  color: white;
-}
-.staff-details {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-.staff-name {
-  font-weight: 600;
-  font-size: 1rem;
-}
-.staff-contact {
-  font-size: 0.75rem;
-  opacity: 0.9;
-}
-.staff-item.shift-early {
-  background-color: #28a745;
-  color: white;
-}
-.staff-item.shift-noon {
-  background-color: #ffc107;
-  color: #212529;
-}
-.staff-item.shift-noon .staff-label {
-  color: #212529;
-}
-.staff-item.shift-late {
-  background-color: #17a2b8;
-  color: white;
-}
-.staff-item.shift-specialist {
-  background-color: #6c757d;
-  color: white;
 }
 </style>
