@@ -323,75 +323,102 @@ async function handleSearch() {
   }
 }
 
+// ✨ --- 最終修正版：包含「頻率」、「班別」並修正下載問題 (繁體中文註解) --- ✨
 function exportConsumablesToExcel() {
-  if (processedData.value.length === 0) {
+  if (!processedData.value || processedData.value.length === 0) {
     alert('沒有可匯出的資料。')
     return
   }
 
-  const { freq, shift, month } = groupSearchParams
-  const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
-  const shiftName = shiftNameMap[shift] || shift
-  const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
+  try {
+    const { freq, shift, month } = groupSearchParams
+    const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
+    const shiftName = shiftNameMap[shift] || shift
+    const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
 
-  // ✨ --- 修改點 5：匯出 Excel 時，增加頻率和班別 --- ✨
-  const headerRow1 = ['頻率', '班別', '床號', '病歷號', '姓名']
-  const headerRow2 = ['', '', '', '', '']
+    // 步驟 1：建立包含「頻率」和「班別」的複雜表頭
+    const headerRow1 = ['頻率', '班別', '床號', '病歷號', '姓名']
+    const headerRow2 = ['', '', '', '', ''] // 對應固定欄位的第二行是空的
 
-  for (const category in dynamicHeaders.value) {
-    const items = dynamicHeaders.value[category]
-    if (items.length > 0) {
-      const categoryName = {
-        artificialKidney: '人工腎臟',
-        dialysateCa: '透析藥水CA',
-        bicarbonateType: 'B液種類',
-      }[category]
-      headerRow1.push(categoryName)
-      for (let i = 1; i < items.length; i++) {
-        headerRow1.push('')
+    for (const category in dynamicHeaders.value) {
+      const items = dynamicHeaders.value[category]
+      if (items && Array.isArray(items) && items.length > 0) {
+        const categoryName = {
+          artificialKidney: '人工腎臟',
+          dialysateCa: '透析藥水CA',
+          bicarbonateType: 'B液種類',
+        }[category]
+
+        headerRow1.push(categoryName)
+        for (let i = 1; i < items.length; i++) {
+          headerRow1.push('')
+        }
+        items.forEach((item) => headerRow2.push(String(item || '')))
       }
-      items.forEach((item) => headerRow2.push(item))
     }
-  }
 
-  const dataRows = processedData.value.map((row) => {
-    const dataRow = [
-      row.freq || '-',
-      formatShift(row.shiftIndex),
-      row.bedNum || '-',
-      row.medicalRecordNumber || '-',
-      row.patientName,
-    ]
-    flattenedHeaders.value.forEach((header) => {
-      dataRow.push(row.consumableCounts[header] || '')
-    })
-    return dataRow
-  })
-
-  const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows]
-  const ws = XLSX.utils.aoa_to_sheet(sheetData)
-
-  ws['!merges'] = []
-  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: flattenedHeaders.value.length + 4 } })
-  for (let i = 0; i < 5; i++) {
-    // 合併前 5 個固定欄位
-    ws['!merges'].push({ s: { r: 2, c: i }, e: { r: 3, c: i } })
-  }
-
-  let currentCol = 5
-  for (const category in dynamicHeaders.value) {
-    const items = dynamicHeaders.value[category]
-    if (items.length > 0) {
-      ws['!merges'].push({
-        s: { r: 2, c: currentCol },
-        e: { r: 2, c: currentCol + items.length - 1 },
+    // 步驟 2：建立包含「頻率」和「班別」的資料行
+    const dataRows = processedData.value.map((row) => {
+      const dataRow = [
+        row.freq || '-',
+        formatShift(row.shiftIndex), // 使用我們之前定義的 formatShift 函式
+        row.bedNum || '',
+        row.medicalRecordNumber || '',
+        row.patientName || '',
+      ]
+      flattenedHeaders.value.forEach((header) => {
+        const count = row.consumableCounts[header]
+        dataRow.push(count !== undefined && count !== null ? count : '')
       })
-      currentCol += items.length
-    }
-  }
+      return dataRow
+    })
 
-  const fileName = `耗材總表_${freq}_${shiftName}_${month}.xlsx`
-  XLSX.writeFile(ws, fileName)
+    // 步驟 3：組合所有資料
+    const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows]
+    const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true })
+
+    // 步驟 4：設定合併儲存格 (已更新欄位數量)
+    ws['!merges'] = []
+    // 總標題合併 (現在有 5 個固定欄位)
+    const totalColumnCount = flattenedHeaders.value.length + 5
+    ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: totalColumnCount - 1 } })
+
+    // 合併 5 個固定欄位的表頭
+    for (let i = 0; i < 5; i++) {
+      ws['!merges'].push({ s: { r: 2, c: i }, e: { r: 3, c: i } })
+    }
+
+    // 動態合併耗材類別的表頭 (起始欄位已更新)
+    let currentCol = 5
+    for (const category in dynamicHeaders.value) {
+      const items = dynamicHeaders.value[category]
+      if (items && Array.isArray(items) && items.length > 0) {
+        ws['!merges'].push({
+          s: { r: 2, c: currentCol },
+          e: { r: 2, c: currentCol + items.length - 1 },
+        })
+        currentCol += items.length
+      }
+    }
+
+    // 步驟 5：使用 Blob 觸發瀏覽器下載
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '耗材總表')
+
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    const fileName = `耗材總表_${freq}_${shiftName}_${month}.xlsx`
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (error) {
+    console.error('匯出 Excel 失敗:', error)
+    alert('匯出 Excel 時發生嚴重錯誤，請檢查主控台以獲取詳細資訊。')
+  }
 }
 
 function handleFileSelect(event) {
