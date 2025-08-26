@@ -311,68 +311,95 @@ async function handleSearch() {
   }
 }
 
+// ✨ --- 最終修正版：改用瀏覽器推薦的下載方式 --- ✨
 function exportConsumablesToExcel() {
-  if (processedData.value.length === 0) {
+  if (!processedData.value || processedData.value.length === 0) {
     alert('沒有可匯出的資料。')
     return
   }
 
-  const { freq, shift, month } = groupSearchParams
-  const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
-  const shiftName = shiftNameMap[shift] || shift
-  const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
+  try {
+    const { freq, shift, month } = groupSearchParams
+    const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
+    const shiftName = shiftNameMap[shift] || shift
+    const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
 
-  // ✨ --- 修改點 4：匯出 Excel 時，增加病歷號表頭和資料 --- ✨
-  const headerRow1 = ['床號', '病歷號', '姓名']
-  const headerRow2 = ['', '', '']
+    // (步驟 1 & 2 的資料準備邏輯完全相同，保持不變)
+    const headerRow1 = ['床號', '病歷號', '姓名']
+    const headerRow2 = ['', '', '']
 
-  for (const category in dynamicHeaders.value) {
-    const items = dynamicHeaders.value[category]
-    if (items.length > 0) {
-      const categoryName = {
-        artificialKidney: '人工腎臟',
-        dialysateCa: '透析藥水CA',
-        bicarbonateType: 'B液種類',
-      }[category]
-      headerRow1.push(categoryName)
-      for (let i = 1; i < items.length; i++) {
-        headerRow1.push('')
+    for (const category in dynamicHeaders.value) {
+      const items = dynamicHeaders.value[category]
+      if (items && Array.isArray(items) && items.length > 0) {
+        const categoryName = {
+          artificialKidney: '人工腎臟',
+          dialysateCa: '透析藥水CA',
+          bicarbonateType: 'B液種類',
+        }[category]
+        headerRow1.push(categoryName)
+        for (let i = 1; i < items.length; i++) {
+          headerRow1.push('')
+        }
+        items.forEach((item) => headerRow2.push(String(item || '')))
       }
-      items.forEach((item) => headerRow2.push(item))
     }
-  }
 
-  const dataRows = processedData.value.map((row) => {
-    const dataRow = [row.bedNum || '-', row.medicalRecordNumber || '-', row.patientName]
-    flattenedHeaders.value.forEach((header) => {
-      dataRow.push(row.consumableCounts[header] || '')
-    })
-    return dataRow
-  })
-
-  const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows]
-  const ws = XLSX.utils.aoa_to_sheet(sheetData)
-
-  ws['!merges'] = []
-  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: flattenedHeaders.value.length + 2 } }) // +2 -> 床號, 病歷號, 姓名
-  ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 3, c: 0 } })
-  ws['!merges'].push({ s: { r: 2, c: 1 }, e: { r: 3, c: 1 } })
-  ws['!merges'].push({ s: { r: 2, c: 2 }, e: { r: 3, c: 2 } })
-
-  let currentCol = 3
-  for (const category in dynamicHeaders.value) {
-    const items = dynamicHeaders.value[category]
-    if (items.length > 0) {
-      ws['!merges'].push({
-        s: { r: 2, c: currentCol },
-        e: { r: 2, c: currentCol + items.length - 1 },
+    const dataRows = processedData.value.map((row) => {
+      const dataRow = [row.bedNum || '', row.medicalRecordNumber || '', row.patientName || '']
+      flattenedHeaders.value.forEach((header) => {
+        const count = row.consumableCounts[header]
+        dataRow.push(count !== undefined && count !== null ? count : '')
       })
-      currentCol += items.length
-    }
-  }
+      return dataRow
+    })
 
-  const fileName = `耗材總表_${freq}_${shiftName}_${month}.xlsx`
-  XLSX.writeFile(ws, fileName)
+    const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows]
+    const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true })
+
+    ws['!merges'] = []
+    const finalHeaderCount = flattenedHeaders.value.length + 2
+    if (finalHeaderCount >= 0) {
+      ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: finalHeaderCount } })
+    }
+    ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 3, c: 0 } })
+    ws['!merges'].push({ s: { r: 2, c: 1 }, e: { r: 3, c: 1 } })
+    ws['!merges'].push({ s: { r: 2, c: 2 }, e: { r: 3, c: 2 } })
+
+    let currentCol = 3
+    for (const category in dynamicHeaders.value) {
+      const items = dynamicHeaders.value[category]
+      if (items && Array.isArray(items) && items.length > 0) {
+        ws['!merges'].push({
+          s: { r: 2, c: currentCol },
+          e: { r: 2, c: currentCol + items.length - 1 },
+        })
+        currentCol += items.length
+      }
+    }
+
+    // (步驟 3 - 核心修改點：手動生成並觸發下載)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '耗材總表')
+
+    // 3.1 使用 write 方法，將 workbook 轉換為二進位陣列資料
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+
+    // 3.2 建立 Blob 物件
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+
+    // 3.3 使用 a 標籤來觸發瀏覽器下載
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    const fileName = `耗材總表_${freq}_${shiftName}_${month}.xlsx`
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (error) {
+    console.error('匯出 Excel 失敗:', error)
+    alert('匯出 Excel 時發生嚴重錯誤，請檢查主控台以獲取詳細資訊。')
+  }
 }
 
 function handleFileSelect(event) {
@@ -578,7 +605,7 @@ th {
   top: 0;
   z-index: 20;
 }
-/* ✨ 新增：第二層表頭的 sticky 定位 */
+/* 第二層表頭的 sticky 定位 */
 thead tr:nth-child(2) th {
   top: 45.5px; /* 假設第一層表頭高度約為 45.5px，您可能需要微調 */
   z-index: 19;
@@ -590,8 +617,14 @@ thead tr:nth-child(2) th {
   background-color: #f8f9fa;
   min-width: 80px;
 }
+/* ✨ --- 新增：為病歷號欄位設定 sticky 定位 --- ✨ */
+.sticky-col.col-mrn {
+  left: 80px; /* 床號寬度 (80px) */
+  min-width: 120px;
+}
+/* ✨ --- 修改：更新姓名欄位的 sticky 定位 --- ✨ */
 .sticky-col.col-name {
-  left: 80px; /* 假設床號欄位寬度為 80px */
+  left: 200px; /* 床號寬度 (80px) + 病歷號寬度 (120px) */
   min-width: 120px;
 }
 tbody .sticky-col {
@@ -696,14 +729,5 @@ input[type='file'] {
 .upload-btn-main:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
-}
-/* ✨ --- 修改點 5：為新欄位增加樣式和 sticky 定位 --- ✨ */
-.sticky-col.col-mrn {
-  left: 80px; /* 床號寬度 */
-  min-width: 120px;
-}
-.sticky-col.col-name {
-  left: 200px; /* 床號寬度 + 病歷號寬度 */
-  min-width: 120px;
 }
 </style>
