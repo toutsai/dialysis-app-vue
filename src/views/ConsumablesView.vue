@@ -205,7 +205,11 @@ async function handleSearch() {
     // 組合出文件 ID，例如 "2025-08_patientId123"
     const reportIdsForMonth = allPatientIdsInGroup.map((id) => `${reportMonth}_${id}`)
 
-    const monthlyReports = await queryWithInChunks('lab_reports', documentId(), reportIdsForMonth)
+    const monthlyReports = await queryWithInChunks(
+      'consumables_reports',
+      documentId(),
+      reportIdsForMonth,
+    )
     const reportsMap = new Map(monthlyReports.map((r) => [r.patientId, r.data]))
 
     // 3. 組合最終要顯示在表格上的資料
