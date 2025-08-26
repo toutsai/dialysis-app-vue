@@ -1355,9 +1355,11 @@ watch(
 .page-container {
   padding: 1rem;
   background-color: #f8f9fa;
-  height: 100%;
+  /* ✨ 核心修改 1: 設定高度為視窗高度，並隱藏整個頁面的滾動條 */
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 /* --- 頁首 --- */
@@ -1368,7 +1370,7 @@ watch(
   margin-bottom: 1rem;
   padding-bottom: 1rem;
   border-bottom: 2px solid #dee2e6;
-  flex-shrink: 0;
+  flex-shrink: 0; /* ✨ 核心修改 2: 確保頁首高度固定，不被壓縮 */
 }
 .header-left,
 .header-right {
@@ -1444,7 +1446,7 @@ watch(
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 1rem;
-  flex-shrink: 0;
+  flex-shrink: 0; /* ✨ 核心修改 3: 確保頁籤列高度固定 */
   border-bottom: 1px solid #dee2e6;
 }
 .tab-link {
@@ -1466,7 +1468,7 @@ watch(
 }
 .schedule-content.new-layout {
   flex-grow: 1;
-  min-height: 0;
+  min-height: 0; /* ✨ 核心修改 4: 允許子元素在此容器內滾動 */
   display: flex;
   gap: 1.5rem;
 }
@@ -1513,6 +1515,8 @@ watch(
   border: 1px solid #dee2e6;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  /* ✨ 核心修改 5: 讓左側班表容器自己產生滾動條 */
+  overflow: auto;
 }
 .panels-container {
   flex: 1;
