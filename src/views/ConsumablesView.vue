@@ -65,6 +65,7 @@
               <thead>
                 <tr>
                   <th rowspan="2" class="sticky-col">床號</th>
+                  <th rowspan="2" class="sticky-col col-mrn">病歷號</th>
                   <th rowspan="2" class="sticky-col col-name">姓名</th>
                   <!-- 動態生成合併表頭 -->
                   <th
@@ -92,11 +93,12 @@
                 </tr>
               </thead>
               <tbody>
-                <!-- 遍歷處理過的資料 -->
                 <tr v-for="row in processedData" :key="row.patientId">
+                  <!-- ✨ --- 修改點 2：顯示病歷號資料 --- ✨ -->
                   <td class="sticky-col">{{ row.bedNum || '-' }}</td>
+                  <td class="sticky-col col-mrn">{{ row.medicalRecordNumber || '-' }}</td>
                   <td class="sticky-col col-name">{{ row.patientName }}</td>
-                  <!-- 根據子表頭的順序，顯示對應的數量 -->
+                  <!-- (動態資料部分不變) -->
                   <td v-for="header in flattenedHeaders" :key="header">
                     {{ row.consumableCounts[header] || '' }}
                   </td>
@@ -104,7 +106,6 @@
               </tbody>
             </table>
           </div>
-          <!-- ✨ --- (表格結束) --- ✨ -->
         </div>
       </div>
 
@@ -226,7 +227,7 @@ async function handleSearch() {
   dynamicHeaders.value = { artificialKidney: [], dialysateCa: [], bicarbonateType: [] }
 
   try {
-    // 1. 獲取群組內的病人 ID
+    // 1. 獲取群組內的病人 ID (無變動)
     const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     const masterRules = masterScheduleDoc?.schedule || {}
     const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
@@ -240,7 +241,7 @@ async function handleSearch() {
       return
     }
 
-    // 2. 獲取原始耗材資料
+    // 2. 獲取原始耗材資料 (無變動)
     const reportMonth = groupSearchParams.month
     const reportIdsForMonth = allPatientIdsInGroup.map((id) => `${reportMonth}_${id}`)
     const monthlyReports = await queryWithInChunks(
@@ -250,18 +251,17 @@ async function handleSearch() {
     )
     rawConsumablesData.value = monthlyReports
 
-    // 3. 資料預處理，以生成動態表頭和表格資料
-    const reportsMap = new Map(rawConsumablesData.value.map((r) => [r.patientId, r.data]))
-
-    // 3.1 收集所有出現過的耗材品項，生成動態表頭
+    // 3. 資料預處理 (無變動)
+    const reportsMap = new Map(rawConsumablesData.value.map((r) => [r.patientId, r]))
     const headers = {
       artificialKidney: new Set(),
       dialysateCa: new Set(),
       bicarbonateType: new Set(),
     }
-    for (const data of reportsMap.values()) {
+    for (const report of reportsMap.values()) {
+      const data = report.data || {}
       for (const category in headers) {
-        if (data && data[category] && Array.isArray(data[category])) {
+        if (data[category] && Array.isArray(data[category])) {
           data[category].forEach((item) => headers[category].add(item.item))
         }
       }
@@ -270,12 +270,13 @@ async function handleSearch() {
     dynamicHeaders.value.dialysateCa = [...headers.dialysateCa].sort()
     dynamicHeaders.value.bicarbonateType = [...headers.bicarbonateType].sort()
 
-    // 3.2 根據動態表頭，處理每個病人的資料
+    // ✨ --- 修改點 3：組合資料時，增加 medicalRecordNumber --- ✨
     processedData.value = allPatientIdsInGroup
       .map((patientId) => {
         const patient = patientMap.value.get(patientId)
         const rule = masterRules[patientId]
-        const consumables = reportsMap.get(patientId) || {}
+        const report = reportsMap.get(patientId)
+        const consumables = report?.data || {}
 
         const consumableCounts = {}
         for (const header of flattenedHeaders.value) {
@@ -292,7 +293,9 @@ async function handleSearch() {
 
         return {
           patientId: patientId,
-          patientName: patient?.name || '未知病人',
+          // 優先使用 patient store 的資料，若無，則使用 report 中的備份資料
+          patientName: patient?.name || report?.patientName || '未知病人',
+          medicalRecordNumber: patient?.medicalRecordNumber || report?.medicalRecordNumber || 'N/A',
           bedNum: rule?.bedNum || 'N/A',
           consumableCounts,
         }
@@ -319,8 +322,9 @@ function exportConsumablesToExcel() {
   const shiftName = shiftNameMap[shift] || shift
   const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
 
-  const headerRow1 = ['床號', '姓名']
-  const headerRow2 = ['', '']
+  // ✨ --- 修改點 4：匯出 Excel 時，增加病歷號表頭和資料 --- ✨
+  const headerRow1 = ['床號', '病歷號', '姓名']
+  const headerRow2 = ['', '', '']
 
   for (const category in dynamicHeaders.value) {
     const items = dynamicHeaders.value[category]
@@ -339,7 +343,7 @@ function exportConsumablesToExcel() {
   }
 
   const dataRows = processedData.value.map((row) => {
-    const dataRow = [row.bedNum || '-', row.patientName]
+    const dataRow = [row.bedNum || '-', row.medicalRecordNumber || '-', row.patientName]
     flattenedHeaders.value.forEach((header) => {
       dataRow.push(row.consumableCounts[header] || '')
     })
@@ -350,11 +354,12 @@ function exportConsumablesToExcel() {
   const ws = XLSX.utils.aoa_to_sheet(sheetData)
 
   ws['!merges'] = []
-  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: flattenedHeaders.value.length + 1 } })
+  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: flattenedHeaders.value.length + 2 } }) // +2 -> 床號, 病歷號, 姓名
   ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 3, c: 0 } })
   ws['!merges'].push({ s: { r: 2, c: 1 }, e: { r: 3, c: 1 } })
+  ws['!merges'].push({ s: { r: 2, c: 2 }, e: { r: 3, c: 2 } })
 
-  let currentCol = 2
+  let currentCol = 3
   for (const category in dynamicHeaders.value) {
     const items = dynamicHeaders.value[category]
     if (items.length > 0) {
@@ -691,5 +696,14 @@ input[type='file'] {
 .upload-btn-main:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
+}
+/* ✨ --- 修改點 5：為新欄位增加樣式和 sticky 定位 --- ✨ */
+.sticky-col.col-mrn {
+  left: 80px; /* 床號寬度 */
+  min-width: 120px;
+}
+.sticky-col.col-name {
+  left: 200px; /* 床號寬度 + 病歷號寬度 */
+  min-width: 120px;
 }
 </style>
