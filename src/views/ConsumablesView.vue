@@ -23,9 +23,12 @@
         <div class="search-controls">
           <div class="group-filters">
             <div class="search-field">
+              <!-- ✨ --- 修改點 1：簡化頻率選項 --- ✨ -->
               <label for="group-freq">頻率:</label>
               <select id="group-freq" v-model="groupSearchParams.freq">
-                <option v-for="freq in freqOptions" :key="freq" :value="freq">{{ freq }}</option>
+                <option value="一三五">一三五</option>
+                <option value="二四六">二四六</option>
+                <option value="other">其他</option>
               </select>
             </div>
             <div class="search-field">
@@ -59,15 +62,15 @@
           <div v-else-if="processedData.length === 0" class="empty-state">
             查無符合條件的病人或耗材資料。
           </div>
-          <!-- ✨ --- 全新的動態表格 --- ✨ -->
           <div v-else class="table-container">
             <table>
               <thead>
                 <tr>
-                  <th rowspan="2" class="sticky-col">床號</th>
+                  <th rowspan="2" class="sticky-col col-freq">頻率</th>
+                  <th rowspan="2" class="sticky-col col-shift">班別</th>
+                  <th rowspan="2" class="sticky-col col-bed">床號</th>
                   <th rowspan="2" class="sticky-col col-mrn">病歷號</th>
                   <th rowspan="2" class="sticky-col col-name">姓名</th>
-                  <!-- 動態生成合併表頭 -->
                   <th
                     v-if="dynamicHeaders.artificialKidney.length > 0"
                     :colspan="dynamicHeaders.artificialKidney.length"
@@ -88,17 +91,16 @@
                   </th>
                 </tr>
                 <tr>
-                  <!-- 動態生成子表頭 -->
                   <th v-for="header in flattenedHeaders" :key="header">{{ header }}</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="row in processedData" :key="row.patientId">
-                  <!-- ✨ --- 修改點 2：顯示病歷號資料 --- ✨ -->
-                  <td class="sticky-col">{{ row.bedNum || '-' }}</td>
+                  <td class="sticky-col col-freq">{{ row.freq || '-' }}</td>
+                  <td class="sticky-col col-shift">{{ formatShift(row.shiftIndex) }}</td>
+                  <td class="sticky-col col-bed">{{ row.bedNum || '-' }}</td>
                   <td class="sticky-col col-mrn">{{ row.medicalRecordNumber || '-' }}</td>
                   <td class="sticky-col col-name">{{ row.patientName }}</td>
-                  <!-- (動態資料部分不變) -->
                   <td v-for="header in flattenedHeaders" :key="header">
                     {{ row.consumableCounts[header] || '' }}
                   </td>
@@ -161,7 +163,6 @@
 
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
 import { documentId } from 'firebase/firestore'
 import { functions } from '@/composables/useFirebase.js'
 import * as XLSX from 'xlsx'
@@ -172,7 +173,7 @@ import { storeToRefs } from 'pinia'
 
 // --- Store & State ---
 const patientStore = usePatientStore()
-const { patientMap } = storeToRefs(patientStore)
+const { opdPatients, patientMap } = storeToRefs(patientStore)
 
 const activeTab = ref('query')
 const isLoading = ref(false)
@@ -181,7 +182,7 @@ const rawConsumablesData = ref([])
 const processedData = ref([])
 
 const groupSearchParams = reactive({
-  freq: '一三五',
+  freq: 'other', // 將預設改為 'other' 可能更符合使用情境
   shift: 'early',
   month: new Date().toISOString().slice(0, 7),
 })
@@ -192,13 +193,10 @@ const uploadResult = ref(null)
 const isDragOver = ref(false)
 
 // --- Constants ---
-const freqOptions = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六']
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
+const SHIFT_INDEX_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
 
-// --- API Manager ---
-const baseSchedulesApi = ApiManager('base_schedules')
-
-// --- 動態表頭相關的 Ref 和 Computed ---
+// --- 動態表頭相關 (無變動) ---
 const dynamicHeaders = ref({
   artificialKidney: [],
   dialysateCa: [],
@@ -219,6 +217,11 @@ onMounted(async () => {
   await patientStore.fetchPatientsIfNeeded()
 })
 
+// ✨ --- 修改點 3：新增一個輔助函式來格式化班別 --- ✨
+function formatShift(shiftIndex) {
+  return SHIFT_INDEX_MAP[shiftIndex] ?? '-' // 使用 ?? 運算子處理 undefined 或 null 的情況
+}
+
 async function handleSearch() {
   isLoading.value = true
   searchPerformed.value = true
@@ -227,21 +230,30 @@ async function handleSearch() {
   dynamicHeaders.value = { artificialKidney: [], dialysateCa: [], bicarbonateType: [] }
 
   try {
-    // 1. 獲取群組內的病人 ID (無變動)
-    const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
-    const masterRules = masterScheduleDoc?.schedule || {}
+    // 1. 從 Pinia Store 獲取病人列表 (邏輯不變)
     const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
-    const allPatientIdsInGroup = Object.keys(masterRules).filter(
-      (id) =>
-        masterRules[id].freq === groupSearchParams.freq &&
-        masterRules[id].shiftIndex === shiftIndex,
-    )
+    const regularFreqs = ['一三五', '二四六']
+
+    const patientsInGroup = opdPatients.value.filter((p) => {
+      const rule = p.scheduleRule
+      if (!rule) return false
+      const matchesShift = rule.shiftIndex === shiftIndex
+      if (!matchesShift) return false
+      if (groupSearchParams.freq === 'other') {
+        return !regularFreqs.includes(rule.freq)
+      } else {
+        return rule.freq === groupSearchParams.freq
+      }
+    })
+
+    const allPatientIdsInGroup = patientsInGroup.map((p) => p.id)
+
     if (allPatientIdsInGroup.length === 0) {
       isLoading.value = false
       return
     }
 
-    // 2. 獲取原始耗材資料 (無變動)
+    // 2. 獲取原始耗材資料 (邏輯不變)
     const reportMonth = groupSearchParams.month
     const reportIdsForMonth = allPatientIdsInGroup.map((id) => `${reportMonth}_${id}`)
     const monthlyReports = await queryWithInChunks(
@@ -251,7 +263,7 @@ async function handleSearch() {
     )
     rawConsumablesData.value = monthlyReports
 
-    // 3. 資料預處理 (無變動)
+    // 3. 資料預處理 (邏輯不變)
     const reportsMap = new Map(rawConsumablesData.value.map((r) => [r.patientId, r]))
     const headers = {
       artificialKidney: new Set(),
@@ -270,11 +282,10 @@ async function handleSearch() {
     dynamicHeaders.value.dialysateCa = [...headers.dialysateCa].sort()
     dynamicHeaders.value.bicarbonateType = [...headers.bicarbonateType].sort()
 
-    // ✨ --- 修改點 3：組合資料時，增加 medicalRecordNumber --- ✨
+    // ✨ --- 修改點 4：組合資料時，增加 freq 和 shiftIndex --- ✨
     processedData.value = allPatientIdsInGroup
       .map((patientId) => {
         const patient = patientMap.value.get(patientId)
-        const rule = masterRules[patientId]
         const report = reportsMap.get(patientId)
         const consumables = report?.data || {}
 
@@ -293,10 +304,11 @@ async function handleSearch() {
 
         return {
           patientId: patientId,
-          // 優先使用 patient store 的資料，若無，則使用 report 中的備份資料
           patientName: patient?.name || report?.patientName || '未知病人',
           medicalRecordNumber: patient?.medicalRecordNumber || report?.medicalRecordNumber || 'N/A',
-          bedNum: rule?.bedNum || 'N/A',
+          bedNum: patient?.scheduleRule?.bedNum || 'N/A',
+          freq: patient?.scheduleRule?.freq || 'N/A', // 新增頻率
+          shiftIndex: patient?.scheduleRule?.shiftIndex, // 新增班別索引
           consumableCounts,
         }
       })
@@ -311,95 +323,75 @@ async function handleSearch() {
   }
 }
 
-// ✨ --- 最終修正版：改用瀏覽器推薦的下載方式 --- ✨
 function exportConsumablesToExcel() {
-  if (!processedData.value || processedData.value.length === 0) {
+  if (processedData.value.length === 0) {
     alert('沒有可匯出的資料。')
     return
   }
 
-  try {
-    const { freq, shift, month } = groupSearchParams
-    const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
-    const shiftName = shiftNameMap[shift] || shift
-    const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
+  const { freq, shift, month } = groupSearchParams
+  const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
+  const shiftName = shiftNameMap[shift] || shift
+  const title = `每月耗材總表: ${freq} / ${shiftName} / ${month}`
 
-    // (步驟 1 & 2 的資料準備邏輯完全相同，保持不變)
-    const headerRow1 = ['床號', '病歷號', '姓名']
-    const headerRow2 = ['', '', '']
+  // ✨ --- 修改點 5：匯出 Excel 時，增加頻率和班別 --- ✨
+  const headerRow1 = ['頻率', '班別', '床號', '病歷號', '姓名']
+  const headerRow2 = ['', '', '', '', '']
 
-    for (const category in dynamicHeaders.value) {
-      const items = dynamicHeaders.value[category]
-      if (items && Array.isArray(items) && items.length > 0) {
-        const categoryName = {
-          artificialKidney: '人工腎臟',
-          dialysateCa: '透析藥水CA',
-          bicarbonateType: 'B液種類',
-        }[category]
-        headerRow1.push(categoryName)
-        for (let i = 1; i < items.length; i++) {
-          headerRow1.push('')
-        }
-        items.forEach((item) => headerRow2.push(String(item || '')))
+  for (const category in dynamicHeaders.value) {
+    const items = dynamicHeaders.value[category]
+    if (items.length > 0) {
+      const categoryName = {
+        artificialKidney: '人工腎臟',
+        dialysateCa: '透析藥水CA',
+        bicarbonateType: 'B液種類',
+      }[category]
+      headerRow1.push(categoryName)
+      for (let i = 1; i < items.length; i++) {
+        headerRow1.push('')
       }
+      items.forEach((item) => headerRow2.push(item))
     }
-
-    const dataRows = processedData.value.map((row) => {
-      const dataRow = [row.bedNum || '', row.medicalRecordNumber || '', row.patientName || '']
-      flattenedHeaders.value.forEach((header) => {
-        const count = row.consumableCounts[header]
-        dataRow.push(count !== undefined && count !== null ? count : '')
-      })
-      return dataRow
-    })
-
-    const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows]
-    const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true })
-
-    ws['!merges'] = []
-    const finalHeaderCount = flattenedHeaders.value.length + 2
-    if (finalHeaderCount >= 0) {
-      ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: finalHeaderCount } })
-    }
-    ws['!merges'].push({ s: { r: 2, c: 0 }, e: { r: 3, c: 0 } })
-    ws['!merges'].push({ s: { r: 2, c: 1 }, e: { r: 3, c: 1 } })
-    ws['!merges'].push({ s: { r: 2, c: 2 }, e: { r: 3, c: 2 } })
-
-    let currentCol = 3
-    for (const category in dynamicHeaders.value) {
-      const items = dynamicHeaders.value[category]
-      if (items && Array.isArray(items) && items.length > 0) {
-        ws['!merges'].push({
-          s: { r: 2, c: currentCol },
-          e: { r: 2, c: currentCol + items.length - 1 },
-        })
-        currentCol += items.length
-      }
-    }
-
-    // (步驟 3 - 核心修改點：手動生成並觸發下載)
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, '耗材總表')
-
-    // 3.1 使用 write 方法，將 workbook 轉換為二進位陣列資料
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-
-    // 3.2 建立 Blob 物件
-    const blob = new Blob([wbout], { type: 'application/octet-stream' })
-
-    // 3.3 使用 a 標籤來觸發瀏覽器下載
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    const fileName = `耗材總表_${freq}_${shiftName}_${month}.xlsx`
-    link.download = fileName
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(link.href)
-  } catch (error) {
-    console.error('匯出 Excel 失敗:', error)
-    alert('匯出 Excel 時發生嚴重錯誤，請檢查主控台以獲取詳細資訊。')
   }
+
+  const dataRows = processedData.value.map((row) => {
+    const dataRow = [
+      row.freq || '-',
+      formatShift(row.shiftIndex),
+      row.bedNum || '-',
+      row.medicalRecordNumber || '-',
+      row.patientName,
+    ]
+    flattenedHeaders.value.forEach((header) => {
+      dataRow.push(row.consumableCounts[header] || '')
+    })
+    return dataRow
+  })
+
+  const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows]
+  const ws = XLSX.utils.aoa_to_sheet(sheetData)
+
+  ws['!merges'] = []
+  ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: flattenedHeaders.value.length + 4 } })
+  for (let i = 0; i < 5; i++) {
+    // 合併前 5 個固定欄位
+    ws['!merges'].push({ s: { r: 2, c: i }, e: { r: 3, c: i } })
+  }
+
+  let currentCol = 5
+  for (const category in dynamicHeaders.value) {
+    const items = dynamicHeaders.value[category]
+    if (items.length > 0) {
+      ws['!merges'].push({
+        s: { r: 2, c: currentCol },
+        e: { r: 2, c: currentCol + items.length - 1 },
+      })
+      currentCol += items.length
+    }
+  }
+
+  const fileName = `耗材總表_${freq}_${shiftName}_${month}.xlsx`
+  XLSX.writeFile(ws, fileName)
 }
 
 function handleFileSelect(event) {
@@ -729,5 +721,36 @@ input[type='file'] {
 .upload-btn-main:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
+}
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: #f8f9fa;
+}
+.sticky-col.col-freq {
+  /* 第一欄，位置為 0 */
+  left: 0;
+  min-width: 80px;
+}
+.sticky-col.col-shift {
+  /* 第二欄，位置為第一欄的寬度 */
+  left: 80px;
+  min-width: 80px;
+}
+.sticky-col.col-bed {
+  /* 第三欄，位置為前兩欄的寬度總和 */
+  left: 160px; /* 80 + 80 */
+  min-width: 80px;
+}
+.sticky-col.col-mrn {
+  /* 第四欄 */
+  left: 240px; /* 160 + 80 */
+  min-width: 120px;
+}
+.sticky-col.col-name {
+  /* 第五欄 */
+  left: 360px; /* 240 + 120 */
+  min-width: 120px;
 }
 </style>

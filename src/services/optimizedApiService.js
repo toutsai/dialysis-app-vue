@@ -222,31 +222,57 @@ export async function updateSchedule(scheduleId, updateData) {
 /**
  * 優化的患者資料載入
  */
+// ✨ --- 最終修正版：合併排班規則 --- ✨
 export async function fetchAllPatients() {
-  const cacheKey = getCacheKey('fetchAll', 'patients')
+  const cacheKey = getCacheKey('fetchAll', 'patients_with_rules') // 使用新的 cacheKey 避免與舊快取衝突
   const cached = getCache(cacheKey)
 
   if (cached) {
-    console.log('📦 [Cache Hit] 使用快取的患者資料')
+    console.log('📦 [Cache Hit] 使用快取的、包含排班規則的患者資料')
     return cached
   }
 
   const startTime = performance.now()
-  console.log('🔄 [API] 開始載入患者資料...')
+  console.log('🔄 [API] 開始載入患者資料並合併排班規則...')
 
   try {
-    const api = ApiManager('patients')
-    const data = await api.fetchAll()
+    // 1. 建立兩個 API Manager 實例
+    const patientsApi = ApiManager('patients')
+    const schedulesApi = ApiManager('base_schedules')
+
+    // 2. 使用 Promise.all 來並行獲取兩份資料，提升速度
+    const [patients, masterScheduleDoc] = await Promise.all([
+      patientsApi.fetchAll(),
+      schedulesApi.fetchById('MASTER_SCHEDULE'),
+    ])
+
+    // 3. 提取排班規則，並建立一個 Map 方便快速查找
+    const masterRules = masterScheduleDoc?.schedule || {}
+    const rulesMap = new Map(Object.entries(masterRules))
+
+    // 4. ✨ --- 核心邏輯：遍歷病人列表，將排班規則合併進去 --- ✨
+    const patientsWithRules = patients.map((patient) => {
+      // 從 Map 中查找該病人的規則
+      const rule = rulesMap.get(patient.id)
+
+      return {
+        ...patient, // 保留所有原始的病人欄位
+        scheduleRule: rule || null, // 將找到的規則作為一個新屬性附加，如果沒有規則則為 null
+      }
+    })
 
     const endTime = performance.now()
     console.log(
-      `✅ [API] 患者載入完成，共 ${data.length} 位，耗時 ${(endTime - startTime).toFixed(2)}ms`,
+      `✅ [API] 患者與排班規則合併完成，共 ${patientsWithRules.length} 位，耗時 ${(
+        endTime - startTime
+      ).toFixed(2)}ms`,
     )
 
-    setCache(cacheKey, data)
-    return data
+    // 5. 將合併後的完整資料存入快取
+    setCache(cacheKey, patientsWithRules)
+    return patientsWithRules
   } catch (error) {
-    console.error('❌ [API] 患者載入失敗:', error)
+    console.error('❌ [API] 載入患者資料並合併排班規則時失敗:', error)
     throw error
   }
 }
