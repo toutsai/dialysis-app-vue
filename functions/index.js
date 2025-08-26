@@ -1462,7 +1462,7 @@ exports.processLabReport = onCall(
 )
 
 // ===================================================================
-// Consumables Report Functions (耗材報告相關函式)
+// Consumables Report Functions (耗材報告相關函式) - v3.1 (支援同類型多項目)
 // ===================================================================
 
 exports.processConsumables = onCall(
@@ -1472,7 +1472,7 @@ exports.processConsumables = onCall(
   },
   async (request) => {
     const XLSX = require('xlsx')
-    const allowedRoles = ['admin', 'editor', 'contributor'] // 確保權限足夠
+    const allowedRoles = ['admin', 'editor', 'contributor']
     if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
     }
@@ -1482,39 +1482,43 @@ exports.processConsumables = onCall(
       throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
     }
 
-    logger.info(`[Consumables] 接收到檔案 ${fileName}，開始解析...`)
+    logger.info(`[Consumables V3.1] 接收到檔案 ${fileName}，開始解析...`)
 
     try {
-      // 1. 從檔名中解析月份 (例如: "some-file-2025-08.xlsx" -> "2025-08")
-      const monthMatch = fileName.match(/(\d{4})-(\d{2})|(\d{4})(\d{2})/)
-      if (!monthMatch) {
-        throw new HttpsError(
-          'invalid-argument',
-          '檔名格式錯誤，找不到年份和月份。請確保檔名包含 YYYY-MM 或 YYYYMM 格式。',
-        )
-      }
-      // 將 YYYYMM 轉為 YYYY-MM
-      const year = monthMatch[1] || monthMatch[3]
-      const month = monthMatch[2] || monthMatch[4]
-      const reportMonth = `${year}-${month}`
-      logger.info(`[Consumables] 解析到月份: ${reportMonth}`)
-
-      // 2. 解析 Excel 內容
+      // (步驟 1-5 的邏輯與之前相同，保持不變)
       const buffer = Buffer.from(fileContent, 'base64')
       const workbook = XLSX.read(buffer, { type: 'buffer' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
-      const sheetAsArray = XLSX.utils.sheet_to_json(worksheet) // 直接轉為物件陣列
+      const sheetAsArray = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
 
-      if (sheetAsArray.length < 1) {
-        throw new HttpsError('invalid-argument', 'Excel 檔案內容為空。')
+      if (sheetAsArray.length < 3) {
+        throw new HttpsError('invalid-argument', 'Excel 檔案內容行數不足。')
       }
 
-      // 3. 識別檔案類型並設定對應欄位
-      const headers = Object.keys(sheetAsArray[0])
+      const dateString = sheetAsArray[1][0] || ''
+      const monthMatch = dateString.match(/&起日(\d{4})(\d{2})/)
+      if (!monthMatch) {
+        throw new HttpsError('invalid-argument', 'Excel 格式錯誤，在第二列找不到有效的起日。')
+      }
+      const reportMonth = `${monthMatch[1]}-${monthMatch[2]}`
+
+      let headerRowIndex = -1
+      for (let i = 0; i < sheetAsArray.length; i++) {
+        if (sheetAsArray[i].includes('病歷號')) {
+          headerRowIndex = i
+          break
+        }
+      }
+      if (headerRowIndex === -1) {
+        throw new HttpsError('invalid-argument', "找不到有效的標題行 (需包含 '病歷號')。")
+      }
+
+      const headers = sheetAsArray[headerRowIndex]
+      const dataRows = sheetAsArray.slice(headerRowIndex + 1)
+
       let consumableHeader = ''
       let firestoreField = ''
-
       if (headers.includes('人工腎臟')) {
         consumableHeader = '人工腎臟'
         firestoreField = 'artificialKidney'
@@ -1525,77 +1529,100 @@ exports.processConsumables = onCall(
         consumableHeader = 'B液種類'
         firestoreField = 'bicarbonateType'
       } else {
-        throw new HttpsError(
-          'invalid-argument',
-          "找不到關鍵的標題欄位 (需包含 '人工腎臟', '透析藥水CA', 或 'B液種類')。",
-        )
+        throw new HttpsError('invalid-argument', '在標題行中找不到關鍵的耗材欄位。')
       }
-      logger.info(`[Consumables] 檔案類型: ${consumableHeader}`)
 
-      // 4. 處理每一行資料
+      const headerToIndex = {}
+      headers.forEach((header, index) => {
+        if (header) headerToIndex[String(header).trim()] = index
+      })
+
+      // (步驟 6 的邏輯進行核心修改)
       const patientCache = new Map()
       const updatesMap = new Map()
       let errors = []
       let processedRowCount = 0
 
-      for (const row of sheetAsArray) {
-        let medicalRecordNumber = String(row['病歷號'] || '').trim()
-        const consumableValue = row[consumableHeader]
+      for (const rowArray of dataRows) {
+        let medicalRecordNumber = String(rowArray[headerToIndex['病歷號']] || '').trim()
+        const consumableValue = rowArray[headerToIndex[consumableHeader]]
+        const count = rowArray[headerToIndex['COUNT(*)']]
 
         if (!medicalRecordNumber || consumableValue === undefined || consumableValue === null) {
-          errors.push({ rowData: JSON.stringify(row), reason: '該行缺少病歷號或耗材數值' })
+          if (
+            rowArray.every(
+              (cell) => cell === null || cell === undefined || String(cell).trim() === '',
+            )
+          )
+            continue
+          errors.push({ rowData: JSON.stringify(rowArray), reason: '該行缺少病歷號或耗材數值' })
           continue
         }
 
         medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
 
-        // 從快取或 Firestore 取得 patientId
-        let patientId
+        let patientData
         if (patientCache.has(medicalRecordNumber)) {
-          patientId = patientCache.get(medicalRecordNumber)
+          patientData = patientCache.get(medicalRecordNumber)
         } else {
           const patientQuery = await db
             .collection('patients')
             .where('medicalRecordNumber', '==', medicalRecordNumber)
             .limit(1)
             .get()
-          if (patientQuery.empty) {
-            patientId = null // 標記為找不到
-          } else {
-            patientId = patientQuery.docs[0].id
-          }
-          patientCache.set(medicalRecordNumber, patientId)
+          patientData = patientQuery.empty
+            ? null
+            : { id: patientQuery.docs[0].id, ...patientQuery.docs[0].data() }
+          patientCache.set(medicalRecordNumber, patientData)
         }
 
-        if (!patientId) {
+        if (!patientData) {
           errors.push({ rowData: `病歷號: ${medicalRecordNumber}`, reason: `找不到對應的病人` })
           continue
         }
 
-        // 準備要更新的資料，並聚合到 updatesMap 中
-        const reportId = `${reportMonth}_${patientId}`
+        const reportId = `${reportMonth}_${patientData.id}`
         if (!updatesMap.has(reportId)) {
-          updatesMap.set(reportId, {})
+          updatesMap.set(reportId, {
+            patientId: patientData.id,
+            patientName: patientData.name,
+            medicalRecordNumber: patientData.medicalRecordNumber,
+            data: {},
+          })
         }
+
         const patientUpdate = updatesMap.get(reportId)
-        patientUpdate[firestoreField] = consumableValue
+
+        // ✨ --- 核心修正：將資料存為陣列 --- ✨
+        // 1. 如果這個耗材類別的陣列還不存在，就先建立一個空陣列
+        if (!patientUpdate.data[firestoreField]) {
+          patientUpdate.data[firestoreField] = []
+        }
+        // 2. 將新的耗材物件 push 進這個陣列
+        patientUpdate.data[firestoreField].push({
+          item: consumableValue,
+          count: count || 0,
+        })
+        // ✨ --- (修正結束) --- ✨
+
         processedRowCount++
       }
 
-      // 5. 使用批次寫入來合併資料到 Firestore
+      // (步驟 7 的邏輯不變)
       if (updatesMap.size > 0) {
         const batch = db.batch()
-        for (const [reportId, data] of updatesMap.entries()) {
+        for (const [reportId, updateData] of updatesMap.entries()) {
           const docRef = db.collection('consumables_reports').doc(reportId)
-          // 🔥 核心：使用 { merge: true } 來合併資料，而不是覆蓋
           batch.set(
             docRef,
             {
-              patientId: reportId.split('_')[1],
-              reportDate: new Date(`${reportMonth}-01`), // 紀錄月份的第一天
+              patientId: updateData.patientId,
+              patientName: updateData.patientName,
+              medicalRecordNumber: updateData.medicalRecordNumber,
+              reportDate: new Date(`${reportMonth}-01`),
               sourceFile: fileName,
               updatedAt: FieldValue.serverTimestamp(),
-              data: data,
+              data: updateData.data,
             },
             { merge: true },
           )
@@ -1611,7 +1638,7 @@ exports.processConsumables = onCall(
         errors: errors.slice(0, 50),
       }
     } catch (error) {
-      logger.error(`[Consumables] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      logger.error(`[Consumables V3.1] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
       if (error instanceof HttpsError) throw error
       throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
     }
