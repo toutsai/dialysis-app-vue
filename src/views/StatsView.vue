@@ -1500,28 +1500,55 @@ function onDragStart(event, patientDetail, responsibility) {
   event.dataTransfer.setData('application/json', JSON.stringify(detailWithSource))
   event.dataTransfer.effectAllowed = 'move'
 }
+
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
+
+  // ✨ 核心修正：只有在 bedChangeTargetShift 未被設定時 (例如：從點擊觸發)，
+  // 才從病人身上解析當前班別作為篩選條件。
+  // 如果是從拖曳觸發，onDrop 函式已經預先設定好了目標班別，這裡就不會執行。
+  if (!bedChangeTargetShift.value) {
+    const currentShiftCode = patientDetail.shiftId.split('-')[2]
+    bedChangeTargetShift.value = currentShiftCode
+  }
+
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
+
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value || !oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     isBedChangeDialogVisible.value = false
     return
   }
+
+  // 情況一：處理拖曳換班 (此邏輯保持不變)
   if (pendingChangeInfo.value) {
     const { patientDetail, newTeam, newResponsibility } = pendingChangeInfo.value
     applyTeamAndScheduleChange(patientDetail, oldShiftId, newShiftId, newTeam, newResponsibility)
+  } else {
+    // 情況二：處理點擊換床 (現在已簡化為只處理同班換床)
+    const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
+
+    // 1. 更新 schedule 資料
+    delete currentRecord.schedule[oldShiftId]
+    currentRecord.schedule[newShiftId] = movingSlotData
+    setScheduleChange()
+
+    // 2. 因為點擊換床被限制為同班，所以 teamKey 不會改變，
+    //    因此不再需要對 currentTeamsRecord.value.teams 進行任何操作。
   }
+
+  // 重置所有狀態並關閉對話框
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
+
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
-  bedChangeTargetShift.value = null
+  bedChangeTargetShift.value = null // 確保取消時也重置
 }
 function onDragOver(event) {
   if (isPageLocked.value) return
