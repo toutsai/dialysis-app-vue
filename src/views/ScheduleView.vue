@@ -730,6 +730,7 @@
       :is-visible="isInpatientRoundsDialogVisible"
       :patients-on-schedule="todayInpatients"
       @close="isInpatientRoundsDialogVisible = false"
+      @save="handleInpatientTransportUpdate"
     />
     <div class="print-only-view">
       <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
@@ -1054,48 +1055,73 @@ const patientHasNotification = computed(() => {
 })
 
 // ✨ [新增] 計算今日住院病人的 computed 屬性
+// 在 ScheduleView.vue 的 <script setup> 中
+
 const todayInpatients = computed(() => {
-  const inpatients = []
-  // [修正] 移除 .value，並增加對 currentRecord 本身的檢查
-  if (!currentRecord || !currentRecord.schedule || patientMap.value.size === 0) {
-    return inpatients
-  }
+  const inpatientsMap = new Map()
 
-  // [修正] 移除所有 .value
-  for (const shiftId in currentRecord.schedule) {
-    const slot = currentRecord.schedule[shiftId]
-    if (slot && slot.patientId) {
-      const patient = patientMap.value.get(slot.patientId)
-      // 只篩選出住院 (ipd) 和急診 (er) 的病人
-      if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
-        const shiftCode = shiftId.split('-')[2] // 'early', 'noon', 'late'
+  // 1. 處理已排床病人
+  if (currentRecord && currentRecord.schedule) {
+    for (const shiftId in currentRecord.schedule) {
+      const slot = currentRecord.schedule[shiftId]
+      if (slot && slot.patientId) {
+        const patient = patientMap.value.get(slot.patientId)
+        if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
+          const shiftCode = shiftId.split('-')[2]
+          const dialysisBed = String(
+            shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || 'N/A',
+          )
 
-        // 確保 dialysisBed 有值
-        const dialysisBed = String(
-          shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || 'N/A',
-        )
-
-        inpatients.push({
-          id: `${patient.id}-${shiftId}`, // 確保 key 的唯一性
-          dialysisBed,
-          medicalRecordNumber: patient.medicalRecordNumber,
-          name: patient.name,
-          wardNumber: patient.wardNumber || '未登錄',
-          shift: shiftCode,
-          transportMethod: '推床', // 預設值
-        })
+          if (!inpatientsMap.has(patient.id)) {
+            inpatientsMap.set(patient.id, {
+              id: `${patient.id}-${shiftId}`, // ✨ 修正：ID 格式保持一致
+              shiftId: shiftId,
+              dialysisBed,
+              medicalRecordNumber: patient.medicalRecordNumber,
+              name: patient.name,
+              wardNumber: patient.wardNumber || '未登錄',
+              shift: shiftCode,
+              // ✨ [核心修正] 優先讀取已儲存的值，若無則預設為 '推床'
+              transportMethod: slot.transportMethod || '推床',
+            })
+          }
+        }
       }
     }
   }
 
-  // 排序：先依班別，再依床號
+  // 2. 處理未排床病人
+  const unassignedInpatients = getDailyUnassignedPatients(dayOfWeek).value.filter(
+    (p) => p.status === 'ipd' || p.status === 'er',
+  )
+
+  unassignedInpatients.forEach((patient) => {
+    if (!inpatientsMap.has(patient.id)) {
+      inpatientsMap.set(patient.id, {
+        id: `${patient.id}-unassigned`, // ✨ 修正：給未排床病人一個唯一的 ID
+        shiftId: null,
+        dialysisBed: '未排床',
+        medicalRecordNumber: patient.medicalRecordNumber,
+        name: patient.name,
+        wardNumber: patient.wardNumber || '未登錄',
+        shift: 'unknown',
+        transportMethod: '推床', // 未排床病人總是預設值
+      })
+    }
+  })
+
+  const inpatients = Array.from(inpatientsMap.values())
+
+  // 排序邏輯不變
   inpatients.sort((a, b) => {
-    const shiftOrder = { early: 1, noon: 2, late: 3 }
+    const shiftOrder = { early: 1, noon: 2, late: 3, unknown: 4 }
     if (a.shift !== b.shift) {
       return shiftOrder[a.shift] - shiftOrder[b.shift]
     }
-    const bedA = a.dialysisBed === '外圍' ? 999 : parseInt(a.dialysisBed)
-    const bedB = b.dialysisBed === '外圍' ? 999 : parseInt(b.dialysisBed)
+    const bedA =
+      a.dialysisBed === '未排床' ? 1000 : a.dialysisBed === '外圍' ? 999 : parseInt(a.dialysisBed)
+    const bedB =
+      b.dialysisBed === '未排床' ? 1000 : b.dialysisBed === '外圍' ? 999 : parseInt(b.dialysisBed)
     return bedA - bedB
   })
 
@@ -1498,6 +1524,68 @@ function handleSlotUpdate(shiftId, patientId, fullSlotData = null) {
   }
   setChange()
 }
+
+// ✨ [核心修改] 將此函式改為 async，並直接處理雲端儲存
+async function handleInpatientTransportUpdate(updatedPatients) {
+  if (isPageLocked.value || !updatedPatients || updatedPatients.length === 0) {
+    console.warn('[Save Transport] Page is locked or no data to save.')
+    return
+  }
+
+  let changesMade = false
+  updatedPatients.forEach((patient) => {
+    // ✨ [修正] patient.id 的格式可能是 `${patient.id}-${shiftId}` 或 `${patient.id}-unassigned`
+    const originalShiftId = patient.shiftId // 直接使用我們傳遞的 shiftId
+
+    // 只有已排床的病人才需要更新 schedule
+    if (originalShiftId && currentRecord.schedule[originalShiftId]) {
+      const existingMethod = currentRecord.schedule[originalShiftId].transportMethod || '推床'
+      if (existingMethod !== patient.transportMethod) {
+        currentRecord.schedule[originalShiftId].transportMethod = patient.transportMethod
+        changesMade = true
+      }
+    }
+  })
+
+  if (changesMade) {
+    console.log('[Save Transport] Changes detected, saving to cloud...')
+    statusIndicator.value = '儲存中...' // 讓使用者看到狀態變化
+
+    // 直接建立要儲存的資料物件
+    const dataToSave = {
+      date: currentRecord.date,
+      schedule: currentRecord.schedule,
+      names: currentRecord.names || {}, // 確保 names 也被包含
+    }
+
+    try {
+      // 判斷是新增還是更新
+      if (currentRecord.id) {
+        await optimizedUpdateSchedule(currentRecord.id, dataToSave)
+      } else if (Object.keys(dataToSave.schedule).length > 0) {
+        const savedRecord = await optimizedSaveSchedule(dataToSave)
+        currentRecord.id = savedRecord.id // 更新 id，以便下次是更新操作
+      }
+
+      statusIndicator.value = '儲存成功！'
+      hasUnsavedChanges.value = false // 因為已經存了，所以重設未儲存狀態
+      console.log('[Save Transport] Successfully saved to cloud.')
+
+      // 可以選擇性地彈出一個短暫的成功提示
+      // showAlert('成功', '病人運送方式已儲存！');
+    } catch (error) {
+      console.error('儲存住院病人運送方式失敗:', error)
+      statusIndicator.value = '儲存失敗'
+      // 如果失敗，應該通知使用者
+      showAlert('儲存失敗', `儲存病人運送方式時發生錯誤: ${error.message}`)
+      // 拋出錯誤，讓子元件知道儲存失敗了
+      throw error
+    }
+  } else {
+    console.log('[Save Transport] No changes detected, skipping save.')
+  }
+}
+
 function handlePatientSelect({ patientId }) {
   if (!patientId || !currentSlotId.value) return
   isPatientSelectDialogVisible.value = false

@@ -5,8 +5,9 @@
       <div class="dialog-header">
         <h3>住院病人趴趴走總覽</h3>
         <div class="header-actions">
-          <button @click="handlePrint" class="btn-primary-dialog">
-            <i class="fas fa-print"></i> 匯出/列印
+          <!-- 按鈕文字和事件處理函式已更新 -->
+          <button @click="handleSaveAndPrint" class="btn-primary-dialog" :disabled="isSaving">
+            <i class="fas fa-save"></i> 儲存並列印
           </button>
           <button @click="closeDialog" class="close-btn" title="關閉">×</button>
         </div>
@@ -113,7 +114,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -123,8 +124,9 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'save'])
 
+const isSaving = ref(false) // 新增一個狀態來防止重複點擊
 const localPatients = ref([])
 
 watch(
@@ -152,76 +154,101 @@ const todayDate = computed(() => {
   })
 })
 
-// ✨ --- [核心修正] 使用 iframe 進行列印 --- ✨
-const handlePrint = () => {
-  // 1. 找到要列印的內容來源
+// ✨ [核心修改] "儲存並列印" 函式現在是 async 且有錯誤處理
+const handleSaveAndPrint = async () => {
+  if (isSaving.value) return // 如果正在儲存，則不執行任何操作
+
+  isSaving.value = true
+  try {
+    // 1. 呼叫父元件的儲存函式，並等待它完成
+    await emit('save', localPatients.value)
+
+    // 2. 只有在儲存成功後，才繼續執行列印
+    console.log('Save successful, proceeding to print.')
+    await nextTick() // 確保 DOM 更新
+    printContent()
+  } catch (error) {
+    // 3. 如果父元件的儲存函式拋出錯誤，就在這裡捕獲
+    console.error('Save operation failed, printing is cancelled.', error)
+    // 此時父元件應該已經顯示了錯誤提示，這裡可以不再重複提示
+  } finally {
+    // 4. 無論成功或失敗，最後都要重設按鈕狀態
+    isSaving.value = false
+  }
+}
+
+const printContent = () => {
+  // 這部分的 iframe 列印邏輯完全不變，是正確的
   const contentToPrint = document.getElementById('inpatient-rounds-content')
   if (!contentToPrint) {
     console.error('找不到列印內容區塊！')
     return
   }
 
-  // 2. 創建一個隱藏的 iframe
+  const printableContent = contentToPrint.cloneNode(true)
+  const selectsInClone = printableContent.querySelectorAll('select.transport-select')
+  const originalSelects = contentToPrint.querySelectorAll('select.transport-select')
+
+  selectsInClone.forEach((selectNode, index) => {
+    if (originalSelects[index]) {
+      const currentValue = originalSelects[index].value
+      const optionToSelect = selectNode.querySelector(`option[value="${currentValue}"]`)
+      if (optionToSelect) {
+        selectNode.querySelectorAll('option').forEach((opt) => opt.removeAttribute('selected'))
+        optionToSelect.setAttribute('selected', 'selected')
+      }
+    }
+  })
+
   const iframe = document.createElement('iframe')
   iframe.style.position = 'absolute'
   iframe.style.width = '0'
   iframe.style.height = '0'
   iframe.style.border = '0'
-  iframe.setAttribute('title', 'Print Frame') // 為了無障礙訪問
+  iframe.setAttribute('title', 'Print Frame')
 
-  // 3. 將 iframe 加入到 body 中，這樣才能存取它的 contentWindow
   document.body.appendChild(iframe)
-
-  // 4. 獲取 iframe 的 document 物件
   const iframeDoc = iframe.contentWindow.document
 
-  // 5. 構建要寫入 iframe 的完整 HTML
   const htmlContent = `
-    <html>
-      <head>
-        <title>住院病人趴趴走總覽</title>
-        <style>
-          /* ✨ 在這裡直接注入最基本的列印樣式，完全不受外部干擾 */
-          body { font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; margin: 20px; }
-          .shift-section { margin-bottom: 2rem; page-break-inside: avoid; }
-          .shift-title { font-size: 1.25rem; margin-bottom: 0.75rem; color: #0056b3; padding-bottom: 0.5rem; border-bottom: 2px solid #007bff; }
-          .rounds-table { width: 100%; border-collapse: collapse; font-size: 12pt; }
-          .rounds-table th, .rounds-table td { border: 1px solid #ddd; padding: 8px 12px; text-align: center; vertical-align: middle; }
-          .rounds-table th { background-color: #f2f2f2; font-weight: 600; }
-          .print-header { text-align: center; margin-bottom: 1.5rem; }
-          .print-header h4 { font-size: 1.5rem; margin: 0; }
-          /* 將下拉選單顯示為純文字 */
-          .transport-select { -webkit-appearance: none; -moz-appearance: none; appearance: none; border: none; background: transparent; font-size: inherit; text-align: center; }
-        </style>
-      </head>
-      <body>
-        ${contentToPrint.innerHTML}
-      </body>
-    </html>
-  `
+        <html>
+        <head>
+            <title>住院病人趴趴走總覽</title>
+            <style>
+            body { font-family: 'Microsoft JhengHei', 'Segoe UI', sans-serif; margin: 20px; font-size: 14pt; line-height: 1.5; }
+            .shift-section { margin-bottom: 2rem; page-break-inside: avoid; }
+            .shift-title { font-size: 1.5em; margin-bottom: 0.75rem; color: #0056b3; padding-bottom: 0.5rem; border-bottom: 2px solid #007bff; }
+            .rounds-table { width: 100%; border-collapse: collapse; font-size: 1em; }
+            .rounds-table th, .rounds-table td { border: 1px solid #ddd; padding: 10px; text-align: center; vertical-align: middle; }
+            .rounds-table th { background-color: #f2f2f2; font-weight: bold; font-size: 1.1em; }
+            .print-header { text-align: center; margin-bottom: 1.5rem; }
+            .print-header h4 { font-size: 1.8em; margin: 0; }
+            .transport-select { -webkit-appearance: none; -moz-appearance: none; appearance: none; border: none; background: transparent; font-size: inherit; font-family: inherit; text-align: center; }
+            </style>
+        </head>
+        <body>
+            ${printableContent.innerHTML}
+        </body>
+        </html>
+    `
 
-  // 6. 將 HTML 內容寫入 iframe
   iframeDoc.open()
   iframeDoc.write(htmlContent)
   iframeDoc.close()
 
-  // 7. 等待 iframe 內容載入完成後觸發列印
   iframe.onload = function () {
     try {
-      iframe.contentWindow.focus() // 聚焦以確保列印正常
-      iframe.contentWindow.print() // 觸發 iframe 的列印
+      iframe.contentWindow.focus()
+      iframe.contentWindow.print()
     } catch (e) {
       console.error('列印失敗:', e)
-      alert('無法觸發列印功能，可能被瀏覽器阻擋。')
     } finally {
-      // 8. 列印結束後（無論成功或取消），從 DOM 中移除 iframe
       setTimeout(() => {
         document.body.removeChild(iframe)
       }, 500)
     }
   }
 }
-// ✨ --- (修正結束) --- ✨
 </script>
 
 <style scoped>
