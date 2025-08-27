@@ -151,11 +151,15 @@
             <div class="loading-spinner"></div>
           </div>
           <ul v-else-if="sortedFeedMessages.length > 0" class="message-list">
+            <!-- ✨ [核心修改] 開始 ✨ -->
             <li
               v-for="msg in sortedFeedMessages"
               :key="msg.id"
               class="message-item"
-              :class="{ 'is-completed': msg.status === 'completed' }"
+              :class="{
+                'is-completed': msg.status === 'completed',
+                'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
+              }"
             >
               <p class="item-content">
                 <strong>{{ msg.patientName }}:</strong> {{ msg.content }}
@@ -163,8 +167,10 @@
               <div class="item-footer">
                 <div class="item-meta">
                   <small v-if="msg.targetDate" class="target-date-info">
-                    <i class="fas fa-calendar-alt"></i> 關聯
-                    {{ msg.targetDate.slice(5).replace('-', '/') }}
+                    <i class="fas fa-calendar-alt"></i>
+                    <!-- 增加 "預" 標記 -->
+                    <span v-if="msg.targetDate > displayDate" class="future-tag">預</span>
+                    關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                   </small>
                   <small class="creator-info"
                     ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
@@ -172,9 +178,16 @@
                   >
                 </div>
                 <div v-if="msg.status === 'pending'" class="item-actions">
+                  <!-- 使用 :disabled 和 :title 來控制按鈕狀態 -->
                   <button
                     class="btn-action btn-complete"
                     @click="updateTaskStatus(msg.id, 'completed')"
+                    :disabled="displayDate < msg.targetDate"
+                    :title="
+                      displayDate < msg.targetDate
+                        ? `此留言需在 ${msg.targetDate} 才能標示已讀`
+                        : '標示為已讀'
+                    "
                   >
                     <i class="fas fa-check"></i> 已讀
                   </button>
@@ -185,6 +198,7 @@
                 </div>
               </div>
             </li>
+            <!-- ✨ [核心修改] 結束 ✨ -->
           </ul>
           <div v-else class="panel-empty small">
             <p><i class="fas fa-inbox"></i> 您的病人資訊流中沒有新留言</p>
@@ -443,11 +457,15 @@
               <div class="loading-spinner"></div>
             </div>
             <ul v-else-if="sortedFeedMessages.length > 0" class="message-list">
+              <!-- ✨ [核心修改] 行動版也同步修改 ✨ -->
               <li
                 v-for="msg in sortedFeedMessages"
                 :key="msg.id"
                 class="message-item"
-                :class="{ 'is-completed': msg.status === 'completed' }"
+                :class="{
+                  'is-completed': msg.status === 'completed',
+                  'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
+                }"
               >
                 <p class="item-content">
                   <strong>{{ msg.patientName }}:</strong> {{ msg.content }}
@@ -455,8 +473,9 @@
                 <div class="item-footer">
                   <div class="item-meta">
                     <small v-if="msg.targetDate" class="target-date-info">
-                      <i class="fas fa-calendar-alt"></i> 關聯
-                      {{ msg.targetDate.slice(5).replace('-', '/') }}
+                      <i class="fas fa-calendar-alt"></i>
+                      <span v-if="msg.targetDate > displayDate" class="future-tag">預</span>
+                      關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                     </small>
                     <small class="creator-info"
                       ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
@@ -467,6 +486,12 @@
                     <button
                       class="btn-action btn-complete"
                       @click="updateTaskStatus(msg.id, 'completed')"
+                      :disabled="displayDate < msg.targetDate"
+                      :title="
+                        displayDate < msg.targetDate
+                          ? `此留言需在 ${msg.targetDate} 才能標示已讀`
+                          : '標示為已讀'
+                      "
                     >
                       <i class="fas fa-check"></i> 已讀
                     </button>
@@ -1698,5 +1723,30 @@ watch(
   background-color: #e7f1ff; /* 淡藍色背景 */
   padding: 2px 6px;
   border-radius: 4px;
+}
+/* 未來留言的特殊樣式 */
+.message-item.is-future-message {
+  background-color: #fefce8; /* 淡黃色背景 */
+  border-left-color: #facc15; /* 醒目的黃色邊框 */
+}
+
+/* 當按鈕被禁用時的樣式 */
+.item-actions .btn-action:disabled {
+  background-color: #adb5bd; /* 灰色背景 */
+  cursor: not-allowed; /* 顯示禁止游標 */
+  opacity: 0.7;
+}
+
+/* "預" 標記的樣式 */
+.future-tag {
+  display: inline-block;
+  background-color: #fb923c; /* 橘色 */
+  color: white;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 </style>

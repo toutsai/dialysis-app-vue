@@ -24,7 +24,7 @@
           <div class="group-filters">
             <div class="search-field">
               <!-- ✨ --- 修改點 1：簡化頻率選項 --- ✨ -->
-              <label for="group-freq">頻率:</label>
+              <label for="group-freq">頻率</label>
               <select id="group-freq" v-model="groupSearchParams.freq">
                 <option value="一三五">一三五</option>
                 <option value="二四六">二四六</option>
@@ -32,7 +32,7 @@
               </select>
             </div>
             <div class="search-field">
-              <label for="group-shift">班別:</label>
+              <label for="group-shift">班別</label>
               <select id="group-shift" v-model="groupSearchParams.shift">
                 <option value="early">早班</option>
                 <option value="noon">午班</option>
@@ -40,7 +40,7 @@
               </select>
             </div>
             <div class="search-field">
-              <label for="group-month">月份:</label>
+              <label for="group-month">盤點月份</label>
               <input type="month" id="group-month" v-model="groupSearchParams.month" />
             </div>
           </div>
