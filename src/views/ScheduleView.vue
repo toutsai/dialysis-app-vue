@@ -59,17 +59,23 @@
       <!-- 第二列：控制面板 -->
       <div class="controls-panel desktop-only">
         <div class="controls-left">
-          <div class="view-toggle-wrapper desktop-only">
-            <button
-              class="view-toggle-btn"
-              @click="isSimplifiedViewVisible = !isSimplifiedViewVisible"
-            >
-              <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
-              {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
-            </button>
-          </div>
-
-          <!-- ✨ 方案一：team-highlight-container 已被移除 -->
+          <!-- 按鈕一 -->
+          <button
+            class="view-toggle-btn desktop-only"
+            @click="isSimplifiedViewVisible = !isSimplifiedViewVisible"
+          >
+            <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
+            {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
+          </button>
+          <!-- 按鈕二 -->
+          <button
+            class="btn-secondary desktop-only"
+            @click="isInpatientRoundsDialogVisible = true"
+            :disabled="todayInpatients.length === 0"
+            title="顯示今日住院病人總覽"
+          >
+            <i class="fas fa-walking"></i> 住院病人趴趴走 ({{ todayInpatients.length }})
+          </button>
         </div>
         <div class="controls-right">
           <!-- ✨ 新增：每日負責人資訊面板 ✨ -->
@@ -720,6 +726,12 @@
       @confirm="handleWardNumberConfirm"
       @cancel="isWardDialogVisible = false"
     />
+    <InpatientRoundsDialog
+      :is-visible="isInpatientRoundsDialogVisible"
+      :patients-on-schedule="todayInpatients"
+      @close="isInpatientRoundsDialogVisible = false"
+      @save="handleInpatientTransportUpdate"
+    />
     <div class="print-only-view">
       <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
       <div v-if="statsToolbarData[0]" class="print-stats">
@@ -845,6 +857,7 @@ import MemoIcon from '@/components/MemoIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PatientDetailModal from '@/components/PatientDetailModal.vue'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
+import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
@@ -924,6 +937,7 @@ const selectedPatientForDetail = ref(null)
 const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
+const isInpatientRoundsDialogVisible = ref(false)
 
 // ✨ 新增
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
@@ -1038,6 +1052,80 @@ const patientHasNotification = computed(() => {
     }
   }
   return patientIdsWithInfo
+})
+
+// ✨ [新增] 計算今日住院病人的 computed 屬性
+// 在 ScheduleView.vue 的 <script setup> 中
+
+const todayInpatients = computed(() => {
+  const inpatientsMap = new Map()
+
+  // 1. 處理已排床病人
+  if (currentRecord && currentRecord.schedule) {
+    for (const shiftId in currentRecord.schedule) {
+      const slot = currentRecord.schedule[shiftId]
+      if (slot && slot.patientId) {
+        const patient = patientMap.value.get(slot.patientId)
+        if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
+          const shiftCode = shiftId.split('-')[2]
+          const dialysisBed = String(
+            shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || 'N/A',
+          )
+
+          if (!inpatientsMap.has(patient.id)) {
+            inpatientsMap.set(patient.id, {
+              id: `${patient.id}-${shiftId}`, // ✨ 修正：ID 格式保持一致
+              shiftId: shiftId,
+              dialysisBed,
+              medicalRecordNumber: patient.medicalRecordNumber,
+              name: patient.name,
+              wardNumber: patient.wardNumber || '未登錄',
+              shift: shiftCode,
+              // ✨ [核心修正] 優先讀取已儲存的值，若無則預設為 '推床'
+              transportMethod: slot.transportMethod || '推床',
+            })
+          }
+        }
+      }
+    }
+  }
+
+  // 2. 處理未排床病人
+  const unassignedInpatients = getDailyUnassignedPatients(dayOfWeek).value.filter(
+    (p) => p.status === 'ipd' || p.status === 'er',
+  )
+
+  unassignedInpatients.forEach((patient) => {
+    if (!inpatientsMap.has(patient.id)) {
+      inpatientsMap.set(patient.id, {
+        id: `${patient.id}-unassigned`, // ✨ 修正：給未排床病人一個唯一的 ID
+        shiftId: null,
+        dialysisBed: '未排床',
+        medicalRecordNumber: patient.medicalRecordNumber,
+        name: patient.name,
+        wardNumber: patient.wardNumber || '未登錄',
+        shift: 'unknown',
+        transportMethod: '推床', // 未排床病人總是預設值
+      })
+    }
+  })
+
+  const inpatients = Array.from(inpatientsMap.values())
+
+  // 排序邏輯不變
+  inpatients.sort((a, b) => {
+    const shiftOrder = { early: 1, noon: 2, late: 3, unknown: 4 }
+    if (a.shift !== b.shift) {
+      return shiftOrder[a.shift] - shiftOrder[b.shift]
+    }
+    const bedA =
+      a.dialysisBed === '未排床' ? 1000 : a.dialysisBed === '外圍' ? 999 : parseInt(a.dialysisBed)
+    const bedB =
+      b.dialysisBed === '未排床' ? 1000 : b.dialysisBed === '外圍' ? 999 : parseInt(b.dialysisBed)
+    return bedA - bedB
+  })
+
+  return inpatients
 })
 
 // --- Functions ---
@@ -1436,6 +1524,68 @@ function handleSlotUpdate(shiftId, patientId, fullSlotData = null) {
   }
   setChange()
 }
+
+// ✨ [核心修改] 將此函式改為 async，並直接處理雲端儲存
+async function handleInpatientTransportUpdate(updatedPatients) {
+  if (isPageLocked.value || !updatedPatients || updatedPatients.length === 0) {
+    console.warn('[Save Transport] Page is locked or no data to save.')
+    return
+  }
+
+  let changesMade = false
+  updatedPatients.forEach((patient) => {
+    // ✨ [修正] patient.id 的格式可能是 `${patient.id}-${shiftId}` 或 `${patient.id}-unassigned`
+    const originalShiftId = patient.shiftId // 直接使用我們傳遞的 shiftId
+
+    // 只有已排床的病人才需要更新 schedule
+    if (originalShiftId && currentRecord.schedule[originalShiftId]) {
+      const existingMethod = currentRecord.schedule[originalShiftId].transportMethod || '推床'
+      if (existingMethod !== patient.transportMethod) {
+        currentRecord.schedule[originalShiftId].transportMethod = patient.transportMethod
+        changesMade = true
+      }
+    }
+  })
+
+  if (changesMade) {
+    console.log('[Save Transport] Changes detected, saving to cloud...')
+    statusIndicator.value = '儲存中...' // 讓使用者看到狀態變化
+
+    // 直接建立要儲存的資料物件
+    const dataToSave = {
+      date: currentRecord.date,
+      schedule: currentRecord.schedule,
+      names: currentRecord.names || {}, // 確保 names 也被包含
+    }
+
+    try {
+      // 判斷是新增還是更新
+      if (currentRecord.id) {
+        await optimizedUpdateSchedule(currentRecord.id, dataToSave)
+      } else if (Object.keys(dataToSave.schedule).length > 0) {
+        const savedRecord = await optimizedSaveSchedule(dataToSave)
+        currentRecord.id = savedRecord.id // 更新 id，以便下次是更新操作
+      }
+
+      statusIndicator.value = '儲存成功！'
+      hasUnsavedChanges.value = false // 因為已經存了，所以重設未儲存狀態
+      console.log('[Save Transport] Successfully saved to cloud.')
+
+      // 可以選擇性地彈出一個短暫的成功提示
+      // showAlert('成功', '病人運送方式已儲存！');
+    } catch (error) {
+      console.error('儲存住院病人運送方式失敗:', error)
+      statusIndicator.value = '儲存失敗'
+      // 如果失敗，應該通知使用者
+      showAlert('儲存失敗', `儲存病人運送方式時發生錯誤: ${error.message}`)
+      // 拋出錯誤，讓子元件知道儲存失敗了
+      throw error
+    }
+  } else {
+    console.log('[Save Transport] No changes detected, skipping save.')
+  }
+}
+
 function handlePatientSelect({ patientId }) {
   if (!patientId || !currentSlotId.value) return
   isPatientSelectDialogVisible.value = false
@@ -1859,7 +2009,17 @@ watch(currentDate, (newDate, oldDate) => {
 .controls-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* ✨ 我們不再依賴 gap，而是讓子元素自己產生間距 */
+}
+
+/* ✨ [核心修正] 使用 > 子選擇器來精確指定目標 */
+.controls-left > button {
+  margin-right: 12px; /* 為每個按鈕增加右邊距 */
+}
+
+/* ✨ 為了避免最後一個按鈕也有多餘的邊距，我們把它移除 */
+.controls-left > button:last-child {
+  margin-right: 0;
 }
 .btn,
 button {
@@ -1899,6 +2059,7 @@ button {
   background-color: #6c757d;
   color: white;
   border-color: #6c757d;
+  gap: 20px;
 }
 .btn-secondary:hover:not(:disabled) {
   background-color: #545b62;
@@ -2503,7 +2664,7 @@ button:disabled {
     overflow: visible;
   }
   @page {
-    size: A4 landscape;
+    size: A4 horizontal;
     margin: 1cm;
   }
   body,
