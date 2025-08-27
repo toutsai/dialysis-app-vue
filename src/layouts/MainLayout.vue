@@ -11,21 +11,68 @@
           </span>
         </div>
         <ul class="sidebar-nav">
-          <li><RouterLink to="/schedule" class="nav-link">每日排程表</RouterLink></li>
-          <li><RouterLink to="/stats" class="nav-link">護理分組檢視</RouterLink></li>
-          <li class="desktop-only-nav-item">
-            <RouterLink to="/weekly" class="nav-link">週排班表</RouterLink>
+          <li>
+            <RouterLink to="/schedule" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">每日排程</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink to="/stats" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">護理分組</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
           </li>
           <li class="desktop-only-nav-item">
-            <RouterLink to="/base-schedule" class="nav-link">門急住床位總表</RouterLink>
+            <RouterLink to="/weekly" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">週排班</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
           </li>
-          <li><RouterLink to="/exception-manager" class="nav-link">調班管理</RouterLink></li>
-          <li><RouterLink to="/patients" class="nav-link">病人管理</RouterLink></li>
-          <li><RouterLink to="/memo" class="nav-link">交班備忘錄</RouterLink></li>
-          <!-- ✨ [核心修改] 在訊息中心連結上加入通知角標 -->
+          <li class="desktop-only-nav-item">
+            <RouterLink to="/base-schedule" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">床位總表</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink to="/exception-manager" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">調班換床</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink to="/patients" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">病人清單</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink to="/memo" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">交班備忘錄</span>
+                <span class="nav-subtitle"></span>
+              </div>
+            </RouterLink>
+          </li>
           <li>
             <RouterLink to="/collaboration" class="nav-link">
-              <span>訊息中心</span>
+              <div class="nav-item-content">
+                <span class="nav-title">訊息中心</span>
+                <span class="nav-subtitle"></span>
+              </div>
               <span v-if="todayTaskCount > 0" class="notification-badge">
                 {{ todayTaskCount }}
               </span>
@@ -74,18 +121,46 @@
           <!-- 用 v-if 控制列表的顯示/隱藏 -->
           <ul v-if="!isManagementSectionCollapsed" class="sidebar-nav">
             <li v-if="canEditSchedules">
-              <RouterLink to="/daily-log" class="nav-link">工作日誌</RouterLink>
+              <RouterLink to="/daily-log" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">工作日誌</span>
+                </div>
+              </RouterLink>
             </li>
             <li v-if="canManagePhysicianSchedule">
-              <RouterLink to="/physician-schedule" class="nav-link">醫師班表</RouterLink>
+              <RouterLink to="/physician-schedule" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">醫師班表</span>
+                </div>
+              </RouterLink>
             </li>
-            <li><RouterLink to="/lab-reports" class="nav-link">檢驗報告管理</RouterLink></li>
-            <li><RouterLink to="/consumables" class="nav-link">每月耗材總表</RouterLink></li>
-            <li><RouterLink to="/reporting" class="nav-link">統計報表</RouterLink></li>
             <li>
-              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link"
-                >使用者管理</RouterLink
-              >
+              <RouterLink to="/lab-reports" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">檢驗報告管理</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li>
+              <RouterLink to="/consumables" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">每月耗材總表</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li>
+              <RouterLink to="/reporting" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">統計報表</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li>
+              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">使用者管理</span>
+                </div>
+              </RouterLink>
             </li>
           </ul>
         </div>
@@ -619,7 +694,51 @@ onUnmounted(() => {
   /* 如果您想要滑動效果，可以嘗試用 transition，但 v-if 的效果更直接 */
   overflow: hidden;
 }
+/* ✨ [新增] 導覽項目主副標題樣式 ✨ */
+/* ================================== */
+/*         Nav Item Subtitle          */
+/* ================================== */
 
+.nav-link {
+  /* 修改現有規則，讓內容垂直居中 */
+  align-items: center;
+}
+
+/* 這個 div 用來包裹主副標題，並與角標(badge)分開 */
+.nav-item-content {
+  display: flex;
+  flex-direction: column; /* 讓主副標題垂直排列 */
+  line-height: 1.4; /* 調整行高 */
+  flex-grow: 1; /* 讓它佔滿左側所有可用空間 */
+}
+
+.nav-title {
+  /* 主標題樣式 */
+  font-size: 1.05em; /* 這是您原本 nav-link 的字體大小 */
+}
+
+.nav-subtitle {
+  /* 副標題樣式 */
+  font-size: 0.75rem; /* 字體縮小 */
+  color: #95a5a6; /* 使用較淡的灰色 */
+  font-weight: 400; /* 正常字重 */
+  opacity: 0.9;
+  margin-top: 2px;
+  transition: color 0.2s; /* 增加顏色過渡效果 */
+}
+
+/* 當連結被選中時，讓副標題也變亮 */
+.nav-link.router-link-exact-active .nav-subtitle {
+  color: #ecf0f1;
+  opacity: 1;
+}
+
+/* 修正 router-link 的 display 屬性，以正確對齊角標 */
+.sidebar-nav li > .nav-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 @media (max-width: 992px) {
   .desktop-only-nav-item {
     display: none;

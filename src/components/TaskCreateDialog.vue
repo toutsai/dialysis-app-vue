@@ -26,13 +26,17 @@
 
         <div v-if="formData.category === 'task'" class="form-group">
           <label for="assignee" class="form-label">交辦給</label>
-          <select id="assignee" v-model="formData.assigneeValue" class="form-control">
-            <option disabled value="">請選擇...</option>
-            <option value="clerk">書記</option>
-            <option value="doctor">醫師</option>
-            <option value="np">專科護理師</option>
-            <option value="editor">護理師組長</option>
-          </select>
+          <div class="assignee-btn-group">
+            <button
+              v-for="assignee in assigneeOptions"
+              :key="assignee.value"
+              @click="formData.assigneeValue = assignee.value"
+              :class="{ active: formData.assigneeValue === assignee.value }"
+              class="btn-assignee"
+            >
+              {{ assignee.label }}
+            </button>
+          </div>
         </div>
 
         <div class="form-group">
@@ -220,9 +224,16 @@ const supplyTypeOptions = ref([
   { value: 'A液', label: 'A液' },
   { value: 'B液', label: 'B液' },
   { value: 'Tubing', label: 'Tubing' },
-  { value: 'NS', label: 'NS (500cc)' },
+  { value: 'NS500', label: 'NS (500cc)' }, // ✨ 修改了 value 以示區分
+  { value: 'NS1000', label: 'NS (1000cc)' }, // ✨ 新增 NS 1000cc
   { value: '耗衛材', label: '耗衛材' },
 ])
+const assigneeOptions = [
+  { value: 'clerk', label: '書記' },
+  { value: 'doctor', label: '醫師' },
+  { value: 'np', label: '專科護理師' },
+  { value: 'editor', label: '護理師組長' },
+]
 
 const dynamicSupplyItems = ref([])
 const otherSupplyInfo = ref('')
@@ -547,5 +558,37 @@ function close() {
 }
 .other-supply-input {
   margin-top: 0.5rem;
+}
+/* ✨ [新增] 交辦對象按鈕組的樣式 */
+.assignee-btn-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.btn-assignee {
+  flex: 1 1 auto; /* 允許按鈕自動分配寬度 */
+  padding: 0.6rem 1rem;
+  border-radius: 4px;
+  border: 1px solid #ced4da;
+  background-color: #f8f9fa;
+  color: #495057;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-assignee:hover {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+}
+
+.btn-assignee.active {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 </style>
