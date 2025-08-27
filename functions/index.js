@@ -1461,8 +1461,9 @@ exports.processLabReport = onCall(
   },
 )
 
+// 在 functions/index.js 中
 // ===================================================================
-// Consumables Report Functions (耗材報告相關函式) - v3.1 (支援同類型多項目)
+// Consumables Report Functions (耗材報告相關函式) - v3.2 (使用迄日歸檔)
 // ===================================================================
 
 exports.processConsumables = onCall(
@@ -1482,10 +1483,9 @@ exports.processConsumables = onCall(
       throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
     }
 
-    logger.info(`[Consumables V3.1] 接收到檔案 ${fileName}，開始解析...`)
+    logger.info(`[Consumables V3.2] 接收到檔案 ${fileName}，開始解析...`)
 
     try {
-      // (步驟 1-5 的邏輯與之前相同，保持不變)
       const buffer = Buffer.from(fileContent, 'base64')
       const workbook = XLSX.read(buffer, { type: 'buffer' })
       const sheetName = workbook.SheetNames[0]
@@ -1496,12 +1496,21 @@ exports.processConsumables = onCall(
         throw new HttpsError('invalid-argument', 'Excel 檔案內容行數不足。')
       }
 
+      // ✨ --- [核心修正] 修改正規表達式，抓取「迄日」 --- ✨
       const dateString = sheetAsArray[1][0] || ''
-      const monthMatch = dateString.match(/&起日(\d{4})(\d{2})/)
+      // 原本的: const monthMatch = dateString.match(/&起日(\d{4})(\d{2})/)
+      const monthMatch = dateString.match(/&迄日(\d{4})(\d{2})/) // 改為匹配 &迄日
+
       if (!monthMatch) {
-        throw new HttpsError('invalid-argument', 'Excel 格式錯誤，在第二列找不到有效的起日。')
+        // 更新錯誤訊息，讓它更清晰
+        throw new HttpsError(
+          'invalid-argument',
+          'Excel 格式錯誤，在第二列找不到有效的迄日(需為 &迄日YYYYMM 格式)。',
+        )
       }
       const reportMonth = `${monthMatch[1]}-${monthMatch[2]}`
+      logger.info(`[Consumables V3.2] 解析到報表月份為 (迄日): ${reportMonth}`)
+      // ✨ --- (修正結束) --- ✨
 
       let headerRowIndex = -1
       for (let i = 0; i < sheetAsArray.length; i++) {
@@ -1537,7 +1546,6 @@ exports.processConsumables = onCall(
         if (header) headerToIndex[String(header).trim()] = index
       })
 
-      // (步驟 6 的邏輯進行核心修改)
       const patientCache = new Map()
       const updatesMap = new Map()
       let errors = []
@@ -1593,22 +1601,17 @@ exports.processConsumables = onCall(
 
         const patientUpdate = updatesMap.get(reportId)
 
-        // ✨ --- 核心修正：將資料存為陣列 --- ✨
-        // 1. 如果這個耗材類別的陣列還不存在，就先建立一個空陣列
         if (!patientUpdate.data[firestoreField]) {
           patientUpdate.data[firestoreField] = []
         }
-        // 2. 將新的耗材物件 push 進這個陣列
         patientUpdate.data[firestoreField].push({
           item: consumableValue,
           count: count || 0,
         })
-        // ✨ --- (修正結束) --- ✨
 
         processedRowCount++
       }
 
-      // (步驟 7 的邏輯不變)
       if (updatesMap.size > 0) {
         const batch = db.batch()
         for (const [reportId, updateData] of updatesMap.entries()) {
@@ -1638,7 +1641,7 @@ exports.processConsumables = onCall(
         errors: errors.slice(0, 50),
       }
     } catch (error) {
-      logger.error(`[Consumables V3.1] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      logger.error(`[Consumables V3.2] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
       if (error instanceof HttpsError) throw error
       throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
     }
