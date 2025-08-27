@@ -1055,8 +1055,6 @@ const patientHasNotification = computed(() => {
 })
 
 // ✨ [新增] 計算今日住院病人的 computed 屬性
-// 在 ScheduleView.vue 的 <script setup> 中
-
 const todayInpatients = computed(() => {
   const inpatientsMap = new Map()
 
@@ -1064,24 +1062,26 @@ const todayInpatients = computed(() => {
   if (currentRecord && currentRecord.schedule) {
     for (const shiftId in currentRecord.schedule) {
       const slot = currentRecord.schedule[shiftId]
-      if (slot && slot.patientId) {
+
+      // ✨ [核心修正] 增加條件：排除外圍床位的病人 ✨
+      if (slot && slot.patientId && !shiftId.startsWith('peripheral')) {
         const patient = patientMap.value.get(slot.patientId)
+
+        // 只篩選出住院 (ipd) 和急診 (er) 的病人
         if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
           const shiftCode = shiftId.split('-')[2]
-          const dialysisBed = String(
-            shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || 'N/A',
-          )
+          // ✨ 修正：外圍床位已排除，這裡不再需要 '外圍' 的判斷
+          const dialysisBed = String(shiftId.split('-')[1] || 'N/A')
 
           if (!inpatientsMap.has(patient.id)) {
             inpatientsMap.set(patient.id, {
-              id: `${patient.id}-${shiftId}`, // ✨ 修正：ID 格式保持一致
+              id: `${patient.id}-${shiftId}`,
               shiftId: shiftId,
               dialysisBed,
               medicalRecordNumber: patient.medicalRecordNumber,
               name: patient.name,
               wardNumber: patient.wardNumber || '未登錄',
               shift: shiftCode,
-              // ✨ [核心修正] 優先讀取已儲存的值，若無則預設為 '推床'
               transportMethod: slot.transportMethod || '推床',
             })
           }
@@ -1090,7 +1090,7 @@ const todayInpatients = computed(() => {
     }
   }
 
-  // 2. 處理未排床病人
+  // 2. 處理未排床病人 (這部分不變，因為他們也需要被移動)
   const unassignedInpatients = getDailyUnassignedPatients(dayOfWeek).value.filter(
     (p) => p.status === 'ipd' || p.status === 'er',
   )
@@ -1098,14 +1098,14 @@ const todayInpatients = computed(() => {
   unassignedInpatients.forEach((patient) => {
     if (!inpatientsMap.has(patient.id)) {
       inpatientsMap.set(patient.id, {
-        id: `${patient.id}-unassigned`, // ✨ 修正：給未排床病人一個唯一的 ID
+        id: `${patient.id}-unassigned`,
         shiftId: null,
         dialysisBed: '未排床',
         medicalRecordNumber: patient.medicalRecordNumber,
         name: patient.name,
         wardNumber: patient.wardNumber || '未登錄',
         shift: 'unknown',
-        transportMethod: '推床', // 未排床病人總是預設值
+        transportMethod: '推床',
       })
     }
   })
@@ -1118,10 +1118,9 @@ const todayInpatients = computed(() => {
     if (a.shift !== b.shift) {
       return shiftOrder[a.shift] - shiftOrder[b.shift]
     }
-    const bedA =
-      a.dialysisBed === '未排床' ? 1000 : a.dialysisBed === '外圍' ? 999 : parseInt(a.dialysisBed)
-    const bedB =
-      b.dialysisBed === '未排床' ? 1000 : b.dialysisBed === '外圍' ? 999 : parseInt(b.dialysisBed)
+    // ✨ 修正：排序不再需要處理 '外圍'
+    const bedA = a.dialysisBed === '未排床' ? 1000 : parseInt(a.dialysisBed)
+    const bedB = b.dialysisBed === '未排床' ? 1000 : parseInt(b.dialysisBed)
     return bedA - bedB
   })
 
