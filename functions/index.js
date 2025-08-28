@@ -1834,6 +1834,21 @@ exports.processOrders = onCall(
   },
 )
 
+function parseCustomDateString(dateStr) {
+  if (!dateStr || dateStr.length !== 14) {
+    return new Date(null) // Return an invalid date if format is wrong
+  }
+  const year = dateStr.substring(0, 4)
+  const month = dateStr.substring(4, 6)
+  const day = dateStr.substring(6, 8)
+  const hour = dateStr.substring(8, 10)
+  const minute = dateStr.substring(10, 12)
+  const second = dateStr.substring(12, 14)
+
+  // 組合成 ISO 8601 標準格式，這是 new Date() 最喜歡的格式
+  const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`
+  return new Date(isoString)
+}
 // ===================================================================
 // Daily Injection Calculation Function (每日應打針劑計算函式) - v2.0 (前端驅動)
 // ===================================================================
@@ -1913,15 +1928,16 @@ exports.getDailyInjections = onCall(
       for (const patientId of patientIds) {
         const patientHistory = allOrdersHistory
           .filter((order) => order.patientId === patientId)
-          .sort((a, b) => new Date(a.changeDate) - new Date(b.changeDate))
+          // ✨ [修正 1] 使用新函式來排序
+          .sort((a, b) => parseCustomDateString(a.changeDate) - parseCustomDateString(b.changeDate))
 
         const effectiveOrdersMap = new Map()
         for (const record of patientHistory) {
-          if (new Date(record.changeDate) <= dateObj) {
+          // ✨ [修正 2] 使用新函式來判斷
+          if (parseCustomDateString(record.changeDate) <= dateObj) {
             effectiveOrdersMap.set(record.orderCode, record)
           }
         }
-
         const slotInfo = patientSlotMap.get(patientId) || { bedNum: 'N/A', shift: 'N/A' }
 
         for (const order of effectiveOrdersMap.values()) {

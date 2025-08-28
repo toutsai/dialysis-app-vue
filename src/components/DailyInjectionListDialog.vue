@@ -44,7 +44,7 @@
                 <td>{{ injection.bedNum }}</td>
                 <td>{{ injection.patientName }}</td>
                 <td>{{ injection.orderName }}</td>
-                <td>{{ injection.dose }}</td>
+                <td>{{ injection.dose }} {{ getMedicationUnit(injection) }}</td>
                 <td>{{ injection.note }}</td>
               </tr>
             </tbody>
@@ -61,6 +61,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
 const props = defineProps({
   isVisible: Boolean,

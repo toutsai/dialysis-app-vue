@@ -1005,6 +1005,7 @@ import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions' // ✨ 1. 引入 httpsCallable
 import { functions } from '@/composables/useFirebase.js' // ✨ 2. 引入 functions 實例
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue' // ✨ 3. 引入新元件
+import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
 // Store 實例化
 const patientStore = usePatientStore()
