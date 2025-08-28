@@ -21,7 +21,6 @@
           >
             <i class="fas fa-plus"></i> 新增交辦/留言
           </button>
-          <!-- ✨ [修改] 按鈕已移動至此處，並使用 v-if 控制顯示 -->
           <button
             v-if="!lateShiftTakeOffExists"
             @click="promptDuplicateLateShift"
@@ -226,13 +225,23 @@
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <div
-                  class="prep-list-trigger"
-                  v-if="teamData.earlyShift.patients.length > 0"
-                  @click="showPrepPopover($event, teamData, 'earlyShift')"
-                  title="顯示備物清單"
-                >
-                  📋
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="teamData.earlyShift.patients.length > 0"
+                    @click="showPrepPopover($event, teamData, 'earlyShift')"
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="teamData.earlyShift.patients.length > 0"
+                    @click="showInjectionList(teamData, 'earlyShift')"
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
                 </div>
               </div>
             </div>
@@ -279,13 +288,23 @@
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <div
-                  class="prep-list-trigger"
-                  v-if="teamData.noonShiftOn.patients.length > 0"
-                  @click="showPrepPopover($event, teamData, 'noonShiftOn')"
-                  title="顯示備物清單"
-                >
-                  📋
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="teamData.noonShiftOn.patients.length > 0"
+                    @click="showPrepPopover($event, teamData, 'noonShiftOn')"
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="teamData.noonShiftOn.patients.length > 0"
+                    @click="showInjectionList(teamData, 'noonShiftOn')"
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
                 </div>
               </div>
             </div>
@@ -332,13 +351,23 @@
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <div
-                  class="prep-list-trigger"
-                  v-if="teamData.noonShiftOff.patients.length > 0"
-                  @click="showPrepPopover($event, teamData, 'noonShiftOff')"
-                  title="顯示備物清單"
-                >
-                  📋
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="teamData.noonShiftOff.patients.length > 0"
+                    @click="showPrepPopover($event, teamData, 'noonShiftOff')"
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="teamData.noonShiftOff.patients.length > 0"
+                    @click="showInjectionList(teamData, 'noonShiftOff')"
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
                 </div>
               </div>
             </div>
@@ -363,7 +392,6 @@
         <div class="grid-container">
           <div class="grid-header">
             <div class="row-header section-title-cell">晚班</div>
-            <!-- ✨ [修改] 此處的按鈕容器已移除，版面簡化 -->
             <div
               v-for="(_, teamName) in effectiveStatsData.late"
               :key="teamName"
@@ -436,13 +464,23 @@
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <div
-                  class="prep-list-trigger"
-                  v-if="teamData.noonShiftOff.patients.length > 0"
-                  @click="showPrepPopover($event, teamData, 'noonShiftOff')"
-                  title="顯示備物清單"
-                >
-                  📋
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="teamData.noonShiftOff.patients.length > 0"
+                    @click="showPrepPopover($event, teamData, 'noonShiftOff')"
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="teamData.noonShiftOff.patients.length > 0"
+                    @click="showInjectionList(teamData, 'noonShiftOff')"
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
                 </div>
               </div>
             </div>
@@ -489,13 +527,23 @@
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <div
-                  class="prep-list-trigger"
-                  v-if="teamData.lateShift.patients.length > 0"
-                  @click="showPrepPopover($event, teamData, 'lateShift')"
-                  title="顯示備物清單"
-                >
-                  📋
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="teamData.lateShift.patients.length > 0"
+                    @click="showPrepPopover($event, teamData, 'lateShift')"
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="teamData.lateShift.patients.length > 0"
+                    @click="showInjectionList(teamData, 'lateShift')"
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
                 </div>
               </div>
             </div>
@@ -522,7 +570,6 @@
         :class="{ 'is-locked': isPageLocked }"
       >
         <div class="grid-container">
-          <!-- [修正] grid-header 結構調整，以正確處理雙層表頭 -->
           <div class="grid-header">
             <div class="row-header section-title-cell takeoff-title-cell">夜班收針</div>
             <div class="takeoff-action-bar">
@@ -535,7 +582,6 @@
                 <i class="fas fa-trash"></i> 移除收針分組
               </button>
             </div>
-            <!-- 使用一個空的 display:contents wrapper 來確保 v-for 的元素被視為 grid 的直接子元素 -->
             <div style="display: contents">
               <div
                 v-for="(_, teamName) in effectiveStatsData.lateTakeOff"
@@ -610,13 +656,23 @@
                     <MemoIcon :patient-id="patient.id" />
                   </div>
                 </div>
-                <div
-                  class="prep-list-trigger"
-                  v-if="teamData.lateShiftTakeOff.patients.length > 0"
-                  @click="showPrepPopover($event, teamData, 'lateShiftTakeOff')"
-                  title="顯示備物清單"
-                >
-                  📋
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="teamData.lateShiftTakeOff.patients.length > 0"
+                    @click="showPrepPopover($event, teamData, 'lateShiftTakeOff')"
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="teamData.lateShiftTakeOff.patients.length > 0"
+                    @click="showInjectionList(teamData, 'lateShiftTakeOff')"
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
                 </div>
               </div>
             </div>
@@ -911,6 +967,13 @@
       :target-element="prepPopoverData.targetElement"
       @close="onPrepPopoverClose"
     />
+    <DailyInjectionListDialog
+      :is-visible="isInjectionDialogVisible"
+      :is-loading="isInjectionLoading"
+      :injections="dailyInjections"
+      :target-date="formatDate(currentDate)"
+      @close="isInjectionDialogVisible = false"
+    />
     <button
       class="fab-mobile mobile-only"
       @click="isCreateTaskModalVisible = true"
@@ -939,6 +1002,10 @@ import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
+import { httpsCallable } from 'firebase/functions' // ✨ 1. 引入 httpsCallable
+import { functions } from '@/composables/useFirebase.js' // ✨ 2. 引入 functions 實例
+import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue' // ✨ 3. 引入新元件
+import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
 // Store 實例化
 const patientStore = usePatientStore()
@@ -1034,6 +1101,9 @@ const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({ patients: [], targetElement: null })
 const isCreateTaskModalVisible = ref(false)
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
+const isInjectionDialogVisible = ref(false)
+const dailyInjections = ref([])
+const isInjectionLoading = ref(false)
 
 // Hooks
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1623,6 +1693,56 @@ function handleTaskCreated() {
   showAlert('操作成功', '交辦/留言已成功新增！')
   isCreateTaskModalVisible.value = false
 }
+
+async function showInjectionList(teamData, shiftType = null) {
+  // ✨ 修改點 3: 新增 shiftType 參數
+  const patientIds = new Set()
+
+  // ✨ 修改點 4: 根據傳入的 shiftType 決定要撈取哪些病人
+  if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
+    // 如果有指定班別區塊，就只撈取那個區塊的病人
+    teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
+  } else {
+    // 如果沒有指定（為了向下相容），則維持舊邏輯，撈取所有病人
+    for (const key in teamData) {
+      if (teamData[key] && Array.isArray(teamData[key].patients)) {
+        teamData[key].patients.forEach((p) => patientIds.add(p.id))
+      }
+    }
+  }
+
+  const patientIdArray = Array.from(patientIds)
+  if (patientIdArray.length === 0) {
+    dailyInjections.value = []
+    isInjectionDialogVisible.value = true
+    return
+  }
+
+  // 後續的 Cloud Function 呼叫邏輯完全不變
+  isInjectionDialogVisible.value = true
+  isInjectionLoading.value = true
+  dailyInjections.value = []
+
+  try {
+    const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
+    const result = await getDailyInjections({
+      targetDate: formatDate(currentDate.value),
+      patientIds: patientIdArray,
+    })
+
+    if (result.data && result.data.success) {
+      dailyInjections.value = result.data.injections
+    } else {
+      throw new Error(result.data?.message || '從後端獲取針劑資料失敗')
+    }
+  } catch (error) {
+    console.error('獲取本日應打針劑失敗:', error)
+    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
+  } finally {
+    isInjectionLoading.value = false
+  }
+}
+
 function triggerPrint() {
   window.print()
 }
@@ -2426,6 +2546,41 @@ button.btn-primary:hover:not(:disabled) {
 }
 .duplicate-shift-btn.remove:hover:not(:disabled) {
   background-color: #f5c6cb;
+}
+/* 新增一個容器來包裹右下角的圖示按鈕 */
+.cell-actions-container {
+  position: absolute;
+  bottom: 4px;
+  right: 6px;
+  display: flex;
+  gap: 8px; /* 讓圖示之間有間距 */
+}
+
+/* 調整原本的備物清單圖示，讓它不再是絕對定位 */
+.prep-list-trigger {
+  position: static; /* 移除絕對定位 */
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 2px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  user-select: none;
+}
+.prep-list-trigger:hover {
+  background-color: #e0e0e0;
+}
+
+/* 新增針劑清單圖示的樣式 */
+.injection-list-trigger {
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 2px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  user-select: none;
+}
+.injection-list-trigger:hover {
+  background-color: #e0e0e0;
 }
 
 /* ================================== */

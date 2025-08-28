@@ -30,7 +30,7 @@
         </button>
         <div v-show="isSearchVisible" class="search-controls">
           <div class="search-field">
-            <label for="search-type">查詢模式:</label>
+            <label for="search-type">查詢模式</label>
             <select id="search-type" v-model="searchType">
               <option value="group">依群組查詢</option>
               <option value="individual">依個人查詢</option>
@@ -39,13 +39,13 @@
           <div v-if="searchType === 'group'" class="filter-wrapper">
             <div class="group-filters">
               <div class="search-field">
-                <label for="group-freq">頻率:</label>
+                <label for="group-freq">頻率</label>
                 <select id="group-freq" v-model="groupSearchParams.freq">
                   <option v-for="freq in freqOptions" :key="freq" :value="freq">{{ freq }}</option>
                 </select>
               </div>
               <div class="search-field">
-                <label for="group-shift">班別:</label>
+                <label for="group-shift">班別</label>
                 <select id="group-shift" v-model="groupSearchParams.shift">
                   <option value="early">早班</option>
                   <option value="noon">午班</option>
@@ -53,7 +53,7 @@
                 </select>
               </div>
               <div class="search-field">
-                <label for="group-month">月份:</label>
+                <label for="group-month">月份</label>
                 <input type="month" id="group-month" v-model="groupSearchParams.month" />
               </div>
             </div>

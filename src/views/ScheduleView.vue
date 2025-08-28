@@ -729,6 +729,7 @@
     <InpatientRoundsDialog
       :is-visible="isInpatientRoundsDialogVisible"
       :patients-on-schedule="todayInpatients"
+      :target-date="formatDate(currentDate)"
       @close="isInpatientRoundsDialogVisible = false"
       @save="handleInpatientTransportUpdate"
     />
@@ -1082,7 +1083,7 @@ const todayInpatients = computed(() => {
               name: patient.name,
               wardNumber: patient.wardNumber || '未登錄',
               shift: shiftCode,
-              transportMethod: slot.transportMethod || '推床',
+              transportMethod: slot.transportMethod,
             })
           }
         }
@@ -1105,7 +1106,7 @@ const todayInpatients = computed(() => {
         name: patient.name,
         wardNumber: patient.wardNumber || '未登錄',
         shift: 'unknown',
-        transportMethod: '推床',
+        transportMethod: null,
       })
     }
   })

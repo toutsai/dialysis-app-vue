@@ -129,6 +129,12 @@ const routes = [
         component: () => import('../views/CollaborationView.vue'),
         meta: { title: '協作訊息中心', requiresAuth: true },
       },
+      {
+        path: '/orders',
+        name: 'Orders',
+        component: () => import('../views/OrdersView.vue'),
+        meta: { title: '藥囑管理', requiredAuth: true, roles: ['contributor', 'editor', 'admin'] }, // 根據您的權限需求設定
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

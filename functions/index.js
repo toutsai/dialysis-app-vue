@@ -1647,3 +1647,365 @@ exports.processConsumables = onCall(
     }
   },
 )
+
+// ===================================================================
+// Medication Orders Processing Function (藥囑處理函式) - v1.3 (批次處理最終版)
+// ===================================================================
+
+exports.processOrders = onCall(
+  {
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async (request) => {
+    const XLSX = require('xlsx')
+    const allowedRoles = ['admin', 'editor', 'contributor']
+    if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
+    }
+
+    const { fileName, fileContent } = request.data
+    if (!fileName || !fileContent) {
+      throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
+    }
+
+    logger.info(`[ProcessOrders V1.3] 接收到檔案 ${fileName}，開始解析...`)
+
+    try {
+      // 1. 解析 Excel，增加 { cellDates: true } 選項
+      const buffer = Buffer.from(fileContent, 'base64')
+      const workbook = XLSX.read(buffer, { type: 'buffer' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      // ✨ [核心修正 1] 使用 sheet_to_json 搭配 header:1，並讓 xlsx 幫我們處理日期
+      const dataRows = XLSX.utils.sheet_to_json(worksheet, {
+        header: 1,
+        defval: '',
+        raw: false,
+        dateNF: 'YYYY-MM-DD',
+      })
+
+      let headerRowIndex = -1
+      let headers = []
+      for (let i = 0; i < dataRows.length; i++) {
+        const row = dataRows[i].map((h) => String(h).trim())
+        if (row.includes('病歷號') && row.includes('醫令碼') && row.includes('名稱')) {
+          headerRowIndex = i
+          headers = row
+          break
+        }
+      }
+      if (headerRowIndex === -1) {
+        throw new HttpsError(
+          'invalid-argument',
+          "找不到有效的標題行 (需包含 '病歷號', '醫令碼', '名稱')。",
+        )
+      }
+
+      const headerToIndex = {}
+      headers.forEach((header, index) => {
+        if (header) headerToIndex[header.trim()] = index
+      })
+
+      const requiredHeaders = ['病歷號', '醫令碼', '名稱', '異動日期', '次劑量']
+      const missingHeaders = requiredHeaders.filter((h) => headerToIndex[h] === undefined)
+      if (missingHeaders.length > 0) {
+        throw new HttpsError(
+          'invalid-argument',
+          `Excel 檔案缺少必要的欄位: ${missingHeaders.join(', ')}`,
+        )
+      }
+
+      // 2. 定義藥物類別 (已移除 OFOL 和 OKEN)
+      const oralMedCodes = ['OALK1', 'OCAA', 'OCAL1', 'OFOS4', 'OUCA1', 'OVAF']
+      const injectionMedCodes = ['INES2', 'IPAR1', 'ICAC', 'IFER2', 'IREC1']
+
+      // 3. 遍歷資料行並處理
+      let batch = db.batch() // 初始化第一個批次
+      const patientCache = new Map()
+      let errors = []
+      let processedCount = 0
+      let batchCounter = 0 // 當前批次的計數器
+      const BATCH_SIZE = 450 // 設定批次大小
+
+      for (let i = headerRowIndex + 1; i < dataRows.length; i++) {
+        const row = dataRows[i]
+        if (row.every((cell) => String(cell).trim() === '')) continue
+
+        let medicalRecordNumber = String(row[headerToIndex['病歷號']] || '')
+          .trim()
+          .replace(/^0+/, '')
+        const orderCode = String(row[headerToIndex['醫令碼']] || '').trim()
+        // ✨ [核心修正 2] 直接使用 xlsx 解析好的日期字串
+        const changeDate = String(row[headerToIndex['異動日期']] || '').trim()
+        const orderName = String(row[headerToIndex['名稱']] || '').trim()
+
+        if (!medicalRecordNumber || !orderCode || !changeDate || !orderName) {
+          let reason = '缺少必要欄位'
+          if (!changeDate) reason = `異動日期格式錯誤或為空`
+          errors.push({ rowNumber: i + 1, reason })
+          continue
+        }
+
+        let patientData
+        if (patientCache.has(medicalRecordNumber)) {
+          patientData = patientCache.get(medicalRecordNumber)
+        } else {
+          const patientQuery = await db
+            .collection('patients')
+            .where('medicalRecordNumber', '==', medicalRecordNumber)
+            .limit(1)
+            .get()
+          patientData = patientQuery.empty
+            ? null
+            : { id: patientQuery.docs[0].id, ...patientQuery.docs[0].data() }
+          patientCache.set(medicalRecordNumber, patientData)
+        }
+
+        if (!patientData) {
+          errors.push({
+            rowNumber: i + 1,
+            reason: `病歷號 ${medicalRecordNumber} 找不到對應的病人`,
+          })
+          continue
+        }
+
+        let orderType = null
+        const orderPayload = {
+          patientId: patientData.id,
+          medicalRecordNumber: patientData.medicalRecordNumber,
+          patientName: patientData.name,
+          orderCode,
+          orderName,
+          changeDate,
+          dose: String(row[headerToIndex['次劑量']] || ''),
+          action: 'MODIFY',
+          sourceFile: fileName,
+          uploadTimestamp: FieldValue.serverTimestamp(),
+        }
+
+        if (oralMedCodes.includes(orderCode)) {
+          orderType = 'oral'
+          orderPayload.frequency = String(row[headerToIndex['頻率服法']] || '')
+        } else if (injectionMedCodes.includes(orderCode)) {
+          orderType = 'injection'
+          orderPayload.note = String(row[headerToIndex['備註']] || '')
+        }
+
+        if (orderType) {
+          orderPayload.orderType = orderType
+          const newOrderRef = db.collection('medication_orders').doc()
+          batch.set(newOrderRef, orderPayload)
+          processedCount++
+          batchCounter++
+
+          // ✨ [核心修正 3] 檢查是否達到批次大小
+          if (batchCounter >= BATCH_SIZE) {
+            await batch.commit() // 提交當前批次
+            logger.info(`[ProcessOrders V1.3] 已提交 ${batchCounter} 筆資料...`)
+            batch = db.batch() // 建立新批次
+            batchCounter = 0 // 重設計數器
+          }
+        }
+      }
+
+      // 4. 提交剩餘的批次
+      if (batchCounter > 0) {
+        await batch.commit()
+        logger.info(`[ProcessOrders V1.3] 已提交最後 ${batchCounter} 筆資料。`)
+      }
+
+      logger.info(
+        `[ProcessOrders V1.3] 處理完成，成功處理 ${processedCount} 筆藥囑，發現 ${errors.length} 個問題。`,
+      )
+
+      return {
+        success: true,
+        message: `處理完成！成功匯入 ${processedCount} 筆藥囑紀錄，發現 ${errors.length} 個問題行。`,
+        processedCount,
+        errorCount: errors.length,
+        errors: errors.slice(0, 50),
+      }
+    } catch (error) {
+      logger.error(`[ProcessOrders V1.3] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      if (error instanceof HttpsError) throw error
+      throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
+    }
+  },
+)
+
+function parseCustomDateString(dateStr) {
+  if (!dateStr || dateStr.length !== 14) {
+    return new Date(null) // Return an invalid date if format is wrong
+  }
+  const year = dateStr.substring(0, 4)
+  const month = dateStr.substring(4, 6)
+  const day = dateStr.substring(6, 8)
+  const hour = dateStr.substring(8, 10)
+  const minute = dateStr.substring(10, 12)
+  const second = dateStr.substring(12, 14)
+
+  // 組合成 ISO 8601 標準格式，這是 new Date() 最喜歡的格式
+  const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`
+  return new Date(isoString)
+}
+// ===================================================================
+// Daily Injection Calculation Function (每日應打針劑計算函式) - v2.0 (前端驅動)
+// ===================================================================
+
+exports.getDailyInjections = onCall(
+  {
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
+    }
+
+    const { targetDate, patientIds } = request.data
+    if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      throw new HttpsError('invalid-argument', '請提供有效的目標日期 (格式 YYYY-MM-DD)。')
+    }
+
+    // ✨ [核心修正 1] 現在 patientIds 是必要參數
+    if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
+      logger.info(`[getDailyInjections V2] 未提供病人ID列表，返回空結果。`)
+      return { success: true, targetDate, injections: [] }
+    }
+
+    // ✨ [核心修正 2] 增加分塊查詢，即使護理師照顧超過30人也能運作
+    if (patientIds.length > 30) {
+      throw new HttpsError('invalid-argument', '單次查詢的病人數不能超過30人。')
+      // 未來可以實作 chunking:
+      // const chunks = [];
+      // for (let i = 0; i < patientIds.length; i += 30) {
+      //   chunks.push(patientIds.slice(i, i + 30));
+      // }
+      // ... 然後對每個 chunk 執行查詢並合併結果 ...
+    }
+
+    logger.info(
+      `[getDailyInjections V2] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
+    )
+
+    try {
+      // --- 步驟 1: 直接根據前端傳來的病人 ID 列表，查詢所有相關藥囑 ---
+      const allOrdersQuery = db
+        .collection('medication_orders')
+        .where('patientId', 'in', patientIds) // 直接使用前端傳來的 ID
+        .where('orderType', '==', 'injection')
+
+      const allOrdersSnapshot = await allOrdersQuery.get()
+      const allOrdersHistory = allOrdersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+
+      // --- 步驟 2: 撈取當天的排班資料，以便獲取床號和班別 ---
+      const scheduleDoc = await db.collection('schedules').doc(targetDate).get()
+      const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule : {}
+
+      // 建立一個 patientId -> slotInfo 的映射表，方便快速查找
+      const patientSlotMap = new Map()
+      for (const shiftId in scheduleData) {
+        const slot = scheduleData[shiftId]
+        if (slot.patientId) {
+          patientSlotMap.set(slot.patientId, {
+            bedNum: shiftId.startsWith('peripheral')
+              ? `外${shiftId.split('-')[1]}`
+              : shiftId.split('-')[1],
+            shift: shiftId.split('-')[2],
+          })
+        }
+      }
+
+      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 (邏輯不變) ---
+      const finalInjectionList = []
+      const dateObj = new Date(targetDate + 'T00:00:00Z')
+      const targetDayOfWeek = dateObj.getUTCDay()
+      const targetMonth = dateObj.getUTCMonth() + 1
+      const targetDay = dateObj.getUTCDate()
+      const targetMonthDay = `${targetMonth}/${targetDay}`
+
+      for (const patientId of patientIds) {
+        const patientHistory = allOrdersHistory
+          .filter((order) => order.patientId === patientId)
+          // ✨ [修正 1] 使用新函式來排序
+          .sort((a, b) => parseCustomDateString(a.changeDate) - parseCustomDateString(b.changeDate))
+
+        const effectiveOrdersMap = new Map()
+        for (const record of patientHistory) {
+          // ✨ [修正 2] 使用新函式來判斷
+          if (parseCustomDateString(record.changeDate) <= dateObj) {
+            effectiveOrdersMap.set(record.orderCode, record)
+          }
+        }
+        const slotInfo = patientSlotMap.get(patientId) || { bedNum: 'N/A', shift: 'N/A' }
+
+        for (const order of effectiveOrdersMap.values()) {
+          const note = (order.note || '').toUpperCase().trim()
+          let shouldAdminister = false
+          let reason = ''
+
+          if (note.startsWith('QW')) {
+            const days = note
+              .substring(2)
+              .split('')
+              .map((d) => parseInt(d, 10))
+            const firebaseDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek
+            if (days.includes(firebaseDayOfWeek)) {
+              shouldAdminister = true
+              reason = `規則匹配: ${note}`
+            }
+          } else if (note.includes('/')) {
+            const dates = note.split(',').map((d) => d.trim())
+            if (dates.includes(targetMonthDay)) {
+              shouldAdminister = true
+              reason = `日期匹配: ${note}`
+            }
+          } else if (note === 'STAT') {
+            if (order.changeDate === targetDate) {
+              shouldAdminister = true
+              reason = 'STAT 醫囑'
+            }
+          }
+
+          if (shouldAdminister) {
+            finalInjectionList.push({
+              patientId: order.patientId,
+              patientName: order.patientName,
+              bedNum: slotInfo.bedNum,
+              shift: slotInfo.shift,
+              orderCode: order.orderCode,
+              orderName: order.orderName,
+              dose: order.dose,
+              note: order.note,
+              reason,
+            })
+          }
+        }
+      }
+
+      finalInjectionList.sort((a, b) => {
+        const shiftOrder = { early: 1, noon: 2, late: 3 }
+        if (a.shift !== b.shift) {
+          return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
+        }
+        const bedA = String(a.bedNum).startsWith('外')
+          ? 1000 + parseInt(String(a.bedNum).substring(1))
+          : parseInt(a.bedNum)
+        const bedB = String(b.bedNum).startsWith('外')
+          ? 1000 + parseInt(String(b.bedNum).substring(1))
+          : parseInt(b.bedNum)
+        return bedA - bedB
+      })
+
+      logger.info(
+        `[getDailyInjections V2] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
+      )
+
+      return { success: true, targetDate, injections: finalInjectionList }
+    } catch (error) {
+      logger.error(`[getDailyInjections V2] 處理針劑計算時發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
+    }
+  },
+)

@@ -129,5 +129,18 @@ service cloud.firestore {
       allow read: if isViewer();
       allow write: if isViewer(); 
     }
+    
+    // ✨ [新增] 藥囑異動紀錄的規則 ✨
+    match /medication_orders/{orderId} {
+      // 讀取權限：所有登入的使用者都可以讀取藥囑，以便查詢。
+      allow read: if isViewer();
+
+      // 寫入權限 (create, update, delete)：
+      // 只有 contributor 或更高等級的使用者才能透過 Cloud Function 建立新的藥囑紀錄。
+      // 我們不允許客戶端直接更新或刪除，以確保歷史紀錄的不可變性。
+      allow create: if isContributor();
+      allow update: if false; // 禁止客戶端直接更新歷史紀錄
+      allow delete: if isAdmin(); // 只允許系統管理員刪除錯誤的紀錄
+    }
   }
 }

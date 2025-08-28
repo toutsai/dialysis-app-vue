@@ -141,10 +141,17 @@
                 </div>
               </RouterLink>
             </li>
-            <li>
+            <li v-if="canViewConsumables">
               <RouterLink to="/consumables" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">每月耗材總表</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li v-if="canManageOrders">
+              <RouterLink to="/orders" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">藥囑管理</span>
                 </div>
               </RouterLink>
             </li>
@@ -215,24 +222,27 @@ import { db, functions } from '@/composables/useFirebase.js'
 
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore.js'
-// ✨ [核心修改] 1. 引入新的 taskStore
 import { useTaskStore } from '@/stores/taskStore.js'
 
 const router = useRouter()
 const route = useRoute()
-const { currentUser, logout, isAdmin, canEditSchedules, canManagePhysicianSchedule } = useAuth()
+const {
+  currentUser,
+  logout,
+  isAdmin,
+  canEditSchedules,
+  canManagePhysicianSchedule,
+  canManageOrders,
+  canViewConsumables,
+} = useAuth()
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
 const isManagementSectionCollapsed = ref(true)
-
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
-
-// ✨ [核心修改] 2. 實例化 taskStore 並獲取響應式狀態
 const taskStore = useTaskStore()
 const { todayTaskCount } = storeToRefs(taskStore)
-
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
