@@ -149,6 +149,13 @@
               </RouterLink>
             </li>
             <li>
+              <RouterLink to="/orders" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">藥囑管理</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li>
               <RouterLink to="/reporting" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">統計報表</span>
