@@ -199,10 +199,17 @@ export function useAuth() {
   )
   const canManagePhysicianSchedule = computed(() => {
     if (!currentUser.value) return false
-    // 直接檢查 role 是否為 'admin' 或 'contributor'
     return ['admin', 'contributor'].includes(currentUser.value.role)
   })
   const canUploadLabReport = computed(() => isLoggedIn.value)
+  const canManageOrders = computed(() => {
+    if (!currentUser.value) return false
+    return ['admin', 'contributor'].includes(currentUser.value.role)
+  })
+  const canViewConsumables = computed(() => {
+    if (!currentUser.value) return false
+    return !!currentUser.value
+  })
 
   return {
     // 狀態
@@ -228,5 +235,7 @@ export function useAuth() {
     canEditSchedules,
     canEditPatients,
     isReadOnly,
+    canManageOrders, // ✨ 新增
+    canViewConsumables, // ✨ 新增
   }
 }
