@@ -237,7 +237,7 @@
                   <div
                     class="injection-list-trigger"
                     v-if="teamData.earlyShift.patients.length > 0"
-                    @click="showInjectionList(teamData)"
+                    @click="showInjectionList(teamData, 'earlyShift')"
                     title="顯示本日應打針劑"
                   >
                     💉
@@ -300,7 +300,7 @@
                   <div
                     class="injection-list-trigger"
                     v-if="teamData.noonShiftOn.patients.length > 0"
-                    @click="showInjectionList(teamData)"
+                    @click="showInjectionList(teamData, 'noonShiftOn')"
                     title="顯示本日應打針劑"
                   >
                     💉
@@ -363,7 +363,7 @@
                   <div
                     class="injection-list-trigger"
                     v-if="teamData.noonShiftOff.patients.length > 0"
-                    @click="showInjectionList(teamData)"
+                    @click="showInjectionList(teamData, 'noonShiftOff')"
                     title="顯示本日應打針劑"
                   >
                     💉
@@ -476,7 +476,7 @@
                   <div
                     class="injection-list-trigger"
                     v-if="teamData.noonShiftOff.patients.length > 0"
-                    @click="showInjectionList(teamData)"
+                    @click="showInjectionList(teamData, 'noonShiftOff')"
                     title="顯示本日應打針劑"
                   >
                     💉
@@ -539,7 +539,7 @@
                   <div
                     class="injection-list-trigger"
                     v-if="teamData.lateShift.patients.length > 0"
-                    @click="showInjectionList(teamData)"
+                    @click="showInjectionList(teamData, 'lateShift')"
                     title="顯示本日應打針劑"
                   >
                     💉
@@ -668,7 +668,7 @@
                   <div
                     class="injection-list-trigger"
                     v-if="teamData.lateShiftTakeOff.patients.length > 0"
-                    @click="showInjectionList(teamData)"
+                    @click="showInjectionList(teamData, 'lateShiftTakeOff')"
                     title="顯示本日應打針劑"
                   >
                     💉
@@ -1694,13 +1694,20 @@ function handleTaskCreated() {
   isCreateTaskModalVisible.value = false
 }
 
-async function showInjectionList(teamData) {
-  // a. 從 teamData 收集所有病人 ID
+async function showInjectionList(teamData, shiftType = null) {
+  // ✨ 修改點 3: 新增 shiftType 參數
   const patientIds = new Set()
-  // 遍歷早班、午班上針、午班收針等所有可能的病人列表
-  for (const shiftType in teamData) {
-    if (teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
-      teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
+
+  // ✨ 修改點 4: 根據傳入的 shiftType 決定要撈取哪些病人
+  if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
+    // 如果有指定班別區塊，就只撈取那個區塊的病人
+    teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
+  } else {
+    // 如果沒有指定（為了向下相容），則維持舊邏輯，撈取所有病人
+    for (const key in teamData) {
+      if (teamData[key] && Array.isArray(teamData[key].patients)) {
+        teamData[key].patients.forEach((p) => patientIds.add(p.id))
+      }
     }
   }
 
@@ -1711,7 +1718,7 @@ async function showInjectionList(teamData) {
     return
   }
 
-  // 後續的 b, c, d, e 步驟完全不變
+  // 後續的 Cloud Function 呼叫邏輯完全不變
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
   dailyInjections.value = []
