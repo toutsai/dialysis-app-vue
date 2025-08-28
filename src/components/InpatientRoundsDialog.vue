@@ -37,10 +37,17 @@
                 <td>{{ patient.name }}</td>
                 <td>{{ patient.wardNumber }}</td>
                 <td>
-                  <select v-model="patient.transportMethod" class="transport-select">
-                    <option value="推床">推床</option>
-                    <option value="輪椅">輪椅</option>
-                  </select>
+                  <div
+                    @click="toggleTransportMethod(patient)"
+                    class="transport-display"
+                    :class="{ unconfirmed: patient.transportMethod === 'unconfirmed' }"
+                  >
+                    {{
+                      patient.transportMethod === 'unconfirmed'
+                        ? '推床 / 輪椅'
+                        : patient.transportMethod
+                    }}
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -67,10 +74,17 @@
                 <td>{{ patient.name }}</td>
                 <td>{{ patient.wardNumber }}</td>
                 <td>
-                  <select v-model="patient.transportMethod" class="transport-select">
-                    <option value="推床">推床</option>
-                    <option value="輪椅">輪椅</option>
-                  </select>
+                  <div
+                    @click="toggleTransportMethod(patient)"
+                    class="transport-display"
+                    :class="{ unconfirmed: patient.transportMethod === 'unconfirmed' }"
+                  >
+                    {{
+                      patient.transportMethod === 'unconfirmed'
+                        ? '推床 / 輪椅'
+                        : patient.transportMethod
+                    }}
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -97,10 +111,17 @@
                 <td>{{ patient.name }}</td>
                 <td>{{ patient.wardNumber }}</td>
                 <td>
-                  <select v-model="patient.transportMethod" class="transport-select">
-                    <option value="推床">推床</option>
-                    <option value="輪椅">輪椅</option>
-                  </select>
+                  <div
+                    @click="toggleTransportMethod(patient)"
+                    class="transport-display"
+                    :class="{ unconfirmed: patient.transportMethod === 'unconfirmed' }"
+                  >
+                    {{
+                      patient.transportMethod === 'unconfirmed'
+                        ? '推床 / 輪椅'
+                        : patient.transportMethod
+                    }}
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -122,6 +143,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  targetDate: {
+    type: String, // 格式 YYYY-MM-DD
+    required: true,
+  },
 })
 
 const emit = defineEmits(['close', 'save'])
@@ -132,7 +157,12 @@ const localPatients = ref([])
 watch(
   () => props.patientsOnSchedule,
   (newVal) => {
-    localPatients.value = JSON.parse(JSON.stringify(newVal))
+    localPatients.value = JSON.parse(JSON.stringify(newVal)).map((p) => ({
+      ...p,
+      transportMethod: ['推床', '輪椅'].includes(p.transportMethod)
+        ? p.transportMethod
+        : 'unconfirmed',
+    }))
   },
   { deep: true, immediate: true },
 )
@@ -145,34 +175,43 @@ const earlyShiftPatients = computed(() => localPatients.value.filter((p) => p.sh
 const noonShiftPatients = computed(() => localPatients.value.filter((p) => p.shift === 'noon'))
 const lateShiftPatients = computed(() => localPatients.value.filter((p) => p.shift === 'late'))
 
+// ✨ 2. 修改 todayDate 的計算邏輯
 const todayDate = computed(() => {
-  const today = new Date()
-  return today.toLocaleDateString('zh-TW', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  })
+  if (!props.targetDate) return ''
+  try {
+    // 直接使用傳入的 YYYY-MM-DD 字串
+    return props.targetDate.replace(/-/g, '/') // 將 2025-08-29 轉為 2025/08/29
+  } catch {
+    return props.targetDate // 如果出錯，直接顯示原始字串
+  }
 })
 
-// ✨ [核心修改] "儲存並列印" 函式現在是 async 且有錯誤處理
-const handleSaveAndPrint = async () => {
-  if (isSaving.value) return // 如果正在儲存，則不執行任何操作
+// ✨ [核心修改] 新增點擊切換狀態的函式
+function toggleTransportMethod(patient) {
+  const currentMethod = patient.transportMethod
+  if (currentMethod === 'unconfirmed' || currentMethod === '輪椅') {
+    patient.transportMethod = '推床'
+  } else if (currentMethod === '推床') {
+    patient.transportMethod = '輪椅'
+  }
+}
 
+// ✨ [核心修改] handleSaveAndPrint 保持不變，但現在更有意義，因為 'unconfirmed' 狀態只在初始時存在
+const handleSaveAndPrint = async () => {
+  if (isSaving.value) return
   isSaving.value = true
   try {
-    // 1. 呼叫父元件的儲存函式，並等待它完成
-    await emit('save', localPatients.value)
+    const patientsToSave = localPatients.value.map((p) => ({
+      ...p,
+      transportMethod: p.transportMethod === 'unconfirmed' ? '推床' : p.transportMethod, // ✨ 優化：如果使用者沒點過，直接存為預設的 '推床'
+    }))
 
-    // 2. 只有在儲存成功後，才繼續執行列印
-    console.log('Save successful, proceeding to print.')
-    await nextTick() // 確保 DOM 更新
+    await emit('save', patientsToSave)
+    await nextTick()
     printContent()
   } catch (error) {
-    // 3. 如果父元件的儲存函式拋出錯誤，就在這裡捕獲
     console.error('Save operation failed, printing is cancelled.', error)
-    // 此時父元件應該已經顯示了錯誤提示，這裡可以不再重複提示
   } finally {
-    // 4. 無論成功或失敗，最後都要重設按鈕狀態
     isSaving.value = false
   }
 }
@@ -359,6 +398,42 @@ const printContent = () => {
 }
 .btn-primary-dialog:hover {
   background-color: #0056b3;
+}
+
+.transport-display {
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid #ced4da; /* 預設顯示邊框，讓它看起來像個按鈕 */
+  background-color: #f8f9fa;
+  transition: all 0.2s;
+  min-width: 80px;
+  text-align: center;
+  font-weight: 500;
+}
+
+.transport-display:hover {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+}
+
+/* ✨ 新增：為未確認狀態增加特殊樣式 */
+.transport-display.unconfirmed {
+  color: #6c757d;
+  font-style: italic;
+}
+
+/* 列印時的樣式可以簡化 */
+@media print {
+  body.printing-rounds-dialog .transport-display {
+    padding: 0;
+    font-size: inherit;
+    font-family: inherit;
+    text-align: center;
+    border: none;
+    background: none;
+    color: black !important;
+  }
 }
 
 /* 列印專用樣式 */

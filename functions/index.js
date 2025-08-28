@@ -1833,3 +1833,163 @@ exports.processOrders = onCall(
     }
   },
 )
+
+// ===================================================================
+// Daily Injection Calculation Function (每日應打針劑計算函式) - v2.0 (前端驅動)
+// ===================================================================
+
+exports.getDailyInjections = onCall(
+  {
+    timeoutSeconds: 300,
+    memory: '1GiB',
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
+    }
+
+    const { targetDate, patientIds } = request.data
+    if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      throw new HttpsError('invalid-argument', '請提供有效的目標日期 (格式 YYYY-MM-DD)。')
+    }
+
+    // ✨ [核心修正 1] 現在 patientIds 是必要參數
+    if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
+      logger.info(`[getDailyInjections V2] 未提供病人ID列表，返回空結果。`)
+      return { success: true, targetDate, injections: [] }
+    }
+
+    // ✨ [核心修正 2] 增加分塊查詢，即使護理師照顧超過30人也能運作
+    if (patientIds.length > 30) {
+      throw new HttpsError('invalid-argument', '單次查詢的病人數不能超過30人。')
+      // 未來可以實作 chunking:
+      // const chunks = [];
+      // for (let i = 0; i < patientIds.length; i += 30) {
+      //   chunks.push(patientIds.slice(i, i + 30));
+      // }
+      // ... 然後對每個 chunk 執行查詢並合併結果 ...
+    }
+
+    logger.info(
+      `[getDailyInjections V2] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
+    )
+
+    try {
+      // --- 步驟 1: 直接根據前端傳來的病人 ID 列表，查詢所有相關藥囑 ---
+      const allOrdersQuery = db
+        .collection('medication_orders')
+        .where('patientId', 'in', patientIds) // 直接使用前端傳來的 ID
+        .where('orderType', '==', 'injection')
+
+      const allOrdersSnapshot = await allOrdersQuery.get()
+      const allOrdersHistory = allOrdersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+
+      // --- 步驟 2: 撈取當天的排班資料，以便獲取床號和班別 ---
+      const scheduleDoc = await db.collection('schedules').doc(targetDate).get()
+      const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule : {}
+
+      // 建立一個 patientId -> slotInfo 的映射表，方便快速查找
+      const patientSlotMap = new Map()
+      for (const shiftId in scheduleData) {
+        const slot = scheduleData[shiftId]
+        if (slot.patientId) {
+          patientSlotMap.set(slot.patientId, {
+            bedNum: shiftId.startsWith('peripheral')
+              ? `外${shiftId.split('-')[1]}`
+              : shiftId.split('-')[1],
+            shift: shiftId.split('-')[2],
+          })
+        }
+      }
+
+      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 (邏輯不變) ---
+      const finalInjectionList = []
+      const dateObj = new Date(targetDate + 'T00:00:00Z')
+      const targetDayOfWeek = dateObj.getUTCDay()
+      const targetMonth = dateObj.getUTCMonth() + 1
+      const targetDay = dateObj.getUTCDate()
+      const targetMonthDay = `${targetMonth}/${targetDay}`
+
+      for (const patientId of patientIds) {
+        const patientHistory = allOrdersHistory
+          .filter((order) => order.patientId === patientId)
+          .sort((a, b) => new Date(a.changeDate) - new Date(b.changeDate))
+
+        const effectiveOrdersMap = new Map()
+        for (const record of patientHistory) {
+          if (new Date(record.changeDate) <= dateObj) {
+            effectiveOrdersMap.set(record.orderCode, record)
+          }
+        }
+
+        const slotInfo = patientSlotMap.get(patientId) || { bedNum: 'N/A', shift: 'N/A' }
+
+        for (const order of effectiveOrdersMap.values()) {
+          const note = (order.note || '').toUpperCase().trim()
+          let shouldAdminister = false
+          let reason = ''
+
+          if (note.startsWith('QW')) {
+            const days = note
+              .substring(2)
+              .split('')
+              .map((d) => parseInt(d, 10))
+            const firebaseDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek
+            if (days.includes(firebaseDayOfWeek)) {
+              shouldAdminister = true
+              reason = `規則匹配: ${note}`
+            }
+          } else if (note.includes('/')) {
+            const dates = note.split(',').map((d) => d.trim())
+            if (dates.includes(targetMonthDay)) {
+              shouldAdminister = true
+              reason = `日期匹配: ${note}`
+            }
+          } else if (note === 'STAT') {
+            if (order.changeDate === targetDate) {
+              shouldAdminister = true
+              reason = 'STAT 醫囑'
+            }
+          }
+
+          if (shouldAdminister) {
+            finalInjectionList.push({
+              patientId: order.patientId,
+              patientName: order.patientName,
+              bedNum: slotInfo.bedNum,
+              shift: slotInfo.shift,
+              orderCode: order.orderCode,
+              orderName: order.orderName,
+              dose: order.dose,
+              note: order.note,
+              reason,
+            })
+          }
+        }
+      }
+
+      finalInjectionList.sort((a, b) => {
+        const shiftOrder = { early: 1, noon: 2, late: 3 }
+        if (a.shift !== b.shift) {
+          return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
+        }
+        const bedA = String(a.bedNum).startsWith('外')
+          ? 1000 + parseInt(String(a.bedNum).substring(1))
+          : parseInt(a.bedNum)
+        const bedB = String(b.bedNum).startsWith('外')
+          ? 1000 + parseInt(String(b.bedNum).substring(1))
+          : parseInt(b.bedNum)
+        return bedA - bedB
+      })
+
+      logger.info(
+        `[getDailyInjections V2] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
+      )
+
+      return { success: true, targetDate, injections: finalInjectionList }
+    } catch (error) {
+      logger.error(`[getDailyInjections V2] 處理針劑計算時發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
+    }
+  },
+)
