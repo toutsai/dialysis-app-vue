@@ -99,34 +99,51 @@ function formatTime(timestamp) {
   return timestamp.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
 }
 
-// ✨ 步驟 3: 修改核心的 fetchRecords 函式
+// ✨✨✨ 核心修正點：重構 fetchRecords 函式以支援分批查詢 ✨✨✨
 async function fetchRecords(date, patientIdList) {
   isLoading.value = true
   allRecords.value = []
 
-  // 如果沒有病人，就直接顯示空結果，避免 Firestore 查詢出錯
   if (!date || !patientIdList || patientIdList.length === 0) {
     isLoading.value = false
     return
   }
 
-  // Firestore 的 'in' 查詢一次最多只能有 10 個 ID，如果超過需要分批查詢
-  // 為求簡單，我們先假設不會超過 10 個，未來可擴充
-  if (patientIdList.length > 30) {
-    console.warn("查詢的病患數量超過30人，Firestore 'in' 查詢可能失敗。")
-    // 未來需要實作分批查詢
-  }
-
   try {
-    const records = await conditionRecordsApi.fetchAll([
-      where('recordDate', '==', date),
-      // 核心修改：查詢 patientId 在我們傳入的列表中的文件
-      where('patientId', 'in', patientIdList),
-      orderBy('createdAt', 'asc'),
-    ])
-    allRecords.value = records
+    // 1. 將 patientIdList 切割成多個小於等於 30 的陣列
+    const chunks = []
+    for (let i = 0; i < patientIdList.length; i += 30) {
+      chunks.push(patientIdList.slice(i, i + 30))
+    }
+
+    console.log(`[Records] 病人總數 ${patientIdList.length} 人，將分 ${chunks.length} 批次查詢。`)
+
+    // 2. 為每一個小陣列建立一個查詢 Promise
+    const promises = chunks.map((chunk) => {
+      // 確保即使只有一個小陣列，查詢邏輯也一樣
+      return conditionRecordsApi.fetchAll([
+        where('recordDate', '==', date),
+        where('patientId', 'in', chunk),
+      ])
+    })
+
+    // 3. 使用 Promise.all 等待所有的查詢都完成
+    const chunkResults = await Promise.all(promises)
+
+    // 4. 將所有批次的查詢結果合併成一個陣列
+    const combinedRecords = chunkResults.flat()
+
+    // 5. 對合併後的結果進行排序
+    combinedRecords.sort((a, b) => {
+      const timeA = a.createdAt?.toDate() || 0
+      const timeB = b.createdAt?.toDate() || 0
+      return timeA - timeB
+    })
+
+    allRecords.value = combinedRecords
   } catch (error) {
-    console.error(`讀取 ${date} 的病情紀錄失敗:`, error)
+    console.error(`讀取 ${date} 的病情紀錄失敗 (可能是分批查詢錯誤):`, error)
+    // 這裡可以加上更友善的錯誤提示給使用者
   } finally {
     isLoading.value = false
   }
