@@ -1045,6 +1045,7 @@ const nurseNameList = [
   '吳思婷',
   '吳幸美',
   '林芳羽',
+  '蔡靜怡',
 ]
 const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
 const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
