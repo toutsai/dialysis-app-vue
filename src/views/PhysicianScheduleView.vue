@@ -24,8 +24,22 @@
       </div>
     </header>
 
+    <!-- ✨✨✨ 結構修正點 ✨✨✨ -->
     <div class="tabs-container">
-      <a class="tab-link active">洗腎室/ICU 查房</a>
+      <div class="tabs-left">
+        <a
+          class="tab-link"
+          :class="{ active: activeTab === 'dialysis' }"
+          @click="activeTab = 'dialysis'"
+          >洗腎室/ICU 查房</a
+        >
+        <a
+          class="tab-link"
+          :class="{ active: activeTab === 'consultation' }"
+          @click="activeTab = 'consultation'"
+          >腎臟科會診</a
+        >
+      </div>
       <div class="mobile-view-toggle">
         <button :class="{ active: mobileDisplayMode === 'day' }" @click="mobileDisplayMode = 'day'">
           <i class="fas fa-list"></i> 日曆
@@ -42,142 +56,304 @@
     <main class="schedule-content new-layout">
       <!-- 左欄：班表 -->
       <div class="schedule-grid-container">
-        <!-- 桌機/行動版週曆視圖 -->
-        <div class="desktop-view" :class="{ 'mobile-week-view': mobileDisplayMode === 'week' }">
-          <table v-if="!isLoading" class="schedule-table weekly-grid">
-            <thead>
-              <tr>
-                <th class="shift-header-cell"></th>
-                <th>一</th>
-                <th>二</th>
-                <th>三</th>
-                <th>四</th>
-                <th>五</th>
-                <th class="weekend">六</th>
-                <th class="weekend">日</th>
-              </tr>
-            </thead>
-            <tbody v-for="(week, weekIndex) in weeklyData" :key="weekIndex">
-              <tr class="date-row">
-                <td class="shift-header-cell">日期</td>
-                <td
-                  v-for="(day, dayIndex) in week"
-                  :key="day.fullDate || `empty-${weekIndex}-${dayIndex}`"
-                  :class="getDayClass(day)"
-                  class="cell-day"
-                >
-                  <span v-if="day.day">{{ selectedMonth }}/{{ day.day }}</span>
-                </td>
-              </tr>
-              <tr class="shift-row">
-                <td class="shift-header-cell">早班</td>
-                <td
-                  v-for="(day, dayIndex) in week"
-                  :key="day.fullDate || `empty-early-${weekIndex}-${dayIndex}`"
-                  :class="[getPhysicianClass(day, 'early'), getShiftCellClass(day)]"
-                >
-                  <select
-                    v-if="day.day && scheduleData[day.day]"
-                    v-model="scheduleData[day.day].early.physicianId"
-                    @change="checkClinicConflict($event, day, 'early')"
-                    class="physician-select"
+        <!-- ========================== -->
+        <!--   洗腎室/ICU 查房班表      -->
+        <!-- ========================== -->
+        <div v-if="activeTab === 'dialysis'">
+          <!-- 桌機/行動版週曆視圖 (查房) -->
+          <div class="desktop-view" :class="{ 'mobile-week-view': mobileDisplayMode === 'week' }">
+            <table v-if="!isLoading" class="schedule-table weekly-grid">
+              <thead>
+                <tr>
+                  <th class="shift-header-cell"></th>
+                  <th>一</th>
+                  <th>二</th>
+                  <th>三</th>
+                  <th>四</th>
+                  <th>五</th>
+                  <th class="weekend">六</th>
+                  <th class="weekend">日</th>
+                </tr>
+              </thead>
+              <tbody v-for="(week, weekIndex) in weeklyData" :key="`dialysis-week-${weekIndex}`">
+                <tr class="date-row">
+                  <td class="shift-header-cell">日期</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `dialysis-empty-${weekIndex}-${dayIndex}`"
+                    :class="getDayClass(day)"
+                    class="cell-day"
                   >
-                    <option :value="null">--</option>
-                    <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
-                      {{ getDisplayName(doc) }}
-                    </option>
-                  </select>
-                  <span class="mobile-readonly-text">{{
-                    getPhysicianDisplayName(day, 'early')
-                  }}</span>
-                </td>
-              </tr>
-              <tr class="shift-row">
-                <td class="shift-header-cell">午班</td>
-                <td
-                  v-for="(day, dayIndex) in week"
-                  :key="day.fullDate || `empty-noon-${weekIndex}-${dayIndex}`"
-                  :class="[getPhysicianClass(day, 'noon'), getShiftCellClass(day)]"
-                >
-                  <select
-                    v-if="day.day && scheduleData[day.day]"
-                    v-model="scheduleData[day.day].noon.physicianId"
-                    @change="checkClinicConflict($event, day, 'noon')"
-                    class="physician-select"
+                    <span v-if="day.day">{{ selectedMonth }}/{{ day.day }}</span>
+                  </td>
+                </tr>
+                <tr class="shift-row">
+                  <td class="shift-header-cell">早班</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `dialysis-empty-early-${weekIndex}-${dayIndex}`"
+                    :class="[getPhysicianClass(day, 'early', 'dialysis'), getShiftCellClass(day)]"
                   >
-                    <option :value="null">--</option>
-                    <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
-                      {{ getDisplayName(doc) }}
-                    </option>
-                  </select>
-                  <span class="mobile-readonly-text">{{
-                    getPhysicianDisplayName(day, 'noon')
-                  }}</span>
-                </td>
-              </tr>
-              <tr class="shift-row">
-                <td class="shift-header-cell">夜班</td>
-                <td
-                  v-for="(day, dayIndex) in week"
-                  :key="day.fullDate || `empty-late-${weekIndex}-${dayIndex}`"
-                  :class="[getPhysicianClass(day, 'late'), getShiftCellClass(day)]"
-                >
-                  <select
-                    v-if="day.day && scheduleData[day.day]"
-                    v-model="scheduleData[day.day].late.physicianId"
-                    @change="checkClinicConflict($event, day, 'late')"
-                    class="physician-select"
+                    <select
+                      v-if="day.day && scheduleData[day.day]"
+                      v-model="scheduleData[day.day].early.physicianId"
+                      @change="checkClinicConflict($event, day, 'early')"
+                      class="physician-select"
+                    >
+                      <option :value="null">--</option>
+                      <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                        {{ getDisplayName(doc) }}
+                      </option>
+                    </select>
+                    <span class="mobile-readonly-text">{{
+                      getPhysicianDisplayName(day, 'early', 'dialysis')
+                    }}</span>
+                  </td>
+                </tr>
+                <tr class="shift-row">
+                  <td class="shift-header-cell">午班</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `dialysis-empty-noon-${weekIndex}-${dayIndex}`"
+                    :class="[getPhysicianClass(day, 'noon', 'dialysis'), getShiftCellClass(day)]"
                   >
-                    <option :value="null">--</option>
-                    <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
-                      {{ getDisplayName(doc) }}
-                    </option>
-                  </select>
-                  <span class="mobile-readonly-text">{{
-                    getPhysicianDisplayName(day, 'late')
+                    <select
+                      v-if="day.day && scheduleData[day.day]"
+                      v-model="scheduleData[day.day].noon.physicianId"
+                      @change="checkClinicConflict($event, day, 'noon')"
+                      class="physician-select"
+                    >
+                      <option :value="null">--</option>
+                      <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                        {{ getDisplayName(doc) }}
+                      </option>
+                    </select>
+                    <span class="mobile-readonly-text">{{
+                      getPhysicianDisplayName(day, 'noon', 'dialysis')
+                    }}</span>
+                  </td>
+                </tr>
+                <tr class="shift-row">
+                  <td class="shift-header-cell">夜班</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `dialysis-empty-late-${weekIndex}-${dayIndex}`"
+                    :class="[getPhysicianClass(day, 'late', 'dialysis'), getShiftCellClass(day)]"
+                  >
+                    <select
+                      v-if="day.day && scheduleData[day.day]"
+                      v-model="scheduleData[day.day].late.physicianId"
+                      @change="checkClinicConflict($event, day, 'late')"
+                      class="physician-select"
+                    >
+                      <option :value="null">--</option>
+                      <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                        {{ getDisplayName(doc) }}
+                      </option>
+                    </select>
+                    <span class="mobile-readonly-text">{{
+                      getPhysicianDisplayName(day, 'late', 'dialysis')
+                    }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 行動版日曆列表視圖 (查房) -->
+          <div class="mobile-day-view" v-if="mobileDisplayMode === 'day'">
+            <div
+              v-for="day in dailyData"
+              :key="`dialysis-day-${day.fullDate}`"
+              class="mobile-day-card"
+              :class="getDayClass(day)"
+            >
+              <div class="mobile-day-header">
+                <span class="date">{{ selectedMonth }}/{{ day.day }}</span>
+                <span class="weekday">{{ getWeekday(day.fullDate) }}</span>
+              </div>
+              <div class="mobile-day-shifts">
+                <div class="mobile-shift-row" :class="getPhysicianClass(day, 'early', 'dialysis')">
+                  <span class="mobile-shift-label">早</span
+                  ><span class="mobile-physician-name">{{
+                    getPhysicianDisplayName(day, 'early', 'dialysis')
                   }}</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <!-- 行動版日曆列表視圖 -->
-        <div class="mobile-day-view" v-if="mobileDisplayMode === 'day'">
-          <div
-            v-for="day in dailyData"
-            :key="day.fullDate"
-            class="mobile-day-card"
-            :class="getDayClass(day)"
-          >
-            <div class="mobile-day-header">
-              <span class="date">{{ selectedMonth }}/{{ day.day }}</span>
-              <span class="weekday">{{ getWeekday(day.fullDate) }}</span>
+                </div>
+                <div class="mobile-shift-row" :class="getPhysicianClass(day, 'noon', 'dialysis')">
+                  <span class="mobile-shift-label">午</span
+                  ><span class="mobile-physician-name">{{
+                    getPhysicianDisplayName(day, 'noon', 'dialysis')
+                  }}</span>
+                </div>
+                <div class="mobile-shift-row" :class="getPhysicianClass(day, 'late', 'dialysis')">
+                  <span class="mobile-shift-label">晚</span
+                  ><span class="mobile-physician-name">{{
+                    getPhysicianDisplayName(day, 'late', 'dialysis')
+                  }}</span>
+                </div>
+              </div>
             </div>
-            <div class="mobile-day-shifts">
-              <div class="mobile-shift-row" :class="getPhysicianClass(day, 'early')">
-                <span class="mobile-shift-label">早</span
-                ><span class="mobile-physician-name">{{
-                  getPhysicianDisplayName(day, 'early')
-                }}</span>
+          </div>
+        </div>
+
+        <!-- ========================== -->
+        <!--     腎臟科會診班表         -->
+        <!-- ========================== -->
+        <div v-if="activeTab === 'consultation'">
+          <!-- 桌機/行動版週曆視圖 (會診) -->
+          <div class="desktop-view" :class="{ 'mobile-week-view': mobileDisplayMode === 'week' }">
+            <table v-if="!isLoading" class="schedule-table weekly-grid">
+              <thead>
+                <tr>
+                  <th class="shift-header-cell"></th>
+                  <th>一</th>
+                  <th>二</th>
+                  <th>三</th>
+                  <th>四</th>
+                  <th>五</th>
+                  <th class="weekend">六</th>
+                  <th class="weekend">日</th>
+                </tr>
+              </thead>
+              <tbody v-for="(week, weekIndex) in weeklyData" :key="`consult-week-${weekIndex}`">
+                <tr class="date-row">
+                  <td class="shift-header-cell">日期</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `consult-empty-${weekIndex}-${dayIndex}`"
+                    :class="getDayClass(day)"
+                    class="cell-day"
+                  >
+                    <span v-if="day.day">{{ selectedMonth }}/{{ day.day }}</span>
+                  </td>
+                </tr>
+                <tr class="shift-row">
+                  <td class="shift-header-cell">上午</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `consult-empty-morning-${weekIndex}-${dayIndex}`"
+                    :class="[
+                      getPhysicianClass(day, 'morning', 'consultation'),
+                      getShiftCellClass(day),
+                    ]"
+                  >
+                    <select
+                      v-if="day.day && consultationScheduleData[day.day]"
+                      v-model="consultationScheduleData[day.day].morning.physicianId"
+                      @change="checkClinicConflict($event, day, 'morning')"
+                      class="physician-select"
+                    >
+                      <option :value="null">--</option>
+                      <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                        {{ getDisplayName(doc) }}
+                      </option>
+                    </select>
+                    <span class="mobile-readonly-text">{{
+                      getPhysicianDisplayName(day, 'morning', 'consultation')
+                    }}</span>
+                  </td>
+                </tr>
+                <tr class="shift-row">
+                  <td class="shift-header-cell">下午</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `consult-empty-afternoon-${weekIndex}-${dayIndex}`"
+                    :class="[
+                      getPhysicianClass(day, 'afternoon', 'consultation'),
+                      getShiftCellClass(day),
+                    ]"
+                  >
+                    <select
+                      v-if="day.day && consultationScheduleData[day.day]"
+                      v-model="consultationScheduleData[day.day].afternoon.physicianId"
+                      @change="checkClinicConflict($event, day, 'afternoon')"
+                      class="physician-select"
+                    >
+                      <option :value="null">--</option>
+                      <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                        {{ getDisplayName(doc) }}
+                      </option>
+                    </select>
+                    <span class="mobile-readonly-text">{{
+                      getPhysicianDisplayName(day, 'afternoon', 'consultation')
+                    }}</span>
+                  </td>
+                </tr>
+                <tr class="shift-row">
+                  <td class="shift-header-cell">夜間(5pm~)</td>
+                  <td
+                    v-for="(day, dayIndex) in week"
+                    :key="day.fullDate || `consult-empty-night-${weekIndex}-${dayIndex}`"
+                    :class="[
+                      getPhysicianClass(day, 'night', 'consultation'),
+                      getShiftCellClass(day),
+                    ]"
+                  >
+                    <select
+                      v-if="day.day && consultationScheduleData[day.day]"
+                      v-model="consultationScheduleData[day.day].night.physicianId"
+                      @change="checkClinicConflict($event, day, 'night')"
+                      class="physician-select"
+                    >
+                      <option :value="null">--</option>
+                      <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                        {{ getDisplayName(doc) }}
+                      </option>
+                    </select>
+                    <span class="mobile-readonly-text">{{
+                      getPhysicianDisplayName(day, 'night', 'consultation')
+                    }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- 行動版日曆列表視圖 (會診) -->
+          <div class="mobile-day-view" v-if="mobileDisplayMode === 'day'">
+            <div
+              v-for="day in dailyData"
+              :key="`consult-day-${day.fullDate}`"
+              class="mobile-day-card"
+              :class="getDayClass(day)"
+            >
+              <div class="mobile-day-header">
+                <span class="date">{{ selectedMonth }}/{{ day.day }}</span>
+                <span class="weekday">{{ getWeekday(day.fullDate) }}</span>
               </div>
-              <div class="mobile-shift-row" :class="getPhysicianClass(day, 'noon')">
-                <span class="mobile-shift-label">午</span
-                ><span class="mobile-physician-name">{{
-                  getPhysicianDisplayName(day, 'noon')
-                }}</span>
-              </div>
-              <div class="mobile-shift-row" :class="getPhysicianClass(day, 'late')">
-                <span class="mobile-shift-label">晚</span
-                ><span class="mobile-physician-name">{{
-                  getPhysicianDisplayName(day, 'late')
-                }}</span>
+              <div class="mobile-day-shifts">
+                <div
+                  class="mobile-shift-row"
+                  :class="getPhysicianClass(day, 'morning', 'consultation')"
+                >
+                  <span class="mobile-shift-label">上</span
+                  ><span class="mobile-physician-name">{{
+                    getPhysicianDisplayName(day, 'morning', 'consultation')
+                  }}</span>
+                </div>
+                <div
+                  class="mobile-shift-row"
+                  :class="getPhysicianClass(day, 'afternoon', 'consultation')"
+                >
+                  <span class="mobile-shift-label">下</span
+                  ><span class="mobile-physician-name">{{
+                    getPhysicianDisplayName(day, 'afternoon', 'consultation')
+                  }}</span>
+                </div>
+                <div
+                  class="mobile-shift-row"
+                  :class="getPhysicianClass(day, 'night', 'consultation')"
+                >
+                  <span class="mobile-shift-label">夜</span
+                  ><span class="mobile-physician-name">{{
+                    getPhysicianDisplayName(day, 'night', 'consultation')
+                  }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- 右欄：所有輔助面板 -->
+      <!-- 右欄：所有輔助面板 (完全共用) -->
       <div class="panels-container">
         <!-- 1. 桌面版面板結構 (預設顯示) -->
         <div class="desktop-panels">
@@ -727,7 +903,7 @@ const physicianSchedulesApi = ApiManager('physician_schedules')
 const isLoading = ref(true)
 const selectedDate = ref(new Date())
 const availablePhysicians = ref([])
-const scheduleData = ref({})
+const scheduleData = ref({}) // 查房班表
 const scheduleNotes = ref('')
 const hasUnsavedChanges = ref(false)
 const physicianClinicSelections = ref({})
@@ -736,6 +912,10 @@ const statsViewMode = ref('monthly')
 const yearScheduleData = ref({})
 const mobileDisplayMode = ref('day')
 const activeMobilePanel = ref('physicians')
+
+// ✅ 管理頁籤和會診班表資料
+const activeTab = ref('dialysis') // 'dialysis' or 'consultation'
+const consultationScheduleData = ref({}) // 會診班表
 
 // --- 面板資料 (Refs) ---
 const bloodDrawDate1 = ref('')
@@ -834,7 +1014,10 @@ const weeklyData = computed(() => {
   daysInMonth.value.forEach((dayInfo, index) => {
     currentWeek.push({
       ...dayInfo,
-      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(dayInfo.day).padStart(2, '0')}`,
+      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(
+        2,
+        '0',
+      )}-${String(dayInfo.day).padStart(2, '0')}`,
     })
     if (currentWeek.length === 7 || index === daysInMonth.value.length - 1) {
       while (currentWeek.length < 7) {
@@ -857,6 +1040,7 @@ const scheduleStats = computed(() => {
       ytdHolidays: 0,
       ytdWeekends: 0,
     }
+    // 暫時只統計查房班，若要合併統計需要更複雜的邏輯
     const currentMonthData = scheduleData.value
     if (Object.keys(currentMonthData).length > 0) {
       daysInMonth.value.forEach((dayInfo) => {
@@ -886,7 +1070,10 @@ const scheduleStats = computed(() => {
         const date = new Date(year, monthNum - 1, day)
         const dayOfWeek = date.getDay()
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(
+          2,
+          '0',
+        )}`
         const isHoliday = monthHolidays.has(dateStr)
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (monthSchedule[day]?.[shift]?.physicianId === doc.id) {
@@ -920,20 +1107,19 @@ function toggleMobilePanel(panelName) {
     activeMobilePanel.value = panelName
   }
 }
+
 function getWeekday(dateString) {
   const date = new Date(dateString)
   return new Intl.DateTimeFormat('zh-TW', { weekday: 'long' }).format(date)
 }
 
-/**
- * ✨ 4. 新增：取得醫師顯示名稱的輔助函式 (給唯讀模式使用) ✨
- * @param {object} day - 日期物件
- * @param {string} shift - 班別 ('early', 'noon', 'late')
- * @returns {string} - 醫師的單字代號或 '--'
- */
-function getPhysicianDisplayName(day, shift) {
+function getPhysicianDisplayName(day, shift, scheduleType = 'dialysis') {
   if (!day || !day.day) return '--'
-  const physicianId = scheduleData.value[day.day]?.[shift]?.physicianId
+
+  const targetSchedule =
+    scheduleType === 'dialysis' ? scheduleData.value : consultationScheduleData.value
+  const physicianId = targetSchedule[day.day]?.[shift]?.physicianId
+
   if (physicianId) {
     const physician = availablePhysicians.value.find((doc) => doc.id === physicianId)
     return physician ? getDisplayName(physician) : '--'
@@ -965,6 +1151,7 @@ async function fetchPhysicians() {
     showAlert('錯誤', '無法從使用者列表讀取主治醫師資料。')
   }
 }
+
 function generateBlankSchedule(year, month, physicians) {
   const blankSchedule = {}
   const daysCount = new Date(year, month, 0).getDate()
@@ -992,6 +1179,38 @@ function generateBlankSchedule(year, month, physicians) {
   })
   return blankSchedule
 }
+
+function generateBlankConsultationSchedule(year, month, physicians) {
+  const blankSchedule = {}
+  const daysCount = new Date(year, month, 0).getDate()
+  for (let i = 1; i <= daysCount; i++) {
+    blankSchedule[i] = {
+      morning: { physicianId: null, name: null },
+      afternoon: { physicianId: null, name: null },
+      night: { physicianId: null, name: null },
+    }
+  }
+  physicians.forEach((physician) => {
+    if (
+      Array.isArray(physician.defaultConsultationSchedules) &&
+      physician.defaultConsultationSchedules.length > 0
+    ) {
+      physician.defaultConsultationSchedules.forEach((rule) => {
+        const [ruleDayOfWeek, ruleShift] = rule.split('-')
+        for (let day = 1; day <= daysCount; day++) {
+          const date = new Date(year, month - 1, day)
+          if (date.getDay() == ruleDayOfWeek) {
+            if (blankSchedule[day] && blankSchedule[day][ruleShift]) {
+              blankSchedule[day][ruleShift] = { physicianId: physician.id, name: physician.name }
+            }
+          }
+        }
+      })
+    }
+  })
+  return blankSchedule
+}
+
 async function loadScheduleForDate(date) {
   isLoading.value = true
   hasUnsavedChanges.value = false
@@ -1001,7 +1220,12 @@ async function loadScheduleForDate(date) {
   try {
     await fetchAllYearSchedules(year, month)
     const existingSchedule = await physicianSchedulesApi.fetchById(yearMonth)
+
     Object.keys(scheduleData.value).forEach((key) => delete scheduleData.value[key])
+    Object.keys(consultationScheduleData.value).forEach(
+      (key) => delete consultationScheduleData.value[key],
+    )
+
     const pdSelections = {}
     availablePhysicians.value.forEach((doc) => {
       pdSelections[doc.id] = [
@@ -1012,6 +1236,10 @@ async function loadScheduleForDate(date) {
     if (existingSchedule) {
       console.log(`[Schedule] 成功讀取 ${yearMonth} 的已存班表。`)
       Object.assign(scheduleData.value, { ...(existingSchedule.schedule || {}) })
+      Object.assign(consultationScheduleData.value, {
+        ...(existingSchedule.consultationSchedule || {}),
+      })
+
       scheduleNotes.value = existingSchedule.notes || ''
       const dates = existingSchedule.specialDates || {}
       bloodDrawDate1.value = dates.bloodDraw1 || ''
@@ -1036,6 +1264,10 @@ async function loadScheduleForDate(date) {
         scheduleData.value,
         generateBlankSchedule(year, month, availablePhysicians.value),
       )
+      Object.assign(
+        consultationScheduleData.value,
+        generateBlankConsultationSchedule(year, month, availablePhysicians.value),
+      )
       scheduleNotes.value = ''
       bloodDrawDate1.value = ''
       bloodDrawDate2.value = ''
@@ -1048,6 +1280,9 @@ async function loadScheduleForDate(date) {
     console.error(`讀取 ${yearMonth} 班表失敗:`, error)
     showAlert('讀取失敗', `讀取 ${yearMonth} 班表時發生錯誤。`)
     Object.keys(scheduleData.value).forEach((key) => delete scheduleData.value[key])
+    Object.keys(consultationScheduleData.value).forEach(
+      (key) => delete consultationScheduleData.value[key],
+    )
   } finally {
     isLoading.value = false
     nextTick(() => {
@@ -1105,8 +1340,21 @@ function checkClinicConflict(event, day, shift) {
   if (!physician) return
   const date = new Date(selectedYear.value, selectedMonth.value - 1, day.day)
   const dayOfWeek = date.getDay()
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
-  const currentShiftCode = { early: 'AM', noon: 'PM', late: 'NT' }[shift]
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(
+    2,
+    '0',
+  )}-${String(day.day).padStart(2, '0')}`
+
+  const shiftToCodeMapping = {
+    early: 'AM',
+    noon: 'PM',
+    late: 'NT',
+    morning: 'AM',
+    afternoon: 'PM',
+    night: 'NT',
+  }
+  const currentShiftCode = shiftToCodeMapping[shift]
+
   let conflictType = null
   const regularConflictCode = `${dayOfWeek === 0 ? 7 : dayOfWeek}-${currentShiftCode}`
   if ((physicianClinicSelections.value[newPhysicianId] || []).includes(regularConflictCode)) {
@@ -1120,14 +1368,17 @@ function checkClinicConflict(event, day, shift) {
     conflictType = 'PD 門診'
   }
   if (conflictType) {
-    const originalPhysicianId = scheduleData.value[day.day][shift].physicianId
+    const targetSchedule =
+      activeTab.value === 'dialysis' ? scheduleData.value : consultationScheduleData.value
+    const originalPhysicianId = targetSchedule[day.day][shift].physicianId
+
     confirmDialogTitle.value = '門診時間衝突'
     confirmDialogMessage.value = `提醒：${physician.name} 醫師在該時段有${conflictType}，您確定要排此班嗎？`
     confirmAction.value = () => {
       isConfirmDialogVisible.value = false
     }
     cancelAction.value = () => {
-      scheduleData.value[day.day][shift].physicianId = originalPhysicianId
+      targetSchedule[day.day][shift].physicianId = originalPhysicianId
       event.target.value = originalPhysicianId
       isConfirmDialogVisible.value = false
     }
@@ -1137,17 +1388,25 @@ function checkClinicConflict(event, day, shift) {
 function getDisplayName(physician) {
   return physician.name === '蔡亨政' ? '政' : physician.name.charAt(0)
 }
+
 function getPhysicianClassById(physicianId) {
-  return physicianClassMap.value.get(physicianId) || ''
-}
-function getPhysicianClass(day, shift) {
-  if (!day || !day.day) return ''
-  const physicianId = scheduleData.value[day.day]?.[shift]?.physicianId
   return physicianId ? physicianClassMap.value.get(physicianId) : ''
 }
+
+function getPhysicianClass(day, shift, scheduleType = 'dialysis') {
+  if (!day || !day.day) return ''
+  const targetSchedule =
+    scheduleType === 'dialysis' ? scheduleData.value : consultationScheduleData.value
+  const physicianId = targetSchedule[day.day]?.[shift]?.physicianId
+  return getPhysicianClassById(physicianId)
+}
+
 function getDayClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(
+    2,
+    '0',
+  )}-${String(day.day).padStart(2, '0')}`
   if (specialDatesSet.value.has(dateStr)) return 'is-special-date'
   if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday'
   if (day.isWeekend) return 'is-weekend'
@@ -1155,7 +1414,10 @@ function getDayClass(day) {
 }
 function getShiftCellClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(
+    2,
+    '0',
+  )}-${String(day.day).padStart(2, '0')}`
   if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday-text-only'
   if (day.isWeekend) return 'is-weekend-text-only'
   return ''
@@ -1194,6 +1456,7 @@ function saveScheduleOnly() {
     year: selectedYear.value,
     month: selectedMonth.value,
     schedule: {},
+    consultationSchedule: {},
     notes: scheduleNotes.value,
     specialDates: {
       bloodDraw1: bloodDrawDate1.value,
@@ -1210,6 +1473,7 @@ function saveScheduleOnly() {
       dataToSave.pdClinicHours[docId] = validPdHours
     }
   }
+  // 處理查房班表
   for (const day in scheduleData.value) {
     if (typeof scheduleData.value[day] !== 'object' || scheduleData.value[day] === null) {
       continue
@@ -1218,6 +1482,23 @@ function saveScheduleOnly() {
     for (const shift of ['early', 'noon', 'late']) {
       const physicianId = scheduleData.value[day][shift]?.physicianId || null
       dataToSave.schedule[day][shift] = {
+        physicianId: physicianId,
+        name: physicianMap.get(physicianId) || null,
+      }
+    }
+  }
+  // 處理會診班表
+  for (const day in consultationScheduleData.value) {
+    if (
+      typeof consultationScheduleData.value[day] !== 'object' ||
+      consultationScheduleData.value[day] === null
+    ) {
+      continue
+    }
+    dataToSave.consultationSchedule[day] = {}
+    for (const shift of ['morning', 'afternoon', 'night']) {
+      const physicianId = consultationScheduleData.value[day][shift]?.physicianId || null
+      dataToSave.consultationSchedule[day][shift] = {
         physicianId: physicianId,
         name: physicianMap.get(physicianId) || null,
       }
@@ -1300,6 +1581,13 @@ watch(
 )
 watch(
   scheduleData,
+  (newValue, oldValue) => {
+    if (!isLoading.value && Object.keys(oldValue).length > 0) hasUnsavedChanges.value = true
+  },
+  { deep: true },
+)
+watch(
+  consultationScheduleData,
   (newValue, oldValue) => {
     if (!isLoading.value && Object.keys(oldValue).length > 0) hasUnsavedChanges.value = true
   },
