@@ -152,8 +152,18 @@
             <thead>
               <tr>
                 <th class="col-bed">床號</th>
+                <!-- ✨ 步驟 1: 修改表頭，加入圖示按鈕 -->
                 <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
-                  {{ getShiftDisplayName(shiftCode) }}
+                  <div class="shift-header-content">
+                    <span>{{ getShiftDisplayName(shiftCode) }}</span>
+                    <button
+                      @click="showShiftRecordsSummary(shiftCode)"
+                      class="summary-icon-btn-table"
+                      title="查看此班紀錄"
+                    >
+                      📋
+                    </button>
+                  </div>
                 </th>
               </tr>
             </thead>
@@ -188,6 +198,15 @@
                           >📝</span
                         >
                         <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
+                        <span
+                          v-if="
+                            getPatientMode(`bed-${bedNum}-${shiftCode}`) &&
+                            getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
+                          "
+                          class="stats-special-mode"
+                        >
+                          ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
+                        </span>
                       </div>
                     </div>
                     <div class="patient-note">
@@ -240,6 +259,15 @@
                           >📝</span
                         >
                         <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
+                        <span
+                          v-if="
+                            getPatientMode(`peripheral-${i}-${shiftCode}`) &&
+                            getPatientMode(`peripheral-${i}-${shiftCode}`) !== 'HD'
+                          "
+                          class="stats-special-mode"
+                        >
+                          ({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})
+                        </span>
                       </div>
                     </div>
                     <div class="patient-ward-note">
@@ -393,6 +421,15 @@
                                 currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.patientId
                               "
                             />
+                            <span
+                              v-if="
+                                getPatientMode(`bed-${bedNum}-${shiftCode}`) &&
+                                getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
+                              "
+                              class="stats-special-mode-inline"
+                            >
+                              ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
+                            </span>
                           </div>
                         </div>
                         <span v-else class="empty-slot-placeholder">+</span>
@@ -520,7 +557,16 @@
                       class="patient-cell-layout"
                     >
                       <div class="patient-name-text">
-                        {{ getPatientName(`peripheral-${i}-${shiftCode}`) }}
+                        <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
+                        <span
+                          v-if="
+                            getPatientMode(`peripheral-${i}-${shiftCode}`) &&
+                            getPatientMode(`peripheral-${i}-${shiftCode}`) !== 'HD'
+                          "
+                          class="stats-special-mode-inline"
+                        >
+                          ({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})
+                        </span>
                       </div>
                       <div class="patient-icons-row">
                         <MemoIcon
@@ -552,8 +598,17 @@
           <thead>
             <tr>
               <th class="col-bed">床號</th>
-              <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
-                {{ getShiftDisplayName(shiftCode) }}
+              <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="`mobile-header-${shiftCode}`">
+                <div class="shift-header-content">
+                  <span>{{ getShiftDisplayName(shiftCode) }}</span>
+                  <button
+                    @click="showShiftRecordsSummary(shiftCode)"
+                    class="summary-icon-btn-table"
+                    title="查看此班紀錄"
+                  >
+                    📋
+                  </button>
+                </div>
               </th>
             </tr>
           </thead>
@@ -587,6 +642,15 @@
                         >📝</span
                       >
                       <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
+                      <span
+                        v-if="
+                          getPatientMode(`bed-${bedNum}-${shiftCode}`) &&
+                          getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
+                        "
+                        class="stats-special-mode"
+                      >
+                        ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
+                      </span>
                     </div>
                   </div>
                   <div class="patient-note">
@@ -639,6 +703,15 @@
                         >📝</span
                       >
                       <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
+                      <span
+                        v-if="
+                          getPatientMode(`peripheral-${i}-${shiftCode}`) &&
+                          getPatientMode(`peripheral-${i}-${shiftCode}`) !== 'HD'
+                        "
+                        class="stats-special-mode"
+                      >
+                        ({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})
+                      </span>
                     </div>
                   </div>
                   <div class="patient-ward-note">
@@ -732,6 +805,13 @@
       :target-date="formatDate(currentDate)"
       @close="isInpatientRoundsDialogVisible = false"
       @save="handleInpatientTransportUpdate"
+    />
+    <DailyRecordsSummaryDialog
+      :is-visible="isRecordsSummaryDialogVisible"
+      :target-date="formatDate(currentDate)"
+      :shift-code="shiftCodeForDialog"
+      :patient-ids="patientIdsForDialog"
+      @close="closeRecordsSummaryDialog"
     />
     <div class="print-only-view">
       <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
@@ -859,6 +939,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PatientDetailModal from '@/components/PatientDetailModal.vue'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
+import DailyRecordsSummaryDialog from '@/components/DailyRecordsSummaryDialog.vue'
 
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
@@ -939,6 +1020,10 @@ const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
 const isInpatientRoundsDialogVisible = ref(false)
+const isRecordsSummaryDialogVisible = ref(false)
+// ✨ 步驟 2: 修改 ref 名稱，使其更符合新邏輯
+const shiftCodeForDialog = ref(null)
+const patientIdsForDialog = ref([]) // 新增一個 ref 來存放病人 ID 列表
 
 // ✨ 新增
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
@@ -1129,6 +1214,13 @@ const todayInpatients = computed(() => {
 })
 
 // --- Functions ---
+function getPatientMode(shiftId) {
+  const patientId = currentRecord.schedule[shiftId]?.patientId
+  if (!patientId) return null
+  const patient = patientMap.value.get(patientId)
+  return patient?.mode || null
+}
+
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
@@ -1843,6 +1935,33 @@ function executeAutoAssignment() {
   showAlert('操作成功', '四個班次的自動分組已全部完成！請檢視結果並點擊「儲存」。')
 }
 
+// ✨ 步驟 3: 重構 showShiftRecordsSummary 函式
+function showShiftRecordsSummary(shiftCode) {
+  // 1. 收集該班別所有的病人 ID
+  const patientIds = new Set()
+  for (const shiftId in currentRecord.schedule) {
+    // 確保只處理當前點擊的班別
+    if (shiftId.endsWith(`-${shiftCode}`)) {
+      const slot = currentRecord.schedule[shiftId]
+      if (slot && slot.patientId) {
+        patientIds.add(slot.patientId)
+      }
+    }
+  }
+
+  // 2. 更新 ref 的值
+  shiftCodeForDialog.value = shiftCode
+  patientIdsForDialog.value = Array.from(patientIds) // 將 Set 轉換為 Array
+  isRecordsSummaryDialogVisible.value = true // 打開 Dialog
+}
+
+// ✨ 步驟 4: 重構關閉 Dialog 的函式
+function closeRecordsSummaryDialog() {
+  isRecordsSummaryDialogVisible.value = false
+  shiftCodeForDialog.value = null
+  patientIdsForDialog.value = [] // 關閉時清空
+}
+
 onMounted(async () => {
   isLoading.value = true
   await auth.waitForAuthInit()
@@ -1856,11 +1975,6 @@ watch(currentDate, (newDate, oldDate) => {
     loadDailyStaffInfo(newDate)
   }
 })
-
-// ✨ 方案一：以下函式和 ref 已被移除
-// const highlightedTeam = ref(null)
-// function toggleHighlight(...) { ... }
-// function isSlotHighlighted(...) { ... }
 </script>
 
 <style scoped>
@@ -2489,7 +2603,59 @@ button:disabled {
 .desktop-only :deep(.simplified-table td[class*='status-']) .patient-note {
   color: #dc3545;
 }
+/* ✨ 步驟 7: 為表格中的新圖示按鈕增加樣式 */
+.shift-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px; /* 班別名稱和圖示之間的間距 */
+}
 
+.summary-icon-btn-table {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1.2rem;
+  opacity: 0.6;
+  transition: all 0.2s;
+}
+
+.summary-icon-btn-table:hover {
+  opacity: 1;
+  transform: scale(1.1);
+}
+/* 用於臨床查閱模式和行動版 */
+.stats-special-mode {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 1px 5px;
+  background-color: var(--red-bg, #ffebee);
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 0.9em;
+  line-height: 1.2;
+}
+
+/* 用於排班操作模式，樣式微調以適應版面 */
+.stats-special-mode-inline {
+  display: inline-block;
+  vertical-align: baseline;
+  margin-left: 4px; /* 與姓名保持一點間距 */
+  color: #c62828;
+  font-weight: bold;
+  font-size: 0.9em;
+}
+
+/* 確保排班模式下的姓名和標籤能在同一行 */
+.patient-name-text {
+  display: flex;
+  align-items: baseline; /* 讓文字底部對齊 */
+  justify-content: center;
+  flex-wrap: nowrap; /* 防止換行 */
+}
 @media screen and (min-width: 993px) {
   .desktop-only .simplified-table td {
     padding: 0.6rem;
