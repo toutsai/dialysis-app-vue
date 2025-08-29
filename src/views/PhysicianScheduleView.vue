@@ -1355,11 +1355,10 @@ watch(
 .page-container {
   padding: 1rem;
   background-color: #f8f9fa;
-  /* ✨ 核心修改 1: 設定高度為視窗高度，並隱藏整個頁面的滾動條 */
   height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: hidden; /* 桌面版預設鎖定滾動 */
 }
 
 /* --- 頁首 --- */
@@ -1921,7 +1920,8 @@ tr.date-row {
 
   /* --- 調整整體佈局 --- */
   .page-container {
-    padding: 0.5rem;
+    height: auto; /* ✨ 新增規則 1: 讓頁面高度自動化 */
+    overflow: visible; /* ✨ 新增規則 2: 恢復頁面滾動 */
   }
   .page-header {
     flex-wrap: wrap;
@@ -1944,11 +1944,12 @@ tr.date-row {
     border: none;
     box-shadow: none;
     background-color: transparent;
-    overflow-y: visible;
+    /* overflow-y: visible; */ /* ✨✨✨ 核心修正點：刪除或註解掉這一行 ✨✨✨ */
   }
+
   .panels-container {
     padding-right: 0;
-    overflow-y: visible;
+    overflow-y: visible; /* 右側面板區塊維持 visible 是對的，因為我們希望它能完全展開 */
   }
 
   /* --- 視圖切換器 --- */
@@ -1974,12 +1975,17 @@ tr.date-row {
   }
 
   /* --- 班表顯示模式 --- */
+  /* 1. 先定義在行動版中，要顯示哪些區塊 */
+  .mobile-day-view,
+  .desktop-view.mobile-week-view {
+    display: block; /* 明確告訴瀏覽器要顯示它們 */
+  }
+
+  /* 2. 然後才定義要隱藏哪個區塊 */
   .desktop-view:not(.mobile-week-view) {
     display: none;
   }
-  .mobile-day-view {
-    display: block;
-  }
+
   .desktop-view.mobile-week-view {
     overflow-x: auto;
   }
