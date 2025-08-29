@@ -1,6 +1,6 @@
-<!-- src/components/UserFormModal.vue (已整合預設班表設定) -->
+<!-- src/components/UserFormModal.vue (已整合預設會診班表) -->
 <script setup>
-import { watch, reactive, computed } from 'vue' // ✨ 1. 引入 computed
+import { watch, reactive, computed } from 'vue'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -10,7 +10,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'save'])
 
-// ✨ 2. 在預設表單結構中，加入 defaultSchedules 陣列
 const defaultFormState = {
   id: '',
   name: '',
@@ -23,6 +22,8 @@ const defaultFormState = {
   phone: '',
   clinicHours: [],
   defaultSchedules: [],
+  // ✅ 步驟 1: 在表單預設結構中，加入 defaultConsultationSchedules
+  defaultConsultationSchedules: [],
 }
 
 const form = reactive({ ...defaultFormState })
@@ -35,18 +36,35 @@ const roles = [
   { value: 'viewer', text: 'Viewer (護理師/書記)' },
 ]
 
-// ✨ 3. 定義預設班表的選項資料，供 template 使用
+// 查房班表選項 (維持不變)
 const scheduleOptions = computed(() => {
   const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日']
   const shifts = { early: '早', noon: '午', late: '夜' }
   const options = []
-  // dayOfWeek: 0=週日, 1=週一, ..., 6=週六 (符合 JS Date.getDay() 的回傳值)
   for (let i = 0; i < days.length; i++) {
     const dayOfWeek = (i + 1) % 7
     for (const shiftCode in shifts) {
       options.push({
-        value: `${dayOfWeek}-${shiftCode}`, // e.g., "1-early"
-        label: `${days[i]}${shifts[shiftCode]}`, // e.g., "週一早"
+        value: `${dayOfWeek}-${shiftCode}`,
+        label: `${days[i]}${shifts[shiftCode]}`,
+      })
+    }
+  }
+  return options
+})
+
+// ✅ 步驟 2: 新增「會診班表」的選項資料
+const consultationScheduleOptions = computed(() => {
+  const days = ['週一', '週二', '週三', '週四', '週五', '週六', '週日']
+  // 根據您的班表圖，欄位是上午、下午、夜間
+  const shifts = { morning: '上午', afternoon: '下午', night: '夜間' }
+  const options = []
+  for (let i = 0; i < days.length; i++) {
+    const dayOfWeek = (i + 1) % 7
+    for (const shiftCode in shifts) {
+      options.push({
+        value: `${dayOfWeek}-${shiftCode}`, // e.g., "1-morning"
+        label: `${days[i]}${shifts[shiftCode]}`, // e.g., "週一上午"
       })
     }
   }
@@ -58,17 +76,17 @@ watch(
   (newVal) => {
     if (newVal) {
       if (props.isEditing && props.user) {
-        // ✨ 4. 在編輯模式下，確保能正確載入已儲存的 defaultSchedules
         Object.assign(form, defaultFormState, {
           ...props.user,
           staffId: props.user.staffId || '',
           phone: props.user.phone || '',
           clinicHours: props.user.clinicHours || [],
-          defaultSchedules: props.user.defaultSchedules || [], // 確保有預設空陣列
+          defaultSchedules: props.user.defaultSchedules || [],
+          // ✅ 步驟 3: 在編輯模式下，確保能正確載入已儲存的 defaultConsultationSchedules
+          defaultConsultationSchedules: props.user.defaultConsultationSchedules || [],
         })
         form.password = ''
       } else {
-        // 新增模式，重置為預設狀態
         Object.assign(form, defaultFormState)
       }
     }
@@ -78,12 +96,13 @@ watch(
 watch(
   () => form.title,
   (newTitle) => {
-    // ✨ 5. 當職稱不是主治醫師時，清空所有醫師相關欄位
     if (newTitle !== '主治醫師') {
       form.staffId = ''
       form.phone = ''
       form.clinicHours = []
-      form.defaultSchedules = [] // 清空預設班表
+      form.defaultSchedules = []
+      // ✅ 步驟 4: 當職稱不是主治醫師時，也清空預設會診班表
+      form.defaultConsultationSchedules = []
     }
   },
 )
@@ -94,12 +113,13 @@ function handleSubmit() {
     delete dataToSave.password
   }
 
-  // ✨ 6. 在儲存時，如果不是主治醫師，移除所有醫師相關欄位
   if (dataToSave.title !== '主治醫師') {
     delete dataToSave.staffId
     delete dataToSave.phone
     delete dataToSave.clinicHours
-    delete dataToSave.defaultSchedules // 移除預設班表
+    delete dataToSave.defaultSchedules
+    // ✅ 步驟 5: 在儲存時，如果不是主治醫師，也移除預設會診班表欄位
+    delete dataToSave.defaultConsultationSchedules
   }
   emit('save', dataToSave)
 }
@@ -114,6 +134,7 @@ function handleSubmit() {
       </header>
       <main class="modal-body">
         <form @submit.prevent="handleSubmit" class="user-form">
+          <!-- ... 其他表單欄位 (姓名、職稱、帳號密碼等) 維持不變 ... -->
           <div class="form-row">
             <div class="form-group">
               <label for="name">姓名</label>
@@ -182,9 +203,9 @@ function handleSubmit() {
               </div>
             </div>
 
-            <!-- ✨ 7. 新增：預設班表設定 UI ✨ -->
+            <!-- 預設查房班表設定 UI (維持不變) -->
             <div class="form-group">
-              <label>預設班表</label>
+              <label>預設查房班表 (洗腎室/ICU)</label>
               <div class="schedule-checkbox-group">
                 <div v-for="option in scheduleOptions" :key="option.value" class="checkbox-wrapper">
                   <input
@@ -194,6 +215,26 @@ function handleSubmit() {
                     v-model="form.defaultSchedules"
                   />
                   <label :for="`sched-${option.value}`">{{ option.label }}</label>
+                </div>
+              </div>
+            </div>
+
+            <!-- ✅ 步驟 6: 新增「預設會診班表」的 UI -->
+            <div class="form-group">
+              <label>預設會診班表</label>
+              <div class="schedule-checkbox-group">
+                <div
+                  v-for="option in consultationScheduleOptions"
+                  :key="option.value"
+                  class="checkbox-wrapper"
+                >
+                  <input
+                    type="checkbox"
+                    :id="`consult-sched-${option.value}`"
+                    :value="option.value"
+                    v-model="form.defaultConsultationSchedules"
+                  />
+                  <label :for="`consult-sched-${option.value}`">{{ option.label }}</label>
                 </div>
               </div>
             </div>
@@ -208,10 +249,9 @@ function handleSubmit() {
   </div>
 </template>
 
+<!-- Style 部分完全不需要修改，因為我們複用了 schedule-checkbox-group 的樣式 -->
 <style scoped>
-/* ================================== */
-/*         通用及桌面版樣式            */
-/* ================================== */
+/* ... 您的所有 CSS 樣式 ... */
 .modal-overlay {
   position: fixed;
   top: 0;
