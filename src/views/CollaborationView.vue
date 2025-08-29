@@ -590,7 +590,7 @@
 
     <TaskCreateDialog
       :is-visible="isCreateModalVisible"
-      :all-patients="patientsForList"
+      :all-patients="patientStore.allPatients"
       :preselected-patient="selectedPatient"
       @close="isCreateModalVisible = false"
       @submit="handleTaskCreated"
