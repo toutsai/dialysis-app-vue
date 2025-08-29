@@ -78,13 +78,11 @@
           </button>
         </div>
         <div class="controls-right">
-          <!-- ✨ 新增：每日負責人資訊面板 ✨ -->
           <div class="daily-staff-panel horizontal">
             <div class="staff-item shift-early">
               <span class="staff-label">早班</span>
               <div class="staff-details">
                 <div class="staff-name">
-                  <!-- ✨ 在姓名前加上 "醫師" ✨ -->
                   <span class="staff-job-title">醫師</span>
                   {{ dailyPhysicians.early?.name || '--' }}
                 </div>
@@ -99,7 +97,6 @@
               <span class="staff-label">午班</span>
               <div class="staff-details">
                 <div class="staff-name">
-                  <!-- ✨ 在姓名前加上 "醫師" ✨ -->
                   <span class="staff-job-title">醫師</span>
                   {{ dailyPhysicians.noon?.name || '--' }}
                 </div>
@@ -114,7 +111,6 @@
               <span class="staff-label">晚班</span>
               <div class="staff-details">
                 <div class="staff-name">
-                  <!-- ✨ 在姓名前加上 "醫師" ✨ -->
                   <span class="staff-job-title">醫師</span>
                   {{ dailyPhysicians.late?.name || '--' }}
                 </div>
@@ -134,7 +130,6 @@
             </div>
           </div>
 
-          <!-- 原本的統計工具列 -->
           <StatsToolbar
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
@@ -152,7 +147,6 @@
             <thead>
               <tr>
                 <th class="col-bed">床號</th>
-                <!-- ✨ 步驟 1: 修改表頭，加入圖示按鈕 -->
                 <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
                   <div class="shift-header-content">
                     <span>{{ getShiftDisplayName(shiftCode) }}</span>
@@ -174,19 +168,34 @@
                   v-for="shiftCode in ORDERED_SHIFT_CODES"
                   :key="shiftCode"
                   :class="getPatientCellStyle(`bed-${bedNum}-${shiftCode}`)"
-                  @click="handleSimplifiedCellClick(`bed-${bedNum}-${shiftCode}`)"
                 >
                   <div
                     v-if="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]"
                     class="patient-info-cell"
                   >
                     <div class="patient-mrn-name">
-                      <span>{{
-                        patientMap.get(
-                          currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
-                        )?.medicalRecordNumber
-                      }}</span>
-                      <div class="patient-name-wrapper">
+                      <span
+                        class="medical-record-number"
+                        @click.stop="
+                          copyMedicalRecordNumber(
+                            patientMap.get(
+                              currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                            )?.medicalRecordNumber,
+                          )
+                        "
+                        title="點擊以複製病歷號"
+                      >
+                        {{
+                          patientMap.get(
+                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                          )?.medicalRecordNumber
+                        }}
+                      </span>
+                      <div
+                        class="patient-name-wrapper"
+                        @click="handleSimplifiedCellClick(`bed-${bedNum}-${shiftCode}`)"
+                        title="點擊查看詳細資料"
+                      >
                         <span
                           v-if="
                             patientHasNotification.has(
@@ -213,14 +222,14 @@
                       <span
                         v-if="
                           getPatientWardNumber(
-                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
                           )
                         "
                         class="ward-number-display"
                       >
                         [{{
                           getPatientWardNumber(
-                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                            currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
                           )
                         }}]
                       </span>
@@ -235,19 +244,34 @@
                   v-for="shiftCode in ORDERED_SHIFT_CODES"
                   :key="shiftCode"
                   :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
-                  @click="handleSimplifiedCellClick(`peripheral-${i}-${shiftCode}`)"
                 >
                   <div
                     v-if="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]"
                     class="patient-info-cell"
                   >
                     <div class="patient-mrn-name">
-                      <span>{{
-                        patientMap.get(
-                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
-                        )?.medicalRecordNumber
-                      }}</span>
-                      <div class="patient-name-wrapper">
+                      <span
+                        class="medical-record-number"
+                        @click.stop="
+                          copyMedicalRecordNumber(
+                            patientMap.get(
+                              currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                            )?.medicalRecordNumber,
+                          )
+                        "
+                        title="點擊以複製病歷號"
+                      >
+                        {{
+                          patientMap.get(
+                            currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                          )?.medicalRecordNumber
+                        }}
+                      </span>
+                      <div
+                        class="patient-name-wrapper"
+                        @click="handleSimplifiedCellClick(`peripheral-${i}-${shiftCode}`)"
+                        title="點擊查看詳細資料"
+                      >
                         <span
                           v-if="
                             patientHasNotification.has(
@@ -382,7 +406,16 @@
                           class="patient-cell-layout"
                         >
                           <div class="patient-name-text">
-                            {{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}
+                            <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
+                            <span
+                              v-if="
+                                getPatientMode(`bed-${bedNum}-${shiftCode}`) &&
+                                getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
+                              "
+                              class="stats-special-mode-inline"
+                            >
+                              ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
+                            </span>
                           </div>
                           <div class="patient-icons-row">
                             <span
@@ -421,15 +454,6 @@
                                 currentRecord.schedule['bed-' + bedNum + '-' + shiftCode]?.patientId
                               "
                             />
-                            <span
-                              v-if="
-                                getPatientMode(`bed-${bedNum}-${shiftCode}`) &&
-                                getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
-                              "
-                              class="stats-special-mode-inline"
-                            >
-                              ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
-                            </span>
                           </div>
                         </div>
                         <span v-else class="empty-slot-placeholder">+</span>
@@ -626,10 +650,13 @@
                   class="patient-info-cell"
                 >
                   <div class="patient-mrn-name">
-                    <span>{{
-                      patientMap.get(currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId)
-                        ?.medicalRecordNumber
-                    }}</span>
+                    <span>
+                      {{
+                        patientMap.get(
+                          currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
+                        )?.medicalRecordNumber
+                      }}
+                    </span>
                     <div class="patient-name-wrapper">
                       <span
                         v-if="
@@ -686,11 +713,13 @@
                   class="patient-info-cell"
                 >
                   <div class="patient-mrn-name">
-                    <span>{{
-                      patientMap.get(
-                        currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
-                      )?.medicalRecordNumber
-                    }}</span>
+                    <span>
+                      {{
+                        patientMap.get(
+                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                        )?.medicalRecordNumber
+                      }}
+                    </span>
                     <div class="patient-name-wrapper">
                       <span
                         v-if="
@@ -790,6 +819,7 @@
       :patient="selectedPatientForDetail"
       :current-date="currentDate"
       :has-pending-memos="patientWithMemoIds.has(selectedPatientForDetail?.id)"
+      :patient-shift="shiftForDetailModal"
       @close="isDetailModalVisible = false"
       @record-updated="fetchRecentRecords"
     />
@@ -1016,6 +1046,7 @@ const isLoading = ref(true)
 const isSimplifiedViewVisible = ref(false)
 const isDetailModalVisible = ref(false)
 const selectedPatientForDetail = ref(null)
+const shiftForDetailModal = ref(null)
 const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
@@ -1219,6 +1250,22 @@ function getPatientMode(shiftId) {
   if (!patientId) return null
   const patient = patientMap.value.get(patientId)
   return patient?.mode || null
+}
+
+// ✨✨✨ 核心修正點：移除 createGlobalNotification 的呼叫 ✨✨✨
+async function copyMedicalRecordNumber(mrn) {
+  if (!mrn) return
+
+  try {
+    await navigator.clipboard.writeText(mrn)
+    // 成功複製後，不做任何事，保持安靜
+    console.log(`病歷號 ${mrn} 已成功複製到剪貼簿。`) // 在開發者控制台保留一條日誌，方便偵錯
+  } catch (err) {
+    console.error('複製失敗:', err)
+    // 失敗時，可以選擇性地跳出一個警告，或者也保持安靜
+    // 這裡我建議保留失敗時的提示，以防使用者遇到問題卻不知道原因
+    showAlert('複製失敗', '無法將病歷號複製到剪貼簿，您的瀏覽器可能不支援或未授予權限。')
+  }
 }
 
 function showAlert(title, message) {
@@ -2656,6 +2703,28 @@ button:disabled {
   justify-content: center;
   flex-wrap: nowrap; /* 防止換行 */
 }
+/* ✨ 步驟 4: 為可複製的病歷號和可點擊的姓名加上樣式 */
+.medical-record-number {
+  cursor: copy; /* 顯示複製游標 */
+  transition: color 0.2s;
+  color: #6c757d; /* 預設顏色 */
+}
+.medical-record-number:hover {
+  color: #007bff; /* 滑鼠移上去時變色 */
+  text-decoration: underline;
+}
+
+/* 讓姓名區塊看起來更像一個可點擊的按鈕 */
+.patient-name-wrapper {
+  cursor: pointer;
+  transition: background-color 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.patient-name-wrapper:hover {
+  background-color: #e9ecef;
+}
+
 @media screen and (min-width: 993px) {
   .desktop-only .simplified-table td {
     padding: 0.6rem;
