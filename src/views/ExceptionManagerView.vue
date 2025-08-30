@@ -1,6 +1,7 @@
 <!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版) -->
 <template>
   <div class="page-container">
+    <!-- 頁首區域保持不變，包含標題和新增按鈕 -->
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
@@ -19,169 +20,46 @@
       </p>
     </header>
 
+    <!-- 主要內容區域 -->
     <main class="page-main-content">
       <div class="exceptions-list-container">
-        <h2 class="section-title">目前的調班申請列表</h2>
-        <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
-        <div v-else-if="exceptions.length === 0" class="empty-state">
-          <i class="fas fa-check-circle"></i>
-          <p>目前沒有任何待處理或已生效的調班。</p>
+        <!-- ✨ --- 【新增/取代】自訂日曆導航列 --- ✨ -->
+        <div class="custom-calendar-header">
+          <div class="date-navigator">
+            <button @click="handlePrev">&lt;</button>
+            <span class="calendar-title-text">{{ calendarTitle }}</span>
+            <button @click="handleNext">&gt;</button>
+          </div>
+          <div class="view-actions">
+            <button @click="handleToday">今天</button>
+            <button @click="handleViewChange('dayGridMonth')">月</button>
+            <button @click="handleViewChange('dayGridWeek')">週</button>
+          </div>
         </div>
 
-        <div v-else>
-          <!-- 桌機版表格 -->
-          <table class="exceptions-table desktop-only">
-            <thead>
-              <tr>
-                <th>狀態</th>
-                <th>病患姓名</th>
-                <th>類型</th>
-                <th>日期區間</th>
-                <th>原因 / 目的</th>
-                <th>申請時間</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="ex in exceptions" :key="ex.id" :class="`status-${ex.status}`">
-                <td>
-                  <span class="status-badge" :class="`status-${ex.status}`">
-                    {{ statusMap[ex.status] || '未知' }}
-                  </span>
-                </td>
-                <td>{{ ex.patientName }}</td>
-                <td>
-                  <span class="type-badge" :class="`type-${ex.type}`">
-                    {{ typeMap[ex.type] || '未知' }}
-                  </span>
-                </td>
-                <td>
-                  {{ ex.startDate }}
-                  <span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
-                </td>
-                <td class="reason-cell">
-                  <!-- 【修改】更新此區塊以顯示新類型 -->
-                  <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                    <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
-                    <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-                    <small v-if="ex.status === 'error'" class="error-message"
-                      >錯誤: {{ ex.errorMessage }}</small
-                    >
-                    <small v-else>原因: {{ ex.reason }}</small>
-                  </div>
-                  <div v-else-if="ex.type === 'ADD_SESSION' && ex.to">
-                    <div>新增於 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-                    <small>原因: {{ ex.reason }}</small>
-                  </div>
-                  <div v-else-if="ex.type === 'RANGE_MOVE' && ex.to">
-                    <!-- 🔥🔥 核心修改：顯示具體床位 -->
-                    <div>
-                      區間內移至: <strong>{{ formatBedAndShift(ex.to) }}</strong>
-                    </div>
-                    <small>原因: {{ ex.reason }}</small>
-                  </div>
-                  <div v-else>
-                    {{ ex.reason }}
-                  </div>
-                </td>
-                <td>{{ formatTimestamp(ex.createdAt) }}</td>
-                <td>
-                  <button
-                    class="btn btn-danger btn-sm"
-                    @click="confirmDeleteException(ex.id)"
-                    :disabled="isActionDisabled(ex) || isPageLocked"
-                  >
-                    <i class="fas fa-trash-alt"></i> 撤銷
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- 狀態一：正在載入資料 -->
+        <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
 
-          <!-- 手機版卡片列表 -->
-          <div class="exception-cards-container mobile-only">
-            <div
-              v-for="ex in exceptions"
-              :key="ex.id"
-              class="exception-card"
-              :class="`status-border-${ex.status}`"
-            >
-              <div class="card-header">
-                <div class="header-left">
-                  <span class="patient-name">{{ ex.patientName }}</span>
-                  <span class="type-badge" :class="`type-${ex.type}`">{{
-                    typeMap[ex.type] || '未知'
-                  }}</span>
-                </div>
-                <span class="status-badge" :class="`status-${ex.status}`">{{
-                  statusMap[ex.status] || '未知'
-                }}</span>
-              </div>
-              <div class="card-body">
-                <div class="info-row">
-                  <strong class="info-label">日期區間:</strong>
-                  <span class="info-value">
-                    {{ ex.startDate
-                    }}<span v-if="ex.endDate !== ex.startDate"> ~ {{ ex.endDate }}</span>
-                  </span>
-                </div>
-                <div class="info-row details">
-                  <strong class="info-label">詳細內容:</strong>
-                  <div class="info-value">
-                    <!-- 【修改】更新此區塊以顯示新類型 -->
-                    <div v-if="ex.type === 'MOVE' && ex.from && ex.to">
-                      <div>{{ formatShiftInfo({ ...ex.from, date: ex.from.sourceDate }) }}</div>
-                      <div>移至 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-                      <small v-if="ex.status === 'error'" class="error-message"
-                        >錯誤: {{ ex.errorMessage }}</small
-                      >
-                      <small v-else>原因: {{ ex.reason }}</small>
-                    </div>
-                    <div v-else-if="ex.type === 'ADD_SESSION' && ex.to">
-                      <div>新增於 {{ formatShiftInfo({ ...ex.to, date: ex.to.goalDate }) }}</div>
-                      <small v-if="ex.status === 'error'" class="error-message"
-                        >錯誤: {{ ex.errorMessage }}</small
-                      >
-                      <small v-else>原因: {{ ex.reason }}</small>
-                    </div>
-                    <div v-else-if="ex.type === 'RANGE_MOVE' && ex.to">
-                      <!-- 🔥🔥 核心修改：顯示具體床位 -->
-                      <div>
-                        區間內移至: <strong>{{ formatBedAndShift(ex.to) }}</strong>
-                      </div>
-                      <small v-if="ex.status === 'error'" class="error-message"
-                        >錯誤: {{ ex.errorMessage }}</small
-                      >
-                      <small v-else>原因: {{ ex.reason }}</small>
-                    </div>
-                    <div v-else>{{ ex.reason }}</div>
-                  </div>
-                </div>
-                <div class="info-row">
-                  <strong class="info-label">申請時間:</strong>
-                  <span class="info-value">{{ formatTimestamp(ex.createdAt) }}</span>
-                </div>
-              </div>
-              <div class="card-footer">
-                <button
-                  class="btn btn-danger btn-sm"
-                  @click="confirmDeleteException(ex.id)"
-                  :disabled="isActionDisabled(ex) || isPageLocked"
-                >
-                  <i class="fas fa-trash-alt"></i> 撤銷申請
-                </button>
-              </div>
-            </div>
+        <!-- 狀態二：載入完成後，顯示日曆或無資料提示 -->
+        <div v-else class="calendar-wrapper">
+          <!-- ✨ --- 【修改】加上 ref="fullCalendar" 來獲取元件實例 --- ✨ -->
+          <FullCalendar ref="fullCalendar" :options="calendarOptions" />
+
+          <!-- 如果沒有任何調班資料，在日曆下方顯示提示訊息 -->
+          <div v-if="!isLoading && exceptions.length === 0" class="empty-state">
+            <i class="fas fa-check-circle"></i>
+            <p>目前沒有任何待處理或已生效的調班。</p>
           </div>
         </div>
       </div>
     </main>
 
-    <!-- 手機版新增按鈕 (FAB - Floating Action Button) -->
+    <!-- 手機版新增按鈕 (FAB) 保持不變 -->
     <button class="fab mobile-only" @click="openCreateDialog" :disabled="isPageLocked">
       <i class="fas fa-plus"></i>
     </button>
 
+    <!-- 所有彈出視窗 (Dialogs) 元件都保持不變 -->
     <ExceptionCreateDialog
       :is-visible="isCreateDialogVisible"
       :all-patients="allPatients"
@@ -203,11 +81,18 @@
       :message="conflictAlertMessage"
       @confirm="handleConflictAlertConfirm"
     />
+    <!-- 用於顯示日曆事件詳細資訊的 AlertDialog -->
+    <AlertDialog
+      :is-visible="isInfoAlertVisible"
+      :title="infoAlertTitle"
+      :message="infoAlertMessage"
+      @confirm="closeInfoAlert"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
+import { ref, onUnmounted, watch, computed, nextTick } from 'vue' // ✨ onMounted 已不再需要
 import { useRouter, useRoute } from 'vue-router'
 import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
@@ -215,20 +100,20 @@ import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
+import FullCalendar from '@fullcalendar/vue3'
+import dayGridPlugin from '@fullcalendar/daygrid'
+import interactionPlugin from '@fullcalendar/interaction'
+import zhTwLocale from '@fullcalendar/core/locales/zh-tw'
 
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 
-// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
 const patientStore = usePatientStore()
-const { allPatients } = storeToRefs(patientStore) // 從 Store 獲取 allPatients
+const { allPatients } = storeToRefs(patientStore)
 
-// --- API & Services ---
 const exceptionsApi = ApiManager('schedule_exceptions')
 const memosApi = ApiManager('memos')
 const router = useRouter()
@@ -236,24 +121,27 @@ const route = useRoute()
 const { createGlobalNotification } = useGlobalNotifier()
 const { addLocalNotification } = useRealtimeNotifications()
 
-// --- Auth ---
 const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
 
-// --- Component State ---
-// allPatients is now from Pinia
 const exceptions = ref([])
-const isLoading = ref(true)
+const isLoading = ref(true) // 初始為 true
 const isCreateDialogVisible = ref(false)
 const isConfirmDeleteVisible = ref(false)
 const exceptionToDeleteId = ref(null)
 const exceptionToReEdit = ref(null)
 const isConflictAlertVisible = ref(false)
 const conflictAlertMessage = ref('')
+const isInfoAlertVisible = ref(false)
+const infoAlertTitle = ref('')
+const infoAlertMessage = ref('')
 
 let unsubscribe = null
 
-// --- Data Maps ---
+const fullCalendar = ref(null)
+const calendarApi = ref(null)
+const calendarTitle = ref('')
+
 const statusMap = {
   pending: '待處理',
   processing: '處理中',
@@ -269,6 +157,109 @@ const typeMap = {
   RANGE_MOVE: '區間調班',
 }
 const shiftMap = { early: '早班', noon: '午班', late: '晚班' }
+
+const calendarEvents = computed(() => {
+  if (!exceptions.value) return []
+  return exceptions.value.flatMap((ex) => {
+    const colorMap = {
+      MOVE: '#17a2b8',
+      SUSPEND: '#6610f2',
+      ADD_SESSION: '#20c977',
+      RANGE_MOVE: '#e83e8c',
+    }
+    let description = ''
+    if (ex.type === 'MOVE' && ex.from && ex.to) {
+      description = `從 ${formatShiftInfo({ ...ex.from, date: ex.from.sourceDate })} 移至 ${formatShiftInfo({ ...ex.to, date: ex.to.goalDate })}`
+    } else if (ex.type === 'ADD_SESSION' && ex.to) {
+      description = `新增於 ${formatShiftInfo({ ...ex.to, date: ex.to.goalDate })}`
+    } else if (ex.type === 'RANGE_MOVE' && ex.to) {
+      description = `區間內移至: ${formatBedAndShift(ex.to)}`
+    } else {
+      description = ex.reason
+    }
+    if (ex.type === 'MOVE' && ex.from && ex.to) {
+      const fromEvent = {
+        id: `${ex.id}-from`,
+        title: `[原班] ${ex.patientName}`,
+        start: ex.from.sourceDate,
+        allDay: true,
+        backgroundColor: '#adb5bd',
+        borderColor: '#adb5bd',
+        extendedProps: { ...ex, formattedDetails: description },
+      }
+      const toEvent = {
+        id: ex.id,
+        title: `[新班] ${ex.patientName} - 調班`,
+        start: ex.to.goalDate,
+        allDay: true,
+        backgroundColor: colorMap.MOVE,
+        borderColor: colorMap.MOVE,
+        extendedProps: { ...ex, formattedDetails: description },
+      }
+      return [fromEvent, toEvent]
+    }
+    let exclusiveEndDate = null
+    if (ex.endDate && ex.endDate !== ex.startDate) {
+      const endDateObj = new Date(ex.endDate + 'T00:00:00Z')
+      endDateObj.setUTCDate(endDateObj.getUTCDate() + 1)
+      exclusiveEndDate = endDateObj.toISOString().split('T')[0]
+    }
+    return [
+      {
+        id: ex.id,
+        title: `${ex.patientName} - ${typeMap[ex.type] || '未知'}`,
+        start: ex.startDate,
+        end: exclusiveEndDate,
+        allDay: true,
+        backgroundColor: colorMap[ex.type] || '#6c757d',
+        borderColor: colorMap[ex.type] || '#6c757d',
+        extendedProps: { ...ex, formattedDetails: description },
+      },
+    ]
+  })
+})
+
+const calendarOptions = computed(() => {
+  return {
+    plugins: [dayGridPlugin, interactionPlugin],
+    initialView: 'dayGridMonth',
+    locale: zhTwLocale,
+    headerToolbar: false,
+    events: calendarEvents.value,
+    eventDisplay: 'block',
+    datesSet: (arg) => {
+      calendarTitle.value = arg.view.title
+    },
+    eventClick: (info) => {
+      const ex = info.event.extendedProps
+      infoAlertTitle.value = '調班詳細資訊'
+      infoAlertMessage.value =
+        `病患: ${ex.patientName}\n` +
+        `類型: ${typeMap[ex.type] || '未知'}\n` +
+        `區間: ${ex.startDate} ~ ${ex.endDate}\n` +
+        `詳細: ${ex.formattedDetails}\n` +
+        `申請時間: ${formatTimestamp(ex.createdAt)}`
+      isInfoAlertVisible.value = true
+    },
+  }
+})
+
+function handlePrev() {
+  calendarApi.value?.prev()
+}
+function handleNext() {
+  calendarApi.value?.next()
+}
+function handleToday() {
+  calendarApi.value?.today()
+}
+function handleViewChange(viewName) {
+  calendarApi.value?.changeView(viewName)
+}
+
+function closeInfoAlert() {
+  isInfoAlertVisible.value = false
+}
 
 // --- Methods ---
 function formatTimestamp(ts) {
@@ -333,15 +324,12 @@ async function handleCreateException(formData) {
     }
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
-
     const actionText = isUpdating ? '更新' : '新增'
     const typeText = typeMap[formData.type] || '調班'
     const message = `${actionText}申請: ${formData.patientName} (${typeText})`
     createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
-
     let memoContent = ''
     const reasonText = `\n原因: ${formData.reason}`
-
     switch (formData.type) {
       case 'MOVE':
         const fromBedDisplay = formatBedAndShift(formData.from)
@@ -364,7 +352,6 @@ async function handleCreateException(formData) {
           reasonText
         break
     }
-
     if (memoContent) {
       const newMemo = {
         content: memoContent,
@@ -421,49 +408,20 @@ function handleConflictAlertConfirm() {
   })
 }
 
-// ✨ 核心修改 #3: 改造 initializePageData
 async function initializePageData() {
   if (unsubscribe) {
     unsubscribe()
     unsubscribe = null
   }
   isLoading.value = true
-
   try {
-    // 1. 確保 Pinia Store 中的病人數據已載入
     await patientStore.fetchPatientsIfNeeded()
-
-    // 2. 只監聽本頁面需要的 exceptions 數據
     const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-
     unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const newExceptions = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-        const oldExceptionsMap = new Map(exceptions.value.map((ex) => [ex.id, ex]))
-
-        newExceptions.forEach((newEx) => {
-          if (newEx.status === 'conflict_requires_resolution') {
-            const oldEx = oldExceptionsMap.get(newEx.id)
-            if (!oldEx || oldEx.status !== 'conflict_requires_resolution') {
-              addLocalNotification(
-                `排程衝突：${newEx.patientName} 的申請失敗，請點此解決。`,
-                'conflict',
-                {
-                  action: () => {
-                    router.push({
-                      path: '/exception-manager',
-                      query: { resolveConflict: newEx.id },
-                    })
-                  },
-                },
-              )
-            }
-          }
-        })
-
-        exceptions.value = newExceptions
-        isLoading.value = false
+        exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+        isLoading.value = false // ✨ 資料載入完成後，設定 isLoading 為 false
       },
       (error) => {
         console.error('❌ Firestore 監聽器發生錯誤:', error)
@@ -477,6 +435,28 @@ async function initializePageData() {
 }
 
 // --- Watchers & Lifecycle Hooks ---
+
+// ✨ --- 【最終修正】移除 onMounted，改為監聽 isLoading --- ✨
+watch(isLoading, (newIsLoading) => {
+  // 當 isLoading 從 true 變為 false 時
+  if (!newIsLoading) {
+    // 使用 nextTick 確保 DOM 已經更新完畢
+    nextTick(() => {
+      if (fullCalendar.value) {
+        calendarApi.value = fullCalendar.value.getApi()
+        if (calendarApi.value) {
+          // 立即設定一次初始標題
+          calendarTitle.value = calendarApi.value.view.title
+        } else {
+          console.error('無法獲取 FullCalendar API。')
+        }
+      } else {
+        console.error('找不到 FullCalendar 元件的 ref。')
+      }
+    })
+  }
+})
+
 watch(
   currentUser,
   (newUser) => {
@@ -604,69 +584,7 @@ button:disabled {
   margin-bottom: 1.5rem;
   color: #495057;
 }
-.exceptions-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95rem;
-}
-.exceptions-table th,
-.exceptions-table td {
-  padding: 0.75rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid #e9ecef;
-  vertical-align: middle;
-}
-.exceptions-table th {
-  background-color: #f8f9fa;
-  font-weight: 600;
-  color: #495057;
-}
-.exceptions-table tbody tr:hover {
-  background-color: #f1f3f5;
-}
-.status-badge,
-.type-badge {
-  padding: 0.25em 0.6em;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 0.8em;
-  text-transform: uppercase;
-  color: white;
-  white-space: nowrap;
-}
-.status-pending,
-.status-processing {
-  background-color: #ffc107;
-  color: #333;
-}
-.status-applied {
-  background-color: #28a745;
-}
-.status-error {
-  background-color: #dc3545;
-}
-.status-expired {
-  background-color: #6c757d;
-}
-.status-conflict_requires_resolution {
-  background-color: #fd7e14;
-  color: white;
-}
-.type-MOVE {
-  background-color: #17a2b8;
-}
-.type-SUSPEND {
-  background-color: #6610f2;
-}
-.type-ADD_SESSION {
-  background-color: #20c997;
-}
-.type-RANGE_MOVE {
-  background-color: #e83e8c;
-}
-.reason-cell small {
-  color: #6c757d;
-}
+
 .loading-state,
 .empty-state {
   text-align: center;
@@ -691,14 +609,84 @@ button:disabled {
 }
 
 /* ================================== */
-/*         響應式樣式                 */
+/* ✨      自訂日曆標題列 新增樣式      ✨ */
 /* ================================== */
-.exceptions-table.desktop-only {
-  display: table;
+.custom-calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  flex-wrap: wrap; /* 在小螢幕換行 */
+  gap: 1rem; /* 新增間距 */
 }
-.exception-cards-container.mobile-only {
-  display: none;
+
+.date-navigator {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem; /* 調整按鈕和標題間距 */
 }
+
+.calendar-title-text {
+  font-weight: 600; /* 加粗 */
+  font-size: 1.75rem; /* 加大字體 */
+  color: #343a40;
+  white-space: nowrap;
+}
+
+.view-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.custom-calendar-header button {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ced4da; /* 統一邊框顏色 */
+  border-radius: 6px;
+  cursor: pointer;
+  background-color: #f8f9fa;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.custom-calendar-header button:hover {
+  border-color: #868e96;
+  background-color: #e9ecef;
+}
+
+/* 調整日曆容器的上邊距 */
+.calendar-wrapper {
+  padding-top: 0; /* 因為標題列已有 padding，這裡歸零 */
+}
+
+/* ================================== */
+/* ✨      FullCalendar 內部樣式      ✨ */
+/* ================================== */
+/* 使用 :deep() 來修改 FullCalendar 子元件的樣式 */
+:deep(.fc) {
+  font-family: inherit; /* 繼承父層的字體，保持一致性 */
+}
+:deep(.fc-daygrid-event) {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 5px;
+  font-size: 0.85em;
+  font-weight: 500;
+  border: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:deep(.fc-event:hover) {
+  opacity: 0.85;
+}
+:deep(.fc-day-today) {
+  background-color: #eaf6ff !important; /* 凸顯今天的日期 */
+}
+
+/* ================================== */
+/*         響應式樣式 (既有)            */
+/* ================================== */
 .fab.mobile-only {
   display: none;
 }
@@ -707,14 +695,6 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
-  .exceptions-table.desktop-only {
-    display: none;
-  }
-  .exception-cards-container.mobile-only {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
   .fab.mobile-only {
     display: flex;
   }
@@ -744,75 +724,6 @@ button:disabled {
     font-size: 1.3rem;
     margin-bottom: 1rem;
   }
-  .exception-card {
-    background-color: #fff;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    border-left: 5px solid #ccc;
-    overflow: hidden;
-  }
-  .status-border-pending,
-  .status-border-processing {
-    border-left-color: #ffc107;
-  }
-  .status-border-applied {
-    border-left-color: #28a745;
-  }
-  .status-border-error {
-    border-left-color: #dc3545;
-  }
-  .status-border-expired {
-    border-left-color: #6c757d;
-  }
-  .status-border-conflict_requires_resolution {
-    border-left-color: #fd7e14;
-  }
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.75rem 1rem;
-    background-color: #f8f9fa;
-  }
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .patient-name {
-    font-size: 1.1rem;
-    font-weight: 600;
-  }
-  .card-body {
-    padding: 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  .info-row {
-    display: grid;
-    grid-template-columns: 100px 1fr;
-    gap: 0.5rem;
-    align-items: start;
-  }
-  .info-label {
-    color: #6c757d;
-    font-weight: bold;
-  }
-  .info-value {
-    font-weight: 500;
-  }
-  .info-row.details .info-value {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-  .card-footer {
-    padding: 0.75rem 1rem;
-    background-color: #f8f9fa;
-    display: flex;
-    justify-content: flex-end;
-  }
   .fab {
     position: fixed;
     bottom: 2rem;
@@ -839,12 +750,8 @@ button:disabled {
     padding: 1rem 1rem 0.5rem;
     margin-bottom: 1rem;
   }
-  .info-row {
-    grid-template-columns: 1fr;
-    gap: 0.25rem;
-  }
-  .info-label {
-    font-size: 0.8rem;
+  .calendar-title-text {
+    font-size: 1.25rem;
   }
 }
 </style>
