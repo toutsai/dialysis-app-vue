@@ -1,3 +1,4 @@
+<!-- src/components/ConfirmDialog.vue (增強版) -->
 <template>
   <dialog :open="isVisible" class="confirm-dialog" @close="onCancel">
     <header class="dialog-header" v-if="title">
@@ -8,8 +9,9 @@
     </main>
 
     <footer class="dialog-footer">
-      <button class="btn-primary" @click="onConfirm">確認</button>
-      <button class="btn-secondary" @click="onCancel">取消</button>
+      <!-- ✨ 按鈕文字和樣式現在是動態的 -->
+      <button :class="cancelClass" @click="onCancel">{{ cancelText }}</button>
+      <button :class="confirmClass" @click="onConfirm">{{ confirmText }}</button>
     </footer>
   </dialog>
 </template>
@@ -19,6 +21,23 @@ defineProps({
   isVisible: Boolean,
   title: String,
   message: String,
+  // ✨ 新增 props 來客製化按鈕
+  confirmText: {
+    type: String,
+    default: '確認',
+  },
+  cancelText: {
+    type: String,
+    default: '取消',
+  },
+  confirmClass: {
+    type: String,
+    default: 'btn-primary',
+  },
+  cancelClass: {
+    type: String,
+    default: 'btn-secondary',
+  },
 })
 const emit = defineEmits(['confirm', 'cancel'])
 
@@ -31,6 +50,16 @@ function onCancel() {
 </script>
 
 <style scoped>
+/* ✨ 新增一個 btn-danger 樣式 */
+.btn-danger {
+  background-color: #dc3545;
+  border-color: #dc3545;
+  color: white;
+}
+.btn-danger:hover {
+  background-color: #c82333;
+  border-color: #c82333;
+}
 .confirm-dialog {
   border: 1px solid #dee2e6;
   border-radius: 12px;

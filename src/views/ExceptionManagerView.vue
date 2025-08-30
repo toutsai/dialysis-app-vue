@@ -27,7 +27,10 @@
         <div class="custom-calendar-header">
           <div class="date-navigator">
             <button @click="handlePrev">&lt;</button>
-            <span class="calendar-title-text">{{ calendarTitle }}</span>
+            <!-- ✨ 【修改】讓標題可以點擊 -->
+            <span class="calendar-title-text is-clickable" @click="openMonthPicker">
+              {{ calendarTitle }}
+            </span>
             <button @click="handleNext">&gt;</button>
           </div>
           <div class="view-actions">
@@ -68,10 +71,14 @@
       @close="closeCreateDialog"
       @submit="handleCreateException"
     />
+    <!-- ✨ --- 【修改】我們現在只用這一個 ConfirmDialog --- ✨ -->
     <ConfirmDialog
       :is-visible="isConfirmDeleteVisible"
-      title="確認撤銷"
-      message="您確定要撤銷這筆調班申請嗎？此操作可能會導致相關日期的排班恢復為總表預設值。"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      confirm-text="撤銷"
+      cancel-text="關閉"
+      confirm-class="btn-danger"
       @confirm="executeDeleteException"
       @cancel="isConfirmDeleteVisible = false"
     />
@@ -81,18 +88,25 @@
       :message="conflictAlertMessage"
       @confirm="handleConflictAlertConfirm"
     />
-    <!-- 用於顯示日曆事件詳細資訊的 AlertDialog -->
+    <!-- AlertDialog 現在只用於衝突警告 -->
     <AlertDialog
-      :is-visible="isInfoAlertVisible"
-      :title="infoAlertTitle"
-      :message="infoAlertMessage"
-      @confirm="closeInfoAlert"
+      :is-visible="isConflictAlertVisible"
+      title="排班衝突！"
+      :message="conflictAlertMessage"
+      @confirm="handleConflictAlertConfirm"
+    />
+    <!-- ✨ 【新增】將 MonthYearPicker 元件加到頁面中 -->
+    <MonthYearPicker
+      :is-visible="isMonthPickerVisible"
+      :initial-date="currentCalendarDate"
+      @close="isMonthPickerVisible = false"
+      @date-selected="handleDateSelected"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch, computed, nextTick } from 'vue' // ✨ onMounted 已不再需要
+import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
@@ -107,6 +121,7 @@ import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import zhTwLocale from '@fullcalendar/core/locales/zh-tw'
+import MonthYearPicker from '@/components/MonthYearPicker.vue'
 
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
@@ -125,22 +140,25 @@ const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
 
 const exceptions = ref([])
-const isLoading = ref(true) // 初始為 true
+const isLoading = ref(true)
 const isCreateDialogVisible = ref(false)
+
+// ✨ --- 【修改】合併 Dialog 狀態 --- ✨
 const isConfirmDeleteVisible = ref(false)
 const exceptionToDeleteId = ref(null)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+
 const exceptionToReEdit = ref(null)
 const isConflictAlertVisible = ref(false)
 const conflictAlertMessage = ref('')
-const isInfoAlertVisible = ref(false)
-const infoAlertTitle = ref('')
-const infoAlertMessage = ref('')
 
 let unsubscribe = null
 
 const fullCalendar = ref(null)
 const calendarApi = ref(null)
 const calendarTitle = ref('')
+const isMonthPickerVisible = ref(false)
 
 const statusMap = {
   pending: '待處理',
@@ -164,7 +182,7 @@ const calendarEvents = computed(() => {
     const colorMap = {
       MOVE: '#17a2b8',
       SUSPEND: '#6610f2',
-      ADD_SESSION: '#20c977',
+      ADD_SESSION: '#20c997',
       RANGE_MOVE: '#e83e8c',
     }
     let description = ''
@@ -225,6 +243,7 @@ const calendarOptions = computed(() => {
     initialView: 'dayGridMonth',
     locale: zhTwLocale,
     headerToolbar: false,
+    dayMaxEvents: true, // true 會讓日曆自動計算能放幾個事件
     events: calendarEvents.value,
     eventDisplay: 'block',
     datesSet: (arg) => {
@@ -232,16 +251,24 @@ const calendarOptions = computed(() => {
     },
     eventClick: (info) => {
       const ex = info.event.extendedProps
-      infoAlertTitle.value = '調班詳細資訊'
-      infoAlertMessage.value =
+
+      exceptionToDeleteId.value = ex.id
+
+      confirmDialogTitle.value = '調班詳細資訊'
+      confirmDialogMessage.value =
         `病患: ${ex.patientName}\n` +
         `類型: ${typeMap[ex.type] || '未知'}\n` +
         `區間: ${ex.startDate} ~ ${ex.endDate}\n` +
         `詳細: ${ex.formattedDetails}\n` +
         `申請時間: ${formatTimestamp(ex.createdAt)}`
-      isInfoAlertVisible.value = true
+
+      isConfirmDeleteVisible.value = true
     },
   }
+})
+
+const currentCalendarDate = computed(() => {
+  return calendarApi.value ? calendarApi.value.getDate() : new Date()
 })
 
 function handlePrev() {
@@ -257,8 +284,13 @@ function handleViewChange(viewName) {
   calendarApi.value?.changeView(viewName)
 }
 
-function closeInfoAlert() {
-  isInfoAlertVisible.value = false
+function openMonthPicker() {
+  isMonthPickerVisible.value = true
+}
+
+function handleDateSelected(newDate) {
+  calendarApi.value?.gotoDate(newDate)
+  isMonthPickerVisible.value = false
 }
 
 // --- Methods ---
@@ -369,12 +401,6 @@ async function handleCreateException(formData) {
   }
 }
 
-function confirmDeleteException(id) {
-  if (isPageLocked.value) return
-  exceptionToDeleteId.value = id
-  isConfirmDeleteVisible.value = true
-}
-
 async function executeDeleteException() {
   if (!exceptionToDeleteId.value) return
   try {
@@ -421,7 +447,7 @@ async function initializePageData() {
       q,
       (snapshot) => {
         exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-        isLoading.value = false // ✨ 資料載入完成後，設定 isLoading 為 false
+        isLoading.value = false
       },
       (error) => {
         console.error('❌ Firestore 監聽器發生錯誤:', error)
@@ -435,23 +461,14 @@ async function initializePageData() {
 }
 
 // --- Watchers & Lifecycle Hooks ---
-
-// ✨ --- 【最終修正】移除 onMounted，改為監聽 isLoading --- ✨
 watch(isLoading, (newIsLoading) => {
-  // 當 isLoading 從 true 變為 false 時
   if (!newIsLoading) {
-    // 使用 nextTick 確保 DOM 已經更新完畢
     nextTick(() => {
       if (fullCalendar.value) {
         calendarApi.value = fullCalendar.value.getApi()
         if (calendarApi.value) {
-          // 立即設定一次初始標題
           calendarTitle.value = calendarApi.value.view.title
-        } else {
-          console.error('無法獲取 FullCalendar API。')
         }
-      } else {
-        console.error('找不到 FullCalendar 元件的 ref。')
       }
     })
   }
@@ -658,7 +675,14 @@ button:disabled {
 .calendar-wrapper {
   padding-top: 0; /* 因為標題列已有 padding，這裡歸零 */
 }
+.calendar-title-text.is-clickable {
+  cursor: pointer;
+  transition: color 0.2s;
+}
 
+.calendar-title-text.is-clickable:hover {
+  color: #007bff; /* 滑鼠懸停時變色 */
+}
 /* ================================== */
 /* ✨      FullCalendar 內部樣式      ✨ */
 /* ================================== */

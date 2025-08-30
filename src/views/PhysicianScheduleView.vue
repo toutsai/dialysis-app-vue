@@ -1641,7 +1641,7 @@ watch(
 /*             通用佈局與元件             */
 /* =================================== */
 .page-container {
-  padding: 1rem;
+  padding: 0.5rem;
   background-color: #f8f9fa;
   height: 100vh;
   display: flex;

@@ -1432,7 +1432,7 @@ watch(
   flex-direction: column;
   box-sizing: border-box;
   background-color: #fff;
-  padding: 1rem;
+  padding: 0.5rem;
 }
 
 .page-title,
