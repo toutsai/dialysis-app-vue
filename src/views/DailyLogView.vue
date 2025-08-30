@@ -7,7 +7,7 @@
 
     <header class="log-page-header">
       <div class="header-left">
-        <h1>血液透析中心工作日誌</h1>
+        <h1>工作日誌</h1>
 
         <div class="date-navigator">
           <button @click="changeDate(-1)">❮ 上一日</button>

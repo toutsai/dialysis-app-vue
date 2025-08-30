@@ -1,15 +1,17 @@
 <template>
   <div class="page-container collaboration-view">
+    <!-- 使用了新的 header 結構，與調班管理頁面同步 -->
     <header class="page-header">
-      <div class="header-content">
-        <h1>訊息中心</h1>
-        <p class="date-display">顯示日期: {{ displayDate }} ({{ weekdayDisplay }})</p>
+      <div class="header-toolbar">
+        <div class="toolbar-left">
+          <h1 class="page-title">訊息中心</h1>
+          <button class="btn btn-primary" :disabled="isPageLocked" @click="openCreateModal">
+            <i class="fas fa-plus"></i> 新增交辦/留言
+          </button>
+        </div>
+        <!-- 如果右側有其他按鈕可以放在這裡 -->
       </div>
-      <div class="header-actions desktop-only">
-        <button class="btn btn-primary" :disabled="isPageLocked" @click="openCreateModal">
-          <i class="fas fa-plus"></i> 新增交辦/留言
-        </button>
-      </div>
+      <p class="page-description">顯示日期: {{ displayDate }} ({{ weekdayDisplay }})</p>
     </header>
 
     <!-- ================== -->
@@ -1119,12 +1121,68 @@ watch(
 </script>
 
 <style scoped>
-/* (樣式部分與您提供的版本相同，此處省略) */
 /* 引入 Font Awesome */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
 
+/* ✨ --- 【修改後的新標頭樣式】 --- ✨ */
+.page-header {
+  border-bottom: 2px solid #dee2e6;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  flex-shrink: 0; /* 確保 header 在 flex 佈局中不被壓縮 */
+}
+
+.header-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem; /* 在標題和按鈕之間增加間距 */
+}
+
+.page-title {
+  /* 取代了舊的 header-content h1 */
+  font-size: 32px;
+  font-weight: 700;
+  color: #343a40;
+  margin: 0;
+}
+
+.page-description {
+  /* 取代了舊的 date-display */
+  margin-top: 0.5rem;
+  font-size: 1rem;
+  color: #6c757d;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+.btn-primary:hover {
+  background-color: #0069d9;
+}
+
 /* ================================== */
-/*         通用基礎樣式                */
+/*         通用基礎樣式 (保留部分)      */
 /* ================================== */
 .page-container {
   display: flex;
@@ -1134,39 +1192,7 @@ watch(
   background-color: #f8f9fa;
   box-sizing: border-box;
 }
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: 1rem;
-  margin-bottom: 1rem;
-  border-bottom: 2px solid #dee2e6;
-  flex-shrink: 0;
-}
-.header-content h1 {
-  margin: 0;
-  font-size: 2rem;
-  color: #343a40;
-}
-.date-display {
-  margin: 0;
-  font-size: 1rem;
-  color: #6c757d;
-}
-.header-actions .btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
-  font-size: 1rem;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.btn-primary {
-  background-color: #007bff;
-  color: white;
-  border: 1px solid #007bff;
-}
+
 .panel-title {
   display: flex;
   align-items: center;
@@ -1178,6 +1204,8 @@ watch(
   flex-shrink: 0;
   background-color: #f8f9fa;
 }
+
+/* ... (以下為您所有其他的既有樣式，它們都是正確的，應予以保留) ... */
 .panel-loading,
 .panel-empty {
   flex-grow: 1;
@@ -1525,12 +1553,21 @@ watch(
     padding: 0;
     position: relative;
   }
+  /* ✨ 修正行動版 header，讓其與桌面版新樣式協作 */
   .page-header {
     padding: 1rem;
     margin-bottom: 0;
   }
-  .header-content h1 {
+  .page-title {
     font-size: 1.5rem;
+  }
+  .page-description {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+  }
+  /* 隱藏桌面版的按鈕 */
+  .toolbar-left .btn-primary {
+    display: none;
   }
 
   .mobile-container {

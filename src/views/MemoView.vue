@@ -1,337 +1,4 @@
 <!-- 檔案路徑: src/views/MemoView.vue (Pinia 遷移版) -->
-<script setup>
-import { ref, onMounted, computed, watch } from 'vue'
-import ApiManager from '@/services/api_manager.js'
-import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import AlertDialog from '@/components/AlertDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
-import { usePatientStore } from '@/stores/patientStore.js'
-import { storeToRefs } from 'pinia'
-
-// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
-const patientStore = usePatientStore()
-const { allPatients, isLoading: isPatientsLoading } = storeToRefs(patientStore) // 從 Store 獲取 allPatients 和 isLoading 狀態
-
-// --- API 實例 ---
-const memosApi = ApiManager('memos')
-// const patientsApi = ApiManager('patients') // 不再需要
-
-// --- 核心狀態 ---
-const memos = ref([])
-// const allPatients = ref([]) // 由 Pinia 提供
-const contentInput = ref('')
-const dateInput = ref('')
-
-// --- UI 狀態 ---
-const isPatientDialogVisible = ref(false)
-const selectedPatient = ref(null)
-const filterPatientId = ref(null)
-const activeTab = ref('expired')
-const isFormModalVisible = ref(false)
-
-// --- 加載狀態 ---
-const isLoading = ref(false)
-const isSubmitting = ref(false)
-const isMemosLoading = ref(false)
-// const isPatientsLoading = ref(false) // 由 Pinia 提供
-
-// --- Dialog State ---
-const isAlertDialogVisible = ref(false)
-const alertDialogTitle = ref('')
-const alertDialogMessage = ref('')
-const isConfirmDialogVisible = ref(false)
-const confirmDialogTitle = ref('')
-const confirmDialogMessage = ref('')
-const confirmAction = ref(null)
-
-const { createGlobalNotification } = useGlobalNotifier()
-const route = useRoute()
-const router = useRouter()
-const error = ref(null)
-
-// --- 計算屬性 ---
-const pendingList = computed(() =>
-  memos.value
-    .filter((memo) => {
-      const isPending = memo.status === 'pending' || !memo.status
-      if (filterPatientId.value) {
-        return isPending && memo.patientId === filterPatientId.value
-      }
-      return isPending
-    })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-)
-
-const resolvedList = computed(() => {
-  const sevenDaysAgo = new Date()
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-  return memos.value
-    .filter((memo) => {
-      const isRecentResolved = memo.status === 'resolved' && new Date(memo.createdAt) > sevenDaysAgo
-      if (filterPatientId.value) {
-        return isRecentResolved && memo.patientId === filterPatientId.value
-      }
-      return isRecentResolved
-    })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-})
-
-const expiredList = computed(() =>
-  memos.value
-    .filter((memo) => {
-      const isExpired = memo.status === 'expired'
-      if (filterPatientId.value) {
-        return isExpired && memo.patientId === filterPatientId.value
-      }
-      return isExpired
-    })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-)
-
-const memoStats = computed(() => ({
-  total: memos.value.length,
-  pending: pendingList.value.length,
-  resolved: resolvedList.value.length,
-  expired: expiredList.value.length,
-  filtered: filterPatientId.value
-    ? {
-        pending: pendingList.value.length,
-        resolved: resolvedList.value.length,
-        expired: expiredList.value.length,
-      }
-    : null,
-}))
-
-// --- 方法 ---
-async function fetchMemos() {
-  if (isMemosLoading.value) return
-  isMemosLoading.value = true
-  error.value = null
-  try {
-    memos.value = await memosApi.fetchAll()
-  } catch (err) {
-    error.value = '載入備忘錄失敗，請重試'
-    handleError('讀取備忘錄失敗', err)
-  } finally {
-    isMemosLoading.value = false
-  }
-}
-
-// ✨ 核心修改 #3: 移除本地的 fetchAllPatients
-// async function fetchAllPatients() { ... }
-
-async function initializeData() {
-  isLoading.value = true
-  try {
-    // ✨ 核心修改 #4: 確保 Store 中的數據已載入，並只獲取本頁面需要的 memos
-    await patientStore.fetchPatientsIfNeeded()
-    await fetchMemos()
-
-    const patientIdFromQuery = route.query.patientId
-    if (patientIdFromQuery && allPatients.value.length > 0) {
-      const patient = allPatients.value.find((p) => p.id === patientIdFromQuery)
-      if (patient) {
-        selectedPatient.value = patient
-        filterPatientId.value = patientIdFromQuery
-      }
-    }
-  } catch (err) {
-    error.value = '初始化失敗，請重新整理頁面'
-  } finally {
-    isLoading.value = false
-  }
-}
-
-async function addMemo() {
-  if (!contentInput.value.trim()) {
-    showAlert('提示', '備忘內容不能為空！')
-    return
-  }
-  if (isSubmitting.value) return
-
-  isSubmitting.value = true
-  const newMemo = {
-    content: contentInput.value.trim(),
-    patientId: selectedPatient.value?.id || null,
-    patientName: selectedPatient.value?.name || null,
-    targetDate: dateInput.value || null,
-    status: 'pending',
-    isResolved: false,
-    createdAt: new Date().toISOString(),
-  }
-
-  try {
-    const tempId = `temp_${Date.now()}`
-    memos.value.unshift({ ...newMemo, id: tempId })
-
-    const contentPreview =
-      contentInput.value.substring(0, 20) + (contentInput.value.length > 20 ? '...' : '')
-    const patientContext = selectedPatient.value ? ` (${selectedPatient.value.name})` : ''
-    contentInput.value = ''
-    dateInput.value = ''
-    clearPatientSelection()
-
-    const savedMemo = await memosApi.save(newMemo)
-    const tempIndex = memos.value.findIndex((m) => m.id === tempId)
-    if (tempIndex !== -1) memos.value[tempIndex] = savedMemo
-
-    createGlobalNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
-    closeFormModal()
-  } catch (err) {
-    const tempIndex = memos.value.findIndex((m) => m.id === `temp_${Date.now()}`)
-    if (tempIndex !== -1) memos.value.splice(tempIndex, 1)
-    contentInput.value = newMemo.content
-    dateInput.value = newMemo.targetDate || ''
-    if (newMemo.patientId) {
-      const patient = allPatients.value.find((p) => p.id === newMemo.patientId)
-      if (patient) {
-        selectedPatient.value = patient
-        filterPatientId.value = patient.id
-      }
-    }
-    handleError('新增備忘失敗', err)
-  } finally {
-    isSubmitting.value = false
-  }
-}
-
-function handlePatientSelected({ patientId }) {
-  const patient = allPatients.value.find((p) => p.id === patientId) || null
-  selectedPatient.value = patient
-  filterPatientId.value = patient ? patient.id : null
-  isPatientDialogVisible.value = false
-  if (patient) router.replace({ query: { patientId: patient.id } })
-  else router.replace({ query: {} })
-}
-
-function clearPatientSelection() {
-  selectedPatient.value = null
-  filterPatientId.value = null
-  router.replace({ query: {} })
-}
-
-async function updateMemoStatus(id, resolve, isFromExpired = false) {
-  const memoIndex = memos.value.findIndex((m) => m.id === id)
-  if (memoIndex === -1) return
-
-  const originalMemo = { ...memos.value[memoIndex] }
-  const newStatus = resolve ? 'resolved' : 'pending'
-  memos.value[memoIndex] = { ...originalMemo, status: newStatus, isResolved: resolve }
-
-  try {
-    await memosApi.update(id, { status: newStatus, isResolved: resolve })
-
-    const contentPreview =
-      originalMemo.content.substring(0, 20) + (originalMemo.content.length > 20 ? '...' : '')
-    const patientContext = originalMemo.patientName ? ` (${originalMemo.patientName})` : ''
-
-    if (resolve) {
-      createGlobalNotification(`已處理備忘：${contentPreview}${patientContext}`, 'success')
-    } else {
-      createGlobalNotification(`已移回待辦：${contentPreview}${patientContext}`, 'info')
-    }
-  } catch (err) {
-    memos.value[memoIndex] = originalMemo
-    handleError('更新狀態失敗', err)
-  }
-}
-
-async function deleteMemo(id) {
-  confirmDialogTitle.value = '確認刪除'
-  confirmDialogMessage.value = '您確定要刪除這筆備忘錄嗎？此操作無法復原。'
-
-  confirmAction.value = async () => {
-    const memoIndex = memos.value.findIndex((m) => m.id === id)
-    if (memoIndex === -1) return
-
-    const memoToDelete = { ...memos.value[memoIndex] }
-    memos.value.splice(memoIndex, 1)
-
-    try {
-      await memosApi.delete(id)
-      const contentPreview =
-        memoToDelete.content.substring(0, 20) + (memoToDelete.content.length > 20 ? '...' : '')
-      const patientContext = memoToDelete.patientName ? ` (${memoToDelete.patientName})` : ''
-      createGlobalNotification(`已刪除備忘：${contentPreview}${patientContext}`, 'info')
-    } catch (err) {
-      memos.value.splice(memoIndex, 0, memoToDelete)
-      handleError('刪除備忘失敗', err)
-    }
-  }
-
-  isConfirmDialogVisible.value = true
-}
-
-function openPatientDialog() {
-  isPatientDialogVisible.value = true
-}
-
-function handleConfirm() {
-  if (confirmAction.value) confirmAction.value()
-  isConfirmDialogVisible.value = false
-  confirmAction.value = null
-}
-
-function handleCancel() {
-  isConfirmDialogVisible.value = false
-  confirmAction.value = null
-}
-
-function handleError(title, error) {
-  console.error(`❌ [MemoView] ${title}:`, error)
-  showAlert('錯誤', `${title}！請稍後重試。`)
-}
-
-function showAlert(title, message) {
-  alertDialogTitle.value = title
-  alertDialogMessage.value = message
-  isAlertDialogVisible.value = true
-}
-
-async function retryLoadData() {
-  error.value = null
-  await initializeData()
-}
-
-function getMemoDisplayContent(memo) {
-  if (memo.patientName) {
-    return `<span class="memo-patient-name">${memo.patientName}</span> ${memo.content}`
-  }
-  return memo.content
-}
-
-function openFormModal() {
-  isFormModalVisible.value = true
-}
-function closeFormModal() {
-  isFormModalVisible.value = false
-}
-
-watch(
-  () => route.query.patientId,
-  (newPatientId) => {
-    if (newPatientId && allPatients.value.length > 0) {
-      const patient = allPatients.value.find((p) => p.id === newPatientId)
-      if (patient && (!selectedPatient.value || selectedPatient.value.id !== newPatientId)) {
-        selectedPatient.value = patient
-        filterPatientId.value = newPatientId
-      }
-    } else if (!newPatientId && selectedPatient.value) {
-      selectedPatient.value = null
-      filterPatientId.value = null
-    }
-  },
-)
-
-onMounted(() => {
-  initializeData()
-})
-</script>
-
 <template>
   <div class="page-container memo-view">
     <h1 class="page-title">
@@ -352,7 +19,7 @@ onMounted(() => {
     </div>
 
     <div v-else class="memo-layout-grid">
-      <!-- ✨ 修改/新增：新增備忘卡片只在桌面顯示 -->
+      <!-- 新增備忘卡片只在桌面顯示 -->
       <div class="memo-card form-card desktop-only">
         <h2 class="card-title">
           <span v-if="filterPatientId">{{ selectedPatient?.name }} 的備忘</span>
@@ -406,7 +73,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- ✨ 修改/新增：待辦事項卡片 -->
+      <!-- 待辦事項卡片 -->
       <div class="memo-card pending-card">
         <h2 class="card-title">
           {{ filterPatientId ? '待處理事項' : '所有待處理事項' }}
@@ -440,7 +107,7 @@ onMounted(() => {
         </ul>
       </div>
 
-      <!-- ✨ 修改/新增：歷史/已處理卡片 -->
+      <!-- 歷史/已處理卡片 -->
       <div class="memo-card history-card">
         <div class="tabs">
           <button
@@ -448,7 +115,8 @@ onMounted(() => {
             :class="{ active: activeTab === 'expired' }"
             @click="activeTab = 'expired'"
           >
-            已到期事項
+            已到期事項 (最近7天)
+            <!-- ✨ 修改這裡的文字 -->
             <span v-if="memoStats.expired > 0" class="tab-count expired-count">{{
               memoStats.expired
             }}</span>
@@ -458,7 +126,7 @@ onMounted(() => {
             :class="{ active: activeTab === 'resolved' }"
             @click="activeTab = 'resolved'"
           >
-            已處理事項 (最近7天)
+            已處理事項 (最近90天)
             <span v-if="memoStats.resolved > 0" class="tab-count resolved-count">{{
               memoStats.resolved
             }}</span>
@@ -505,17 +173,17 @@ onMounted(() => {
               </div>
             </li>
             <li v-if="resolvedList.length === 0" class="empty-state">
-              {{ filterPatientId ? '最近7天該病人無已處理事項' : '最近7天沒有已處理事項。' }}
+              {{ filterPatientId ? '最近90天該病人無已處理事項' : '最近90天沒有已處理事項。' }}
             </li>
           </ul>
         </div>
       </div>
     </div>
 
-    <!-- ✨ 新增/修改：手機版專用的 FAB 按鈕 -->
+    <!-- 手機版專用的 FAB 按鈕 -->
     <button class="fab mobile-only" @click="openFormModal">+</button>
 
-    <!-- ✨ 新增/修改：手機版專用的新增表單 Modal -->
+    <!-- 手機版專用的新增表單 Modal -->
     <div v-if="isFormModalVisible" class="form-modal-overlay" @click.self="closeFormModal">
       <div class="memo-card form-card">
         <h2 class="card-title">
@@ -598,6 +266,314 @@ onMounted(() => {
   />
 </template>
 
+// src/views/MemoView.vue
+<script setup>
+import { ref, onMounted, computed, watch } from 'vue'
+import ApiManager from '@/services/api_manager.js'
+import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
+import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+
+const patientStore = usePatientStore()
+const { allPatients, isLoading: isPatientsLoading } = storeToRefs(patientStore)
+
+const memosApi = ApiManager('memos')
+
+const memos = ref([])
+const contentInput = ref('')
+const dateInput = ref('')
+const isPatientDialogVisible = ref(false)
+const selectedPatient = ref(null)
+const filterPatientId = ref(null)
+const activeTab = ref('expired')
+const isFormModalVisible = ref(false)
+const isLoading = ref(false)
+const isSubmitting = ref(false)
+const isMemosLoading = ref(false)
+const isAlertDialogVisible = ref(false)
+const alertDialogTitle = ref('')
+const alertDialogMessage = ref('')
+const isConfirmDialogVisible = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+const confirmAction = ref(null)
+
+const { createGlobalNotification } = useGlobalNotifier()
+const route = useRoute()
+const router = useRouter()
+const error = ref(null)
+
+const SYSTEM_MEMO_KEYWORDS = [
+  '【臨時調班】',
+  '【區間暫停】',
+  '【臨時加洗】',
+  '【區間調班】',
+  '【更新-臨時調班】',
+]
+
+function isSystemMemo(memo) {
+  return SYSTEM_MEMO_KEYWORDS.some((keyword) => memo.content.startsWith(keyword))
+}
+
+const pendingList = computed(() =>
+  memos.value
+    .filter((memo) => {
+      const isPending = memo.status === 'pending' || !memo.status
+      if (isPending && !isSystemMemo(memo)) {
+        if (filterPatientId.value) {
+          return memo.patientId === filterPatientId.value
+        }
+        return true
+      }
+      return false
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+)
+
+const resolvedList = computed(() => {
+  const ninetyDaysAgo = new Date()
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+  return memos.value
+    .filter((memo) => {
+      const isRecentResolved =
+        memo.status === 'resolved' && new Date(memo.createdAt) > ninetyDaysAgo
+      if (isRecentResolved && !isSystemMemo(memo)) {
+        if (filterPatientId.value) {
+          return memo.patientId === filterPatientId.value
+        }
+        return true
+      }
+      return false
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+})
+
+// ✨ --- 【核心修改】 --- ✨
+// 只顯示 7 天內的已到期事項
+const expiredList = computed(() => {
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  return memos.value
+    .filter((memo) => {
+      // 條件 1: 狀態是 'expired'
+      // 條件 2: "到期日" (targetDate) 在過去 7 天內
+      // 條件 3: 不是系統生成的備忘
+      const isExpired = memo.status === 'expired'
+      const isRecent = memo.targetDate && new Date(memo.targetDate) >= sevenDaysAgo
+
+      if (isExpired && isRecent && !isSystemMemo(memo)) {
+        if (filterPatientId.value) {
+          return memo.patientId === filterPatientId.value
+        }
+        return true
+      }
+      return false
+    })
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+})
+
+const memoStats = computed(() => ({
+  total: memos.value.length,
+  pending: pendingList.value.length,
+  resolved: resolvedList.value.length,
+  expired: expiredList.value.length,
+}))
+
+// ... (所有其他 methods 和生命週期鉤子保持不變) ...
+async function fetchMemos() {
+  if (isMemosLoading.value) return
+  isMemosLoading.value = true
+  error.value = null
+  try {
+    memos.value = await memosApi.fetchAll()
+  } catch (err) {
+    error.value = '載入備忘錄失敗，請重試'
+    handleError('讀取備忘錄失敗', err)
+  } finally {
+    isMemosLoading.value = false
+  }
+}
+async function initializeData() {
+  isLoading.value = true
+  try {
+    await patientStore.fetchPatientsIfNeeded()
+    await fetchMemos()
+    const patientIdFromQuery = route.query.patientId
+    if (patientIdFromQuery && allPatients.value.length > 0) {
+      const patient = allPatients.value.find((p) => p.id === patientIdFromQuery)
+      if (patient) {
+        selectedPatient.value = patient
+        filterPatientId.value = patientIdFromQuery
+      }
+    }
+  } catch (err) {
+    error.value = '初始化失敗，請重新整理頁面'
+  } finally {
+    isLoading.value = false
+  }
+}
+async function addMemo() {
+  if (!contentInput.value.trim()) {
+    showAlert('提示', '備忘內容不能為空！')
+    return
+  }
+  if (isSubmitting.value) return
+  isSubmitting.value = true
+  const newMemo = {
+    content: contentInput.value.trim(),
+    patientId: selectedPatient.value?.id || null,
+    patientName: selectedPatient.value?.name || null,
+    targetDate: dateInput.value || null,
+    status: 'pending',
+    isResolved: false,
+    createdAt: new Date().toISOString(),
+  }
+  try {
+    const tempId = `temp_${Date.now()}`
+    memos.value.unshift({ ...newMemo, id: tempId })
+    const contentPreview =
+      contentInput.value.substring(0, 20) + (contentInput.value.length > 20 ? '...' : '')
+    const patientContext = selectedPatient.value ? ` (${selectedPatient.value.name})` : ''
+    contentInput.value = ''
+    dateInput.value = ''
+    clearPatientSelection()
+    const savedMemo = await memosApi.save(newMemo)
+    const tempIndex = memos.value.findIndex((m) => m.id === tempId)
+    if (tempIndex !== -1) memos.value[tempIndex] = savedMemo
+    createGlobalNotification(`新增備忘：${contentPreview}${patientContext}`, 'memo')
+    closeFormModal()
+  } catch (err) {
+    const tempIndex = memos.value.findIndex((m) => m.content === newMemo.content)
+    if (tempIndex !== -1) memos.value.splice(tempIndex, 1)
+    contentInput.value = newMemo.content
+    dateInput.value = newMemo.targetDate || ''
+    if (newMemo.patientId) {
+      const patient = allPatients.value.find((p) => p.id === newMemo.patientId)
+      if (patient) {
+        selectedPatient.value = patient
+      }
+    }
+    handleError('新增備忘失敗', err)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+function handlePatientSelected({ patientId }) {
+  const patient = allPatients.value.find((p) => p.id === patientId) || null
+  selectedPatient.value = patient
+  isPatientDialogVisible.value = false
+}
+function clearPatientSelection() {
+  selectedPatient.value = null
+  if (route.query.patientId) {
+    filterPatientId.value = null
+    router.replace({ query: {} })
+  }
+}
+async function updateMemoStatus(id, resolve) {
+  const memoIndex = memos.value.findIndex((m) => m.id === id)
+  if (memoIndex === -1) return
+  const originalMemo = { ...memos.value[memoIndex] }
+  const newStatus = resolve ? 'resolved' : 'pending'
+  memos.value[memoIndex] = { ...originalMemo, status: newStatus, isResolved: resolve }
+  try {
+    await memosApi.update(id, { status: newStatus, isResolved: resolve })
+    const contentPreview =
+      originalMemo.content.substring(0, 20) + (originalMemo.content.length > 20 ? '...' : '')
+    const patientContext = originalMemo.patientName ? ` (${originalMemo.patientName})` : ''
+    if (resolve) {
+      createGlobalNotification(`已處理備忘：${contentPreview}${patientContext}`, 'success')
+    } else {
+      createGlobalNotification(`已移回待辦：${contentPreview}${patientContext}`, 'info')
+    }
+  } catch (err) {
+    memos.value[memoIndex] = originalMemo
+    handleError('更新狀態失敗', err)
+  }
+}
+async function deleteMemo(id) {
+  confirmDialogTitle.value = '確認刪除'
+  confirmDialogMessage.value = '您確定要刪除這筆備忘錄嗎？此操作無法復原。'
+  confirmAction.value = async () => {
+    const memoIndex = memos.value.findIndex((m) => m.id === id)
+    if (memoIndex === -1) return
+    const memoToDelete = { ...memos.value[memoIndex] }
+    memos.value.splice(memoIndex, 1)
+    try {
+      await memosApi.delete(id)
+      const contentPreview =
+        memoToDelete.content.substring(0, 20) + (memoToDelete.content.length > 20 ? '...' : '')
+      const patientContext = memoToDelete.patientName ? ` (${memoToDelete.patientName})` : ''
+      createGlobalNotification(`已刪除備忘：${contentPreview}${patientContext}`, 'info')
+    } catch (err) {
+      memos.value.splice(memoIndex, 0, memoToDelete)
+      handleError('刪除備忘失敗', err)
+    }
+  }
+  isConfirmDialogVisible.value = true
+}
+function openPatientDialog() {
+  isPatientDialogVisible.value = true
+}
+function handleConfirm() {
+  if (confirmAction.value) confirmAction.value()
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+function handleCancel() {
+  isConfirmDialogVisible.value = false
+  confirmAction.value = null
+}
+function handleError(title, error) {
+  console.error(`❌ [MemoView] ${title}:`, error)
+  showAlert('錯誤', `${title}！請稍後重試。`)
+}
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
+}
+async function retryLoadData() {
+  error.value = null
+  await initializeData()
+}
+function getMemoDisplayContent(memo) {
+  if (memo.patientName) {
+    return `<span class="memo-patient-name">${memo.patientName}</span> ${memo.content}`
+  }
+  return memo.content
+}
+function openFormModal() {
+  isFormModalVisible.value = true
+}
+function closeFormModal() {
+  isFormModalVisible.value = false
+}
+watch(
+  () => route.query.patientId,
+  (newPatientId) => {
+    filterPatientId.value = newPatientId || null
+    if (newPatientId && allPatients.value.length > 0) {
+      const patient = allPatients.value.find((p) => p.id === newPatientId)
+      if (patient) {
+        selectedPatient.value = patient
+      }
+    } else {
+      selectedPatient.value = null
+    }
+  },
+  { immediate: true },
+)
+onMounted(() => {
+  initializeData()
+})
+</script>
+
 <style scoped>
 /* ================================== */
 /*         通用及桌面版樣式            */
@@ -608,7 +584,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 10px;
+  padding: 0.5rem;
   box-sizing: border-box;
 }
 
@@ -696,18 +672,16 @@ onMounted(() => {
 
 .memo-layout-grid {
   display: grid;
-  /* ✨ 修改/新增：定義網格區域名稱 */
   grid-template-areas:
     'form pending'
     'history pending';
   grid-template-columns: 1fr 1.5fr;
-  grid-template-rows: auto 1fr; /* 讓歷史紀錄區塊可以伸展 */
+  grid-template-rows: auto 1fr;
   gap: 24px;
   flex-grow: 1;
   min-height: 0;
 }
 
-/* ✨ 修改/新增：移除 left-column，直接用 grid-area 定位 */
 .form-card {
   grid-area: form;
 }
@@ -751,11 +725,6 @@ onMounted(() => {
 
 .form-card {
   flex-shrink: 0;
-}
-
-.pending-card,
-.history-card {
-  min-height: 0;
 }
 
 .pending-card,
@@ -952,7 +921,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* ✨ 新增/修改：FAB 和手機版 Modal 樣式 */
 .fab {
   position: fixed;
   bottom: 2rem;
@@ -1004,12 +972,9 @@ button:disabled {
   display: none;
 }
 .desktop-only {
-  display: flex; /* or block, depending on element */
+  display: flex;
 }
 
-/* ================================== */
-/*         響應式樣式 (核心修正)       */
-/* ================================== */
 @media (max-width: 1024px) {
   .desktop-only {
     display: none !important;
@@ -1033,7 +998,6 @@ button:disabled {
     min-height: unset;
   }
 
-  /* ✨ 新增/修改：在手機上，待辦事項排第一 */
   .pending-card {
     order: 1;
   }

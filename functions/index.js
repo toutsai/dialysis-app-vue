@@ -488,6 +488,51 @@ exports.cleanupExpiredExceptionsScheduled = onSchedule(
     return null
   },
 )
+
+// ✨ --- 【新增】每日自動清理舊備忘的排程函式 --- ✨
+exports.cleanupOldMemos = onSchedule(
+  // 每天凌晨 2:10 執行 (在檢查到期之後)
+  { schedule: 'every day 02:10', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
+  async (event) => {
+    logger.info('[Scheduler] Running daily cleanup for old memos...')
+
+    // 1. 計算 7 天前的日期字串 (YYYY-MM-DD)
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+    const sevenDaysAgoStr = formatDateForQuery(sevenDaysAgo) // formatDateForQuery 是您已有的輔助函式
+
+    try {
+      // 2. 建立查詢：找出所有狀態為 'expired' 或 'resolved'，且到期日早於 7 天前的備忘
+      const query = db
+        .collection('memos')
+        .where('status', 'in', ['expired', 'resolved'])
+        .where('targetDate', '<', sevenDaysAgoStr)
+
+      const snapshot = await query.get()
+
+      if (snapshot.empty) {
+        logger.info('[Scheduler] No old memos found to delete.')
+        return null
+      }
+
+      logger.info(`[Scheduler] Found ${snapshot.size} old memos to delete.`)
+
+      // 3. 使用批次刪除來提高效率
+      const batch = db.batch()
+      snapshot.forEach((doc) => {
+        logger.info(`[Scheduler] Deleting memo ${doc.id} with targetDate ${doc.data().targetDate}.`)
+        batch.delete(doc.ref)
+      })
+
+      await batch.commit()
+      logger.info(`[Scheduler] Successfully deleted ${snapshot.size} old memos.`)
+    } catch (error) {
+      logger.error('[Scheduler] Failed to clean up old memos:', error)
+    }
+    return null
+  },
+)
+
 exports.initializeFutureSchedules = onSchedule(
   { schedule: 'every day 03:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
