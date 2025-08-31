@@ -10,8 +10,9 @@ export const useTaskStore = defineStore('task', () => {
   const allTasks = ref([])
   const allMemos = ref([])
   const isLoading = ref(true)
-  let tasksUnsubscribe = null
-  let memosUnsubscribe = null
+
+  // ✨ [核心修正] 使用陣列來管理所有監聽器的 unsubscribe 函式
+  let unsubscribes = []
 
   // --- Getters ---
   const combinedData = computed(() => {
@@ -93,8 +94,16 @@ export const useTaskStore = defineStore('task', () => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
       if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
-      const dateA = aIsDone ? a.resolvedAt?.toDate() || 0 : a.createdAt?.toDate() || 0
-      const dateB = bIsDone ? b.resolvedAt?.toDate() || 0 : b.createdAt?.toDate() || 0
+
+      // 安全地獲取日期物件
+      const getSafeDate = (timestamp) => {
+        if (!timestamp) return new Date(0)
+        return timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
+      }
+
+      const dateA = getSafeDate(aIsDone ? a.resolvedAt : a.createdAt)
+      const dateB = getSafeDate(bIsDone ? b.resolvedAt : b.createdAt)
+
       return dateB - dateA
     })
   })
@@ -151,74 +160,93 @@ export const useTaskStore = defineStore('task', () => {
   })
 
   // --- Actions ---
-  function startListening() {
-    if (tasksUnsubscribe || memosUnsubscribe) {
+
+  // ✨ [核心修正] 將 startListening 改名為 startRealtimeUpdates，並調整邏輯
+  function startRealtimeUpdates() {
+    // 如果監聽器已經在運行，就不要重複啟動
+    if (unsubscribes.length > 0) {
       return
     }
     isLoading.value = true
+
+    // 建立查詢
     const tasksQuery = query(collection(db, 'tasks'), where('category', 'in', ['task', 'message']))
-    tasksUnsubscribe = onSnapshot(
-      tasksQuery,
-      (snapshot) => {
-        allTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-        checkLoadingState()
-      },
-      (error) => {
-        console.error('[TaskStore] Error listening to tasks collection:', error)
-        checkLoadingState()
-      },
-    )
-
     const memosQuery = query(collection(db, 'memos'), where('status', 'in', ['pending', 'expired']))
-    memosUnsubscribe = onSnapshot(
-      memosQuery,
-      (snapshot) => {
-        allMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-        checkLoadingState()
-      },
-      (error) => {
-        console.error('[TaskStore] Error listening to legacy memos collection:', error)
-        checkLoadingState()
-      },
+
+    let tasksLoaded = false
+    let memosLoaded = false
+
+    const checkLoadingState = () => {
+      if (tasksLoaded && memosLoaded) {
+        isLoading.value = false
+      }
+    }
+
+    // 啟動監聽並將 unsubscribe 函式存入陣列
+    unsubscribes.push(
+      onSnapshot(
+        tasksQuery,
+        (snapshot) => {
+          allTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          tasksLoaded = true
+          checkLoadingState()
+        },
+        (error) => {
+          console.error('[TaskStore] Error listening to tasks collection:', error)
+          tasksLoaded = true
+          checkLoadingState()
+        },
+      ),
+    )
+
+    unsubscribes.push(
+      onSnapshot(
+        memosQuery,
+        (snapshot) => {
+          allMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          memosLoaded = true
+          checkLoadingState()
+        },
+        (error) => {
+          console.error('[TaskStore] Error listening to legacy memos collection:', error)
+          memosLoaded = true
+          checkLoadingState()
+        },
+      ),
     )
   }
 
-  function checkLoadingState() {
-    if (tasksUnsubscribe !== null && memosUnsubscribe !== null) {
-      isLoading.value = false
-    }
-  }
+  // ✨ [核心修正] 將 stopListening 改名為 cleanupListeners，並調整邏輯
+  function cleanupListeners() {
+    // 遍歷陣列並執行所有 unsubscribe 函式
+    unsubscribes.forEach((unsubscribe) => unsubscribe())
+    // 清空陣列
+    unsubscribes = []
 
-  function stopListening() {
-    if (tasksUnsubscribe) {
-      tasksUnsubscribe()
-      tasksUnsubscribe = null
-    }
-    if (memosUnsubscribe) {
-      memosUnsubscribe()
-      memosUnsubscribe = null
-    }
+    // 重置 state
     allTasks.value = []
     allMemos.value = []
     isLoading.value = true
   }
 
+  // 監聽使用者登入狀態的變化
   watch(
     () => currentUser.value?.uid,
     (uid) => {
       if (uid) {
-        startListening()
+        startRealtimeUpdates()
       } else {
-        stopListening()
+        cleanupListeners()
       }
     },
-    { immediate: true },
+    { immediate: true }, // immediate: true 確保在 store 初始化時就立即執行一次
   )
 
   return {
     isLoading,
-    startListening,
-    stopListening,
+    // ✨ [核心修正] 匯出新的方法名
+    startRealtimeUpdates,
+    cleanupListeners,
     myTasks,
     mySentTasks,
     sortedFeedMessages,
