@@ -108,7 +108,15 @@
 <script setup>
 import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc } from 'firebase/firestore'
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+} from 'firebase/firestore' // ✨ 1. 引入 serverTimestamp
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
@@ -130,7 +138,7 @@ const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 
 const exceptionsApi = ApiManager('schedule_exceptions')
-const memosApi = ApiManager('memos')
+const tasksApi = ApiManager('tasks') // ✨ 2. 引入新的 tasks API 管理器
 const router = useRouter()
 const route = useRoute()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -242,7 +250,7 @@ const calendarOptions = computed(() => {
     initialView: 'dayGridMonth',
     locale: zhTwLocale,
     headerToolbar: false,
-    dayMaxEvents: true, // true 會讓日曆自動計算能放幾個事件
+    dayMaxEvents: true,
     events: calendarEvents.value,
     eventDisplay: 'block',
     datesSet: (arg) => {
@@ -313,7 +321,6 @@ function handleDateSelected(newDate) {
   isMonthPickerVisible.value = false
 }
 
-// --- Methods ---
 function formatTimestamp(ts) {
   if (!ts || !ts.toDate) return 'N/A'
   return ts.toDate().toLocaleString('zh-TW', {
@@ -356,6 +363,7 @@ function closeCreateDialog() {
   }, 300)
 }
 
+// ✨ 3. 修改 handleCreateException 函式，使其建立新的 task
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
@@ -372,7 +380,8 @@ async function handleCreateException(formData) {
       from: formData.from,
       to: formData.to,
       status: 'pending',
-      createdAt: new Date(),
+      // createdAt 改為 serverTimestamp() 以確保時間準確
+      createdAt: serverTimestamp(),
     }
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
@@ -380,44 +389,58 @@ async function handleCreateException(formData) {
     const typeText = typeMap[formData.type] || '調班'
     const message = `${actionText}申請: ${formData.patientName} (${typeText})`
     createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
-    let memoContent = ''
+
+    // --- 建立病人留言 (Task) ---
+    let messageContent = ''
     const reasonText = `\n原因: ${formData.reason}`
     switch (formData.type) {
       case 'MOVE':
         const fromBedDisplay = formatBedAndShift(formData.from)
         const toBedDisplay = formatBedAndShift(formData.to)
-        memoContent =
+        messageContent =
           `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay})\n新排班: ${formData.to.goalDate} (${toBedDisplay})` +
           reasonText
         break
       case 'SUSPEND':
-        memoContent = `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}` + reasonText
+        messageContent =
+          `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}` + reasonText
         break
       case 'ADD_SESSION':
         const addBedDisplay = formatBedAndShift(formData.to)
-        memoContent = `【臨時加洗】\n日期: ${formData.to.goalDate} (${addBedDisplay})` + reasonText
+        messageContent =
+          `【臨時加洗】\n日期: ${formData.to.goalDate} (${addBedDisplay})` + reasonText
         break
       case 'RANGE_MOVE':
         const targetBedDisplay = formatBedAndShift(formData.to)
-        memoContent =
+        messageContent =
           `【區間調班】\n區間: ${formData.startDate} ~ ${formData.endDate}\n目標: 全部移至 ${targetBedDisplay}` +
           reasonText
         break
     }
-    if (memoContent) {
-      const newMemo = {
-        content: memoContent,
+
+    if (messageContent && currentUser.value) {
+      const newTask = {
+        category: 'message',
+        type: '常規', // 自動產生的訊息歸類為常規
+        content: messageContent,
         patientId: formData.patientId,
         patientName: formData.patientName,
-        targetDate: formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate,
+        targetDate:
+          formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate || formData.startDate,
         status: 'pending',
-        isResolved: false,
-        createdAt: new Date().toISOString(),
+        creator: {
+          uid: currentUser.value.uid,
+          name: currentUser.value.name,
+          title: currentUser.value.title,
+        },
+        createdAt: serverTimestamp(),
+        assignee: null,
       }
-      await memosApi.save(newMemo)
+      // 使用新的 tasksApi 儲存
+      await tasksApi.save(newTask)
     }
   } catch (error) {
-    console.error('提交調班申請或建立備忘失敗:', error)
+    console.error('提交調班申請或建立留言失敗:', error)
   }
 }
 
@@ -615,7 +638,6 @@ button:disabled {
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   min-height: 0;
-  /* ✨ [核心修改] 讓 page-main-content 成為 flex 容器，為內部佈局做準備 */
   display: flex;
   flex-direction: column;
 }
@@ -656,29 +678,27 @@ button:disabled {
   justify-content: space-between;
   align-items: center;
   padding: 1rem 0;
-  flex-wrap: wrap; /* 在小螢幕換行 */
-  gap: 1rem; /* 新增間距 */
-  /* ✨ [核心修改] 讓標頭不被壓縮 */
+  flex-wrap: wrap;
+  gap: 1rem;
   flex-shrink: 0;
 }
 
-/* ✨ [核心修改] 新增 exceptions-list-container 樣式 */
 .exceptions-list-container {
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: hidden; /* 防止子元素的滾動條溢出 */
+  overflow: hidden;
 }
 
 .date-navigator {
   display: flex;
   align-items: center;
-  gap: 0.75rem; /* 調整按鈕和標題間距 */
+  gap: 0.75rem;
 }
 
 .calendar-title-text {
-  font-weight: 600; /* 加粗 */
-  font-size: 1.75rem; /* 加大字體 */
+  font-weight: 600;
+  font-size: 1.75rem;
   color: #343a40;
   white-space: nowrap;
 }
@@ -691,7 +711,7 @@ button:disabled {
 
 .custom-calendar-header button {
   padding: 0.5rem 1rem;
-  border: 1px solid #ced4da; /* 統一邊框顏色 */
+  border: 1px solid #ced4da;
   border-radius: 6px;
   cursor: pointer;
   background-color: #f8f9fa;
@@ -704,11 +724,10 @@ button:disabled {
   background-color: #e9ecef;
 }
 
-/* ✨ [核心修改] 重新定義 calendar-wrapper 樣式 */
 .calendar-wrapper {
-  flex-grow: 1; /* 佔滿剩餘空間 */
-  overflow-y: auto; /* 讓日曆本身可以滾動 */
-  min-height: 0; /* Flexbox 滾動佈局的關鍵 hack */
+  flex-grow: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 .calendar-title-text.is-clickable {
   cursor: pointer;
@@ -716,14 +735,13 @@ button:disabled {
 }
 
 .calendar-title-text.is-clickable:hover {
-  color: #007bff; /* 滑鼠懸停時變色 */
+  color: #007bff;
 }
 /* ================================== */
 /* ✨      FullCalendar 內部樣式      ✨ */
 /* ================================== */
-/* 使用 :deep() 來修改 FullCalendar 子元件的樣式 */
 :deep(.fc) {
-  font-family: inherit; /* 繼承父層的字體，保持一致性 */
+  font-family: inherit;
 }
 :deep(.fc-daygrid-event) {
   cursor: pointer;
@@ -740,7 +758,7 @@ button:disabled {
   opacity: 0.85;
 }
 :deep(.fc-day-today) {
-  background-color: #eaf6ff !important; /* 凸顯今天的日期 */
+  background-color: #eaf6ff !important;
 }
 
 /* ================================== */
