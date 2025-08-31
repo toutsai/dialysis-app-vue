@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { getShiftDisplayName } from '@/constants/scheduleConstants'
-import MemoIcon from './MemoIcon.vue'
+import MemoIcon from './PatientMessagesIcon.vue'
 
 const props = defineProps({
   layout: { type: Array, required: true },
