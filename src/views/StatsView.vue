@@ -222,7 +222,11 @@
                         }}</span>
                       </div>
                     </div>
-                    <MemoIcon :patient-id="patient.id" />
+                    <PatientMessagesIcon
+                      :patient-id="patient.id"
+                      :types-map="patientMessageTypesMap"
+                      context="dialog"
+                    />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -285,7 +289,11 @@
                         }}</span>
                       </div>
                     </div>
-                    <MemoIcon :patient-id="patient.id" />
+                    <PatientMessagesIcon
+                      :patient-id="patient.id"
+                      :types-map="patientMessageTypesMap"
+                      context="dialog"
+                    />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -348,7 +356,11 @@
                         }}</span>
                       </div>
                     </div>
-                    <MemoIcon :patient-id="patient.id" />
+                    <PatientMessagesIcon
+                      :patient-id="patient.id"
+                      :types-map="patientMessageTypesMap"
+                      context="dialog"
+                    />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -461,7 +473,11 @@
                         }}</span>
                       </div>
                     </div>
-                    <MemoIcon :patient-id="patient.id" />
+                    <PatientMessagesIcon
+                      :patient-id="patient.id"
+                      :types-map="patientMessageTypesMap"
+                      context="dialog"
+                    />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -524,7 +540,11 @@
                         }}</span>
                       </div>
                     </div>
-                    <MemoIcon :patient-id="patient.id" />
+                    <PatientMessagesIcon
+                      :patient-id="patient.id"
+                      :types-map="patientMessageTypesMap"
+                      context="dialog"
+                    />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -653,7 +673,11 @@
                         }}</span>
                       </div>
                     </div>
-                    <MemoIcon :patient-id="patient.id" />
+                    <PatientMessagesIcon
+                      :patient-id="patient.id"
+                      :types-map="patientMessageTypesMap"
+                      context="dialog"
+                    />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -738,7 +762,11 @@
                     }}</span>
                   </div>
                 </div>
-                <MemoIcon :patient-id="patient.id" />
+                <PatientMessagesIcon
+                  :patient-id="patient.id"
+                  :types-map="patientMessageTypesMap"
+                  context="dialog"
+                />
               </div>
             </div>
             <div v-if="teamData.noonShiftOn.patients.length > 0" class="mobile-patient-list">
@@ -763,7 +791,11 @@
                     }}</span>
                   </div>
                 </div>
-                <MemoIcon :patient-id="patient.id" />
+                <PatientMessagesIcon
+                  :patient-id="patient.id"
+                  :types-map="patientMessageTypesMap"
+                  context="dialog"
+                />
               </div>
             </div>
             <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
@@ -788,7 +820,11 @@
                     }}</span>
                   </div>
                 </div>
-                <MemoIcon :patient-id="patient.id" />
+                <PatientMessagesIcon
+                  :patient-id="patient.id"
+                  :types-map="patientMessageTypesMap"
+                  context="dialog"
+                />
               </div>
             </div>
           </div>
@@ -842,7 +878,11 @@
                     }}</span>
                   </div>
                 </div>
-                <MemoIcon :patient-id="patient.id" />
+                <PatientMessagesIcon
+                  :patient-id="patient.id"
+                  :types-map="patientMessageTypesMap"
+                  context="dialog"
+                />
               </div>
             </div>
             <div v-if="teamData.lateShift.patients.length > 0" class="mobile-patient-list">
@@ -867,7 +907,11 @@
                     }}</span>
                   </div>
                 </div>
-                <MemoIcon :patient-id="patient.id" />
+                <PatientMessagesIcon
+                  :patient-id="patient.id"
+                  :types-map="patientMessageTypesMap"
+                  context="dialog"
+                />
               </div>
             </div>
           </div>
@@ -919,7 +963,11 @@
                       }}</span>
                     </div>
                   </div>
-                  <MemoIcon :patient-id="patient.id" />
+                  <PatientMessagesIcon
+                    :patient-id="patient.id"
+                    :types-map="patientMessageTypesMap"
+                    context="dialog"
+                  />
                 </div>
               </div>
             </div>
@@ -947,6 +995,12 @@
       :target-shift-filter="bedChangeTargetShift"
       @confirm="handleBedChange"
       @cancel="handleDialogCancel"
+    />
+    <MemoDisplayDialog
+      :is-visible="isMemoDialogVisible"
+      :patient-id="selectedPatientForDialog?.id"
+      :patient-name="selectedPatientForDialog?.name"
+      @close=";(isMemoDialogVisible = false), (selectedPatientForDialog = null)"
     />
     <AlertDialog
       :is-visible="isAlertDialogVisible"
@@ -985,7 +1039,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, reactive, watch, onUnmounted } from 'vue'
+import { ref, onMounted, computed, reactive, watch, onUnmounted, provide } from 'vue' // ✨ 1. 引入 provide
 import ApiManager from '@/services/api_manager.js'
 import { where, orderBy, limit } from 'firebase/firestore'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
@@ -995,25 +1049,26 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-import MemoIcon from '@/components/MemoIcon.vue'
+import PatientMessagesIcon from '@/components/PatientMessagesIcon.vue' // ✨ 2. 引入新元件 (取代舊的 MemoIcon)
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
+import { useTaskStore } from '@/stores/taskStore.js' // ✨ 3. 引入 taskStore
 import { storeToRefs } from 'pinia'
-import { httpsCallable } from 'firebase/functions' // ✨ 1. 引入 httpsCallable
-import { functions } from '@/composables/useFirebase.js' // ✨ 2. 引入 functions 實例
-import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue' // ✨ 3. 引入新元件
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@/composables/useFirebase.js'
+import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
 // Store 實例化
 const patientStore = usePatientStore()
+const taskStore = useTaskStore() // ✨ 4. 實例化 taskStore
 const { patientMap } = storeToRefs(patientStore)
 
 // API 管理器
 const schedulesApi = ApiManager('schedules')
-const memosApi = ApiManager('memos')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 const usersApi = ApiManager('users')
 
@@ -1075,7 +1130,6 @@ const dutyAssignments = {
 // 響應式狀態
 const isFireDutyDropdownVisible = ref(false)
 const currentDate = ref(new Date())
-const activeMemos = ref([])
 const statusIndicator = ref('')
 const isLoading = ref(false)
 const currentRecord = reactive({ id: null, date: '', schedule: {} })
@@ -1088,8 +1142,7 @@ const hasUnsavedChanges = computed(
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
-const memosForDialog = ref([])
-const patientNameForDialog = ref('')
+const selectedPatientForDialog = ref(null) // ✨ 5. 新的 dialog 狀態
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
@@ -1128,6 +1181,10 @@ const lateShiftTakeOffExists = computed(() => {
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
   )
 })
+// ✨ 6. 新增 computed 屬性，從 taskStore 取得病人留言圖示 map
+const patientMessageTypesMap = computed(() =>
+  taskStore.getPatientMessageTypesMapForDate(formatDate(currentDate.value)),
+)
 
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
@@ -1346,12 +1403,12 @@ async function loadData(date) {
   const dateStr = formatDate(date)
   try {
     await patientStore.fetchPatientsIfNeeded()
-    const [dailyRecords, teamsData, memosData] = await Promise.all([
+    // ✨ 7. 移除 memosApi 的呼叫
+    const [dailyRecords, teamsData] = await Promise.all([
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       fetchTeamsByDate(dateStr),
-      memosApi.fetchAll([where('status', '==', 'pending')]),
     ])
-    activeMemos.value = memosData
+
     const scheduleRecord =
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
     Object.assign(currentRecord, scheduleRecord)
@@ -1575,9 +1632,6 @@ function onDragStart(event, patientDetail, responsibility) {
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
 
-  // ✨ 核心修正：只有在 bedChangeTargetShift 未被設定時 (例如：從點擊觸發)，
-  // 才從病人身上解析當前班別作為篩選條件。
-  // 如果是從拖曳觸發，onDrop 函式已經預先設定好了目標班別，這裡就不會執行。
   if (!bedChangeTargetShift.value) {
     const currentShiftCode = patientDetail.shiftId.split('-')[2]
     bedChangeTargetShift.value = currentShiftCode
@@ -1593,24 +1647,17 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     return
   }
 
-  // 情況一：處理拖曳換班 (此邏輯保持不變)
   if (pendingChangeInfo.value) {
     const { patientDetail, newTeam, newResponsibility } = pendingChangeInfo.value
     applyTeamAndScheduleChange(patientDetail, oldShiftId, newShiftId, newTeam, newResponsibility)
   } else {
-    // 情況二：處理點擊換床 (現在已簡化為只處理同班換床)
     const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
 
-    // 1. 更新 schedule 資料
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
     setScheduleChange()
-
-    // 2. 因為點擊換床被限制為同班，所以 teamKey 不會改變，
-    //    因此不再需要對 currentTeamsRecord.value.teams 進行任何操作。
   }
 
-  // 重置所有狀態並關閉對話框
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
@@ -1619,7 +1666,7 @@ function handleBedChange({ oldShiftId, newShiftId }) {
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
-  bedChangeTargetShift.value = null // 確保取消時也重置
+  bedChangeTargetShift.value = null
 }
 function onDragOver(event) {
   if (isPageLocked.value) return
@@ -1696,15 +1743,11 @@ function handleTaskCreated() {
 }
 
 async function showInjectionList(teamData, shiftType = null) {
-  // ✨ 修改點 3: 新增 shiftType 參數
   const patientIds = new Set()
 
-  // ✨ 修改點 4: 根據傳入的 shiftType 決定要撈取哪些病人
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
-    // 如果有指定班別區塊，就只撈取那個區塊的病人
     teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
   } else {
-    // 如果沒有指定（為了向下相容），則維持舊邏輯，撈取所有病人
     for (const key in teamData) {
       if (teamData[key] && Array.isArray(teamData[key].patients)) {
         teamData[key].patients.forEach((p) => patientIds.add(p.id))
@@ -1719,7 +1762,6 @@ async function showInjectionList(teamData, shiftType = null) {
     return
   }
 
-  // 後續的 Cloud Function 呼叫邏輯完全不變
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
   dailyInjections.value = []
@@ -1759,7 +1801,6 @@ function promptDuplicateLateShift() {
 function duplicateLateShiftForTakeOff() {
   if (isPageLocked.value) return
 
-  // 步驟 1: 複製病人的分組 (這部分維持不變)
   for (const shiftId in currentRecord.schedule) {
     const slot = currentRecord.schedule[shiftId]
     if (!slot) continue
@@ -1779,24 +1820,17 @@ function duplicateLateShiftForTakeOff() {
     }
   }
 
-  // ✨ --- 新增邏輯：複製護理師姓名 --- ✨
-  // 步驟 2: 遍歷所有已指派的護理師姓名，並將晚班的指派複製到夜間收針
   if (currentTeamsRecord.value.names) {
     for (const teamName in currentTeamsRecord.value.names) {
-      // 確保我們只複製 "晚班" 的護理師 (例如 "晚A", "晚B")
       if (teamName.startsWith('晚')) {
         const nurseName = currentTeamsRecord.value.names[teamName]
         if (nurseName) {
-          // 只複製有指派的護理師
-          // 建立對應的夜間收針組別名稱 (例如 "晚A" -> "夜間收針A")
           const newTakeOffTeamName = teamName.replace('晚', '夜間收針')
-          // 將護理師姓名指派給新的組別
           currentTeamsRecord.value.names[newTakeOffTeamName] = nurseName
         }
       }
     }
   }
-  // ✨ --- 新增邏輯結束 --- ✨
 
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已建立，您可以開始調整。')
@@ -1834,6 +1868,20 @@ function removeLateShiftTakeOff() {
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已移除。')
 }
+
+// ✨ 8. 新增 icon 點擊處理函式
+const handleIconClick = (patientId, context) => {
+  if (context === 'dialog') {
+    const patient = patientMap.value.get(patientId)
+    if (patient) {
+      selectedPatientForDialog.value = { id: patientId, name: patient.name }
+      isMemoDialogVisible.value = true
+    }
+  }
+}
+
+// ✨ 9. provide 處理函式給子元件使用
+provide('handleIconClick', handleIconClick)
 
 // Lifecycle Hooks
 onMounted(() => {

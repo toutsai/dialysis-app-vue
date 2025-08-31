@@ -1,75 +1,30 @@
 <!-- 檔案路徑: src/components/MemoDisplayDialog.vue (最終修正版) -->
-<script setup>
-import { ref, watch, onMounted } from 'vue'
-
-const props = defineProps({
-  isVisible: Boolean,
-  patientName: String,
-  memos: {
-    type: Array,
-    default: () => [],
-  },
-})
-
-const emit = defineEmits(['close'])
-
-// 1. 創建一個 ref 來引用 <dialog> 元素
-const dialogRef = ref(null)
-
-// 2. 使用 watch 來監聽 isVisible prop 的變化
-watch(
-  () => props.isVisible,
-  (newValue) => {
-    // 確保 dialogRef.value (即 <dialog> 元素) 已經存在
-    if (dialogRef.value) {
-      if (newValue) {
-        // 當 isVisible 變為 true 時，呼叫 showModal() 來顯示對話框
-        dialogRef.value.showModal()
-      } else {
-        // 當 isVisible 變為 false 時，呼叫 close() 來關閉對話框
-        dialogRef.value.close()
-      }
-    }
-  },
-)
-
-// 當使用者按下 Esc 鍵或點擊背景關閉 dialog 時，
-// <dialog> 元素會觸發一個 'close' 事件。
-// 我們需要監聽這個事件，並通知父元件更新 isVisible 狀態。
-function handleDialogClose() {
-  emit('close')
-}
-
-// 確保在元件掛載後再操作 DOM
-onMounted(() => {
-  if (dialogRef.value) {
-    dialogRef.value.addEventListener('close', handleDialogClose)
-  }
-})
-</script>
-
 <template>
-  <!-- 3. 將 ref 綁定到 <dialog> 元素上，並移除 :open 綁定 -->
   <dialog ref="dialogRef" class="memo-dialog">
-    <!-- 增加一個 v-if="isVisible"，確保內容只在需要時渲染 -->
     <div v-if="isVisible">
       <header class="dialog-header">
-        <h3>{{ patientName }} 的待辦事項</h3>
+        <h3>{{ patientName }} 的待辦留言</h3>
         <button class="close-btn" @click="emit('close')" title="關閉">×</button>
       </header>
       <main class="dialog-content">
-        <ul v-if="memos && memos.length > 0" class="memo-list-in-dialog">
-          <li v-for="memo in memos" :key="memo.id" class="memo-item-in-dialog">
-            <p class="memo-text">{{ memo.content }}</p>
+        <div v-if="taskStore.isLoading" class="empty-state">載入中...</div>
+        <ul v-else-if="pendingMessages.length > 0" class="memo-list-in-dialog">
+          <li v-for="memo in pendingMessages" :key="memo.id" class="memo-item-in-dialog">
+            <p class="memo-text">
+              <span class="message-type-icon" :title="memo.type || '一般交班'">
+                {{ getMessageTypeIcon(memo.type) }}
+              </span>
+              {{ memo.content }}
+            </p>
             <div class="memo-meta-in-dialog">
-              <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+              <span>建立於: {{ new Date(memo.createdAt?.toDate()).toLocaleDateString() }}</span>
               <span v-if="memo.targetDate"
                 >| 目標日期: <strong>{{ memo.targetDate }}</strong></span
               >
             </div>
           </li>
         </ul>
-        <div v-else class="empty-state">該病人沒有待處理的備忘事項。</div>
+        <div v-else class="empty-state">該病人沒有待處理的留言。</div>
       </main>
       <footer class="dialog-footer">
         <button class="btn-primary" @click="emit('close')">關閉</button>
@@ -78,8 +33,81 @@ onMounted(() => {
   </dialog>
 </template>
 
+<script setup>
+import { ref, watch, computed } from 'vue'
+import { useTaskStore } from '@/stores/taskStore' // ✨ 引入 taskStore
+
+const props = defineProps({
+  isVisible: Boolean,
+  patientId: String, // ✨ props 改為接收 patientId
+  patientName: String,
+})
+
+const emit = defineEmits(['close'])
+const dialogRef = ref(null)
+
+const taskStore = useTaskStore() // ✨ 實例化 store
+
+// ✨ computed 屬性，從 store 中篩選出特定病人的未讀留言
+const pendingMessages = computed(() => {
+  if (!props.patientId) return []
+  return taskStore.sortedFeedMessages.filter(
+    (msg) => msg.patientId === props.patientId && msg.status === 'pending',
+  )
+})
+
+function getMessageTypeIcon(type) {
+  switch (type) {
+    case '抽血':
+      return '🩸'
+    case '衛教':
+      return '🎓'
+    case '常規':
+    default:
+      return '📝'
+  }
+}
+
+watch(
+  () => props.isVisible,
+  (newValue) => {
+    if (dialogRef.value) {
+      if (newValue) {
+        dialogRef.value.showModal()
+      } else {
+        dialogRef.value.close()
+      }
+    }
+  },
+)
+
+function handleDialogClose() {
+  emit('close')
+}
+
+// ✨ onMounted/onUnmounted 來處理事件監聽
+import { onMounted, onUnmounted } from 'vue'
+onMounted(() => {
+  if (dialogRef.value) {
+    dialogRef.value.addEventListener('close', handleDialogClose)
+  }
+})
+onUnmounted(() => {
+  if (dialogRef.value) {
+    dialogRef.value.removeEventListener('close', handleDialogClose)
+  }
+})
+</script>
+
 <style scoped>
-/* style 區塊保持不變 */
+/* ✨ 新增圖示樣式 */
+.message-type-icon {
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 1.2rem;
+  vertical-align: middle;
+}
+
 .memo-dialog {
   border: 1px solid #dee2e6;
   border-radius: 12px;

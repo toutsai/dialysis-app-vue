@@ -1,6 +1,6 @@
+<!--檔案路徑: src/views/CollaborationView.vue ✨ 完整修正版 ✨-->
 <template>
   <div class="page-container collaboration-view">
-    <!-- 使用了新的 header 結構，與調班管理頁面同步 -->
     <header class="page-header">
       <div class="header-toolbar">
         <div class="toolbar-left">
@@ -9,7 +9,6 @@
             <i class="fas fa-plus"></i> 新增交辦/留言
           </button>
         </div>
-        <!-- 如果右側有其他按鈕可以放在這裡 -->
       </div>
       <p class="page-description">顯示日期: {{ displayDate }} ({{ weekdayDisplay }})</p>
     </header>
@@ -20,12 +19,12 @@
     <div class="collaboration-container desktop-only">
       <!-- 左欄 -->
       <div class="patient-list-panel">
-        <div v-if="isNurseStaff" class="left-panel-main-tabs">
+        <div class="left-panel-main-tabs">
           <button
             :class="{ active: mainPatientViewTab === 'my' }"
             @click="mainPatientViewTab = 'my'"
           >
-            我的病人
+            今日負責病人
           </button>
           <button
             :class="{ active: mainPatientViewTab === 'all' }"
@@ -35,7 +34,7 @@
           </button>
         </div>
 
-        <div v-if="!isNurseStaff || mainPatientViewTab === 'all'" class="left-panel-shift-tabs">
+        <div v-if="mainPatientViewTab === 'my'" class="left-panel-shift-tabs">
           <button :class="{ active: shiftFilterTab === 'all' }" @click="shiftFilterTab = 'all'">
             全部
           </button>
@@ -70,7 +69,7 @@
                 @click="selectPatient(patient)"
               >
                 <div class="patient-info">
-                  <span class="patient-bed">{{
+                  <span v-if="mainPatientViewTab === 'my'" class="patient-bed">{{
                     patient.bed > 999 ? `外${patient.bed - 1000}` : patient.bed
                   }}</span>
                   <span class="patient-name">{{ patient.name }}</span>
@@ -90,16 +89,12 @@
 
       <!-- 中欄 -->
       <div class="message-panel">
-        <!-- ==================================================== -->
-        <!-- ✨ 每日公告欄 ✨ -->
-        <!-- ==================================================== -->
         <div class="message-section bulletin-board-section">
           <h2 class="panel-title"><i class="fas fa-bullhorn"></i> 每日公告</h2>
           <div v-if="isLoading.bulletin" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
           <div v-else class="bulletin-content">
-            <!-- 1. 同步前一天的工作日誌 -->
             <div v-if="yesterdaysLogItems.length > 0" class="bulletin-group">
               <h3 class="bulletin-group-title">昨日工作日誌同步事項</h3>
               <ul class="bulletin-list">
@@ -112,8 +107,6 @@
                 </li>
               </ul>
             </div>
-
-            <!-- 2. 顯示本日手動新增的公告 -->
             <div class="bulletin-group">
               <h3 class="bulletin-group-title">本日新增公告</h3>
               <ul v-if="todaysAnnouncements.length > 0" class="bulletin-list">
@@ -133,8 +126,6 @@
                 <p>尚無本日公告</p>
               </div>
             </div>
-
-            <!-- 3. 手動輸入新公告的區域 -->
             <div class="announcement-input-area" v-if="canPostAnnouncement">
               <textarea
                 v-model="newAnnouncementText"
@@ -149,29 +140,32 @@
         </div>
         <div class="message-section feed-messages">
           <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
-          <div v-if="isLoading.messages" class="panel-loading small">
+          <div v-if="taskStore.isLoading" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
-          <ul v-else-if="sortedFeedMessages.length > 0" class="message-list">
-            <!-- ✨ [核心修改] 開始 ✨ -->
+          <ul v-else-if="filteredFeedMessages.length > 0" class="message-list">
             <li
-              v-for="msg in sortedFeedMessages"
+              v-for="msg in filteredFeedMessages"
               :key="msg.id"
               class="message-item"
               :class="{
                 'is-completed': msg.status === 'completed',
+                'is-expired': msg.status === 'expired',
                 'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
               }"
             >
               <p class="item-content">
+                <span class="message-type-icon" :title="msg.type || '一般交班'">
+                  {{ getMessageTypeIcon(msg.type) }}
+                </span>
                 <strong>{{ msg.patientName }}:</strong> {{ msg.content }}
               </p>
               <div class="item-footer">
                 <div class="item-meta">
                   <small v-if="msg.targetDate" class="target-date-info">
                     <i class="fas fa-calendar-alt"></i>
-                    <!-- 增加 "預" 標記 -->
-                    <span v-if="msg.targetDate > displayDate" class="future-tag">預</span>
+                    <span v-if="msg.status === 'expired'" class="expired-tag">逾</span>
+                    <span v-else-if="msg.targetDate > displayDate" class="future-tag">預</span>
                     關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                   </small>
                   <small class="creator-info"
@@ -180,10 +174,9 @@
                   >
                 </div>
                 <div v-if="msg.status === 'pending'" class="item-actions">
-                  <!-- 使用 :disabled 和 :title 來控制按鈕狀態 -->
                   <button
                     class="btn-action btn-complete"
-                    @click="updateTaskStatus(msg.id, 'completed')"
+                    @click="updateTaskStatus(msg.id, 'completed', msg.isLegacy)"
                     :disabled="displayDate < msg.targetDate"
                     :title="
                       displayDate < msg.targetDate
@@ -194,13 +187,28 @@
                     <i class="fas fa-check"></i> 已讀
                   </button>
                 </div>
+                <div v-else-if="msg.status === 'expired'" class="item-actions">
+                  <button
+                    class="btn-action btn-revert"
+                    @click="updateTaskStatus(msg.id, 'pending', msg.isLegacy)"
+                    title="將此事項移回待辦清單"
+                  >
+                    <i class="fas fa-undo"></i> 移回待辦
+                  </button>
+                  <button
+                    class="btn-action btn-delete"
+                    @click="deleteTask(msg.id, msg.isLegacy)"
+                    title="永久刪除此事項"
+                  >
+                    <i class="fas fa-trash"></i> 刪除
+                  </button>
+                </div>
                 <div v-else class="completed-info">
                   <i class="fas fa-check-double"></i> 由 {{ msg.resolvedBy?.name }} 於
                   {{ formatTimestamp(msg.resolvedAt) }} 標示
                 </div>
               </div>
             </li>
-            <!-- ✨ [核心修改] 結束 ✨ -->
           </ul>
           <div v-else class="panel-empty small">
             <p><i class="fas fa-inbox"></i> 您的病人資訊流中沒有新留言</p>
@@ -212,7 +220,7 @@
       <div class="task-panel">
         <div class="task-section inbox-tasks">
           <h2 class="panel-title"><i class="fas fa-inbox"></i> 收件匣(給我的交辦事項)</h2>
-          <div v-if="isLoading.tasks" class="panel-loading small">
+          <div v-if="taskStore.isLoading" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
           <ul v-else-if="sortedMyTasks.length > 0" class="task-list">
@@ -239,7 +247,7 @@
                 <div v-if="task.status === 'pending'" class="item-actions">
                   <button
                     class="btn-action btn-complete-task"
-                    @click="updateTaskStatus(task.id, 'completed')"
+                    @click="updateTaskStatus(task.id, 'completed', task.isLegacy)"
                   >
                     <i class="fas fa-check"></i> 完成
                   </button>
@@ -257,7 +265,7 @@
         </div>
         <div class="task-section sent-tasks">
           <h2 class="panel-title"><i class="fas fa-paper-plane"></i> 寄件匣(我的追蹤事項)</h2>
-          <div v-if="isLoading.sentTasks" class="panel-loading small">
+          <div v-if="taskStore.isLoading" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
           <ul v-else-if="sortedMySentTasks.length > 0" class="task-list">
@@ -302,7 +310,7 @@
           :class="{ active: activeMobileTab === 'patients' }"
           @click="activeMobileTab = 'patients'"
         >
-          <i class="fas fa-user-friends"></i> 我的病人
+          <i class="fas fa-user-friends"></i> 病人列表
         </button>
         <button
           class="mobile-tab-btn"
@@ -322,13 +330,12 @@
 
       <div class="mobile-content-area">
         <div v-show="activeMobileTab === 'patients'" class="patient-list-panel">
-          <!-- 行動版 左欄 -->
-          <div v-if="isNurseStaff" class="left-panel-main-tabs">
+          <div class="left-panel-main-tabs">
             <button
               :class="{ active: mainPatientViewTab === 'my' }"
               @click="mainPatientViewTab = 'my'"
             >
-              我的病人
+              今日負責病人
             </button>
             <button
               :class="{ active: mainPatientViewTab === 'all' }"
@@ -337,7 +344,7 @@
               全部病人
             </button>
           </div>
-          <div v-if="!isNurseStaff || mainPatientViewTab === 'all'" class="left-panel-shift-tabs">
+          <div v-if="mainPatientViewTab === 'my'" class="left-panel-shift-tabs">
             <button :class="{ active: shiftFilterTab === 'all' }" @click="shiftFilterTab = 'all'">
               全部
             </button>
@@ -374,7 +381,7 @@
                   @click="selectPatient(patient)"
                 >
                   <div class="patient-info">
-                    <span class="patient-bed">{{
+                    <span v-if="mainPatientViewTab === 'my'" class="patient-bed">{{
                       patient.bed > 999 ? `外${patient.bed - 1000}` : patient.bed
                     }}</span>
                     <span class="patient-name">{{ patient.name }}</span>
@@ -392,18 +399,12 @@
           </div>
         </div>
         <div v-show="activeMobileTab === 'messages'" class="message-panel">
-          <!-- ==================================================== -->
-          <!-- ✨ 行動版 中欄 (已更新為新版公告欄) ✨ -->
-          <!-- ==================================================== -->
-
-          <!-- 每日公告欄 (與桌面版結構相同) -->
           <div class="message-section bulletin-board-section">
             <h2 class="panel-title"><i class="fas fa-bullhorn"></i> 每日公告</h2>
             <div v-if="isLoading.bulletin" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
             <div v-else class="bulletin-content">
-              <!-- 1. 同步前一天的工作日誌 -->
               <div v-if="yesterdaysLogItems.length > 0" class="bulletin-group">
                 <h3 class="bulletin-group-title">昨日工作日誌同步事項</h3>
                 <ul class="bulletin-list">
@@ -416,8 +417,6 @@
                   </li>
                 </ul>
               </div>
-
-              <!-- 2. 顯示本日手動新增的公告 -->
               <div class="bulletin-group">
                 <h3 class="bulletin-group-title">本日新增公告</h3>
                 <ul v-if="todaysAnnouncements.length > 0" class="bulletin-list">
@@ -437,8 +436,6 @@
                   <p>尚無本日公告</p>
                 </div>
               </div>
-
-              <!-- 3. 手動輸入新公告的區域 (有權限才顯示) -->
               <div class="announcement-input-area" v-if="canPostAnnouncement">
                 <textarea
                   v-model="newAnnouncementText"
@@ -451,32 +448,34 @@
               </div>
             </div>
           </div>
-
-          <!-- 病人留言板 (與桌面版結構相同) -->
           <div class="message-section feed-messages">
             <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
-            <div v-if="isLoading.messages" class="panel-loading small">
+            <div v-if="taskStore.isLoading" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
-            <ul v-else-if="sortedFeedMessages.length > 0" class="message-list">
-              <!-- ✨ [核心修改] 行動版也同步修改 ✨ -->
+            <ul v-else-if="filteredFeedMessages.length > 0" class="message-list">
               <li
-                v-for="msg in sortedFeedMessages"
+                v-for="msg in filteredFeedMessages"
                 :key="msg.id"
                 class="message-item"
                 :class="{
                   'is-completed': msg.status === 'completed',
+                  'is-expired': msg.status === 'expired',
                   'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
                 }"
               >
                 <p class="item-content">
+                  <span class="message-type-icon" :title="msg.type || '一般交班'">
+                    {{ getMessageTypeIcon(msg.type) }}
+                  </span>
                   <strong>{{ msg.patientName }}:</strong> {{ msg.content }}
                 </p>
                 <div class="item-footer">
                   <div class="item-meta">
                     <small v-if="msg.targetDate" class="target-date-info">
                       <i class="fas fa-calendar-alt"></i>
-                      <span v-if="msg.targetDate > displayDate" class="future-tag">預</span>
+                      <span v-if="msg.status === 'expired'" class="expired-tag">逾</span>
+                      <span v-else-if="msg.targetDate > displayDate" class="future-tag">預</span>
                       關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                     </small>
                     <small class="creator-info"
@@ -487,7 +486,7 @@
                   <div v-if="msg.status === 'pending'" class="item-actions">
                     <button
                       class="btn-action btn-complete"
-                      @click="updateTaskStatus(msg.id, 'completed')"
+                      @click="updateTaskStatus(msg.id, 'completed', msg.isLegacy)"
                       :disabled="displayDate < msg.targetDate"
                       :title="
                         displayDate < msg.targetDate
@@ -496,6 +495,22 @@
                       "
                     >
                       <i class="fas fa-check"></i> 已讀
+                    </button>
+                  </div>
+                  <div v-else-if="msg.status === 'expired'" class="item-actions">
+                    <button
+                      class="btn-action btn-revert"
+                      @click="updateTaskStatus(msg.id, 'pending', msg.isLegacy)"
+                      title="將此事項移回待辦清單"
+                    >
+                      <i class="fas fa-undo"></i> 移回待辦
+                    </button>
+                    <button
+                      class="btn-action btn-delete"
+                      @click="deleteTask(msg.id, msg.isLegacy)"
+                      title="永久刪除此事項"
+                    >
+                      <i class="fas fa-trash"></i> 刪除
                     </button>
                   </div>
                   <div v-else class="completed-info">
@@ -511,10 +526,9 @@
           </div>
         </div>
         <div v-show="activeMobileTab === 'tasks'" class="task-panel">
-          <!-- 行動版 右欄 -->
           <div class="task-section inbox-tasks">
             <h2 class="panel-title"><i class="fas fa-inbox"></i> 我的交辦事項 (收件匣)</h2>
-            <div v-if="isLoading.tasks" class="panel-loading small">
+            <div v-if="taskStore.isLoading" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
             <ul v-else-if="sortedMyTasks.length > 0" class="task-list">
@@ -536,7 +550,7 @@
                   <div v-if="task.status === 'pending'" class="item-actions">
                     <button
                       class="btn-action btn-complete-task"
-                      @click="updateTaskStatus(task.id, 'completed')"
+                      @click="updateTaskStatus(task.id, 'completed', task.isLegacy)"
                     >
                       <i class="fas fa-check"></i> 完成
                     </button>
@@ -554,7 +568,7 @@
           </div>
           <div class="task-section sent-tasks">
             <h2 class="panel-title"><i class="fas fa-paper-plane"></i> 我的追蹤事項 (寄件匣)</h2>
-            <div v-if="isLoading.sentTasks" class="panel-loading small">
+            <div v-if="taskStore.isLoading" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
             <ul v-else-if="sortedMySentTasks.length > 0" class="task-list">
@@ -608,20 +622,15 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  doc,
-  updateDoc,
-  setDoc,
-  arrayUnion,
-} from 'firebase/firestore'
+import { doc, updateDoc, setDoc, arrayUnion, deleteDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager.js'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
+import { useTaskStore } from '@/stores/taskStore.js'
+import { storeToRefs } from 'pinia'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
+import { where } from 'firebase/firestore'
 
 const route = useRoute()
 const { currentUser, isPageLocked, hasPermission } = useAuth()
@@ -629,6 +638,12 @@ const userTitle = computed(() => currentUser.value?.title)
 const userRole = computed(() => currentUser.value?.role)
 
 const patientStore = usePatientStore()
+const taskStore = useTaskStore()
+const { createGlobalNotification } = useGlobalNotifier()
+
+const { myTasks, mySentTasks, sortedFeedMessages } = storeToRefs(taskStore)
+const { allPatients: allPatientsFromStore } = storeToRefs(patientStore)
+const patientMap = computed(() => patientStore.patientMap)
 
 const schedulesApi = ApiManager('schedules')
 const assignmentsApi = ApiManager('nurse_assignments')
@@ -636,60 +651,61 @@ const logsApi = ApiManager('daily_logs')
 
 const isLoading = ref({
   patients: true,
-  messages: true,
-  tasks: true,
-  sentTasks: true,
   bulletin: true,
 })
 const allDailyPatients = ref([])
-const myAssignedPatients = ref([])
+const myAssignedPatients = ref([]) // ✨ [核心] 這個 ref 現在是所有角色 "我的病人" 的唯一來源
 const selectedPatient = ref(null)
-const myTasks = ref([])
-const mySentTasks = ref([])
-const allMessages = ref([])
 const isCreateModalVisible = ref(false)
-
 const yesterdaysLogItems = ref([])
 const todaysAnnouncements = ref([])
 const newAnnouncementText = ref('')
-
-const patientMap = computed(() => patientStore.patientMap)
-
 const mainPatientViewTab = ref('my')
 const shiftFilterTab = ref('all')
-
-let taskUnsubscribe = null
-let sentTaskUnsubscribe = null
-let messageUnsubscribe = null
-let bulletinUnsubscribe = null
 const activeMobileTab = ref('patients')
+let bulletinUnsubscribe = null
 
-const isNurseStaff = computed(() => ['護理師', '護理師組長'].includes(userTitle.value))
 const canPostAnnouncement = computed(() => {
   if (!currentUser.value) return false
-  // 只有 admin 或 editor 角色可以發布
   return ['admin', 'editor'].includes(currentUser.value.role)
 })
+
+// ✨ [核心修正] 簡化並統一 patientsForList 的邏輯
 const patientsForList = computed(() => {
-  return mainPatientViewTab.value === 'my' && isNurseStaff.value
-    ? myAssignedPatients.value
-    : allDailyPatients.value
+  if (mainPatientViewTab.value === 'all') {
+    // 1. "全部病人" 頁籤：從 patientStore 獲取所有有效病人 (邏輯不變)
+    return allPatientsFromStore.value.filter((p) => !p.isDeleted && !p.isDiscontinued)
+  }
+
+  // 2. "我的病人" 頁籤 (預設)：
+  // 對於所有角色，都直接返回 `myAssignedPatients`。
+  // `myAssignedPatients` 的計算邏輯在 `loadDailyPatientData` 中已經處理好，
+  // 如果某個角色在分組中沒有名字，這個陣列自然就是空的。
+  return myAssignedPatients.value
 })
+
 const filteredByShiftPatients = computed(() => {
+  if (mainPatientViewTab.value === 'all') {
+    return patientsForList.value
+  }
   if (shiftFilterTab.value === 'all') {
     return patientsForList.value
   }
   return patientsForList.value.filter((p) => p.shift === shiftFilterTab.value)
 })
+
 const groupedPatients = computed(() => {
-  const groups = { 早班: [], 午班: [], 晚班: [] }
-  let patientsToGroup = []
-  if (isNurseStaff.value) {
-    patientsToGroup =
-      mainPatientViewTab.value === 'my' ? myAssignedPatients.value : filteredByShiftPatients.value
-  } else {
-    patientsToGroup = filteredByShiftPatients.value
+  const patientsToGroup = filteredByShiftPatients.value
+
+  if (mainPatientViewTab.value === 'all') {
+    if (!Array.isArray(patientsToGroup) || patientsToGroup.length === 0) return {}
+    const sortedPatients = [...patientsToGroup].sort((a, b) =>
+      a.name.localeCompare(b.name, 'zh-Hant'),
+    )
+    return { 所有病人: sortedPatients }
   }
+
+  const groups = { 早班: [], 午班: [], 晚班: [] }
   if (!Array.isArray(patientsToGroup)) return {}
   for (const patient of patientsToGroup) {
     if (patient.shift === 'early') groups.早班.push(patient)
@@ -702,15 +718,14 @@ const groupedPatients = computed(() => {
   return groups
 })
 
+// ... (其他所有 computed 和 methods 保持不變) ...
 const getLocalDateString = (date) => {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
   const day = date.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
 const displayDate = computed(() => route.query.date || getLocalDateString(new Date()))
-
 const weekdayDisplay = computed(() => {
   if (!displayDate.value) return ''
   try {
@@ -720,6 +735,125 @@ const weekdayDisplay = computed(() => {
     return ''
   }
 })
+
+const sortItems = (items) => {
+  if (!Array.isArray(items)) return []
+  return [...items].sort((a, b) => {
+    if (a.status === 'pending' && b.status !== 'pending') return -1
+    if (a.status !== 'pending' && b.status === 'pending') return 1
+    const dateA = a.resolvedAt?.toDate() || a.createdAt?.toDate() || new Date(0)
+    const dateB = b.resolvedAt?.toDate() || b.createdAt?.toDate() || new Date(0)
+    return dateB - dateA
+  })
+}
+const sortedMyTasks = computed(() => sortItems(myTasks.value))
+const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
+
+const filteredFeedMessages = computed(() => {
+  if (mainPatientViewTab.value === 'all') {
+    return sortedFeedMessages.value.filter((msg) => !msg.content.startsWith('【'))
+  }
+  if (!Array.isArray(patientsForList.value)) return []
+  const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
+  const messages = sortedFeedMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
+  return messages.filter((msg) => !msg.content.startsWith('【'))
+})
+
+function getMessageTypeIcon(type) {
+  switch (type) {
+    case '抽血':
+      return '🩸'
+    // ✨ [核心修改] 將 🎓 換成 📢
+    case '衛教':
+      return '📢'
+    case '常規':
+    default:
+      return '📝'
+  }
+}
+
+async function updateTaskStatus(taskId, newStatus, isLegacy = false) {
+  if (!currentUser.value) return
+  try {
+    const collectionName = isLegacy ? 'memos' : 'tasks'
+    const taskRef = doc(db, collectionName, taskId)
+    await updateDoc(taskRef, {
+      status: newStatus,
+      resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
+      resolvedAt: new Date(),
+    })
+    createGlobalNotification(
+      newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
+      'success',
+    )
+  } catch (error) {
+    console.error('更新任務狀態失敗:', error)
+    alert('更新失敗，請稍後再試。')
+  }
+}
+
+async function deleteTask(taskId, isLegacy = false) {
+  if (!confirm('您確定要永久刪除這則訊息嗎？此操作無法復原。')) return
+  try {
+    const collectionName = isLegacy ? 'memos' : 'tasks'
+    const taskRef = doc(db, collectionName, taskId)
+    await deleteDoc(taskRef)
+    createGlobalNotification('訊息已刪除', 'info')
+  } catch (error) {
+    console.error('刪除任務失敗:', error)
+    alert('刪除失敗，請稍後再試。')
+  }
+}
+
+function openCreateModal() {
+  if (!currentUser.value) return
+  const canPerformAction = hasPermission('viewer')
+  if (!canPerformAction) {
+    console.warn('Permission denied.')
+    return
+  }
+  isCreateModalVisible.value = true
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return ''
+  const date = ts.toDate ? ts.toDate() : new Date(ts)
+  if (isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-TW', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+const roleDisplayNames = {
+  clerk: '書記',
+  doctor: '醫師',
+  np: '專科護理師',
+  editor: '護理師組長',
+  admin: '管理員',
+}
+
+function getAssigneeName(assignee) {
+  if (!assignee) return '未知'
+  if (assignee.type === 'role') {
+    return roleDisplayNames[assignee.value] || assignee.value
+  }
+  return '特定使用者'
+}
+
+function selectPatient(patient) {
+  selectedPatient.value = patient
+  if (window.innerWidth <= 992) {
+    activeMobileTab.value = 'messages'
+  }
+}
+
+function handleTaskCreated() {
+  console.log('Task created successfully.')
+}
 
 function listenToBulletinData(dateStr) {
   if (bulletinUnsubscribe) bulletinUnsubscribe()
@@ -743,9 +877,7 @@ function listenToBulletinData(dateStr) {
         yesterdaysLogItems.value = notes
       }
     })
-    .catch((err) => {
-      // console.log("找不到昨日日誌:", err.message);
-    })
+    .catch((err) => {})
 
   const todayLogRef = doc(db, 'daily_logs', dateStr)
   bulletinUnsubscribe = onSnapshot(
@@ -769,10 +901,8 @@ function listenToBulletinData(dateStr) {
 
 async function handleSaveAnnouncement() {
   if (!newAnnouncementText.value.trim() || !currentUser.value) return
-
   const dateStr = displayDate.value
   const logDocRef = doc(db, 'daily_logs', dateStr)
-
   const newAnnouncement = {
     id: Date.now().toString(),
     content: newAnnouncementText.value.trim(),
@@ -782,15 +912,8 @@ async function handleSaveAnnouncement() {
     },
     createdAt: new Date(),
   }
-
   try {
-    await setDoc(
-      logDocRef,
-      {
-        announcements: arrayUnion(newAnnouncement),
-      },
-      { merge: true },
-    )
+    await setDoc(logDocRef, { announcements: arrayUnion(newAnnouncement) }, { merge: true })
     newAnnouncementText.value = ''
   } catch (error) {
     console.error('發布公告失敗:', error)
@@ -798,72 +921,30 @@ async function handleSaveAnnouncement() {
   }
 }
 
-const sortItems = (items) => {
-  if (!Array.isArray(items)) return []
-  return [...items].sort((a, b) => {
-    if (a.status === 'pending' && b.status !== 'pending') return -1
-    if (a.status !== 'pending' && b.status === 'pending') return 1
-    const dateA = a.resolvedAt?.toDate() || a.createdAt?.toDate() || new Date(0)
-    const dateB = b.resolvedAt?.toDate() || b.createdAt?.toDate() || new Date(0)
-    return dateB - dateA
-  })
-}
-
-const sortedMyTasks = computed(() => sortItems(myTasks.value))
-const sortedSelectedPatientMessages = computed(() => sortItems(selectedPatientMessages.value))
-const sortedFeedMessages = computed(() => sortItems(feedMessages.value))
-const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
-
-const selectedPatientMessages = computed(() => {
-  if (!selectedPatient.value || !Array.isArray(allMessages.value)) return []
-  return allMessages.value.filter((msg) => msg.patientId === selectedPatient.value.id)
-})
-const feedMessages = computed(() => {
-  if (!Array.isArray(patientsForList.value) || !Array.isArray(allMessages.value)) return []
-  const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
-  return allMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
-})
-
-async function loadAndProcessDataForDate(date) {
-  isLoading.value = {
-    patients: true,
-    messages: true,
-    tasks: true,
-    sentTasks: true,
-    bulletin: true,
-  }
+// ✨ [核心修正] 此函式的職責不變，但現在它的產出 (myAssignedPatients) 會被所有角色使用
+async function loadDailyPatientData(date) {
+  isLoading.value.patients = true
   allDailyPatients.value = []
   myAssignedPatients.value = []
-  selectedPatient.value = null
 
   if (!currentUser.value) {
-    Object.keys(isLoading.value).forEach((k) => (isLoading.value[k] = false))
+    isLoading.value.patients = false
     return
   }
 
   try {
     await patientStore.fetchPatientsIfNeeded()
+
     const schedules = await schedulesApi.fetchAll([where('date', '==', date)])
     if (schedules.length === 0 || !schedules[0].schedule) {
       isLoading.value.patients = false
       return
     }
+
     const scheduleData = schedules[0].schedule
-    const allPatientIdsInSchedule = Array.from(
-      new Set(
-        Object.values(scheduleData)
-          .map((s) => s.patientId)
-          .filter(Boolean),
-      ),
-    )
-
-    if (allPatientIdsInSchedule.length === 0) {
-      isLoading.value.patients = false
-      return
-    }
-
     const assignments = await assignmentsApi.fetchAll([where('date', '==', date)])
     const localPatientMap = patientStore.patientMap
+
     const getBedNumber = (shiftId) => {
       const parts = shiftId.split('-')
       return parts[0] === 'peripheral' ? 1000 + parseInt(parts[1], 10) : parseInt(parts[1], 10)
@@ -889,7 +970,8 @@ async function loadAndProcessDataForDate(date) {
     }
     allDailyPatients.value = tempAllDaily.sort(sortLogic)
 
-    if (isNurseStaff.value && assignments.length > 0 && assignments[0].teams) {
+    // 這段邏輯現在對所有角色都有效。如果登入者不在 names 裡，myAssignedIds 會是空的。
+    if (assignments.length > 0 && assignments[0].teams) {
       const { names, teams } = assignments[0]
       const myAssignedIds = new Set()
       if (names && teams) {
@@ -912,208 +994,42 @@ async function loadAndProcessDataForDate(date) {
       myAssignedPatients.value = allDailyPatients.value.filter((p) => myAssignedIds.has(p.id))
     }
   } catch (error) {
-    console.error('獲取病人列表失敗:', error)
+    console.error('獲取每日病人列表失敗:', error)
   } finally {
     isLoading.value.patients = false
   }
 }
 
-function openCreateModal() {
-  if (!currentUser.value) return
-  const canPerformAction = hasPermission('viewer')
-  if (!canPerformAction) {
-    console.warn('Permission denied.')
-    return
-  }
-  isCreateModalVisible.value = true
-}
-function formatTimestamp(ts) {
-  if (!ts) return ''
-  const date = ts.toDate ? ts.toDate() : new Date(ts)
-  if (isNaN(date.getTime())) return ''
-  return date.toLocaleString('zh-TW', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
-}
-const roleDisplayNames = {
-  clerk: '書記',
-  doctor: '醫師',
-  np: '專科護理師',
-  editor: '護理師組長',
-  admin: '管理員',
-}
-function getAssigneeName(assignee) {
-  if (!assignee) return '未知'
-  if (assignee.type === 'role') {
-    return roleDisplayNames[assignee.value] || assignee.value
-  }
-  return '特定使用者'
-}
-function listenToMyTasks() {
-  if (taskUnsubscribe) taskUnsubscribe()
-  isLoading.value.tasks = true
-  if (!currentUser.value) {
-    isLoading.value.tasks = false
-    return
-  }
-  const myTargetAssigneeValues = []
-  const titleToRoleValue = { 書記: 'clerk', 主治醫師: 'doctor', 專科護理師: 'np' }
-  const titleBasedRole = titleToRoleValue[userTitle.value]
-  if (titleBasedRole) myTargetAssigneeValues.push(titleBasedRole)
-  if (userRole.value) myTargetAssigneeValues.push(userRole.value)
-  const uniqueTargetValues = [...new Set(myTargetAssigneeValues)]
-  if (uniqueTargetValues.length === 0) {
-    myTasks.value = []
-    isLoading.value.tasks = false
-    return
-  }
-  const q = query(
-    collection(db, 'tasks'),
-    where('category', '==', 'task'),
-    where('status', 'in', ['pending', 'completed']),
-    where('assignee.type', '==', 'role'),
-    where('assignee.value', 'in', uniqueTargetValues),
-  )
-  taskUnsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
-      myTasks.value = filterByStatusAndDate(snapshot.docs)
-      isLoading.value.tasks = false
-    },
-    (error) => {
-      console.error('監聽交辦事項失敗:', error)
-      isLoading.value.tasks = false
-    },
-  )
-}
-function listenToMySentTasks() {
-  if (sentTaskUnsubscribe) sentTaskUnsubscribe()
-  isLoading.value.sentTasks = true
-  if (!currentUser.value) {
-    isLoading.value.sentTasks = false
-    return
-  }
-  const q = query(
-    collection(db, 'tasks'),
-    where('category', '==', 'task'),
-    where('status', 'in', ['pending', 'completed']),
-    where('creator.uid', '==', currentUser.value.uid),
-  )
-  sentTaskUnsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
-      mySentTasks.value = filterByStatusAndDate(snapshot.docs)
-      isLoading.value.sentTasks = false
-    },
-    (error) => {
-      console.error('監聽寄件匣失敗:', error)
-      isLoading.value.sentTasks = false
-    },
-  )
-}
-function listenToMessages() {
-  if (messageUnsubscribe) messageUnsubscribe()
-  isLoading.value.messages = true
-  const q = query(
-    collection(db, 'tasks'),
-    where('category', '==', 'message'),
-    where('status', 'in', ['pending', 'completed']),
-    where('targetDate', '>=', displayDate.value),
-  )
-  messageUnsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
-      allMessages.value = filterByStatusAndDate(snapshot.docs)
-      isLoading.value.messages = false
-    },
-    (error) => {
-      console.error('監聽留言失敗:', error)
-      isLoading.value.messages = false
-    },
-  )
-}
-async function updateTaskStatus(taskId, newStatus) {
-  if (!currentUser.value) return
-  try {
-    const taskRef = doc(db, 'tasks', taskId)
-    await updateDoc(taskRef, {
-      status: newStatus,
-      resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
-      resolvedAt: new Date(),
-    })
-  } catch (error) {
-    console.error('更新任務狀態失敗:', error)
-  }
-}
-function selectPatient(patient) {
-  selectedPatient.value = patient
-  if (window.innerWidth <= 992) {
-    activeMobileTab.value = 'messages'
-  }
-}
-function handleTaskCreated() {
-  console.log('Task created successfully.')
-}
-function filterByStatusAndDate(docs) {
-  const fiveDaysAgo = new Date()
-  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5)
-  const results = []
-  for (const doc of docs) {
-    const data = { id: doc.id, ...doc.data() }
-    if (data.status === 'pending') {
-      results.push(data)
-    } else if (data.status === 'completed' && data.resolvedAt) {
-      const resolvedDate = data.resolvedAt.toDate
-        ? data.resolvedAt.toDate()
-        : new Date(data.resolvedAt)
-      if (resolvedDate >= fiveDaysAgo) {
-        results.push(data)
-      }
-    }
-  }
-  return results
-}
 onMounted(async () => {
   await useAuth().waitForAuthInit()
-  await loadAndProcessDataForDate(displayDate.value)
-  listenToBulletinData(displayDate.value)
-  listenToMyTasks()
-  listenToMySentTasks()
-  listenToMessages()
+  await Promise.all([
+    patientStore.fetchPatientsIfNeeded(),
+    loadDailyPatientData(displayDate.value),
+    listenToBulletinData(displayDate.value),
+  ])
 })
+
 onUnmounted(() => {
-  if (taskUnsubscribe) taskUnsubscribe()
-  if (sentTaskUnsubscribe) sentTaskUnsubscribe()
-  if (messageUnsubscribe) messageUnsubscribe()
   if (bulletinUnsubscribe) bulletinUnsubscribe()
 })
+
 watch(
   () => route.query.date,
   async (newDate, oldDate) => {
     if (newDate && newDate !== oldDate) {
-      await loadAndProcessDataForDate(newDate)
+      await loadDailyPatientData(newDate)
       listenToBulletinData(newDate)
-      listenToMessages()
     }
   },
 )
+
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      loadAndProcessDataForDate(displayDate.value)
+      loadDailyPatientData(displayDate.value)
       listenToBulletinData(displayDate.value)
-      listenToMyTasks()
-      listenToMySentTasks()
-      listenToMessages()
     } else {
-      if (taskUnsubscribe) taskUnsubscribe()
-      if (sentTaskUnsubscribe) sentTaskUnsubscribe()
-      if (messageUnsubscribe) messageUnsubscribe()
       if (bulletinUnsubscribe) bulletinUnsubscribe()
     }
   },
@@ -1205,7 +1121,6 @@ watch(
   background-color: #f8f9fa;
 }
 
-/* ... (以下為您所有其他的既有樣式，它們都是正確的，應予以保留) ... */
 .panel-loading,
 .panel-empty {
   flex-grow: 1;
@@ -1275,6 +1190,10 @@ watch(
 .completed-info.task {
   color: #166534;
 }
+.item-actions {
+  display: flex;
+  gap: 0.5rem;
+}
 .item-actions .btn-action {
   display: inline-flex;
   align-items: center;
@@ -1285,6 +1204,7 @@ watch(
   border-radius: 4px;
   color: white;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
 .btn-complete {
   background-color: #007bff;
@@ -1553,7 +1473,6 @@ watch(
     padding: 0;
     position: relative;
   }
-  /* ✨ 修正行動版 header，讓其與桌面版新樣式協作 */
   .page-header {
     padding: 1rem;
     margin-bottom: 0;
@@ -1565,7 +1484,6 @@ watch(
     margin-top: 0.5rem;
     font-size: 0.9rem;
   }
-  /* 隱藏桌面版的按鈕 */
   .toolbar-left .btn-primary {
     display: none;
   }
@@ -1667,10 +1585,9 @@ watch(
 /*       ✨ 公告欄新增樣式 ✨         */
 /* ================================== */
 .bulletin-board-section .panel-title {
-  background-color: #fffbe6; /* 淡黃色背景 */
+  background-color: #fffbe6;
   color: #b45309;
 }
-
 .bulletin-content {
   flex-grow: 1;
   overflow-y: auto;
@@ -1679,7 +1596,6 @@ watch(
   flex-direction: column;
   gap: 1.5rem;
 }
-
 .bulletin-group-title {
   font-size: 0.9rem;
   font-weight: bold;
@@ -1688,36 +1604,30 @@ watch(
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #e5e7eb;
 }
-
 .bulletin-list {
-  list-style-type: decimal; /* 顯示 1. 2. 3. */
+  list-style-type: decimal;
   padding-left: 1.5rem;
   margin: 0;
 }
-
 .log-item,
 .announcement-item {
   margin-bottom: 0.5rem;
   font-size: 0.95rem;
 }
-
 .log-item {
   color: #374151;
 }
-
 .announcement-item .item-content {
   margin-bottom: 0.25rem;
 }
-
 .announcement-input-area {
-  margin-top: auto; /* 將輸入區推到底部 */
+  margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid #e5e7eb;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
-
 .announcement-input-area textarea {
   width: 100%;
   padding: 0.5rem;
@@ -1726,58 +1636,53 @@ watch(
   font-size: 0.95rem;
   resize: vertical;
 }
-
 .announcement-input-area button {
-  align-self: flex-end; /* 按鈕靠右 */
+  align-self: flex-end;
   padding: 0.5rem 1rem;
   border: none;
   border-radius: 6px;
-  background-color: #f97316; /* 橘色 */
+  background-color: #f97316;
   color: white;
   font-weight: bold;
   cursor: pointer;
 }
-
 .announcement-input-area button:disabled {
   background-color: #d1d5db;
   cursor: not-allowed;
 }
 
+/* ================================== */
+/*   ✨ 病人留言板新增/修改樣式 ✨     */
+/* ================================== */
 .item-meta {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   align-items: flex-start;
 }
-
 .target-date-info {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.8rem;
   font-weight: bold;
-  color: #0d6efd; /* 醒目的藍色 */
-  background-color: #e7f1ff; /* 淡藍色背景 */
+  color: #0d6efd;
+  background-color: #e7f1ff;
   padding: 2px 6px;
   border-radius: 4px;
 }
-/* 未來留言的特殊樣式 */
 .message-item.is-future-message {
-  background-color: #fefce8; /* 淡黃色背景 */
-  border-left-color: #facc15; /* 醒目的黃色邊框 */
+  background-color: #fefce8;
+  border-left-color: #facc15;
 }
-
-/* 當按鈕被禁用時的樣式 */
 .item-actions .btn-action:disabled {
-  background-color: #adb5bd; /* 灰色背景 */
-  cursor: not-allowed; /* 顯示禁止游標 */
+  background-color: #adb5bd;
+  cursor: not-allowed;
   opacity: 0.7;
 }
-
-/* "預" 標記的樣式 */
 .future-tag {
   display: inline-block;
-  background-color: #fb923c; /* 橘色 */
+  background-color: #fb923c;
   color: white;
   font-size: 0.7rem;
   font-weight: bold;
@@ -1785,5 +1690,38 @@ watch(
   border-radius: 4px;
   margin-right: 4px;
   vertical-align: middle;
+}
+.message-type-icon {
+  display: inline-block;
+  margin-right: 0.5rem;
+  font-size: 1.2rem;
+  vertical-align: middle;
+}
+.message-item.is-expired {
+  background-color: #fffbeb; /* 淡黃色背景，表示警示 */
+  border-left-color: #f59e0b; /* 橘黃色邊框 */
+}
+.expired-tag {
+  display: inline-block;
+  background-color: #ef4444; /* 紅色 */
+  color: white;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 1px 4px;
+  border-radius: 4px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.item-actions .btn-revert {
+  background-color: #f97316; /* 橘色 */
+}
+.item-actions .btn-revert:hover {
+  background-color: #ea580c;
+}
+.item-actions .btn-delete {
+  background-color: #ef4444; /* 紅色 */
+}
+.item-actions .btn-delete:hover {
+  background-color: #dc2626;
 }
 </style>
