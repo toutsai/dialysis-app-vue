@@ -654,7 +654,7 @@ const isLoading = ref({
   bulletin: true,
 })
 const allDailyPatients = ref([])
-const myAssignedPatients = ref([]) // ✨ [核心] 這個 ref 現在是所有角色 "我的病人" 的唯一來源
+const myAssignedPatients = ref([])
 const selectedPatient = ref(null)
 const isCreateModalVisible = ref(false)
 const yesterdaysLogItems = ref([])
@@ -670,17 +670,10 @@ const canPostAnnouncement = computed(() => {
   return ['admin', 'editor'].includes(currentUser.value.role)
 })
 
-// ✨ [核心修正] 簡化並統一 patientsForList 的邏輯
 const patientsForList = computed(() => {
   if (mainPatientViewTab.value === 'all') {
-    // 1. "全部病人" 頁籤：從 patientStore 獲取所有有效病人 (邏輯不變)
-    return allPatientsFromStore.value.filter((p) => !p.isDeleted && !p.isDiscontinued)
+    return (allPatientsFromStore.value || []).filter((p) => !p.isDeleted && !p.isDiscontinued)
   }
-
-  // 2. "我的病人" 頁籤 (預設)：
-  // 對於所有角色，都直接返回 `myAssignedPatients`。
-  // `myAssignedPatients` 的計算邏輯在 `loadDailyPatientData` 中已經處理好，
-  // 如果某個角色在分組中沒有名字，這個陣列自然就是空的。
   return myAssignedPatients.value
 })
 
@@ -718,7 +711,6 @@ const groupedPatients = computed(() => {
   return groups
 })
 
-// ... (其他所有 computed 和 methods 保持不變) ...
 const getLocalDateString = (date) => {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -741,8 +733,12 @@ const sortItems = (items) => {
   return [...items].sort((a, b) => {
     if (a.status === 'pending' && b.status !== 'pending') return -1
     if (a.status !== 'pending' && b.status === 'pending') return 1
-    const dateA = a.resolvedAt?.toDate() || a.createdAt?.toDate() || new Date(0)
-    const dateB = b.resolvedAt?.toDate() || b.createdAt?.toDate() || new Date(0)
+    const getSafeDate = (timestamp) => {
+      if (!timestamp) return new Date(0)
+      return timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
+    }
+    const dateA = getSafeDate(a.resolvedAt || a.createdAt)
+    const dateB = getSafeDate(b.resolvedAt || b.createdAt)
     return dateB - dateA
   })
 }
@@ -750,10 +746,10 @@ const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
 
 const filteredFeedMessages = computed(() => {
+  if (!Array.isArray(patientsForList.value)) return []
   if (mainPatientViewTab.value === 'all') {
     return sortedFeedMessages.value.filter((msg) => !msg.content.startsWith('【'))
   }
-  if (!Array.isArray(patientsForList.value)) return []
   const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
   const messages = sortedFeedMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
   return messages.filter((msg) => !msg.content.startsWith('【'))
@@ -763,7 +759,6 @@ function getMessageTypeIcon(type) {
   switch (type) {
     case '抽血':
       return '🩸'
-    // ✨ [核心修改] 將 🎓 換成 📢
     case '衛教':
       return '📢'
     case '常規':
@@ -921,7 +916,6 @@ async function handleSaveAnnouncement() {
   }
 }
 
-// ✨ [核心修正] 此函式的職責不變，但現在它的產出 (myAssignedPatients) 會被所有角色使用
 async function loadDailyPatientData(date) {
   isLoading.value.patients = true
   allDailyPatients.value = []
@@ -970,7 +964,6 @@ async function loadDailyPatientData(date) {
     }
     allDailyPatients.value = tempAllDaily.sort(sortLogic)
 
-    // 這段邏輯現在對所有角色都有效。如果登入者不在 names 裡，myAssignedIds 會是空的。
     if (assignments.length > 0 && assignments[0].teams) {
       const { names, teams } = assignments[0]
       const myAssignedIds = new Set()
@@ -1002,15 +995,22 @@ async function loadDailyPatientData(date) {
 
 onMounted(async () => {
   await useAuth().waitForAuthInit()
-  await Promise.all([
-    patientStore.fetchPatientsIfNeeded(),
-    loadDailyPatientData(displayDate.value),
-    listenToBulletinData(displayDate.value),
-  ])
+  if (currentUser.value) {
+    // ✨ [核心修正] 啟動 taskStore 的即時監聽器
+    taskStore.startRealtimeUpdates(currentUser.value.uid)
+    // 載入頁面其他資料
+    Promise.all([
+      patientStore.fetchPatientsIfNeeded(),
+      loadDailyPatientData(displayDate.value),
+      listenToBulletinData(displayDate.value),
+    ])
+  }
 })
 
+// ✨ [核心修正] 新增 onUnmounted 生命週期鉤子，在元件銷毀時清理監聽器
 onUnmounted(() => {
   if (bulletinUnsubscribe) bulletinUnsubscribe()
+  taskStore.cleanupListeners() // 清理 taskStore 的監聽器
 })
 
 watch(
@@ -1023,14 +1023,19 @@ watch(
   },
 )
 
+// ✨ [核心修正] 監聽使用者變化，重新初始化或清理監聽器
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
+      // 如果有新用戶登入，重新啟動所有監聽器和資料載入
+      taskStore.startRealtimeUpdates(newUser.uid)
       loadDailyPatientData(displayDate.value)
       listenToBulletinData(displayDate.value)
     } else {
+      // 如果用戶登出，清理所有監聽器
       if (bulletinUnsubscribe) bulletinUnsubscribe()
+      taskStore.cleanupListeners()
     }
   },
 )
