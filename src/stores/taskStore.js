@@ -7,21 +7,14 @@ import { useAuth } from '@/composables/useAuth'
 export const useTaskStore = defineStore('task', () => {
   // --- State ---
   const { currentUser } = useAuth()
-
-  // ✨ [核心修正] 將 allTasks/allMemos 拆分為更具體的 state
   const myTasks = ref([])
   const mySentTasks = ref([])
-  const feedMessages = ref([]) // 這個會包含新的 messages 和舊的 memos
-
+  const feedMessages = ref([])
   const isLoading = ref(true)
   let unsubscribes = []
 
   // --- Getters ---
-
-  // ✨ [核心修正] combinedData 不再需要，因為我們直接從 state 拿資料
-
   const sortedFeedMessages = computed(() => {
-    // feedMessages state 已經包含了混合後的資料，直接排序即可
     return [...feedMessages.value].sort((a, b) => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
@@ -42,7 +35,6 @@ export const useTaskStore = defineStore('task', () => {
   const getPatientMessageTypesMapForDate = computed(() => {
     return (todayStr) => {
       const map = new Map()
-      // ✨ [核心修正] 直接篩選已經是 message 的 feedMessages
       const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
 
       for (const msg of pendingMessages) {
@@ -50,9 +42,12 @@ export const useTaskStore = defineStore('task', () => {
 
         let shouldDisplayIcon = false
 
+        // ✨ [核心修正] 調整顯示圖示的判斷邏輯
         if (!msg.targetDate) {
+          // 如果沒有目標日期，永遠顯示
           shouldDisplayIcon = true
-        } else if (msg.targetDate === todayStr) {
+        } else if (msg.targetDate <= todayStr) {
+          // 如果目標日期是今天或今天之前，就顯示
           shouldDisplayIcon = true
         }
 
@@ -74,9 +69,7 @@ export const useTaskStore = defineStore('task', () => {
 
   const todayTaskCount = computed(() => (todayAssignedPatientIds) => {
     if (!currentUser.value) return 0
-    // ✨ [核心修正] myTasks state 現在直接就是我要的資料
     const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
-
     if (!todayAssignedPatientIds || todayAssignedPatientIds.length === 0) {
       return myPendingTasksCount
     }
@@ -88,15 +81,14 @@ export const useTaskStore = defineStore('task', () => {
   })
 
   // --- Actions ---
-
   function startRealtimeUpdates(uid) {
     if (unsubscribes.length > 0) return
-    if (!uid || !currentUser.value) return // 增加保護
+    if (!uid || !currentUser.value) return
 
     isLoading.value = true
 
     let listenersInitialized = 0
-    const totalListeners = 4 // 我們現在有 4 個監聽器
+    const totalListeners = 4
 
     const checkLoadingState = () => {
       listenersInitialized++
@@ -105,7 +97,6 @@ export const useTaskStore = defineStore('task', () => {
       }
     }
 
-    // 1. 監聽 "我的任務" (收件匣)
     const user = currentUser.value
     const titleToRoleValue = {
       書記: 'clerk',
@@ -139,10 +130,9 @@ export const useTaskStore = defineStore('task', () => {
         ),
       )
     } else {
-      checkLoadingState() // 即使沒有查詢，也要計數
+      listenersInitialized++ // 即使沒有查詢，也要計數
     }
 
-    // 2. 監聽 "我傳送的任務" (寄件匣)
     const mySentTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
@@ -162,7 +152,6 @@ export const useTaskStore = defineStore('task', () => {
       ),
     )
 
-    // 3. 監聽 "病人留言板" (新舊資料合併)
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
@@ -225,7 +214,6 @@ export const useTaskStore = defineStore('task', () => {
     unsubscribes.forEach((unsubscribe) => unsubscribe())
     unsubscribes = []
 
-    // 重置 state
     myTasks.value = []
     mySentTasks.value = []
     feedMessages.value = []
@@ -235,9 +223,7 @@ export const useTaskStore = defineStore('task', () => {
   watch(
     () => currentUser.value?.uid,
     (uid) => {
-      // 在 UID 變化時，先清理舊的監聽
       cleanupListeners()
-      // 如果有新的 UID，再啟動新的監聽
       if (uid) {
         startRealtimeUpdates(uid)
       }
@@ -249,10 +235,8 @@ export const useTaskStore = defineStore('task', () => {
     isLoading,
     startRealtimeUpdates,
     cleanupListeners,
-    // ✨ [核心修正] 直接匯出 state
     myTasks,
     mySentTasks,
-    // sortedFeedMessages 依然是 getter
     sortedFeedMessages,
     getPatientMessageTypesMapForDate,
     todayTaskCount,
