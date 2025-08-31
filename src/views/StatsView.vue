@@ -1039,7 +1039,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, reactive, watch, onUnmounted, provide } from 'vue' // ✨ 1. 引入 provide
+import { ref, onMounted, computed, reactive, watch, onUnmounted, provide } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where, orderBy, limit } from 'firebase/firestore'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
@@ -1049,13 +1049,13 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-import PatientMessagesIcon from '@/components/PatientMessagesIcon.vue' // ✨ 2. 引入新元件 (取代舊的 MemoIcon)
+import PatientMessagesIcon from '@/components/PatientMessagesIcon.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
-import { useTaskStore } from '@/stores/taskStore.js' // ✨ 3. 引入 taskStore
+import { useTaskStore } from '@/stores/taskStore.js'
 import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
@@ -1064,8 +1064,9 @@ import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
 // Store 實例化
 const patientStore = usePatientStore()
-const taskStore = useTaskStore() // ✨ 4. 實例化 taskStore
+const taskStore = useTaskStore()
 const { patientMap } = storeToRefs(patientStore)
+const { currentUser } = useAuth() // ✨ [核心修正] 直接從 useAuth 解構 currentUser
 
 // API 管理器
 const schedulesApi = ApiManager('schedules')
@@ -1142,7 +1143,7 @@ const hasUnsavedChanges = computed(
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
-const selectedPatientForDialog = ref(null) // ✨ 5. 新的 dialog 狀態
+const selectedPatientForDialog = ref(null)
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
@@ -1161,12 +1162,11 @@ const isInjectionLoading = ref(false)
 
 // Hooks
 const { createGlobalNotification } = useGlobalNotifier()
-const auth = useAuth()
-const { hasPermission } = auth
+const { hasPermission, canEditSchedules } = useAuth()
 
 // Computed Properties
 const isPageLocked = computed(() => {
-  if (!auth.canEditSchedules.value) return true
+  if (!canEditSchedules.value) return true
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const currentDay = new Date(currentDate.value)
@@ -1181,7 +1181,6 @@ const lateShiftTakeOffExists = computed(() => {
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
   )
 })
-// ✨ 6. 新增 computed 屬性，從 taskStore 取得病人留言圖示 map
 const patientMessageTypesMap = computed(() =>
   taskStore.getPatientMessageTypesMapForDate(formatDate(currentDate.value)),
 )
@@ -1331,7 +1330,10 @@ const effectiveStatsData = computed(() => {
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
-  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d
+    .getDate()
+    .toString()
+    .padStart(2, '0')}`
 }
 
 function setScheduleChange() {
@@ -1403,7 +1405,6 @@ async function loadData(date) {
   const dateStr = formatDate(date)
   try {
     await patientStore.fetchPatientsIfNeeded()
-    // ✨ 7. 移除 memosApi 的呼叫
     const [dailyRecords, teamsData] = await Promise.all([
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       fetchTeamsByDate(dateStr),
@@ -1446,7 +1447,7 @@ async function loadData(date) {
           slot.nurseTeam = teamInfo.nurseTeam || null
           slot.nurseTeamIn = teamInfo.nurseTeamIn || null
           slot.nurseTeamOut = teamInfo.nurseTeamOut || null
-          slot.nurseTeamTakeOff = teamInfo.nurseTeamTakeOff || null // 載入收針分組
+          slot.nurseTeamTakeOff = teamInfo.nurseTeamTakeOff || null
         }
       }
     }
@@ -1869,7 +1870,6 @@ function removeLateShiftTakeOff() {
   showAlert('操作成功', '夜班收針分組已移除。')
 }
 
-// ✨ 8. 新增 icon 點擊處理函式
 const handleIconClick = (patientId, context) => {
   if (context === 'dialog') {
     const patient = patientMap.value.get(patientId)
@@ -1880,16 +1880,34 @@ const handleIconClick = (patientId, context) => {
   }
 }
 
-// ✨ 9. provide 處理函式給子元件使用
 provide('handleIconClick', handleIconClick)
 
 // Lifecycle Hooks
 onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
+
+// ✨ [核心修正] 新增對 currentUser 的監聽，以啟動/停止 taskStore
+watch(
+  currentUser,
+  (newUser) => {
+    if (newUser) {
+      taskStore.startRealtimeUpdates(newUser.uid)
+    } else {
+      taskStore.cleanupListeners()
+    }
+  },
+  { immediate: true }, // immediate: true 確保頁面載入時立即執行一次
+)
+
 watch(currentDate, (newDate) => {
   loadData(newDate)
   loadDailyStaffInfo(newDate)
+})
+
+onUnmounted(() => {
+  // ✨ [核心修正] 當元件銷毀時，確保清理 taskStore 的監聽器
+  taskStore.cleanupListeners()
 })
 </script>
 

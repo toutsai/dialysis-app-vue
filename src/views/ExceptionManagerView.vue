@@ -143,7 +143,6 @@ const exceptions = ref([])
 const isLoading = ref(true)
 const isCreateDialogVisible = ref(false)
 
-// ✨ --- 【修改】合併 Dialog 狀態 --- ✨
 const isConfirmDeleteVisible = ref(false)
 const exceptionToDeleteId = ref(null)
 const confirmDialogTitle = ref('')
@@ -271,6 +270,26 @@ const currentCalendarDate = computed(() => {
   return calendarApi.value ? calendarApi.value.getDate() : new Date()
 })
 
+async function scrollToCurrentWeek() {
+  await nextTick()
+  if (!fullCalendar.value) return
+
+  try {
+    const calendarEl = fullCalendar.value.$el
+    if (!calendarEl) return
+
+    const todayEl = calendarEl.querySelector('.fc-day-today')
+    if (todayEl) {
+      const weekRowEl = todayEl.closest('tr')
+      if (weekRowEl) {
+        weekRowEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+    }
+  } catch (error) {
+    console.error('滾動到當前週失敗:', error)
+  }
+}
+
 function handlePrev() {
   calendarApi.value?.prev()
 }
@@ -279,6 +298,7 @@ function handleNext() {
 }
 function handleToday() {
   calendarApi.value?.today()
+  scrollToCurrentWeek()
 }
 function handleViewChange(viewName) {
   calendarApi.value?.changeView(viewName)
@@ -468,6 +488,7 @@ watch(isLoading, (newIsLoading) => {
         calendarApi.value = fullCalendar.value.getApi()
         if (calendarApi.value) {
           calendarTitle.value = calendarApi.value.view.title
+          scrollToCurrentWeek()
         }
       }
     })
@@ -593,8 +614,10 @@ button:disabled {
   padding: 0.5rem;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  overflow-y: auto;
   min-height: 0;
+  /* ✨ [核心修改] 讓 page-main-content 成為 flex 容器，為內部佈局做準備 */
+  display: flex;
+  flex-direction: column;
 }
 .section-title {
   font-size: 1.5rem;
@@ -635,6 +658,16 @@ button:disabled {
   padding: 1rem 0;
   flex-wrap: wrap; /* 在小螢幕換行 */
   gap: 1rem; /* 新增間距 */
+  /* ✨ [核心修改] 讓標頭不被壓縮 */
+  flex-shrink: 0;
+}
+
+/* ✨ [核心修改] 新增 exceptions-list-container 樣式 */
+.exceptions-list-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden; /* 防止子元素的滾動條溢出 */
 }
 
 .date-navigator {
@@ -671,9 +704,11 @@ button:disabled {
   background-color: #e9ecef;
 }
 
-/* 調整日曆容器的上邊距 */
+/* ✨ [核心修改] 重新定義 calendar-wrapper 樣式 */
 .calendar-wrapper {
-  padding-top: 0; /* 因為標題列已有 padding，這裡歸零 */
+  flex-grow: 1; /* 佔滿剩餘空間 */
+  overflow-y: auto; /* 讓日曆本身可以滾動 */
+  min-height: 0; /* Flexbox 滾動佈局的關鍵 hack */
 }
 .calendar-title-text.is-clickable {
   cursor: pointer;
