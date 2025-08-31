@@ -7,95 +7,26 @@ import { useAuth } from '@/composables/useAuth'
 export const useTaskStore = defineStore('task', () => {
   // --- State ---
   const { currentUser } = useAuth()
-  const allTasks = ref([])
-  const allMemos = ref([])
-  const isLoading = ref(true)
 
-  // ✨ [核心修正] 使用陣列來管理所有監聽器的 unsubscribe 函式
+  // ✨ [核心修正] 將 allTasks/allMemos 拆分為更具體的 state
+  const myTasks = ref([])
+  const mySentTasks = ref([])
+  const feedMessages = ref([]) // 這個會包含新的 messages 和舊的 memos
+
+  const isLoading = ref(true)
   let unsubscribes = []
 
   // --- Getters ---
-  const combinedData = computed(() => {
-    const standardizedTasks = allTasks.value.map((task) => ({
-      ...task,
-      isLegacy: false,
-      type: task.type || (task.category === 'message' ? '常規' : null),
-    }))
-    const standardizedMemos = allMemos.value.map((memo) => ({
-      id: memo.id,
-      category: 'message',
-      type: memo.type || '常規',
-      patientId: memo.patientId || null,
-      patientName: memo.patientName || null,
-      content: memo.content || '',
-      targetDate: memo.targetDate || null,
-      status: memo.status || 'pending',
-      creator: memo.creator || { name: '未知' },
-      createdAt: memo.createdAt,
-      resolvedAt: memo.resolvedAt || null,
-      resolvedBy: memo.resolvedBy || null,
-      isLegacy: true,
-    }))
-    return [...standardizedTasks, ...standardizedMemos]
-  })
 
-  const myTasks = computed(() => {
-    if (!currentUser.value) return []
-    const userTitle = currentUser.value.title
-    const userRole = currentUser.value.role
-    const titleToRoleValue = {
-      書記: 'clerk',
-      主治醫師: 'doctor',
-      專科護理師: 'np',
-      護理師組長: 'editor',
-    }
-    const myTargetAssigneeValues = new Set()
-    const titleBasedRole = titleToRoleValue[userTitle]
-    if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
-    if (userRole) myTargetAssigneeValues.add(userRole)
-    return combinedData.value.filter(
-      (item) =>
-        item.category === 'task' &&
-        item.assignee?.type === 'role' &&
-        myTargetAssigneeValues.has(item.assignee.value),
-    )
-  })
-
-  const mySentTasks = computed(() => {
-    if (!currentUser.value?.uid) return []
-    return combinedData.value.filter(
-      (item) => item.category === 'task' && item.creator?.uid === currentUser.value.uid,
-    )
-  })
-
-  const feedMessages = computed(() => {
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const fiveDaysAgo = new Date()
-    fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5)
-
-    return combinedData.value.filter((item) => {
-      if (item.category !== 'message') return false
-      if (item.status === 'pending') return true
-      if (item.status === 'expired' && item.targetDate && new Date(item.targetDate) >= sevenDaysAgo)
-        return true
-      if (item.status === 'completed' && item.resolvedAt) {
-        const resolvedDate = item.resolvedAt.toDate
-          ? item.resolvedAt.toDate()
-          : new Date(item.resolvedAt)
-        if (resolvedDate >= fiveDaysAgo) return true
-      }
-      return false
-    })
-  })
+  // ✨ [核心修正] combinedData 不再需要，因為我們直接從 state 拿資料
 
   const sortedFeedMessages = computed(() => {
+    // feedMessages state 已經包含了混合後的資料，直接排序即可
     return [...feedMessages.value].sort((a, b) => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
       if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
 
-      // 安全地獲取日期物件
       const getSafeDate = (timestamp) => {
         if (!timestamp) return new Date(0)
         return timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
@@ -111,9 +42,8 @@ export const useTaskStore = defineStore('task', () => {
   const getPatientMessageTypesMapForDate = computed(() => {
     return (todayStr) => {
       const map = new Map()
-      const pendingMessages = combinedData.value.filter(
-        (msg) => msg.category === 'message' && msg.status === 'pending',
-      )
+      // ✨ [核心修正] 直接篩選已經是 message 的 feedMessages
+      const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
 
       for (const msg of pendingMessages) {
         if (!msg.patientId) continue
@@ -144,56 +74,132 @@ export const useTaskStore = defineStore('task', () => {
 
   const todayTaskCount = computed(() => (todayAssignedPatientIds) => {
     if (!currentUser.value) return 0
+    // ✨ [核心修正] myTasks state 現在直接就是我要的資料
     const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
+
     if (!todayAssignedPatientIds || todayAssignedPatientIds.length === 0) {
       return myPendingTasksCount
     }
     const patientIdSet = new Set(todayAssignedPatientIds)
-    const myPendingMemosCount = combinedData.value.filter(
-      (item) =>
-        item.category === 'message' &&
-        item.status === 'pending' &&
-        item.patientId &&
-        patientIdSet.has(item.patientId),
+    const myPendingMemosCount = feedMessages.value.filter(
+      (item) => item.status === 'pending' && item.patientId && patientIdSet.has(item.patientId),
     ).length
     return myPendingTasksCount + myPendingMemosCount
   })
 
   // --- Actions ---
 
-  // ✨ [核心修正] 將 startListening 改名為 startRealtimeUpdates，並調整邏輯
-  function startRealtimeUpdates() {
-    // 如果監聽器已經在運行，就不要重複啟動
-    if (unsubscribes.length > 0) {
-      return
-    }
+  function startRealtimeUpdates(uid) {
+    if (unsubscribes.length > 0) return
+    if (!uid || !currentUser.value) return // 增加保護
+
     isLoading.value = true
 
-    // 建立查詢
-    const tasksQuery = query(collection(db, 'tasks'), where('category', 'in', ['task', 'message']))
-    const memosQuery = query(collection(db, 'memos'), where('status', 'in', ['pending', 'expired']))
-
-    let tasksLoaded = false
-    let memosLoaded = false
+    let listenersInitialized = 0
+    const totalListeners = 4 // 我們現在有 4 個監聽器
 
     const checkLoadingState = () => {
-      if (tasksLoaded && memosLoaded) {
+      listenersInitialized++
+      if (listenersInitialized >= totalListeners) {
         isLoading.value = false
       }
     }
 
-    // 啟動監聽並將 unsubscribe 函式存入陣列
+    // 1. 監聽 "我的任務" (收件匣)
+    const user = currentUser.value
+    const titleToRoleValue = {
+      書記: 'clerk',
+      主治醫師: 'doctor',
+      專科護理師: 'np',
+      護理師組長: 'editor',
+    }
+    const myTargetAssigneeValues = new Set()
+    const titleBasedRole = titleToRoleValue[user.title]
+    if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
+    if (user.role) myTargetAssigneeValues.add(user.role)
+
+    if (myTargetAssigneeValues.size > 0) {
+      const myTasksQuery = query(
+        collection(db, 'tasks'),
+        where('category', '==', 'task'),
+        where('assignee.type', '==', 'role'),
+        where('assignee.value', 'in', Array.from(myTargetAssigneeValues)),
+      )
+      unsubscribes.push(
+        onSnapshot(
+          myTasksQuery,
+          (snapshot) => {
+            myTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+            checkLoadingState()
+          },
+          (error) => {
+            console.error('Error listening to myTasks:', error)
+            checkLoadingState()
+          },
+        ),
+      )
+    } else {
+      checkLoadingState() // 即使沒有查詢，也要計數
+    }
+
+    // 2. 監聽 "我傳送的任務" (寄件匣)
+    const mySentTasksQuery = query(
+      collection(db, 'tasks'),
+      where('category', '==', 'task'),
+      where('creator.uid', '==', uid),
+    )
     unsubscribes.push(
       onSnapshot(
-        tasksQuery,
+        mySentTasksQuery,
         (snapshot) => {
-          allTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-          tasksLoaded = true
+          mySentTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
           checkLoadingState()
         },
         (error) => {
-          console.error('[TaskStore] Error listening to tasks collection:', error)
-          tasksLoaded = true
+          console.error('Error listening to mySentTasks:', error)
+          checkLoadingState()
+        },
+      ),
+    )
+
+    // 3. 監聽 "病人留言板" (新舊資料合併)
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
+    const messagesQuery = query(
+      collection(db, 'tasks'),
+      where('category', '==', 'message'),
+      where('createdAt', '>=', sevenDaysAgo),
+    )
+    const legacyMemosQuery = query(collection(db, 'memos'), where('createdAt', '>=', sevenDaysAgo))
+
+    let currentMessages = []
+    let currentMemos = []
+
+    const updateCombinedFeed = () => {
+      const standardizedMemos = currentMemos.map((memo) => ({
+        ...memo,
+        isLegacy: true,
+        type: memo.type || '常規',
+      }))
+      const standardizedMessages = currentMessages.map((msg) => ({
+        ...msg,
+        isLegacy: false,
+        type: msg.type || '常規',
+      }))
+      feedMessages.value = [...standardizedMessages, ...standardizedMemos]
+    }
+
+    unsubscribes.push(
+      onSnapshot(
+        messagesQuery,
+        (snapshot) => {
+          currentMessages = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          updateCombinedFeed()
+          checkLoadingState()
+        },
+        (error) => {
+          console.error('Error listening to messages:', error)
           checkLoadingState()
         },
       ),
@@ -201,54 +207,52 @@ export const useTaskStore = defineStore('task', () => {
 
     unsubscribes.push(
       onSnapshot(
-        memosQuery,
+        legacyMemosQuery,
         (snapshot) => {
-          allMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-          memosLoaded = true
+          currentMemos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          updateCombinedFeed()
           checkLoadingState()
         },
         (error) => {
-          console.error('[TaskStore] Error listening to legacy memos collection:', error)
-          memosLoaded = true
+          console.error('Error listening to legacy memos:', error)
           checkLoadingState()
         },
       ),
     )
   }
 
-  // ✨ [核心修正] 將 stopListening 改名為 cleanupListeners，並調整邏輯
   function cleanupListeners() {
-    // 遍歷陣列並執行所有 unsubscribe 函式
     unsubscribes.forEach((unsubscribe) => unsubscribe())
-    // 清空陣列
     unsubscribes = []
 
     // 重置 state
-    allTasks.value = []
-    allMemos.value = []
+    myTasks.value = []
+    mySentTasks.value = []
+    feedMessages.value = []
     isLoading.value = true
   }
 
-  // 監聽使用者登入狀態的變化
   watch(
     () => currentUser.value?.uid,
     (uid) => {
+      // 在 UID 變化時，先清理舊的監聽
+      cleanupListeners()
+      // 如果有新的 UID，再啟動新的監聽
       if (uid) {
-        startRealtimeUpdates()
-      } else {
-        cleanupListeners()
+        startRealtimeUpdates(uid)
       }
     },
-    { immediate: true }, // immediate: true 確保在 store 初始化時就立即執行一次
+    { immediate: true },
   )
 
   return {
     isLoading,
-    // ✨ [核心修正] 匯出新的方法名
     startRealtimeUpdates,
     cleanupListeners,
+    // ✨ [核心修正] 直接匯出 state
     myTasks,
     mySentTasks,
+    // sortedFeedMessages 依然是 getter
     sortedFeedMessages,
     getPatientMessageTypesMapForDate,
     todayTaskCount,
