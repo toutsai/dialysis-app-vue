@@ -66,7 +66,7 @@
             />
           </div>
 
-          <!-- ✨ 核心修改點: 傳入 :typesMap -->
+          <!-- ✨ 核心修改點: 傳入我們在 script 中新計算的 typesMapForThisWeek -->
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -78,7 +78,7 @@
             :hepatitis-beds="hepatitisBeds"
             :get-style-func="getWeeklyCellStyle"
             :is-date-in-past="isDateInPast"
-            :typesMap="typesMapForScheduleTable"
+            :typesMap="typesMapForThisWeek"
             :is-page-locked="isPageLocked"
             @grid-click="handleGridClick"
             @drop="onDrop"
@@ -152,10 +152,8 @@
   </div>
 </template>
 
-// 檔案路徑: src/views/WeeklyView.vue
-
 <script setup>
-// ✨ 核心修正 #1: 從 'vue' 中 import 'provide'
+// ✨ 核心修正: 從 'vue' 中 import 'provide'
 import { ref, onMounted, computed, onUnmounted, nextTick, provide } from 'vue'
 import { where } from 'firebase/firestore'
 import {
@@ -191,7 +189,8 @@ const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
 const taskStore = useTaskStore()
-const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
+// ✨ 我們需要從 store 獲取原始的 feedMessages 來自己過濾 ✨
+const { sortedFeedMessages } = storeToRefs(taskStore)
 
 // --- Helper Functions ---
 function getStartOfWeek(date) {
@@ -331,7 +330,36 @@ const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
 // --- Computed Properties ---
-const typesMapForScheduleTable = computed(() => getPatientMessageTypesMapForDate.value)
+// ✨✨✨ 全新、更精確的 Computed 屬性 ✨✨✨
+const typesMapForThisWeek = computed(() => {
+  if (weekDates.value.length < 6) return new Map()
+
+  // 獲取本週的結束日期 (週六)
+  const endOfWeekDateStr = weekDates.value[5].queryDate
+
+  const map = new Map()
+  const pendingMessages = sortedFeedMessages.value.filter((msg) => msg.status === 'pending')
+
+  for (const msg of pendingMessages) {
+    if (!msg.patientId) continue
+
+    // 只要備忘的目標日期在本週六或之前，就應該在本週的規劃中被看到
+    if (!msg.targetDate || msg.targetDate <= endOfWeekDateStr) {
+      if (!map.has(msg.patientId)) {
+        map.set(msg.patientId, new Set())
+      }
+      map.get(msg.patientId).add(msg.type || '常規')
+    }
+  }
+
+  // 將 Set 轉換為 Array
+  const finalMap = new Map()
+  for (const [patientId, typeSet] of map.entries()) {
+    finalMap.set(patientId, Array.from(typeSet))
+  }
+  return finalMap
+})
+
 const weekDisplay = computed(() => {
   const start = new Date(currentWeekStartDate.value)
   const end = new Date(start)
@@ -1048,6 +1076,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 所有 STYLE 內容完全不變 */
 .search-container {
   position: relative;
   display: inline-block;

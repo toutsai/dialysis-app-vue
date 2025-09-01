@@ -393,7 +393,8 @@ watch(
       triggerScheduleCheck()
       // 獲取今日病人 (新的通知計數邏輯需要)
       await fetchTodayAssignedPatients()
-      // taskStore 會自動啟動，無需手動呼叫
+      // ✨✨✨ 核心修正：明確地啟動 taskStore 的監聽器 ✨✨✨
+      taskStore.startRealtimeUpdates(newUser.uid)
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
       // 停止所有服務
@@ -402,6 +403,8 @@ watch(
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
       patientStore.$reset()
+      // ✨✨✨ 核心修正：明確地清理 taskStore 的監聽器 ✨✨✨
+      taskStore.cleanupListeners()
       // 清理本地狀態
       todayMyPatientIds.value = []
       notificationCount.value = 0
@@ -431,8 +434,8 @@ watch(
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
-  // taskStore 會在登出時自動停止，元件卸載時不一定需要，但加上更保險
-  taskStore.stopListening()
+  // ✨✨✨ 核心修正：確保元件銷毀時也清理 ✨✨✨
+  taskStore.cleanupListeners()
 })
 </script>
 

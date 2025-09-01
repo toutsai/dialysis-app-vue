@@ -1,3 +1,5 @@
+// 檔案路徑: src/stores/taskStore.js
+
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
@@ -32,7 +34,7 @@ export const useTaskStore = defineStore('task', () => {
     })
   })
 
-  // ✨ [建議優化] 將 getter 直接返回 Map，而不是返回函式
+  // [原有 Getter] - 根據 "今天" 過濾備忘，適用於每日排程
   const getPatientMessageTypesMapForDate = computed(() => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
@@ -55,8 +57,6 @@ export const useTaskStore = defineStore('task', () => {
         if (!map.has(msg.patientId)) {
           map.set(msg.patientId, new Set())
         }
-        // ✨ 新增：加入所有可能的訊息類型，而不僅僅是預設的
-        // 假設 msg.type 可能是 '抽血', '衛教', '常規', 或者 undefined
         map.get(msg.patientId).add(msg.type || '常規')
       }
     }
@@ -68,6 +68,33 @@ export const useTaskStore = defineStore('task', () => {
     }
     return finalMap
   })
+
+  // ✨ --- START: 新增的 Getter --- ✨
+  /**
+   * 獲取所有病人所有未完成的留言/備忘類型 Map。
+   * 此 Getter 不過濾日期，適用於總表和週排班這種未來視圖。
+   */
+  const allPendingPatientMessageTypesMap = computed(() => {
+    const map = new Map()
+    const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
+
+    for (const msg of pendingMessages) {
+      if (!msg.patientId) continue
+
+      if (!map.has(msg.patientId)) {
+        map.set(msg.patientId, new Set())
+      }
+      map.get(msg.patientId).add(msg.type || '常規')
+    }
+
+    // 將 Set 轉換為 Array
+    const finalMap = new Map()
+    for (const [patientId, typeSet] of map.entries()) {
+      finalMap.set(patientId, Array.from(typeSet))
+    }
+    return finalMap
+  })
+  // ✨ --- END: 新增的 Getter --- ✨
 
   const todayTaskCount = computed(() => (todayAssignedPatientIds) => {
     if (!currentUser.value) return 0
@@ -241,6 +268,7 @@ export const useTaskStore = defineStore('task', () => {
     mySentTasks,
     sortedFeedMessages,
     getPatientMessageTypesMapForDate,
+    allPendingPatientMessageTypesMap, // ✨ [新增] 導出新的 Getter
     todayTaskCount,
   }
 })

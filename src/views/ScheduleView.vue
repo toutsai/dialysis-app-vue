@@ -930,7 +930,7 @@ import {
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
-import { useTeamAssigner } from '@/composables/useTeamAssigner.js' // ✨ 確保這一行存在
+import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
@@ -980,7 +980,7 @@ const { allPatients, patientMap } = storeToRefs(patientStore)
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
 const router = useRouter()
-const { distributePatients } = useTeamAssigner() // ✨ 確保這一行存在
+const { distributePatients } = useTeamAssigner()
 
 const conditionRecordsApi = ApiManager('condition_records')
 const usersApi = ApiManager('users')
@@ -1907,10 +1907,9 @@ function setTeamChange() {
 onMounted(async () => {
   isLoading.value = true
   await auth.waitForAuthInit() // 確保 auth 初始化
-  // ✨ 核心修正 #3: 在 onMounted 確保 taskStore 開始監聽
-  if (auth.currentUser.value) {
-    taskStore.startRealtimeUpdates(auth.currentUser.value.uid)
-  }
+
+  // ✨✨✨ 核心修正：移除此處的 taskStore.startRealtimeUpdates(...)
+
   await Promise.all([loadDataForDay(currentDate.value), loadDailyStaffInfo(currentDate.value)])
   isLoading.value = false
 })
@@ -1922,17 +1921,17 @@ watch(currentDate, (newDate, oldDate) => {
   }
 })
 
-// ✨ 核心修正 #4 (可選但建議): 監聽 auth.currentUser 的變化
+// ✨✨✨ 核心修正：移除 watch(auth.currentUser, ...) 內的 taskStore 管理
 watch(
   () => auth.currentUser.value,
   (newUser) => {
-    if (newUser) {
-      taskStore.startRealtimeUpdates(newUser.uid)
-    } else {
-      taskStore.cleanupListeners()
+    // 這個 watch 現在可以只用來處理用戶登入後需要重新載入頁面資料的邏輯
+    // 但因為 onMounted 已經會在 auth 初始化後執行，所以這裡可能也不需要了
+    // 除非有特殊需求，否則可以考慮移除這個 watch
+    if (!newUser) {
+      // 可以在此處清理頁面相關資料
     }
   },
-  { immediate: true }, // 確保一開始就執行
 )
 </script>
 

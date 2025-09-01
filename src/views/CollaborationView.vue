@@ -5,7 +5,7 @@
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">訊息中心</h1>
-          <button class="btn btn-primary" :disabled="isPageLocked" @click="openCreateModal">
+          <button class="btn btn-primary" :disabled="isPageLocked" @click="openCreateModal(null)">
             <i class="fas fa-plus"></i> 新增交辦/留言
           </button>
         </div>
@@ -139,7 +139,17 @@
           </div>
         </div>
         <div class="message-section feed-messages">
-          <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
+          <!-- ✨ [新增功能] 病人篩選下拉選單 -->
+          <div class="panel-header-with-filter">
+            <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
+            <select v-model="selectedMessagePatientId" class="patient-filter-select">
+              <option value="all">顯示全部病人</option>
+              <option v-for="p in messagePatientOptions" :key="p.id" :value="p.id">
+                {{ p.name }}
+              </option>
+            </select>
+          </div>
+
           <div v-if="taskStore.isLoading" class="panel-loading small">
             <div class="loading-spinner"></div>
           </div>
@@ -154,6 +164,15 @@
                 'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
               }"
             >
+              <div class="item-header-actions" v-if="canModify(msg)">
+                <button @click="openCreateModal(msg)" class="btn-action-icon" title="編輯">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button @click="confirmDeleteTask(msg)" class="btn-action-icon" title="刪除">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+
               <p class="item-content">
                 <span class="message-type-icon" :title="msg.type || '一般交班'">
                   {{ getMessageTypeIcon(msg.type) }}
@@ -195,13 +214,6 @@
                   >
                     <i class="fas fa-undo"></i> 移回待辦
                   </button>
-                  <button
-                    class="btn-action btn-delete"
-                    @click="deleteTask(msg.id, msg.isLegacy)"
-                    title="永久刪除此事項"
-                  >
-                    <i class="fas fa-trash"></i> 刪除
-                  </button>
                 </div>
                 <div v-else class="completed-info">
                   <i class="fas fa-check-double"></i> 由 {{ msg.resolvedBy?.name }} 於
@@ -230,6 +242,15 @@
               class="task-item"
               :class="{ 'is-completed': task.status === 'completed' }"
             >
+              <div class="item-header-actions" v-if="canModify(task)">
+                <button @click="openCreateModal(task)" class="btn-action-icon" title="編輯">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button @click="confirmDeleteTask(task)" class="btn-action-icon" title="刪除">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+
               <p class="item-content">
                 <strong
                   >{{ task.patientName }}
@@ -275,6 +296,15 @@
               class="task-item sent"
               :class="{ 'is-completed': task.status === 'completed' }"
             >
+              <div class="item-header-actions" v-if="canModify(task)">
+                <button @click="openCreateModal(task)" class="btn-action-icon" title="編輯">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <button @click="confirmDeleteTask(task)" class="btn-action-icon" title="刪除">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+
               <p class="item-content">
                 <strong>To {{ getAssigneeName(task.assignee) }}:</strong> {{ task.content }}
               </p>
@@ -449,7 +479,15 @@
             </div>
           </div>
           <div class="message-section feed-messages">
-            <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
+            <div class="panel-header-with-filter">
+              <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
+              <select v-model="selectedMessagePatientId" class="patient-filter-select">
+                <option value="all">全部病人</option>
+                <option v-for="p in messagePatientOptions" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select>
+            </div>
             <div v-if="taskStore.isLoading" class="panel-loading small">
               <div class="loading-spinner"></div>
             </div>
@@ -464,6 +502,7 @@
                   'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
                 }"
               >
+                <!-- 行動版暫不顯示編輯/刪除按鈕以簡化介面 -->
                 <p class="item-content">
                   <span class="message-type-icon" :title="msg.type || '一般交班'">
                     {{ getMessageTypeIcon(msg.type) }}
@@ -504,13 +543,6 @@
                       title="將此事項移回待辦清單"
                     >
                       <i class="fas fa-undo"></i> 移回待辦
-                    </button>
-                    <button
-                      class="btn-action btn-delete"
-                      @click="deleteTask(msg.id, msg.isLegacy)"
-                      title="永久刪除此事項"
-                    >
-                      <i class="fas fa-trash"></i> 刪除
                     </button>
                   </div>
                   <div v-else class="completed-info">
@@ -608,11 +640,24 @@
       :is-visible="isCreateModalVisible"
       :all-patients="patientStore.allPatients"
       :preselected-patient="selectedPatient"
-      @close="isCreateModalVisible = false"
-      @submit="handleTaskCreated"
+      :initial-data="editingItem"
+      @close="closeCreateModal"
+      @submit="handleTaskSubmit"
     />
 
-    <button class="fab-mobile mobile-only" @click="openCreateModal" :disabled="isPageLocked">
+    <!-- ✨ [新增] 確認刪除對話框 -->
+    <ConfirmDialog
+      :is-visible="isConfirmDeleteVisible"
+      title="確認刪除"
+      message="您確定要永久刪除此項目嗎？此操作無法復原。"
+      confirm-text="刪除"
+      cancel-text="取消"
+      confirm-class="btn-danger"
+      @confirm="executeDeleteTask"
+      @cancel="isConfirmDeleteVisible = false"
+    />
+
+    <button class="fab-mobile mobile-only" @click="openCreateModal(null)" :disabled="isPageLocked">
       <i class="fas fa-plus"></i>
     </button>
   </div>
@@ -626,6 +671,7 @@ import { doc, updateDoc, setDoc, arrayUnion, deleteDoc, onSnapshot } from 'fireb
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager.js'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue' // ✨ [新增] 引入 ConfirmDialog 元件
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { storeToRefs } from 'pinia'
@@ -664,6 +710,13 @@ const mainPatientViewTab = ref('my')
 const shiftFilterTab = ref('all')
 const activeMobileTab = ref('patients')
 let bulletinUnsubscribe = null
+
+// ✨ --- START: 新增狀態 --- ✨
+const selectedMessagePatientId = ref('all') // 用於病人留言板篩選
+const editingItem = ref(null) // 存放正在編輯的項目資料
+const isConfirmDeleteVisible = ref(false) // 控制刪除確認對話框
+const itemToDelete = ref(null) // 存放準備刪除的項目資料
+// ✨ --- END: 新增狀態 --- ✨
 
 const canPostAnnouncement = computed(() => {
   if (!currentUser.value) return false
@@ -745,14 +798,36 @@ const sortItems = (items) => {
 const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
 
+// ✨ --- START: 新增 Computed --- ✨
+const messagePatientOptions = computed(() => {
+  const patientSet = new Map()
+  sortedFeedMessages.value.forEach((msg) => {
+    if (msg.patientId && msg.patientName && !patientSet.has(msg.patientId)) {
+      patientSet.set(msg.patientId, { id: msg.patientId, name: msg.patientName })
+    }
+  })
+  return Array.from(patientSet.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+})
+// ✨ --- END: 新增 Computed --- ✨
+
 const filteredFeedMessages = computed(() => {
   if (!Array.isArray(patientsForList.value)) return []
+
+  let baseMessages = []
   if (mainPatientViewTab.value === 'all') {
-    return sortedFeedMessages.value.filter((msg) => !msg.content.startsWith('【'))
+    baseMessages = sortedFeedMessages.value
+  } else {
+    const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
+    baseMessages = sortedFeedMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
   }
-  const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
-  const messages = sortedFeedMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
-  return messages.filter((msg) => !msg.content.startsWith('【'))
+
+  const noSystemMessages = baseMessages.filter((msg) => !msg.content.startsWith('【'))
+
+  if (selectedMessagePatientId.value === 'all') {
+    return noSystemMessages
+  } else {
+    return noSystemMessages.filter((msg) => msg.patientId === selectedMessagePatientId.value)
+  }
 })
 
 function getMessageTypeIcon(type) {
@@ -766,6 +841,70 @@ function getMessageTypeIcon(type) {
       return '📝'
   }
 }
+
+// ✨ --- START: 新增/修改函式 --- ✨
+async function handleTaskSubmit(data) {
+  // 如果 data.id 存在，表示是編輯模式
+  if (data.id) {
+    await updateTask(data)
+  } else {
+    // 否則為新增模式
+    await handleTaskCreated()
+  }
+  closeCreateModal()
+}
+
+async function updateTask(data) {
+  const collectionName = data.isLegacy ? 'memos' : 'tasks'
+  const taskRef = doc(db, collectionName, data.id)
+
+  // 移除從 Dialog 傳來的不需要直接儲存的欄位
+  const { id, isLegacy, ...updateData } = data
+
+  try {
+    await updateDoc(taskRef, updateData)
+    createGlobalNotification('項目已成功更新', 'success')
+  } catch (error) {
+    console.error('更新項目失敗:', error)
+    alert('更新失敗，請稍後再試。')
+  }
+}
+
+function canModify(item) {
+  if (!currentUser.value) return false
+  if (['admin', 'editor'].includes(currentUser.value.role)) {
+    return true
+  }
+  return item.creator?.uid === currentUser.value.uid
+}
+
+function confirmDeleteTask(item) {
+  itemToDelete.value = item
+  isConfirmDeleteVisible.value = true
+}
+
+async function executeDeleteTask() {
+  if (!itemToDelete.value) return
+  await deleteTask(itemToDelete.value.id, itemToDelete.value.isLegacy)
+  isConfirmDeleteVisible.value = false
+  itemToDelete.value = null
+}
+
+function openCreateModal(itemToEdit = null) {
+  if (!currentUser.value) return
+  if (!hasPermission('viewer')) {
+    console.warn('Permission denied.')
+    return
+  }
+  editingItem.value = itemToEdit // 如果是 null 則為新增，否則為編輯
+  isCreateModalVisible.value = true
+}
+
+function closeCreateModal() {
+  isCreateModalVisible.value = false
+  editingItem.value = null
+}
+// ✨ --- END: 新增/修改函式 --- ✨
 
 async function updateTaskStatus(taskId, newStatus, isLegacy = false) {
   if (!currentUser.value) return
@@ -788,7 +927,6 @@ async function updateTaskStatus(taskId, newStatus, isLegacy = false) {
 }
 
 async function deleteTask(taskId, isLegacy = false) {
-  if (!confirm('您確定要永久刪除這則訊息嗎？此操作無法復原。')) return
   try {
     const collectionName = isLegacy ? 'memos' : 'tasks'
     const taskRef = doc(db, collectionName, taskId)
@@ -798,16 +936,6 @@ async function deleteTask(taskId, isLegacy = false) {
     console.error('刪除任務失敗:', error)
     alert('刪除失敗，請稍後再試。')
   }
-}
-
-function openCreateModal() {
-  if (!currentUser.value) return
-  const canPerformAction = hasPermission('viewer')
-  if (!canPerformAction) {
-    console.warn('Permission denied.')
-    return
-  }
-  isCreateModalVisible.value = true
 }
 
 function formatTimestamp(ts) {
@@ -996,9 +1124,7 @@ async function loadDailyPatientData(date) {
 onMounted(async () => {
   await useAuth().waitForAuthInit()
   if (currentUser.value) {
-    // ✨ [核心修正] 啟動 taskStore 的即時監聽器
-    taskStore.startRealtimeUpdates(currentUser.value.uid)
-    // 載入頁面其他資料
+    // 載入頁面其他資料 (不再管理 taskStore 監聽器)
     Promise.all([
       patientStore.fetchPatientsIfNeeded(),
       loadDailyPatientData(displayDate.value),
@@ -1007,10 +1133,8 @@ onMounted(async () => {
   }
 })
 
-// ✨ [核心修正] 新增 onUnmounted 生命週期鉤子，在元件銷毀時清理監聽器
 onUnmounted(() => {
   if (bulletinUnsubscribe) bulletinUnsubscribe()
-  taskStore.cleanupListeners() // 清理 taskStore 的監聽器
 })
 
 watch(
@@ -1023,25 +1147,96 @@ watch(
   },
 )
 
-// ✨ [核心修正] 監聽使用者變化，重新初始化或清理監聽器
 watch(
   () => currentUser.value,
   (newUser) => {
     if (newUser) {
-      // 如果有新用戶登入，重新啟動所有監聽器和資料載入
-      taskStore.startRealtimeUpdates(newUser.uid)
+      // 如果有新用戶登入，重新載入資料
       loadDailyPatientData(displayDate.value)
       listenToBulletinData(displayDate.value)
     } else {
-      // 如果用戶登出，清理所有監聽器
+      // 如果用戶登出，清理公告監聽器
       if (bulletinUnsubscribe) bulletinUnsubscribe()
-      taskStore.cleanupListeners()
     }
   },
 )
 </script>
 
 <style scoped>
+/* ✨ --- START: 新增樣式 --- ✨ */
+.panel-header-with-filter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1rem;
+  border-bottom: 1px solid #e9ecef;
+  background-color: #f8f9fa;
+  flex-shrink: 0; /* 確保標題列不被壓縮 */
+}
+
+.panel-header-with-filter .panel-title {
+  border-bottom: none;
+  padding: 1rem 0;
+}
+
+.patient-filter-select {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.9rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background-color: white;
+}
+
+.message-item,
+.task-item {
+  position: relative; /* 為了讓絕對定位的按鈕有參考點 */
+}
+
+.item-header-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+  background-color: rgba(248, 249, 250, 0.8); /* 半透明背景 */
+  backdrop-filter: blur(2px);
+  padding: 2px 4px;
+  border-radius: 6px;
+  opacity: 0; /* 預設隱藏 */
+  transition: opacity 0.2s ease-in-out;
+  z-index: 5;
+}
+
+.message-item:hover .item-header-actions,
+.task-item:hover .item-header-actions {
+  opacity: 1; /* 滑鼠懸停時顯示 */
+}
+
+.btn-action-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 4px;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-action-icon:hover {
+  background-color: #e9ecef;
+  color: #212529;
+}
+
+.btn-action-icon .fa-trash:hover {
+  color: #dc3545;
+}
+/* ✨ --- END: 新增樣式 --- ✨ */
+
 /* 引入 Font Awesome */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
 
@@ -1722,11 +1917,5 @@ watch(
 }
 .item-actions .btn-revert:hover {
   background-color: #ea580c;
-}
-.item-actions .btn-delete {
-  background-color: #ef4444; /* 紅色 */
-}
-.item-actions .btn-delete:hover {
-  background-color: #dc2626;
 }
 </style>

@@ -1067,7 +1067,7 @@ const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const { patientMap } = storeToRefs(patientStore)
 const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
-const { currentUser } = useAuth() // ✨ [核心修正] 直接從 useAuth 解構 currentUser
+const { currentUser } = useAuth()
 
 // API 管理器
 const schedulesApi = ApiManager('schedules')
@@ -1891,26 +1891,21 @@ onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
 
-// ✨ [核心修正] 新增對 currentUser 的監聽，以啟動/停止 taskStore
-watch(
-  currentUser,
-  (newUser) => {
-    if (newUser) {
-      taskStore.startRealtimeUpdates(newUser.uid)
-    } else {
-      taskStore.cleanupListeners()
-    }
-  },
-  { immediate: true },
-)
+// ✨✨✨ 核心修正：移除 watch(currentUser, ...) 內的 taskStore 管理
+watch(currentUser, (newUser) => {
+  if (!newUser) {
+    // 可以在此處清理頁面相關資料
+  }
+})
 
 watch(currentDate, (newDate) => {
   loadData(newDate)
   loadDailyStaffInfo(newDate)
 })
 
+// ✨✨✨ 核心修正：onUnmounted 中不再需要 cleanupListeners
 onUnmounted(() => {
-  taskStore.cleanupListeners()
+  // 此處可以保留用於清理此頁面特有的監聽器 (如果有的話)
 })
 </script>
 
