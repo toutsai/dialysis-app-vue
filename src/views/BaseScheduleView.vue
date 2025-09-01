@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (Pinia 遷移版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (已移除備忘錄圖示功能) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -54,6 +54,7 @@
             :show-patient-numbers="true"
           />
         </div>
+        <!-- ✨ 核心修改 #1: 移除傳遞給 ScheduleTable 的 typesMap 和 patientWithMemoIds -->
         <ScheduleTable
           v-if="masterRecord"
           :key="tableKey"
@@ -66,14 +67,12 @@
           :week-dates="[]"
           :hepatitis-beds="hepatitisBeds"
           :get-style-func="getBaseCellStyle"
-          :patient-with-memo-ids="patientWithMemoIds"
           :is-page-locked="isPageLocked"
           @grid-click="handleGridClick"
           @drop="onDrop"
           @drag-start="onDragStart"
           @drag-over="onDragOver"
           @dragleave="onDragLeave"
-          @show-memos="showPatientMemos"
           @update:column-widths="updateColumnWidths"
           @update:left-offset="updateLeftOffset"
         />
@@ -81,7 +80,7 @@
       </div>
     </main>
 
-    <!-- Dialogs -->
+    <!-- Dialogs (保持不變) -->
     <SelectionDialog
       :is-visible="isActionDialogVisible"
       :title="`操作病人：${actionTarget.patientName}`"
@@ -100,12 +99,6 @@
       :is-page-locked="isPageLocked"
       @close="isAssignmentDialogVisible = false"
       @assign-bed="handleBedAssigned"
-    />
-    <MemoDisplayDialog
-      :is-visible="isMemoDialogVisible"
-      :patient-name="patientNameForDialog"
-      :memos="memosForDialog"
-      @close="isMemoDialogVisible = false"
     />
     <PatientSelectDialog
       :is-visible="isPatientSelectDialogVisible"
@@ -134,12 +127,8 @@
 
 <script setup>
 import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
-import {
-  updatePatient,
-  fetchAllMemos as optimizedFetchAllMemos,
-} from '@/services/optimizedApiService.js'
+import { updatePatient } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
-import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
@@ -149,14 +138,13 @@ import ScheduleTable from '@/components/ScheduleTable.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
-import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+// ✨ Pinia Store 依賴
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 
-// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+// ✨ 實例化 Store 並獲取響應式狀態
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
@@ -240,9 +228,7 @@ const ACTION_OPTIONS = [
 ]
 
 // --- Reactive State ---
-// allPatients 和 patientMap 已由 Pinia 提供
 const masterRecord = ref(null)
-const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusText = ref('')
 const draggedItem = ref(null)
@@ -255,9 +241,6 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
-const isMemoDialogVisible = ref(false)
-const memosForDialog = ref([])
-const patientNameForDialog = ref('')
 const isPatientSelectDialogVisible = ref(false)
 const currentSlotId = ref(null)
 const searchQuery = ref('')
@@ -271,12 +254,7 @@ const tableKey = ref(Date.now())
 
 // --- Computed Properties ---
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
-// patientMap 已由 Pinia 提供
-const patientWithMemoIds = computed(
-  () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
-)
 
-// weekScheduleMap 現在直接依賴 Pinia 的 patientMap
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   if (!masterRecord.value || !masterRecord.value.schedule || !patientMap.value) {
@@ -332,7 +310,7 @@ const statsToolbarData = computed(() => {
   for (const patientId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[patientId]
     if (ruleData && ruleData.freq && ruleData.shiftIndex !== undefined) {
-      const patient = patientMap.value.get(patientId) // 直接從 Pinia 的 patientMap 獲取
+      const patient = patientMap.value.get(patientId)
       if (!patient) continue
 
       const shiftCode = SHIFTS[ruleData.shiftIndex]
@@ -485,7 +463,6 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   if (newFreq && patient.freq !== newFreq) {
     try {
       await updatePatient(patientId, { freq: newFreq })
-      // ✨ 核心修改: 不再手動更新本地 allPatients，改為強制刷新 Store
       await patientStore.forceRefreshPatients()
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
     } catch (error) {
@@ -602,16 +579,7 @@ function locatePatientOnGrid(patientId) {
     }
   })
 }
-function showPatientMemos(patientId) {
-  if (!patientId) return
-  const patient = patientMap.value.get(patientId)
-  if (!patient) return
-  memosForDialog.value = activeMemos.value.filter(
-    (memo) => memo.patientId === patientId && memo.status === 'pending',
-  )
-  patientNameForDialog.value = patient.name
-  isMemoDialogVisible.value = true
-}
+
 function setChange() {
   if (isPageLocked.value) return
   hasUnsavedChanges.value = true
@@ -688,11 +656,11 @@ function openBaseAssignmentDialog() {
   assignmentContext.value = { mode: 'base', patient: null }
   isAssignmentDialogVisible.value = true
 }
+
 function handleGridClick(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   const patientId = slotData?.patientId
   if (isPageLocked.value) {
-    if (patientId) showPatientMemos(patientId)
     return
   }
   if (patientId) {
@@ -784,23 +752,11 @@ function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
 
-// ✨ 核心修改 #3: 移除本地的 fetchPatientAndMemoData
-// async function fetchPatientAndMemoData() { ... }
-
-// ✨ 核心修改 #4: 改造 loadAllData，使其依賴 Pinia Store
 async function loadAllData() {
   statusText.value = '讀取中...'
   try {
-    // 1. 確保 Pinia Store 中的病人數據已載入
     await patientStore.fetchPatientsIfNeeded()
-
-    // 2. 並行獲取備忘錄和總表數據
-    const [memos, baseScheduleDoc] = await Promise.all([
-      optimizedFetchAllMemos([where('status', '==', 'pending')]),
-      baseSchedulesApi.fetchById('MASTER_SCHEDULE'),
-    ])
-
-    activeMemos.value = memos
+    const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
 
     if (baseScheduleDoc && baseScheduleDoc.schedule) {
       masterRecord.value = { id: baseScheduleDoc.id, schedule: baseScheduleDoc.schedule }
@@ -815,15 +771,12 @@ async function loadAllData() {
   }
 }
 
-// ✨ 核心修改 #5: 改造事件監聽器，只重新載入非病人相關的數據
 function handlePatientDataUpdate() {
   console.log('🔄 [BaseScheduleView] 收到病人資料更新通知，正在強制重新渲染...')
-  // 病人數據已由 Pinia 自動更新，我們只需觸發 computed 重新計算
   tableKey.value = Date.now()
 }
 function handleScheduleUpdate() {
   console.log('🔄 [BaseScheduleView] 收到排程儲存通知，正在重新載入總表資料...')
-  // 只重新載入總表資料，不再重新獲取病人
   async function reloadSchedule() {
     const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     if (baseScheduleDoc && baseScheduleDoc.schedule) {

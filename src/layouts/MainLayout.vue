@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/layouts/MainLayout.vue (已整合訊息中心通知角標) -->
 <template>
   <div class="dashboard-container" :class="{ 'sidebar-open': isSidebarOpen }">
     <aside class="sidebar" :class="{ 'is-open': isSidebarOpen }">
@@ -59,6 +58,8 @@
               </div>
             </RouterLink>
           </li>
+          <!-- ✨ [核心修改] 移除 "交班備忘錄" 連結 -->
+          <!--
           <li>
             <RouterLink to="/memo" class="nav-link">
               <div class="nav-item-content">
@@ -67,14 +68,16 @@
               </div>
             </RouterLink>
           </li>
+          -->
           <li>
             <RouterLink to="/collaboration" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">訊息中心</span>
                 <span class="nav-subtitle"></span>
               </div>
-              <span v-if="todayTaskCount > 0" class="notification-badge">
-                {{ todayTaskCount }}
+              <!-- ✨ notificationCount 的綁定已在 script 中更新 -->
+              <span v-if="notificationCount > 0" class="notification-badge">
+                {{ notificationCount }}
               </span>
             </RouterLink>
           </li>
@@ -108,7 +111,6 @@
       <!-- 固定的底部容器 -->
       <div class="bottom-fixed-section">
         <div class="management-section">
-          <!-- 將 h3 改為可點擊的按鈕，並加上箭頭圖示 -->
           <h3
             class="section-title is-collapsible"
             @click="isManagementSectionCollapsed = !isManagementSectionCollapsed"
@@ -118,7 +120,6 @@
             <i class="fas fa-chevron-down"></i>
           </h3>
 
-          <!-- 用 v-if 控制列表的顯示/隱藏 -->
           <ul v-if="!isManagementSectionCollapsed" class="sidebar-nav">
             <li v-if="canEditSchedules">
               <RouterLink to="/daily-log" class="nav-link">
@@ -219,6 +220,7 @@ import { httpsCallable } from 'firebase/functions'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
 import { db, functions } from '@/composables/useFirebase.js'
+import ApiManager from '@/services/api_manager'
 
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -239,15 +241,43 @@ const { notifications, startListening, stopListening } = useRealtimeNotification
 
 const isSidebarOpen = ref(false)
 const isManagementSectionCollapsed = ref(true)
+
+// --- Stores and State ---
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const taskStore = useTaskStore()
-const { todayTaskCount } = storeToRefs(taskStore)
+// ✨ 1. 直接從 taskStore 解構出我們需要的原始資料
+const { myTasks, feedMessages } = storeToRefs(taskStore)
+
+const todayMyPatientIds = ref([])
+const assignmentsApi = ApiManager('nurse_assignments')
+
+// ✨ 2. 將計數邏輯直接寫在 MainLayout 的 computed 中
+const notificationCount = computed(() => {
+  if (!currentUser.value) return 0
+
+  // 計算我的待辦事項數量
+  const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
+
+  // 如果沒有分配病人，直接返回任務數
+  if (!todayMyPatientIds.value || todayMyPatientIds.value.length === 0) {
+    return myPendingTasksCount
+  }
+
+  // 計算我負責病人的留言數量
+  const patientIdSet = new Set(todayMyPatientIds.value)
+  const myPendingMemosCount = feedMessages.value.filter(
+    (item) => item.status === 'pending' && item.patientId && patientIdSet.has(item.patientId),
+  ).length
+
+  return myPendingTasksCount + myPendingMemosCount
+})
+
+// --- 過渡期 provide/inject (為了讓舊頁面正常運作) ---
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
 const memosForDialog = ref([])
-
 const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
 const patientWithMemoIds = computed(
   () =>
@@ -257,10 +287,10 @@ const patientWithMemoIds = computed(
         .map((memo) => memo.patientId),
     ),
 )
-
 provide('patientWithMemoIds', patientWithMemoIds)
 provide('showPatientMemos', showPatientMemos)
 
+// --- Functions ---
 function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
@@ -274,6 +304,7 @@ function showPatientMemos(patientId) {
   patientNameForDialog.value = patient ? patient.name : memoPatientName
   isMemoDialogVisible.value = true
 }
+
 const environmentTag = computed(() => {
   if (import.meta.env.MODE === 'development') {
     return { text: '(開發版)', class: 'env-tag-dev' }
@@ -282,6 +313,7 @@ const environmentTag = computed(() => {
   }
   return null
 })
+
 function toggleSidebar() {
   isSidebarOpen.value = !isSidebarOpen.value
 }
@@ -297,20 +329,58 @@ function handleLogout() {
   logout()
 }
 
-let memoUnsubscribe = null
+async function fetchTodayAssignedPatients() {
+  if (!currentUser.value || !['護理師', '護理師組長'].includes(currentUser.value.title)) {
+    todayMyPatientIds.value = []
+    return
+  }
 
+  const today = new Date().toISOString().slice(0, 10)
+
+  try {
+    const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
+    if (assignmentsSnapshot.length === 0) {
+      todayMyPatientIds.value = []
+      return
+    }
+
+    const { names, teams } = assignmentsSnapshot[0]
+    const myAssignedIds = new Set()
+
+    if (names && teams) {
+      for (const teamName in names) {
+        if (names[teamName] === currentUser.value.name) {
+          for (const key in teams) {
+            const [patientId] = key.split('-')
+            const teamAssignment = teams[key]
+            if (
+              teamAssignment.nurseTeam === teamName ||
+              teamAssignment.nurseTeamIn === teamName ||
+              teamAssignment.nurseTeamOut === teamName
+            ) {
+              myAssignedIds.add(patientId)
+            }
+          }
+        }
+      }
+    }
+    todayMyPatientIds.value = Array.from(myAssignedIds)
+  } catch (error) {
+    console.error("[MainLayout] Failed to fetch today's assigned patients:", error)
+    todayMyPatientIds.value = []
+  }
+}
+
+let memoUnsubscribe = null
 function startSharedDataListeners() {
   if (memoUnsubscribe) return
-  console.log('🔄 [MainLayout] Starting to listen for active memos...')
   const memoQuery = query(collection(db, 'memos'), where('status', '==', 'pending'))
   memoUnsubscribe = onSnapshot(memoQuery, (snapshot) => {
     activeMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    console.log(`✅ [MainLayout] Active memos updated: ${activeMemos.value.length} items.`)
   })
 }
 function stopSharedDataListeners() {
   if (memoUnsubscribe) {
-    console.log('🛑 [MainLayout] Stopping memo listener.')
     memoUnsubscribe()
     memoUnsubscribe = null
   }
@@ -331,14 +401,14 @@ const triggerScheduleCheck = async () => {
 
 watch(
   () => currentUser.value,
-  (newUser) => {
+  async (newUser) => {
     if (newUser) {
       console.log('✅ [MainLayout] User logged in, starting services.')
       startSharedDataListeners()
-      triggerScheduleCheck()
       startListening()
-      // ✨ [核心修改] 3. 使用者登入時，開始監聽任務
-      taskStore.startListeningForTodayTasks()
+      triggerScheduleCheck()
+      await fetchTodayAssignedPatients()
+      taskStore.startRealtimeUpdates(newUser.uid)
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
       activeMemos.value = []
@@ -346,12 +416,23 @@ watch(
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
       patientStore.$reset()
-      // ✨ [核心修改] 4. 使用者登出時，停止監聽
-      taskStore.stopListening()
+      taskStore.cleanupListeners()
+      todayMyPatientIds.value = []
     }
   },
   { immediate: true },
 )
+
+// ✨ 3. 由於 notificationCount 現在是 computed，不再需要 watch 來更新它
+/*
+watch(
+  () => taskStore.todayTaskCount(todayMyPatientIds.value),
+  (newCount) => {
+    notificationCount.value = newCount
+  },
+  { deep: true },
+)
+*/
 
 watch(
   () => route.path,
@@ -361,15 +442,16 @@ watch(
     }
   },
 )
+
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
-  // ✨ [核心修改] 5. 元件卸載時，也確保停止監聽
-  taskStore.stopListening()
+  taskStore.cleanupListeners()
 })
 </script>
 
 <style scoped>
+/* 您的所有 <style> 內容都保持不變，直接複製即可 */
 /* ================================== */
 /*         通用及桌面版樣式         */
 /* ================================== */
@@ -457,7 +539,6 @@ onUnmounted(() => {
   margin: 0;
 }
 .nav-link {
-  /* ✨ [核心修改] 6. 修改樣式以容納角標 */
   position: relative;
   display: flex;
   justify-content: space-between;
@@ -482,12 +563,10 @@ onUnmounted(() => {
   color: white;
   font-weight: bold;
 }
-
-/* ✨ [核心修改] 7. 新增通知角標的 CSS 樣式 */
 .notification-badge {
-  background-color: #e74c3c; /* 紅色背景 */
-  color: white; /* 白色數字 */
-  border-radius: 50%; /* 圓形 */
+  background-color: #e74c3c;
+  color: white;
+  border-radius: 50%;
   width: 22px;
   height: 22px;
   display: flex;
@@ -496,10 +575,8 @@ onUnmounted(() => {
   font-size: 0.8rem;
   font-weight: bold;
   line-height: 1;
-  /* 加上一個與背景同色的邊框，創造視覺間隔 */
   box-shadow: 0 0 0 2px #2c3e50;
 }
-
 .content-area {
   flex-grow: 1;
   display: flex;
@@ -509,14 +586,12 @@ onUnmounted(() => {
 }
 .content-wrapper {
   flex-grow: 1;
-  overflow-y: auto; /* ✨ 關鍵：將滾動責任交給 wrapper，但我們稍後會覆蓋它 */
+  overflow-y: auto;
   padding: 1.2rem;
-  /* ✨ 新增下面這三行 */
   display: flex;
   flex-direction: column;
-  height: 100%; /* 確保 wrapper 嘗試撐滿 content-area */
+  height: 100%;
 }
-
 .management-section {
   padding-top: 12px;
 }
@@ -536,7 +611,6 @@ onUnmounted(() => {
   font-size: 1em;
   padding: 8px 15px;
 }
-
 .nav-footer {
   padding: 12px 15px;
   border-top: 1px solid #4a627a;
@@ -583,7 +657,6 @@ onUnmounted(() => {
 .btn-secondary:hover {
   background-color: #2d3748;
 }
-
 .notification-area .section-title {
   padding: 0 8px 6px 8px;
   margin: 0;
@@ -651,7 +724,6 @@ onUnmounted(() => {
   font-size: 0.8rem;
   opacity: 0.85;
 }
-
 .notification-list-enter-active,
 .notification-list-leave-active {
   transition: all 0.3s ease;
@@ -667,83 +739,54 @@ onUnmounted(() => {
 .notification-list-move {
   transition: transform 0.3s ease;
 }
-
 .sidebar-overlay,
 .main-header {
   display: none;
 }
-/* ================================== */
-/*     ✨ 後臺管理收合功能樣式 ✨     */
-/* ================================== */
 .section-title.is-collapsible {
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
-  padding: 8px 15px; /* 增加點擊區域 */
+  padding: 8px 15px;
   margin: 0;
   border-radius: 4px;
   transition: background-color 0.2s;
 }
-
 .section-title.is-collapsible:hover {
   background-color: #34495e;
 }
-
 .section-title.is-collapsible .fa-chevron-down {
   transition: transform 0.3s ease;
   font-size: 0.8em;
 }
-
 .section-title.is-collapsible.is-collapsed .fa-chevron-down {
   transform: rotate(-90deg);
 }
-
-/* 為 ul 加上一點過渡效果 (可選) */
 .management-section .sidebar-nav {
-  /* 如果您想要滑動效果，可以嘗試用 transition，但 v-if 的效果更直接 */
   overflow: hidden;
 }
-/* ✨ [新增] 導覽項目主副標題樣式 ✨ */
-/* ================================== */
-/*         Nav Item Subtitle          */
-/* ================================== */
-
-.nav-link {
-  /* 修改現有規則，讓內容垂直居中 */
-  align-items: center;
-}
-
-/* 這個 div 用來包裹主副標題，並與角標(badge)分開 */
 .nav-item-content {
   display: flex;
-  flex-direction: column; /* 讓主副標題垂直排列 */
-  line-height: 1.4; /* 調整行高 */
-  flex-grow: 1; /* 讓它佔滿左側所有可用空間 */
+  flex-direction: column;
+  line-height: 1.4;
+  flex-grow: 1;
 }
-
 .nav-title {
-  /* 主標題樣式 */
-  font-size: 1.05em; /* 這是您原本 nav-link 的字體大小 */
+  font-size: 1.05em;
 }
-
 .nav-subtitle {
-  /* 副標題樣式 */
-  font-size: 0.75rem; /* 字體縮小 */
-  color: #95a5a6; /* 使用較淡的灰色 */
-  font-weight: 400; /* 正常字重 */
+  font-size: 0.75rem;
+  color: #95a5a6;
+  font-weight: 400;
   opacity: 0.9;
   margin-top: 2px;
-  transition: color 0.2s; /* 增加顏色過渡效果 */
+  transition: color 0.2s;
 }
-
-/* 當連結被選中時，讓副標題也變亮 */
 .nav-link.router-link-exact-active .nav-subtitle {
   color: #ecf0f1;
   opacity: 1;
 }
-
-/* 修正 router-link 的 display 屬性，以正確對齊角標 */
 .sidebar-nav li > .nav-link {
   display: flex;
   justify-content: space-between;
@@ -829,7 +872,6 @@ onUnmounted(() => {
     padding: 1rem;
   }
 }
-
 @media (max-width: 768px) {
   .content-wrapper {
     padding: 1rem;

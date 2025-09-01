@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (區間調班邏輯修正版) -->
+<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (✨ 最終修正版 ✨) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="close">
     <div class="dialog-content">
@@ -8,8 +8,8 @@
       </header>
       <main class="dialog-body">
         <!-- 步驟 1: 選擇病人 -->
-        <div class="form-group">
-          <label>步驟 1: 選擇病人</label>
+        <fieldset class="step-group">
+          <legend>步驟 1: 選擇主要病人</legend>
           <button
             class="select-btn"
             @click="isPatientDialogVisible = true"
@@ -22,12 +22,12 @@
             ></div>
             <span v-else class="text-muted">點擊以選擇病人...</span>
           </button>
-        </div>
+        </fieldset>
 
         <div class="subsequent-steps" :class="{ disabled: !formData.patientId }">
           <!-- 步驟 2: 選擇調班類型 -->
-          <div class="form-group">
-            <label>步驟 2: 選擇調班類型</label>
+          <fieldset class="step-group">
+            <legend>步驟 2: 選擇調班類型</legend>
             <div class="radio-group">
               <label
                 ><input
@@ -56,147 +56,166 @@
                 />
                 臨時加洗</label
               >
-              <!--【暫時隱藏】將「區間調班」的選項註解掉
               <label
                 ><input
                   type="radio"
                   v-model="formData.type"
-                  value="RANGE_MOVE"
+                  value="SWAP"
                   :disabled="isEditingMode"
                 />
-                區間調班</label
+                同日互調</label
               >
-              -->
             </div>
-          </div>
+          </fieldset>
 
-          <!-- 區塊：臨時調班 (MOVE) -->
-          <div v-if="formData.type === 'MOVE'" class="details-section">
-            <h3 class="section-title">步驟 3: 設定調班前後資訊</h3>
-            <div class="form-group-grid">
+          <!-- 所有調班類型的設定都放入這個步驟 -->
+          <fieldset class="step-group" v-if="formData.type">
+            <legend>步驟 3: 設定調班資訊</legend>
+
+            <!-- 區塊：臨時調班 (MOVE) -->
+            <div v-if="formData.type === 'MOVE'" class="details-section">
+              <div class="form-group-grid">
+                <div class="form-group">
+                  <label for="sourceDate">原始日期</label>
+                  <input
+                    type="date"
+                    id="sourceDate"
+                    v-model="formData.from.sourceDate"
+                    @change="fetchSourceSchedule"
+                    :disabled="isEditingMode"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>原始排班</label>
+                  <div class="info-box">{{ sourceBedDisplay }}</div>
+                </div>
+              </div>
+              <div class="form-group-grid" v-if="formData.from.bedNum">
+                <div class="form-group">
+                  <label for="targetDate">目標日期</label>
+                  <input
+                    type="date"
+                    id="targetDate"
+                    v-model="formData.to.goalDate"
+                    :disabled="isEditingMode"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>目標床位</label>
+                  <button
+                    class="select-btn"
+                    @click="openBedAssignmentForTarget"
+                    :disabled="!formData.to.goalDate || isSubmitting"
+                  >
+                    {{ targetBedDisplay }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 區塊：區間暫停 (SUSPEND) -->
+            <div v-if="formData.type === 'SUSPEND'" class="details-section">
+              <div class="form-group-grid">
+                <div class="form-group">
+                  <label for="startDate">開始日期 (包含)</label
+                  ><input
+                    type="date"
+                    id="startDate"
+                    v-model="formData.startDate"
+                    :disabled="isEditingMode"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="endDate">結束日期 (包含)</label
+                  ><input
+                    type="date"
+                    id="endDate"
+                    v-model="formData.endDate"
+                    :disabled="isEditingMode"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- 區塊：臨時加洗 (ADD_SESSION) -->
+            <div v-if="formData.type === 'ADD_SESSION'" class="details-section">
+              <div class="form-group-grid">
+                <div class="form-group">
+                  <label for="addSessionDate">加洗日期</label
+                  ><input type="date" id="addSessionDate" v-model="formData.to.goalDate" />
+                </div>
+                <div class="form-group">
+                  <label>目標床位</label>
+                  <button
+                    class="select-btn"
+                    @click="openBedAssignmentForTarget"
+                    :disabled="!formData.to.goalDate || isSubmitting"
+                  >
+                    {{ targetBedDisplay }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- [全新優化] 區塊：同日互調 (SWAP) -->
+            <div v-if="formData.type === 'SWAP'" class="details-section">
               <div class="form-group">
-                <label for="sourceDate">原始日期</label>
+                <label for="swapDate">互調日期</label>
                 <input
                   type="date"
-                  id="sourceDate"
-                  v-model="formData.from.sourceDate"
-                  @change="fetchSourceSchedule"
+                  id="swapDate"
+                  v-model="formData.date"
+                  @change="fetchScheduleForSwap"
                   :disabled="isEditingMode"
                 />
               </div>
-              <div class="form-group">
-                <label>原始排班</label>
-                <div class="info-box">{{ sourceBedDisplay }}</div>
+              <div class="form-group-grid" v-if="formData.date">
+                <div class="form-group">
+                  <label>病人 A (主要病人)</label>
+                  <div class="info-box">{{ patientA_SwapDisplay }}</div>
+                </div>
+                <div class="form-group">
+                  <label>病人 B (選擇互調對象)</label>
+                  <select
+                    v-model="patientB_SwapSelection"
+                    class="swap-select"
+                    :disabled="!formData.patient1 || isFetchingSwapSchedule"
+                  >
+                    <option disabled value="">
+                      {{
+                        patientA_SwapDisplay.includes('查詢中')
+                          ? '...'
+                          : formData.patient1
+                            ? '請選擇...'
+                            : '請先確認病人A排班'
+                      }}
+                    </option>
+                    <option
+                      v-for="slot in availableSlotsForPatientB"
+                      :key="slot.key"
+                      :value="slot.key"
+                    >
+                      {{ slot.displayText }}
+                    </option>
+                  </select>
+                </div>
               </div>
             </div>
-            <div class="form-group-grid" v-if="formData.from.bedNum">
-              <div class="form-group">
-                <label for="targetDate">目標日期</label>
-                <input
-                  type="date"
-                  id="targetDate"
-                  v-model="formData.to.goalDate"
-                  :disabled="isEditingMode"
-                />
-              </div>
-              <div class="form-group">
-                <label>目標床位</label>
-                <button
-                  class="select-btn"
-                  @click="openBedAssignmentForTarget"
-                  :disabled="!formData.to.goalDate || isSubmitting"
-                >
-                  {{ targetBedDisplay }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 區塊：區間暫停 (SUSPEND) -->
-          <div v-if="formData.type === 'SUSPEND'" class="details-section">
-            <h3 class="section-title">步驟 3: 設定暫停區間</h3>
-            <div class="form-group-grid">
-              <div class="form-group">
-                <label for="startDate">開始日期 (包含)</label>
-                <input
-                  type="date"
-                  id="startDate"
-                  v-model="formData.startDate"
-                  :disabled="isEditingMode"
-                />
-              </div>
-              <div class="form-group">
-                <label for="endDate">結束日期 (包含)</label>
-                <input
-                  type="date"
-                  id="endDate"
-                  v-model="formData.endDate"
-                  :disabled="isEditingMode"
-                />
-              </div>
-            </div>
-          </div>
-
-          <!-- 區塊：臨時加洗 (ADD_SESSION) -->
-          <div v-if="formData.type === 'ADD_SESSION'" class="details-section">
-            <h3 class="section-title">步驟 3: 設定加洗日期與床位</h3>
-            <div class="form-group-grid">
-              <div class="form-group">
-                <label for="addSessionDate">加洗日期</label>
-                <input type="date" id="addSessionDate" v-model="formData.to.goalDate" />
-              </div>
-              <div class="form-group">
-                <label>目標床位</label>
-                <button
-                  class="select-btn"
-                  @click="openBedAssignmentForTarget"
-                  :disabled="!formData.to.goalDate || isSubmitting"
-                >
-                  {{ targetBedDisplay }}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 區塊：區間調班 (RANGE_MOVE) 【暫時隱藏】將「區間調班」的整個設定區塊註解掉
-          <div v-if="formData.type === 'RANGE_MOVE'" class="details-section">
-            <h3 class="section-title">步驟 3: 設定調班區間與目標床位</h3>
-            <div class="form-group-grid">
-              <div class="form-group">
-                <label for="rangeStartDate">開始日期 (包含)</label>
-                <input type="date" id="rangeStartDate" v-model="formData.startDate" />
-              </div>
-              <div class="form-group">
-                <label for="rangeEndDate">結束日期 (包含)</label>
-                <input type="date" id="rangeEndDate" v-model="formData.endDate" />
-              </div>
-            </div>
-            <div class="form-group">
-              <label>目標床位 (將套用於整個區間)</label>
-              <button
-                class="select-btn"
-                @click="openBedAssignmentForTarget"
-                :disabled="!formData.startDate || isSubmitting"
-              >
-                {{ targetBedDisplay }}
-              </button>
-            </div>
-            <small class="form-text text-muted"
-              >系統將根據病人的固定頻率，查詢在整個時段都可用的床位。</small
-            >
-          </div>
-          -->
+          </fieldset>
 
           <!-- 步驟 4: 原因說明 -->
-          <div class="form-group">
-            <label>步驟 4: 原因說明</label>
-            <textarea
-              v-model="formData.reason"
-              rows="2"
-              placeholder="請簡要說明原因"
-              :disabled="isEditingMode"
-            ></textarea>
-          </div>
+          <fieldset class="step-group">
+            <legend>步驟 4: 原因說明</legend>
+            <!-- ✨ 修正點 2：將 textarea 包在 .form-group div 中以套用樣式 -->
+            <div class="form-group">
+              <textarea
+                v-model="formData.reason"
+                rows="2"
+                placeholder="請簡要說明原因"
+                :disabled="isEditingMode"
+              ></textarea>
+            </div>
+          </fieldset>
         </div>
       </main>
       <footer class="dialog-footer">
@@ -215,9 +234,9 @@
   <!-- Child Dialogs -->
   <PatientSelectDialog
     :is-visible="isPatientDialogVisible"
-    title="選擇病人"
     :patients="allPatients"
     :show-fill-options="false"
+    title="選擇病人"
     @confirm="handlePatientSelected"
     @cancel="isPatientDialogVisible = false"
   />
@@ -244,6 +263,7 @@ import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 
+// Props & Emits
 const props = defineProps({
   isVisible: Boolean,
   allPatients: Array,
@@ -252,9 +272,8 @@ const props = defineProps({
 })
 const emit = defineEmits(['close', 'submit'])
 
-// --- API and Constants ---
+// API and Constants
 const schedulesApi = ApiManager('schedules')
-const baseSchedulesApi = ApiManager('base_schedules')
 const shifts = ORDERED_SHIFT_CODES
 const bedLayout = [
   1,
@@ -320,37 +339,44 @@ const freqMap = {
   每周六: [5],
 }
 
-// --- Dialog State ---
+// Dialog State
 const isPatientDialogVisible = ref(false)
 const isBedAssignmentVisible = ref(false)
 const bedAssignmentProps = ref(null)
 const isSubmitting = ref(false)
 const isFetchingSource = ref(false)
 const sourceScheduleMessage = ref('')
-const masterSchedule = ref(null)
 
-// --- Form State ---
+// SWAP State
+const dailyScheduleForSwap = ref(null)
+const isFetchingSwapSchedule = ref(false)
+const patientB_SwapSelection = ref('')
+
+// Form State
 const defaultFormData = () => ({
   id: null,
   patientId: '',
   patientName: '',
   type: null,
+  date: '', // for SWAP
   startDate: '',
   endDate: '',
   reason: '',
   from: { sourceDate: '', bedNum: null, shiftCode: null },
   to: { goalDate: '', bedNum: null, shiftCode: null },
+  patient1: null, // for SWAP
+  patient2: null, // for SWAP
 })
 const formData = reactive(defaultFormData())
 
-// --- Computed Properties ---
+// Computed Properties
 const dialogTitle = computed(() => {
   if (isEditingMode.value) return '解決排程衝突'
   const typeMap = {
     MOVE: '臨時調班',
     SUSPEND: '區間暫停',
     ADD_SESSION: '臨時加洗',
-    RANGE_MOVE: '區間調班',
+    SWAP: '同日互調',
   }
   const title = typeMap[formData.type] ? ` - ${typeMap[formData.type]}` : ''
   return `新增調班申請${title}`
@@ -396,8 +422,77 @@ const targetBedDisplay = computed(() => {
   }
   return '點擊以選擇目標床位...'
 })
+const patientA_SwapDisplay = computed(() => {
+  if (!formData.date) return '請先選擇日期...'
+  if (isFetchingSwapSchedule.value) return '查詢排班中...'
+  if (!formData.patient1) return `當日無 ${formData.patientName} 的排班`
+
+  const { fromBedNum, fromShiftCode } = formData.patient1
+  const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
+  const shiftText = shiftDisplayMap[fromShiftCode] || fromShiftCode
+  const bedText = String(fromBedNum).startsWith('peripheral')
+    ? `外圍 ${fromBedNum.split('-')[1]}`
+    : `${fromBedNum}床`
+  return `${formData.patientName} (${bedText} / ${shiftText}班)`
+})
+
+// ✨✨✨ 核心修改點在這裡 ✨✨✨
+const availableSlotsForPatientB = computed(() => {
+  if (!dailyScheduleForSwap.value || !formData.patient1) return []
+
+  const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
+  const shiftOrderMap = { early: 1, noon: 2, late: 3 }
+
+  const getSortableBedNumber = (bedNum) => {
+    if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
+      return 1000 + parseInt(bedNum.split('-')[1], 10)
+    }
+    return parseInt(bedNum, 10)
+  }
+
+  const slots = Object.entries(dailyScheduleForSwap.value)
+    .filter(([key, slot]) => slot && slot.patientId && slot.patientId !== formData.patientId)
+    .map(([key, slot]) => {
+      const patient = props.allPatients.find((p) => p.id === slot.patientId)
+      const patientName = patient ? patient.name : slot.patientName || `ID: ${slot.patientId}`
+      const parts = key.split('-')
+      const shiftCode = parts.pop()
+      const bedNum = key.replace(`-${shiftCode}`, '').replace('bed-', '')
+      const shiftText = shiftDisplayMap[shiftCode] || shiftCode
+      const bedText = String(bedNum).startsWith('peripheral')
+        ? `外圍 ${bedNum.split('-')[1]}`
+        : `${bedNum}床`
+
+      return {
+        key: key,
+        displayText: `${patientName} (${bedText} / ${shiftText}班)`,
+        data: {
+          patientId: slot.patientId,
+          patientName: patientName,
+          fromBedNum: bedNum,
+          fromShiftCode: shiftCode,
+        },
+      }
+    })
+
+  // 在回傳前進行排序
+  return slots.sort((a, b) => {
+    // 1. 按班別排序
+    const shiftOrderA = shiftOrderMap[a.data.fromShiftCode] || 99
+    const shiftOrderB = shiftOrderMap[b.data.fromShiftCode] || 99
+    if (shiftOrderA !== shiftOrderB) {
+      return shiftOrderA - shiftOrderB
+    }
+
+    // 2. 如果班別相同，按床號排序
+    const bedA = getSortableBedNumber(a.data.fromBedNum)
+    const bedB = getSortableBedNumber(b.data.fromBedNum)
+    return bedA - bedB
+  })
+})
+
 const isDetailsComplete = computed(() => {
-  if (!formData.patientId || !formData.type) return false
+  if (!formData.type) return false
   switch (formData.type) {
     case 'MOVE':
       return !!formData.from.bedNum && !!formData.to.bedNum && !!formData.to.goalDate
@@ -405,21 +500,15 @@ const isDetailsComplete = computed(() => {
       return !!formData.startDate && !!formData.endDate && formData.endDate >= formData.startDate
     case 'ADD_SESSION':
       return !!formData.to.goalDate && !!formData.to.bedNum && !!formData.to.shiftCode
-    case 'RANGE_MOVE':
-      return (
-        !!formData.startDate &&
-        !!formData.endDate &&
-        !!formData.to.bedNum &&
-        !!formData.to.shiftCode &&
-        formData.endDate >= formData.startDate
-      )
+    case 'SWAP':
+      return !!formData.date && !!formData.patient1 && !!formData.patient2
     default:
       return false
   }
 })
 const isFormValid = computed(() => isDetailsComplete.value && !!formData.reason.trim())
 
-// --- Watchers ---
+// Watchers
 watch(
   () => props.isVisible,
   (isVisible) => {
@@ -429,34 +518,32 @@ watch(
           ...props.initialData,
           to: { ...props.initialData.to, bedNum: null, shiftCode: null },
         })
-        sourceScheduleMessage.value = ''
       } else {
         Object.assign(formData, defaultFormData())
-        sourceScheduleMessage.value = ''
       }
-    } else {
-      isBedAssignmentVisible.value = false
-      bedAssignmentProps.value = null
     }
   },
 )
 watch(
   () => formData.type,
-  (newType, oldType) => {
-    if (oldType !== null) {
-      const keptData = {
-        id: null,
-        patientId: formData.patientId,
-        patientName: formData.patientName,
-        type: newType,
-      }
-      Object.assign(formData, { ...defaultFormData(), ...keptData })
-      sourceScheduleMessage.value = ''
+  (newType) => {
+    const keptData = {
+      patientId: formData.patientId,
+      patientName: formData.patientName,
+      type: newType,
     }
+    Object.assign(formData, { ...defaultFormData(), ...keptData })
+    sourceScheduleMessage.value = ''
+    dailyScheduleForSwap.value = null
+    patientB_SwapSelection.value = ''
   },
 )
+watch(patientB_SwapSelection, (selectionKey) => {
+  const selectedSlot = availableSlotsForPatientB.value.find((s) => s.key === selectionKey)
+  formData.patient2 = selectedSlot ? selectedSlot.data : null
+})
 
-// --- Methods ---
+// Methods
 function close() {
   emit('close')
 }
@@ -468,6 +555,7 @@ function handlePatientSelected({ patientId }) {
   }
   isPatientDialogVisible.value = false
 }
+
 async function fetchSourceSchedule() {
   if (!formData.from.sourceDate || !formData.patientId) return
   isFetchingSource.value = true
@@ -484,7 +572,6 @@ async function fetchSourceSchedule() {
           const bedNum = shiftId.replace(`-${shiftCode}`, '').replace('bed-', '')
           formData.from.bedNum = bedNum
           formData.from.shiftCode = shiftCode
-          isFetchingSource.value = false
           return
         }
       }
@@ -498,79 +585,73 @@ async function fetchSourceSchedule() {
   }
 }
 
-async function fetchMasterSchedule() {
-  if (masterSchedule.value) return masterSchedule.value
+async function fetchScheduleForSwap() {
+  if (!formData.date || !formData.patientId) {
+    dailyScheduleForSwap.value = null
+    formData.patient1 = null
+    return
+  }
+  isFetchingSwapSchedule.value = true
+  dailyScheduleForSwap.value = null
+  formData.patient1 = null
+  patientB_SwapSelection.value = ''
   try {
-    const record = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
-    const scheduleRules = record ? record.schedule : {}
-
-    const formattedSchedule = {}
-    for (const patientId in scheduleRules) {
-      const rule = scheduleRules[patientId]
-      const dayIndices = freqMap[rule.freq] || []
-      dayIndices.forEach((dayIndex) => {
-        const weeklySlotId = `${rule.bedNum}-${rule.shiftIndex}-${dayIndex}`
-        formattedSchedule[weeklySlotId] = { ...rule, patientId }
-      })
+    const record = await schedulesApi.fetchById(formData.date)
+    const schedule = record && record.schedule ? record.schedule : null
+    dailyScheduleForSwap.value = schedule
+    if (schedule) {
+      for (const [key, slot] of Object.entries(schedule)) {
+        if (slot.patientId === formData.patientId) {
+          const parts = key.split('-')
+          const shiftCode = parts.pop()
+          const bedNum = key.replace(`-${shiftCode}`, '').replace('bed-', '')
+          formData.patient1 = {
+            patientId: formData.patientId,
+            patientName: formData.patientName,
+            fromBedNum: bedNum,
+            fromShiftCode: shiftCode,
+          }
+          break
+        }
+      }
     }
-    masterSchedule.value = formattedSchedule
-    return masterSchedule.value
   } catch (error) {
-    console.error('獲取總表規則失敗:', error)
-    alert('無法獲取總表規則資料，區間調班功能暫時無法使用。')
-    return {}
+    console.error('取得互調排班資料失敗:', error)
+  } finally {
+    isFetchingSwapSchedule.value = false
   }
 }
 
 async function openBedAssignmentForTarget() {
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
   if (!patient) return
-
   try {
-    let propsForDialog = {}
-
-    if (formData.type === 'RANGE_MOVE') {
-      // --- 區間調班邏輯 ---
-      if (!formData.startDate) return
-      if (!patient.freq) {
-        alert('此病人沒有設定固定頻率，無法使用區間調班功能。')
-        return
-      }
-      const masterScheduleData = await fetchMasterSchedule()
-      propsForDialog = {
-        scheduleData: masterScheduleData,
-        targetDate: null,
-        assignmentMode: 'frequency',
-      }
-    } else {
-      // --- 臨時調班 / 臨時加洗邏輯 ---
-      const dateForSchedule = formData.to.goalDate
-      if (!dateForSchedule) return
-      const scheduleRecord = await schedulesApi.fetchById(dateForSchedule)
-      const dailyScheduleData = scheduleRecord ? scheduleRecord.schedule : {}
-      propsForDialog = {
-        scheduleData: dailyScheduleData,
-        targetDate: dateForSchedule,
-        assignmentMode: 'singleDay',
-      }
+    const dateForSchedule = formData.to.goalDate
+    if (!dateForSchedule) return
+    const scheduleRecord = await schedulesApi.fetchById(dateForSchedule)
+    const dailyScheduleData = scheduleRecord ? scheduleRecord.schedule : {}
+    bedAssignmentProps.value = {
+      scheduleData: dailyScheduleData,
+      targetDate: dateForSchedule,
+      assignmentMode: 'singleDay',
     }
-
-    bedAssignmentProps.value = propsForDialog
     isBedAssignmentVisible.value = true
   } catch (error) {
     console.error('開啟智慧排床失敗:', error)
     alert('開啟智慧排床失敗，請稍後再試。')
   }
 }
-
 function handleTargetBedAssigned({ bedNum, shiftCode }) {
   formData.to.bedNum = bedNum
   formData.to.shiftCode = shiftCode
   isBedAssignmentVisible.value = false
 }
+
 function submitForm() {
   if (!isFormValid.value) return
   const dataToSubmit = JSON.parse(JSON.stringify(formData))
+
+  // 標準化日期欄位，確保父元件和後端能正確讀取
   switch (dataToSubmit.type) {
     case 'MOVE':
       dataToSubmit.startDate = dataToSubmit.from.sourceDate
@@ -581,18 +662,22 @@ function submitForm() {
       dataToSubmit.endDate = dataToSubmit.to.goalDate
       dataToSubmit.from = null
       break
-    case 'RANGE_MOVE':
+    case 'SWAP':
+      // 確保 startDate 和 endDate 都有值，同時保留 date 欄位給父元件使用
+      dataToSubmit.startDate = dataToSubmit.date
+      dataToSubmit.endDate = dataToSubmit.date
       dataToSubmit.from = null
-      dataToSubmit.to.goalDate = ''
+      dataToSubmit.to = null
       break
   }
+
   emit('submit', dataToSubmit)
 }
 </script>
 
 <style scoped>
 /* ================================== */
-/*         通用及桌面版樣式            */
+/*         通用及桌面版樣式 (美化版)    */
 /* ================================== */
 .dialog-overlay {
   position: fixed;
@@ -608,34 +693,37 @@ function submitForm() {
   padding: 1rem;
 }
 .dialog-content {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  background: #fdfdff;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
   width: 100%;
-  max-width: 550px;
+  max-width: 600px;
   display: flex;
   flex-direction: column;
   max-height: 90vh;
+  border: 1px solid #e0e0e0;
 }
 .dialog-header {
-  padding: 1.5rem;
+  padding: 1rem 1.5rem;
   border-bottom: 1px solid #e9ecef;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-shrink: 0;
 }
 .dialog-header h2 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #333;
 }
 .close-button {
   border: none;
   background: none;
   font-size: 2rem;
   cursor: pointer;
-  color: #6c757d;
+  color: #888;
 }
+
 .dialog-body {
   padding: 1.5rem;
   display: flex;
@@ -644,13 +732,61 @@ function submitForm() {
   overflow-y: auto;
 }
 .dialog-footer {
-  padding: 1.5rem;
+  padding: 1rem 1.5rem;
   border-top: 1px solid #e9ecef;
   display: flex;
   justify-content: flex-end;
   gap: 1rem;
-  flex-shrink: 0;
+  background-color: #f8f9fa;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
 }
+.btn {
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+}
+.btn-primary:hover {
+  background-color: #0069d9;
+  transform: translateY(-1px);
+}
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+.btn-secondary:hover {
+  background-color: #5a6268;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* UI 優化：步驟分組 */
+.step-group {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 0;
+  position: relative;
+}
+.step-group legend {
+  font-weight: 600;
+  color: #0056b3;
+  padding: 0 0.5rem;
+  margin-left: 1rem;
+  font-size: 1rem;
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -658,50 +794,77 @@ function submitForm() {
 }
 .form-group label {
   font-weight: 500;
+  color: #495057;
 }
-.form-group input[type='text'],
 .form-group input[type='date'],
-.form-group select,
-.form-group textarea {
+.form-group textarea,
+.swap-select {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid #ced4da;
   border-radius: 6px;
   font-size: 1rem;
   box-sizing: border-box;
+  background-color: #fff;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.form-group input:focus,
+.form-group textarea:focus,
+.swap-select:focus {
+  border-color: #80bdff;
+  outline: 0;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
 .form-group textarea {
   resize: vertical;
 }
+
 .radio-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 1rem 1.5rem;
+  align-items: center;
 }
-.btn {
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  border: 1px solid transparent;
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   cursor: pointer;
-  font-weight: 500;
 }
-.btn-primary {
-  background-color: #007bff;
-  color: white;
+.radio-group input[type='radio'] {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: #fff;
+  margin: 0;
+  font: inherit;
+  color: currentColor;
+  width: 1.15em;
+  height: 1.15em;
+  border: 0.15em solid #ced4da;
+  border-radius: 50%;
+  transform: translateY(-0.075em);
+  display: grid;
+  place-content: center;
 }
-.btn-secondary {
-  background-color: #6c757d;
-  color: white;
+.radio-group input[type='radio']::before {
+  content: '';
+  width: 0.65em;
+  height: 0.65em;
+  border-radius: 50%;
+  transform: scale(0);
+  transition: 120ms transform ease-in-out;
+  box-shadow: inset 1em 1em #007bff;
 }
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.radio-group input[type='radio']:checked::before {
+  transform: scale(1);
 }
+.radio-group input[type='radio']:checked {
+  border-color: #007bff;
+}
+
 .details-section {
-  border: 1px solid #e9ecef;
-  border-radius: 8px;
-  padding: 1rem;
-  background-color: #f8f9fa;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -710,10 +873,10 @@ function submitForm() {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
-  align-items: end;
+  align-items: flex-end;
 }
 .info-box {
-  height: 48px;
+  min-height: calc(1.5rem + 0.75rem * 2 + 2px); /* match input height */
   padding: 0.75rem;
   border-radius: 6px;
   border: 1px solid #ced4da;
@@ -722,7 +885,8 @@ function submitForm() {
   align-items: center;
   font-weight: 500;
   box-sizing: border-box;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
+  color: #495057;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -732,7 +896,7 @@ function submitForm() {
 }
 .select-btn {
   width: 100%;
-  height: 48px;
+  min-height: calc(1.5rem + 0.75rem * 2 + 2px);
   padding: 0.75rem;
   border-radius: 6px;
   border: 1px solid #ced4da;
@@ -778,47 +942,16 @@ function submitForm() {
   color: #721c24;
   border: 1px solid #f5c6cb;
 }
+
 .subsequent-steps.disabled {
   opacity: 0.5;
   pointer-events: none;
 }
-.details-section .section-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #0056b3;
-  margin-top: 0;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #dee2e6;
-}
-.form-text {
-  font-size: 0.875em;
-  color: #6c757d;
-}
 
 @media (max-width: 768px) {
-  .dialog-overlay {
-    align-items: flex-start;
-  }
-  .dialog-content {
-    padding: 0;
-    margin-top: 5vh;
-  }
-  .dialog-header,
-  .dialog-body,
-  .dialog-footer {
-    padding: 1rem;
-  }
-  .dialog-header h2 {
-    font-size: 1.25rem;
-  }
   .form-group-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
-  }
-  .info-box {
-    height: auto;
-    min-height: 48px;
   }
   .dialog-footer {
     flex-direction: column-reverse;

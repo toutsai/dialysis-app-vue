@@ -159,26 +159,83 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
 }
 
 async function reapplyAllExceptionsInternal(baseSchedules) {
-  logger.info('🔄 [ReapplyExceptions] 開始兩階段調班處理')
+  logger.info('🔄 [ReapplyExceptions] 開始執行升級版兩階段調班處理')
   try {
     const exceptionsSnapshot = await db
       .collection('schedule_exceptions')
       .where('status', 'in', ['applied', 'pending', 'processing', 'conflict_requires_resolution'])
       .get()
+
     if (exceptionsSnapshot.empty) {
       logger.info('✅ 沒有需要套用的調班')
       return { success: true, processed: 0, schedulesToWrite: baseSchedules }
     }
+
     const exceptions = exceptionsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-      createdAt: doc.data().createdAt?.toMillis() || 0,
+      createdAt: doc.data().createdAt?.toMillis() || Date.parse(doc.createTime) || 0,
     }))
     logger.info(`找到 ${exceptions.length} 個調班需要處理`)
+
+    // ====================== 預處理：區分 MOVE 鏈和其他調班 ======================
+    const moveChains = new Map()
+    const otherExceptions = []
+
+    exceptions.sort((a, b) => a.createdAt - b.createdAt)
+
+    for (const ex of exceptions) {
+      if (ex.type === 'MOVE' && ex.from && ex.to) {
+        const date = ex.from.sourceDate
+        const key = `${ex.patientId}-${date}`
+
+        if (!moveChains.has(key)) {
+          moveChains.set(key, {
+            initialFrom: { ...ex.from },
+            finalTo: { ...ex.to },
+            patientId: ex.patientId,
+            patientName: ex.patientName,
+            exceptionIds: [ex.id],
+            finalException: ex,
+          })
+        } else {
+          const chain = moveChains.get(key)
+          chain.finalTo = { ...ex.to }
+          chain.exceptionIds.push(ex.id)
+          chain.finalException = ex
+        }
+      } else {
+        // SUSPEND, ADD_SESSION, SWAP 等都會被歸類到這裡
+        otherExceptions.push(ex)
+      }
+    }
+    logger.info(
+      `預處理完成：發現 ${moveChains.size} 個 MOVE 調班鏈，以及 ${otherExceptions.length} 個其他調班。`,
+    )
+    // =================================================================================
+
     const modifiedSchedules = new Map(JSON.parse(JSON.stringify(Array.from(baseSchedules))))
+
+    // 📝 第一階段：處理所有刪除 (使用預處理後的結果)
     logger.info('📝 第一階段：處理所有刪除')
     let deletionsCount = 0
-    for (const exception of exceptions) {
+
+    // 1.1 處理 MOVE 鏈的「初始起點」
+    for (const chain of moveChains.values()) {
+      const { sourceDate, bedNum, shiftCode } = chain.initialFrom
+      if (modifiedSchedules.has(sourceDate)) {
+        const position = getScheduleKey(bedNum, shiftCode)
+        const schedule = modifiedSchedules.get(sourceDate)
+        if (schedule[position]?.patientId === chain.patientId) {
+          delete schedule[position]
+          deletionsCount++
+          logger.info(`  └─ (MOVE鏈) 標記移除: ${sourceDate} ${position} (${chain.patientName})`)
+        }
+      }
+    }
+
+    // 1.2 處理 SUSPEND, SWAP 等其他類型的刪除
+    for (const exception of otherExceptions) {
       if (exception.type === 'SUSPEND') {
         const start = new Date(exception.startDate + 'T00:00:00Z')
         const end = new Date(exception.endDate + 'T00:00:00Z')
@@ -190,36 +247,100 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
               if (slot.patientId === exception.patientId) {
                 delete schedule[position]
                 deletionsCount++
-                logger.info(`  └─ 標記刪除: ${dateStr} ${position} (${exception.patientName})`)
+                logger.info(
+                  `  └─ (SUSPEND) 標記刪除: ${dateStr} ${position} (${exception.patientName})`,
+                )
                 break
               }
             }
           }
         }
-      } else if (exception.type === 'MOVE' && exception.from) {
-        const { sourceDate, bedNum, shiftCode } = exception.from
-        if (modifiedSchedules.has(sourceDate)) {
-          const position = getScheduleKey(bedNum, shiftCode)
-          const schedule = modifiedSchedules.get(sourceDate)
-          if (schedule[position]?.patientId === exception.patientId) {
-            delete schedule[position]
+      }
+      // ✨ 新增 SWAP 處理：刪除兩個原始位置
+      else if (exception.type === 'SWAP') {
+        const { date, patient1, patient2 } = exception
+        if (modifiedSchedules.has(date)) {
+          const schedule = modifiedSchedules.get(date)
+          // 刪除病人1的原始位置
+          const key1 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
+          if (schedule[key1]?.patientId === patient1.patientId) {
+            delete schedule[key1]
             deletionsCount++
-            logger.info(`  └─ 標記移除: ${sourceDate} ${position} (${exception.patientName})`)
+            logger.info(`  └─ (SWAP) 標記移除: ${date} ${key1} (${patient1.patientName})`)
+          }
+          // 刪除病人2的原始位置
+          const key2 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
+          if (schedule[key2]?.patientId === patient2.patientId) {
+            delete schedule[key2]
+            deletionsCount++
+            logger.info(`  └─ (SWAP) 標記移除: ${date} ${key2} (${patient2.patientName})`)
           }
         }
       }
     }
     logger.info(`第一階段完成：標記了 ${deletionsCount} 個位置要刪除`)
+
+    // 📝 第二階段：處理所有新增 (使用預處理後的結果)
     logger.info('📝 第二階段：處理所有新增')
     const conflicts = []
     let additionsCount = 0
-    exceptions.sort((a, b) => a.createdAt - b.createdAt)
-    for (const exception of exceptions) {
-      if (exception.type === 'MOVE' && exception.to) {
+
+    // 2.1 處理 MOVE 鏈的「最終終點」
+    for (const chain of moveChains.values()) {
+      const { goalDate, bedNum, shiftCode } = chain.finalTo
+      if (modifiedSchedules.has(goalDate)) {
+        const position = getScheduleKey(bedNum, shiftCode)
+        const schedule = modifiedSchedules.get(goalDate)
+
+        if (schedule[position]) {
+          const occupant = schedule[position]
+          conflicts.push({
+            exceptionId: chain.finalException.id,
+            date: goalDate,
+            position,
+            wantedBy: chain.patientName,
+            occupiedBy: occupant.patientName || occupant.patientId,
+          })
+          logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`)
+          for (const exId of chain.exceptionIds) {
+            await db
+              .collection('schedule_exceptions')
+              .doc(exId)
+              .update({
+                status: 'conflict_requires_resolution',
+                errorMessage: `目標床位已被 ${occupant.patientName} 佔用`,
+              })
+          }
+          continue
+        }
+
+        schedule[position] = {
+          patientId: chain.patientId,
+          patientName: chain.patientName,
+          shiftId: shiftCode,
+          manualNote: '(換班)',
+          exceptionId: chain.finalException.id,
+        }
+        additionsCount++
+        logger.info(`  └─ (MOVE鏈) 標記新增: ${goalDate} ${position} (${chain.patientName})`)
+
+        for (const exId of chain.exceptionIds) {
+          const exDoc = await db.collection('schedule_exceptions').doc(exId).get()
+          if (exDoc.exists && exDoc.data().status !== 'applied') {
+            await exDoc.ref.update({ status: 'applied', errorMessage: '' })
+          }
+        }
+      }
+    }
+
+    // 2.2 處理 ADD_SESSION, SWAP 等其他新增類型
+    for (const exception of otherExceptions) {
+      if (exception.type === 'ADD_SESSION' && exception.to) {
         const { goalDate, bedNum, shiftCode } = exception.to
         if (modifiedSchedules.has(goalDate)) {
           const position = getScheduleKey(bedNum, shiftCode)
           const schedule = modifiedSchedules.get(goalDate)
+
           if (schedule[position]) {
             const occupant = schedule[position]
             conflicts.push({
@@ -229,7 +350,9 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
               wantedBy: exception.patientName,
               occupiedBy: occupant.patientName || occupant.patientId,
             })
-            logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`)
+            logger.warn(
+              `  └─ (加洗) 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`,
+            )
             await db
               .collection('schedule_exceptions')
               .doc(exception.id)
@@ -239,15 +362,17 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
               })
             continue
           }
+
           schedule[position] = {
             patientId: exception.patientId,
             patientName: exception.patientName,
             shiftId: shiftCode,
-            manualNote: '(換班)',
+            manualNote: '(臨時加洗)',
             exceptionId: exception.id,
           }
           additionsCount++
-          logger.info(`  └─ 標記新增: ${goalDate} ${position} (${exception.patientName})`)
+          logger.info(`  └─ (加洗) 標記新增: ${goalDate} ${position} (${exception.patientName})`)
+
           if (exception.status !== 'applied') {
             await db
               .collection('schedule_exceptions')
@@ -256,10 +381,50 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           }
         }
       }
+      // ✨ 新增 SWAP 處理：新增兩個到交換後的位置
+      else if (exception.type === 'SWAP') {
+        const { date, patient1, patient2, id: exceptionId } = exception
+        if (modifiedSchedules.has(date)) {
+          const schedule = modifiedSchedules.get(date)
+          // 把病人1加到病人2的原始位置
+          const keyForPatient1 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
+          schedule[keyForPatient1] = {
+            patientId: patient1.patientId,
+            patientName: patient1.patientName,
+            shiftId: patient2.fromShiftCode,
+            manualNote: '(互調)',
+            exceptionId: exceptionId,
+          }
+          additionsCount++
+          logger.info(`  └─ (SWAP) 標記新增: ${date} ${keyForPatient1} (${patient1.patientName})`)
+
+          // 把病人2加到病人1的原始位置
+          const keyForPatient2 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
+          schedule[keyForPatient2] = {
+            patientId: patient2.patientId,
+            patientName: patient2.patientName,
+            shiftId: patient1.fromShiftCode,
+            manualNote: '(互調)',
+            exceptionId: exceptionId,
+          }
+          additionsCount++
+          logger.info(`  └─ (SWAP) 標記新增: ${date} ${keyForPatient2} (${patient2.patientName})`)
+
+          // 更新狀態
+          if (exception.status !== 'applied') {
+            await db
+              .collection('schedule_exceptions')
+              .doc(exceptionId)
+              .update({ status: 'applied', errorMessage: '' })
+          }
+        }
+      }
     }
+
     logger.info(
       `第二階段完成：標記了 ${additionsCount} 個位置要新增，發現 ${conflicts.length} 個衝突。`,
     )
+
     return {
       success: true,
       processed: exceptions.length,
@@ -267,7 +432,7 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
       stats: { deletions: deletionsCount, additions: additionsCount, conflicts: conflicts.length },
     }
   } catch (error) {
-    logger.error('❌ [ReapplyExceptions] 兩階段處理失敗:', error)
+    logger.error('❌ [ReapplyExceptions] 升級版兩階段處理失敗:', error)
     throw error
   }
 }
@@ -815,8 +980,17 @@ exports.handleNewExceptionRequest = onDocumentCreated(
     const exceptionData = exceptionDoc.data()
     const exceptionId = exceptionDoc.id
 
+    // ✨ 智能的日誌記錄 ✨
+    const logPatientName =
+      exceptionData.type === 'SWAP'
+        ? `${exceptionData.patient1?.patientName} <=> ${exceptionData.patient2?.patientName}`
+        : exceptionData.patientName
+
     logger.info(
-      `🚀 [NewException] 新調班申請: ${exceptionId} (${exceptionData.type} - ${exceptionData.patientName})`,
+      `🚀 [NewException] 新調班申請: ${exceptionId} (${exceptionData.type} - ${
+        logPatientName || 'N/A'
+      })`,
+      { data: JSON.stringify(exceptionData) }, // 記錄收到的完整資料
     )
 
     if (exceptionData.status !== 'pending') {
@@ -830,8 +1004,9 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         processingStarted: FieldValue.serverTimestamp(),
       })
 
-      if (!exceptionData.patientId || !exceptionData.type) {
-        throw new Error('調班資料不完整：缺少 patientId 或 type')
+      // ✨ 放寬通用驗證，在各類型內部做精確驗證 ✨
+      if (!exceptionData.type) {
+        throw new Error('調班資料不完整：缺少 type 欄位')
       }
 
       let processedDates = []
@@ -841,6 +1016,7 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       if (exceptionData.type === 'MOVE') {
         const { from, to, patientId, patientName } = exceptionData
         if (
+          !patientId ||
           !from?.sourceDate ||
           !from?.bedNum ||
           !from?.shiftCode ||
@@ -861,7 +1037,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 
           const updates = []
 
-          // 1. 處理來源位置
           if (sourceDoc.exists) {
             const sourceSchedule = sourceDoc.data().schedule || {}
             const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
@@ -880,7 +1055,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             }
           }
 
-          // 2. 處理目標位置
           const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
           let hasConflict = false
           if (targetDoc.exists) {
@@ -948,8 +1122,8 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       // ===== 處理 SUSPEND 類型 =====
       else if (exceptionData.type === 'SUSPEND') {
         const { patientId, patientName, startDate, endDate } = exceptionData
-        if (!startDate || !endDate) {
-          throw new Error('SUSPEND 調班資料不完整：缺少開始或結束日期')
+        if (!patientId || !startDate || !endDate) {
+          throw new Error('SUSPEND 調班資料不完整：缺少 patientId 或日期區間')
         }
         const start = new Date(startDate + 'T00:00:00Z')
         const end = new Date(endDate + 'T00:00:00Z')
@@ -1001,36 +1175,29 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         logger.info(`  └─ 完成暫停：共移除 ${removedCount} 個排班`)
       }
 
-      // ✨✨✨ 核心修正：新增 ADD_SESSION 的處理區塊 ✨✨✨
+      // ===== 處理 ADD_SESSION 類型 =====
       else if (exceptionData.type === 'ADD_SESSION') {
         const { to, patientId, patientName } = exceptionData
-
-        // 1. 驗證必要欄位
-        if (!to?.goalDate || !to?.bedNum || !to?.shiftCode) {
-          throw new Error('ADD_SESSION 調班資料不完整：缺少目標資訊')
+        if (!patientId || !to?.goalDate || !to?.bedNum || !to?.shiftCode) {
+          throw new Error('ADD_SESSION 調班資料不完整：缺少 patientId 或目標資訊')
         }
-
         const targetDate = to.goalDate
         const scheduleRef = db.collection('schedules').doc(targetDate)
         const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
 
-        // 2. 使用 transaction 來確保操作的原子性
         await db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
           let hasConflict = false
-
-          // 準備要寫入的新排班資料
           const newSlotData = {
             patientId: patientId,
             patientName: patientName,
             shiftId: to.shiftCode,
-            manualNote: `(臨時加洗)`, // 加上註記
+            manualNote: `(臨時加洗)`,
             exceptionId: exceptionId,
             appliedAt: FieldValue.serverTimestamp(),
           }
 
           if (scheduleDoc.exists) {
-            // 文件已存在，使用 update
             const scheduleData = scheduleDoc.data().schedule || {}
             if (scheduleData[targetKey]) {
               const occupant = scheduleData[targetKey]
@@ -1051,7 +1218,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
               modifiedBy: 'exception_handler',
             })
           } else {
-            // 文件不存在，使用 set 來創建
             transaction.set(scheduleRef, {
               date: targetDate,
               schedule: { [targetKey]: newSlotData },
@@ -1061,9 +1227,68 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             })
           }
         })
-
         logger.info(`  └─ 新增 ${patientName} 到 ${targetDate} ${targetKey}`)
         processedDates = [targetDate]
+      }
+
+      // ===== 處理 SWAP 類型 =====
+      else if (exceptionData.type === 'SWAP') {
+        const { date, patient1, patient2 } = exceptionData
+
+        // ✨ 更嚴格的內部驗證 ✨
+        if (
+          !date ||
+          !patient1 ||
+          !patient2 ||
+          !patient1.patientId ||
+          !patient1.fromBedNum ||
+          !patient1.fromShiftCode ||
+          !patient2.patientId ||
+          !patient2.fromBedNum ||
+          !patient2.fromShiftCode
+        ) {
+          throw new Error(
+            'SWAP 調班資料不完整：缺少日期或完整的 patient1/patient2 物件及其內部欄位',
+          )
+        }
+
+        const scheduleRef = db.collection('schedules').doc(date)
+        const key1 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
+        const key2 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
+
+        await db.runTransaction(async (transaction) => {
+          const scheduleDoc = await transaction.get(scheduleRef)
+          if (!scheduleDoc.exists) {
+            throw new Error(`SWAP 失敗：找不到日期 ${date} 的排班表`)
+          }
+          const scheduleData = scheduleDoc.data().schedule || {}
+          if (scheduleData[key1]?.patientId !== patient1.patientId) {
+            throw new Error(`SWAP 驗證失敗：${patient1.patientName} 不在預期的位置 ${key1}`)
+          }
+          if (scheduleData[key2]?.patientId !== patient2.patientId) {
+            throw new Error(`SWAP 驗證失敗：${patient2.patientName} 不在預期的位置 ${key2}`)
+          }
+          const slot1Data = { ...scheduleData[key1] }
+          const slot2Data = { ...scheduleData[key2] }
+          transaction.update(scheduleRef, {
+            [`schedule.${key1}`]: {
+              ...slot2Data,
+              manualNote: `(與${patient1.patientName}互調)`,
+              exceptionId: exceptionId,
+            },
+            [`schedule.${key2}`]: {
+              ...slot1Data,
+              manualNote: `(與${patient2.patientName}互調)`,
+              exceptionId: exceptionId,
+            },
+            lastModified: FieldValue.serverTimestamp(),
+            modifiedBy: 'exception_handler',
+          })
+        })
+        logger.info(
+          `  └─ 成功交換 ${patient1.patientName} (${key1}) 與 ${patient2.patientName} (${key2})`,
+        )
+        processedDates = [date]
       }
 
       // ===== 更新調班狀態為已套用 =====
@@ -1081,12 +1306,11 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       await db.collection('exception_logs').add({
         exceptionId: exceptionId,
         type: exceptionData.type,
-        patientId: exceptionData.patientId,
+        patientId: exceptionData.patientId, // 即使是 SWAP，也記錄發起人 ID
         patientName: exceptionData.patientName,
         action: 'applied',
         timestamp: FieldValue.serverTimestamp(),
-        processedDates: processedDates,
-        conflicts: conflicts,
+        details: exceptionData, // 將完整資料存入日誌
         success: true,
       })
 
@@ -1114,7 +1338,7 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         error: { message: error.message, stack: error.stack },
         success: false,
       })
-      throw error
+      throw error // 重新拋出錯誤，讓 Firebase 知道函式執行失敗
     }
     return null
   },
@@ -1130,12 +1354,10 @@ exports.onExceptionDeleted = onDocumentDeleted(
     const exceptionId = event.params.exceptionId
     logger.info(`🚀 [Reverter] 調班恢復處理器啟動: ${exceptionId}`)
 
-    if (!deletedException || !deletedException.patientId || !deletedException.type) {
-      logger.error(`❌ [Reverter] 失敗：被刪除的調班資料不完整。`, deletedException)
+    if (!deletedException || !deletedException.type) {
+      logger.error(`❌ [Reverter] 失敗：被刪除的調班資料不完整，缺少 type。`, deletedException)
       return
     }
-
-    const { patientId } = deletedException
 
     try {
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
@@ -1143,27 +1365,53 @@ exports.onExceptionDeleted = onDocumentDeleted(
         logger.error('❌ [Reverter] 嚴重錯誤：找不到總表規則，無法恢復排班。')
         return
       }
-
       const masterRules = masterScheduleDoc.data().schedule || {}
-      const patientRule = masterRules[patientId]
-      let affectedDates = []
 
-      if (deletedException.type === 'MOVE') {
+      let affectedOperations = [] // { dateStr, patientIds: [id1, id2, ...] }
+
+      // ✨ 核心修正 #1: 根據不同類型，計算受影響的日期和病人
+      if (
+        deletedException.type === 'MOVE' ||
+        deletedException.type === 'SUSPEND' ||
+        deletedException.type === 'ADD_SESSION'
+      ) {
+        if (!deletedException.patientId) {
+          logger.error(`❌ [Reverter] ${deletedException.type} 類型缺少 patientId。`)
+          return
+        }
         const dates = new Set()
         if (deletedException.from?.sourceDate) dates.add(deletedException.from.sourceDate)
         if (deletedException.to?.goalDate) dates.add(deletedException.to.goalDate)
-        affectedDates = Array.from(dates)
-      } else if (deletedException.type === 'SUSPEND') {
         if (deletedException.startDate && deletedException.endDate) {
           const start = new Date(deletedException.startDate + 'T00:00:00Z')
           const end = new Date(deletedException.endDate + 'T00:00:00Z')
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            affectedDates.push(formatDateForQuery(new Date(d)))
+            dates.add(formatDateForQuery(new Date(d)))
           }
         }
+
+        for (const dateStr of dates) {
+          affectedOperations.push({ dateStr, patientIds: [deletedException.patientId] })
+        }
+      } else if (deletedException.type === 'SWAP') {
+        const { date, patient1, patient2 } = deletedException
+        if (!date || !patient1?.patientId || !patient2?.patientId) {
+          logger.error(`❌ [Reverter] SWAP 類型資料不完整。`, deletedException)
+          return
+        }
+        affectedOperations.push({
+          dateStr: date,
+          patientIds: [patient1.patientId, patient2.patientId],
+        })
       }
 
-      const restorePromises = affectedDates.map((dateStr) => {
+      if (affectedOperations.length === 0) {
+        logger.warn(`[Reverter] 未找到受影響的日期來恢復 for exception ${exceptionId}`)
+        return
+      }
+
+      // ✨ 核心修正 #2: 執行恢復操作
+      const restorePromises = affectedOperations.map(({ dateStr, patientIds }) => {
         const scheduleRef = db.collection('schedules').doc(dateStr)
         return db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
@@ -1175,44 +1423,61 @@ exports.onExceptionDeleted = onDocumentDeleted(
             modifiedBy: 'exception_reverter',
           }
 
-          // 移除該病人的現有排班
-          for (const key in currentSchedule) {
-            if (currentSchedule[key].patientId === patientId) {
-              updates[`schedule.${key}`] = FieldValue.delete()
+          // 遍歷所有受影響的病人
+          for (const patientId of patientIds) {
+            // 1. 移除該病人的現有排班
+            for (const key in currentSchedule) {
+              if (currentSchedule[key].patientId === patientId) {
+                updates[`schedule.${key}`] = FieldValue.delete()
+                logger.info(`  └─ 標記移除 ${dateStr} 的 ${patientId} (位於 ${key})`)
+              }
             }
-          }
 
-          // 如果有原始規則，恢復原始排班
-          if (patientRule && patientRule.freq) {
-            const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
-            const targetDate = new Date(dateStr + 'T00:00:00Z')
-            const dayOfWeek = targetDate.getDay()
-            const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+            // 2. 如果有原始規則，恢復原始排班
+            const patientRule = masterRules[patientId]
+            if (patientRule && patientRule.freq) {
+              const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
+              const targetDate = new Date(dateStr + 'T00:00:00Z')
+              const dayOfWeek = targetDate.getUTCDay()
+              const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
 
-            if (freqDays.includes(systemDayIndex)) {
-              const { bedNum, shiftIndex, autoNote, manualNote } = patientRule
-              const shiftCode = SHIFTS[shiftIndex]
-              const scheduleKey = getScheduleKey(bedNum, shiftCode)
+              if (freqDays.includes(systemDayIndex)) {
+                const { bedNum, shiftIndex, patientName, autoNote, manualNote } = patientRule
+                const shiftCode = SHIFTS[shiftIndex]
+                const scheduleKey = getScheduleKey(bedNum, shiftCode)
 
-              updates[`schedule.${scheduleKey}`] = {
-                patientId: patientId,
-                patientName: patientRule.patientName || '',
-                shiftId: shiftCode,
-                autoNote: autoNote || '',
-                manualNote: manualNote || '',
-                baseRuleId: patientId,
+                // 檢查恢復的位置是否已被佔用 (可能被其他未受影響的病人佔用)
+                if (
+                  currentSchedule[scheduleKey] &&
+                  !patientIds.includes(currentSchedule[scheduleKey].patientId)
+                ) {
+                  logger.warn(
+                    `  └─ 恢復衝突：位置 ${scheduleKey} 在 ${dateStr} 已被佔用，無法為 ${patientId} 恢復原始排班。`,
+                  )
+                } else {
+                  updates[`schedule.${scheduleKey}`] = {
+                    patientId: patientId,
+                    patientName: patientName || '',
+                    shiftId: shiftCode,
+                    autoNote: autoNote || '',
+                    manualNote: manualNote || '',
+                    baseRuleId: patientId,
+                  }
+                  logger.info(`  └─ 標記恢復 ${dateStr} 的 ${patientId} 至 ${scheduleKey}`)
+                }
               }
             }
           }
 
-          if (Object.keys(updates).length > 0) {
+          if (Object.keys(updates).length > 1) {
+            // 至少有一個 lastModified 之外的更新
             transaction.update(scheduleRef, updates)
           }
         })
       })
 
       await Promise.all(restorePromises)
-      logger.info(`✅ [Reverter] 成功恢復 ${affectedDates.length} 天的排程`)
+      logger.info(`✅ [Reverter] 成功處理 ${affectedOperations.length} 個日期的恢復操作`)
     } catch (error) {
       logger.error(`❌ [Reverter] 恢復調班 ${exceptionId} 時發生錯誤:`, error)
     }
@@ -1506,7 +1771,6 @@ exports.processLabReport = onCall(
   },
 )
 
-// 在 functions/index.js 中
 // ===================================================================
 // Consumables Report Functions (耗材報告相關函式) - v3.2 (使用迄日歸檔)
 // ===================================================================
@@ -1894,9 +2158,63 @@ function parseCustomDateString(dateStr) {
   const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`
   return new Date(isoString)
 }
+
 // ===================================================================
-// Daily Injection Calculation Function (每日應打針劑計算函式) - v2.0 (前端驅動)
+// Daily Injection Calculation Function (每日應打針劑計算函式) - v2.1 (強化日期判讀)
 // ===================================================================
+
+// ✨✨✨ START: 新增的日期解析輔助函式 ✨✨✨
+/**
+ * 解析多種格式的日期字串，並返回標準化的 YYYY-MM-DD 格式。
+ * @param {string} dateStr - 醫師輸入的日期字串 (例如 "8/7", "0807", "2025/8/7")。
+ * @param {Date} targetDate - 用於獲取年份的基準日期。
+ * @returns {string|null} 返回 "YYYY-MM-DD" 格式的字串，或在無法解析時返回 null。
+ */
+const parseFlexibleDate = (dateStr, targetDate) => {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return null
+  }
+
+  const str = dateStr.trim()
+  const year = targetDate.getUTCFullYear() // 使用 UTC 年份確保一致性
+
+  // 格式 1: YYYY/MM/DD, YYYY-MM-DD (例如 2025/08/07, 2025-8-7)
+  let match = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
+  if (match) {
+    const customYear = match[1]
+    const month = match[2].padStart(2, '0')
+    const day = match[3].padStart(2, '0')
+    return `${customYear}-${month}-${day}`
+  }
+
+  // 格式 2: MM/DD (例如 8/7, 08/07)
+  match = str.match(/^(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    const month = match[1].padStart(2, '0')
+    const day = match[2].padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // 格式 3: MMDD (例如 0807)
+  match = str.match(/^(\d{2})(\d{2})$/)
+  if (match && str.length === 4) {
+    const month = match[1]
+    const day = match[2]
+    // 簡單驗證月份和日期是否在合理範圍
+    if (
+      parseInt(month, 10) > 0 &&
+      parseInt(month, 10) <= 12 &&
+      parseInt(day, 10) > 0 &&
+      parseInt(day, 10) <= 31
+    ) {
+      return `${year}-${month}-${day}`
+    }
+  }
+
+  // 如果以上格式都不匹配，返回 null
+  return null
+}
+// ✨✨✨ END: 新增的日期解析輔助函式 ✨✨✨
 
 exports.getDailyInjections = onCall(
   {
@@ -1913,42 +2231,33 @@ exports.getDailyInjections = onCall(
       throw new HttpsError('invalid-argument', '請提供有效的目標日期 (格式 YYYY-MM-DD)。')
     }
 
-    // ✨ [核心修正 1] 現在 patientIds 是必要參數
     if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
-      logger.info(`[getDailyInjections V2] 未提供病人ID列表，返回空結果。`)
+      logger.info(`[getDailyInjections V2.1] 未提供病人ID列表，返回空結果。`)
       return { success: true, targetDate, injections: [] }
     }
 
-    // ✨ [核心修正 2] 增加分塊查詢，即使護理師照顧超過30人也能運作
     if (patientIds.length > 30) {
       throw new HttpsError('invalid-argument', '單次查詢的病人數不能超過30人。')
-      // 未來可以實作 chunking:
-      // const chunks = [];
-      // for (let i = 0; i < patientIds.length; i += 30) {
-      //   chunks.push(patientIds.slice(i, i + 30));
-      // }
-      // ... 然後對每個 chunk 執行查詢並合併結果 ...
     }
 
     logger.info(
-      `[getDailyInjections V2] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
+      `[getDailyInjections V2.1] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
     )
 
     try {
-      // --- 步驟 1: 直接根據前端傳來的病人 ID 列表，查詢所有相關藥囑 ---
+      // --- 步驟 1: 查詢所有相關藥囑 (不變) ---
       const allOrdersQuery = db
         .collection('medication_orders')
-        .where('patientId', 'in', patientIds) // 直接使用前端傳來的 ID
+        .where('patientId', 'in', patientIds)
         .where('orderType', '==', 'injection')
 
       const allOrdersSnapshot = await allOrdersQuery.get()
       const allOrdersHistory = allOrdersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
 
-      // --- 步驟 2: 撈取當天的排班資料，以便獲取床號和班別 ---
+      // --- 步驟 2: 撈取當天的排班資料 (不變) ---
       const scheduleDoc = await db.collection('schedules').doc(targetDate).get()
       const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule : {}
 
-      // 建立一個 patientId -> slotInfo 的映射表，方便快速查找
       const patientSlotMap = new Map()
       for (const shiftId in scheduleData) {
         const slot = scheduleData[shiftId]
@@ -1962,23 +2271,18 @@ exports.getDailyInjections = onCall(
         }
       }
 
-      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 (邏輯不變) ---
+      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 ---
       const finalInjectionList = []
       const dateObj = new Date(targetDate + 'T00:00:00Z')
-      const targetDayOfWeek = dateObj.getUTCDay()
-      const targetMonth = dateObj.getUTCMonth() + 1
-      const targetDay = dateObj.getUTCDate()
-      const targetMonthDay = `${targetMonth}/${targetDay}`
+      const targetDayOfWeek = dateObj.getUTCDay() // 0 = Sun, 1 = Mon
 
       for (const patientId of patientIds) {
         const patientHistory = allOrdersHistory
           .filter((order) => order.patientId === patientId)
-          // ✨ [修正 1] 使用新函式來排序
           .sort((a, b) => parseCustomDateString(a.changeDate) - parseCustomDateString(b.changeDate))
 
         const effectiveOrdersMap = new Map()
         for (const record of patientHistory) {
-          // ✨ [修正 2] 使用新函式來判斷
           if (parseCustomDateString(record.changeDate) <= dateObj) {
             effectiveOrdersMap.set(record.orderCode, record)
           }
@@ -1986,11 +2290,11 @@ exports.getDailyInjections = onCall(
         const slotInfo = patientSlotMap.get(patientId) || { bedNum: 'N/A', shift: 'N/A' }
 
         for (const order of effectiveOrdersMap.values()) {
-          const note = (order.note || '').toUpperCase().trim()
+          const note = (order.note || '').trim()
           let shouldAdminister = false
           let reason = ''
 
-          if (note.startsWith('QW')) {
+          if (note.toUpperCase().startsWith('QW')) {
             const days = note
               .substring(2)
               .split('')
@@ -2000,18 +2304,20 @@ exports.getDailyInjections = onCall(
               shouldAdminister = true
               reason = `規則匹配: ${note}`
             }
-          } else if (note.includes('/')) {
-            const dates = note.split(',').map((d) => d.trim())
-            if (dates.includes(targetMonthDay)) {
-              shouldAdminister = true
-              reason = `日期匹配: ${note}`
-            }
-          } else if (note === 'STAT') {
-            if (order.changeDate === targetDate) {
-              shouldAdminister = true
-              reason = 'STAT 醫囑'
+            // ✨✨✨ 核心修改點：使用新的日期解析邏輯 ✨✨✨
+          } else {
+            // 將備註中的多個日期 (用逗號或空格分隔) 拆分
+            const dateEntries = note.split(/[\s,]+/).filter(Boolean)
+            for (const entry of dateEntries) {
+              const parsedDate = parseFlexibleDate(entry, dateObj)
+              if (parsedDate && parsedDate === targetDate) {
+                shouldAdminister = true
+                reason = `日期匹配: ${entry}`
+                break // 找到一個匹配就足夠
+              }
             }
           }
+          // ✨✨✨ (修改結束) ✨✨✨
 
           if (shouldAdminister) {
             finalInjectionList.push({
@@ -2030,26 +2336,31 @@ exports.getDailyInjections = onCall(
       }
 
       finalInjectionList.sort((a, b) => {
-        const shiftOrder = { early: 1, noon: 2, late: 3 }
-        if (a.shift !== b.shift) {
-          return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
+        const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
+        const shiftA = a.shift || 'A'
+        const shiftB = b.shift || 'A'
+
+        if (shiftA !== shiftB) {
+          return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
         }
+
         const bedA = String(a.bedNum).startsWith('外')
           ? 1000 + parseInt(String(a.bedNum).substring(1))
           : parseInt(a.bedNum)
         const bedB = String(b.bedNum).startsWith('外')
           ? 1000 + parseInt(String(b.bedNum).substring(1))
           : parseInt(b.bedNum)
+
         return bedA - bedB
       })
 
       logger.info(
-        `[getDailyInjections V2] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
+        `[getDailyInjections V2.1] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
       )
 
       return { success: true, targetDate, injections: finalInjectionList }
     } catch (error) {
-      logger.error(`[getDailyInjections V2] 處理針劑計算時發生嚴重錯誤:`, error)
+      logger.error(`[getDailyInjections V2.1] 處理針劑計算時發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
     }
   },
