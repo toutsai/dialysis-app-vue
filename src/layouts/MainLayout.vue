@@ -246,11 +246,32 @@ const isManagementSectionCollapsed = ref(true)
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const taskStore = useTaskStore()
-// ✨ [核心修改] 直接使用 taskStore 的 todayTaskCount getter
-// 注意：我們在 watch 中處理它，而不是直接用 storeToRefs，因為它需要參數
-const notificationCount = ref(0)
-const todayMyPatientIds = ref([]) // 存放今日分配給我的病人 ID 列表
+// ✨ 1. 直接從 taskStore 解構出我們需要的原始資料
+const { myTasks, feedMessages } = storeToRefs(taskStore)
+
+const todayMyPatientIds = ref([])
 const assignmentsApi = ApiManager('nurse_assignments')
+
+// ✨ 2. 將計數邏輯直接寫在 MainLayout 的 computed 中
+const notificationCount = computed(() => {
+  if (!currentUser.value) return 0
+
+  // 計算我的待辦事項數量
+  const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
+
+  // 如果沒有分配病人，直接返回任務數
+  if (!todayMyPatientIds.value || todayMyPatientIds.value.length === 0) {
+    return myPendingTasksCount
+  }
+
+  // 計算我負責病人的留言數量
+  const patientIdSet = new Set(todayMyPatientIds.value)
+  const myPendingMemosCount = feedMessages.value.filter(
+    (item) => item.status === 'pending' && item.patientId && patientIdSet.has(item.patientId),
+  ).length
+
+  return myPendingTasksCount + myPendingMemosCount
+})
 
 // --- 過渡期 provide/inject (為了讓舊頁面正常運作) ---
 const activeMemos = ref([])
@@ -308,7 +329,6 @@ function handleLogout() {
   logout()
 }
 
-// --- ✨ [核心修改] 新的病人 ID 獲取邏輯 ---
 async function fetchTodayAssignedPatients() {
   if (!currentUser.value || !['護理師', '護理師組長'].includes(currentUser.value.title)) {
     todayMyPatientIds.value = []
@@ -351,7 +371,6 @@ async function fetchTodayAssignedPatients() {
   }
 }
 
-// --- 過渡期舊 memo 監聽器 (保留) ---
 let memoUnsubscribe = null
 function startSharedDataListeners() {
   if (memoUnsubscribe) return
@@ -380,47 +399,40 @@ const triggerScheduleCheck = async () => {
   }
 }
 
-// --- ✨ [核心修改] 簡化並重構 watch 和生命週期鉤子 ---
 watch(
   () => currentUser.value,
   async (newUser) => {
     if (newUser) {
       console.log('✅ [MainLayout] User logged in, starting services.')
-      // 啟動舊服務 (過渡期)
       startSharedDataListeners()
       startListening()
-      // 觸發排程檢查
       triggerScheduleCheck()
-      // 獲取今日病人 (新的通知計數邏輯需要)
       await fetchTodayAssignedPatients()
-      // ✨✨✨ 核心修正：明確地啟動 taskStore 的監聽器 ✨✨✨
       taskStore.startRealtimeUpdates(newUser.uid)
     } else {
       console.log('🚪 [MainLayout] User logged out, stopping services.')
-      // 停止所有服務
       activeMemos.value = []
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
       patientStore.$reset()
-      // ✨✨✨ 核心修正：明確地清理 taskStore 的監聽器 ✨✨✨
       taskStore.cleanupListeners()
-      // 清理本地狀態
       todayMyPatientIds.value = []
-      notificationCount.value = 0
     }
   },
   { immediate: true },
 )
 
-// 專門用來監聽計數變化的 watch
+// ✨ 3. 由於 notificationCount 現在是 computed，不再需要 watch 來更新它
+/*
 watch(
   () => taskStore.todayTaskCount(todayMyPatientIds.value),
   (newCount) => {
     notificationCount.value = newCount
   },
-  { deep: true }, // deep: true 確保當 todayMyPatientIds.value 陣列內容變化時也能觸發
+  { deep: true },
 )
+*/
 
 watch(
   () => route.path,
@@ -434,7 +446,6 @@ watch(
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
-  // ✨✨✨ 核心修正：確保元件銷毀時也清理 ✨✨✨
   taskStore.cleanupListeners()
 })
 </script>

@@ -1771,7 +1771,6 @@ exports.processLabReport = onCall(
   },
 )
 
-// 在 functions/index.js 中
 // ===================================================================
 // Consumables Report Functions (耗材報告相關函式) - v3.2 (使用迄日歸檔)
 // ===================================================================
@@ -1958,6 +1957,58 @@ exports.processConsumables = onCall(
   },
 )
 
+// ✨✨✨ START: 新增的日期解析輔助函式 ✨✨✨
+/**
+ * 解析多種格式的日期字串，並返回標準化的 YYYY-MM-DD 格式。
+ * @param {string} dateStr - 醫師輸入的日期字串 (例如 "8/7", "0807")。
+ * @param {Date} targetDate - 用於獲取年份的基準日期。
+ * @returns {string|null} 返回 "YYYY-MM-DD" 格式的字串，或在無法解析時返回 null。
+ */
+const parseFlexibleDate = (dateStr, targetDate) => {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return null
+  }
+
+  const str = dateStr.trim()
+  const year = targetDate.getFullYear()
+
+  // 格式 1: MM/DD (例如 8/7, 08/07)
+  let match = str.match(/^(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    const month = match[1].padStart(2, '0')
+    const day = match[2].padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // 格式 2: MMDD (例如 0807)
+  match = str.match(/^(\d{2})(\d{2})$/)
+  if (match && str.length === 4) {
+    const month = match[1]
+    const day = match[2]
+    // 簡單驗證月份和日期是否在合理範圍
+    if (
+      parseInt(month, 10) > 0 &&
+      parseInt(month, 10) <= 12 &&
+      parseInt(day, 10) > 0 &&
+      parseInt(day, 10) <= 31
+    ) {
+      return `${year}-${month}-${day}`
+    }
+  }
+
+  // 格式 3: YYYY/MM/DD (例如 2025/08/07) - 增加兼容性
+  match = str.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    const customYear = match[1]
+    const month = match[2].padStart(2, '0')
+    const day = match[3].padStart(2, '0')
+    return `${customYear}-${month}-${day}`
+  }
+
+  // 如果以上格式都不匹配，返回 null
+  return null
+}
+// ✨✨✨ END: 新增的日期解析輔助函式 ✨✨✨
 // ===================================================================
 // Medication Orders Processing Function (藥囑處理函式) - v1.3 (批次處理最終版)
 // ===================================================================
@@ -2159,9 +2210,63 @@ function parseCustomDateString(dateStr) {
   const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`
   return new Date(isoString)
 }
+
 // ===================================================================
-// Daily Injection Calculation Function (每日應打針劑計算函式) - v2.0 (前端驅動)
+// Daily Injection Calculation Function (每日應打針劑計算函式) - v2.1 (強化日期判讀)
 // ===================================================================
+
+// ✨✨✨ START: 新增的日期解析輔助函式 ✨✨✨
+/**
+ * 解析多種格式的日期字串，並返回標準化的 YYYY-MM-DD 格式。
+ * @param {string} dateStr - 醫師輸入的日期字串 (例如 "8/7", "0807", "2025/8/7")。
+ * @param {Date} targetDate - 用於獲取年份的基準日期。
+ * @returns {string|null} 返回 "YYYY-MM-DD" 格式的字串，或在無法解析時返回 null。
+ */
+const parseFlexibleDate = (dateStr, targetDate) => {
+  if (!dateStr || typeof dateStr !== 'string') {
+    return null
+  }
+
+  const str = dateStr.trim()
+  const year = targetDate.getUTCFullYear() // 使用 UTC 年份確保一致性
+
+  // 格式 1: YYYY/MM/DD, YYYY-MM-DD (例如 2025/08/07, 2025-8-7)
+  let match = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
+  if (match) {
+    const customYear = match[1]
+    const month = match[2].padStart(2, '0')
+    const day = match[3].padStart(2, '0')
+    return `${customYear}-${month}-${day}`
+  }
+
+  // 格式 2: MM/DD (例如 8/7, 08/07)
+  match = str.match(/^(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    const month = match[1].padStart(2, '0')
+    const day = match[2].padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+
+  // 格式 3: MMDD (例如 0807)
+  match = str.match(/^(\d{2})(\d{2})$/)
+  if (match && str.length === 4) {
+    const month = match[1]
+    const day = match[2]
+    // 簡單驗證月份和日期是否在合理範圍
+    if (
+      parseInt(month, 10) > 0 &&
+      parseInt(month, 10) <= 12 &&
+      parseInt(day, 10) > 0 &&
+      parseInt(day, 10) <= 31
+    ) {
+      return `${year}-${month}-${day}`
+    }
+  }
+
+  // 如果以上格式都不匹配，返回 null
+  return null
+}
+// ✨✨✨ END: 新增的日期解析輔助函式 ✨✨✨
 
 exports.getDailyInjections = onCall(
   {
@@ -2178,42 +2283,33 @@ exports.getDailyInjections = onCall(
       throw new HttpsError('invalid-argument', '請提供有效的目標日期 (格式 YYYY-MM-DD)。')
     }
 
-    // ✨ [核心修正 1] 現在 patientIds 是必要參數
     if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
-      logger.info(`[getDailyInjections V2] 未提供病人ID列表，返回空結果。`)
+      logger.info(`[getDailyInjections V2.1] 未提供病人ID列表，返回空結果。`)
       return { success: true, targetDate, injections: [] }
     }
 
-    // ✨ [核心修正 2] 增加分塊查詢，即使護理師照顧超過30人也能運作
     if (patientIds.length > 30) {
       throw new HttpsError('invalid-argument', '單次查詢的病人數不能超過30人。')
-      // 未來可以實作 chunking:
-      // const chunks = [];
-      // for (let i = 0; i < patientIds.length; i += 30) {
-      //   chunks.push(patientIds.slice(i, i + 30));
-      // }
-      // ... 然後對每個 chunk 執行查詢並合併結果 ...
     }
 
     logger.info(
-      `[getDailyInjections V2] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
+      `[getDailyInjections V2.1] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
     )
 
     try {
-      // --- 步驟 1: 直接根據前端傳來的病人 ID 列表，查詢所有相關藥囑 ---
+      // --- 步驟 1: 查詢所有相關藥囑 (不變) ---
       const allOrdersQuery = db
         .collection('medication_orders')
-        .where('patientId', 'in', patientIds) // 直接使用前端傳來的 ID
+        .where('patientId', 'in', patientIds)
         .where('orderType', '==', 'injection')
 
       const allOrdersSnapshot = await allOrdersQuery.get()
       const allOrdersHistory = allOrdersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
 
-      // --- 步驟 2: 撈取當天的排班資料，以便獲取床號和班別 ---
+      // --- 步驟 2: 撈取當天的排班資料 (不變) ---
       const scheduleDoc = await db.collection('schedules').doc(targetDate).get()
       const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule : {}
 
-      // 建立一個 patientId -> slotInfo 的映射表，方便快速查找
       const patientSlotMap = new Map()
       for (const shiftId in scheduleData) {
         const slot = scheduleData[shiftId]
@@ -2227,23 +2323,18 @@ exports.getDailyInjections = onCall(
         }
       }
 
-      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 (邏輯不變) ---
+      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 ---
       const finalInjectionList = []
       const dateObj = new Date(targetDate + 'T00:00:00Z')
-      const targetDayOfWeek = dateObj.getUTCDay()
-      const targetMonth = dateObj.getUTCMonth() + 1
-      const targetDay = dateObj.getUTCDate()
-      const targetMonthDay = `${targetMonth}/${targetDay}`
+      const targetDayOfWeek = dateObj.getUTCDay() // 0 = Sun, 1 = Mon
 
       for (const patientId of patientIds) {
         const patientHistory = allOrdersHistory
           .filter((order) => order.patientId === patientId)
-          // ✨ [修正 1] 使用新函式來排序
           .sort((a, b) => parseCustomDateString(a.changeDate) - parseCustomDateString(b.changeDate))
 
         const effectiveOrdersMap = new Map()
         for (const record of patientHistory) {
-          // ✨ [修正 2] 使用新函式來判斷
           if (parseCustomDateString(record.changeDate) <= dateObj) {
             effectiveOrdersMap.set(record.orderCode, record)
           }
@@ -2251,11 +2342,11 @@ exports.getDailyInjections = onCall(
         const slotInfo = patientSlotMap.get(patientId) || { bedNum: 'N/A', shift: 'N/A' }
 
         for (const order of effectiveOrdersMap.values()) {
-          const note = (order.note || '').toUpperCase().trim()
+          const note = (order.note || '').trim()
           let shouldAdminister = false
           let reason = ''
 
-          if (note.startsWith('QW')) {
+          if (note.toUpperCase().startsWith('QW')) {
             const days = note
               .substring(2)
               .split('')
@@ -2265,18 +2356,20 @@ exports.getDailyInjections = onCall(
               shouldAdminister = true
               reason = `規則匹配: ${note}`
             }
-          } else if (note.includes('/')) {
-            const dates = note.split(',').map((d) => d.trim())
-            if (dates.includes(targetMonthDay)) {
-              shouldAdminister = true
-              reason = `日期匹配: ${note}`
-            }
-          } else if (note === 'STAT') {
-            if (order.changeDate === targetDate) {
-              shouldAdminister = true
-              reason = 'STAT 醫囑'
+            // ✨✨✨ 核心修改點：使用新的日期解析邏輯 ✨✨✨
+          } else {
+            // 將備註中的多個日期 (用逗號或空格分隔) 拆分
+            const dateEntries = note.split(/[\s,]+/).filter(Boolean)
+            for (const entry of dateEntries) {
+              const parsedDate = parseFlexibleDate(entry, dateObj)
+              if (parsedDate && parsedDate === targetDate) {
+                shouldAdminister = true
+                reason = `日期匹配: ${entry}`
+                break // 找到一個匹配就足夠
+              }
             }
           }
+          // ✨✨✨ (修改結束) ✨✨✨
 
           if (shouldAdminister) {
             finalInjectionList.push({
@@ -2295,26 +2388,31 @@ exports.getDailyInjections = onCall(
       }
 
       finalInjectionList.sort((a, b) => {
-        const shiftOrder = { early: 1, noon: 2, late: 3 }
-        if (a.shift !== b.shift) {
-          return (shiftOrder[a.shift] || 99) - (shiftOrder[b.shift] || 99)
+        const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
+        const shiftA = a.shift || 'A'
+        const shiftB = b.shift || 'A'
+
+        if (shiftA !== shiftB) {
+          return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
         }
+
         const bedA = String(a.bedNum).startsWith('外')
           ? 1000 + parseInt(String(a.bedNum).substring(1))
           : parseInt(a.bedNum)
         const bedB = String(b.bedNum).startsWith('外')
           ? 1000 + parseInt(String(b.bedNum).substring(1))
           : parseInt(b.bedNum)
+
         return bedA - bedB
       })
 
       logger.info(
-        `[getDailyInjections V2] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
+        `[getDailyInjections V2.1] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
       )
 
       return { success: true, targetDate, injections: finalInjectionList }
     } catch (error) {
-      logger.error(`[getDailyInjections V2] 處理針劑計算時發生嚴重錯誤:`, error)
+      logger.error(`[getDailyInjections V2.1] 處理針劑計算時發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
     }
   },
