@@ -986,8 +986,28 @@ const conditionRecordsApi = ApiManager('condition_records')
 const usersApi = ApiManager('users')
 
 // ===================================================================
-// 3. Constants
+// 3. Constants and Helper Functions
 // ===================================================================
+
+// ✨✨✨ START: 新增的安全日期轉換函式 ✨✨✨
+/**
+ * 安全地將多種日期格式轉換為 JavaScript Date 物件。
+ * @param {any} timestamp - 可能是 Firestore Timestamp, Date object, or ISO string.
+ * @returns {Date} 一個有效的 Date 物件。
+ */
+function getSafeDate(timestamp) {
+  if (!timestamp) return new Date(0)
+  // 如果是 Firestore Timestamp，它會有 .toDate() 方法
+  if (typeof timestamp.toDate === 'function') {
+    return timestamp.toDate()
+  }
+  // 否則，直接嘗試用 new Date() 轉換 (可以處理 Date 物件和 ISO 字串)
+  const date = new Date(timestamp)
+  // 如果轉換失敗，返回一個極早的日期以避免排序錯誤
+  return isNaN(date.getTime()) ? new Date(0) : date
+}
+// ✨✨✨ END: 新增的安全日期轉換函式 ✨✨✨
+
 const layoutData = {
   leftWingRows: [
     ['空', 32, 31],
@@ -1102,9 +1122,35 @@ const patientMessageTypesMapForToday = computed(() => {
 })
 
 const patientHasPendingMessages = computed(() => {
-  if (!selectedPatientForDetail.value) return false
-  return patientMessageTypesMapForToday.value.has(selectedPatientForDetail.value.id)
+  // ✨✨✨ START: 核心修正點 ✨✨✨
+  // 這裡我們不再返回一個函式，而是直接計算
+  if (!selectedPatientForDetail.value || recentConditionRecords.value.length === 0) {
+    return false
+  }
+
+  const patientId = selectedPatientForDetail.value.id
+  const patientRecords = recentConditionRecords.value.filter((r) => r.patientId === patientId)
+
+  if (patientRecords.length === 0) return false
+
+  const latestRecord = patientRecords.sort((a, b) => {
+    // 使用新的安全函式
+    const dateA = getSafeDate(a.createdAt)
+    const dateB = getSafeDate(b.createdAt)
+    return dateB.getTime() - dateA.getTime()
+  })[0]
+
+  if (!latestRecord) return false
+
+  const recordDate = getSafeDate(latestRecord.createdAt)
+  const threeDaysAgo = new Date()
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+
+  // 返回布林值
+  return recordDate > threeDaysAgo
+  // ✨✨✨ END: 核心修正點 ✨✨✨
 })
+
 const patientGroupsForDialog = computed(() => {
   const groups = {
     '今日應排 - 急診': [],
@@ -1906,10 +1952,11 @@ function setTeamChange() {
 // ===================================================================
 onMounted(async () => {
   isLoading.value = true
-  await auth.waitForAuthInit() // 確保 auth 初始化
+  await auth.waitForAuthInit()
 
-  // ✨✨✨ 核心修正：移除此處的 taskStore.startRealtimeUpdates(...)
-
+  if (auth.currentUser.value) {
+    taskStore.startRealtimeUpdates(auth.currentUser.value.uid)
+  }
   await Promise.all([loadDataForDay(currentDate.value), loadDailyStaffInfo(currentDate.value)])
   isLoading.value = false
 })
@@ -1921,17 +1968,16 @@ watch(currentDate, (newDate, oldDate) => {
   }
 })
 
-// ✨✨✨ 核心修正：移除 watch(auth.currentUser, ...) 內的 taskStore 管理
 watch(
   () => auth.currentUser.value,
   (newUser) => {
-    // 這個 watch 現在可以只用來處理用戶登入後需要重新載入頁面資料的邏輯
-    // 但因為 onMounted 已經會在 auth 初始化後執行，所以這裡可能也不需要了
-    // 除非有特殊需求，否則可以考慮移除這個 watch
-    if (!newUser) {
-      // 可以在此處清理頁面相關資料
+    if (newUser) {
+      taskStore.startRealtimeUpdates(newUser.uid)
+    } else {
+      taskStore.cleanupListeners()
     }
   },
+  { immediate: true },
 )
 </script>
 
