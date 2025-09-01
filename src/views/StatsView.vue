@@ -1066,6 +1066,7 @@ import { getMedicationUnit } from '@/utils/medicationUtils.js'
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const { patientMap } = storeToRefs(patientStore)
+const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
 const { currentUser } = useAuth() // ✨ [核心修正] 直接從 useAuth 解構 currentUser
 
 // API 管理器
@@ -1181,9 +1182,12 @@ const lateShiftTakeOffExists = computed(() => {
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
   )
 })
-const patientMessageTypesMap = computed(() =>
-  taskStore.getPatientMessageTypesMapForDate(formatDate(currentDate.value)),
-)
+// ✨ 核心修正 #2: 修改 patientMessageTypesMap 的計算方式
+const patientMessageTypesMap = computed(() => {
+  // 之前: taskStore.getPatientMessageTypesMapForDate(formatDate(currentDate.value))
+  // 現在: 直接使用從 store 解構出來的 getter，它已經是響應式的了
+  return getPatientMessageTypesMapForDate.value
+})
 
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
@@ -1882,7 +1886,7 @@ const handleIconClick = (patientId, context) => {
 
 provide('handleIconClick', handleIconClick)
 
-// Lifecycle Hooks
+// --- Lifecycle Hooks ---
 onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
@@ -1897,7 +1901,7 @@ watch(
       taskStore.cleanupListeners()
     }
   },
-  { immediate: true }, // immediate: true 確保頁面載入時立即執行一次
+  { immediate: true },
 )
 
 watch(currentDate, (newDate) => {
@@ -1906,7 +1910,6 @@ watch(currentDate, (newDate) => {
 })
 
 onUnmounted(() => {
-  // ✨ [核心修正] 當元件銷毀時，確保清理 taskStore 的監聽器
   taskStore.cleanupListeners()
 })
 </script>

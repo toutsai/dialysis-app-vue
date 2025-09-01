@@ -974,6 +974,7 @@ import { storeToRefs } from 'pinia'
 // ===================================================================
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
+const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
 const auth = useAuth()
@@ -1093,10 +1094,13 @@ const { scheduledPatientIds, getDailyUnassignedPatients, getDailyTemporaryPatien
     computed(() => currentRecord.schedule),
     freqToDays,
   )
+
 const patientMessageTypesMapForToday = computed(() => {
-  const todayStr = formatDate(currentDate.value)
-  return taskStore.getPatientMessageTypesMapForDate(todayStr)
+  // 之前的邏輯是 taskStore.getPatientMessageTypesMapForDate(todayStr)，現在直接用 getter
+  // 這個 getter 內部已經處理了日期的問題，總是返回當天的 Map
+  return getPatientMessageTypesMapForDate.value
 })
+
 const patientHasPendingMessages = computed(() => {
   if (!selectedPatientForDetail.value) return false
   return patientMessageTypesMapForToday.value.has(selectedPatientForDetail.value.id)
@@ -1902,7 +1906,11 @@ function setTeamChange() {
 // ===================================================================
 onMounted(async () => {
   isLoading.value = true
-  await auth.waitForAuthInit()
+  await auth.waitForAuthInit() // 確保 auth 初始化
+  // ✨ 核心修正 #3: 在 onMounted 確保 taskStore 開始監聽
+  if (auth.currentUser.value) {
+    taskStore.startRealtimeUpdates(auth.currentUser.value.uid)
+  }
   await Promise.all([loadDataForDay(currentDate.value), loadDailyStaffInfo(currentDate.value)])
   isLoading.value = false
 })
@@ -1913,6 +1921,19 @@ watch(currentDate, (newDate, oldDate) => {
     loadDailyStaffInfo(newDate)
   }
 })
+
+// ✨ 核心修正 #4 (可選但建議): 監聽 auth.currentUser 的變化
+watch(
+  () => auth.currentUser.value,
+  (newUser) => {
+    if (newUser) {
+      taskStore.startRealtimeUpdates(newUser.uid)
+    } else {
+      taskStore.cleanupListeners()
+    }
+  },
+  { immediate: true }, // 確保一開始就執行
+)
 </script>
 
 <style scoped>

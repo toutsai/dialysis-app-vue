@@ -32,39 +32,41 @@ export const useTaskStore = defineStore('task', () => {
     })
   })
 
+  // ✨ [建議優化] 將 getter 直接返回 Map，而不是返回函式
   const getPatientMessageTypesMapForDate = computed(() => {
-    return (todayStr) => {
-      const map = new Map()
-      const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
-      for (const msg of pendingMessages) {
-        if (!msg.patientId) continue
+    const map = new Map()
+    const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
 
-        let shouldDisplayIcon = false
+    for (const msg of pendingMessages) {
+      if (!msg.patientId) continue
 
-        // ✨ [核心修正] 調整顯示圖示的判斷邏輯
-        if (!msg.targetDate) {
-          // 如果沒有目標日期，永遠顯示
-          shouldDisplayIcon = true
-        } else if (msg.targetDate <= todayStr) {
-          // 如果目標日期是今天或今天之前，就顯示
-          shouldDisplayIcon = true
-        }
+      let shouldDisplayIcon = false
 
-        if (shouldDisplayIcon) {
-          if (!map.has(msg.patientId)) {
-            map.set(msg.patientId, new Set())
-          }
-          map.get(msg.patientId).add(msg.type || '常規')
-        }
+      // 如果沒有目標日期，或者目標日期是今天或今天之前，就顯示
+      if (!msg.targetDate || msg.targetDate <= todayStr) {
+        shouldDisplayIcon = true
       }
 
-      const finalMap = new Map()
-      for (const [patientId, typeSet] of map.entries()) {
-        finalMap.set(patientId, Array.from(typeSet))
+      if (shouldDisplayIcon) {
+        if (!map.has(msg.patientId)) {
+          map.set(msg.patientId, new Set())
+        }
+        // ✨ 新增：加入所有可能的訊息類型，而不僅僅是預設的
+        // 假設 msg.type 可能是 '抽血', '衛教', '常規', 或者 undefined
+        map.get(msg.patientId).add(msg.type || '常規')
       }
-      return finalMap
     }
+
+    // 將 Set 轉換為 Array，方便後續處理
+    const finalMap = new Map()
+    for (const [patientId, typeSet] of map.entries()) {
+      finalMap.set(patientId, Array.from(typeSet))
+    }
+    return finalMap
   })
 
   const todayTaskCount = computed(() => (todayAssignedPatientIds) => {

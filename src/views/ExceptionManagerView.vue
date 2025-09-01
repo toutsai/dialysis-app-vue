@@ -105,6 +105,8 @@
   </div>
 </template>
 
+// 檔案路徑: src/views/ExceptionManagerView.vue
+
 <script setup>
 import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
@@ -116,7 +118,7 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
-} from 'firebase/firestore' // ✨ 1. 引入 serverTimestamp
+} from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
@@ -138,7 +140,7 @@ const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 
 const exceptionsApi = ApiManager('schedule_exceptions')
-const tasksApi = ApiManager('tasks') // ✨ 2. 引入新的 tasks API 管理器
+const tasksApi = ApiManager('tasks')
 const router = useRouter()
 const route = useRoute()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -180,6 +182,7 @@ const typeMap = {
   SUSPEND: '區間暫停',
   ADD_SESSION: '臨時加洗',
   RANGE_MOVE: '區間調班',
+  SWAP: '同日互調',
 }
 const shiftMap = { early: '早班', noon: '午班', late: '晚班' }
 
@@ -191,7 +194,16 @@ const calendarEvents = computed(() => {
       SUSPEND: '#6610f2',
       ADD_SESSION: '#20c997',
       RANGE_MOVE: '#e83e8c',
+      SWAP: '#fd7e14',
     }
+
+    let title = ''
+    if (ex.type === 'SWAP') {
+      title = `${ex.patient1?.patientName || ''} <=> ${ex.patient2?.patientName || ''}`
+    } else {
+      title = `${ex.patientName || ''} - ${typeMap[ex.type] || '未知'}`
+    }
+
     let description = ''
     if (ex.type === 'MOVE' && ex.from && ex.to) {
       description = `從 ${formatShiftInfo({ ...ex.from, date: ex.from.sourceDate })} 移至 ${formatShiftInfo({ ...ex.to, date: ex.to.goalDate })}`
@@ -199,9 +211,14 @@ const calendarEvents = computed(() => {
       description = `新增於 ${formatShiftInfo({ ...ex.to, date: ex.to.goalDate })}`
     } else if (ex.type === 'RANGE_MOVE' && ex.to) {
       description = `區間內移至: ${formatBedAndShift(ex.to)}`
+    } else if (ex.type === 'SWAP' && ex.patient1 && ex.patient2) {
+      const from1 = formatBedAndShift(ex.patient1)
+      const from2 = formatBedAndShift(ex.patient2)
+      description = `${ex.patient1.patientName} (${from1}) 與 ${ex.patient2.patientName} (${from2}) 互換`
     } else {
       description = ex.reason
     }
+
     if (ex.type === 'MOVE' && ex.from && ex.to) {
       const fromEvent = {
         id: `${ex.id}-from`,
@@ -223,16 +240,18 @@ const calendarEvents = computed(() => {
       }
       return [fromEvent, toEvent]
     }
+
     let exclusiveEndDate = null
     if (ex.endDate && ex.endDate !== ex.startDate) {
       const endDateObj = new Date(ex.endDate + 'T00:00:00Z')
       endDateObj.setUTCDate(endDateObj.getUTCDate() + 1)
       exclusiveEndDate = endDateObj.toISOString().split('T')[0]
     }
+
     return [
       {
         id: ex.id,
-        title: `${ex.patientName} - ${typeMap[ex.type] || '未知'}`,
+        title: title,
         start: ex.startDate,
         end: exclusiveEndDate,
         allDay: true,
@@ -258,17 +277,18 @@ const calendarOptions = computed(() => {
     },
     eventClick: (info) => {
       const ex = info.event.extendedProps
-
       exceptionToDeleteId.value = ex.id
-
+      let patientDisplayName = ex.patientName
+      if (ex.type === 'SWAP') {
+        patientDisplayName = `${ex.patient1?.patientName} & ${ex.patient2?.patientName}`
+      }
       confirmDialogTitle.value = '調班詳細資訊'
       confirmDialogMessage.value =
-        `病患: ${ex.patientName}\n` +
+        `病患: ${patientDisplayName}\n` +
         `類型: ${typeMap[ex.type] || '未知'}\n` +
         `區間: ${ex.startDate} ~ ${ex.endDate}\n` +
         `詳細: ${ex.formattedDetails}\n` +
         `申請時間: ${formatTimestamp(ex.createdAt)}`
-
       isConfirmDeleteVisible.value = true
     },
   }
@@ -281,11 +301,9 @@ const currentCalendarDate = computed(() => {
 async function scrollToCurrentWeek() {
   await nextTick()
   if (!fullCalendar.value) return
-
   try {
     const calendarEl = fullCalendar.value.$el
     if (!calendarEl) return
-
     const todayEl = calendarEl.querySelector('.fc-day-today')
     if (todayEl) {
       const weekRowEl = todayEl.closest('tr')
@@ -311,11 +329,9 @@ function handleToday() {
 function handleViewChange(viewName) {
   calendarApi.value?.changeView(viewName)
 }
-
 function openMonthPicker() {
   isMonthPickerVisible.value = true
 }
-
 function handleDateSelected(newDate) {
   calendarApi.value?.gotoDate(newDate)
   isMonthPickerVisible.value = false
@@ -331,7 +347,6 @@ function formatTimestamp(ts) {
     minute: '2-digit',
   })
 }
-
 function formatShiftInfo(shiftData) {
   if (!shiftData) return ''
   const shiftName = shiftMap[shiftData.shiftCode] || shiftData.shiftCode
@@ -342,11 +357,19 @@ function formatShiftInfo(shiftData) {
 }
 
 function formatBedAndShift(targetData) {
-  if (!targetData || !targetData.bedNum || !targetData.shiftCode) return 'N/A'
-  const shiftName = shiftMap[targetData.shiftCode] || targetData.shiftCode
-  const bedDisplay = String(targetData.bedNum).startsWith('peripheral-')
-    ? `外圍 ${String(targetData.bedNum).split('-')[1]}`
-    : `${targetData.bedNum}床`
+  if (!targetData) return 'N/A'
+
+  // ✨ 核心修正：同時檢查 fromBedNum 和 bedNum
+  const bedNum = targetData.fromBedNum || targetData.bedNum
+  const shiftCode = targetData.fromShiftCode || targetData.shiftCode
+
+  if (!bedNum || !shiftCode) return 'N/A'
+
+  const shiftName = shiftMap[shiftCode] || shiftCode
+  const bedDisplay = String(bedNum).startsWith('peripheral-')
+    ? `外圍 ${String(bedNum).split('-')[1]}`
+    : `${bedNum}床`
+
   return `${bedDisplay} / ${shiftName}`
 }
 
@@ -355,7 +378,6 @@ function openCreateDialog() {
   exceptionToReEdit.value = null
   isCreateDialogVisible.value = true
 }
-
 function closeCreateDialog() {
   isCreateDialogVisible.value = false
   setTimeout(() => {
@@ -363,13 +385,15 @@ function closeCreateDialog() {
   }, 300)
 }
 
-// ✨ 3. 修改 handleCreateException 函式，使其建立新的 task
+// ✨✨✨ 核心修正點 ✨✨✨
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
     if (isUpdating) {
       await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
     }
+
+    // 準備一個乾淨的物件來儲存資料
     const dataToSave = {
       patientId: formData.patientId,
       patientName: formData.patientName,
@@ -380,17 +404,33 @@ async function handleCreateException(formData) {
       from: formData.from,
       to: formData.to,
       status: 'pending',
-      // createdAt 改為 serverTimestamp() 以確保時間準確
       createdAt: serverTimestamp(),
     }
+
+    // 根據不同類型，附加特定的資料
+    if (formData.type === 'SWAP') {
+      dataToSave.date = formData.date // <-- 確保 date 欄位被複製
+      dataToSave.patient1 = formData.patient1
+      dataToSave.patient2 = formData.patient2
+    }
+
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
+
+    // --- 建立通知和留言 ---
     const actionText = isUpdating ? '更新' : '新增'
-    const typeText = typeMap[formData.type] || '調班'
-    const message = `${actionText}申請: ${formData.patientName} (${typeText})`
+    let message = ''
+    let patientForMessage = { id: formData.patientId, name: formData.patientName }
+
+    if (formData.type === 'SWAP') {
+      message = `${actionText}申請: ${formData.patient1.patientName} 與 ${formData.patient2.patientName} (同日互調)`
+      patientForMessage = { id: formData.patient1.patientId, name: formData.patient1.patientName }
+    } else {
+      const typeText = typeMap[formData.type] || '調班'
+      message = `${actionText}申請: ${formData.patientName} (${typeText})`
+    }
     createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
 
-    // --- 建立病人留言 (Task) ---
     let messageContent = ''
     const reasonText = `\n原因: ${formData.reason}`
     switch (formData.type) {
@@ -410,37 +450,57 @@ async function handleCreateException(formData) {
         messageContent =
           `【臨時加洗】\n日期: ${formData.to.goalDate} (${addBedDisplay})` + reasonText
         break
-      case 'RANGE_MOVE':
-        const targetBedDisplay = formatBedAndShift(formData.to)
+      case 'SWAP':
+        const swapFrom1 = formatBedAndShift(formData.patient1)
+        const swapFrom2 = formatBedAndShift(formData.patient2)
         messageContent =
-          `【區間調班】\n區間: ${formData.startDate} ~ ${formData.endDate}\n目標: 全部移至 ${targetBedDisplay}` +
+          `【同日互調】\n日期: ${formData.date}\n${formData.patient1.patientName} (${swapFrom1}) <=> ${formData.patient2.patientName} (${swapFrom2})` +
           reasonText
         break
     }
 
     if (messageContent && currentUser.value) {
-      const newTask = {
-        category: 'message',
-        type: '常規', // 自動產生的訊息歸類為常規
-        content: messageContent,
-        patientId: formData.patientId,
-        patientName: formData.patientName,
-        targetDate:
-          formData.type === 'MOVE' ? formData.to.goalDate : formData.endDate || formData.startDate,
-        status: 'pending',
-        creator: {
-          uid: currentUser.value.uid,
-          name: currentUser.value.name,
-          title: currentUser.value.title,
-        },
-        createdAt: serverTimestamp(),
-        assignee: null,
+      const createMessageTask = (patientInfo) => {
+        return {
+          category: 'message',
+          type: '常規',
+          content: messageContent,
+          patientId: patientInfo.id,
+          patientName: patientInfo.name,
+          targetDate: formData.date || formData.startDate, // 使用 date 或 startDate
+          status: 'pending',
+          creator: {
+            uid: currentUser.value.uid,
+            name: currentUser.value.name,
+            title: currentUser.value.title,
+          },
+          createdAt: serverTimestamp(),
+          assignee: null,
+        }
       }
-      // 使用新的 tasksApi 儲存
-      await tasksApi.save(newTask)
+
+      if (formData.type === 'SWAP') {
+        const task1 = createMessageTask({
+          id: formData.patient1.patientId,
+          name: formData.patient1.patientName,
+        })
+        const task2 = createMessageTask({
+          id: formData.patient2.patientId,
+          name: formData.patient2.patientName,
+        })
+        await Promise.all([tasksApi.save(task1), tasksApi.save(task2)])
+      } else {
+        const task = createMessageTask({ id: formData.patientId, name: formData.patientName })
+        await tasksApi.save(task)
+      }
     }
   } catch (error) {
     console.error('提交調班申請或建立留言失敗:', error)
+    addLocalNotification({
+      message: `操作失敗: ${error.message || '無法儲存調班申請，請檢查後再試。'}`,
+      type: 'exception',
+      config: { bgColor: '#dc3545', textColor: 'white', icon: '❌' },
+    })
   }
 }
 
@@ -450,8 +510,13 @@ async function executeDeleteException() {
     const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
     if (exceptionData) {
-      const typeText = typeMap[exceptionData.type] || '調班'
-      const message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
+      let message = ''
+      if (exceptionData.type === 'SWAP') {
+        message = `撤銷調班申請: ${exceptionData.patient1.patientName}與${exceptionData.patient2.patientName} (同日互調)`
+      } else {
+        const typeText = typeMap[exceptionData.type] || '調班'
+        message = `撤銷調班申請: ${exceptionData.patientName} (${typeText})`
+      }
       createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
     }
   } catch (error) {

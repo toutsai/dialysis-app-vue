@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/BaseScheduleView.vue (Pinia 遷移版) -->
+<!-- 檔案路徑: src/views/BaseScheduleView.vue (已移除備忘錄圖示功能) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <header class="page-header">
@@ -54,6 +54,7 @@
             :show-patient-numbers="true"
           />
         </div>
+        <!-- ✨ 核心修改 #1: 移除傳遞給 ScheduleTable 的 typesMap 和 patientWithMemoIds -->
         <ScheduleTable
           v-if="masterRecord"
           :key="tableKey"
@@ -79,7 +80,7 @@
       </div>
     </main>
 
-    <!-- Dialogs -->
+    <!-- Dialogs (保持不變) -->
     <SelectionDialog
       :is-visible="isActionDialogVisible"
       :title="`操作病人：${actionTarget.patientName}`"
@@ -139,11 +140,11 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+// ✨ Pinia Store 依賴
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 
-// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+// ✨ 實例化 Store 並獲取響應式狀態
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
@@ -309,7 +310,7 @@ const statsToolbarData = computed(() => {
   for (const patientId in masterRecord.value.schedule) {
     const ruleData = masterRecord.value.schedule[patientId]
     if (ruleData && ruleData.freq && ruleData.shiftIndex !== undefined) {
-      const patient = patientMap.value.get(patientId) // 直接從 Pinia 的 patientMap 獲取
+      const patient = patientMap.value.get(patientId)
       if (!patient) continue
 
       const shiftCode = SHIFTS[ruleData.shiftIndex]
@@ -655,11 +656,11 @@ function openBaseAssignmentDialog() {
   assignmentContext.value = { mode: 'base', patient: null }
   isAssignmentDialogVisible.value = true
 }
+
 function handleGridClick(slotId) {
   const slotData = weekScheduleMap.value[slotId]
   const patientId = slotData?.patientId
   if (isPageLocked.value) {
-    // ✨ [簡化] 如果頁面鎖定，點擊格子不做任何事
     return
   }
   if (patientId) {
@@ -755,8 +756,6 @@ async function loadAllData() {
   statusText.value = '讀取中...'
   try {
     await patientStore.fetchPatientsIfNeeded()
-
-    // ✨ [簡化] 不再需要並行獲取備忘錄
     const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
 
     if (baseScheduleDoc && baseScheduleDoc.schedule) {

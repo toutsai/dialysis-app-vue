@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (Pinia 遷移版) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (已整合 taskStore) -->
 <template>
   <div>
     <div class="page-container">
@@ -65,6 +65,8 @@
               size="compact"
             />
           </div>
+
+          <!-- ✨ 核心修改點: 傳入 :typesMap -->
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -76,7 +78,7 @@
             :hepatitis-beds="hepatitisBeds"
             :get-style-func="getWeeklyCellStyle"
             :is-date-in-past="isDateInPast"
-            :patient-with-memo-ids="patientWithMemoIds"
+            :typesMap="typesMapForScheduleTable"
             :is-page-locked="isPageLocked"
             @grid-click="handleGridClick"
             @drop="onDrop"
@@ -100,8 +102,8 @@
     <!-- Modals -->
     <MemoDisplayDialog
       :is-visible="isMemoDialogVisible"
+      :patient-id="patientIdForDialog"
       :patient-name="patientNameForDialog"
-      :memos="memosForDialog"
       @close="isMemoDialogVisible = false"
     />
     <BedAssignmentDialog
@@ -150,14 +152,16 @@
   </div>
 </template>
 
+// 檔案路徑: src/views/WeeklyView.vue
+
 <script setup>
-import { ref, onMounted, computed, onUnmounted, nextTick } from 'vue'
+// ✨ 核心修正 #1: 從 'vue' 中 import 'provide'
+import { ref, onMounted, computed, onUnmounted, nextTick, provide } from 'vue'
 import { where } from 'firebase/firestore'
 import {
   fetchAllSchedules as optimizedFetchAllSchedules,
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
-  fetchAllMemos as optimizedFetchAllMemos,
 } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
@@ -177,13 +181,17 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
+// --- Pinia Stores ---
 import { usePatientStore } from '@/stores/patientStore.js'
+import { useTaskStore } from '@/stores/taskStore.js'
 import { storeToRefs } from 'pinia'
 
-// ✨ --- 核心修改 #2: 實例化 Store 並獲取響應式狀態 --- ✨
+// --- 實例化 Stores ---
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
+
+const taskStore = useTaskStore()
+const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
 
 // --- Helper Functions ---
 function getStartOfWeek(date) {
@@ -295,10 +303,8 @@ const FREQ_MAP_TO_DAY_INDEX = {
 }
 
 // --- Reactive State ---
-// allPatients and patientMap are now from Pinia
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
-const activeMemos = ref([])
 const hasUnsavedChanges = ref(false)
 const statusText = ref('資料已載入')
 const draggedItem = ref(null)
@@ -317,7 +323,7 @@ const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const isMemoDialogVisible = ref(false)
-const memosForDialog = ref([])
+const patientIdForDialog = ref(null)
 const patientNameForDialog = ref('')
 const searchQuery = ref('')
 const isSearchFocused = ref(false)
@@ -325,10 +331,7 @@ const auth = useAuth()
 const isPageLocked = computed(() => !auth.canEditSchedules.value)
 
 // --- Computed Properties ---
-// patientMap is now from Pinia
-const patientWithMemoIds = computed(
-  () => new Set(activeMemos.value.filter((memo) => memo.patientId).map((memo) => memo.patientId)),
-)
+const typesMapForScheduleTable = computed(() => getPatientMessageTypesMapForDate.value)
 const weekDisplay = computed(() => {
   const start = new Date(currentWeekStartDate.value)
   const end = new Date(start)
@@ -370,16 +373,14 @@ const weekScheduleMap = computed(() => {
   })
   return combinedSchedule
 })
-
 const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
-  allPatients, // This now directly comes from Pinia
+  allPatients,
   weekScheduleMap,
   FREQ_MAP_TO_DAY_INDEX,
 )
 const problemsToSolve = computed(() => ({
   '本週未排床病人 (有頻率)': globallyUnassignedPatients.value,
 }))
-
 const statsToolbarData = computed(() => {
   const baseData = WEEKDAYS.map(() => ({
     counts: {
@@ -389,21 +390,17 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
-  const localPatientMap = patientMap.value // Use patientMap from Pinia
-
+  const localPatientMap = patientMap.value
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
-
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const [dailyShiftKey, slotData] of Object.entries(record.schedule)) {
           if (slotData && slotData.patientId) {
             const patient = localPatientMap.get(slotData.patientId)
             if (!patient) continue
-
             const shiftCode = dailyShiftKey.split('-').pop()
-
             if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
               const shiftStats = baseData[dayIndex].counts[shiftCode]
               shiftStats.total++
@@ -419,7 +416,6 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
-
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
 const searchResults = computed(() => {
   if (!searchQuery.value) return []
@@ -470,12 +466,18 @@ function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-  memosForDialog.value = activeMemos.value.filter(
-    (memo) => memo.patientId === patientId && memo.status === 'pending',
-  )
+  patientIdForDialog.value = patientId
   patientNameForDialog.value = patient.name
   isMemoDialogVisible.value = true
 }
+
+// ✨ 核心修正 #2: 新增 handleIconClick 函式並 provide
+const handleIconClick = (patientId, context) => {
+  // 在 WeeklyView 中，我們假設所有點擊都是為了顯示備忘錄
+  showPatientMemos(patientId)
+}
+provide('handleIconClick', handleIconClick)
+
 function isDateInPast(dayIndex) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -701,7 +703,7 @@ async function saveChangesToCloud() {
     alertDialogTitle.value = '操作成功'
     alertDialogMessage.value = '週排班已成功儲存！'
     isAlertDialogVisible.value = true
-    await loadDataForWeek() // 改為呼叫新函式
+    await loadDataForWeek()
   } catch (error) {
     console.error('❌ [WeeklyView] 儲存失敗:', error)
     statusText.value = '儲存失敗'
@@ -793,54 +795,44 @@ function changeWeek(days) {
       const newDate = new Date(currentWeekStartDate.value)
       newDate.setDate(newDate.getDate() + days)
       currentWeekStartDate.value = newDate
-      loadDataForWeek() // 改為呼叫新函式
+      loadDataForWeek()
     })
   } else {
     const newDate = new Date(currentWeekStartDate.value)
     newDate.setDate(newDate.getDate() + days)
     currentWeekStartDate.value = newDate
-    loadDataForWeek() // 改為呼叫新函式
+    loadDataForWeek()
   }
 }
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換到本週嗎？', () => {
       currentWeekStartDate.value = getStartOfWeek(new Date())
-      loadDataForWeek() // 改為呼叫新函式
+      loadDataForWeek()
     })
   } else {
     currentWeekStartDate.value = getStartOfWeek(new Date())
-    loadDataForWeek() // 改為呼叫新函式
+    loadDataForWeek()
   }
 }
-
-// ✨ 核心修改 #3: 改造 loadAllData，使其依賴 Pinia Store
 async function loadDataForWeek() {
   hasUnsavedChanges.value = false
   statusText.value = '讀取中...'
   try {
-    // 1. 確保 Pinia Store 中的病人數據已載入
     await patientStore.fetchPatientsIfNeeded()
-
-    // 2. 獲取本週的排班和備忘錄數據
     const startDate = formatDateForQuery(currentWeekStartDate.value)
     const tempDate = new Date(currentWeekStartDate.value)
     tempDate.setDate(tempDate.getDate() + 5)
     const endDate = formatDateForQuery(tempDate)
-
-    const [schedules, memos] = await Promise.all([
-      optimizedFetchAllSchedules([where('date', '>=', startDate), where('date', '<=', endDate)]),
-      optimizedFetchAllMemos([where('status', '==', 'pending')]),
+    const schedules = await optimizedFetchAllSchedules([
+      where('date', '>=', startDate),
+      where('date', '<=', endDate),
     ])
-
-    activeMemos.value = memos
-    const localPatientMap = patientMap.value // 直接使用 Pinia 的 patientMap
-
+    const localPatientMap = patientMap.value
     const newWeekRecords = new Map()
     weekDates.value.forEach((day) => {
       newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {} })
     })
-
     schedules.forEach((record) => {
       if (record.schedule) {
         for (const shiftId in record.schedule) {
@@ -866,7 +858,6 @@ async function loadDataForWeek() {
     statusText.value = '讀取失敗'
   }
 }
-
 function handleScheduleUpdate(event) {
   const { date } = event.detail
   if (weekDates.value.some((d) => d.queryDate === date)) {
@@ -909,7 +900,6 @@ function runScheduleCheck() {
     unassignedCrucial: [],
     unassignedAll: [],
   }
-
   for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
     if (isDateInPast(dayIndex)) continue
     const dayPatients = new Map()
@@ -948,7 +938,6 @@ function runScheduleCheck() {
       }
     }
   }
-
   const scheduledPatientIds = new Set()
   for (const slotId in weekScheduleMap.value) {
     const slotData = weekScheduleMap.value[slotId]
@@ -959,7 +948,6 @@ function runScheduleCheck() {
       }
     }
   }
-
   const unassignedCrucialPatients = allPatients.value.filter(
     (p) =>
       !scheduledPatientIds.has(p.id) &&
@@ -984,7 +972,6 @@ function runScheduleCheck() {
             : '未知'
     validationResult.unassignedAll.push(`${p.name} (${statusText})`)
   })
-
   const patientSchedules = new Map()
   for (const slotId in weekScheduleMap.value) {
     const slotData = weekScheduleMap.value[slotId]
@@ -1021,7 +1008,6 @@ function runScheduleCheck() {
       )
     }
   }
-
   let issueMessage = ''
   if (validationResult.unassignedCrucial.length > 0) {
     issueMessage +=
@@ -1037,7 +1023,6 @@ function runScheduleCheck() {
     issueMessage +=
       '【本週完全未排班病人】:\n- ' + validationResult.unassignedAll.join('\n- ') + '\n\n'
   }
-
   if (issueMessage) {
     alertDialogTitle.value = '排班檢查結果 (僅未來日期)'
     alertDialogMessage.value = issueMessage
@@ -1054,7 +1039,7 @@ function openBedAssignmentDialog() {
 
 onMounted(() => {
   console.log('🚀 [WeeklyView] 組件已掛載，開始初始化...')
-  loadDataForWeek() // 改為呼叫新函式
+  loadDataForWeek()
   window.addEventListener('schedule-updated', handleScheduleUpdate)
 })
 onUnmounted(() => {
@@ -1067,7 +1052,6 @@ onUnmounted(() => {
   position: relative;
   display: inline-block;
 }
-
 .patient-search-input {
   padding: 0.5rem 1rem;
   border: 1px solid #ccc;
@@ -1077,13 +1061,11 @@ onUnmounted(() => {
   box-sizing: border-box;
   transition: all 0.2s;
 }
-
 .patient-search-input:focus {
   outline: none;
   border-color: #007bff;
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
-
 .search-results {
   position: absolute;
   top: 100%;
@@ -1101,21 +1083,17 @@ onUnmounted(() => {
   overflow-y: auto;
   z-index: 1000;
 }
-
 .search-results li {
   padding: 8px 12px;
   cursor: pointer;
   border-bottom: 1px solid #eee;
 }
-
 .search-results li:last-child {
   border-bottom: none;
 }
-
 .search-results li:hover {
   background-color: #f0f0f0;
 }
-
 @keyframes highlight-animation {
   0% {
     background-color: #fffbe3;
@@ -1126,11 +1104,9 @@ onUnmounted(() => {
     outline: 3px solid transparent;
   }
 }
-
 :deep(.highlight-flash) {
   animation: highlight-animation 2s ease-out;
 }
-
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1139,13 +1115,11 @@ onUnmounted(() => {
   overflow: hidden;
   padding: 10px;
 }
-
 .page-header {
   border-bottom: 1px solid #dee2e6;
   padding: 0 0 20px 0;
   flex-shrink: 0;
 }
-
 .header-toolbar {
   display: flex;
   justify-content: space-between;
@@ -1153,7 +1127,6 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 1rem;
 }
-
 .toolbar-left,
 .main-actions {
   display: flex;
@@ -1161,56 +1134,47 @@ onUnmounted(() => {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-
 .page-title {
   margin: 0;
   font-size: 32px;
   color: #333;
 }
-
 .date-navigator {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-
 .week-display-text {
   font-weight: bold;
   font-size: 26px;
   white-space: nowrap;
 }
-
 .page-main-content {
   display: flex;
   flex-grow: 1;
   overflow: hidden;
 }
-
 .schedule-area {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-
 .stats-toolbar-wrapper {
   flex-shrink: 0;
   padding: 0px 8px 8px 0;
   box-sizing: border-box;
   transition: padding-left 0.2s ease-in-out;
 }
-
 .schedule-table-component {
   flex-grow: 1;
   overflow: auto;
   border-radius: 8px;
 }
-
 .status-text {
   font-style: italic;
   color: #6c757d;
 }
-
 .btn,
 .btn-save,
 button {
@@ -1222,147 +1186,131 @@ button {
   transition: all 0.2s;
   white-space: nowrap;
 }
-
 .btn:hover,
 .btn-save:not(:disabled):hover {
   border-color: #888;
   background-color: #e9ecef;
 }
-
 .btn-save {
   background-color: #28a745;
   color: white;
   border-color: #28a745;
 }
-
 .btn-save:hover {
   background-color: #218838;
 }
-
 .btn-save:disabled {
   background-color: #6c757d;
   border-color: #6c757d;
   cursor: not-allowed;
   opacity: 0.65;
 }
-
 .btn.btn-warning {
   background-color: #ffc107;
   color: #212529;
   border-color: #ffc107;
   font-size: 1rem;
 }
-
 .btn.btn-info {
   background-color: #17a2b8;
   color: white;
   border-color: #17a2b8;
   font-size: 1rem;
 }
-
-/* 🔥 統一顏色系統 - 基本病人狀態 */
 :deep(.schedule-slot.status-opd) {
-  background-color: var(--green-bg, #e8f5e9); /* 門診 - 綠色 */
+  background-color: var(--green-bg, #e8f5e9);
 }
 :deep(.schedule-slot.status-ipd) {
-  background-color: var(--red-bg, #ffebee); /* 住院 - 紅色 */
+  background-color: var(--red-bg, #ffebee);
 }
 :deep(.schedule-slot.status-er) {
-  background-color: var(--purple-bg, #f3e5f5); /* 急診 - 紫色 */
+  background-color: var(--purple-bg, #f3e5f5);
 }
 :deep(.schedule-slot.status-biweekly) {
-  background-color: #ffcc80; /* 兩班 - 橘色 */
+  background-color: #ffcc80;
 }
-
-/* 🔥 統一顏色系統 - 標籤樣式 */
 :deep(.schedule-slot.tag-chou) {
-  background-color: #658ee0; /* 抽血 - 藍色 */
+  background-color: #658ee0;
 }
 :deep(.schedule-slot.tag-new) {
-  background-color: #f5ec8e; /* 新診 - 金黃 */
+  background-color: #f5ec8e;
 }
 :deep(.schedule-slot.tag-huan) {
-  background-color: #e0f7fa; /* 換 - 淺青 */
+  background-color: #e0f7fa;
 }
 :deep(.schedule-slot.tag-liang) {
-  background-color: #fff3e0; /* 兩 - 淺橙 */
+  background-color: #fff3e0;
 }
 :deep(.schedule-slot.tag-b) {
-  background-color: #fff9c4; /* B - 淺黃 */
+  background-color: #fff9c4;
 }
-
-/* 🔥 週視圖特有樣式 - shift-row 系列 */
 :deep(.shift-row.status-opd),
 :deep(.peripheral-shift-row.status-opd) {
-  background-color: #e8f5e9; /* 門診 - 綠色 */
+  background-color: #e8f5e9;
 }
 :deep(.shift-row.status-ipd),
 :deep(.peripheral-shift-row.status-ipd) {
-  background-color: #ffebee; /* 住院 - 紅色 */
+  background-color: #ffebee;
 }
 :deep(.shift-row.status-er),
 :deep(.peripheral-shift-row.status-er) {
-  background-color: #f3e5f5; /* 急診 - 紫色 */
+  background-color: #f3e5f5;
 }
 :deep(.shift-row.status-biweekly),
 :deep(.peripheral-shift-row.status-biweekly) {
-  background-color: #ffcc80; /* 兩班 - 橘色 */
+  background-color: #ffcc80;
 }
 :deep(.shift-row.tag-chou),
 :deep(.peripheral-shift-row.tag-chou) {
-  background-color: #658ee0; /* 抽血 - 藍色 */
+  background-color: #658ee0;
 }
 :deep(.shift-row.tag-new),
 :deep(.peripheral-shift-row.tag-new) {
-  background-color: #f5ec8e; /* 新診 - 金黃 */
+  background-color: #f5ec8e;
 }
 :deep(.shift-row.tag-huan),
 :deep(.peripheral-shift-row.tag-huan) {
-  background-color: #e0f7fa; /* 換 - 淺青 */
+  background-color: #e0f7fa;
 }
 :deep(.shift-row.tag-liang),
 :deep(.peripheral-shift-row.tag-liang) {
-  background-color: #fff3e0; /* 兩 - 淺橙 */
+  background-color: #fff3e0;
 }
 :deep(.shift-row.tag-b),
 :deep(.peripheral-shift-row.tag-b) {
-  background-color: #fff9c4; /* B - 淺黃 */
+  background-color: #fff9c4;
 }
-
-/* 🔥 病人項目樣式 */
 :deep(.patient-item.status-opd) {
-  background-color: #e8f5e9; /* 門診 - 綠色 */
+  background-color: #e8f5e9;
 }
 :deep(.patient-item.status-ipd) {
-  background-color: #ffebee; /* 住院 - 紅色 */
+  background-color: #ffebee;
 }
 :deep(.patient-item.status-er) {
-  background-color: #f3e5f5; /* 急診 - 紫色 */
+  background-color: #f3e5f5;
 }
 :deep(.patient-item.status-biweekly) {
-  background-color: #ffcc80; /* 兩班 - 橘色 */
+  background-color: #ffcc80;
 }
 :deep(.patient-item.tag-chou) {
-  background-color: #658ee0; /* 抽血 - 藍色 */
+  background-color: #658ee0;
 }
 :deep(.patient-item.tag-new) {
-  background-color: #f5ec8e; /* 新診 - 金黃 */
+  background-color: #f5ec8e;
 }
 :deep(.patient-item.tag-huan) {
-  background-color: #e0f7fa; /* 換 - 淺青 */
+  background-color: #e0f7fa;
 }
 :deep(.patient-item.tag-liang) {
-  background-color: #fff3e0; /* 兩 - 淺橙 */
+  background-color: #fff3e0;
 }
 :deep(.patient-item.tag-b) {
-  background-color: #fff9c4; /* B - 淺黃 */
+  background-color: #fff9c4;
 }
-
 .main-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
 }
-
 .sidebar-locked {
   pointer-events: none;
   opacity: 0.6;
