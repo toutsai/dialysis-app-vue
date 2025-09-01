@@ -189,7 +189,14 @@ export const useTaskStore = defineStore('task', () => {
       where('category', '==', 'message'),
       where('createdAt', '>=', sevenDaysAgo),
     )
-    const legacyMemosQuery = query(collection(db, 'memos'), where('createdAt', '>=', sevenDaysAgo))
+
+    // ✨✨✨ 核心修改點在這裡 ✨✨✨
+    // 移除 createdAt 時間限制，改為只查詢 'pending' 或 'expired' 狀態的舊備忘
+    const legacyMemosQuery = query(
+      collection(db, 'memos'),
+      where('status', 'in', ['pending', 'expired']),
+    )
+    // ✨✨✨ (修改結束) ✨✨✨
 
     let currentMessages = []
     let currentMemos = []
