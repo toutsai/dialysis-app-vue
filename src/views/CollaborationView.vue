@@ -1163,6 +1163,9 @@ watch(
 </script>
 
 <style scoped>
+/* 引入 Font Awesome */
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+
 /* ✨ --- START: 新增樣式 --- ✨ */
 .panel-header-with-filter {
   display: flex;
@@ -1236,10 +1239,6 @@ watch(
   color: #dc3545;
 }
 /* ✨ --- END: 新增樣式 --- ✨ */
-
-/* 引入 Font Awesome */
-@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
-
 /* ✨ --- 【修改後的新標頭樣式】 --- ✨ */
 .page-header {
   border-bottom: 2px solid #dee2e6;
