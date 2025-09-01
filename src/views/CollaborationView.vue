@@ -114,8 +114,9 @@
                   <p class="item-content">{{ item.content }}</p>
                   <div class="item-footer">
                     <div class="item-meta">
+                      <!-- ✨ 核心修正 1 -->
                       <small class="creator-info"
-                        ><i class="fas fa-user-edit"></i> {{ item.creator.name }} 於
+                        ><i class="fas fa-user-edit"></i> {{ item.creator?.name || '未知來源' }} 於
                         {{ formatTimestamp(item.createdAt) }}</small
                       >
                     </div>
@@ -139,7 +140,6 @@
           </div>
         </div>
         <div class="message-section feed-messages">
-          <!-- ✨ [新增功能] 病人篩選下拉選單 -->
           <div class="panel-header-with-filter">
             <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
             <select v-model="selectedMessagePatientId" class="patient-filter-select">
@@ -187,8 +187,9 @@
                     <span v-else-if="msg.targetDate > displayDate" class="future-tag">預</span>
                     關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                   </small>
+                  <!-- ✨ 核心修正 2 -->
                   <small class="creator-info"
-                    ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
+                    ><i class="fas fa-user-edit"></i> {{ msg.creator?.name || '未知來源' }} 於
                     {{ formatTimestamp(msg.createdAt) }}</small
                   >
                 </div>
@@ -262,8 +263,9 @@
                 {{ task.content }}
               </p>
               <div class="item-footer">
+                <!-- ✨ 核心修正 3 -->
                 <small class="creator-info"
-                  ><i class="fas fa-user-edit"></i> from {{ task.creator.name }} at
+                  ><i class="fas fa-user-edit"></i> from {{ task.creator?.name || '未知來源' }} at
                   {{ formatTimestamp(task.createdAt) }}</small
                 >
                 <div v-if="task.status === 'pending'" class="item-actions">
@@ -457,8 +459,10 @@
                     <p class="item-content">{{ item.content }}</p>
                     <div class="item-footer">
                       <div class="item-meta">
+                        <!-- ✨ 核心修正 4 (Mobile) -->
                         <small class="creator-info"
-                          ><i class="fas fa-user-edit"></i> {{ item.creator.name }} 於
+                          ><i class="fas fa-user-edit"></i>
+                          {{ item.creator?.name || '未知來源' }} 於
                           {{ formatTimestamp(item.createdAt) }}</small
                         >
                       </div>
@@ -521,7 +525,7 @@
                       關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                     </small>
                     <small class="creator-info"
-                      ><i class="fas fa-user-edit"></i> {{ msg.creator.name }} 於
+                      ><i class="fas fa-user-edit"></i> {{ msg.creator?.name || '未知來源' }} 於
                       {{ formatTimestamp(msg.createdAt) }}</small
                     >
                   </div>
@@ -579,7 +583,7 @@
                 </p>
                 <div class="item-footer">
                   <small class="creator-info"
-                    ><i class="fas fa-user-edit"></i> from {{ task.creator.name }} at
+                    ><i class="fas fa-user-edit"></i> from {{ task.creator?.name || '未知來源' }} at
                     {{ formatTimestamp(task.createdAt) }}</small
                   >
                   <div v-if="task.status === 'pending'" class="item-actions">
@@ -618,7 +622,8 @@
                 </p>
                 <div class="item-footer">
                   <small class="creator-info"
-                    ><i class="fas fa-user"></i> patient: {{ task.patientName || 'N/A' }}</small
+                    ><i class="fas fa-user-edit"></i> from {{ task.creator?.name || '未知來源' }} at
+                    {{ formatTimestamp(task.createdAt) }}</small
                   >
                   <div class="item-actions">
                     <span v-if="task.status === 'pending'" class="sent-status">
@@ -648,7 +653,6 @@
       @submit="handleTaskSubmit"
     />
 
-    <!-- ✨ [新增] 確認刪除對話框 -->
     <ConfirmDialog
       :is-visible="isConfirmDeleteVisible"
       title="確認刪除"
