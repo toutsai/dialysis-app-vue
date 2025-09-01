@@ -56,17 +56,16 @@
                 />
                 臨時加洗</label
               >
-              <!--【暫時隱藏】將「區間調班」的選項註解掉
+              <!-- ✨ 新增的選項 ✨ -->
               <label
                 ><input
                   type="radio"
                   v-model="formData.type"
-                  value="RANGE_MOVE"
+                  value="SWAP"
                   :disabled="isEditingMode"
                 />
-                區間調班</label
+                同日互調</label
               >
-              -->
             </div>
           </div>
 
@@ -158,34 +157,50 @@
             </div>
           </div>
 
-          <!-- 區塊：區間調班 (RANGE_MOVE) 【暫時隱藏】將「區間調班」的整個設定區塊註解掉
-          <div v-if="formData.type === 'RANGE_MOVE'" class="details-section">
-            <h3 class="section-title">步驟 3: 設定調班區間與目標床位</h3>
-            <div class="form-group-grid">
-              <div class="form-group">
-                <label for="rangeStartDate">開始日期 (包含)</label>
-                <input type="date" id="rangeStartDate" v-model="formData.startDate" />
-              </div>
-              <div class="form-group">
-                <label for="rangeEndDate">結束日期 (包含)</label>
-                <input type="date" id="rangeEndDate" v-model="formData.endDate" />
-              </div>
-            </div>
+          <!-- ✨ 區塊：同日互調 (SWAP) ✨ -->
+          <div v-if="formData.type === 'SWAP'" class="details-section">
+            <h3 class="section-title">步驟 3: 設定互調資訊</h3>
             <div class="form-group">
-              <label>目標床位 (將套用於整個區間)</label>
-              <button
-                class="select-btn"
-                @click="openBedAssignmentForTarget"
-                :disabled="!formData.startDate || isSubmitting"
-              >
-                {{ targetBedDisplay }}
-              </button>
+              <label for="swapDate">互調日期</label>
+              <input
+                type="date"
+                id="swapDate"
+                v-model="formData.date"
+                @change="fetchScheduleForSwap"
+                :disabled="isEditingMode"
+              />
             </div>
-            <small class="form-text text-muted"
-              >系統將根據病人的固定頻率，查詢在整個時段都可用的床位。</small
+            <div class="form-group-grid" v-if="formData.date && dailyScheduleForSwap">
+              <div class="form-group">
+                <label>選擇病人 A</label>
+                <select v-model="formData.patient1_selection" class="swap-select">
+                  <option disabled value="">請選擇...</option>
+                  <option v-for="slot in availableSlotsForSwap" :key="slot.key" :value="slot.key">
+                    {{ slot.displayText }}
+                  </option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>選擇病人 B</label>
+                <select v-model="formData.patient2_selection" class="swap-select">
+                  <option disabled value="">請選擇...</option>
+                  <option v-for="slot in availableSlotsForSwap" :key="slot.key" :value="slot.key">
+                    {{ slot.displayText }}
+                  </option>
+                </select>
+              </div>
+            </div>
+            <small
+              v-if="!dailyScheduleForSwap && isFetchingSwapSchedule"
+              class="form-text text-muted"
+              >正在讀取排班資料...</small
+            >
+            <small
+              v-if="!dailyScheduleForSwap && !isFetchingSwapSchedule && formData.date"
+              class="form-text text-danger"
+              >該日無排班資料或讀取失敗。</small
             >
           </div>
-          -->
 
           <!-- 步驟 4: 原因說明 -->
           <div class="form-group">
@@ -328,18 +343,25 @@ const isSubmitting = ref(false)
 const isFetchingSource = ref(false)
 const sourceScheduleMessage = ref('')
 const masterSchedule = ref(null)
+const dailyScheduleForSwap = ref(null) // ✨ 新增: 儲存某日排班供互調選擇
+const isFetchingSwapSchedule = ref(false) // ✨ 新增: 讀取狀態
 
 // --- Form State ---
 const defaultFormData = () => ({
   id: null,
-  patientId: '',
+  patientId: '', // SWAP模式下這個可能用不到，但保留結構
   patientName: '',
   type: null,
+  date: '', // ✨ 新增: for SWAP
   startDate: '',
   endDate: '',
   reason: '',
   from: { sourceDate: '', bedNum: null, shiftCode: null },
   to: { goalDate: '', bedNum: null, shiftCode: null },
+  patient1: null, // ✨ 新增
+  patient2: null, // ✨ 新增
+  patient1_selection: '', // ✨ 新增: for v-model
+  patient2_selection: '', // ✨ 新增: for v-model
 })
 const formData = reactive(defaultFormData())
 
@@ -396,6 +418,36 @@ const targetBedDisplay = computed(() => {
   }
   return '點擊以選擇目標床位...'
 })
+
+// ✨ 新增: 計算可用於互調的床位列表
+const availableSlotsForSwap = computed(() => {
+  if (!dailyScheduleForSwap.value) return []
+  const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
+
+  return Object.entries(dailyScheduleForSwap.value)
+    .filter(([key, slot]) => slot && slot.patientId) // 只顯示有病人的床位
+    .map(([key, slot]) => {
+      const parts = key.split('-')
+      const shiftCode = parts.pop()
+      const bedNum = key.replace(`-${shiftCode}`, '').replace('bed-', '')
+      const shiftText = shiftDisplayMap[shiftCode] || shiftCode
+      const bedText = String(bedNum).startsWith('peripheral')
+        ? `外圍 ${bedNum.split('-')[1]}`
+        : `${bedNum}床`
+
+      return {
+        key: key, // e.g., "bed-12-early"
+        displayText: `${slot.patientName} (${bedText} / ${shiftText}班)`,
+        data: {
+          patientId: slot.patientId,
+          patientName: slot.patientName,
+          fromBedNum: bedNum,
+          fromShiftCode: shiftCode,
+        },
+      }
+    })
+})
+
 const isDetailsComplete = computed(() => {
   if (!formData.patientId || !formData.type) return false
   switch (formData.type) {
@@ -412,6 +464,14 @@ const isDetailsComplete = computed(() => {
         !!formData.to.bedNum &&
         !!formData.to.shiftCode &&
         formData.endDate >= formData.startDate
+      )
+    // ✨ 新增 SWAP 的驗證邏輯
+    case 'SWAP':
+      return (
+        !!formData.date &&
+        !!formData.patient1_selection &&
+        !!formData.patient2_selection &&
+        formData.patient1_selection !== formData.patient2_selection
       )
     default:
       return false
@@ -455,8 +515,41 @@ watch(
     }
   },
 )
+// ✨ 新增 Watcher 來解析選擇的病人
+watch(
+  () => formData.patient1_selection,
+  (selectionKey) => {
+    const selectedSlot = availableSlotsForSwap.value.find((s) => s.key === selectionKey)
+    formData.patient1 = selectedSlot ? selectedSlot.data : null
+  },
+)
+watch(
+  () => formData.patient2_selection,
+  (selectionKey) => {
+    const selectedSlot = availableSlotsForSwap.value.find((s) => s.key === selectionKey)
+    formData.patient2 = selectedSlot ? selectedSlot.data : null
+  },
+)
 
 // --- Methods ---
+// ✨ 新增: 取得某日排班資料以供選擇
+async function fetchScheduleForSwap() {
+  if (!formData.date) {
+    dailyScheduleForSwap.value = null
+    return
+  }
+  isFetchingSwapSchedule.value = true
+  dailyScheduleForSwap.value = null
+  try {
+    const record = await schedulesApi.fetchById(formData.date)
+    dailyScheduleForSwap.value = record && record.schedule ? record.schedule : null
+  } catch (error) {
+    console.error('取得排班資料失敗:', error)
+    dailyScheduleForSwap.value = null
+  } finally {
+    isFetchingSwapSchedule.value = false
+  }
+}
 function close() {
   emit('close')
 }
@@ -584,6 +677,15 @@ function submitForm() {
     case 'RANGE_MOVE':
       dataToSubmit.from = null
       dataToSubmit.to.goalDate = ''
+      break
+    case 'SWAP':
+      // 清理掉不需要的欄位，只提交後端需要的格式
+      dataToSubmit.from = null
+      dataToSubmit.to = null
+      dataToSubmit.startDate = dataToSubmit.date
+      dataToSubmit.endDate = dataToSubmit.date
+      delete dataToSubmit.patient1_selection
+      delete dataToSubmit.patient2_selection
       break
   }
   emit('submit', dataToSubmit)
@@ -795,7 +897,15 @@ function submitForm() {
   font-size: 0.875em;
   color: #6c757d;
 }
-
+.swap-select {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  font-size: 1rem;
+  box-sizing: border-box;
+  background-color: #fff;
+}
 @media (max-width: 768px) {
   .dialog-overlay {
     align-items: flex-start;
