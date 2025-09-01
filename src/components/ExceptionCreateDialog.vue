@@ -435,10 +435,22 @@ const patientA_SwapDisplay = computed(() => {
     : `${fromBedNum}床`
   return `${formData.patientName} (${bedText} / ${shiftText}班)`
 })
+
+// ✨✨✨ 核心修改點在這裡 ✨✨✨
 const availableSlotsForPatientB = computed(() => {
   if (!dailyScheduleForSwap.value || !formData.patient1) return []
+
   const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
-  return Object.entries(dailyScheduleForSwap.value)
+  const shiftOrderMap = { early: 1, noon: 2, late: 3 }
+
+  const getSortableBedNumber = (bedNum) => {
+    if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
+      return 1000 + parseInt(bedNum.split('-')[1], 10)
+    }
+    return parseInt(bedNum, 10)
+  }
+
+  const slots = Object.entries(dailyScheduleForSwap.value)
     .filter(([key, slot]) => slot && slot.patientId && slot.patientId !== formData.patientId)
     .map(([key, slot]) => {
       const patient = props.allPatients.find((p) => p.id === slot.patientId)
@@ -450,6 +462,7 @@ const availableSlotsForPatientB = computed(() => {
       const bedText = String(bedNum).startsWith('peripheral')
         ? `外圍 ${bedNum.split('-')[1]}`
         : `${bedNum}床`
+
       return {
         key: key,
         displayText: `${patientName} (${bedText} / ${shiftText}班)`,
@@ -461,7 +474,23 @@ const availableSlotsForPatientB = computed(() => {
         },
       }
     })
+
+  // 在回傳前進行排序
+  return slots.sort((a, b) => {
+    // 1. 按班別排序
+    const shiftOrderA = shiftOrderMap[a.data.fromShiftCode] || 99
+    const shiftOrderB = shiftOrderMap[b.data.fromShiftCode] || 99
+    if (shiftOrderA !== shiftOrderB) {
+      return shiftOrderA - shiftOrderB
+    }
+
+    // 2. 如果班別相同，按床號排序
+    const bedA = getSortableBedNumber(a.data.fromBedNum)
+    const bedB = getSortableBedNumber(b.data.fromBedNum)
+    return bedA - bedB
+  })
 })
+
 const isDetailsComplete = computed(() => {
   if (!formData.type) return false
   switch (formData.type) {

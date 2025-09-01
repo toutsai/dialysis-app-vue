@@ -1957,58 +1957,6 @@ exports.processConsumables = onCall(
   },
 )
 
-// ✨✨✨ START: 新增的日期解析輔助函式 ✨✨✨
-/**
- * 解析多種格式的日期字串，並返回標準化的 YYYY-MM-DD 格式。
- * @param {string} dateStr - 醫師輸入的日期字串 (例如 "8/7", "0807")。
- * @param {Date} targetDate - 用於獲取年份的基準日期。
- * @returns {string|null} 返回 "YYYY-MM-DD" 格式的字串，或在無法解析時返回 null。
- */
-const parseFlexibleDate = (dateStr, targetDate) => {
-  if (!dateStr || typeof dateStr !== 'string') {
-    return null
-  }
-
-  const str = dateStr.trim()
-  const year = targetDate.getFullYear()
-
-  // 格式 1: MM/DD (例如 8/7, 08/07)
-  let match = str.match(/^(\d{1,2})\/(\d{1,2})$/)
-  if (match) {
-    const month = match[1].padStart(2, '0')
-    const day = match[2].padStart(2, '0')
-    return `${year}-${month}-${day}`
-  }
-
-  // 格式 2: MMDD (例如 0807)
-  match = str.match(/^(\d{2})(\d{2})$/)
-  if (match && str.length === 4) {
-    const month = match[1]
-    const day = match[2]
-    // 簡單驗證月份和日期是否在合理範圍
-    if (
-      parseInt(month, 10) > 0 &&
-      parseInt(month, 10) <= 12 &&
-      parseInt(day, 10) > 0 &&
-      parseInt(day, 10) <= 31
-    ) {
-      return `${year}-${month}-${day}`
-    }
-  }
-
-  // 格式 3: YYYY/MM/DD (例如 2025/08/07) - 增加兼容性
-  match = str.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
-  if (match) {
-    const customYear = match[1]
-    const month = match[2].padStart(2, '0')
-    const day = match[3].padStart(2, '0')
-    return `${customYear}-${month}-${day}`
-  }
-
-  // 如果以上格式都不匹配，返回 null
-  return null
-}
-// ✨✨✨ END: 新增的日期解析輔助函式 ✨✨✨
 // ===================================================================
 // Medication Orders Processing Function (藥囑處理函式) - v1.3 (批次處理最終版)
 // ===================================================================
