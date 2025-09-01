@@ -216,7 +216,8 @@
                   </button>
                 </div>
                 <div v-else class="completed-info">
-                  <i class="fas fa-check-double"></i> 由 {{ msg.resolvedBy?.name }} 於
+                  <i class="fas fa-check-double"></i> 由
+                  {{ msg.resolvedBy?.name || '未知使用者' }} 於
                   {{ formatTimestamp(msg.resolvedAt) }} 標示
                 </div>
               </div>
@@ -274,7 +275,8 @@
                   </button>
                 </div>
                 <div v-else class="completed-info task">
-                  <i class="fas fa-check-double"></i> 由 {{ task.resolvedBy?.name }} 於
+                  <i class="fas fa-check-double"></i> 由
+                  {{ task.resolvedBy?.name || '未知使用者' }} 於
                   {{ formatTimestamp(task.resolvedAt) }} 完成
                 </div>
               </div>
@@ -317,7 +319,8 @@
                     <i class="far fa-clock"></i> 處理中...
                   </span>
                   <div v-else class="completed-info">
-                    <i class="fas fa-check-double"></i> 由 {{ task.resolvedBy?.name }} 完成
+                    <i class="fas fa-check-double"></i> 由
+                    {{ task.resolvedBy?.name || '未知使用者' }} 完成
                   </div>
                 </div>
               </div>
