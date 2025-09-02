@@ -222,11 +222,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -289,11 +285,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -356,11 +348,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -473,11 +461,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -540,11 +524,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -673,11 +653,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -762,11 +738,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
             <div v-if="teamData.noonShiftOn.patients.length > 0" class="mobile-patient-list">
@@ -791,11 +763,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
             <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
@@ -820,11 +788,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
           </div>
@@ -878,11 +842,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
             <div v-if="teamData.lateShift.patients.length > 0" class="mobile-patient-list">
@@ -907,11 +867,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
           </div>
@@ -963,11 +919,7 @@
                       }}</span>
                     </div>
                   </div>
-                  <PatientMessagesIcon
-                    :patient-id="patient.id"
-                    :types-map="patientMessageTypesMap"
-                    context="dialog"
-                  />
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                 </div>
               </div>
             </div>
@@ -1062,19 +1014,19 @@ import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
-// Store 實例化
+// --- Store & Hook Instantiation ---
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const { patientMap } = storeToRefs(patientStore)
-const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
-const { currentUser } = useAuth()
+const { currentUser, hasPermission, canEditSchedules } = useAuth()
+const { createGlobalNotification } = useGlobalNotifier()
 
-// API 管理器
+// --- API Managers ---
 const schedulesApi = ApiManager('schedules')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 const usersApi = ApiManager('users')
 
-// 常數定義
+// --- Constants ---
 const nurseNameList = [
   '陳素秋',
   '古孟麗',
@@ -1129,7 +1081,7 @@ const dutyAssignments = {
   },
 }
 
-// 響應式狀態
+// --- Reactive State ---
 const isFireDutyDropdownVisible = ref(false)
 const currentDate = ref(new Date())
 const statusIndicator = ref('')
@@ -1138,9 +1090,6 @@ const currentRecord = reactive({ id: null, date: '', schedule: {} })
 const currentTeamsRecord = ref({ id: null, date: '', teams: {}, names: {} })
 const hasUnsavedScheduleChanges = ref(false)
 const hasUnsavedTeamChanges = ref(false)
-const hasUnsavedChanges = computed(
-  () => hasUnsavedScheduleChanges.value || hasUnsavedTeamChanges.value,
-)
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
@@ -1161,11 +1110,13 @@ const isInjectionDialogVisible = ref(false)
 const dailyInjections = ref([])
 const isInjectionLoading = ref(false)
 
-// Hooks
-const { createGlobalNotification } = useGlobalNotifier()
-const { hasPermission, canEditSchedules } = useAuth()
+// ✨ --- [新增] Provide a viewingDate for child components --- ✨
+provide('viewingDate', currentDate)
 
-// Computed Properties
+// --- Computed Properties ---
+const hasUnsavedChanges = computed(
+  () => hasUnsavedScheduleChanges.value || hasUnsavedTeamChanges.value,
+)
 const isPageLocked = computed(() => {
   if (!canEditSchedules.value) return true
   const today = new Date()
@@ -1177,17 +1128,11 @@ const isPageLocked = computed(() => {
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][new Date(currentDate.value).getDay()],
 )
-const lateShiftTakeOffExists = computed(() => {
-  return Object.values(currentTeamsRecord.value.teams || {}).some(
+const lateShiftTakeOffExists = computed(() =>
+  Object.values(currentTeamsRecord.value.teams || {}).some(
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
-  )
-})
-// ✨ 核心修正 #2: 修改 patientMessageTypesMap 的計算方式
-const patientMessageTypesMap = computed(() => {
-  // 之前: taskStore.getPatientMessageTypesMapForDate(formatDate(currentDate.value))
-  // 現在: 直接使用從 store 解構出來的 getter，它已經是響應式的了
-  return getPatientMessageTypesMapForDate.value
-})
+  ),
+)
 
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
@@ -1214,7 +1159,6 @@ const effectiveStatsData = computed(() => {
   }
 
   const lateTakeOffTeams = lateBaseTeams.map((t) => `夜間收針${t}`)
-
   const earlyShiftStats = createTeamStats(earlyTeams, 'early')
   const lateShiftStats = createTeamStats(lateTeams, 'late')
   const lateTakeOffStats = createTeamStats(lateTakeOffTeams, 'lateTakeOff')
@@ -1223,12 +1167,22 @@ const effectiveStatsData = computed(() => {
     return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
   }
 
+  // ✨ --- [核心修正 1] --- ✨
+  // 直接呼叫 taskStore 的 getter 函式，並傳入正在檢視的日期
+  const messagesMap = taskStore.getPatientMessageTypesMapForDate(currentDate.value)
+
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
 
     const patient = patientMap.value.get(shiftDetails.patientId)
     if (!patient) continue
+
+    // 從上面計算好的 Map 中獲取該病人的任務類型
+    const messageTypesForPatient = messagesMap.get(patient.id) || []
+
+    // 將任務類型傳遞給 getUnifiedCellStyle
+    const cellStyles = getUnifiedCellStyle(shiftDetails, patient, null, messageTypesForPatient)
 
     const {
       patientId,
@@ -1239,6 +1193,7 @@ const effectiveStatsData = computed(() => {
       nurseTeamOut,
       nurseTeamTakeOff,
     } = shiftDetails || {}
+
     const detail = {
       id: patientId,
       shiftId,
@@ -1252,7 +1207,7 @@ const effectiveStatsData = computed(() => {
         .join(' '),
       classes:
         'patient-item ' +
-        Object.entries(getUnifiedCellStyle(shiftDetails, patient))
+        Object.entries(cellStyles)
           .filter(([, v]) => v)
           .map(([k]) => k)
           .join(' '),
@@ -1306,7 +1261,6 @@ const effectiveStatsData = computed(() => {
       })
 
       if (index === 0) {
-        // early
         teamData.totalOpdCount =
           (teamData.earlyShift?.opdCount || 0) + (teamData.noonShiftOn?.opdCount || 0)
         teamData.totalIpdCount =
@@ -1314,12 +1268,10 @@ const effectiveStatsData = computed(() => {
         teamData.totalErCount =
           (teamData.earlyShift?.erCount || 0) + (teamData.noonShiftOn?.erCount || 0)
       } else if (index === 1) {
-        // late
         teamData.totalOpdCount = teamData.lateShift?.opdCount || 0
         teamData.totalIpdCount = teamData.lateShift?.ipdCount || 0
         teamData.totalErCount = teamData.lateShift?.erCount || 0
       } else {
-        // lateTakeOff
         teamData.totalOpdCount = teamData.lateShiftTakeOff?.opdCount || 0
         teamData.totalIpdCount = teamData.lateShiftTakeOff?.ipdCount || 0
         teamData.totalErCount = teamData.lateShiftTakeOff?.erCount || 0
@@ -1330,14 +1282,11 @@ const effectiveStatsData = computed(() => {
   return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
 })
 
-// Functions
+// --- Functions ---
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
-  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d
-    .getDate()
-    .toString()
-    .padStart(2, '0')}`
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
 }
 
 function setScheduleChange() {
@@ -1351,22 +1300,19 @@ function setTeamChange() {
   hasUnsavedTeamChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
+
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
     const physicianSchedulesApi = ApiManager('physician_schedules')
-
     const [monthScheduleDoc, usersSnapshot] = await Promise.all([
       physicianSchedulesApi.fetchById(dateStr),
       usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
     ])
-
     const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
-
     if (monthScheduleDoc && monthScheduleDoc.schedule) {
       const dayOfMonth = date.getDate()
       const daySchedule = monthScheduleDoc.schedule[dayOfMonth]
-
       dailyPhysicians.value.early = daySchedule
         ? userMap.get(daySchedule.early?.physicianId) || null
         : null
@@ -1384,6 +1330,7 @@ async function loadDailyStaffInfo(date) {
     dailyPhysicians.value = { early: null, noon: null, late: null }
   }
 }
+
 async function getEffectiveOrdersForDate(patientId, targetDate) {
   if (!patientId || !targetDate) return {}
   const dateStr = targetDate.toISOString().slice(0, 10)
@@ -1401,6 +1348,7 @@ async function getEffectiveOrdersForDate(patientId, targetDate) {
     return {}
   }
 }
+
 async function loadData(date) {
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1413,12 +1361,10 @@ async function loadData(date) {
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       fetchTeamsByDate(dateStr),
     ])
-
     const scheduleRecord =
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
-
     const patientIdsInSchedule = Object.values(currentRecord.schedule)
       .map((slot) => slot.patientId)
       .filter(Boolean)
@@ -1435,7 +1381,6 @@ async function loadData(date) {
       })
       await Promise.all(patientsWithOrdersPromises)
     }
-
     if (currentRecord.schedule && currentTeamsRecord.value.teams) {
       const localPatientMap = patientMap.value
       for (const shiftId in currentRecord.schedule) {
@@ -1463,6 +1408,7 @@ async function loadData(date) {
     isLoading.value = false
   }
 }
+
 async function saveChangesToCloud() {
   if (isPageLocked.value || !hasUnsavedChanges.value) return
   statusIndicator.value = '儲存中...'
@@ -1514,6 +1460,7 @@ async function saveChangesToCloud() {
     showAlert('儲存失敗', `儲存失敗: ${error.message}`)
   }
 }
+
 function getDutyTagClass(dutyName) {
   if (dutyName.includes('指揮官')) return 'role-field-commander'
   if (dutyName.includes('安全')) return 'role-safety'
@@ -1522,6 +1469,7 @@ function getDutyTagClass(dutyName) {
   if (dutyName.includes('通報')) return 'role-reporter'
   return 'role-default'
 }
+
 function applyTeamAndScheduleChange(
   patientDetail,
   oldShiftId,
@@ -1533,11 +1481,9 @@ function applyTeamAndScheduleChange(
   delete currentRecord.schedule[oldShiftId]
   currentRecord.schedule[newShiftId] = movingSlotData
   setScheduleChange()
-
   const patientId = patientDetail.id
   const oldShiftCode = oldShiftId.split('-')[2]
   const oldTeamKey = `${patientId}-${oldShiftCode}`
-
   if (currentTeamsRecord.value.teams && currentTeamsRecord.value.teams[oldTeamKey]) {
     const sourceResp = patientDetail.sourceResponsibility
     if (sourceResp === 'earlyShift' || sourceResp === 'lateShift')
@@ -1547,30 +1493,26 @@ function applyTeamAndScheduleChange(
       delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamOut
     if (sourceResp === 'lateShiftTakeOff')
       delete currentTeamsRecord.value.teams[oldTeamKey].nurseTeamTakeOff
-
     if (Object.keys(currentTeamsRecord.value.teams[oldTeamKey]).length === 0) {
       delete currentTeamsRecord.value.teams[oldTeamKey]
     }
   }
-
   const newShiftCode = newShiftId.split('-')[2]
   const newTeamKey = `${patientId}-${newShiftCode}`
   if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
   if (!currentTeamsRecord.value.teams[newTeamKey]) {
     currentTeamsRecord.value.teams[newTeamKey] = {}
   }
-
   performTeamChange({ ...patientDetail, shiftId: newShiftId }, newTeam, newResponsibility)
 }
+
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) return
-
   const oldShiftCode = oldShiftId.split('-')[2]
   const newShiftCode =
     newResponsibility === 'earlyShift'
@@ -1578,7 +1520,6 @@ function onDrop(event, newTeam, newResponsibility) {
       : newResponsibility === 'lateShift' || newResponsibility === 'lateShiftTakeOff'
         ? SHIFT_CODES.LATE
         : SHIFT_CODES.NOON
-
   if (newShiftCode !== oldShiftCode) {
     const shiftIdParts = oldShiftId.split('-')
     const newShiftId = `${shiftIdParts[0]}-${shiftIdParts[1]}-${newShiftCode}`
@@ -1593,21 +1534,19 @@ function onDrop(event, newTeam, newResponsibility) {
     performTeamChange(patientDetail, newTeam, newResponsibility)
   }
 }
+
 function performTeamChange(patientDetail, newTeam, newResponsibility) {
   const patientId = patientDetail.id
   const shiftId = patientDetail.shiftId
   const shiftCode = shiftId.split('-')[2]
   const teamKey = `${patientId}-${shiftCode}`
-
   if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
   if (!currentTeamsRecord.value.teams[teamKey]) {
     currentTeamsRecord.value.teams[teamKey] = {}
   }
-
   const teamInfo = currentTeamsRecord.value.teams[teamKey]
   const slotInfo = currentRecord.schedule[shiftId]
   if (!slotInfo) return
-
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     teamInfo.nurseTeam = newTeam
     slotInfo.nurseTeam = newTeam
@@ -1621,9 +1560,9 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
     teamInfo.nurseTeamTakeOff = newTeam
     slotInfo.nurseTeamTakeOff = newTeam
   }
-
   setTeamChange()
 }
+
 function onDragStart(event, patientDetail, responsibility) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -1636,12 +1575,10 @@ function onDragStart(event, patientDetail, responsibility) {
 
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
-
   if (!bedChangeTargetShift.value) {
     const currentShiftCode = patientDetail.shiftId.split('-')[2]
     bedChangeTargetShift.value = currentShiftCode
   }
-
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
@@ -1651,18 +1588,15 @@ function handleBedChange({ oldShiftId, newShiftId }) {
     isBedChangeDialogVisible.value = false
     return
   }
-
   if (pendingChangeInfo.value) {
     const { patientDetail, newTeam, newResponsibility } = pendingChangeInfo.value
     applyTeamAndScheduleChange(patientDetail, oldShiftId, newShiftId, newTeam, newResponsibility)
   } else {
     const movingSlotData = { ...currentRecord.schedule[oldShiftId] }
-
     delete currentRecord.schedule[oldShiftId]
     currentRecord.schedule[newShiftId] = movingSlotData
     setScheduleChange()
   }
-
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
@@ -1673,14 +1607,17 @@ function handleDialogCancel() {
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
+
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
+
 function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
+
 function showPrepPopover(event, teamData, shiftType) {
   const patientsInShift = teamData[shiftType]?.patients || []
   if (patientsInShift.length === 0) return
@@ -1688,9 +1625,11 @@ function showPrepPopover(event, teamData, shiftType) {
   prepPopoverData.targetElement = event.currentTarget
   isPrepPopoverVisible.value = true
 }
+
 function onPrepPopoverClose() {
   isPrepPopoverVisible.value = false
 }
+
 function updateNurseName(teamId, event) {
   if (isPageLocked.value) {
     event.target.value = currentTeamsRecord.value.names?.[teamId] || ''
@@ -1702,6 +1641,7 @@ function updateNurseName(teamId, event) {
   currentTeamsRecord.value.names[teamId] = event.target.value
   setTeamChange()
 }
+
 function changeDate(days) {
   const performChange = () => {
     const newDate = new Date(currentDate.value)
@@ -1716,6 +1656,7 @@ function changeDate(days) {
     performChange()
   }
 }
+
 function goToToday() {
   const performChange = () => {
     currentDate.value = new Date()
@@ -1728,20 +1669,24 @@ function goToToday() {
     performChange()
   }
 }
+
 function handleConfirm() {
   if (onConfirmAction.value) onConfirmAction.value()
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
+
 function handleCancel() {
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
+
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
+
 function handleTaskCreated() {
   showAlert('操作成功', '交辦/留言已成功新增！')
   isCreateTaskModalVisible.value = false
@@ -1749,7 +1694,6 @@ function handleTaskCreated() {
 
 async function showInjectionList(teamData, shiftType = null) {
   const patientIds = new Set()
-
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
     teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
   } else {
@@ -1759,25 +1703,21 @@ async function showInjectionList(teamData, shiftType = null) {
       }
     }
   }
-
   const patientIdArray = Array.from(patientIds)
   if (patientIdArray.length === 0) {
     dailyInjections.value = []
     isInjectionDialogVisible.value = true
     return
   }
-
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
   dailyInjections.value = []
-
   try {
     const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
     const result = await getDailyInjections({
       targetDate: formatDate(currentDate.value),
       patientIds: patientIdArray,
     })
-
     if (result.data && result.data.success) {
       dailyInjections.value = result.data.injections
     } else {
@@ -1805,17 +1745,14 @@ function promptDuplicateLateShift() {
 
 function duplicateLateShiftForTakeOff() {
   if (isPageLocked.value) return
-
   for (const shiftId in currentRecord.schedule) {
     const slot = currentRecord.schedule[shiftId]
     if (!slot) continue
     const shiftCode = shiftId.split('-')[2]
-
     if (shiftCode === SHIFT_CODES.LATE && slot.patientId) {
       const teamKey = `${slot.patientId}-${shiftCode}`
       if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
       const teamInfo = currentTeamsRecord.value.teams[teamKey] || {}
-
       if (teamInfo.nurseTeam) {
         const newTeamName = teamInfo.nurseTeam.replace('晚', '夜間收針')
         teamInfo.nurseTeamTakeOff = newTeamName
@@ -1824,7 +1761,6 @@ function duplicateLateShiftForTakeOff() {
       currentTeamsRecord.value.teams[teamKey] = teamInfo
     }
   }
-
   if (currentTeamsRecord.value.names) {
     for (const teamName in currentTeamsRecord.value.names) {
       if (teamName.startsWith('晚')) {
@@ -1836,7 +1772,6 @@ function duplicateLateShiftForTakeOff() {
       }
     }
   }
-
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已建立，您可以開始調整。')
 }
@@ -1851,16 +1786,13 @@ function promptRemoveLateShiftTakeOff() {
 
 function removeLateShiftTakeOff() {
   if (isPageLocked.value) return
-
   for (const shiftId in currentRecord.schedule) {
     const slot = currentRecord.schedule[shiftId]
     if (!slot) continue
     const shiftCode = shiftId.split('-')[2]
-
     if (shiftCode === SHIFT_CODES.LATE && slot.patientId) {
       const teamKey = `${slot.patientId}-${shiftCode}`
       const teamInfo = currentTeamsRecord.value.teams[teamKey]
-
       if (teamInfo && typeof teamInfo.nurseTeamTakeOff !== 'undefined') {
         delete teamInfo.nurseTeamTakeOff
       }
@@ -1869,7 +1801,6 @@ function removeLateShiftTakeOff() {
       }
     }
   }
-
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已移除。')
 }
@@ -1891,10 +1822,9 @@ onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
 
-// ✨✨✨ 核心修正：移除 watch(currentUser, ...) 內的 taskStore 管理
 watch(currentUser, (newUser) => {
   if (!newUser) {
-    // 可以在此處清理頁面相關資料
+    // Can clear page-specific data here
   }
 })
 
@@ -1903,9 +1833,8 @@ watch(currentDate, (newDate) => {
   loadDailyStaffInfo(newDate)
 })
 
-// ✨✨✨ 核心修正：onUnmounted 中不再需要 cleanupListeners
 onUnmounted(() => {
-  // 此處可以保留用於清理此頁面特有的監聽器 (如果有的話)
+  // Can clean up page-specific listeners here if any
 })
 </script>
 
@@ -2212,10 +2141,32 @@ button.btn-primary:hover:not(:disabled) {
   background-color: #ffcc80;
   border-color: #ffb74d;
 }
+/* ✨ [顏色修正] 針對有抽血任務的病人項目樣式 */
 .patient-item.tag-chou {
-  background-color: #658ee0;
-  border-color: #42a5f5;
+  background-color: #658ee0 !important; /* ✨ 替換為您指定的深藍色 */
+  color: white !important; /* ✨ 將文字顏色改為白色 */
+  border-color: #3949ab !important; /* 邊框使用一個更深的藍色，與背景搭配 */
 }
+
+/* 確保在這個背景色下，所有子元素的文字都變成白色 */
+.patient-item.tag-chou,
+.patient-item.tag-chou .patient-line-one,
+.patient-item.tag-chou .patient-line-two,
+.patient-item.tag-chou .note-display {
+  color: white !important;
+}
+
+/* 微調特殊模式標籤和床號標籤的樣式 */
+.patient-item.tag-chou .stats-special-mode {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+.patient-item.tag-chou .ward-number-display {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
 .patient-item.tag-new {
   background-color: #f5ec8e;
   border-color: #e0d567;

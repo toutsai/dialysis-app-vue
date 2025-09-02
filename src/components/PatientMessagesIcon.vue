@@ -14,29 +14,37 @@
 
 <script setup>
 import { computed, inject } from 'vue'
+import { useTaskStore } from '@/stores/taskStore.js'
 
 const props = defineProps({
   patientId: {
     type: String,
     required: true,
   },
-  // ✨ 直接接收父元件計算好的 Map
-  typesMap: {
-    type: Map,
-    required: true,
-  },
   context: {
     type: String,
-    default: 'detail', // 預設行為是打開詳細彈窗
+    default: 'detail',
   },
 })
 
-// ✨ messageTypes 的來源變為 props
+const taskStore = useTaskStore()
+
+// ✨ 1. 注入來自父層 (如 ScheduleView) 的正在檢視的日期
+// 如果沒有提供，就預設為 null，這樣 getter 會自動使用今天的日期
+const viewingDate = inject('viewingDate', null)
+
+// ✨ 2. [核心修改] messageTypes 現在會根據注入的日期來計算
 const messageTypes = computed(() => {
-  if (!props.patientId || !props.typesMap) return []
-  return props.typesMap.get(props.patientId) || []
+  if (!props.patientId) return []
+
+  // 呼叫 store 的 getter 函式，並傳入我們從父層得到的 viewingDate 的值
+  // 如果 viewingDate 是 null (例如在某些頁面沒有提供)，getter 會自動用今天
+  const mapForDate = taskStore.getPatientMessageTypesMapForDate(viewingDate?.value)
+
+  return mapForDate.get(props.patientId) || []
 })
 
+// handleIconClick 的注入保持不變
 const handleIconClick = inject('handleIconClick', (patientId, context) => {
   console.warn(
     `[PatientMessagesIcon] handleIconClick function was not provided. Clicked on patient ${patientId} with context ${context}.`,
