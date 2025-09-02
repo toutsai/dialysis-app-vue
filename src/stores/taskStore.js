@@ -130,6 +130,35 @@ export const useTaskStore = defineStore('task', () => {
     return myPendingTasksCount + myPendingMemosCount
   })
 
+  // ✨ [新增 GETTER] 專門用來計算今日相關的病人留言數量
+  const todayRelevantMemosCount = computed(() => {
+    // 回傳一個函式，讓它可以接收外部傳入的參數 (病人 ID 陣列)
+    return (patientIdArray) => {
+      if (!patientIdArray || patientIdArray.length === 0) {
+        return 0
+      }
+
+      const today = new Date()
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
+        today.getDate(),
+      ).padStart(2, '0')}`
+
+      const patientIdSet = new Set(patientIdArray)
+
+      // 直接使用原始的 feedMessages 進行過濾
+      return feedMessages.value.filter((item) => {
+        const isTargetDateRelevant = !item.targetDate || item.targetDate <= todayStr
+
+        return (
+          item.status === 'pending' &&
+          item.patientId &&
+          patientIdSet.has(item.patientId) &&
+          isTargetDateRelevant
+        )
+      }).length
+    }
+  })
+
   // --- Actions ---
   function startRealtimeUpdates(uid) {
     if (unsubscribes.length > 0) return
@@ -291,6 +320,7 @@ export const useTaskStore = defineStore('task', () => {
     myTasks,
     mySentTasks,
     sortedFeedMessages,
+    todayRelevantMemosCount, // ✨ 記得要 return 新的 getter
     getPatientMessageTypesMapForDate,
     allPendingPatientMessageTypesMap,
     todayTaskCount,

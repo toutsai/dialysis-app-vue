@@ -246,43 +246,22 @@ const isManagementSectionCollapsed = ref(true)
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const taskStore = useTaskStore()
-// ✨ 1. 直接從 taskStore 解構出我們需要的原始資料
-const { myTasks, feedMessages } = storeToRefs(taskStore)
+// ✨ 1. 只解構出需要的 state，getter 則直接從 store 實例取用
+const { myTasks } = storeToRefs(taskStore)
+const { todayRelevantMemosCount } = taskStore // Getter 不是 ref，直接從 store 實例取
 
 const todayMyPatientIds = ref([])
 const assignmentsApi = ApiManager('nurse_assignments')
 
-// ✨ 2. 將計數邏輯直接寫在 MainLayout 的 computed 中
+// ✨ 2. 大幅簡化 notificationCount 的計算邏輯
 const notificationCount = computed(() => {
   if (!currentUser.value) return 0
 
-  // 計算我的待辦事項數量
+  // 計算我的待辦事項數量 (這部分不變)
   const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
 
-  // 如果沒有分配病人，直接返回任務數
-  if (!todayMyPatientIds.value || todayMyPatientIds.value.length === 0) {
-    return myPendingTasksCount
-  }
-
-  // ✨ 1. 建立今天的日期字串用於比較
-  const today = new Date()
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
-    today.getDate(),
-  ).padStart(2, '0')}`
-
-  // 計算我負責病人的留言數量
-  const patientIdSet = new Set(todayMyPatientIds.value)
-  const myPendingMemosCount = feedMessages.value.filter((item) => {
-    // ✨ 2. 在過濾條件中加入日期判斷
-    const isTargetDateRelevant = !item.targetDate || item.targetDate <= todayStr
-
-    return (
-      item.status === 'pending' &&
-      item.patientId &&
-      patientIdSet.has(item.patientId) &&
-      isTargetDateRelevant // ✨ 3. 應用日期判斷結果
-    )
-  }).length
+  // 直接呼叫 store 中已經處理好所有邏輯的 getter，並傳入今天的病人 ID 陣列
+  const myPendingMemosCount = todayRelevantMemosCount(todayMyPatientIds.value)
 
   return myPendingTasksCount + myPendingMemosCount
 })
