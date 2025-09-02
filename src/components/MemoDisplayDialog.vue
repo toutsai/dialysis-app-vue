@@ -17,7 +17,7 @@
               {{ memo.content }}
             </p>
             <div class="memo-meta-in-dialog">
-              <span>建立於: {{ new Date(memo.createdAt?.toDate()).toLocaleDateString() }}</span>
+              <span>建立於: {{ memo.createdAt.toLocaleDateString() }}</span>
               <span v-if="memo.targetDate"
                 >| 目標日期: <strong>{{ memo.targetDate }}</strong></span
               >
