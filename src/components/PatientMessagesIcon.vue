@@ -13,30 +13,39 @@
 </template>
 
 <script setup>
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useTaskStore } from '@/stores/taskStore.js' // ✨ 1. 引入 taskStore
 
 const props = defineProps({
   patientId: {
     type: String,
     required: true,
   },
-  // ✨ 直接接收父元件計算好的 Map
+  // ✨ 2. [移除] 不再需要 typesMap 這個 prop
+  /*
   typesMap: {
     type: Map,
     required: true,
   },
+  */
   context: {
     type: String,
-    default: 'detail', // 預設行為是打開詳細彈窗
+    default: 'detail',
   },
 })
 
-// ✨ messageTypes 的來源變為 props
+const taskStore = useTaskStore() // ✨ 3. 實例化 store
+
+// ✨ 4. [核心修改] messageTypes 直接從 store 的 getter 中計算而來
 const messageTypes = computed(() => {
-  if (!props.patientId || !props.typesMap) return []
-  return props.typesMap.get(props.patientId) || []
+  if (!props.patientId) return []
+  // 直接使用 store 中已經計算好的 Map，並用自己的 patientId 查找
+  // 這是完全響應式的，當 store 資料更新，這裡會自動重新計算
+  return taskStore.getPatientMessageTypesMapForDate.get(props.patientId) || []
 })
 
+// handleIconClick 的注入保持不變
+import { inject } from 'vue'
 const handleIconClick = inject('handleIconClick', (patientId, context) => {
   console.warn(
     `[PatientMessagesIcon] handleIconClick function was not provided. Clicked on patient ${patientId} with context ${context}.`,

@@ -107,31 +107,52 @@ export function generateAutoNote(patient) {
 }
 
 /**
- * 🔥 【新增】統一的細胞樣式計算函數
+ * 🔥 【增強版 v2】統一的細胞樣式計算函數
  * 所有視圖都應該使用這個函數來確保顏色一致性
  * @param {Object} slotData - 排程數據
  * @param {Object} patient - 病人數據
  * @param {string} freq - 頻率 (可從 slotData 或 patient 獲取)
+ * @param {Array<string>} [messageTypes=[]] - [新增] 該病人今天的任務類型陣列，例如 ['抽血', '衛教']
  * @returns {Object} - CSS 類名對象
  */
-export function getUnifiedCellStyle(slotData, patient, freq = null) {
+export function getUnifiedCellStyle(slotData, patient, freq = null, messageTypes = []) {
+  // ✨ 1. 新增 messageTypes 參數
   if (!slotData || !slotData.patientId || !patient) {
     return {}
   }
 
-  // 獲取頻率：優先使用 slotData 中的頻率，其次是 patient 的頻率
+  // ... (獲取 finalFreq 和 combinedNote 的程式碼保持不變)
   const finalFreq = freq || slotData.freq || patient.freq
-
-  // 合併所有備註文字用於檢查標籤
   const autoNote = slotData.autoNote || ''
   const manualNote = slotData.manualNote || ''
   const combinedNote = `${autoNote} ${manualNote}`.trim()
 
-  // 🔥 按優先級檢查標籤 (抽>新>住=急>兩>門)
   let highestPriorityTag = null
   let highestPriority = 999
 
+  // ✨ 2. [核心修改] 將來自 taskStore 的即時任務資訊也納入優先級判斷
+  // 檢查 '抽血'
+  if (messageTypes.includes('抽血')) {
+    const tagConfig = PRIORITY_TAGS['抽']
+    if (tagConfig && tagConfig.priority < highestPriority) {
+      highestPriorityTag = tagConfig
+      highestPriority = tagConfig.priority
+    }
+  }
+  // 檢查 '衛教' (對應到您定義的 '新')
+  if (messageTypes.includes('衛教')) {
+    const tagConfig = PRIORITY_TAGS['新']
+    if (tagConfig && tagConfig.priority < highestPriority) {
+      highestPriorityTag = tagConfig
+      highestPriority = tagConfig.priority
+    }
+  }
+
+  // 繼續檢查來自備註的標籤
   for (const [tag, config] of Object.entries(PRIORITY_TAGS)) {
+    // 我們已經處理過 '抽' 和 '新'，可以跳過以免重複
+    if (tag === '抽' || tag === '新') continue
+
     if (combinedNote.includes(tag) && config.priority < highestPriority) {
       highestPriorityTag = config
       highestPriority = config.priority

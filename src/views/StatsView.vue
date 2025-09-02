@@ -222,11 +222,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -289,11 +285,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -356,11 +348,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -473,11 +461,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -540,11 +524,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -673,11 +653,7 @@
                         }}</span>
                       </div>
                     </div>
-                    <PatientMessagesIcon
-                      :patient-id="patient.id"
-                      :types-map="patientMessageTypesMap"
-                      context="dialog"
-                    />
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
                 <div class="cell-actions-container">
@@ -762,11 +738,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
             <div v-if="teamData.noonShiftOn.patients.length > 0" class="mobile-patient-list">
@@ -791,11 +763,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
             <div v-if="teamData.noonShiftOff.patients.length > 0" class="mobile-patient-list">
@@ -820,11 +788,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
           </div>
@@ -878,11 +842,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
             <div v-if="teamData.lateShift.patients.length > 0" class="mobile-patient-list">
@@ -907,11 +867,7 @@
                     }}</span>
                   </div>
                 </div>
-                <PatientMessagesIcon
-                  :patient-id="patient.id"
-                  :types-map="patientMessageTypesMap"
-                  context="dialog"
-                />
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
               </div>
             </div>
           </div>
@@ -963,11 +919,7 @@
                       }}</span>
                     </div>
                   </div>
-                  <PatientMessagesIcon
-                    :patient-id="patient.id"
-                    :types-map="patientMessageTypesMap"
-                    context="dialog"
-                  />
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                 </div>
               </div>
             </div>
@@ -1066,7 +1018,6 @@ import { getMedicationUnit } from '@/utils/medicationUtils.js'
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const { patientMap } = storeToRefs(patientStore)
-const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
 const { currentUser } = useAuth()
 
 // API 管理器
@@ -1182,12 +1133,6 @@ const lateShiftTakeOffExists = computed(() => {
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
   )
 })
-// ✨ 核心修正 #2: 修改 patientMessageTypesMap 的計算方式
-const patientMessageTypesMap = computed(() => {
-  // 之前: taskStore.getPatientMessageTypesMapForDate(formatDate(currentDate.value))
-  // 現在: 直接使用從 store 解構出來的 getter，它已經是響應式的了
-  return getPatientMessageTypesMapForDate.value
-})
 
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
@@ -1223,12 +1168,19 @@ const effectiveStatsData = computed(() => {
     return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
   }
 
+  const messagesMap = taskStore.getPatientMessageTypesMapForDate
+
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
 
     const patient = patientMap.value.get(shiftDetails.patientId)
     if (!patient) continue
+
+    const messageTypesForPatient = messagesMap.get(patient.id) || []
+
+    // ✨ 我們先在這裡呼叫一次，獲取正確的樣式物件
+    const cellStyles = getUnifiedCellStyle(shiftDetails, patient, null, messageTypesForPatient)
 
     const {
       patientId,
@@ -1239,6 +1191,7 @@ const effectiveStatsData = computed(() => {
       nurseTeamOut,
       nurseTeamTakeOff,
     } = shiftDetails || {}
+
     const detail = {
       id: patientId,
       shiftId,
@@ -1250,12 +1203,15 @@ const effectiveStatsData = computed(() => {
       finalTags: [...new Set([...(autoNote || '').split(' '), ...(manualNote || '').split(' ')])]
         .filter((tag) => tag && !['住', '急'].includes(tag))
         .join(' '),
+
+      // ✨ [核心修正] 直接使用上面計算好的 cellStyles 來產生 class 字串
       classes:
         'patient-item ' +
-        Object.entries(getUnifiedCellStyle(shiftDetails, patient))
+        Object.entries(cellStyles)
           .filter(([, v]) => v)
           .map(([k]) => k)
           .join(' '),
+
       dialysisOrders: patient.dialysisOrders || {},
     }
 

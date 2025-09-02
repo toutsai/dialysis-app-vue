@@ -198,7 +198,6 @@
                           :patient-id="
                             currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId
                           "
-                          :types-map="patientMessageTypesMapForToday"
                           context="detail"
                         />
                         <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
@@ -271,7 +270,6 @@
                           :patient-id="
                             currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId
                           "
-                          :types-map="patientMessageTypesMapForToday"
                           context="detail"
                         />
                         <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
@@ -445,7 +443,6 @@
                               :patient-id="
                                 currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId
                               "
-                              :types-map="patientMessageTypesMapForToday"
                               context="quick-view"
                             />
                           </div>
@@ -591,7 +588,6 @@
                           :patient-id="
                             currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId
                           "
-                          :types-map="patientMessageTypesMapForToday"
                           context="quick-view"
                         />
                       </div>
@@ -656,7 +652,6 @@
                     <div class="patient-name-wrapper">
                       <PatientMessagesIcon
                         :patient-id="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId"
-                        :types-map="patientMessageTypesMapForToday"
                         context="detail"
                       />
                       <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
@@ -716,7 +711,6 @@
                         :patient-id="
                           currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId
                         "
-                        :types-map="patientMessageTypesMapForToday"
                         context="detail"
                       />
                       <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
@@ -973,7 +967,6 @@ import { storeToRefs } from 'pinia'
 // ===================================================================
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
-const { getPatientMessageTypesMapForDate } = storeToRefs(taskStore)
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
 const auth = useAuth()
@@ -1113,12 +1106,6 @@ const { scheduledPatientIds, getDailyUnassignedPatients, getDailyTemporaryPatien
     computed(() => currentRecord.schedule),
     freqToDays,
   )
-
-const patientMessageTypesMapForToday = computed(() => {
-  // 之前的邏輯是 taskStore.getPatientMessageTypesMapForDate(todayStr)，現在直接用 getter
-  // 這個 getter 內部已經處理了日期的問題，總是返回當天的 Map
-  return getPatientMessageTypesMapForDate.value
-})
 
 const patientHasPendingMessages = computed(() => {
   // ✨✨✨ START: 核心修正點 ✨✨✨
@@ -1404,13 +1391,21 @@ async function fetchRecentRecords() {
     return []
   }
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   if (!slotData || !slotData.patientId) return {}
+
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
-  return getUnifiedCellStyle(slotData, patient)
+
+  // ✨ [核心修改] 從 taskStore 的 getter 中獲取該病人的任務類型
+  const messageTypesForPatient = taskStore.getPatientMessageTypesMapForDate.get(patient.id) || []
+
+  // ✨ 將獲取到的任務類型作為第四個參數傳遞給 getUnifiedCellStyle
+  return getUnifiedCellStyle(slotData, patient, null, messageTypesForPatient)
 }
+
 function getPatientWardNumber(patientId) {
   if (!patientId) return ''
   const patient = patientMap.value.get(patientId)
