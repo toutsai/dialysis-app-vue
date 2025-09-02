@@ -22,6 +22,14 @@
 
           <button @click="changeDate(1)">下一日 ❯</button>
           <button @click="goToToday" class="btn-goto-today">今日</button>
+          <!-- ✨ [新增] 組長交班按鈕 ✨ -->
+          <button
+            class="btn btn-handover"
+            @click="isHandoverDialogVisible = true"
+            :disabled="isPageLocked"
+          >
+            <i class="fas fa-clipboard-list"></i> 組長交班
+          </button>
         </div>
       </div>
       <div class="header-right">
@@ -354,11 +362,11 @@
           <h2>其他事項</h2>
           <div class="autoresize-textarea-wrapper">
             <textarea
-              v-model="dailyLog.handoverNotes"
-              ref="handoverTextarea"
+              v-model="dailyLog.otherNotes"
+              ref="otherNotesTextarea"
               class="handover-textarea"
               rows="1"
-              placeholder="請輸入交班事項..."
+              placeholder="請輸入其他事項..."
               @input="handleTextareaInput"
             ></textarea>
           </div>
@@ -582,10 +590,10 @@
         <!-- 行動版：其他事項 -->
         <div class="mobile-section-card">
           <h2 class="mobile-section-title">其他事項</h2>
-          <p v-if="dailyLog.handoverNotes" class="handover-notes-display">
-            {{ dailyLog.handoverNotes }}
+          <p v-if="dailyLog.otherNotes" class="handover-notes-display">
+            {{ dailyLog.otherNotes }}
           </p>
-          <p v-else class="no-data-text">無其他交班事項</p>
+          <p v-else class="no-data-text">無其他事項</p>
         </div>
 
         <!-- 行動版：組長簽核 -->
@@ -650,6 +658,14 @@
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
+    <!-- ✨ [新增] 將新元件加到頁面中 ✨ -->
+    <HandoverNotesDialog
+      :is-visible="isHandoverDialogVisible"
+      :initial-notes="handoverNotes"
+      :target-date="selectedDate"
+      @close="isHandoverDialogVisible = false"
+      @save="handleSaveHandoverNotes"
+    />
   </div>
 </template>
 
@@ -665,6 +681,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import HandoverNotesDialog from '@/components/HandoverNotesDialog.vue'
 
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
@@ -678,8 +695,10 @@ const schedulesApi = ApiManager('schedules')
 const isLoading = ref(false)
 const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
-const { currentUser } = useAuth()
+const { currentUser, canEditSchedules } = useAuth()
+const isPageLocked = computed(() => !canEditSchedules.value)
 const handoverTextarea = ref(null)
+const otherNotesTextarea = ref(null) // Renamed from handoverTextarea for clarity
 const isWardDialogVisible = ref(false)
 const currentEditingMovementIndex = ref(-1)
 const isConfirmDialogVisible = ref(false)
@@ -690,6 +709,8 @@ const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 const currentSchedule = ref({})
+const isHandoverDialogVisible = ref(false)
+const handoverNotes = ref('')
 
 const initialLogState = () => ({
   id: null,
@@ -715,6 +736,7 @@ const initialLogState = () => ({
   patientMovements: [],
   vascularAccessLog: [],
   handoverNotes: '',
+  otherNotes: '', // Added for "其他事項"
   leader: {
     early: { userId: null, name: null, signedAt: null },
     noon: { userId: null, name: null, signedAt: null },
@@ -807,6 +829,7 @@ async function loadDailyLog(dateStr) {
   hasUnsavedChanges.value = false
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
+  handoverNotes.value = '' // Reset handover notes
   try {
     await patientStore.fetchPatientsIfNeeded()
     const [logResult, scheduleData] = await Promise.all([
@@ -816,6 +839,7 @@ async function loadDailyLog(dateStr) {
     if (logResult) {
       const mergedLog = { ...initialLogState(), ...logResult }
       Object.assign(dailyLog, mergedLog)
+      handoverNotes.value = logResult.handoverNotes || '' // Load handover notes
     }
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
@@ -911,12 +935,15 @@ function changeDate(days) {
   newDate.setDate(newDate.getDate() + days)
   selectedDate.value = formatDate(newDate)
 }
+
 function goToToday() {
   selectedDate.value = formatDate(new Date())
 }
+
 function triggerDateInput() {
   document.querySelector('.hidden-date-input').showPicker()
 }
+
 function addRow(targetArrayKey) {
   const newId = Date.now()
   if (targetArrayKey === 'patientMovements') {
@@ -942,11 +969,13 @@ function addRow(targetArrayKey) {
     })
   }
 }
+
 function deleteRow(index, targetArrayKey) {
   showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
     dailyLog[targetArrayKey].splice(index, 1)
   })
 }
+
 function handlePatientSearch(index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   const query = targetArray[index].name.toLowerCase()
@@ -958,6 +987,7 @@ function handlePatientSearch(index, type) {
     (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
   )
 }
+
 function showAutocomplete(event, index, type) {
   activeSearch.value = { type, index }
   handlePatientSearch(index, type)
@@ -968,11 +998,13 @@ function showAutocomplete(event, index, type) {
   autocompleteStyle.width = `${rect.width}px`
   isAutocompleteVisible.value = true
 }
+
 function hideAutocomplete() {
   setTimeout(() => {
     isAutocompleteVisible.value = false
   }, 200)
 }
+
 function selectPatient(patient, index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   targetArray[index].name = patient.name
@@ -996,6 +1028,7 @@ function selectPatient(patient, index, type) {
   }
   isAutocompleteVisible.value = false
 }
+
 async function signAsLeader(shift) {
   if (!currentUser.value) return
   const performSign = async (isOverride = false) => {
@@ -1021,6 +1054,7 @@ async function signAsLeader(shift) {
   }
   showConfirm(confirmTitle, confirmMsg, performSign)
 }
+
 function formatSignTime(isoString) {
   if (!isoString) return ''
   const date = new Date(isoString)
@@ -1028,6 +1062,7 @@ function formatSignTime(isoString) {
   const minutes = date.getMinutes().toString().padStart(2, '0')
   return `${hours}:${minutes}`
 }
+
 async function unsignLeader(shift) {
   if (!currentUser.value) return
   const performUnsign = async () => {
@@ -1049,29 +1084,34 @@ async function unsignLeader(shift) {
     }
   }
 }
+
 function showConfirm(title, message, onConfirmCallback) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
   confirmAction.value = onConfirmCallback
   isConfirmDialogVisible.value = true
 }
+
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
   }
   handleCancel()
 }
+
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmDialogTitle.value = ''
   confirmDialogMessage.value = ''
   confirmAction.value = null
 }
+
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
+
 function promptWardNumber(index) {
   const patientId = dailyLog.patientMovements[index]?.patientId
   if (!patientId) {
@@ -1089,6 +1129,7 @@ function promptWardNumber(index) {
   currentEditingMovementIndex.value = index
   isWardDialogVisible.value = true
 }
+
 async function handleWardNumberConfirm(newWardNumber) {
   const index = currentEditingMovementIndex.value
   if (index < 0) return
@@ -1105,22 +1146,33 @@ async function handleWardNumberConfirm(newWardNumber) {
     handleWardNumberCancel()
   }
 }
+
 function handleWardNumberCancel() {
   isWardDialogVisible.value = false
   currentEditingMovementIndex.value = -1
 }
+
 function handleTextareaInput() {
-  const textarea = handoverTextarea.value
-  if (textarea) {
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
-  }
+  const textareas = [handoverTextarea.value, otherNotesTextarea.value]
+  textareas.forEach((textarea) => {
+    if (textarea) {
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  })
 }
+
 async function exportToPDF() {
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
+
+  // 先儲存任何未儲存的變更
+  if (hasUnsavedChanges.value) {
+    await saveLog('匯出前自動儲存日誌')
+  }
+
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
@@ -1130,17 +1182,21 @@ async function exportToPDF() {
     }
     isLoading.value = true
   }
+
   await new Promise((resolve) => setTimeout(resolve, 50))
+
   try {
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
       showAlert('錯誤', '找不到要匯出的內容！')
       return
     }
-    isLoading.value = false
+
+    // Temporarily apply export mode for rendering
     exportArea.classList.add('pdf-export-mode')
     await nextTick()
     await new Promise((resolve) => setTimeout(resolve, 100))
+
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
@@ -1148,41 +1204,47 @@ async function exportToPDF() {
       ignoreElements: (element) =>
         element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
+
+    // Remove export mode after rendering
+    exportArea.classList.remove('pdf-export-mode')
+
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
-    const pdfWidth = 210
-    const pdfHeight = 297
-    const contentWidth = canvas.width
-    const contentHeight = canvas.height
-    const pageHeight = (contentWidth / pdfWidth) * pdfHeight
-    let leftHeight = contentHeight
-    let position = 0
     const pdf = new jsPDF('p', 'mm', 'a4')
-    if (leftHeight < pageHeight) {
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+    const imgWidth = canvas.width
+    const imgHeight = canvas.height
+    const ratio = imgWidth / pdfWidth
+    const scaledHeight = imgHeight / ratio
+
+    let heightLeft = scaledHeight
+    let position = 0
+    const margin = 10
+
+    pdf.addImage(
+      imgData,
+      'JPEG',
+      margin,
+      position + margin,
+      pdfWidth - margin * 2,
+      scaledHeight - margin * 2,
+    )
+    heightLeft -= pdfHeight - margin * 2
+
+    while (heightLeft > 0) {
+      position -= pdfHeight - margin * 2
+      pdf.addPage()
       pdf.addImage(
         imgData,
         'JPEG',
-        10,
-        10,
-        pdfWidth - 20,
-        (pdfWidth / contentWidth) * contentHeight - 20,
+        margin,
+        position + margin,
+        pdfWidth - margin * 2,
+        scaledHeight - margin * 2,
       )
-    } else {
-      while (leftHeight > 0) {
-        pdf.addImage(
-          imgData,
-          'JPEG',
-          10,
-          position + 10,
-          pdfWidth - 20,
-          (pdfWidth / contentWidth) * contentHeight - 20,
-        )
-        leftHeight -= pageHeight
-        position -= pdfHeight
-        if (leftHeight > 0) {
-          pdf.addPage()
-        }
-      }
+      heightLeft -= pdfHeight - margin * 2
     }
+
     pdf.save(`血液透析中心工作日誌_${selectedDate.value}.pdf`)
   } catch (error) {
     console.error('匯出 PDF 失敗:', error)
@@ -1198,14 +1260,24 @@ async function exportToPDF() {
     isLoading.value = false
   }
 }
+
+function handleSaveHandoverNotes(newNotes) {
+  handoverNotes.value = newNotes
+  dailyLog.handoverNotes = newNotes
+  hasUnsavedChanges.value = true
+  isHandoverDialogVisible.value = false
+}
+
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 })
+
 watch(selectedDate, (newDate) => {
   if (newDate) {
     loadDailyLog(newDate)
   }
 })
+
 watch(
   dailyLog,
   () => {
@@ -1217,8 +1289,22 @@ watch(
 </script>
 
 <style scoped>
-/* ✨ [Style 修改] 引入 Font Awesome (如果全域沒有的話) 和新增按鈕樣式 ✨ */
+/* ✨ [Style 修改] 引入 Font Awesome 和新增按鈕樣式 ✨ */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+
+.btn-handover {
+  background-color: #ffc107;
+  color: #212529;
+  border-color: #ffc107;
+}
+
+.btn-handover:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
+.btn-handover i {
+  margin-right: 0.5rem;
+}
 
 /* 頁面與標題 */
 .log-page-container {
