@@ -65,36 +65,45 @@ export const useTaskStore = defineStore('task', () => {
   })
 
   // [原有 Getter] - 根據 "今天" 過濾備忘，適用於每日排程
+  // ✨ [核心修改] 將 getter 改造為一個返回函式的工廠模式
   const getPatientMessageTypesMapForDate = computed(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    // 1. getter 現在返回一個可以接收 `targetDate` 參數的函式
+    return (targetDate) => {
+      // 2. 如果沒有傳入日期，就預設使用今天的日期
+      const dateToCompare = targetDate ? new Date(targetDate) : new Date()
+      dateToCompare.setHours(0, 0, 0, 0)
 
-    const map = new Map()
-    const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
+      const dateStr = `${dateToCompare.getFullYear()}-${String(
+        dateToCompare.getMonth() + 1,
+      ).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
 
-    for (const msg of pendingMessages) {
-      if (!msg.patientId) continue
+      const map = new Map()
+      // 3. 過濾邏輯保持不變，但現在是跟傳入的日期做比較
+      const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
 
-      let shouldDisplayIcon = false
+      for (const msg of pendingMessages) {
+        if (!msg.patientId) continue
 
-      if (!msg.targetDate || msg.targetDate <= todayStr) {
-        shouldDisplayIcon = true
-      }
+        let shouldDisplayIcon = false
 
-      if (shouldDisplayIcon) {
-        if (!map.has(msg.patientId)) {
-          map.set(msg.patientId, new Set())
+        if (!msg.targetDate || msg.targetDate <= dateStr) {
+          shouldDisplayIcon = true
         }
-        map.get(msg.patientId).add(msg.type || '常規')
-      }
-    }
 
-    const finalMap = new Map()
-    for (const [patientId, typeSet] of map.entries()) {
-      finalMap.set(patientId, Array.from(typeSet))
+        if (shouldDisplayIcon) {
+          if (!map.has(msg.patientId)) {
+            map.set(msg.patientId, new Set())
+          }
+          map.get(msg.patientId).add(msg.type || '常規')
+        }
+      }
+
+      const finalMap = new Map()
+      for (const [patientId, typeSet] of map.entries()) {
+        finalMap.set(patientId, Array.from(typeSet))
+      }
+      return finalMap
     }
-    return finalMap
   })
 
   const allPendingPatientMessageTypesMap = computed(() => {

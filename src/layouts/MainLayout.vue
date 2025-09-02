@@ -379,19 +379,6 @@ function stopSharedDataListeners() {
   }
 }
 
-const triggerScheduleCheck = async () => {
-  if (sessionStorage.getItem('hasCheckedSchedules')) {
-    return
-  }
-  try {
-    const checkSchedules = httpsCallable(functions, 'checkSchedules')
-    await checkSchedules()
-    sessionStorage.setItem('hasCheckedSchedules', 'true')
-  } catch (error) {
-    console.error('觸發排程檢查失敗:', error)
-  }
-}
-
 watch(
   () => currentUser.value,
   async (newUser) => {
@@ -399,7 +386,6 @@ watch(
       console.log('✅ [MainLayout] User logged in, starting services.')
       startSharedDataListeners()
       startListening()
-      triggerScheduleCheck()
       await fetchTodayAssignedPatients()
       taskStore.startRealtimeUpdates(newUser.uid)
     } else {

@@ -970,7 +970,7 @@ const taskStore = useTaskStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 
 const auth = useAuth()
-const { createGlobalNotification } = useGlobalNotifier()
+const { createGlobalNotifier } = useGlobalNotifier()
 const router = useRouter()
 const { distributePatients } = useTeamAssigner()
 
@@ -1076,6 +1076,9 @@ const currentEditingShiftId = ref(null)
 const shiftCodeForDialog = ref(null)
 const patientIdsForDialog = ref([])
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
+// ✨✨✨ [核心修改] ✨✨✨
+// 將 provide 放在這裡，在 currentDate 被定義之後
+provide('viewingDate', currentDate)
 
 // ===================================================================
 // 5. Computed Properties
@@ -1399,10 +1402,11 @@ function getPatientCellStyle(shiftId) {
   const patient = patientMap.value.get(slotData.patientId)
   if (!patient) return {}
 
-  // ✨ [核心修改] 從 taskStore 的 getter 中獲取該病人的任務類型
-  const messageTypesForPatient = taskStore.getPatientMessageTypesMapForDate.get(patient.id) || []
+  // 從 taskStore 的 getter 中獲取該病人在「當前檢視日期」下的任務類型
+  const messageTypesForPatient =
+    taskStore.getPatientMessageTypesMapForDate(currentDate.value).get(patient.id) || []
 
-  // ✨ 將獲取到的任務類型作為第四個參數傳遞給 getUnifiedCellStyle
+  // 將任務類型傳遞給統一的樣式函式
   return getUnifiedCellStyle(slotData, patient, null, messageTypesForPatient)
 }
 
