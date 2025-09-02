@@ -1716,29 +1716,49 @@ watch(
 /* --- 頁籤與主內容 --- */
 .tabs-container {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-  flex-shrink: 0; /* ✨ 核心修改 3: 確保頁籤列高度固定 */
-  border-bottom: 1px solid #dee2e6;
+  /* 移除 justify-content，讓頁籤自然靠左 */
+  align-items: flex-end; /* ✨ 新增：讓頁籤底部對齊，為下邊框做準備 */
+  gap: 0.25rem; /* 縮小頁籤間距 */
+  margin-bottom: -1px; /* ✨ 新增：讓頁籤的邊框可以覆蓋下面的主內容邊框 */
+  padding-left: 1rem; /* ✨ 新增：讓頁籤從左邊稍微內縮 */
+  flex-shrink: 0;
+  /* 移除 border-bottom，我們將在父層容器 schedule-content 上處理 */
 }
+.tabs-left {
+  display: flex;
+}
+
 .tab-link {
   padding: 0.75rem 1.5rem;
   font-size: 1.1rem;
   font-weight: 500;
-  border: 1px solid transparent;
-  border-bottom: none;
   cursor: pointer;
   text-decoration: none;
-  color: #007bff;
-  margin-bottom: -1px;
+  border: 1px solid transparent; /* 預設邊框透明 */
+  border-bottom: none; /* 底部無邊框 */
+  border-radius: 8px 8px 0 0; /* 圓角效果 */
+  transition: all 0.2s ease-in-out;
+
+  /* ✨ 新增：非活躍狀態的樣式 ✨ */
+  background-color: #e9ecef; /* 更深的背景色 */
+  color: #6c757d; /* 較淡的文字顏色 */
+  border-color: #dee2e6;
 }
+
+.tab-link:hover {
+  /* ✨ 新增：更明顯的滑鼠懸停效果 ✨ */
+  background-color: #f8f9fa;
+  color: #0056b3;
+}
+
 .tab-link.active {
-  background-color: #fff;
-  border-color: #dee2e6 #dee2e6 #fff;
-  border-radius: 6px 6px 0 0;
-  color: #495057;
+  /* ✨ 新增：活躍狀態的樣式 ✨ */
+  background-color: #fff; /* 明亮的白色背景 */
+  color: #0056b3; /* 更深的藍色文字 */
+  font-weight: 600; /* 文字加粗 */
+  border-color: #dee2e6; /* 明確的邊框顏色 */
+  border-bottom: 1px solid #fff; /* ✨ 關鍵：用白色邊框覆蓋下方容器的邊框，製造無縫感 */
+  z-index: 2; /* 確保它在最上層 */
 }
 .schedule-content.new-layout {
   flex-grow: 1;
@@ -1789,8 +1809,8 @@ watch(
   border: 1px solid #dee2e6;
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  /* ✨ 核心修改 5: 讓左側班表容器自己產生滾動條 */
   overflow: auto;
+  border-top-left-radius: 0; /* ✨ 新增：左上角變為直角，與頁籤無縫銜接 */
 }
 .panels-container {
   flex: 1;
