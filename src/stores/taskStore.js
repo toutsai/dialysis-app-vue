@@ -1,10 +1,30 @@
-// 檔案路徑: src/stores/taskStore.js
-
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import { useAuth } from '@/composables/useAuth'
+
+// ✨ 1. 在 Store 的頂部定義一個全域、更強健的日期處理函式
+/**
+ * 安全地將多種日期格式轉換為 JavaScript Date 物件。
+ * @param {any} timestamp - 可能是 Firestore Timestamp, Date object, ISO string, or number.
+ * @returns {Date} 一個有效的 Date 物件。
+ */
+function getSafeDate(timestamp) {
+  if (!timestamp) return new Date(0)
+  // Case 1: Firestore Timestamp
+  if (typeof timestamp.toDate === 'function') {
+    return timestamp.toDate()
+  }
+  // Case 2: 已經是 JavaScript Date 物件
+  if (timestamp instanceof Date) {
+    return timestamp
+  }
+  // Case 3: 字串或數字
+  const date = new Date(timestamp)
+  // 檢查轉換結果是否有效
+  return isNaN(date.getTime()) ? new Date(0) : date
+}
 
 export const useTaskStore = defineStore('task', () => {
   // --- State ---
@@ -22,15 +42,11 @@ export const useTaskStore = defineStore('task', () => {
       const bIsDone = b.status === 'completed'
       if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
 
-      const getSafeDate = (timestamp) => {
-        if (!timestamp) return new Date(0)
-        return timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
-      }
-
+      // ✨ 2. 在排序邏輯中使用我們新的、更安全的函式
       const dateA = getSafeDate(aIsDone ? a.resolvedAt : a.createdAt)
       const dateB = getSafeDate(bIsDone ? b.resolvedAt : b.createdAt)
 
-      return dateB - dateA
+      return dateB.getTime() - dateA.getTime()
     })
   })
 
@@ -48,7 +64,6 @@ export const useTaskStore = defineStore('task', () => {
 
       let shouldDisplayIcon = false
 
-      // 如果沒有目標日期，或者目標日期是今天或今天之前，就顯示
       if (!msg.targetDate || msg.targetDate <= todayStr) {
         shouldDisplayIcon = true
       }
@@ -61,7 +76,6 @@ export const useTaskStore = defineStore('task', () => {
       }
     }
 
-    // 將 Set 轉換為 Array，方便後續處理
     const finalMap = new Map()
     for (const [patientId, typeSet] of map.entries()) {
       finalMap.set(patientId, Array.from(typeSet))
@@ -69,11 +83,6 @@ export const useTaskStore = defineStore('task', () => {
     return finalMap
   })
 
-  // ✨ --- START: 新增的 Getter --- ✨
-  /**
-   * 獲取所有病人所有未完成的留言/備忘類型 Map。
-   * 此 Getter 不過濾日期，適用於總表和週排班這種未來視圖。
-   */
   const allPendingPatientMessageTypesMap = computed(() => {
     const map = new Map()
     const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
@@ -87,14 +96,12 @@ export const useTaskStore = defineStore('task', () => {
       map.get(msg.patientId).add(msg.type || '常規')
     }
 
-    // 將 Set 轉換為 Array
     const finalMap = new Map()
     for (const [patientId, typeSet] of map.entries()) {
       finalMap.set(patientId, Array.from(typeSet))
     }
     return finalMap
   })
-  // ✨ --- END: 新增的 Getter --- ✨
 
   const todayTaskCount = computed(() => (todayAssignedPatientIds) => {
     if (!currentUser.value) return 0
@@ -159,7 +166,7 @@ export const useTaskStore = defineStore('task', () => {
         ),
       )
     } else {
-      listenersInitialized++ // 即使沒有查詢，也要計數
+      listenersInitialized++
     }
 
     const mySentTasksQuery = query(
@@ -189,14 +196,10 @@ export const useTaskStore = defineStore('task', () => {
       where('category', '==', 'message'),
       where('createdAt', '>=', sevenDaysAgo),
     )
-
-    // ✨✨✨ 核心修改點在這裡 ✨✨✨
-    // 移除 createdAt 時間限制，改為只查詢 'pending' 或 'expired' 狀態的舊備忘
     const legacyMemosQuery = query(
       collection(db, 'memos'),
       where('status', 'in', ['pending', 'expired']),
     )
-    // ✨✨✨ (修改結束) ✨✨✨
 
     let currentMessages = []
     let currentMemos = []
@@ -275,7 +278,7 @@ export const useTaskStore = defineStore('task', () => {
     mySentTasks,
     sortedFeedMessages,
     getPatientMessageTypesMapForDate,
-    allPendingPatientMessageTypesMap, // ✨ [新增] 導出新的 Getter
+    allPendingPatientMessageTypesMap,
     todayTaskCount,
   }
 })
