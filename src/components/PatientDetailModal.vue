@@ -56,12 +56,13 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue' // ✨ [修改] 引入 computed
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js' // 引入 useAuth 以獲取作者資訊
+import { useAuth } from '@/composables/useAuth.js'
+import { useTaskStore } from '@/stores/taskStore.js' // ✨ [新增] 引入 taskStore
 
-// 引入我們需要用到的 "內容面板" 元件
+// 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
 import MemoPanel from './MemoPanel.vue'
 import PatientLabSummaryPanel from './PatientLabSummaryPanel.vue'
@@ -71,22 +72,37 @@ const props = defineProps({
   isVisible: Boolean,
   patient: Object,
   currentDate: Date,
-  hasPendingMemos: Boolean,
+  // hasPendingMemos: Boolean, // ✨ [移除] 不再需要從外部傳入此 prop
 })
-const emit = defineEmits(['close', 'record-updated']) // record-updated 用於通知父層刷新資料
+const emit = defineEmits(['close', 'record-updated'])
 
 // --- Component State ---
 const activeTab = ref('records')
 const { addLocalNotification } = useRealtimeNotifications()
 const conditionRecordsApi = ApiManager('condition_records')
-const auth = useAuth() // 初始化 useAuth
+const auth = useAuth()
+const taskStore = useTaskStore() // ✨ [新增] 實例化 taskStore
+
+// ✨ [新增] computed 屬性，直接從 store 計算此病人是否有待辦事項
+const hasPendingMemosForPatient = computed(() => {
+  if (!props.patient?.id) return false
+  // 使用 .some() 檢查是否存在任何符合條件的訊息，效率更高
+  return taskStore.sortedFeedMessages.some(
+    (msg) =>
+      msg.patientId === props.patient.id &&
+      msg.status === 'pending' &&
+      // 保持一致性：過濾掉系統自動產生的調班訊息
+      msg.content &&
+      !msg.content.startsWith('【'),
+  )
+})
 
 // --- Methods ---
+// (所有 handle... 相關的方法都保持不變，無需修改)
 function handleClose() {
   emit('close')
 }
 
-// 處理來自 ConditionRecordPanel 的 'save' 事件
 async function handleSaveConditionRecord(recordData) {
   try {
     await conditionRecordsApi.save(recordData)
@@ -94,11 +110,9 @@ async function handleSaveConditionRecord(recordData) {
     emit('record-updated')
   } catch (error) {
     console.error('儲存病情紀錄失敗:', error)
-    // 可以在此處添加用戶錯誤提示
   }
 }
 
-// 處理來自 ConditionRecordPanel 的 'update' 事件
 async function handleUpdateConditionRecord({ id, content }) {
   try {
     await conditionRecordsApi.update(id, { content })
@@ -109,9 +123,7 @@ async function handleUpdateConditionRecord({ id, content }) {
   }
 }
 
-// 處理來自 ConditionRecordPanel 的 'delete' 事件
 async function handleDeleteConditionRecord(recordId) {
-  // 可以在這裡替換成更美觀的確認對話框組件
   if (confirm('您確定要永久刪除這筆病情紀錄嗎？')) {
     try {
       await conditionRecordsApi.delete(recordId)
@@ -123,7 +135,6 @@ async function handleDeleteConditionRecord(recordId) {
   }
 }
 
-// 處理來自 PatientLabSummaryPanel 的 'save-record' 事件
 async function handleSaveLabSummaryAsRecord({ patient, content }) {
   if (!auth.isContributor.value || !auth.currentUser.value) {
     alert('權限不足或未登入，無法儲存紀錄。')
@@ -145,7 +156,6 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
     await conditionRecordsApi.save(recordData)
     addLocalNotification(`已為 ${patient.name} 新增檢驗報告處置紀錄`, 'schedule')
     emit('record-updated')
-    // 儲存後自動切換到病情紀錄頁籤，讓使用者看到新增的紀錄
     activeTab.value = 'records'
   } catch (error) {
     console.error('儲存檢驗摘要紀錄失敗:', error)
@@ -157,8 +167,8 @@ watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      // 當視窗打開時，如果病人有待辦備忘，預設跳到備忘頁籤，否則跳到病情紀錄
-      activeTab.value = props.hasPendingMemos ? 'memos' : 'records'
+      // ✨ [修改] 使用我們自己計算的 hasPendingMemosForPatient 來決定預設頁籤
+      activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records'
     }
   },
 )
