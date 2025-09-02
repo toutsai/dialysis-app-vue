@@ -43,20 +43,20 @@ export const useTaskStore = defineStore('task', () => {
 
   // --- Getters ---
   const sortedFeedMessages = computed(() => {
-    // 1. 先用 map 轉換資料，確保所有日期欄位都是 Date 物件
+    // ✨ [核心修改] 1. 先用 map 統一資料格式
     const standardizedMessages = feedMessages.value.map((msg) => ({
       ...msg,
-      createdAt: getSafeDate(msg.createdAt), // ✨ 轉換 createdAt
-      resolvedAt: getSafeDate(msg.resolvedAt), // ✨ 轉換 resolvedAt
+      // 確保 createdAt 和 resolvedAt 永遠是 JS Date 物件
+      createdAt: getSafeDate(msg.createdAt),
+      resolvedAt: getSafeDate(msg.resolvedAt),
     }))
 
-    // 2. 再進行排序
+    // ✨ 2. 然後才用標準化後的日期進行排序
     return standardizedMessages.sort((a, b) => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
       if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
 
-      // ✨ 現在 a.createdAt 和 b.createdAt 必定是 Date 物件，可以直接使用
       const dateA = aIsDone ? a.resolvedAt : a.createdAt
       const dateB = bIsDone ? b.resolvedAt : b.createdAt
 

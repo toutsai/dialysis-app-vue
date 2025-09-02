@@ -806,7 +806,6 @@
       :is-visible="isDetailModalVisible"
       :patient="selectedPatientForDetail"
       :current-date="currentDate"
-      :has-pending-memos="patientHasPendingMessages"
       :patient-shift="shiftForDetailModal"
       @close="isDetailModalVisible = false"
       @record-updated="fetchRecentRecords"
