@@ -264,11 +264,25 @@ const notificationCount = computed(() => {
     return myPendingTasksCount
   }
 
+  // ✨ 1. 建立今天的日期字串用於比較
+  const today = new Date()
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
+    today.getDate(),
+  ).padStart(2, '0')}`
+
   // 計算我負責病人的留言數量
   const patientIdSet = new Set(todayMyPatientIds.value)
-  const myPendingMemosCount = feedMessages.value.filter(
-    (item) => item.status === 'pending' && item.patientId && patientIdSet.has(item.patientId),
-  ).length
+  const myPendingMemosCount = feedMessages.value.filter((item) => {
+    // ✨ 2. 在過濾條件中加入日期判斷
+    const isTargetDateRelevant = !item.targetDate || item.targetDate <= todayStr
+
+    return (
+      item.status === 'pending' &&
+      item.patientId &&
+      patientIdSet.has(item.patientId) &&
+      isTargetDateRelevant // ✨ 3. 應用日期判斷結果
+    )
+  }).length
 
   return myPendingTasksCount + myPendingMemosCount
 })
