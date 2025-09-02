@@ -11,18 +11,24 @@ import { useAuth } from '@/composables/useAuth'
  * @returns {Date} 一個有效的 Date 物件。
  */
 function getSafeDate(timestamp) {
+  // 如果沒有值，返回一個過去的日期以便排序
   if (!timestamp) return new Date(0)
-  // Case 1: Firestore Timestamp
-  if (typeof timestamp.toDate === 'function') {
-    return timestamp.toDate()
-  }
-  // Case 2: 已經是 JavaScript Date 物件
+
+  // Case 1: 已經是 JavaScript Date 物件 (優先處理，避免不必要的轉換)
   if (timestamp instanceof Date) {
     return timestamp
   }
-  // Case 3: 字串或數字
+
+  // Case 2: Firestore Timestamp 物件 (它有 toDate 方法)
+  if (typeof timestamp.toDate === 'function') {
+    return timestamp.toDate()
+  }
+
+  // Case 3: 字串或數字 (這是處理 memos 集合中字串日期的關鍵)
+  // new Date() 可以直接解析 ISO 8601 字串 (如 "2025-09-01T02:36:20.323Z")
   const date = new Date(timestamp)
-  // 檢查轉換結果是否有效
+
+  // 檢查轉換結果是否有效，如果無效則返回一個預設值
   return isNaN(date.getTime()) ? new Date(0) : date
 }
 
