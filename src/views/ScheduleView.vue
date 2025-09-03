@@ -52,7 +52,10 @@
           >
             儲存
           </button>
-          <button class="btn btn-info desktop-only" @click="triggerPrint">列印</button>
+          <!-- ✨ 【修改】將列印按鈕替換為匯出 Excel 按鈕 ✨ -->
+          <button class="btn btn-secondary desktop-only" @click="exportScheduleToExcel">
+            匯出Excel
+          </button>
         </div>
       </div>
 
@@ -824,87 +827,6 @@
       :patient-ids="patientIdsForDialog"
       @close="closeRecordsSummaryDialog"
     />
-    <div class="print-only-view">
-      <h1 class="print-header">{{ currentDateDisplay }} 每日排程總表</h1>
-      <div v-if="statsToolbarData[0]" class="print-stats">
-        <span class="stat-item"><strong>本日總計:</strong> {{ statsToolbarData[0].total }}人</span>
-        <span class="stat-item"
-          ><strong>早班:</strong> {{ statsToolbarData[0].counts.early.total }}人</span
-        >
-        <span class="stat-item"
-          ><strong>午班:</strong> {{ statsToolbarData[0].counts.noon.total }}人</span
-        >
-        <span class="stat-item"
-          ><strong>晚班:</strong> {{ statsToolbarData[0].counts.late.total }}人</span
-        >
-      </div>
-      <hr class="print-divider" />
-      <table class="simplified-table print-table">
-        <thead>
-          <tr>
-            <th class="col-bed">床號</th>
-            <th>早班</th>
-            <th>午班</th>
-            <th>晚班</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="bedNum in sortedBedNumbers" :key="`print-bed-${bedNum}`">
-            <td class="col-bed">{{ bedNum }}</td>
-            <td
-              v-for="shiftCode in ORDERED_SHIFT_CODES"
-              :key="shiftCode"
-              :class="getPatientCellStyle(`bed-${bedNum}-${shiftCode}`)"
-            >
-              <div
-                v-if="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]"
-                class="patient-info-cell"
-              >
-                <div class="patient-mrn-name">
-                  <span>{{
-                    patientMap.get(currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId)
-                      ?.medicalRecordNumber
-                  }}</span>
-                  <span>{{ getPatientName(`bed-${bedNum}-${shiftCode}`) }}</span>
-                </div>
-                <div class="patient-note">{{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}</div>
-              </div>
-            </td>
-          </tr>
-          <tr v-for="i in peripheralBedCount" :key="`print-p-${i}`">
-            <td class="col-bed">外圍 {{ i }}</td>
-            <td
-              v-for="shiftCode in ORDERED_SHIFT_CODES"
-              :key="shiftCode"
-              :class="getPatientCellStyle(`peripheral-${i}-${shiftCode}`)"
-            >
-              <div
-                v-if="currentRecord.schedule[`peripheral-${i}-${shiftCode}`]"
-                class="patient-info-cell"
-              >
-                <div class="patient-mrn-name">
-                  <span>{{
-                    patientMap.get(currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId)
-                      ?.medicalRecordNumber
-                  }}</span>
-                  <span>{{ getPatientName(`peripheral-${i}-${shiftCode}`) }}</span>
-                </div>
-                <div class="patient-ward-note">
-                  <span class="ward-number">{{
-                    getPatientWardNumber(
-                      currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
-                    )
-                  }}</span>
-                  <span class="patient-note">{{
-                    getCombinedNote(`peripheral-${i}-${shiftCode}`)
-                  }}</span>
-                </div>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
   </div>
 </template>
 
@@ -927,6 +849,7 @@ import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
+import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
 
 // Constants
 import {
@@ -1751,9 +1674,7 @@ function getCombinedNote(shiftId) {
   const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   return finalTags.join(' ')
 }
-function triggerPrint() {
-  window.print()
-}
+
 function handleConfirm() {
   if (typeof onConfirmAction.value === 'function') onConfirmAction.value()
   isConfirmDialogVisible.value = false
@@ -1943,6 +1864,115 @@ function setTeamChange() {
   hasUnsavedTeamChanges.value = true
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
+}
+
+// ✨ 【全新版本】替換掉整個 exportScheduleToExcel 函式 ✨
+function exportScheduleToExcel() {
+  if (isLoading.value) {
+    showAlert('提示', '資料正在載入中，請稍後再試。')
+    return
+  }
+
+  // --- 1. 準備資料 ---
+  const data = []
+
+  // 獲取統計數據
+  const stats = statsToolbarData.value[0]
+  const statsString = `總計: ${stats.total}人 (早: ${stats.counts.early.total}, 午: ${stats.counts.noon.total}, 晚: ${stats.counts.late.total})`
+
+  // 建立標題、日期和統計列
+  data.push(['部立台北醫院 每日排程表']) // 第 1 列: 標題
+  data.push(['日期:', currentDateDisplay.value]) // 第 2 列: 日期
+  data.push(['人數統計:', statsString]) // 第 3 列: 人數統計
+  data.push([]) // 第 4 列: 空白列，用於分隔
+
+  // 建立表格標頭
+  const headers = [
+    '床號',
+    getShiftDisplayName('early'),
+    getShiftDisplayName('noon'),
+    getShiftDisplayName('late'),
+  ]
+  data.push(headers) // 第 5 列: 表格標頭
+
+  // 建立表格內容
+  const allBedsToExport = [...sortedBedNumbers.value]
+  for (let i = 1; i <= peripheralBedCount; i++) {
+    allBedsToExport.push(`外圍 ${i}`)
+  }
+
+  allBedsToExport.forEach((bedKey) => {
+    const row = [bedKey]
+    ORDERED_SHIFT_CODES.forEach((shiftCode) => {
+      const bedNum = String(bedKey).replace('外圍 ', '')
+      const shiftId = String(bedKey).startsWith('外圍')
+        ? `peripheral-${bedNum}-${shiftCode}`
+        : `bed-${bedNum}-${shiftCode}`
+
+      const slot = currentRecord.schedule[shiftId]
+      if (slot && slot.patientId) {
+        const patient = patientMap.value.get(slot.patientId)
+        const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+        const cellText =
+          `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n` +
+          `[${statusMap[patient?.status] || '未知'}]\n` +
+          `${getCombinedNote(shiftId)}`
+        row.push(cellText)
+      } else {
+        row.push('')
+      }
+    })
+    data.push(row)
+  })
+
+  // --- 2. 建立工作表並設定樣式 ---
+  const worksheet = XLSX.utils.aoa_to_sheet(data)
+
+  // 設定儲存格合併
+  worksheet['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }, // 合併標題列
+    { s: { r: 1, c: 1 }, e: { r: 1, c: 3 } }, // 合併日期值
+    { s: { r: 2, c: 1 }, e: { r: 2, c: 3 } }, // 合併統計值
+  ]
+
+  // 設定欄寬 (wch: width in characters)
+  worksheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 30 }, { wch: 30 }]
+
+  // 設定列高並遍歷所有儲存格以設定樣式 (置中 + 自動換行)
+  const dataRowsHeight = 55 // 設定資料列的預設高度
+  worksheet['!rows'] = [{ hpt: 25 }] // 標題列高度
+  worksheet['!rows'][1] = { hpt: 20 } // 日期列高度
+  worksheet['!rows'][2] = { hpt: 20 } // 統計列高度
+  worksheet['!rows'][3] = { hpt: 10 } // 空白列高度
+  worksheet['!rows'][4] = { hpt: 20 } // 表格標頭高度
+
+  for (let i = 0; i < data.length; i++) {
+    // 為資料內容設定預設高度
+    if (i >= 5) {
+      worksheet['!rows'][i] = { hpt: dataRowsHeight }
+    }
+    for (let j = 0; j < data[i].length; j++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: i, c: j })
+      if (!worksheet[cellAddress]) continue
+
+      // 預設樣式：垂直置中、水平置中、自動換行
+      worksheet[cellAddress].s = {
+        alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
+      }
+    }
+  }
+
+  // 微調特定儲存格的對齊方式
+  worksheet['A1'].s.alignment.horizontal = 'left' // 標題靠左
+  worksheet['A2'].s.alignment.horizontal = 'right' // "日期:" 標籤靠右
+  worksheet['B2'].s.alignment.horizontal = 'left' // 日期值靠左
+  worksheet['A3'].s.alignment.horizontal = 'right' // "人數統計:" 標籤靠右
+  worksheet['B3'].s.alignment.horizontal = 'left' // 統計值靠左
+
+  // --- 3. 產生檔案並下載 ---
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, '每日排程')
+  XLSX.writeFile(workbook, `每日排程表_${formatDate(currentDate.value)}.xlsx`)
 }
 
 // ===================================================================
@@ -2747,119 +2777,6 @@ button:disabled {
   cursor: pointer;
   opacity: 0.6;
   line-height: 1;
-}
-.print-only-view {
-  position: absolute;
-  left: -9999px;
-  top: auto;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-}
-.print-header {
-  text-align: center;
-  font-size: 16pt;
-  margin-bottom: 0.5rem;
-}
-.print-stats {
-  display: flex;
-  justify-content: center;
-  gap: 2rem;
-  font-size: 12pt;
-  margin-bottom: 0.5rem;
-}
-.print-stats .stat-item strong {
-  margin-right: 0.5em;
-}
-.print-divider {
-  border: none;
-  border-top: 2px solid #333;
-  margin-bottom: 1rem;
-}
-.print-table {
-  font-size: 11pt;
-  table-layout: auto;
-}
-.print-table th,
-.print-table td {
-  padding: 5px;
-  vertical-align: middle;
-}
-.print-table .patient-info-cell {
-  text-align: center;
-}
-.print-table .patient-mrn-name {
-  flex-direction: column;
-}
-.print-table .patient-mrn-name span:first-child {
-  font-size: 0.8em;
-  color: #555;
-}
-.print-table .patient-name-wrapper {
-  font-weight: 600;
-}
-@media print {
-  :deep(body > #app > *) {
-    display: none !important;
-  }
-  :deep(body > #app > .page-container) {
-    display: block !important;
-  }
-  .page-container > :not(.print-only-view) {
-    display: none !important;
-  }
-  .print-only-view {
-    display: block !important;
-    position: static;
-    width: auto;
-    height: auto;
-    overflow: visible;
-  }
-  @page {
-    size: A4 horizontal;
-    margin: 1cm;
-  }
-  body,
-  .page-container {
-    padding: 0 !important;
-    margin: 0 !important;
-    background: none !important;
-  }
-  tr,
-  .patient-info-cell {
-    page-break-inside: avoid;
-  }
-  .print-table td[class*='status-'] {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  .patient-cell-layout {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    height: 100%;
-    gap: 2px;
-    line-height: 1.2;
-    padding: 2px 0;
-  }
-  .patient-name-text {
-    font-weight: bold;
-  }
-  .patient-icons-row {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-  .patient-name,
-  .peripheral-patient-name {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2px;
-  }
 }
 .daily-staff-panel.horizontal {
   display: flex;
