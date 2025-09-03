@@ -42,7 +42,10 @@
         >
           儲存變更
         </button>
-        <button @click="triggerPrint" class="desktop-only-flex">列印報表</button>
+        <!-- ✨ 【修改】將列印按鈕替換為匯出 Excel 按鈕 ✨ -->
+        <button @click="exportAssignmentsToExcel" class="desktop-only-flex btn-secondary">
+          匯出Excel
+        </button>
       </div>
     </div>
 
@@ -1013,6 +1016,7 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
+import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
 
 // --- Store & Hook Instantiation ---
 const patientStore = usePatientStore()
@@ -1731,8 +1735,172 @@ async function showInjectionList(teamData, shiftType = null) {
   }
 }
 
-function triggerPrint() {
-  window.print()
+// ✨ 【最終錯誤修正版】替換掉整個 exportAssignmentsToExcel 函式 ✨
+function exportAssignmentsToExcel() {
+  if (isLoading.value) {
+    showAlert('提示', '資料正在載入中，請稍後再試。')
+    return
+  }
+
+  // --- 1. 準備資料 (這部分邏輯不變) ---
+  const data = []
+  let merges = []
+  let currentRowIndex = 0
+  const currentDateStr = formatDate(currentDate.value)
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+
+  data.push(['部立台北醫院 護理分組表'])
+  data.push([`日期: ${currentDateStr}`])
+  data.push([])
+  currentRowIndex = 3
+
+  const processShiftSection = (shiftTitle, shiftKey, responsibilities) => {
+    const statsData = effectiveStatsData.value[shiftKey]
+    if (!statsData || Object.keys(statsData).length === 0) return null
+
+    const teamNames = Object.keys(statsData)
+    const colCount = teamNames.length
+
+    data.push([shiftTitle])
+    merges.push({ s: { r: currentRowIndex, c: 0 }, e: { r: currentRowIndex, c: colCount } })
+    currentRowIndex++
+
+    const groupHeaders = [
+      '',
+      ...teamNames.map((name) => name.replace(/^(早|晚|夜間收針)/, '') + '組'),
+    ]
+    data.push(groupHeaders)
+    currentRowIndex++
+
+    const nurseNames = ['護理師', ...teamNames.map((name) => statsData[name].nurseName || '未指派')]
+    data.push(nurseNames)
+    currentRowIndex++
+
+    responsibilities.forEach((resp) => {
+      const respTextMap = {
+        earlyShift: '早班',
+        noonShiftOn: '午班(上針)',
+        noonShiftOff: '午班(收針)',
+        lateShift: '晚班',
+        lateShiftTakeOff: '夜班收針',
+      }
+      const row = [respTextMap[resp.key]]
+
+      teamNames.forEach((teamName) => {
+        const patients = statsData[teamName][resp.key]?.patients || []
+        const cellText = patients
+          .map((p) => {
+            const patient = patientMap.value.get(p.id)
+            return `${p.name} (床${p.dialysisBed}) [${statusMap[p.status] || '未知'}]`
+          })
+          .join('\n')
+        row.push(cellText)
+      })
+      data.push(row)
+    })
+
+    const totals = ['照護人數']
+    teamNames.forEach((teamName) => {
+      const teamData = statsData[teamName]
+      const totalText = `門${teamData.totalOpdCount} 住${teamData.totalIpdCount} 急${teamData.totalErCount}`
+      totals.push(totalText)
+    })
+    data.push(totals)
+
+    const sectionRowCount = 3 + responsibilities.length + 1
+    const startRow = currentRowIndex - responsibilities.length - 3
+
+    currentRowIndex += responsibilities.length + 2
+
+    return { startRow, sectionRowCount, colCount }
+  }
+
+  const sections = []
+  sections.push(
+    processShiftSection('早班分組', 'early', [
+      { key: 'earlyShift' },
+      { key: 'noonShiftOn' },
+      { key: 'noonShiftOff' },
+    ]),
+  )
+  sections.push(
+    processShiftSection('晚班分組', 'late', [{ key: 'noonShiftOff' }, { key: 'lateShift' }]),
+  )
+  if (lateShiftTakeOffExists.value) {
+    sections.push(processShiftSection('夜班收針分組', 'lateTakeOff', [{ key: 'lateShiftTakeOff' }]))
+  }
+
+  // --- 2. 建立工作表並設定樣式 ---
+  const worksheet = XLSX.utils.aoa_to_sheet(data)
+  worksheet['!merges'] = merges
+  worksheet['!cols'] = [{ wch: 12 }, ...Array(12).fill({ wch: 25 })]
+
+  // ✨ --- 核心修正點：升級 ensureCellAndStyle 函式 --- ✨
+  const ensureCellAndStyle = (r, c) => {
+    const cellAddress = XLSX.utils.encode_cell({ r, c })
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' }
+    // 確保所有需要的樣式子物件都存在
+    if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
+    if (!worksheet[cellAddress].s.alignment) worksheet[cellAddress].s.alignment = {}
+    if (!worksheet[cellAddress].s.border) worksheet[cellAddress].s.border = {}
+    if (!worksheet[cellAddress].s.font) worksheet[cellAddress].s.font = {}
+    if (!worksheet[cellAddress].s.fill) worksheet[cellAddress].s.fill = {}
+    return worksheet[cellAddress]
+  }
+
+  // 統一樣式設定
+  for (let r = 0; r < data.length; r++) {
+    for (let c = 0; c < (data[r] ? data[r].length : 0); c++) {
+      const cell = ensureCellAndStyle(r, c)
+      // 現在可以安全地設定了
+      cell.s.alignment.vertical = 'center'
+      cell.s.alignment.horizontal = 'center'
+      cell.s.alignment.wrapText = true
+      cell.s.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' },
+      }
+    }
+  }
+
+  // 主標題和日期樣式
+  let titleCell = ensureCellAndStyle(0, 0)
+  titleCell.s.font = { sz: 18, bold: true }
+  titleCell.s.alignment.horizontal = 'center'
+
+  let dateCell = ensureCellAndStyle(1, 0)
+  dateCell.s.font = { sz: 12 }
+  dateCell.s.alignment.horizontal = 'center'
+
+  // 為每個區塊設定特定樣式
+  sections.forEach((sec) => {
+    if (!sec) return
+    const { startRow, sectionRowCount, colCount } = sec
+
+    let cell = ensureCellAndStyle(startRow, 0)
+    cell.s.fill.fgColor = { rgb: 'FFDDEBF7' }
+    cell.s.font.sz = 14
+    cell.s.font.bold = true
+
+    for (let r = startRow + 2; r < startRow + sectionRowCount; r++) {
+      cell = ensureCellAndStyle(r, 0)
+      cell.s.alignment.horizontal = 'left'
+      cell.s.fill.fgColor = { rgb: 'FFF2F2F2' }
+      cell.s.font.bold = true
+    }
+
+    for (let c = 1; c <= colCount; c++) {
+      ensureCellAndStyle(startRow + 1, c).s.fill.fgColor = { rgb: 'FFE3F2FD' }
+      ensureCellAndStyle(startRow + 2, c).s.fill.fgColor = { rgb: 'FFFFFDE7' }
+    }
+  })
+
+  // --- 3. 產生檔案並下載 (不變) ---
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, '護理分組')
+  XLSX.writeFile(workbook, `護理分組表_${currentDateStr}.xlsx`)
 }
 
 function promptDuplicateLateShift() {

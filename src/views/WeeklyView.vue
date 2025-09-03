@@ -51,6 +51,10 @@
             >
               儲存變更
             </button>
+            <!-- ✨ 【新增】將匯出按鈕移動到這裡 ✨ -->
+            <button class="btn btn-secondary" @click="exportWeeklyScheduleToExcel">
+              匯出Excel
+            </button>
           </div>
         </div>
       </header>
@@ -153,9 +157,9 @@
 </template>
 
 <script setup>
-// ✨ 核心修正: 從 'vue' 中 import 'provide'
 import { ref, onMounted, computed, onUnmounted, nextTick, provide } from 'vue'
 import { where } from 'firebase/firestore'
+import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
 import {
   fetchAllSchedules as optimizedFetchAllSchedules,
   saveSchedule as optimizedSaveSchedule,
@@ -163,7 +167,11 @@ import {
 } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
-import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
+import {
+  SHIFT_CODES, // 確保 SHIFT_CODES 有被引入，從您提供的程式碼來看應該是有的
+  ORDERED_SHIFT_CODES,
+  getShiftDisplayName as getShiftDisplayNameFromConstant, // 可以考慮從常數檔引入
+} from '@/constants/scheduleConstants.js'
 import {
   createEmptySlotData,
   generateAutoNote,
@@ -458,6 +466,14 @@ const searchResults = computed(() => {
 })
 
 // --- Functions ---
+// ✨ 【新增】在這裡補上 getShiftDisplayName 函式的定義 ✨
+function getShiftDisplayName(shiftCode) {
+  if (shiftCode === SHIFT_CODES.EARLY) return '早班'
+  if (shiftCode === SHIFT_CODES.NOON) return '午班'
+  if (shiftCode === SHIFT_CODES.LATE) return '晚班'
+  return shiftCode
+}
+
 function updateLeftOffset(newOffset) {
   leftOffset.value = newOffset
 }
@@ -918,9 +934,11 @@ function onDragOver(event) {
     }
   }
 }
+
 function onDragLeave(event) {
   event.target.closest('.schedule-slot')?.classList.remove('drag-over')
 }
+
 function runScheduleCheck() {
   const validationResult = {
     duplicates: [],
@@ -1063,6 +1081,108 @@ function runScheduleCheck() {
 function openBedAssignmentDialog() {
   if (isPageLocked.value) return
   isProblemSolverDialogVisible.value = true
+}
+
+// ✨ 【確認】您的 exportWeeklyScheduleToExcel 函式保持不變 ✨
+function exportWeeklyScheduleToExcel() {
+  if (patientStore.isLoading) {
+    showAlert('提示', '資料正在載入中，請稍後再試。')
+    return
+  }
+
+  // --- 1. 準備資料 ---
+  const data = []
+  let merges = []
+
+  // 標題和日期範圍
+  data.push(['部立台北醫院 週排班總表'])
+  data.push([`週別: ${weekDisplay.value}`])
+  data.push([]) // 空白列
+
+  // 表格標頭
+  const headers = ['床號', ...weekDates.value.map((d) => `${d.weekday} ${d.date}`)]
+  data.push(headers)
+
+  // 整理所有床號
+  const allBedsToExport = [
+    ...bedLayout.filter((b) => typeof b === 'number').sort((a, b) => a - b),
+    ...bedLayout.filter((b) => typeof b === 'string').sort(),
+  ].map((b) => (String(b).startsWith('peripheral-') ? `外圍 ${String(b).split('-')[1]}` : b))
+
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+
+  // 建立表格內容
+  allBedsToExport.forEach((bedKey) => {
+    const row = [bedKey]
+    for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
+      let cellText = ''
+      ORDERED_SHIFT_CODES.forEach((shiftCode) => {
+        const shiftIndex = SHIFTS.indexOf(shiftCode)
+
+        const bedNumForId = String(bedKey).startsWith('外圍')
+          ? `peripheral-${String(bedKey).replace('外圍 ', '')}`
+          : bedKey
+
+        const weeklySlotId = `${bedNumForId}-${shiftIndex}-${dayIndex}`
+        const slot = weekScheduleMap.value[weeklySlotId]
+
+        if (slot && slot.patientId) {
+          const patient = patientMap.value.get(slot.patientId)
+          if (patient) {
+            // 現在這裡可以正常呼叫 getShiftDisplayName
+            cellText += `${getShiftDisplayName(shiftCode)}: ${patient.name} (${statusMap[patient.status] || '未知'})\n`
+          }
+        }
+      })
+      row.push(cellText.trim())
+    }
+    data.push(row)
+  })
+
+  // --- 2. 建立工作表並設定樣式 (以下內容不變) ---
+  const worksheet = XLSX.utils.aoa_to_sheet(data)
+
+  worksheet['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+  ]
+  worksheet['!cols'] = [{ wch: 8 }, ...Array(6).fill({ wch: 30 })]
+
+  const ensureCellAndStyle = (r, c) => {
+    const cellAddress = XLSX.utils.encode_cell({ r, c })
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' }
+    if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
+    if (!worksheet[cellAddress].s.alignment) worksheet[cellAddress].s.alignment = {}
+    if (!worksheet[cellAddress].s.border) worksheet[cellAddress].s.border = {}
+    if (!worksheet[cellAddress].s.font) worksheet[cellAddress].s.font = {}
+    return worksheet[cellAddress]
+  }
+
+  for (let r = 0; r < data.length; r++) {
+    for (let c = 0; c < (data[r] ? data[r].length : 0); c++) {
+      const cell = ensureCellAndStyle(r, c)
+      cell.s.alignment = { vertical: 'top', horizontal: 'center', wrapText: true }
+      cell.s.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' },
+      }
+    }
+  }
+
+  ensureCellAndStyle(0, 0).s.font = { sz: 18, bold: true }
+  ensureCellAndStyle(1, 0).s.font = { sz: 12 }
+
+  headers.forEach((_, c) => {
+    ensureCellAndStyle(3, c).s.font = { bold: true }
+    ensureCellAndStyle(3, c).s.fill = { fgColor: { rgb: 'FFF2F2F2' } }
+  })
+
+  // --- 3. 產生檔案並下載 (不變) ---
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, '週排班表')
+  XLSX.writeFile(workbook, `週排班表_${formatDateForQuery(currentWeekStartDate.value)}.xlsx`)
 }
 
 onMounted(() => {

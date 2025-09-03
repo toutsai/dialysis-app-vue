@@ -39,6 +39,8 @@
           >
             儲存床位
           </button>
+          <!-- ✨ 【新增】匯出 Excel 按鈕 ✨ -->
+          <button class="btn btn-secondary" @click="exportBaseScheduleToExcel">匯出總表</button>
         </div>
       </div>
     </header>
@@ -127,6 +129,7 @@
 
 <script setup>
 import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
+import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
 import { updatePatient } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
@@ -529,6 +532,125 @@ function handlePatientSelect({ patientId }) {
   updateScheduleRule(patientId, newRuleData)
   currentSlotId.value = null
   console.log(`✅ [BaseScheduleView] 已為病人 ${patient.name} 建立新規則`)
+}
+
+// ✨ 【全新版本】在檔案中加入這個完整的匯出函式 ✨
+function exportBaseScheduleToExcel() {
+  if (!masterRecord.value || !masterRecord.value.schedule) {
+    showAlert('提示', '沒有總表資料可匯出。')
+    return
+  }
+
+  // --- 1. 準備資料 ---
+  const data = []
+
+  // 標題和日期
+  const exportDate = new Date().toISOString().slice(0, 10)
+  data.push(['部立台北醫院 透析排程總表 (固定規則)'])
+  data.push([`匯出日期: ${exportDate}`])
+  data.push([]) // 空白列
+
+  // 表格標頭
+  const headers = [
+    '病人姓名',
+    '病歷號',
+    '目前身分別',
+    '固定床位',
+    '固定班別',
+    '固定頻率',
+    '手動備註',
+    '自動備註',
+  ]
+  data.push(headers)
+
+  // 將 object 轉換為 array 並排序，方便閱讀
+  const sortedRules = Object.entries(masterRecord.value.schedule).sort(([, ruleA], [, ruleB]) => {
+    const bedA = String(ruleA.bedNum).startsWith('p')
+      ? 9999 + parseInt(String(ruleA.bedNum).slice(-1))
+      : parseInt(ruleA.bedNum)
+    const bedB = String(ruleB.bedNum).startsWith('p')
+      ? 9999 + parseInt(String(ruleB.bedNum).slice(-1))
+      : parseInt(ruleB.bedNum)
+    if (bedA !== bedB) return bedA - bedB
+    return ruleA.shiftIndex - ruleB.shiftIndex
+  })
+
+  const shiftDisplayMap = { early: '早班', noon: '午班', late: '晚班' }
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+
+  sortedRules.forEach(([patientId, rule]) => {
+    const patient = patientMap.value.get(patientId)
+    if (patient) {
+      const row = [
+        patient.name,
+        patient.medicalRecordNumber,
+        statusMap[patient.status] || '未知',
+        rule.bedNum,
+        shiftDisplayMap[SHIFTS[rule.shiftIndex]] || '未知',
+        rule.freq,
+        rule.manualNote || '',
+        rule.autoNote || '',
+      ]
+      data.push(row)
+    }
+  })
+
+  // --- 2. 建立工作表並設定樣式 ---
+  const worksheet = XLSX.utils.aoa_to_sheet(data)
+
+  worksheet['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+  ]
+
+  worksheet['!cols'] = [
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 30 },
+    { wch: 30 },
+  ]
+
+  // 安全設定樣式
+  const ensureCellAndStyle = (r, c) => {
+    const cellAddress = XLSX.utils.encode_cell({ r, c })
+    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' }
+    if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
+    if (!worksheet[cellAddress].s.alignment) worksheet[cellAddress].s.alignment = {}
+    if (!worksheet[cellAddress].s.font) worksheet[cellAddress].s.font = {}
+    return worksheet[cellAddress]
+  }
+
+  // 統一樣式 (框線、置中)
+  for (let r = 0; r < data.length; r++) {
+    for (let c = 0; c < (data[r] ? data[r].length : 0); c++) {
+      const cell = ensureCellAndStyle(r, c)
+      cell.s.alignment = { vertical: 'center', horizontal: 'center', wrapText: true }
+      cell.s.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+        left: { style: 'thin' },
+        right: { style: 'thin' },
+      }
+    }
+  }
+
+  // 特定樣式
+  ensureCellAndStyle(0, 0).s.font = { sz: 18, bold: true }
+  ensureCellAndStyle(1, 0).s.font = { sz: 12 }
+  headers.forEach((_, c) => {
+    const cell = ensureCellAndStyle(3, c)
+    cell.s.font = { bold: true }
+    cell.s.fill = { fgColor: { rgb: 'FFF2F2F2' } }
+  })
+
+  // --- 3. 產生檔案並下載 ---
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, worksheet, '總床位表')
+  XLSX.writeFile(workbook, `總床位表_備份_${exportDate}.xlsx`)
 }
 
 function getBaseCellStyle(slotId) {
