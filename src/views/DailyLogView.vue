@@ -21,8 +21,16 @@
           </div>
 
           <button @click="changeDate(1)">下一日 ❯</button>
-          <button @click="goToToday" class="btn-goto-today">今日</button>
+          <button @click="goToToday">今日</button>
         </div>
+        <!-- ✨ [核心修改] 交換按鈕位置並上色 ✨ -->
+        <button
+          class="btn btn-handover"
+          @click="isHandoverDialogVisible = true"
+          :disabled="isPageLocked"
+        >
+          <i class="fas fa-clipboard-list"></i> 組長交班
+        </button>
       </div>
       <div class="header-right">
         <span class="status-indicator">{{ statusText }}</span>
@@ -354,11 +362,11 @@
           <h2>其他事項</h2>
           <div class="autoresize-textarea-wrapper">
             <textarea
-              v-model="dailyLog.handoverNotes"
-              ref="handoverTextarea"
+              v-model="dailyLog.otherNotes"
+              ref="otherNotesTextarea"
               class="handover-textarea"
               rows="1"
-              placeholder="請輸入交班事項..."
+              placeholder="請輸入其他事項..."
               @input="handleTextareaInput"
             ></textarea>
           </div>
@@ -582,10 +590,10 @@
         <!-- 行動版：其他事項 -->
         <div class="mobile-section-card">
           <h2 class="mobile-section-title">其他事項</h2>
-          <p v-if="dailyLog.handoverNotes" class="handover-notes-display">
-            {{ dailyLog.handoverNotes }}
+          <p v-if="dailyLog.otherNotes" class="handover-notes-display">
+            {{ dailyLog.otherNotes }}
           </p>
-          <p v-else class="no-data-text">無其他交班事項</p>
+          <p v-else class="no-data-text">無其他事項</p>
         </div>
 
         <!-- 行動版：組長簽核 -->
@@ -650,6 +658,14 @@
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
+    <!-- ✨ [新增] 將新元件加到頁面中 ✨ -->
+    <HandoverNotesDialog
+      :is-visible="isHandoverDialogVisible"
+      :initial-notes="handoverNotes"
+      :target-date="selectedDate"
+      @close="isHandoverDialogVisible = false"
+      @notes-updated="onNotesUpdated"
+    />
   </div>
 </template>
 
@@ -665,6 +681,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import HandoverNotesDialog from '@/components/HandoverNotesDialog.vue'
 
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
@@ -678,8 +695,9 @@ const schedulesApi = ApiManager('schedules')
 const isLoading = ref(false)
 const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
-const { currentUser } = useAuth()
-const handoverTextarea = ref(null)
+const { currentUser, canEditSchedules } = useAuth()
+const isPageLocked = computed(() => !canEditSchedules.value)
+const otherNotesTextarea = ref(null)
 const isWardDialogVisible = ref(false)
 const currentEditingMovementIndex = ref(-1)
 const isConfirmDialogVisible = ref(false)
@@ -690,6 +708,8 @@ const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 const currentSchedule = ref({})
+const isHandoverDialogVisible = ref(false)
+const handoverNotes = ref('')
 
 const initialLogState = () => ({
   id: null,
@@ -715,6 +735,7 @@ const initialLogState = () => ({
   patientMovements: [],
   vascularAccessLog: [],
   handoverNotes: '',
+  otherNotes: '',
   leader: {
     early: { userId: null, name: null, signedAt: null },
     noon: { userId: null, name: null, signedAt: null },
@@ -807,16 +828,57 @@ async function loadDailyLog(dateStr) {
   hasUnsavedChanges.value = false
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
+  handoverNotes.value = '' // 先清空
+
   try {
     await patientStore.fetchPatientsIfNeeded()
-    const [logResult, scheduleData] = await Promise.all([
-      dailyLogsApi.fetchById(dateStr),
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-    ])
+
+    // ✨ 1. [核心修改] 計算前兩天的日期 ✨
+    const today = new Date(dateStr)
+    const yesterday = new Date(today)
+    yesterday.setDate(today.getDate() - 1)
+    const dayBeforeYesterday = new Date(today)
+    dayBeforeYesterday.setDate(today.getDate() - 2)
+
+    const yesterdayStr = formatDate(yesterday)
+    const dayBeforeYesterdayStr = formatDate(dayBeforeYesterday)
+
+    // ✨ 2. [核心修改] 並行獲取當天、昨天、前天和大前天的日誌資料 ✨
+    // (多抓一天是為了處理週一繼承週六的特殊情況)
+    const [logResult, yesterdayLogResult, dayBeforeYesterdayLogResult, scheduleData] =
+      await Promise.all([
+        dailyLogsApi.fetchById(dateStr),
+        dailyLogsApi.fetchById(yesterdayStr),
+        dailyLogsApi.fetchById(dayBeforeYesterdayStr),
+        schedulesApi.fetchAll([where('date', '==', dateStr)]),
+      ])
+
+    // ✨ 3. [核心修改] 調整繼承邏輯，使其依序往前查找 ✨
     if (logResult) {
+      // 如果當天已經有日誌，正常載入
       const mergedLog = { ...initialLogState(), ...logResult }
       Object.assign(dailyLog, mergedLog)
+      handoverNotes.value = logResult.handoverNotes || ''
+    } else {
+      // 如果當天沒有日誌，則開始往前尋找
+      let inheritedNotes = ''
+      if (yesterdayLogResult?.handoverNotes) {
+        // 優先繼承昨天的
+        inheritedNotes = yesterdayLogResult.handoverNotes
+        console.log(`[DailyLog] Inherited handover notes from yesterday (${yesterdayStr})`)
+      } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
+        // 如果昨天沒有，再繼承前天的
+        inheritedNotes = dayBeforeYesterdayLogResult.handoverNotes
+        console.log(
+          `[DailyLog] Inherited handover notes from the day before yesterday (${dayBeforeYesterdayStr})`,
+        )
+      }
+
+      handoverNotes.value = inheritedNotes
+      dailyLog.handoverNotes = inheritedNotes // 更新待儲存的物件
     }
+
+    // 處理排班統計的邏輯不變
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
       if (!logResult) {
@@ -911,12 +973,15 @@ function changeDate(days) {
   newDate.setDate(newDate.getDate() + days)
   selectedDate.value = formatDate(newDate)
 }
+
 function goToToday() {
   selectedDate.value = formatDate(new Date())
 }
+
 function triggerDateInput() {
   document.querySelector('.hidden-date-input').showPicker()
 }
+
 function addRow(targetArrayKey) {
   const newId = Date.now()
   if (targetArrayKey === 'patientMovements') {
@@ -942,11 +1007,13 @@ function addRow(targetArrayKey) {
     })
   }
 }
+
 function deleteRow(index, targetArrayKey) {
   showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
     dailyLog[targetArrayKey].splice(index, 1)
   })
 }
+
 function handlePatientSearch(index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   const query = targetArray[index].name.toLowerCase()
@@ -958,6 +1025,7 @@ function handlePatientSearch(index, type) {
     (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
   )
 }
+
 function showAutocomplete(event, index, type) {
   activeSearch.value = { type, index }
   handlePatientSearch(index, type)
@@ -968,11 +1036,13 @@ function showAutocomplete(event, index, type) {
   autocompleteStyle.width = `${rect.width}px`
   isAutocompleteVisible.value = true
 }
+
 function hideAutocomplete() {
   setTimeout(() => {
     isAutocompleteVisible.value = false
   }, 200)
 }
+
 function selectPatient(patient, index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   targetArray[index].name = patient.name
@@ -996,6 +1066,7 @@ function selectPatient(patient, index, type) {
   }
   isAutocompleteVisible.value = false
 }
+
 async function signAsLeader(shift) {
   if (!currentUser.value) return
   const performSign = async (isOverride = false) => {
@@ -1021,6 +1092,7 @@ async function signAsLeader(shift) {
   }
   showConfirm(confirmTitle, confirmMsg, performSign)
 }
+
 function formatSignTime(isoString) {
   if (!isoString) return ''
   const date = new Date(isoString)
@@ -1028,6 +1100,7 @@ function formatSignTime(isoString) {
   const minutes = date.getMinutes().toString().padStart(2, '0')
   return `${hours}:${minutes}`
 }
+
 async function unsignLeader(shift) {
   if (!currentUser.value) return
   const performUnsign = async () => {
@@ -1049,29 +1122,34 @@ async function unsignLeader(shift) {
     }
   }
 }
+
 function showConfirm(title, message, onConfirmCallback) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
   confirmAction.value = onConfirmCallback
   isConfirmDialogVisible.value = true
 }
+
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
   }
   handleCancel()
 }
+
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmDialogTitle.value = ''
   confirmDialogMessage.value = ''
   confirmAction.value = null
 }
+
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
+
 function promptWardNumber(index) {
   const patientId = dailyLog.patientMovements[index]?.patientId
   if (!patientId) {
@@ -1089,6 +1167,7 @@ function promptWardNumber(index) {
   currentEditingMovementIndex.value = index
   isWardDialogVisible.value = true
 }
+
 async function handleWardNumberConfirm(newWardNumber) {
   const index = currentEditingMovementIndex.value
   if (index < 0) return
@@ -1105,22 +1184,33 @@ async function handleWardNumberConfirm(newWardNumber) {
     handleWardNumberCancel()
   }
 }
+
 function handleWardNumberCancel() {
   isWardDialogVisible.value = false
   currentEditingMovementIndex.value = -1
 }
+
 function handleTextareaInput() {
-  const textarea = handoverTextarea.value
-  if (textarea) {
-    textarea.style.height = 'auto'
-    textarea.style.height = `${textarea.scrollHeight}px`
-  }
+  const textareas = [otherNotesTextarea.value]
+  textareas.forEach((textarea) => {
+    if (textarea) {
+      textarea.style.height = 'auto'
+      textarea.style.height = `${textarea.scrollHeight}px`
+    }
+  })
 }
+
 async function exportToPDF() {
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
+
+  // 先儲存任何未儲存的變更
+  if (hasUnsavedChanges.value) {
+    await saveLog('匯出前自動儲存日誌')
+  }
+
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
@@ -1130,17 +1220,21 @@ async function exportToPDF() {
     }
     isLoading.value = true
   }
+
   await new Promise((resolve) => setTimeout(resolve, 50))
+
   try {
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
       showAlert('錯誤', '找不到要匯出的內容！')
       return
     }
-    isLoading.value = false
+
+    // Temporarily apply export mode for rendering
     exportArea.classList.add('pdf-export-mode')
     await nextTick()
     await new Promise((resolve) => setTimeout(resolve, 100))
+
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
@@ -1148,41 +1242,47 @@ async function exportToPDF() {
       ignoreElements: (element) =>
         element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
+
+    // Remove export mode after rendering
+    exportArea.classList.remove('pdf-export-mode')
+
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
-    const pdfWidth = 210
-    const pdfHeight = 297
-    const contentWidth = canvas.width
-    const contentHeight = canvas.height
-    const pageHeight = (contentWidth / pdfWidth) * pdfHeight
-    let leftHeight = contentHeight
-    let position = 0
     const pdf = new jsPDF('p', 'mm', 'a4')
-    if (leftHeight < pageHeight) {
+    const pdfWidth = pdf.internal.pageSize.getWidth()
+    const pdfHeight = pdf.internal.pageSize.getHeight()
+    const imgWidth = canvas.width
+    const imgHeight = canvas.height
+    const ratio = imgWidth / pdfWidth
+    const scaledHeight = imgHeight / ratio
+
+    let heightLeft = scaledHeight
+    let position = 0
+    const margin = 10
+
+    pdf.addImage(
+      imgData,
+      'JPEG',
+      margin,
+      position + margin,
+      pdfWidth - margin * 2,
+      scaledHeight - margin * 2,
+    )
+    heightLeft -= pdfHeight - margin * 2
+
+    while (heightLeft > 0) {
+      position -= pdfHeight - margin * 2
+      pdf.addPage()
       pdf.addImage(
         imgData,
         'JPEG',
-        10,
-        10,
-        pdfWidth - 20,
-        (pdfWidth / contentWidth) * contentHeight - 20,
+        margin,
+        position + margin,
+        pdfWidth - margin * 2,
+        scaledHeight - margin * 2,
       )
-    } else {
-      while (leftHeight > 0) {
-        pdf.addImage(
-          imgData,
-          'JPEG',
-          10,
-          position + 10,
-          pdfWidth - 20,
-          (pdfWidth / contentWidth) * contentHeight - 20,
-        )
-        leftHeight -= pageHeight
-        position -= pdfHeight
-        if (leftHeight > 0) {
-          pdf.addPage()
-        }
-      }
+      heightLeft -= pdfHeight - margin * 2
     }
+
     pdf.save(`血液透析中心工作日誌_${selectedDate.value}.pdf`)
   } catch (error) {
     console.error('匯出 PDF 失敗:', error)
@@ -1198,14 +1298,24 @@ async function exportToPDF() {
     isLoading.value = false
   }
 }
+
+// ✨ 2. 新增一個函式來處理儲存成功後的回呼 ✨
+async function onNotesUpdated() {
+  showAlert('操作成功', '組長交班事項已成功儲存！')
+  // 重新載入當日資料以確保同步
+  await loadDailyLog(selectedDate.value)
+}
+
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 })
+
 watch(selectedDate, (newDate) => {
   if (newDate) {
     loadDailyLog(newDate)
   }
 })
+
 watch(
   dailyLog,
   () => {
@@ -1217,8 +1327,30 @@ watch(
 </script>
 
 <style scoped>
-/* ✨ [Style 修改] 引入 Font Awesome (如果全域沒有的話) 和新增按鈕樣式 ✨ */
+/* ✨ [Style 修改] 引入 Font Awesome 和新增按鈕樣式 ✨ */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
+
+.btn-handover {
+  background-color: #ffc107;
+  color: #212529;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-handover:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
+.btn-handover i {
+  margin-right: 0.5rem;
+}
 
 /* 頁面與標題 */
 .log-page-container {
@@ -1262,6 +1394,8 @@ h1 {
   font-weight: 500;
   transition: all 0.2s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
 }
 .date-navigator button:hover {
   background-color: #e9ecef;
@@ -1298,9 +1432,6 @@ h1 {
   font-size: 1.5rem;
   font-weight: bold;
   color: #007bff;
-}
-.btn-goto-today {
-  order: 3;
 }
 .status-indicator {
   font-style: italic;
