@@ -21,16 +21,16 @@
           </div>
 
           <button @click="changeDate(1)">下一日 ❯</button>
-          <button @click="goToToday" class="btn-goto-today">今日</button>
-          <!-- ✨ [新增] 組長交班按鈕 ✨ -->
-          <button
-            class="btn btn-handover"
-            @click="isHandoverDialogVisible = true"
-            :disabled="isPageLocked"
-          >
-            <i class="fas fa-clipboard-list"></i> 組長交班
-          </button>
+          <button @click="goToToday">今日</button>
         </div>
+        <!-- ✨ [核心修改] 交換按鈕位置並上色 ✨ -->
+        <button
+          class="btn btn-handover"
+          @click="isHandoverDialogVisible = true"
+          :disabled="isPageLocked"
+        >
+          <i class="fas fa-clipboard-list"></i> 組長交班
+        </button>
       </div>
       <div class="header-right">
         <span class="status-indicator">{{ statusText }}</span>
@@ -664,7 +664,7 @@
       :initial-notes="handoverNotes"
       :target-date="selectedDate"
       @close="isHandoverDialogVisible = false"
-      @save="handleSaveHandoverNotes"
+      @notes-updated="onNotesUpdated"
     />
   </div>
 </template>
@@ -697,8 +697,7 @@ const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
 const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
-const handoverTextarea = ref(null)
-const otherNotesTextarea = ref(null) // Renamed from handoverTextarea for clarity
+const otherNotesTextarea = ref(null)
 const isWardDialogVisible = ref(false)
 const currentEditingMovementIndex = ref(-1)
 const isConfirmDialogVisible = ref(false)
@@ -736,7 +735,7 @@ const initialLogState = () => ({
   patientMovements: [],
   vascularAccessLog: [],
   handoverNotes: '',
-  otherNotes: '', // Added for "其他事項"
+  otherNotes: '',
   leader: {
     early: { userId: null, name: null, signedAt: null },
     noon: { userId: null, name: null, signedAt: null },
@@ -829,18 +828,57 @@ async function loadDailyLog(dateStr) {
   hasUnsavedChanges.value = false
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
-  handoverNotes.value = '' // Reset handover notes
+  handoverNotes.value = '' // 先清空
+
   try {
     await patientStore.fetchPatientsIfNeeded()
-    const [logResult, scheduleData] = await Promise.all([
-      dailyLogsApi.fetchById(dateStr),
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-    ])
+
+    // ✨ 1. [核心修改] 計算前兩天的日期 ✨
+    const today = new Date(dateStr)
+    const yesterday = new Date(today)
+    yesterday.setDate(today.getDate() - 1)
+    const dayBeforeYesterday = new Date(today)
+    dayBeforeYesterday.setDate(today.getDate() - 2)
+
+    const yesterdayStr = formatDate(yesterday)
+    const dayBeforeYesterdayStr = formatDate(dayBeforeYesterday)
+
+    // ✨ 2. [核心修改] 並行獲取當天、昨天、前天和大前天的日誌資料 ✨
+    // (多抓一天是為了處理週一繼承週六的特殊情況)
+    const [logResult, yesterdayLogResult, dayBeforeYesterdayLogResult, scheduleData] =
+      await Promise.all([
+        dailyLogsApi.fetchById(dateStr),
+        dailyLogsApi.fetchById(yesterdayStr),
+        dailyLogsApi.fetchById(dayBeforeYesterdayStr),
+        schedulesApi.fetchAll([where('date', '==', dateStr)]),
+      ])
+
+    // ✨ 3. [核心修改] 調整繼承邏輯，使其依序往前查找 ✨
     if (logResult) {
+      // 如果當天已經有日誌，正常載入
       const mergedLog = { ...initialLogState(), ...logResult }
       Object.assign(dailyLog, mergedLog)
-      handoverNotes.value = logResult.handoverNotes || '' // Load handover notes
+      handoverNotes.value = logResult.handoverNotes || ''
+    } else {
+      // 如果當天沒有日誌，則開始往前尋找
+      let inheritedNotes = ''
+      if (yesterdayLogResult?.handoverNotes) {
+        // 優先繼承昨天的
+        inheritedNotes = yesterdayLogResult.handoverNotes
+        console.log(`[DailyLog] Inherited handover notes from yesterday (${yesterdayStr})`)
+      } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
+        // 如果昨天沒有，再繼承前天的
+        inheritedNotes = dayBeforeYesterdayLogResult.handoverNotes
+        console.log(
+          `[DailyLog] Inherited handover notes from the day before yesterday (${dayBeforeYesterdayStr})`,
+        )
+      }
+
+      handoverNotes.value = inheritedNotes
+      dailyLog.handoverNotes = inheritedNotes // 更新待儲存的物件
     }
+
+    // 處理排班統計的邏輯不變
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
       if (!logResult) {
@@ -1153,7 +1191,7 @@ function handleWardNumberCancel() {
 }
 
 function handleTextareaInput() {
-  const textareas = [handoverTextarea.value, otherNotesTextarea.value]
+  const textareas = [otherNotesTextarea.value]
   textareas.forEach((textarea) => {
     if (textarea) {
       textarea.style.height = 'auto'
@@ -1261,11 +1299,11 @@ async function exportToPDF() {
   }
 }
 
-function handleSaveHandoverNotes(newNotes) {
-  handoverNotes.value = newNotes
-  dailyLog.handoverNotes = newNotes
-  hasUnsavedChanges.value = true
-  isHandoverDialogVisible.value = false
+// ✨ 2. 新增一個函式來處理儲存成功後的回呼 ✨
+async function onNotesUpdated() {
+  showAlert('操作成功', '組長交班事項已成功儲存！')
+  // 重新載入當日資料以確保同步
+  await loadDailyLog(selectedDate.value)
 }
 
 onMounted(async () => {
@@ -1295,7 +1333,15 @@ watch(
 .btn-handover {
   background-color: #ffc107;
   color: #212529;
-  border-color: #ffc107;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
 }
 
 .btn-handover:hover:not(:disabled) {
@@ -1348,6 +1394,8 @@ h1 {
   font-weight: 500;
   transition: all 0.2s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
 }
 .date-navigator button:hover {
   background-color: #e9ecef;
@@ -1384,9 +1432,6 @@ h1 {
   font-size: 1.5rem;
   font-weight: bold;
   color: #007bff;
-}
-.btn-goto-today {
-  order: 3;
 }
 .status-indicator {
   font-style: italic;
