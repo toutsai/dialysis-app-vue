@@ -255,12 +255,20 @@
               </div>
 
               <p class="item-content">
-                <strong
-                  >{{ task.patientName }}
-                  <span v-if="patientMap.get(task.patientId)" class="task-patient-mrn"
-                    >({{ patientMap.get(task.patientId).medicalRecordNumber }})</span
-                  >:</strong
-                >
+                <!-- ✨✨✨ 核心修改點在這裡 ✨✨✨ -->
+                <strong>
+                  <!-- 【修改】判斷病人是否有住院床號，並顯示它 -->
+                  <span
+                    v-if="patientWardNumberMap.has(task.patientId)"
+                    class="task-patient-ward-number"
+                  >
+                    [{{ patientWardNumberMap.get(task.patientId) }}]
+                  </span>
+                  {{ task.patientName }}
+                  <span v-if="patientMap.get(task.patientId)" class="task-patient-mrn">
+                    ({{ patientMap.get(task.patientId).medicalRecordNumber }}) </span
+                  >:
+                </strong>
                 {{ task.content }}
               </p>
               <div class="item-footer">
@@ -787,6 +795,19 @@ const weekdayDisplay = computed(() => {
   } catch {
     return ''
   }
+})
+
+// 【修正】將原本的 patientBedMapForToday 替換成以下內容
+const patientWardNumberMap = computed(() => {
+  const map = new Map()
+  // 直接從 patientStore 的 allPatients 取得最完整的資料
+  for (const patient of allPatientsFromStore.value) {
+    // 檢查病人是否有 wardNumber 欄位且有值
+    if (patient.id && patient.wardNumber) {
+      map.set(patient.id, patient.wardNumber)
+    }
+  }
+  return map
 })
 
 const sortItems = (items) => {
@@ -1494,6 +1515,13 @@ watch(
   font-weight: normal;
   font-size: 0.9em;
   margin-left: 0.25em;
+}
+/* 【修改】床位號碼的樣式，改名並更新顏色以符合住院狀態 */
+.task-patient-ward-number {
+  color: #dc3545; /* 使用紅色以突顯住院狀態 */
+  font-weight: bold;
+  font-size: 0.9em;
+  margin-right: 0.5em; /* 稍微增加間距 */
 }
 .desktop-only {
   display: block;
