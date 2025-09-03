@@ -991,42 +991,78 @@ function listenToBulletinData(dateStr) {
   yesterdaysLogItems.value = []
   todaysAnnouncements.value = []
 
-  const today = new Date(dateStr + 'T00:00:00')
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  const yesterdayStr = getLocalDateString(yesterday)
+  const today = new Date(dateStr + 'T00:00:00Z') // 使用 Z 確保 UTC 日期
 
-  logsApi
-    .fetchById(yesterdayStr)
-    .then((log) => {
-      if (log && log.handoverNotes && typeof log.handoverNotes === 'string') {
-        const notes = log.handoverNotes
+  // ✨ 1. [核心修改] 計算前兩天的日期 ✨
+  const yesterday = new Date(today)
+  yesterday.setUTCDate(today.getUTCDate() - 1)
+  const dayBeforeYesterday = new Date(today)
+  dayBeforeYesterday.setUTCDate(today.getUTCDate() - 2)
+
+  const yesterdayStr = getLocalDateString(yesterday)
+  const dayBeforeYesterdayStr = getLocalDateString(dayBeforeYesterday)
+
+  // ✨ 2. [核心修改] 建立一個非同步函式來處理日誌的查找邏輯 ✨
+  async function fetchLastWorkingDayLog() {
+    try {
+      // 首先嘗試獲取昨天的日誌
+      const yesterdayLog = await logsApi.fetchById(yesterdayStr)
+      if (yesterdayLog && yesterdayLog.handoverNotes) {
+        // 如果昨天有日誌且有內容，就使用它
+        const notes = yesterdayLog.handoverNotes
           .split(/[\d]+\.\s*/)
           .map((item) => item.trim())
           .filter((item) => item)
         yesterdaysLogItems.value = notes
+        console.log(`[CollaborationView] Displaying log notes from yesterday (${yesterdayStr})`)
+        return // 找到就結束
       }
-    })
-    .catch((err) => {})
 
-  const todayLogRef = doc(db, 'daily_logs', dateStr)
-  bulletinUnsubscribe = onSnapshot(
-    todayLogRef,
-    (docSnap) => {
-      if (docSnap.exists() && docSnap.data().announcements) {
-        todaysAnnouncements.value = docSnap
-          .data()
-          .announcements.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
-      } else {
-        todaysAnnouncements.value = []
+      // 如果昨天沒有日誌或內容，再嘗試獲取前天的日誌
+      const dayBeforeLog = await logsApi.fetchById(dayBeforeYesterdayStr)
+      if (dayBeforeLog && dayBeforeLog.handoverNotes) {
+        const notes = dayBeforeLog.handoverNotes
+          .split(/[\d]+\.\s*/)
+          .map((item) => item.trim())
+          .filter((item) => item)
+        yesterdaysLogItems.value = notes
+        console.log(
+          `[CollaborationView] Displaying log notes from the day before yesterday (${dayBeforeYesterdayStr})`,
+        )
       }
-      isLoading.value.bulletin = false
-    },
-    (error) => {
-      console.error('監聽本日公告失敗:', error)
-      isLoading.value.bulletin = false
-    },
-  )
+    } catch (err) {
+      console.error('獲取舊工作日誌失敗:', err)
+      // 即使出錯，也要確保流程繼續
+    }
+  }
+
+  // ✨ 3. [核心修改] 並行執行日誌查找和本日公告的監聽 ✨
+  Promise.all([
+    fetchLastWorkingDayLog(), // 執行我們新建的異步查找函式
+    new Promise((resolve, reject) => {
+      // 將 onSnapshot 包裝在 Promise 中
+      const todayLogRef = doc(db, 'daily_logs', dateStr)
+      bulletinUnsubscribe = onSnapshot(
+        todayLogRef,
+        (docSnap) => {
+          if (docSnap.exists() && docSnap.data().announcements) {
+            todaysAnnouncements.value = docSnap
+              .data()
+              .announcements.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
+          } else {
+            todaysAnnouncements.value = []
+          }
+          resolve() // 監聽器設置成功，解析 Promise
+        },
+        (error) => {
+          console.error('監聽本日公告失敗:', error)
+          reject(error) // 監聽器出錯，拒絕 Promise
+        },
+      )
+    }),
+  ]).finally(() => {
+    isLoading.value.bulletin = false // 無論成功或失敗，最後都結束載入狀態
+  })
 }
 
 async function handleSaveAnnouncement() {
