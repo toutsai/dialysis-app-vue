@@ -361,6 +361,7 @@
         <section class="log-section">
           <h2>其他事項</h2>
           <div class="autoresize-textarea-wrapper">
+            <!-- ✨ [核心修改] 將 v-model 綁定到 otherNotes，並更新 ref 名稱 ✨ -->
             <textarea
               v-model="dailyLog.otherNotes"
               ref="otherNotesTextarea"
@@ -682,7 +683,6 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import HandoverNotesDialog from '@/components/HandoverNotesDialog.vue'
-
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 
@@ -697,7 +697,7 @@ const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
 const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
-const otherNotesTextarea = ref(null)
+const otherNotesTextarea = ref(null) // 對應「其他事項」
 const isWardDialogVisible = ref(false)
 const currentEditingMovementIndex = ref(-1)
 const isConfirmDialogVisible = ref(false)
@@ -709,7 +709,7 @@ const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 const currentSchedule = ref({})
 const isHandoverDialogVisible = ref(false)
-const handoverNotes = ref('')
+const handoverNotes = ref('') // 對應「組長交班」
 
 const initialLogState = () => ({
   id: null,
@@ -734,8 +734,8 @@ const initialLogState = () => ({
   },
   patientMovements: [],
   vascularAccessLog: [],
-  handoverNotes: '',
-  otherNotes: '',
+  handoverNotes: '', // 組長交班
+  otherNotes: '', // 其他事項
   leader: {
     early: { userId: null, name: null, signedAt: null },
     noon: { userId: null, name: null, signedAt: null },
@@ -823,17 +823,17 @@ async function saveLog(successMessage = '日誌已儲存！') {
   }
 }
 
+// ✨ [核心修正] 徹底修改資料載入邏輯 ✨
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
-  handoverNotes.value = '' // 先清空
+  handoverNotes.value = ''
 
   try {
     await patientStore.fetchPatientsIfNeeded()
 
-    // ✨ 1. [核心修改] 計算前兩天的日期 ✨
     const today = new Date(dateStr)
     const yesterday = new Date(today)
     yesterday.setDate(today.getDate() - 1)
@@ -843,8 +843,6 @@ async function loadDailyLog(dateStr) {
     const yesterdayStr = formatDate(yesterday)
     const dayBeforeYesterdayStr = formatDate(dayBeforeYesterday)
 
-    // ✨ 2. [核心修改] 並行獲取當天、昨天、前天和大前天的日誌資料 ✨
-    // (多抓一天是為了處理週一繼承週六的特殊情況)
     const [logResult, yesterdayLogResult, dayBeforeYesterdayLogResult, scheduleData] =
       await Promise.all([
         dailyLogsApi.fetchById(dateStr),
@@ -853,32 +851,36 @@ async function loadDailyLog(dateStr) {
         schedulesApi.fetchAll([where('date', '==', dateStr)]),
       ])
 
-    // ✨ 3. [核心修改] 調整繼承邏輯，使其依序往前查找 ✨
     if (logResult) {
-      // 如果當天已經有日誌，正常載入
+      // 如果今天已有日誌
       const mergedLog = { ...initialLogState(), ...logResult }
-      Object.assign(dailyLog, mergedLog)
-      handoverNotes.value = logResult.handoverNotes || ''
-    } else {
-      // 如果當天沒有日誌，則開始往前尋找
-      let inheritedNotes = ''
-      if (yesterdayLogResult?.handoverNotes) {
-        // 優先繼承昨天的
-        inheritedNotes = yesterdayLogResult.handoverNotes
-        console.log(`[DailyLog] Inherited handover notes from yesterday (${yesterdayStr})`)
-      } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
-        // 如果昨天沒有，再繼承前天的
-        inheritedNotes = dayBeforeYesterdayLogResult.handoverNotes
-        console.log(
-          `[DailyLog] Inherited handover notes from the day before yesterday (${dayBeforeYesterdayStr})`,
-        )
+
+      // *** 向下相容邏輯 ***
+      // 如果舊資料中 handoverNotes 存在，但 otherNotes 不存在，
+      // 則將 handoverNotes 的內容視為「其他事項」
+      if (mergedLog.handoverNotes && !mergedLog.otherNotes) {
+        mergedLog.otherNotes = mergedLog.handoverNotes
+        // 如果此時 handoverNotes 也是我們新增的功能，則將其保留，否則清空
+        // 在這個場景下，我們假設舊資料的 handoverNotes 都是其他事項，所以不清空
       }
 
-      handoverNotes.value = inheritedNotes
-      dailyLog.handoverNotes = inheritedNotes // 更新待儲存的物件
+      Object.assign(dailyLog, mergedLog)
+      handoverNotes.value = mergedLog.handoverNotes || '' // 載入組長交班
+    } else {
+      // 如果今天是新日誌
+      let inheritedHandoverNotes = ''
+      if (yesterdayLogResult?.handoverNotes) {
+        inheritedHandoverNotes = yesterdayLogResult.handoverNotes
+      } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
+        inheritedHandoverNotes = dayBeforeYesterdayLogResult.handoverNotes
+      }
+      handoverNotes.value = inheritedHandoverNotes
+      dailyLog.handoverNotes = inheritedHandoverNotes
+
+      // 對於 otherNotes，我們不需要繼承，保持為空
+      dailyLog.otherNotes = ''
     }
 
-    // 處理排班統計的邏輯不變
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
       if (!logResult) {
@@ -908,13 +910,11 @@ function calculateStatsFromSchedule(scheduleRecord) {
       late: { ipd: 0, er: 0, total: 0 },
     },
   }
-
   if (!scheduleRecord || !scheduleRecord.schedule) {
     dailyLog.stats.main_beds = newStats.main_beds
     dailyLog.stats.peripheral_beds = newStats.peripheral_beds
     return
   }
-
   for (const shiftKey in scheduleRecord.schedule) {
     const slotData = scheduleRecord.schedule[shiftKey]
     if (!slotData?.patientId) continue
@@ -924,21 +924,15 @@ function calculateStatsFromSchedule(scheduleRecord) {
     const isPeripheral = shiftKey.startsWith('peripheral')
     if (isPeripheral) {
       newStats.peripheral_beds[shiftCode].total++
-      if (patient.status === 'ipd') {
-        newStats.peripheral_beds[shiftCode].ipd++
-      } else if (patient.status === 'er') {
-        newStats.peripheral_beds[shiftCode].er++
-      }
+      if (patient.status === 'ipd') newStats.peripheral_beds[shiftCode].ipd++
+      else if (patient.status === 'er') newStats.peripheral_beds[shiftCode].er++
     } else {
       newStats.main_beds[shiftCode].total++
-      if (patient.status === 'opd') {
-        newStats.main_beds[shiftCode].opd++
-      } else if (patient.status === 'ipd' || patient.status === 'er') {
+      if (patient.status === 'opd') newStats.main_beds[shiftCode].opd++
+      else if (patient.status === 'ipd' || patient.status === 'er')
         newStats.main_beds[shiftCode].ipd_er++
-      }
     }
   }
-
   dailyLog.stats.main_beds = newStats.main_beds
   dailyLog.stats.peripheral_beds = newStats.peripheral_beds
 }
@@ -1104,7 +1098,7 @@ function formatSignTime(isoString) {
 async function unsignLeader(shift) {
   if (!currentUser.value) return
   const performUnsign = async () => {
-    dailyLog.leader[shift] = { userId: null, name: null }
+    dailyLog.leader[shift] = { userId: null, name: null, signedAt: null }
     await saveLog('撤銷簽核成功！日誌已更新。')
   }
   if (dailyLog.leader[shift]?.userId) {
@@ -1205,12 +1199,9 @@ async function exportToPDF() {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
-
-  // 先儲存任何未儲存的變更
   if (hasUnsavedChanges.value) {
     await saveLog('匯出前自動儲存日誌')
   }
-
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
@@ -1220,21 +1211,16 @@ async function exportToPDF() {
     }
     isLoading.value = true
   }
-
   await new Promise((resolve) => setTimeout(resolve, 50))
-
   try {
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
       showAlert('錯誤', '找不到要匯出的內容！')
       return
     }
-
-    // Temporarily apply export mode for rendering
     exportArea.classList.add('pdf-export-mode')
     await nextTick()
     await new Promise((resolve) => setTimeout(resolve, 100))
-
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
@@ -1242,10 +1228,6 @@ async function exportToPDF() {
       ignoreElements: (element) =>
         element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
-
-    // Remove export mode after rendering
-    exportArea.classList.remove('pdf-export-mode')
-
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
     const pdf = new jsPDF('p', 'mm', 'a4')
     const pdfWidth = pdf.internal.pageSize.getWidth()
@@ -1254,11 +1236,9 @@ async function exportToPDF() {
     const imgHeight = canvas.height
     const ratio = imgWidth / pdfWidth
     const scaledHeight = imgHeight / ratio
-
     let heightLeft = scaledHeight
     let position = 0
     const margin = 10
-
     pdf.addImage(
       imgData,
       'JPEG',
@@ -1268,7 +1248,6 @@ async function exportToPDF() {
       scaledHeight - margin * 2,
     )
     heightLeft -= pdfHeight - margin * 2
-
     while (heightLeft > 0) {
       position -= pdfHeight - margin * 2
       pdf.addPage()
@@ -1282,7 +1261,6 @@ async function exportToPDF() {
       )
       heightLeft -= pdfHeight - margin * 2
     }
-
     pdf.save(`血液透析中心工作日誌_${selectedDate.value}.pdf`)
   } catch (error) {
     console.error('匯出 PDF 失敗:', error)
@@ -1299,11 +1277,11 @@ async function exportToPDF() {
   }
 }
 
-// ✨ 2. 新增一個函式來處理儲存成功後的回呼 ✨
-async function onNotesUpdated() {
-  showAlert('操作成功', '組長交班事項已成功儲存！')
-  // 重新載入當日資料以確保同步
-  await loadDailyLog(selectedDate.value)
+function handleSaveHandoverNotes(newNotes) {
+  handoverNotes.value = newNotes
+  dailyLog.handoverNotes = newNotes
+  hasUnsavedChanges.value = true
+  isHandoverDialogVisible.value = false
 }
 
 onMounted(async () => {
