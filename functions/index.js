@@ -2216,6 +2216,7 @@ const parseFlexibleDate = (dateStr, targetDate) => {
 }
 // ✨✨✨ END: 新增的日期解析輔助函式 ✨✨✨
 
+// ✨ 【全新修正版 v2.2】替換掉整個 getDailyInjections 函式 ✨
 exports.getDailyInjections = onCall(
   {
     timeoutSeconds: 300,
@@ -2232,16 +2233,14 @@ exports.getDailyInjections = onCall(
     }
 
     if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
-      logger.info(`[getDailyInjections V2.1] 未提供病人ID列表，返回空結果。`)
       return { success: true, targetDate, injections: [] }
     }
-
     if (patientIds.length > 30) {
       throw new HttpsError('invalid-argument', '單次查詢的病人數不能超過30人。')
     }
 
     logger.info(
-      `[getDailyInjections V2.1] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
+      `[getDailyInjections V2.2] 開始為 ${patientIds.length} 位病人計算 ${targetDate} 的應打針劑...`,
     )
 
     try {
@@ -2250,14 +2249,12 @@ exports.getDailyInjections = onCall(
         .collection('medication_orders')
         .where('patientId', 'in', patientIds)
         .where('orderType', '==', 'injection')
-
       const allOrdersSnapshot = await allOrdersQuery.get()
       const allOrdersHistory = allOrdersSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
 
       // --- 步驟 2: 撈取當天的排班資料 (不變) ---
       const scheduleDoc = await db.collection('schedules').doc(targetDate).get()
       const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule : {}
-
       const patientSlotMap = new Map()
       for (const shiftId in scheduleData) {
         const slot = scheduleData[shiftId]
@@ -2271,25 +2268,46 @@ exports.getDailyInjections = onCall(
         }
       }
 
-      // --- 步驟 3: 為每個病人計算有效藥囑，並判斷是否今日施打 ---
+      // --- 步驟 3: 為每個病人計算有效藥囑 ---
       const finalInjectionList = []
       const dateObj = new Date(targetDate + 'T00:00:00Z')
-      const targetDayOfWeek = dateObj.getUTCDay() // 0 = Sun, 1 = Mon
+      const targetDayOfWeek = dateObj.getUTCDay()
 
       for (const patientId of patientIds) {
-        const patientHistory = allOrdersHistory
-          .filter((order) => order.patientId === patientId)
-          .sort((a, b) => parseCustomDateString(a.changeDate) - parseCustomDateString(b.changeDate))
+        const patientHistory = allOrdersHistory.filter((order) => order.patientId === patientId)
 
-        const effectiveOrdersMap = new Map()
-        for (const record of patientHistory) {
-          if (parseCustomDateString(record.changeDate) <= dateObj) {
-            effectiveOrdersMap.set(record.orderCode, record)
+        // ✨ --- 核心修正點：不再使用 Map 覆蓋，而是過濾出所有有效醫囑 --- ✨
+        const effectiveOrders = patientHistory.filter((record) => {
+          // 首先，確認異動日期是在目標日期或之前
+          const changeDate = parseCustomDateString(record.changeDate) // 假設 parseCustomDateString 處理 'YYYYMMDDHHMMSS' 格式
+          if (isNaN(changeDate.getTime()) || changeDate > dateObj) {
+            return false
+          }
+          return true
+        })
+
+        // 現在 effectiveOrders 是一個包含所有歷史有效醫囑的陣列
+        // 我們需要找出每個藥物的最新醫囑
+        const latestEffectiveOrdersMap = new Map()
+        effectiveOrders.sort(
+          (a, b) => parseCustomDateString(b.changeDate) - parseCustomDateString(a.changeDate),
+        )
+
+        for (const order of effectiveOrders) {
+          // 由於已經排序，第一個遇到的就是最新的
+          // 但我們要處理 QW1 和 QW5 的情況，所以 key 不能只是 orderCode
+          // 我們用 orderCode + note (頻率) 來做為 unique key
+          const uniqueKey = `${order.orderCode}_${(order.note || '').trim()}`
+          if (!latestEffectiveOrdersMap.has(uniqueKey)) {
+            latestEffectiveOrdersMap.set(uniqueKey, order)
           }
         }
+
         const slotInfo = patientSlotMap.get(patientId) || { bedNum: 'N/A', shift: 'N/A' }
 
-        for (const order of effectiveOrdersMap.values()) {
+        // 遍歷最新的有效醫囑 Map
+        for (const order of latestEffectiveOrdersMap.values()) {
+          // ✨ --- (修正結束) --- ✨
           const note = (order.note || '').trim()
           let shouldAdminister = false
           let reason = ''
@@ -2299,25 +2317,23 @@ exports.getDailyInjections = onCall(
               .substring(2)
               .split('')
               .map((d) => parseInt(d, 10))
+              .filter((d) => !isNaN(d))
             const firebaseDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek
             if (days.includes(firebaseDayOfWeek)) {
               shouldAdminister = true
               reason = `規則匹配: ${note}`
             }
-            // ✨✨✨ 核心修改點：使用新的日期解析邏輯 ✨✨✨
           } else {
-            // 將備註中的多個日期 (用逗號或空格分隔) 拆分
             const dateEntries = note.split(/[\s,]+/).filter(Boolean)
             for (const entry of dateEntries) {
               const parsedDate = parseFlexibleDate(entry, dateObj)
               if (parsedDate && parsedDate === targetDate) {
                 shouldAdminister = true
                 reason = `日期匹配: ${entry}`
-                break // 找到一個匹配就足夠
+                break
               }
             }
           }
-          // ✨✨✨ (修改結束) ✨✨✨
 
           if (shouldAdminister) {
             finalInjectionList.push({
@@ -2335,32 +2351,27 @@ exports.getDailyInjections = onCall(
         }
       }
 
+      // 排序 (不變)
       finalInjectionList.sort((a, b) => {
         const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
         const shiftA = a.shift || 'A'
         const shiftB = b.shift || 'A'
-
-        if (shiftA !== shiftB) {
-          return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
-        }
-
+        if (shiftA !== shiftB) return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
         const bedA = String(a.bedNum).startsWith('外')
           ? 1000 + parseInt(String(a.bedNum).substring(1))
           : parseInt(a.bedNum)
         const bedB = String(b.bedNum).startsWith('外')
           ? 1000 + parseInt(String(b.bedNum).substring(1))
           : parseInt(b.bedNum)
-
         return bedA - bedB
       })
 
       logger.info(
-        `[getDailyInjections V2.1] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
+        `[getDailyInjections V2.2] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑。`,
       )
-
       return { success: true, targetDate, injections: finalInjectionList }
     } catch (error) {
-      logger.error(`[getDailyInjections V2.1] 處理針劑計算時發生嚴重錯誤:`, error)
+      logger.error(`[getDailyInjections V2.2] 處理針劑計算時發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
     }
   },

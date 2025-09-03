@@ -378,31 +378,36 @@ async function handleSearch() {
   }
 }
 
-// ✨ [核心修改 2] 重寫 getEffectiveOrders 函式，使其為新佈局準備好資料
+// ✨ [核心修正 v2.0] 重寫 getEffectiveOrders 函式，使其能夠處理併行醫囑 ✨
 function getEffectiveOrders(patientId) {
-  // 步驟 A: 計算出該病人的有效藥囑 Map (不變)
-  const patientHistory = allOrdersHistory.value
-    .filter((order) => order.patientId === patientId)
-    .sort((a, b) => new Date(a.changeDate) - new Date(b.changeDate))
+  // 步驟 A: 過濾出該病人的所有歷史藥囑
+  const patientHistory = allOrdersHistory.value.filter((order) => order.patientId === patientId)
 
-  const effectiveOrdersMap = new Map()
+  // 步驟 B: 找出每條獨立醫囑線的最新版本
+  // 我們使用 "藥物代碼 + 頻率/備註" 作為獨立醫囑的唯一標識
+  const latestEffectiveOrdersMap = new Map()
+
+  // 先將歷史由新到舊排序
+  patientHistory.sort((a, b) => new Date(b.changeDate) - new Date(a.changeDate))
+
   for (const record of patientHistory) {
-    const formattedDate = record.changeDate.slice(0, 8)
-    const recordWithFormattedDate = { ...record, changeDate: formattedDate }
-    effectiveOrdersMap.set(record.orderCode, recordWithFormattedDate)
+    const uniqueKey = `${record.orderCode}_${(record.note || record.frequency || '').trim()}`
+    if (!latestEffectiveOrdersMap.has(uniqueKey)) {
+      latestEffectiveOrdersMap.set(uniqueKey, record)
+    }
   }
 
-  const allEffectiveOrders = Array.from(effectiveOrdersMap.values())
+  const allEffectiveOrders = Array.from(latestEffectiveOrdersMap.values())
 
-  // ✨ [核心修改] 分別處理口服藥和針劑藥
+  // 步驟 C: 沿用舊的邏輯，將藥物分類、分組並排序
   const oralOrders = allEffectiveOrders.filter((o) => o.orderType === 'oral')
   const injectionOrders = allEffectiveOrders.filter((o) => o.orderType === 'injection')
 
-  // 1. 分別找出兩類藥物的不重複日期並排序
-  const oralDates = Array.from(new Set(oralOrders.map((o) => o.changeDate))).sort()
-  const injectionDates = Array.from(new Set(injectionOrders.map((o) => o.changeDate))).sort()
+  const oralDates = Array.from(new Set(oralOrders.map((o) => o.changeDate.slice(0, 10)))).sort()
+  const injectionDates = Array.from(
+    new Set(injectionOrders.map((o) => o.changeDate.slice(0, 10))),
+  ).sort()
 
-  // 2. 分別建立按醫令碼和日期分組的資料物件
   const buildOrdersByCode = (orders) => {
     const ordersByCode = {}
     for (const order of orders) {
@@ -417,7 +422,8 @@ function getEffectiveOrders(patientId) {
           ordersByDate: {},
         }
       }
-      ordersByCode[order.orderCode].ordersByDate[order.changeDate] = order
+      // 將異動日期作為 key
+      ordersByCode[order.orderCode].ordersByDate[order.changeDate.slice(0, 10)] = order
     }
     return ordersByCode
   }
@@ -425,7 +431,6 @@ function getEffectiveOrders(patientId) {
   const injectionOrdersByCode = buildOrdersByCode(injectionOrders)
   const oralOrdersByCode = buildOrdersByCode(oralOrders)
 
-  // 3. 根據主資料列表的順序，來排序病人有的藥物
   const sortedInjectionData = INJECTION_MEDS_MASTER.map(
     (masterMed) => injectionOrdersByCode[masterMed.code],
   ).filter(Boolean)
@@ -434,34 +439,12 @@ function getEffectiveOrders(patientId) {
     (masterMed) => oralOrdersByCode[masterMed.code],
   ).filter(Boolean)
 
-  // 步驟 C: 組合最終結果，現在包含各自的日期列表
   return {
     injectionDates: injectionDates,
     oralDates: oralDates,
     injections: sortedInjectionData,
     orals: sortedOralData,
   }
-}
-
-// 輔助函式：根據醫令碼從病人的有效藥囑中找到特定藥物
-function getPatientMed(patientId, medCode, type = 'injection') {
-  const effective = getEffectiveOrders(patientId)
-  const medList = type === 'oral' ? effective.oralMeds : effective.injectionMeds
-  return medList.find((med) => med.code === medCode)
-}
-
-// 輔助函式：獲取一個病人藥囑列表中的所有不重複的異動日期
-function getUniqueDates(meds) {
-  if (!meds || meds.length === 0) return []
-  const dates = new Set(meds.map((med) => med.changeDate))
-  return Array.from(dates).sort() // 排序日期
-}
-
-// 輔助函式：根據醫令碼和日期，找到特定的藥囑資料
-function getPatientMedByDate(patientId, medCode, date, type = 'injection') {
-  const effective = getEffectiveOrders(patientId) // 這裡會重複計算，未來可優化
-  const medList = type === 'oral' ? effective.oralMeds : effective.injectionMeds
-  return medList.find((med) => med.code === medCode && med.changeDate === date)
 }
 
 // --- Upload Tab Methods ---
