@@ -1,4 +1,5 @@
 <!--檔案路徑: src/views/CollaborationView.vue ✨ 完整修正版 ✨-->
+<!--檔案路徑: src/views/CollaborationView.vue ✨ 完整修正版 ✨-->
 <template>
   <div class="page-container collaboration-view">
     <header class="page-header">
@@ -107,14 +108,14 @@
                 </li>
               </ul>
             </div>
-            <div class="bulletin-group">
+
+            <div v-if="false" class="bulletin-group">
               <h3 class="bulletin-group-title">本日新增公告</h3>
               <ul v-if="todaysAnnouncements.length > 0" class="bulletin-list">
                 <li v-for="item in todaysAnnouncements" :key="item.id" class="announcement-item">
                   <p class="item-content">{{ item.content }}</p>
                   <div class="item-footer">
                     <div class="item-meta">
-                      <!-- ✨ 核心修正 1 -->
                       <small class="creator-info"
                         ><i class="fas fa-user-edit"></i> {{ item.creator?.name || '未知來源' }} 於
                         {{ formatTimestamp(item.createdAt) }}</small
@@ -127,7 +128,9 @@
                 <p>尚無本日公告</p>
               </div>
             </div>
-            <div class="announcement-input-area" v-if="canPostAnnouncement">
+
+            <!-- ✨ [核心修正] 將兩個 v-if 合併為一個 ✨ -->
+            <div v-if="false && canPostAnnouncement" class="announcement-input-area">
               <textarea
                 v-model="newAnnouncementText"
                 placeholder="在此輸入想公布的事情..."
@@ -187,7 +190,6 @@
                     <span v-else-if="msg.targetDate > displayDate" class="future-tag">預</span>
                     關聯 {{ msg.targetDate.slice(5).replace('-', '/') }}
                   </small>
-                  <!-- ✨ 核心修正 2 -->
                   <small class="creator-info"
                     ><i class="fas fa-user-edit"></i> {{ msg.creator?.name || '未知來源' }} 於
                     {{ formatTimestamp(msg.createdAt) }}</small
@@ -263,7 +265,6 @@
                 {{ task.content }}
               </p>
               <div class="item-footer">
-                <!-- ✨ 核心修正 3 -->
                 <small class="creator-info"
                   ><i class="fas fa-user-edit"></i> from {{ task.creator?.name || '未知來源' }} at
                   {{ formatTimestamp(task.createdAt) }}</small
@@ -452,14 +453,14 @@
                   </li>
                 </ul>
               </div>
-              <div class="bulletin-group">
+
+              <div v-if="false" class="bulletin-group">
                 <h3 class="bulletin-group-title">本日新增公告</h3>
                 <ul v-if="todaysAnnouncements.length > 0" class="bulletin-list">
                   <li v-for="item in todaysAnnouncements" :key="item.id" class="announcement-item">
                     <p class="item-content">{{ item.content }}</p>
                     <div class="item-footer">
                       <div class="item-meta">
-                        <!-- ✨ 核心修正 4 (Mobile) -->
                         <small class="creator-info"
                           ><i class="fas fa-user-edit"></i>
                           {{ item.creator?.name || '未知來源' }} 於
@@ -473,7 +474,9 @@
                   <p>尚無本日公告</p>
                 </div>
               </div>
-              <div class="announcement-input-area" v-if="canPostAnnouncement">
+
+              <!-- ✨ [核心修正] 將兩個 v-if 合併為一個 ✨ -->
+              <div v-if="false && canPostAnnouncement" class="announcement-input-area">
                 <textarea
                   v-model="newAnnouncementText"
                   placeholder="在此輸入想公布的事情..."
@@ -509,7 +512,6 @@
                   'is-future-message': msg.status === 'pending' && msg.targetDate > displayDate,
                 }"
               >
-                <!-- 行動版暫不顯示編輯/刪除按鈕以簡化介面 -->
                 <p class="item-content">
                   <span class="message-type-icon" :title="msg.type || '一般交班'">
                     {{ getMessageTypeIcon(msg.type) }}
@@ -805,17 +807,19 @@ const sortItems = (items) => {
 const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
 
-// ✨ --- START: 新增 Computed --- ✨
 const messagePatientOptions = computed(() => {
   const patientSet = new Map()
-  sortedFeedMessages.value.forEach((msg) => {
+
+  // ✨ 核心修改：不再使用 sortedFeedMessages，而是使用已經過濾掉系統訊息的 filteredFeedMessages
+  //    這樣可以確保下拉選單中的病人，都是在當前列表上可見的、有實際留言的病人。
+  filteredFeedMessages.value.forEach((msg) => {
     if (msg.patientId && msg.patientName && !patientSet.has(msg.patientId)) {
       patientSet.set(msg.patientId, { id: msg.patientId, name: msg.patientName })
     }
   })
+
   return Array.from(patientSet.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
 })
-// ✨ --- END: 新增 Computed --- ✨
 
 const filteredFeedMessages = computed(() => {
   if (!Array.isArray(patientsForList.value)) return []
@@ -864,13 +868,11 @@ async function handleTaskSubmit(data) {
 async function updateTask(data) {
   const collectionName = data.isLegacy ? 'memos' : 'tasks'
   const taskRef = doc(db, collectionName, data.id)
-
-  // 移除從 Dialog 傳來的不需要直接儲存的欄位
   const { id, isLegacy, ...updateData } = data
 
   try {
     await updateDoc(taskRef, updateData)
-    createGlobalNotification('項目已成功更新', 'success')
+    console.log(`[CollaborationView] Task/Memo ${id} updated successfully.`)
   } catch (error) {
     console.error('更新項目失敗:', error)
     alert('更新失敗，請稍後再試。')
@@ -1226,7 +1228,7 @@ watch(
 }
 
 .patient-filter-select {
-  padding: 0.375rem 0.75rem;
+  padding: 0.6rem 0.75rem;
   font-size: 0.9rem;
   border: 1px solid #ced4da;
   border-radius: 4px;

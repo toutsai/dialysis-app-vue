@@ -324,11 +324,14 @@ const isClerkSupplyTask = computed(
 )
 
 const isFormValid = computed(() => {
-  // ✨ [修改] 編輯模式下只檢查內容
+  // ✨ [核心修改] 移除所有對 formData.content.trim() 的檢查
+
+  // 編輯模式下，因為內容非必填，所以永遠視為有效，允許更新
   if (isEditMode.value) {
-    return formData.content.trim() !== ''
+    return true
   }
 
+  // 書記耗材的邏輯保持不變，因為它有自己的驗證規則
   if (isClerkSupplyTask.value) {
     const allItemsValid = dynamicSupplyItems.value.every((item) => {
       if (['AK', 'A液', 'B液', '耗衛材'].includes(item.type)) {
@@ -341,8 +344,14 @@ const isFormValid = computed(() => {
     }
     return allItemsValid
   }
-  if (!formData.content.trim()) return false
-  if (formData.category === 'task' && !formData.assigneeValue) return false
+
+  // 對於一般的「交辦事項」，現在只檢查是否已選擇「交辦給誰」
+  if (formData.category === 'task' && !formData.assigneeValue) {
+    return false
+  }
+
+  // 對於「病人留言」，因為內容和目標日期都非必填，所以永遠有效
+  // 對於已選擇交辦對象的「交辦事項」，也視為有效
   return true
 })
 
