@@ -42,7 +42,9 @@
         >
           儲存變更
         </button>
-        <button @click="triggerPrint" class="desktop-only-flex">列印報表</button>
+        <button @click="exportAssignmentsToExcel" class="desktop-only-flex btn-secondary">
+          <i class="fas fa-file-excel"></i> 匯出Excel
+        </button>
       </div>
     </div>
 
@@ -1126,6 +1128,7 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
+import * as XLSX from 'xlsx' // ✨ 【新增】引入 XLSX 套件
 
 // --- Store & Hook Instantiation ---
 const patientStore = usePatientStore()
@@ -1342,6 +1345,7 @@ const effectiveStatsData = computed(() => {
       id: patientId,
       shiftId,
       name: patient.name,
+      medicalRecordNumber: patient.medicalRecordNumber, // ✨ 【新增】將病歷號加入
       status: patient.status,
       mode: patient.mode,
       wardNumber: patient.wardNumber || '',
@@ -1918,8 +1922,204 @@ async function showInjectionList(teamData, shiftType = null) {
   }
 }
 
-function triggerPrint() {
-  window.print()
+// ✨ 【最終修正版】替換整個 exportAssignmentsToExcel 函式 ✨
+function exportAssignmentsToExcel() {
+  if (isLoading.value) {
+    showAlert('提示', '資料仍在載入中，請稍後再試。')
+    return
+  }
+
+  const aoa = [] // Array of Arrays for the final sheet
+
+  // 輔助函式，用於格式化單一病人的儲存格內容
+  const formatPatientCell = (patients) => {
+    if (!patients || patients.length === 0) return ''
+    return patients
+      .map((p) => {
+        const parts = [`${p.dialysisBed} - ${p.name}`]
+        if (p.finalTags) {
+          parts.push(`(${p.finalTags})`)
+        }
+        return parts.join(' ')
+      })
+      .join('\n')
+  }
+
+  const formatCountCell = (teamData) => {
+    return `門${teamData?.totalOpdCount || 0} 住${teamData?.totalIpdCount || 0} 急${teamData?.totalErCount || 0}`
+  }
+
+  // --- 處理早班區塊 ---
+  const earlyHeaders = [
+    '早班',
+    ...sortedEarlyTeams.value.map((name) =>
+      name.includes('未分組') ? '未分組' : name.replace('早', '') + '組',
+    ),
+  ]
+  aoa.push(earlyHeaders)
+
+  const earlyNames = [
+    '姓名',
+    ...sortedEarlyTeams.value.map(
+      (name) => effectiveStatsData.value.early[name]?.nurseName || '-- 未指派 --',
+    ),
+  ]
+  aoa.push(earlyNames)
+
+  const earlyShiftRow = [
+    '早班',
+    ...sortedEarlyTeams.value.map((name) =>
+      formatPatientCell(effectiveStatsData.value.early[name]?.earlyShift.patients),
+    ),
+  ]
+  aoa.push(earlyShiftRow)
+
+  const noonOnShiftRow = [
+    '午班(上針)',
+    ...sortedEarlyTeams.value.map((name) =>
+      formatPatientCell(effectiveStatsData.value.early[name]?.noonShiftOn.patients),
+    ),
+  ]
+  aoa.push(noonOnShiftRow)
+
+  const noonOffShiftRowEarly = [
+    '午班(收針)',
+    ...sortedEarlyTeams.value.map((name) =>
+      formatPatientCell(effectiveStatsData.value.early[name]?.noonShiftOff.patients),
+    ),
+  ]
+  aoa.push(noonOffShiftRowEarly)
+
+  const earlyCounts = [
+    '照護人數',
+    ...sortedEarlyTeams.value.map((name) => formatCountCell(effectiveStatsData.value.early[name])),
+  ]
+  aoa.push(earlyCounts)
+
+  // --- 分隔行 ---
+  aoa.push([])
+
+  // --- 處理晚班區塊 ---
+  const lateHeaders = [
+    '晚班',
+    ...sortedLateTeams.value.map((name) =>
+      name.includes('未分組') ? '未分組' : name.replace('晚', '') + '組',
+    ),
+  ]
+  aoa.push(lateHeaders)
+
+  const lateNames = [
+    '姓名',
+    ...sortedLateTeams.value.map(
+      (name) => effectiveStatsData.value.late[name]?.nurseName || '-- 未指派 --',
+    ),
+  ]
+  aoa.push(lateNames)
+
+  const noonOffShiftRowLate = [
+    '午班(收針)',
+    ...sortedLateTeams.value.map((name) =>
+      formatPatientCell(effectiveStatsData.value.late[name]?.noonShiftOff.patients),
+    ),
+  ]
+  aoa.push(noonOffShiftRowLate)
+
+  const lateShiftRow = [
+    '晚班',
+    ...sortedLateTeams.value.map((name) =>
+      formatPatientCell(effectiveStatsData.value.late[name]?.lateShift.patients),
+    ),
+  ]
+  aoa.push(lateShiftRow)
+
+  const lateCounts = [
+    '照護人數',
+    ...sortedLateTeams.value.map((name) => formatCountCell(effectiveStatsData.value.late[name])),
+  ]
+  aoa.push(lateCounts)
+
+  // --- 處理夜班收針區塊 (如果存在) ---
+  if (lateShiftTakeOffExists.value) {
+    aoa.push([]) // 分隔行
+    const lateTakeoffHeaders = [
+      '夜班收針',
+      ...sortedLateTakeOffTeams.value.map((name) =>
+        name.includes('未分組') ? '未分組' : name.replace('夜間收針', '') + '組',
+      ),
+    ]
+    aoa.push(lateTakeoffHeaders)
+
+    const lateTakeoffNames = [
+      '姓名',
+      ...sortedLateTakeOffTeams.value.map(
+        (name) => effectiveStatsData.value.lateTakeOff[name]?.nurseName || '-- 未指派 --',
+      ),
+    ]
+    aoa.push(lateTakeoffNames)
+
+    const lateTakeoffShiftRow = [
+      '夜班收針',
+      ...sortedLateTakeOffTeams.value.map((name) =>
+        formatPatientCell(effectiveStatsData.value.lateTakeOff[name]?.lateShiftTakeOff.patients),
+      ),
+    ]
+    aoa.push(lateTakeoffShiftRow)
+
+    const lateTakeoffCounts = [
+      '照護人數',
+      ...sortedLateTakeOffTeams.value.map((name) =>
+        formatCountCell(effectiveStatsData.value.lateTakeOff[name]),
+      ),
+    ]
+    aoa.push(lateTakeoffCounts)
+  }
+
+  // --- 建立並美化工作表 ---
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+  // 設定欄寬
+  const colWidths = [{ wch: 12 }] // 第一欄寬度
+  for (let i = 1; i < earlyHeaders.length; i++) {
+    colWidths.push({ wch: 25 }) // 其他組別欄寬
+  }
+  ws['!cols'] = colWidths
+
+  // 設定列高與樣式
+  const rowHeights = []
+  const range = XLSX.utils.decode_range(ws['!ref'])
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    let maxLines = 1
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cell_address = { c: C, r: R }
+      const cell_ref = XLSX.utils.encode_cell(cell_address)
+      if (ws[cell_ref] && ws[cell_ref].v) {
+        const cellValue = String(ws[cell_ref].v)
+        const lines = cellValue.split('\n').length
+        if (lines > maxLines) {
+          maxLines = lines
+        }
+        // 套用通用樣式
+        ws[cell_ref].s = {
+          alignment: {
+            wrapText: true,
+            vertical: 'top',
+          },
+        }
+      }
+    }
+    // 根據內容行數設定列高 (每行約 15 points)
+    if (maxLines > 1) {
+      rowHeights.push({ hpt: maxLines * 15 })
+    } else {
+      rowHeights.push({ hpt: 20 })
+    }
+  }
+  ws['!rows'] = rowHeights
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '護理分組表')
+  const fileName = `護理分組表_${formatDate(currentDate.value)}.xlsx`
+  XLSX.writeFile(wb, fileName)
 }
 
 function promptDuplicateLateShift() {
