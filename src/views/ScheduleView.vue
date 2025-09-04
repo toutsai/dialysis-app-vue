@@ -849,7 +849,7 @@ import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
-import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
+import * as XLSX from 'xlsx'
 
 // Constants
 import {
@@ -903,25 +903,14 @@ const usersApi = ApiManager('users')
 // ===================================================================
 // 3. Constants and Helper Functions
 // ===================================================================
-
-// ✨✨✨ START: 新增的安全日期轉換函式 ✨✨✨
-/**
- * 安全地將多種日期格式轉換為 JavaScript Date 物件。
- * @param {any} timestamp - 可能是 Firestore Timestamp, Date object, or ISO string.
- * @returns {Date} 一個有效的 Date 物件。
- */
 function getSafeDate(timestamp) {
   if (!timestamp) return new Date(0)
-  // 如果是 Firestore Timestamp，它會有 .toDate() 方法
   if (typeof timestamp.toDate === 'function') {
     return timestamp.toDate()
   }
-  // 否則，直接嘗試用 new Date() 轉換 (可以處理 Date 物件和 ISO 字串)
   const date = new Date(timestamp)
-  // 如果轉換失敗，返回一個極早的日期以避免排序錯誤
   return isNaN(date.getTime()) ? new Date(0) : date
 }
-// ✨✨✨ END: 新增的安全日期轉換函式 ✨✨✨
 
 const layoutData = {
   leftWingRows: [
@@ -999,8 +988,7 @@ const currentEditingShiftId = ref(null)
 const shiftCodeForDialog = ref(null)
 const patientIdsForDialog = ref([])
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
-// ✨✨✨ [核心修改] ✨✨✨
-// 將 provide 放在這裡，在 currentDate 被定義之後
+
 provide('viewingDate', currentDate)
 
 // ===================================================================
@@ -1512,7 +1500,20 @@ function handleSlotUpdate(shiftId, patientId, fullSlotData = null) {
     newSlotData.autoNote = generateAutoNote(patient)
     newSlotData.shiftId = correctShiftCode
     currentRecord.schedule[shiftId] = newSlotData
+
+    // ✨ 在更新排程的同時，呼叫 Z 組設定函式
+    setDefaultZTeam(patientId, shiftId)
   } else {
+    // 如果是移除病人，也要考慮清除對應的 Z 組 (如果存在)
+    const oldPatientId = currentRecord.schedule[shiftId]?.patientId
+    if (oldPatientId) {
+      const shiftCode = shiftId.split('-').pop()
+      const teamKey = `${oldPatientId}-${shiftCode}`
+      if (currentTeamsRecord.value.teams?.[teamKey]) {
+        delete currentTeamsRecord.value.teams[teamKey]
+        setTeamChange()
+      }
+    }
     delete currentRecord.schedule[shiftId]
   }
   setChange()
@@ -1566,23 +1567,34 @@ function handlePatientSelect({ patientId }) {
     currentSlotId.value = null
     return
   }
+
+  // ✨ handleSlotUpdate 內部已包含 Z 組設定邏輯
   handleSlotUpdate(currentSlotId.value, patientId)
   currentSlotId.value = null
 }
 function handleAssignBed({ patientId, shiftId }) {
   if (!patientId || !shiftId || isPageLocked.value) return
+
+  const processAssignment = () => {
+    if (currentRecord.schedule[shiftId]?.patientId) {
+      showAlert('錯誤', '目標床位已被佔用！')
+      return
+    }
+    // ✨ handleSlotUpdate 內部已包含 Z 組設定邏輯
+    handleSlotUpdate(shiftId, patientId)
+  }
+
   if (scheduledPatientIds.value.has(patientId)) {
     const patient = patientMap.value.get(patientId)
-    showConfirm('重複排班警告', `病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`, () => {
-      if (currentRecord.schedule[shiftId]?.patientId) {
-        showAlert('錯誤', '目標床位已被佔用！')
-        return
-      }
-      handleSlotUpdate(shiftId, patientId)
-    })
+    showConfirm(
+      '重複排班警告',
+      `病人 ${patient.name} 在本日已有排班，您確定要重複排班嗎？`,
+      processAssignment,
+    )
     return
   }
-  handleSlotUpdate(shiftId, patientId)
+
+  processAssignment()
 }
 function updateNurseTeam(event, shiftId, type) {
   if (isPageLocked.value) {
@@ -1601,6 +1613,12 @@ function updateNurseTeam(event, shiftId, type) {
     currentTeamsRecord.value.teams[key] = {}
   }
   const teamData = currentTeamsRecord.value.teams[key]
+
+  // ✨ 當手動選擇一個非 Z 組的組別時，清除 Z 組標記
+  const shiftPrefix =
+    shiftCode === SHIFT_CODES.EARLY ? '早' : shiftCode === SHIFT_CODES.LATE ? '晚' : '午'
+  const zTeamName = `${shiftPrefix}Z`
+
   const isPeripheralNoon = shiftId.startsWith('peripheral') && shiftId.endsWith(SHIFT_CODES.NOON)
   if (type === 'single' && isPeripheralNoon) {
     teamData.nurseTeamIn = value || null
@@ -1613,6 +1631,14 @@ function updateNurseTeam(event, shiftId, type) {
   } else if (type === 'out') {
     teamData.nurseTeamOut = value || null
   }
+
+  // 如果新選擇的組不是 Z 組，則確保 Z 組標記被清除
+  if (value !== zTeamName) {
+    if (teamData.nurseTeam === zTeamName) delete teamData.nurseTeam
+    if (teamData.nurseTeamIn === zTeamName) delete teamData.nurseTeamIn
+    if (teamData.nurseTeamOut === zTeamName) delete teamData.nurseTeamOut
+  }
+
   if (!teamData.nurseTeam && !teamData.nurseTeamIn && !teamData.nurseTeamOut) {
     delete currentTeamsRecord.value.teams[key]
   }
@@ -1973,6 +1999,38 @@ function exportScheduleToExcel() {
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '每日排程')
   XLSX.writeFile(workbook, `每日排程表_${formatDate(currentDate.value)}.xlsx`)
+}
+
+// ✨ --- 【核心修改】新增一個集中的 Z 組設定函式 --- ✨
+function setDefaultZTeam(patientId, shiftId) {
+  const shiftCode = shiftId.split('-').pop()
+  const teamKey = `${patientId}-${shiftCode}`
+
+  // 根據班別決定 Z 組的前綴和責任別
+  const shiftPrefix =
+    shiftCode === SHIFT_CODES.EARLY ? '早' : shiftCode === SHIFT_CODES.LATE ? '晚' : '午'
+  const teamName = `${shiftPrefix}Z`
+
+  if (!currentTeamsRecord.value.teams) {
+    currentTeamsRecord.value.teams = {}
+  }
+  // 確保不會覆蓋已有的分組資訊
+  if (!currentTeamsRecord.value.teams[teamKey]) {
+    currentTeamsRecord.value.teams[teamKey] = {}
+  }
+
+  // 設定 Z 組
+  if (shiftCode === SHIFT_CODES.NOON) {
+    // 午班同時設定上針和收針
+    currentTeamsRecord.value.teams[teamKey].nurseTeamIn = teamName
+    currentTeamsRecord.value.teams[teamKey].nurseTeamOut = teamName
+  } else {
+    // 早晚班只設定一個
+    currentTeamsRecord.value.teams[teamKey].nurseTeam = teamName
+  }
+
+  console.log(`[Z組設定] 已為病人 ${patientId} 在 ${shiftId} 設定預設 Z 組`)
+  setTeamChange() // 標記團隊資料已變更
 }
 
 // ===================================================================

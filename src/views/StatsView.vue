@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue -->
+<!-- 檔案路徑: src/views/StatsView.vue (✨ 「未分組」功能 & 午班收針伸縮/樣式修正版 ✨) -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -42,9 +42,7 @@
         >
           儲存變更
         </button>
-        <button @click="exportAssignmentsToExcel" class="desktop-only-flex btn-secondary">
-          匯出Excel
-        </button>
+        <button @click="triggerPrint" class="desktop-only-flex">列印報表</button>
       </div>
     </div>
 
@@ -152,28 +150,28 @@
     <div class="stats-sections-wrapper desktop-only">
       <!-- 早班區塊 -->
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
-        <div class="grid-container">
+        <div
+          class="grid-container"
+          :style="{ gridTemplateColumns: `90px repeat(${sortedEarlyTeams.length}, 1fr)` }"
+        >
           <div class="grid-header">
             <div class="row-header section-title-cell">早班</div>
             <div
-              v-for="(_, teamName) in effectiveStatsData.early"
+              v-for="teamName in sortedEarlyTeams"
               :key="teamName"
               class="team-header-cell"
+              :class="{ 'unassigned-header': teamName.includes('未分組') }"
             >
-              {{ teamName.replace('早', '') }}組
+              {{ teamName.includes('未分組') ? '未分組' : teamName.replace('早', '') + '組' }}
             </div>
-            <div class="team-header-cell unassigned-column-header">未分組</div>
           </div>
           <div class="grid-body">
             <div class="grid-row">
               <div class="row-header">姓名</div>
-              <div
-                v-for="(teamData, teamName) in effectiveStatsData.early"
-                :key="teamName"
-                class="grid-cell name-cell"
-              >
+              <div v-for="teamName in sortedEarlyTeams" :key="teamName" class="grid-cell name-cell">
                 <select
-                  :value="teamData.nurseName"
+                  v-if="!teamName.includes('未分組')"
+                  :value="effectiveStatsData.early[teamName]?.nurseName"
                   @change="updateNurseName(teamName, $event)"
                   class="name-select"
                   :disabled="isPageLocked"
@@ -183,22 +181,23 @@
                     {{ name }}
                   </option>
                 </select>
+                <div v-else class="unassigned-placeholder"></div>
               </div>
-              <div class="grid-cell"></div>
             </div>
             <div class="grid-row">
               <div class="row-header">早班</div>
               <div
-                v-for="(teamData, teamName) in effectiveStatsData.early"
+                v-for="teamName in sortedEarlyTeams"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
+                :class="{ 'unassigned-cell': teamName.includes('未分組') }"
                 @drop="!isPageLocked && onDrop($event, teamName, 'earlyShift')"
                 @dragover.prevent="!isPageLocked && onDragOver($event)"
                 @dragleave="onDragLeave"
               >
                 <div class="patient-wrapper">
                   <div
-                    v-for="patient in teamData.earlyShift.patients"
+                    v-for="patient in effectiveStatsData.early[teamName]?.earlyShift.patients"
                     :key="patient.shiftId"
                     :class="patient.classes"
                     :draggable="!isPageLocked"
@@ -232,55 +231,21 @@
                 <div class="cell-actions-container">
                   <div
                     class="prep-list-trigger"
-                    v-if="teamData.earlyShift.patients.length > 0"
-                    @click="showPrepPopover($event, teamData, 'earlyShift')"
+                    v-if="effectiveStatsData.early[teamName]?.earlyShift.patients.length > 0"
+                    @click="
+                      showPrepPopover($event, effectiveStatsData.early[teamName], 'earlyShift')
+                    "
                     title="顯示備物清單"
                   >
                     📋
                   </div>
                   <div
                     class="injection-list-trigger"
-                    v-if="teamData.earlyShift.patients.length > 0"
-                    @click="showInjectionList(teamData, 'earlyShift')"
+                    v-if="effectiveStatsData.early[teamName]?.earlyShift.patients.length > 0"
+                    @click="showInjectionList(effectiveStatsData.early[teamName], 'earlyShift')"
                     title="顯示本日應打針劑"
                   >
                     💉
-                  </div>
-                </div>
-              </div>
-              <div
-                class="grid-cell patient-list-cell unassigned-patient-cell"
-                @drop="!isPageLocked && onDropToUnassigned($event, 'early')"
-                @dragover.prevent="!isPageLocked && onDragOver($event)"
-                @dragleave="onDragLeave"
-              >
-                <div class="patient-wrapper">
-                  <div
-                    v-for="patient in unassignedEarlyShiftPatients"
-                    :key="patient.shiftId"
-                    :class="patient.classes"
-                    :draggable="!isPageLocked"
-                    @dragstart="!isPageLocked && onUnassignedDragStart($event, patient)"
-                  >
-                    <div class="patient-main-info">
-                      <div class="patient-line-one">
-                        {{ patient.dialysisBed }} - {{ patient.name }}
-                      </div>
-                      <div class="patient-line-two">
-                        <span v-if="patient.wardNumber" class="ward-number-display">{{
-                          patient.wardNumber
-                        }}</span>
-                        <span
-                          v-if="patient.mode && patient.mode !== 'HD'"
-                          class="stats-special-mode"
-                          >({{ patient.mode }})</span
-                        >
-                        <span v-if="patient.finalTags" class="note-display">{{
-                          patient.finalTags
-                        }}</span>
-                      </div>
-                    </div>
-                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
               </div>
@@ -288,16 +253,17 @@
             <div class="grid-row">
               <div class="row-header">午班(上針)</div>
               <div
-                v-for="(teamData, teamName) in effectiveStatsData.early"
+                v-for="teamName in sortedEarlyTeams"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
+                :class="{ 'unassigned-cell': teamName.includes('未分組') }"
                 @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOn')"
                 @dragover.prevent="!isPageLocked && onDragOver($event)"
                 @dragleave="onDragLeave"
               >
                 <div class="patient-wrapper">
                   <div
-                    v-for="patient in teamData.noonShiftOn.patients"
+                    v-for="patient in effectiveStatsData.early[teamName]?.noonShiftOn.patients"
                     :key="patient.shiftId"
                     :class="patient.classes"
                     :draggable="!isPageLocked"
@@ -331,100 +297,139 @@
                 <div class="cell-actions-container">
                   <div
                     class="prep-list-trigger"
-                    v-if="teamData.noonShiftOn.patients.length > 0"
-                    @click="showPrepPopover($event, teamData, 'noonShiftOn')"
+                    v-if="effectiveStatsData.early[teamName]?.noonShiftOn.patients.length > 0"
+                    @click="
+                      showPrepPopover($event, effectiveStatsData.early[teamName], 'noonShiftOn')
+                    "
                     title="顯示備物清單"
                   >
                     📋
                   </div>
                   <div
                     class="injection-list-trigger"
-                    v-if="teamData.noonShiftOn.patients.length > 0"
-                    @click="showInjectionList(teamData, 'noonShiftOn')"
+                    v-if="effectiveStatsData.early[teamName]?.noonShiftOn.patients.length > 0"
+                    @click="showInjectionList(effectiveStatsData.early[teamName], 'noonShiftOn')"
                     title="顯示本日應打針劑"
                   >
                     💉
                   </div>
                 </div>
               </div>
-              <div
-                class="grid-cell patient-list-cell unassigned-patient-cell"
-                @drop="!isPageLocked && onDropToUnassigned($event, 'noon')"
-                @dragover.prevent="!isPageLocked && onDragOver($event)"
-                @dragleave="onDragLeave"
-              >
-                <div class="patient-wrapper">
-                  <div
-                    v-for="patient in unassignedNoonShiftPatients"
-                    :key="patient.shiftId"
-                    :class="patient.classes"
-                    :draggable="!isPageLocked"
-                    @dragstart="!isPageLocked && onUnassignedDragStart($event, patient)"
-                  >
-                    <div class="patient-main-info">
-                      <div class="patient-line-one">
-                        {{ patient.dialysisBed }} - {{ patient.name }}
+            </div>
+            <div class="grid-row">
+              <div class="row-header collapsible-header" @click="toggleNoonTakeoff('early')">
+                <span>午班(收針)</span>
+                <span class="collapse-icon" :class="{ 'is-expanded': noonTakeoffVisibility.early }"
+                  >►</span
+                >
+              </div>
+            </div>
+            <transition name="grid-row-fade">
+              <div class="grid-row" v-if="noonTakeoffVisibility.early">
+                <!-- ✨ [核心修正] 在這裡補上空的 row-header 以對齊網格 -->
+                <div class="row-header">午班(收針)</div>
+                <div
+                  v-for="teamName in sortedEarlyTeams"
+                  :key="teamName"
+                  class="grid-cell patient-list-cell"
+                  :class="{ 'unassigned-cell': teamName.includes('未分組') }"
+                  @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
+                  @dragover.prevent="!isPageLocked && onDragOver($event)"
+                  @dragleave="onDragLeave"
+                >
+                  <div class="patient-wrapper">
+                    <div
+                      v-for="patient in effectiveStatsData.early[teamName]?.noonShiftOff.patients"
+                      :key="patient.shiftId"
+                      :class="patient.classes"
+                      :draggable="!isPageLocked"
+                      @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
+                    >
+                      <div
+                        class="patient-main-info"
+                        @click="!isPageLocked && openBedChangeDialog(patient)"
+                        title="點擊換床"
+                      >
+                        <div class="patient-line-one">
+                          {{ patient.dialysisBed }} - {{ patient.name }}
+                        </div>
+                        <div class="patient-line-two">
+                          <span v-if="patient.wardNumber" class="ward-number-display">{{
+                            patient.wardNumber
+                          }}</span>
+                          <span
+                            v-if="patient.mode && patient.mode !== 'HD'"
+                            class="stats-special-mode"
+                            >({{ patient.mode }})</span
+                          >
+                          <span v-if="patient.finalTags" class="note-display">{{
+                            patient.finalTags
+                          }}</span>
+                        </div>
                       </div>
-                      <div class="patient-line-two">
-                        <span v-if="patient.wardNumber" class="ward-number-display">{{
-                          patient.wardNumber
-                        }}</span>
-                        <span
-                          v-if="patient.mode && patient.mode !== 'HD'"
-                          class="stats-special-mode"
-                          >({{ patient.mode }})</span
-                        >
-                        <span v-if="patient.finalTags" class="note-display">{{
-                          patient.finalTags
-                        }}</span>
-                      </div>
+                      <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                     </div>
-                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                  </div>
+                  <div class="cell-actions-container">
+                    <div
+                      class="prep-list-trigger"
+                      v-if="effectiveStatsData.early[teamName]?.noonShiftOff.patients.length > 0"
+                      @click="
+                        showPrepPopover($event, effectiveStatsData.early[teamName], 'noonShiftOff')
+                      "
+                      title="顯示備物清單"
+                    >
+                      📋
+                    </div>
+                    <div
+                      class="injection-list-trigger"
+                      v-if="effectiveStatsData.early[teamName]?.noonShiftOff.patients.length > 0"
+                      @click="showInjectionList(effectiveStatsData.early[teamName], 'noonShiftOff')"
+                      title="顯示本日應打針劑"
+                    >
+                      💉
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </transition>
           </div>
           <div class="grid-footer">
             <div class="row-header">照護人數</div>
-            <div
-              v-for="(teamData, teamName) in effectiveStatsData.early"
-              :key="teamName"
-              class="total-count-summary"
-            >
-              門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
-                teamData.totalErCount
+            <div v-for="teamName in sortedEarlyTeams" :key="teamName" class="total-count-summary">
+              門{{ effectiveStatsData.early[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.early[teamName]?.totalIpdCount || 0
               }}
+              急{{ effectiveStatsData.early[teamName]?.totalErCount || 0 }}
             </div>
-            <div class="total-count-summary"></div>
           </div>
         </div>
       </div>
 
       <!-- 晚班區塊 -->
       <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
-        <div class="grid-container">
+        <div
+          class="grid-container"
+          :style="{ gridTemplateColumns: `90px repeat(${sortedLateTeams.length}, 1fr)` }"
+        >
           <div class="grid-header">
             <div class="row-header section-title-cell">晚班</div>
             <div
-              v-for="(_, teamName) in effectiveStatsData.late"
+              v-for="teamName in sortedLateTeams"
               :key="teamName"
               class="team-header-cell"
+              :class="{ 'unassigned-header': teamName.includes('未分組') }"
             >
-              {{ teamName.replace('晚', '') }}組
+              {{ teamName.includes('未分組') ? '未分組' : teamName.replace('晚', '') + '組' }}
             </div>
-            <div class="team-header-cell unassigned-column-header">未分組</div>
           </div>
           <div class="grid-body">
             <div class="grid-row">
               <div class="row-header">姓名</div>
-              <div
-                v-for="(teamData, teamName) in effectiveStatsData.late"
-                :key="teamName"
-                class="grid-cell name-cell"
-              >
+              <div v-for="teamName in sortedLateTeams" :key="teamName" class="grid-cell name-cell">
                 <select
-                  :value="teamData.nurseName"
+                  v-if="!teamName.includes('未分組')"
+                  :value="effectiveStatsData.late[teamName]?.nurseName"
                   @change="updateNurseName(teamName, $event)"
                   class="name-select"
                   :disabled="isPageLocked"
@@ -434,95 +439,100 @@
                     {{ name }}
                   </option>
                 </select>
+                <div v-else class="unassigned-placeholder"></div>
               </div>
-              <div class="grid-cell"></div>
             </div>
             <div class="grid-row">
-              <div class="row-header">午班(收針)</div>
-              <div
-                v-for="(teamData, teamName) in effectiveStatsData.late"
-                :key="teamName"
-                class="grid-cell patient-list-cell"
-                @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
-                @dragover.prevent="!isPageLocked && onDragOver($event)"
-                @dragleave="onDragLeave"
-              >
-                <div class="patient-wrapper">
-                  <div
-                    v-for="patient in teamData.noonShiftOff.patients"
-                    :key="patient.shiftId"
-                    :class="patient.classes"
-                    :draggable="!isPageLocked"
-                    @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
-                  >
-                    <div
-                      class="patient-main-info"
-                      @click="!isPageLocked && openBedChangeDialog(patient)"
-                      title="點擊換床"
-                    >
-                      <div class="patient-line-one">
-                        {{ patient.dialysisBed }} - {{ patient.name }}
-                      </div>
-                      <div class="patient-line-two">
-                        <span v-if="patient.wardNumber" class="ward-number-display">{{
-                          patient.wardNumber
-                        }}</span>
-                        <span
-                          v-if="patient.mode && patient.mode !== 'HD'"
-                          class="stats-special-mode"
-                          >({{ patient.mode }})</span
-                        >
-                        <span v-if="patient.finalTags" class="note-display">{{
-                          patient.finalTags
-                        }}</span>
-                      </div>
-                    </div>
-                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
-                  </div>
-                </div>
-                <div class="cell-actions-container">
-                  <div
-                    class="prep-list-trigger"
-                    v-if="teamData.noonShiftOff.patients.length > 0"
-                    @click="showPrepPopover($event, teamData, 'noonShiftOff')"
-                    title="顯示備物清單"
-                  >
-                    📋
-                  </div>
-                  <div
-                    class="injection-list-trigger"
-                    v-if="teamData.noonShiftOff.patients.length > 0"
-                    @click="showInjectionList(teamData, 'noonShiftOff')"
-                    title="顯示本日應打針劑"
-                  >
-                    💉
-                  </div>
-                </div>
-              </div>
-              <div
-                class="grid-cell patient-list-cell unassigned-patient-cell"
-                @drop="!isPageLocked && onDropToUnassigned($event, 'noon')"
-                @dragover.prevent="!isPageLocked && onDragOver($event)"
-                @dragleave="onDragLeave"
-              >
-                <div class="patient-wrapper">
-                  <!-- Content for this is rendered in the Early shift section to avoid duplication -->
-                </div>
+              <div class="row-header collapsible-header" @click="toggleNoonTakeoff('late')">
+                <span>午班(收針)</span>
+                <span class="collapse-icon" :class="{ 'is-expanded': noonTakeoffVisibility.late }"
+                  >►</span
+                >
               </div>
             </div>
+            <transition name="grid-row-fade">
+              <div class="grid-row" v-if="noonTakeoffVisibility.late">
+                <!-- ✨ [核心修正] 在這裡補上空的 row-header 以對齊網格 -->
+                <div class="row-header">午班(收針)</div>
+                <div
+                  v-for="teamName in sortedLateTeams"
+                  :key="teamName"
+                  class="grid-cell patient-list-cell"
+                  :class="{ 'unassigned-cell': teamName.includes('未分組') }"
+                  @drop="!isPageLocked && onDrop($event, teamName, 'noonShiftOff')"
+                  @dragover.prevent="!isPageLocked && onDragOver($event)"
+                  @dragleave="onDragLeave"
+                >
+                  <div class="patient-wrapper">
+                    <div
+                      v-for="patient in effectiveStatsData.late[teamName]?.noonShiftOff.patients"
+                      :key="patient.shiftId"
+                      :class="patient.classes"
+                      :draggable="!isPageLocked"
+                      @dragstart="!isPageLocked && onDragStart($event, patient, 'noonShiftOff')"
+                    >
+                      <div
+                        class="patient-main-info"
+                        @click="!isPageLocked && openBedChangeDialog(patient)"
+                        title="點擊換床"
+                      >
+                        <div class="patient-line-one">
+                          {{ patient.dialysisBed }} - {{ patient.name }}
+                        </div>
+                        <div class="patient-line-two">
+                          <span v-if="patient.wardNumber" class="ward-number-display">{{
+                            patient.wardNumber
+                          }}</span>
+                          <span
+                            v-if="patient.mode && patient.mode !== 'HD'"
+                            class="stats-special-mode"
+                            >({{ patient.mode }})</span
+                          >
+                          <span v-if="patient.finalTags" class="note-display">{{
+                            patient.finalTags
+                          }}</span>
+                        </div>
+                      </div>
+                      <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                    </div>
+                  </div>
+                  <div class="cell-actions-container">
+                    <div
+                      class="prep-list-trigger"
+                      v-if="effectiveStatsData.late[teamName]?.noonShiftOff.patients.length > 0"
+                      @click="
+                        showPrepPopover($event, effectiveStatsData.late[teamName], 'noonShiftOff')
+                      "
+                      title="顯示備物清單"
+                    >
+                      📋
+                    </div>
+                    <div
+                      class="injection-list-trigger"
+                      v-if="effectiveStatsData.late[teamName]?.noonShiftOff.patients.length > 0"
+                      @click="showInjectionList(effectiveStatsData.late[teamName], 'noonShiftOff')"
+                      title="顯示本日應打針劑"
+                    >
+                      💉
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </transition>
             <div class="grid-row">
               <div class="row-header">晚班</div>
               <div
-                v-for="(teamData, teamName) in effectiveStatsData.late"
+                v-for="teamName in sortedLateTeams"
                 :key="teamName"
                 class="grid-cell patient-list-cell"
+                :class="{ 'unassigned-cell': teamName.includes('未分組') }"
                 @drop="!isPageLocked && onDrop($event, teamName, 'lateShift')"
                 @dragover.prevent="!isPageLocked && onDragOver($event)"
                 @dragleave="onDragLeave"
               >
                 <div class="patient-wrapper">
                   <div
-                    v-for="patient in teamData.lateShift.patients"
+                    v-for="patient in effectiveStatsData.late[teamName]?.lateShift.patients"
                     :key="patient.shiftId"
                     :class="patient.classes"
                     :draggable="!isPageLocked"
@@ -556,35 +566,287 @@
                 <div class="cell-actions-container">
                   <div
                     class="prep-list-trigger"
-                    v-if="teamData.lateShift.patients.length > 0"
-                    @click="showPrepPopover($event, teamData, 'lateShift')"
+                    v-if="effectiveStatsData.late[teamName]?.lateShift.patients.length > 0"
+                    @click="showPrepPopover($event, effectiveStatsData.late[teamName], 'lateShift')"
                     title="顯示備物清單"
                   >
                     📋
                   </div>
                   <div
                     class="injection-list-trigger"
-                    v-if="teamData.lateShift.patients.length > 0"
-                    @click="showInjectionList(teamData, 'lateShift')"
+                    v-if="effectiveStatsData.late[teamName]?.lateShift.patients.length > 0"
+                    @click="showInjectionList(effectiveStatsData.late[teamName], 'lateShift')"
                     title="顯示本日應打針劑"
                   >
                     💉
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
+            <div v-for="teamName in sortedLateTeams" :key="teamName" class="total-count-summary">
+              門{{ effectiveStatsData.late[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.late[teamName]?.totalIpdCount || 0
+              }}
+              急{{ effectiveStatsData.late[teamName]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 夜班收針區塊 -->
+      <div
+        v-if="lateShiftTakeOffExists"
+        class="stats-section late-takeoff-section"
+        :class="{ 'is-locked': isPageLocked }"
+      >
+        <div
+          class="grid-container"
+          :style="{ gridTemplateColumns: `90px repeat(${sortedLateTakeOffTeams.length}, 1fr)` }"
+        >
+          <div class="grid-header">
+            <div class="row-header section-title-cell takeoff-title-cell">夜班收針</div>
+            <div class="takeoff-action-bar">
+              <button
+                @click="promptRemoveLateShiftTakeOff"
+                class="duplicate-shift-btn remove"
+                title="移除夜班收針分組"
+                :disabled="isPageLocked"
+              >
+                <i class="fas fa-trash"></i> 移除收針分組
+              </button>
+            </div>
+            <div style="display: contents">
               <div
-                class="grid-cell patient-list-cell unassigned-patient-cell"
-                @drop="!isPageLocked && onDropToUnassigned($event, 'late')"
+                v-for="teamName in sortedLateTakeOffTeams"
+                :key="teamName"
+                class="team-header-cell"
+                :class="{ 'unassigned-header': teamName.includes('未分組') }"
+              >
+                {{
+                  teamName.includes('未分組') ? '未分組' : teamName.replace('夜間收針', '') + '組'
+                }}
+              </div>
+            </div>
+          </div>
+          <div class="grid-body">
+            <div class="grid-row">
+              <div class="row-header">姓名</div>
+              <div
+                v-for="teamName in sortedLateTakeOffTeams"
+                :key="teamName"
+                class="grid-cell name-cell"
+              >
+                <select
+                  v-if="!teamName.includes('未分組')"
+                  :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
+                  @change="updateNurseName(teamName, $event)"
+                  class="name-select"
+                  :disabled="isPageLocked"
+                >
+                  <option value="">-- 未指派 --</option>
+                  <option v-for="name in nurseNameList" :key="name" :value="name">
+                    {{ name }}
+                  </option>
+                </select>
+                <div v-else class="unassigned-placeholder"></div>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">夜班收針</div>
+              <div
+                v-for="teamName in sortedLateTakeOffTeams"
+                :key="teamName"
+                class="grid-cell patient-list-cell"
+                :class="{ 'unassigned-cell': teamName.includes('未分組') }"
+                @drop="!isPageLocked && onDrop($event, teamName, 'lateShiftTakeOff')"
                 @dragover.prevent="!isPageLocked && onDragOver($event)"
                 @dragleave="onDragLeave"
               >
                 <div class="patient-wrapper">
                   <div
-                    v-for="patient in unassignedLateShiftPatients"
+                    v-for="patient in effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff
+                      .patients"
                     :key="patient.shiftId"
                     :class="patient.classes"
                     :draggable="!isPageLocked"
-                    @dragstart="!isPageLocked && onUnassignedDragStart($event, patient)"
+                    @dragstart="!isPageLocked && onDragStart($event, patient, 'lateShiftTakeOff')"
+                  >
+                    <div
+                      class="patient-main-info"
+                      @click="!isPageLocked && openBedChangeDialog(patient)"
+                      title="點擊換床"
+                    >
+                      <div class="patient-line-one">
+                        {{ patient.dialysisBed }} - {{ patient.name }}
+                      </div>
+                      <div class="patient-line-two">
+                        <span v-if="patient.wardNumber" class="ward-number-display">{{
+                          patient.wardNumber
+                        }}</span>
+                        <span
+                          v-if="patient.mode && patient.mode !== 'HD'"
+                          class="stats-special-mode"
+                          >({{ patient.mode }})</span
+                        >
+                        <span v-if="patient.finalTags" class="note-display">{{
+                          patient.finalTags
+                        }}</span>
+                      </div>
+                    </div>
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                  </div>
+                </div>
+                <div class="cell-actions-container">
+                  <div
+                    class="prep-list-trigger"
+                    v-if="
+                      effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff.patients.length > 0
+                    "
+                    @click="
+                      showPrepPopover(
+                        $event,
+                        effectiveStatsData.lateTakeOff[teamName],
+                        'lateShiftTakeOff',
+                      )
+                    "
+                    title="顯示備物清單"
+                  >
+                    📋
+                  </div>
+                  <div
+                    class="injection-list-trigger"
+                    v-if="
+                      effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff.patients.length > 0
+                    "
+                    @click="
+                      showInjectionList(
+                        effectiveStatsData.lateTakeOff[teamName],
+                        'lateShiftTakeOff',
+                      )
+                    "
+                    title="顯示本日應打針劑"
+                  >
+                    💉
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
+            <div
+              v-for="teamName in sortedLateTakeOffTeams"
+              :key="teamName"
+              class="total-count-summary"
+            >
+              門{{ effectiveStatsData.lateTakeOff[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.lateTakeOff[teamName]?.totalIpdCount || 0
+              }}
+              急{{ effectiveStatsData.lateTakeOff[teamName]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 行動版檢視 (也加上伸縮功能) -->
+    <div class="mobile-only" :class="{ 'is-locked': isPageLocked }">
+      <!-- 早班 -->
+      <div class="mobile-shift-section">
+        <h2 class="mobile-shift-title">早班</h2>
+        <div v-for="teamName in sortedEarlyTeams" :key="teamName" class="mobile-team-card">
+          <div class="mobile-team-header">
+            <h3>
+              {{ teamName.includes('未分組') ? '未分組' : teamName.replace('早', '') + '組' }}
+            </h3>
+            <select
+              v-if="!teamName.includes('未分組')"
+              :value="effectiveStatsData.early[teamName]?.nurseName"
+              @change="updateNurseName(teamName, $event)"
+              class="name-select"
+              :disabled="true"
+            >
+              <option value="">-- 未指派 --</option>
+              <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
+          <div class="mobile-patient-lists">
+            <div
+              v-if="effectiveStatsData.early[teamName]?.earlyShift.patients.length > 0"
+              class="mobile-patient-list"
+            >
+              <h4>早班</h4>
+              <div
+                v-for="patient in effectiveStatsData.early[teamName].earlyShift.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+                :draggable="false"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+              </div>
+            </div>
+            <div
+              v-if="effectiveStatsData.early[teamName]?.noonShiftOn.patients.length > 0"
+              class="mobile-patient-list"
+            >
+              <h4>午班 (上針)</h4>
+              <div
+                v-for="patient in effectiveStatsData.early[teamName].noonShiftOn.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+                :draggable="false"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+              </div>
+            </div>
+            <div
+              v-if="effectiveStatsData.early[teamName]?.noonShiftOff.patients.length > 0"
+              class="mobile-patient-list collapsible"
+            >
+              <h4 @click="toggleNoonTakeoff('early')">
+                <span>午班 (收針)</span>
+                <span class="collapse-icon" :class="{ 'is-expanded': noonTakeoffVisibility.early }"
+                  >►</span
+                >
+              </h4>
+              <transition name="slide-fade">
+                <div v-if="noonTakeoffVisibility.early" class="collapsible-content">
+                  <div
+                    v-for="patient in effectiveStatsData.early[teamName].noonShiftOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="false"
                   >
                     <div class="patient-main-info">
                       <div class="patient-line-one">
@@ -607,41 +869,183 @@
                     <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
                   </div>
                 </div>
-              </div>
+              </transition>
             </div>
           </div>
-          <div class="grid-footer">
-            <div class="row-header">照護人數</div>
-            <div
-              v-for="(teamData, teamName) in effectiveStatsData.late"
-              :key="teamName"
-              class="total-count-summary"
-            >
-              門{{ teamData.totalOpdCount }} 住{{ teamData.totalIpdCount }} 急{{
-                teamData.totalErCount
-              }}
-            </div>
-            <div class="total-count-summary"></div>
+          <div class="mobile-team-footer">
+            門{{ effectiveStatsData.early[teamName]?.totalOpdCount || 0 }} 住{{
+              effectiveStatsData.early[teamName]?.totalIpdCount || 0
+            }}
+            急{{ effectiveStatsData.early[teamName]?.totalErCount || 0 }}
           </div>
         </div>
       </div>
-
-      <!-- 夜班收針區塊 (保持不變) -->
-      <div
-        v-if="lateShiftTakeOffExists"
-        class="stats-section late-takeoff-section"
-        :class="{ 'is-locked': isPageLocked }"
-      >
-        <!-- ... 夜班收針所有內容保持不變 ... -->
+      <!-- 晚班 -->
+      <div class="mobile-shift-section">
+        <h2 class="mobile-shift-title">晚班</h2>
+        <div v-for="teamName in sortedLateTeams" :key="teamName" class="mobile-team-card">
+          <div class="mobile-team-header">
+            <h3>
+              {{ teamName.includes('未分組') ? '未分組' : teamName.replace('晚', '') + '組' }}
+            </h3>
+            <select
+              v-if="!teamName.includes('未分組')"
+              :value="effectiveStatsData.late[teamName]?.nurseName"
+              @change="updateNurseName(teamName, $event)"
+              class="name-select"
+              :disabled="true"
+            >
+              <option value="">-- 未指派 --</option>
+              <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+            </select>
+          </div>
+          <div class="mobile-patient-lists">
+            <div
+              v-if="effectiveStatsData.late[teamName]?.noonShiftOff.patients.length > 0"
+              class="mobile-patient-list collapsible"
+            >
+              <h4 @click="toggleNoonTakeoff('late')">
+                <span>午班 (收針)</span>
+                <span class="collapse-icon" :class="{ 'is-expanded': noonTakeoffVisibility.late }"
+                  >►</span
+                >
+              </h4>
+              <transition name="slide-fade">
+                <div v-if="noonTakeoffVisibility.late" class="collapsible-content">
+                  <div
+                    v-for="patient in effectiveStatsData.late[teamName].noonShiftOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                    :draggable="false"
+                  >
+                    <div class="patient-main-info">
+                      <div class="patient-line-one">
+                        {{ patient.dialysisBed }} - {{ patient.name }}
+                      </div>
+                      <div class="patient-line-two">
+                        <span v-if="patient.wardNumber" class="ward-number-display">{{
+                          patient.wardNumber
+                        }}</span>
+                        <span
+                          v-if="patient.mode && patient.mode !== 'HD'"
+                          class="stats-special-mode"
+                          >({{ patient.mode }})</span
+                        >
+                        <span v-if="patient.finalTags" class="note-display">{{
+                          patient.finalTags
+                        }}</span>
+                      </div>
+                    </div>
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                  </div>
+                </div>
+              </transition>
+            </div>
+            <div
+              v-if="effectiveStatsData.late[teamName]?.lateShift.patients.length > 0"
+              class="mobile-patient-list"
+            >
+              <h4>晚班</h4>
+              <div
+                v-for="patient in effectiveStatsData.late[teamName].lateShift.patients"
+                :key="patient.shiftId"
+                :class="patient.classes"
+                :draggable="false"
+              >
+                <div class="patient-main-info">
+                  <div class="patient-line-one">{{ patient.dialysisBed }} - {{ patient.name }}</div>
+                  <div class="patient-line-two">
+                    <span v-if="patient.wardNumber" class="ward-number-display">{{
+                      patient.wardNumber
+                    }}</span>
+                    <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                      >({{ patient.mode }})</span
+                    >
+                    <span v-if="patient.finalTags" class="note-display">{{
+                      patient.finalTags
+                    }}</span>
+                  </div>
+                </div>
+                <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+              </div>
+            </div>
+          </div>
+          <div class="mobile-team-footer">
+            門{{ effectiveStatsData.late[teamName]?.totalOpdCount || 0 }} 住{{
+              effectiveStatsData.late[teamName]?.totalIpdCount || 0
+            }}
+            急{{ effectiveStatsData.late[teamName]?.totalErCount || 0 }}
+          </div>
+        </div>
+        <!-- 夜班收針 (行動版) -->
+        <div v-if="lateShiftTakeOffExists">
+          <h2 class="mobile-shift-title" style="margin-top: 1rem; border-top: 2px solid #007bff">
+            夜班收針
+          </h2>
+          <div v-for="teamName in sortedLateTakeOffTeams" :key="teamName" class="mobile-team-card">
+            <div class="mobile-team-header">
+              <h3>
+                {{
+                  teamName.includes('未分組') ? '未分組' : teamName.replace('夜間收針', '') + '組'
+                }}
+              </h3>
+              <select
+                v-if="!teamName.includes('未分組')"
+                :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
+                class="name-select"
+                :disabled="true"
+              >
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+            <div class="mobile-patient-lists">
+              <div
+                v-if="
+                  effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff.patients.length > 0
+                "
+                class="mobile-patient-list"
+              >
+                <h4>夜班收針</h4>
+                <div
+                  v-for="patient in effectiveStatsData.lateTakeOff[teamName].lateShiftTakeOff
+                    .patients"
+                  :key="patient.shiftId"
+                  :class="patient.classes"
+                  :draggable="false"
+                >
+                  <div class="patient-main-info">
+                    <div class="patient-line-one">
+                      {{ patient.dialysisBed }} - {{ patient.name }}
+                    </div>
+                    <div class="patient-line-two">
+                      <span v-if="patient.wardNumber" class="ward-number-display">{{
+                        patient.wardNumber
+                      }}</span>
+                      <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                        >({{ patient.mode }})</span
+                      >
+                      <span v-if="patient.finalTags" class="note-display">{{
+                        patient.finalTags
+                      }}</span>
+                    </div>
+                  </div>
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                </div>
+              </div>
+            </div>
+            <div class="mobile-team-footer">
+              門{{ effectiveStatsData.lateTakeOff[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.lateTakeOff[teamName]?.totalIpdCount || 0
+              }}
+              急{{ effectiveStatsData.lateTakeOff[teamName]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- 行動版檢視 (保持不變) -->
-    <div class="mobile-only" :class="{ 'is-locked': isPageLocked }">
-      <!-- ... 行動版所有內容保持不變 ... -->
-    </div>
-
-    <!-- 所有 Dialogs (保持不變) -->
+    <!-- Modals (保持不變) -->
     <TaskCreateDialog
       :is-visible="isCreateTaskModalVisible"
       :all-patients="patientStore.allPatients"
@@ -722,7 +1126,6 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
-import * as XLSX from 'xlsx'
 
 // --- Store & Hook Instantiation ---
 const patientStore = usePatientStore()
@@ -766,8 +1169,10 @@ const nurseNameList = [
   '林芳羽',
   '蔡靜怡',
 ]
-const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
-const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍']
+
+const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
+const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
+
 const earlyTeams = earlyBaseTeams.map((t) => `早${t}`)
 const lateTeams = lateBaseTeams.map((t) => `晚${t}`)
 const dutyAssignments = {
@@ -793,7 +1198,6 @@ const dutyAssignments = {
 
 // --- Reactive State ---
 const isFireDutyDropdownVisible = ref(false)
-const isEarlyNoonOffCollapsed = ref(true)
 const currentDate = ref(new Date())
 const statusIndicator = ref('')
 const isLoading = ref(false)
@@ -820,6 +1224,7 @@ const dailyPhysicians = ref({ early: null, noon: null, late: null })
 const isInjectionDialogVisible = ref(false)
 const dailyInjections = ref([])
 const isInjectionLoading = ref(false)
+const noonTakeoffVisibility = ref({ early: false, late: false })
 
 provide('viewingDate', currentDate)
 
@@ -844,73 +1249,39 @@ const lateShiftTakeOffExists = computed(() =>
   ),
 )
 
-// ✨ 【修改】將一個大的未分組列表，拆分成三個小的列表 ✨
-const unassignedPatients = computed(() => {
-  if (!currentRecord.schedule || patientMap.value.size === 0) return []
-  const assignedPatientShiftKeys = new Set()
-  for (const teamKey in currentTeamsRecord.value.teams) {
-    const teamInfo = currentTeamsRecord.value.teams[teamKey]
-    if (
-      teamInfo.nurseTeam ||
-      teamInfo.nurseTeamIn ||
-      teamInfo.nurseTeamOut ||
-      teamInfo.nurseTeamTakeOff
-    ) {
-      assignedPatientShiftKeys.add(teamKey)
-    }
-  }
-  const unassigned = []
-  for (const shiftId in currentRecord.schedule) {
-    const slotData = currentRecord.schedule[shiftId]
-    if (!slotData || !slotData.patientId) continue
-    const shiftCode = shiftId.split('-')[2]
-    const patientShiftKey = `${slotData.patientId}-${shiftCode}`
-    if (!assignedPatientShiftKeys.has(patientShiftKey)) {
-      const patient = patientMap.value.get(slotData.patientId)
-      if (patient) {
-        const messageTypes =
-          taskStore.getPatientMessageTypesMapForDate(currentDate.value).get(patient.id) || []
-        const cellStyles = getUnifiedCellStyle(slotData, patient, null, messageTypes)
-        unassigned.push({
-          id: patient.id,
-          shiftId,
-          name: patient.name,
-          status: patient.status,
-          mode: patient.mode,
-          wardNumber: patient.wardNumber || '',
-          dialysisBed: shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || '',
-          finalTags: [
-            ...new Set([
-              ...(slotData.autoNote || '').split(' '),
-              ...(slotData.manualNote || '').split(' '),
-            ]),
-          ]
-            .filter((tag) => tag && !['住', '急'].includes(tag))
-            .join(' '),
-          classes:
-            'patient-item ' +
-            Object.entries(cellStyles)
-              .filter(([, v]) => v)
-              .map(([k]) => k)
-              .join(' '),
-          dialysisOrders: patient.dialysisOrders || {},
-          shiftCode: shiftCode,
-        })
-      }
-    }
-  }
-  return unassigned
+const sortedEarlyTeams = computed(() => {
+  if (!effectiveStatsData.value || !effectiveStatsData.value.early) return []
+  const teams = Object.keys(effectiveStatsData.value.early)
+  return teams.sort((a, b) => {
+    if (a.includes('未分組')) return 1
+    if (b.includes('未分組')) return -1
+    if (a.includes('外圍')) return 1
+    if (b.includes('外圍')) return -1
+    return a.localeCompare(b)
+  })
 })
-
-const unassignedEarlyShiftPatients = computed(() =>
-  unassignedPatients.value.filter((p) => p.shiftCode === SHIFT_CODES.EARLY),
-)
-const unassignedNoonShiftPatients = computed(() =>
-  unassignedPatients.value.filter((p) => p.shiftCode === SHIFT_CODES.NOON),
-)
-const unassignedLateShiftPatients = computed(() =>
-  unassignedPatients.value.filter((p) => p.shiftCode === SHIFT_CODES.LATE),
-)
+const sortedLateTeams = computed(() => {
+  if (!effectiveStatsData.value || !effectiveStatsData.value.late) return []
+  const teams = Object.keys(effectiveStatsData.value.late)
+  return teams.sort((a, b) => {
+    if (a.includes('未分組')) return 1
+    if (b.includes('未分組')) return -1
+    if (a.includes('外圍')) return 1
+    if (b.includes('外圍')) return -1
+    return a.localeCompare(b)
+  })
+})
+const sortedLateTakeOffTeams = computed(() => {
+  if (!effectiveStatsData.value || !effectiveStatsData.value.lateTakeOff) return []
+  const teams = Object.keys(effectiveStatsData.value.lateTakeOff)
+  return teams.sort((a, b) => {
+    if (a.includes('未分組')) return 1
+    if (b.includes('未分組')) return -1
+    if (a.includes('外圍')) return 1
+    if (b.includes('外圍')) return -1
+    return a.localeCompare(b)
+  })
+})
 
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
@@ -950,10 +1321,13 @@ const effectiveStatsData = computed(() => {
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
+
     const patient = patientMap.value.get(shiftDetails.patientId)
     if (!patient) continue
+
     const messageTypesForPatient = messagesMap.get(patient.id) || []
     const cellStyles = getUnifiedCellStyle(shiftDetails, patient, null, messageTypesForPatient)
+
     const {
       patientId,
       autoNote,
@@ -963,6 +1337,7 @@ const effectiveStatsData = computed(() => {
       nurseTeamOut,
       nurseTeamTakeOff,
     } = shiftDetails || {}
+
     const detail = {
       id: patientId,
       shiftId,
@@ -982,6 +1357,7 @@ const effectiveStatsData = computed(() => {
           .join(' '),
       dialysisOrders: patient.dialysisOrders || {},
     }
+
     const assignAndCount = (group, pDetail) => {
       if (!group) return
       group.patients.push(pDetail)
@@ -989,25 +1365,39 @@ const effectiveStatsData = computed(() => {
       else if (pDetail.status === 'er') group.erCount++
       else group.opdCount++
     }
+
     const shiftCode = shiftId.split('-')[2]
-    if (shiftCode === SHIFT_CODES.EARLY && nurseTeam && earlyShiftStats[nurseTeam]) {
-      assignAndCount(earlyShiftStats[nurseTeam].earlyShift, detail)
-    } else if (shiftCode === SHIFT_CODES.LATE) {
-      if (nurseTeam && lateShiftStats[nurseTeam]) {
-        assignAndCount(lateShiftStats[nurseTeam].lateShift, detail)
+
+    if (shiftCode === SHIFT_CODES.EARLY) {
+      const targetTeam = nurseTeam || '早未分組'
+      if (earlyShiftStats[targetTeam]) {
+        assignAndCount(earlyShiftStats[targetTeam].earlyShift, detail)
       }
-      if (nurseTeamTakeOff && lateTakeOffStats[nurseTeamTakeOff]) {
-        assignAndCount(lateTakeOffStats[nurseTeamTakeOff].lateShiftTakeOff, detail)
+    } else if (shiftCode === SHIFT_CODES.LATE) {
+      const targetTeam = nurseTeam || '晚未分組'
+      if (lateShiftStats[targetTeam]) {
+        assignAndCount(lateShiftStats[targetTeam].lateShift, detail)
+      }
+      const targetTakeOffTeam = nurseTeamTakeOff || '夜間收針未分組'
+      if (lateTakeOffStats[targetTakeOffTeam]) {
+        assignAndCount(lateTakeOffStats[targetTakeOffTeam].lateShiftTakeOff, detail)
       }
     } else if (shiftCode === SHIFT_CODES.NOON) {
-      if (nurseTeamIn && earlyShiftStats[nurseTeamIn]) {
-        assignAndCount(earlyShiftStats[nurseTeamIn].noonShiftOn, detail)
+      const targetInTeam = nurseTeamIn || '早未分組'
+      if (earlyShiftStats[targetInTeam]) {
+        assignAndCount(earlyShiftStats[targetInTeam].noonShiftOn, detail)
       }
-      if (nurseTeamOut) {
-        if (lateShiftStats[nurseTeamOut])
-          assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
-        else if (earlyShiftStats[nurseTeamOut])
-          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
+
+      const targetOutTeam = nurseTeamOut
+      if (targetOutTeam) {
+        if (lateShiftStats[targetOutTeam])
+          assignAndCount(lateShiftStats[targetOutTeam].noonShiftOff, detail)
+        else if (earlyShiftStats[targetOutTeam])
+          assignAndCount(earlyShiftStats[targetOutTeam].noonShiftOff, detail)
+      } else {
+        if (lateShiftStats['晚未分組']) {
+          assignAndCount(lateShiftStats['晚未分組'].noonShiftOff, detail)
+        }
       }
     }
   }
@@ -1025,6 +1415,7 @@ const effectiveStatsData = computed(() => {
           group.patients.sort(sortPatientsByBed)
         }
       })
+
       if (index === 0) {
         teamData.totalOpdCount =
           (teamData.earlyShift?.opdCount || 0) + (teamData.noonShiftOn?.opdCount || 0)
@@ -1033,6 +1424,7 @@ const effectiveStatsData = computed(() => {
         teamData.totalErCount =
           (teamData.earlyShift?.erCount || 0) + (teamData.noonShiftOn?.erCount || 0)
       } else if (index === 1) {
+        // ✨ [核心修正] 晚班的總人數現在只計算純晚班(lateShift)的人數
         teamData.totalOpdCount = teamData.lateShift?.opdCount || 0
         teamData.totalIpdCount = teamData.lateShift?.ipdCount || 0
         teamData.totalErCount = teamData.lateShift?.erCount || 0
@@ -1048,17 +1440,19 @@ const effectiveStatsData = computed(() => {
 })
 
 // --- Functions ---
-function getShiftDisplayName(shiftCode) {
-  if (shiftCode === SHIFT_CODES.EARLY) return '早班'
-  if (shiftCode === SHIFT_CODES.NOON) return '午班'
-  if (shiftCode === SHIFT_CODES.LATE) return '晚班'
-  return shiftCode
-}
-
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
-  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d
+    .getDate()
+    .toString()
+    .padStart(2, '0')}`
+}
+
+function toggleNoonTakeoff(shiftType) {
+  if (shiftType === 'early' || shiftType === 'late') {
+    noonTakeoffVisibility.value[shiftType] = !noonTakeoffVisibility.value[shiftType]
+  }
 }
 
 function setScheduleChange() {
@@ -1169,6 +1563,11 @@ async function loadData(date) {
           slot.nurseTeamIn = teamInfo.nurseTeamIn || null
           slot.nurseTeamOut = teamInfo.nurseTeamOut || null
           slot.nurseTeamTakeOff = teamInfo.nurseTeamTakeOff || null
+        } else {
+          slot.nurseTeam = null
+          slot.nurseTeamIn = null
+          slot.nurseTeamOut = null
+          slot.nurseTeamTakeOff = null
         }
       }
     }
@@ -1278,29 +1677,10 @@ function applyTeamAndScheduleChange(
   performTeamChange({ ...patientDetail, shiftId: newShiftId }, newTeam, newResponsibility)
 }
 
-// ✨ 【修改】原始的 onDrop 函式，增加對來自未分組病人的處理 ✨
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.remove('drag-over-active')
-
-  const dragged = JSON.parse(event.dataTransfer.getData('application/json'))
-  if (!dragged) return
-
-  // 如果是從「未分組」拖進來的
-  if (dragged.isFromUnassigned) {
-    // 特別處理午班，根據目標區域決定是 on 還是 off
-    if (
-      dragged.sourceResponsibility === 'unassignedNoon' &&
-      (newResponsibility === 'noonShiftOn' || newResponsibility === 'noonShiftOff')
-    ) {
-      performTeamChange(dragged, newTeam, newResponsibility)
-    } else if (dragged.sourceResponsibility !== 'unassignedNoon') {
-      performTeamChange(dragged, newTeam, dragged.sourceResponsibility)
-    }
-    return
-  }
-
   const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
   const oldShiftId = patientDetail.shiftId
   if (!oldShiftId || !currentRecord.schedule[oldShiftId]) return
@@ -1331,26 +1711,42 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
   const shiftId = patientDetail.shiftId
   const shiftCode = shiftId.split('-')[2]
   const teamKey = `${patientId}-${shiftCode}`
+
   if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
   if (!currentTeamsRecord.value.teams[teamKey]) {
     currentTeamsRecord.value.teams[teamKey] = {}
   }
+
   const teamInfo = currentTeamsRecord.value.teams[teamKey]
   const slotInfo = currentRecord.schedule[shiftId]
   if (!slotInfo) return
+
+  const isUnassigned = newTeam.includes('未分組')
+  const finalTeamValue = isUnassigned ? null : newTeam
+
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
-    teamInfo.nurseTeam = newTeam
-    slotInfo.nurseTeam = newTeam
+    teamInfo.nurseTeam = finalTeamValue
+    slotInfo.nurseTeam = finalTeamValue
   } else if (newResponsibility === 'noonShiftOn') {
-    teamInfo.nurseTeamIn = newTeam
-    slotInfo.nurseTeamIn = newTeam
+    teamInfo.nurseTeamIn = finalTeamValue
+    slotInfo.nurseTeamIn = finalTeamValue
   } else if (newResponsibility === 'noonShiftOff') {
-    teamInfo.nurseTeamOut = newTeam
-    slotInfo.nurseTeamOut = newTeam
+    teamInfo.nurseTeamOut = finalTeamValue
+    slotInfo.nurseTeamOut = finalTeamValue
   } else if (newResponsibility === 'lateShiftTakeOff') {
-    teamInfo.nurseTeamTakeOff = newTeam
-    slotInfo.nurseTeamTakeOff = newTeam
+    teamInfo.nurseTeamTakeOff = finalTeamValue
+    slotInfo.nurseTeamTakeOff = finalTeamValue
   }
+
+  if (
+    !teamInfo.nurseTeam &&
+    !teamInfo.nurseTeamIn &&
+    !teamInfo.nurseTeamOut &&
+    !teamInfo.nurseTeamTakeOff
+  ) {
+    delete currentTeamsRecord.value.teams[teamKey]
+  }
+
   setTeamChange()
 }
 
@@ -1522,229 +1918,8 @@ async function showInjectionList(teamData, shiftType = null) {
   }
 }
 
-// ✨ 【新增】處理從「未分組」區域拖曳出來的事件 ✨
-function onUnassignedDragStart(event, patientDetail) {
-  if (isPageLocked.value) {
-    event.preventDefault()
-    return
-  }
-  // 我們需要根據 patient.shiftCode 來判斷它的 sourceResponsibility
-  let responsibility = ''
-  if (patientDetail.shiftCode === SHIFT_CODES.EARLY) responsibility = 'earlyShift'
-  else if (patientDetail.shiftCode === SHIFT_CODES.LATE) responsibility = 'lateShift'
-  else if (patientDetail.shiftCode === SHIFT_CODES.NOON) {
-    // 午班比較複雜，需要一個預設值，讓 onDrop 邏輯去處理
-    // 預設它可能去 'noonShiftOn' 或 'noonShiftOff'
-    responsibility = 'unassignedNoon'
-  }
-
-  const detailWithSource = {
-    ...patientDetail,
-    sourceResponsibility: responsibility,
-    isFromUnassigned: true,
-  }
-  event.dataTransfer.setData('application/json', JSON.stringify(detailWithSource))
-  event.dataTransfer.effectAllowed = 'move'
-}
-
-// ✨ 【新增】處理拖曳到「未分組」區域的事件 (用於將已分組的病人移回) ✨
-function onDropToUnassigned(event) {
-  if (isPageLocked.value) return
-  event.preventDefault()
-  event.currentTarget.classList.remove('drag-over-active')
-
-  const patientDetail = JSON.parse(event.dataTransfer.getData('application/json'))
-
-  // 如果是從未分組區拖曳又放回，則不做任何事
-  if (patientDetail.isFromUnassigned) return
-
-  const patientId = patientDetail.id
-  const shiftId = patientDetail.shiftId
-  const shiftCode = shiftId.split('-')[2]
-  const teamKey = `${patientId}-${shiftCode}`
-  const responsibility = patientDetail.sourceResponsibility
-
-  if (currentTeamsRecord.value.teams && currentTeamsRecord.value.teams[teamKey]) {
-    const teamInfo = currentTeamsRecord.value.teams[teamKey]
-    if (responsibility === 'earlyShift' || responsibility === 'lateShift') delete teamInfo.nurseTeam
-    else if (responsibility === 'noonShiftOn') delete teamInfo.nurseTeamIn
-    else if (responsibility === 'noonShiftOff') delete teamInfo.nurseTeamOut
-    else if (responsibility === 'lateShiftTakeOff') delete teamInfo.nurseTeamTakeOff
-
-    // 如果物件變空，就刪除它
-    if (Object.keys(teamInfo).length === 0) {
-      delete currentTeamsRecord.value.teams[teamKey]
-    }
-    setTeamChange()
-  }
-}
-
-// ✨ 【最終錯誤修正版】替換掉整個 exportAssignmentsToExcel 函式 ✨
-function exportAssignmentsToExcel() {
-  if (isLoading.value) {
-    showAlert('提示', '資料正在載入中，請稍後再試。')
-    return
-  }
-
-  // --- 1. 準備資料 (這部分邏輯不變) ---
-  const data = []
-  let merges = []
-  let currentRowIndex = 0
-  const currentDateStr = formatDate(currentDate.value)
-  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
-
-  data.push(['部立台北醫院 護理分組表'])
-  data.push([`日期: ${currentDateStr}`])
-  data.push([])
-  currentRowIndex = 3
-
-  const processShiftSection = (shiftTitle, shiftKey, responsibilities) => {
-    const statsData = effectiveStatsData.value[shiftKey]
-    if (!statsData || Object.keys(statsData).length === 0) return null
-
-    const teamNames = Object.keys(statsData)
-    const colCount = teamNames.length
-
-    data.push([shiftTitle])
-    merges.push({ s: { r: currentRowIndex, c: 0 }, e: { r: currentRowIndex, c: colCount } })
-    currentRowIndex++
-
-    const groupHeaders = [
-      '',
-      ...teamNames.map((name) => name.replace(/^(早|晚|夜間收針)/, '') + '組'),
-    ]
-    data.push(groupHeaders)
-    currentRowIndex++
-
-    const nurseNames = ['護理師', ...teamNames.map((name) => statsData[name].nurseName || '未指派')]
-    data.push(nurseNames)
-    currentRowIndex++
-
-    responsibilities.forEach((resp) => {
-      const respTextMap = {
-        earlyShift: '早班',
-        noonShiftOn: '午班(上針)',
-        noonShiftOff: '午班(收針)',
-        lateShift: '晚班',
-        lateShiftTakeOff: '夜班收針',
-      }
-      const row = [respTextMap[resp.key]]
-
-      teamNames.forEach((teamName) => {
-        const patients = statsData[teamName][resp.key]?.patients || []
-        const cellText = patients
-          .map((p) => {
-            const patient = patientMap.value.get(p.id)
-            return `${p.name} (床${p.dialysisBed}) [${statusMap[p.status] || '未知'}]`
-          })
-          .join('\n')
-        row.push(cellText)
-      })
-      data.push(row)
-    })
-
-    const totals = ['照護人數']
-    teamNames.forEach((teamName) => {
-      const teamData = statsData[teamName]
-      const totalText = `門${teamData.totalOpdCount} 住${teamData.totalIpdCount} 急${teamData.totalErCount}`
-      totals.push(totalText)
-    })
-    data.push(totals)
-
-    const sectionRowCount = 3 + responsibilities.length + 1
-    const startRow = currentRowIndex - responsibilities.length - 3
-
-    currentRowIndex += responsibilities.length + 2
-
-    return { startRow, sectionRowCount, colCount }
-  }
-
-  const sections = []
-  sections.push(
-    processShiftSection('早班分組', 'early', [
-      { key: 'earlyShift' },
-      { key: 'noonShiftOn' },
-      { key: 'noonShiftOff' },
-    ]),
-  )
-  sections.push(
-    processShiftSection('晚班分組', 'late', [{ key: 'noonShiftOff' }, { key: 'lateShift' }]),
-  )
-  if (lateShiftTakeOffExists.value) {
-    sections.push(processShiftSection('夜班收針分組', 'lateTakeOff', [{ key: 'lateShiftTakeOff' }]))
-  }
-
-  // --- 2. 建立工作表並設定樣式 ---
-  const worksheet = XLSX.utils.aoa_to_sheet(data)
-  worksheet['!merges'] = merges
-  worksheet['!cols'] = [{ wch: 12 }, ...Array(12).fill({ wch: 25 })]
-
-  // ✨ --- 核心修正點：升級 ensureCellAndStyle 函式 --- ✨
-  const ensureCellAndStyle = (r, c) => {
-    const cellAddress = XLSX.utils.encode_cell({ r, c })
-    if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' }
-    // 確保所有需要的樣式子物件都存在
-    if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
-    if (!worksheet[cellAddress].s.alignment) worksheet[cellAddress].s.alignment = {}
-    if (!worksheet[cellAddress].s.border) worksheet[cellAddress].s.border = {}
-    if (!worksheet[cellAddress].s.font) worksheet[cellAddress].s.font = {}
-    if (!worksheet[cellAddress].s.fill) worksheet[cellAddress].s.fill = {}
-    return worksheet[cellAddress]
-  }
-
-  // 統一樣式設定
-  for (let r = 0; r < data.length; r++) {
-    for (let c = 0; c < (data[r] ? data[r].length : 0); c++) {
-      const cell = ensureCellAndStyle(r, c)
-      // 現在可以安全地設定了
-      cell.s.alignment.vertical = 'center'
-      cell.s.alignment.horizontal = 'center'
-      cell.s.alignment.wrapText = true
-      cell.s.border = {
-        top: { style: 'thin' },
-        bottom: { style: 'thin' },
-        left: { style: 'thin' },
-        right: { style: 'thin' },
-      }
-    }
-  }
-
-  // 主標題和日期樣式
-  let titleCell = ensureCellAndStyle(0, 0)
-  titleCell.s.font = { sz: 18, bold: true }
-  titleCell.s.alignment.horizontal = 'center'
-
-  let dateCell = ensureCellAndStyle(1, 0)
-  dateCell.s.font = { sz: 12 }
-  dateCell.s.alignment.horizontal = 'center'
-
-  // 為每個區塊設定特定樣式
-  sections.forEach((sec) => {
-    if (!sec) return
-    const { startRow, sectionRowCount, colCount } = sec
-
-    let cell = ensureCellAndStyle(startRow, 0)
-    cell.s.fill.fgColor = { rgb: 'FFDDEBF7' }
-    cell.s.font.sz = 14
-    cell.s.font.bold = true
-
-    for (let r = startRow + 2; r < startRow + sectionRowCount; r++) {
-      cell = ensureCellAndStyle(r, 0)
-      cell.s.alignment.horizontal = 'left'
-      cell.s.fill.fgColor = { rgb: 'FFF2F2F2' }
-      cell.s.font.bold = true
-    }
-
-    for (let c = 1; c <= colCount; c++) {
-      ensureCellAndStyle(startRow + 1, c).s.fill.fgColor = { rgb: 'FFE3F2FD' }
-      ensureCellAndStyle(startRow + 2, c).s.fill.fgColor = { rgb: 'FFFFFDE7' }
-    }
-  })
-
-  // --- 3. 產生檔案並下載 (不變) ---
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, '護理分組')
-  XLSX.writeFile(workbook, `護理分組表_${currentDateStr}.xlsx`)
+function triggerPrint() {
+  window.print()
 }
 
 function promptDuplicateLateShift() {
@@ -1841,6 +2016,7 @@ watch(currentUser, (newUser) => {
 })
 
 watch(currentDate, (newDate) => {
+  noonTakeoffVisibility.value = { early: false, late: false }
   loadData(newDate)
   loadDailyStaffInfo(newDate)
 })
@@ -1895,24 +2071,6 @@ onUnmounted(() => {
 .stats-sections-wrapper {
   overflow-y: auto;
   flex-grow: 1;
-  /* ✨ 【新增】允許橫向滾動 ✨ */
-  overflow-x: auto;
-}
-/* ✨ 【新增】美化橫向和縱向滾動條 ✨ */
-.stats-sections-wrapper::-webkit-scrollbar {
-  width: 8px; /* 縱向滾動條寬度 */
-  height: 8px; /* 橫向滾動條高度 */
-}
-.stats-sections-wrapper::-webkit-scrollbar-track {
-  background: #f1f1f1; /* 軌道顏色 */
-  border-radius: 10px;
-}
-.stats-sections-wrapper::-webkit-scrollbar-thumb {
-  background: #888; /* 滾動條本身顏色 */
-  border-radius: 10px;
-}
-.stats-sections-wrapper::-webkit-scrollbar-thumb:hover {
-  background: #555; /* 滑鼠懸停時的顏色 */
 }
 .stats-section {
   margin-bottom: 20px;
@@ -1999,18 +2157,19 @@ button.btn-primary:hover:not(:disabled) {
 /* ================================== */
 .grid-container {
   display: grid;
-  grid-template-columns: 90px repeat(12, 1fr) 1fr;
   border: 1px solid #ddd;
   border-radius: 8px;
   overflow: hidden;
   background-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  /* ✨ 【新增】給定一個最小寬度，確保滾動條會出現 ✨ */
-  min-width: 1800px;
 }
-.grid-header,
+.grid-header {
+  display: contents;
+}
 .grid-body,
-.grid-footer,
+.grid-footer {
+  display: contents;
+}
 .grid-row {
   display: contents;
 }
@@ -2174,12 +2333,14 @@ button.btn-primary:hover:not(:disabled) {
   color: white !important;
   border-color: #3949ab !important;
 }
+
 .patient-item.tag-chou,
 .patient-item.tag-chou .patient-line-one,
 .patient-item.tag-chou .patient-line-two,
 .patient-item.tag-chou .note-display {
   color: white !important;
 }
+
 .patient-item.tag-chou .stats-special-mode {
   background-color: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.3);
@@ -2189,6 +2350,7 @@ button.btn-primary:hover:not(:disabled) {
   background-color: rgba(255, 255, 255, 0.2);
   color: white;
 }
+
 .patient-item.tag-new {
   background-color: #f5ec8e;
   border-color: #e0d567;
@@ -2265,6 +2427,78 @@ button.btn-primary:hover:not(:disabled) {
 .is-locked .prep-list-trigger {
   pointer-events: auto;
   cursor: pointer;
+}
+
+.collapsible-header {
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.2s;
+  grid-column: 1 / -1;
+  padding: 8px;
+}
+.collapsible-header:hover {
+  background-color: #e9ecef;
+}
+.collapse-icon {
+  font-size: 0.8em;
+  transition: transform 0.3s ease-in-out;
+}
+.collapse-icon.is-expanded {
+  transform: rotate(90deg);
+}
+.grid-row-fade-enter-active,
+.grid-row-fade-leave-active {
+  transition: all 0.3s ease-out;
+}
+.grid-row-fade-enter-from,
+.grid-row-fade-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  overflow: hidden;
+}
+.grid-row-fade-enter-to,
+.grid-row-fade-leave-from {
+  opacity: 1;
+  max-height: 500px; /* A sufficiently large value */
+}
+.grid-row-fade-leave-active {
+  display: contents;
+}
+.grid-row-fade-leave-to > * {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  margin: 0;
+  opacity: 0;
+}
+.grid-row-fade-enter-active .grid-cell,
+.grid-row-fade-leave-active .grid-cell {
+  transition: all 0.3s ease-out;
+}
+.grid-row-fade-enter-from .grid-cell,
+.grid-row-fade-leave-to .grid-cell {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+
+.unassigned-header {
+  background-color: #ffe0b2 !important;
+  color: #8d6e63 !important;
+}
+.unassigned-cell {
+  background-color: #fff8e1 !important;
+  border-left: 2px solid #ffb74d;
+}
+.unassigned-placeholder {
+  width: 100%;
+  height: 100%;
+  background-color: #fffde7;
 }
 
 /* ================================== */
@@ -2538,6 +2772,7 @@ button.btn-primary:hover:not(:disabled) {
   color: #6c757d;
   cursor: not-allowed;
 }
+
 .late-takeoff-section {
   border-top: 4px solid #007bff;
   margin-top: 1.5rem;
@@ -2546,10 +2781,12 @@ button.btn-primary:hover:not(:disabled) {
   background-color: #e3f2fd;
   color: #005a9c;
 }
+
 .takeoff-title-cell {
   grid-row: 1 / 3;
   z-index: 3;
 }
+
 .takeoff-action-bar {
   grid-column: 2 / -1;
   grid-row: 1;
@@ -2561,10 +2798,12 @@ button.btn-primary:hover:not(:disabled) {
   background-color: #f8f9fa;
   border-right: 1px solid #ddd;
 }
+
 .late-takeoff-section .team-header-cell {
   position: relative;
   top: 0;
 }
+
 .duplicate-shift-btn.remove {
   padding: 6px 12px;
   font-size: 0.9rem;
@@ -2583,6 +2822,7 @@ button.btn-primary:hover:not(:disabled) {
   display: flex;
   gap: 8px;
 }
+
 .prep-list-trigger {
   position: static;
   cursor: pointer;
@@ -2595,6 +2835,7 @@ button.btn-primary:hover:not(:disabled) {
 .prep-list-trigger:hover {
   background-color: #e0e0e0;
 }
+
 .injection-list-trigger {
   cursor: pointer;
   font-size: 1.2rem;
@@ -2605,19 +2846,6 @@ button.btn-primary:hover:not(:disabled) {
 }
 .injection-list-trigger:hover {
   background-color: #e0e0e0;
-}
-
-.unassigned-column-header {
-  background-color: #fffbeb !important;
-  color: #b45309 !important;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-.unassigned-patient-cell {
-  background-color: #f8f9fa;
-  border-left: 2px dashed #f59e0b;
-  border-right: 2px dashed #f59e0b;
 }
 
 /* ================================== */
@@ -2685,6 +2913,16 @@ button.btn-primary:hover:not(:disabled) {
   border-bottom: 2px solid #f0f0f0;
   padding-bottom: 4px;
 }
+.mobile-patient-list.collapsible h4 {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.collapsible-content {
+  padding-top: 8px;
+}
+
 .mobile-team-footer {
   margin-top: 12px;
   padding-top: 8px;
