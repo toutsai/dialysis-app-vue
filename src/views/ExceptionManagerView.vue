@@ -790,9 +790,9 @@ button:disabled {
 }
 
 .calendar-wrapper {
-  flex-grow: 1;
-  overflow-y: auto;
-  min-height: 0;
+  flex-grow: 1; /* 保持這個，讓它填滿空間 */
+  overflow-y: auto; /* ✨ 關鍵新增：如果內容超高，產生垂直滾動條 */
+  min-height: 0; /* ✨ 關鍵新增：在 Flex 佈局中，這是讓 overflow 生效的必要條件 */
 }
 .calendar-title-text.is-clickable {
   cursor: pointer;
@@ -837,15 +837,21 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
+  /* ✨✨✨ 核心修正：在這裡重置 page-container 的佈局 ✨✨✨ */
+  .page-container {
+    height: auto; /* 允許容器高度隨內容增長，而不是鎖定100% */
+    display: block; /* 解除 Flex 佈局，回歸正常的文檔流 */
+    padding: 0;
+  }
+
   .fab.mobile-only {
     display: flex;
   }
-  .btn.desktop-only {
-    display: none;
+  .btn.desktop-only,
+  .desktop-only-flex {
+    display: none !important;
   }
-  .page-container {
-    padding: 0;
-  }
+
   .page-header {
     margin-bottom: 1rem;
     padding: 1rem 1rem 0.75rem;
@@ -858,6 +864,7 @@ button:disabled {
     font-size: 0.9rem;
   }
   .page-main-content {
+    /* 因為父層不再是 flex，這裡也不需要 flex-grow */
     padding: 1rem;
     border-radius: 0;
     box-shadow: none;

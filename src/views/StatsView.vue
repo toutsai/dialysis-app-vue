@@ -9,12 +9,19 @@
 
           <!-- Group 1: 只保留純粹的日期導覽功能 -->
           <div class="date-navigator">
+            <!-- 上一天 按鈕 -->
             <button @click="changeDate(-1)">&lt; 上一天</button>
-            <span class="current-date-text">{{ formatDate(currentDate) }}</span>
-            <span class="weekday-display">{{ weekdayDisplay }}</span>
+
+            <!-- 日期和星期的包裹層 -->
+            <div class="date-text-wrapper">
+              <span class="current-date-text">{{ formatDate(currentDate) }}</span>
+              <span class="weekday-display">{{ weekdayDisplay }}</span>
+            </div>
+
+            <!-- 下一天 按鈕 -->
             <button @click="changeDate(1)">下一天 &gt;</button>
-            <button @click="goToToday">回到今日</button>
           </div>
+          <button @click="goToToday">回到今日</button>
 
           <!-- Group 2: 將操作按鈕移出來，作為 toolbar-left 的直接子元素 -->
           <button
@@ -2113,8 +2120,9 @@ onUnmounted(() => {
 
 <style scoped>
 /* ================================== */
-/* === 1. 頁面佈局 (行動版修正) === */
+/* === 1. 頁面佈局 (通用) === */
 /* ================================== */
+
 .page-container {
   display: flex;
   flex-direction: column;
@@ -2175,216 +2183,8 @@ onUnmounted(() => {
 }
 
 /* ================================== */
-/* === 2. 響應式與可見性控制 === */
+/* === 2. 頂部工具列與資訊列 (桌面版為主) === */
 /* ================================== */
-.mobile-only {
-  display: none;
-}
-.desktop-only {
-  display: block;
-}
-.desktop-only-flex {
-  display: flex;
-}
-
-@media screen and (max-width: 992px) {
-  .desktop-only,
-  .desktop-only-flex {
-    display: none !important;
-  }
-  .mobile-only {
-    display: block !important;
-  }
-
-  .page-container {
-    padding: 0;
-  }
-
-  .page-header-content {
-    padding: 10px;
-  }
-
-  .scrollable-main-content {
-    padding: 0 10px 80px 10px; /* 增加底部 padding 給 FAB 按鈕空間 */
-  }
-
-  .header-toolbar,
-  .toolbar-left,
-  .toolbar-right {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  .page-title {
-    text-align: center;
-  }
-  .date-navigator {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap; /* 最好也加上這個，以防螢幕真的很窄時可以換行 */
-    gap: 15px; /* 將 5px 改為 15px 或其他您喜歡的值 */
-  }
-  .date-navigator > button {
-    margin: 4px 0;
-    flex-grow: 1;
-  }
-  .current-date-text,
-  .weekday-display {
-    font-size: 22px;
-    text-align: center;
-    width: 100%;
-  }
-  .duty-command-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .duty-dropdown-menu {
-    width: calc(100vw - 40px);
-  }
-  .duty-item {
-    grid-template-columns: 100px 1fr;
-  }
-}
-
-/* ================================== */
-/* === 3. 行動版卡片樣式 === */
-/* ================================== */
-.mobile-shift-section {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  background-color: #fff;
-  overflow: hidden;
-}
-.mobile-shift-title {
-  background-color: #e3f2fd;
-  color: #005a9c;
-  font-size: 1.5em;
-  padding: 12px;
-  margin: 0;
-  border-bottom: 1px solid #ddd;
-}
-.mobile-team-card {
-  padding: 12px;
-  border-top: 1px solid #eee;
-}
-.mobile-team-card:first-of-type {
-  border-top: none;
-}
-.mobile-team-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.mobile-team-header h3 {
-  margin: 0;
-  font-size: 1.3em;
-  color: #333;
-}
-.mobile-team-header .name-select {
-  width: 150px;
-  height: auto;
-  font-size: 1em;
-  padding: 6px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-.mobile-patient-lists {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.mobile-patient-list h4 {
-  margin: 0 0 8px 0;
-  font-size: 1.1em;
-  color: #555;
-  border-bottom: 2px solid #f0f0f0;
-  padding-bottom: 4px;
-}
-.mobile-patient-list.collapsible h4 {
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.collapsible-content {
-  padding-top: 8px;
-}
-.mobile-team-footer {
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
-  text-align: right;
-  font-weight: bold;
-  color: #333;
-}
-.mobile-only .name-select:disabled {
-  background-color: #f5f5f5;
-  border-color: #ddd;
-  color: #555;
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: default;
-}
-.mobile-only .patient-main-info {
-  cursor: default;
-}
-.fab-mobile {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  font-size: 1.5rem;
-  z-index: 100;
-}
-
-/* ================================== */
-/* === 4. 其他原有組件樣式 === */
-/* ================================== */
-
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(255, 255, 255, 0.85);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-  font-size: 1.5rem;
-  color: #333;
-  gap: 20px;
-  backdrop-filter: blur(2px);
-}
-.loading-spinner {
-  border: 8px solid #f3f3f3;
-  border-top: 8px solid #3498db;
-  border-radius: 50%;
-  width: 60px;
-  height: 60px;
-  animation: spin 1s linear infinite;
-}
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
 
 .header-toolbar {
   display: flex;
@@ -2394,55 +2194,41 @@ onUnmounted(() => {
   gap: 20px;
 }
 
-.daily-info-bar {
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem;
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-}
-
-.toolbar-left,
-.toolbar-right {
+.toolbar-left {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 15px;
 }
+
 .page-title {
   font-size: 32px;
   color: #333;
   margin: 0;
   white-space: nowrap;
 }
+
+.date-navigator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .current-date-text {
   font-size: 26px;
   font-weight: bold;
   color: #333;
   padding: 0 10px;
 }
+
 .weekday-display {
   font-size: 26px;
   font-weight: bold;
-  color: var(--primary-color);
-  margin-left: -5px;
-  margin-right: 5px;
+  color: var(--primary-color, #007bff);
 }
-.status-indicator {
-  font-size: 0.9em;
-  font-weight: bold;
-  color: #757575;
-  font-style: italic;
-}
+
 .toolbar-left button,
-.toolbar-right button,
-.date-navigator button {
+.toolbar-right button {
   padding: 8px 15px;
   font-size: 1em;
   cursor: pointer;
@@ -2457,6 +2243,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 0.5rem;
 }
+
 #save-changes-btn {
   background-color: #4caf50;
   color: white;
@@ -2479,322 +2266,26 @@ button.btn-secondary {
 button.btn-secondary:hover:not(:disabled) {
   background-color: #5a6268;
 }
+.status-indicator {
+  font-size: 0.9em;
+  font-weight: bold;
+  color: #757575;
+  font-style: italic;
+}
 
-.grid-header,
-.grid-body,
-.grid-footer,
-.grid-row {
-  display: contents;
-}
-.row-header,
-.team-header-cell,
-.grid-cell,
-.total-count-summary {
-  border-right: 1px solid #ddd;
-  border-bottom: 1px solid #ddd;
-  padding: 8px;
-  word-wrap: break-word;
-}
-.grid-container div:last-child {
-  border-right: none;
-}
-.grid-footer > div {
-  border-bottom: none;
-}
-.row-header {
-  background-color: #f2f2f2;
-  font-weight: bold;
-  text-align: center;
-  position: sticky;
-  left: 0;
-  z-index: 2;
+.daily-info-bar {
+  margin-top: 10px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.team-header-cell {
-  background-color: #e3f2fd;
-  font-weight: bold;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: sticky;
-  top: 0;
-  z-index: 1;
-}
-.section-title-cell {
-  font-size: 1.5em;
-  color: #005a9c;
-  background-color: #e3f2fd;
-  position: sticky;
-  top: 0;
-  left: 0;
-  z-index: 3;
-}
-.name-cell {
-  padding: 0 !important;
-}
-.name-select {
-  width: 100%;
-  height: 100%;
-  border: none;
-  background-color: #fffde7;
-  text-align: center;
-  font-size: 1em;
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-  padding: 8px;
-}
-.patient-list-cell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  text-align: left;
-  vertical-align: top;
-  min-height: 120px;
-  transition: background-color 0.2s;
-}
-.patient-list-cell.drag-over-active {
-  background-color: #e8f5e9;
-  border: 2px dashed #4caf50;
-}
-.patient-wrapper {
-  flex-grow: 1;
-}
-.total-count-summary {
-  background-color: #f8f9fa;
-  font-weight: bold;
-  text-align: center;
-  color: #333;
-  padding: 10px 8px;
-}
-.patient-item {
-  display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  position: relative;
-  padding: 6px 8px;
-  margin-bottom: 5px;
-  border-radius: 4px;
-  border: 1px solid #b0bec5;
-  background-color: #f5f5f5;
-  font-size: 0.95em;
-  line-height: 1.4;
-  user-select: none;
+  gap: 1.5rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
 }
-.patient-main-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex-grow: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.patient-line-one {
-  font-weight: bold;
-  font-size: 1em;
-  white-space: nowrap;
-}
-.patient-line-two {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.9em;
-  white-space: nowrap;
-}
-.note-display {
-  color: #c62828;
-  font-weight: bold;
-}
-:deep(.memo-icon-wrapper) {
-  flex-shrink: 0;
-  margin-left: auto;
-  padding-left: 8px;
-  align-self: center;
-}
-.patient-item:active {
-  cursor: grabbing;
-  background-color: #e0e0e0;
-  opacity: 0.8;
-  transform: scale(1.02);
-}
-.patient-item.status-opd {
-  background-color: var(--green-bg, #e8f5e9);
-  border-color: #a5d6a7;
-}
-.patient-item.status-ipd {
-  background-color: var(--red-bg, #ffebee);
-  border-color: #ef9a9a;
-}
-.patient-item.status-er {
-  background-color: var(--purple-bg, #f3e5f5);
-  border-color: #ce93d8;
-}
-.patient-item.status-biweekly {
-  background-color: #ffcc80;
-  border-color: #ffb74d;
-}
-.patient-item.tag-chou {
-  background-color: #658ee0 !important;
-  color: white !important;
-  border-color: #3949ab !important;
-}
-.patient-item.tag-chou,
-.patient-item.tag-chou .patient-line-one,
-.patient-item.tag-chou .patient-line-two,
-.patient-item.tag-chou .note-display {
-  color: white !important;
-}
-.patient-item.tag-chou .stats-special-mode {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: white;
-}
-.patient-item.tag-chou .ward-number-display {
-  background-color: rgba(255, 255, 255, 0.2);
-  color: white;
-}
-.patient-item.tag-new {
-  background-color: #f5ec8e;
-  border-color: #e0d567;
-}
-.patient-item.tag-huan {
-  background-color: #e0f7fa;
-  border-color: #b2ebf2;
-}
-.patient-item.tag-liang {
-  background-color: #fff3e0;
-  border-color: #ffe0b2;
-}
-.patient-item.tag-b {
-  background-color: #fff9c4;
-  border-color: #fff59d;
-}
-.patient-item.has-note-highlight .patient-line-one {
-  color: #c62828;
-}
-
-.stats-special-mode {
-  display: inline-block;
-  vertical-align: middle;
-  padding: 1px 5px;
-  background-color: var(--red-bg, #ffebee);
-  color: #c62828;
-  border: 1px solid #ef9a9a;
-  border-radius: 4px;
-  font-weight: bold;
-  font-size: 0.9em;
-  line-height: 1.2;
-}
-.ward-number-display {
-  display: inline-block;
-  background-color: #4a90e2;
-  color: white;
-  padding: 2px 7px;
-  border-radius: 10px;
-  font-size: 0.9em;
-  font-weight: 500;
-  margin-right: 4px;
-  vertical-align: middle;
-}
-.is-locked .stats-section {
-  cursor: not-allowed;
-}
-.is-locked .patient-list-cell {
-  background-color: #f5f5f5;
-}
-.is-locked .name-select {
-  pointer-events: none;
-  background-color: #eeeeee;
-}
-.is-locked .patient-main-info {
-  cursor: not-allowed;
-}
-.is-locked .patient-item {
-  pointer-events: none;
-}
-.is-locked :deep(.memo-icon-wrapper),
-.is-locked .prep-list-trigger {
-  pointer-events: auto;
-  cursor: pointer;
-}
-
-.collapsible-header {
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 8px;
-  transition: background-color 0.2s;
-  grid-column: 1 / -1;
-  padding: 8px;
-}
-.collapsible-header:hover {
-  background-color: #e9ecef;
-}
-.collapse-icon {
-  font-size: 0.8em;
-  transition: transform 0.3s ease-in-out;
-}
-.collapse-icon.is-expanded {
-  transform: rotate(90deg);
-}
-.grid-row-fade-enter-active,
-.grid-row-fade-leave-active {
-  transition: all 0.3s ease-out;
-}
-.grid-row-fade-enter-from,
-.grid-row-fade-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
-  overflow: hidden;
-}
-.grid-row-fade-enter-to,
-.grid-row-fade-leave-from {
-  opacity: 1;
-  max-height: 500px;
-}
-.grid-row-fade-leave-active {
-  display: contents;
-}
-.grid-row-fade-leave-to > * {
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
-  margin: 0;
-  opacity: 0;
-}
-.grid-row-fade-enter-active .grid-cell,
-.grid-row-fade-leave-active .grid-cell {
-  transition: all 0.3s ease-out;
-}
-.grid-row-fade-enter-from .grid-cell,
-.grid-row-fade-leave-to .grid-cell {
-  opacity: 0;
-  transform: translateY(-10px);
-}
-
-.unassigned-header {
-  background-color: #ffe0b2 !important;
-  color: #8d6e63 !important;
-}
-.unassigned-cell {
-  background-color: #fff8e1 !important;
-  border-left: 2px solid #ffb74d;
-}
-.unassigned-placeholder {
-  width: 100%;
-  height: 100%;
-  background-color: #fffde7;
-}
-
 .daily-staff-panel.horizontal {
   display: flex;
   gap: 8px;
@@ -3022,6 +2513,354 @@ button.btn-secondary:hover:not(:disabled) {
   opacity: 0;
 }
 
+/* ================================== */
+/* === 3. 表格通用樣式 === */
+/* ================================== */
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  font-size: 1.5rem;
+  color: #333;
+  gap: 20px;
+  backdrop-filter: blur(2px);
+}
+.loading-spinner {
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid #3498db;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.grid-header,
+.grid-body,
+.grid-footer,
+.grid-row {
+  display: contents;
+}
+.row-header,
+.team-header-cell,
+.grid-cell,
+.total-count-summary {
+  border-right: 1px solid #ddd;
+  border-bottom: 1px solid #ddd;
+  padding: 8px;
+  word-wrap: break-word;
+}
+.grid-container div:last-child {
+  border-right: none;
+}
+.grid-footer > div {
+  border-bottom: none;
+}
+.row-header {
+  background-color: #f2f2f2;
+  font-weight: bold;
+  text-align: center;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.team-header-cell {
+  background-color: #e3f2fd;
+  font-weight: bold;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.section-title-cell {
+  font-size: 1.5em;
+  color: #005a9c;
+  background-color: #e3f2fd;
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+}
+.name-cell {
+  padding: 0 !important;
+}
+.name-select {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background-color: #fffde7;
+  text-align: center;
+  font-size: 1em;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 8px;
+}
+.patient-list-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  text-align: left;
+  vertical-align: top;
+  min-height: 120px;
+  transition: background-color 0.2s;
+}
+.patient-list-cell.drag-over-active {
+  background-color: #e8f5e9;
+  border: 2px dashed #4caf50;
+}
+.patient-wrapper {
+  flex-grow: 1;
+}
+.total-count-summary {
+  background-color: #f8f9fa;
+  font-weight: bold;
+  text-align: center;
+  color: #333;
+  padding: 10px 8px;
+}
+.patient-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 6px 8px;
+  margin-bottom: 5px;
+  border-radius: 4px;
+  border: 1px solid #b0bec5;
+  background-color: #f5f5f5;
+  font-size: 0.95em;
+  line-height: 1.4;
+  user-select: none;
+}
+.patient-main-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-grow: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.patient-line-one {
+  font-weight: bold;
+  font-size: 1em;
+  white-space: nowrap;
+}
+.patient-line-two {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.note-display {
+  color: #c62828;
+  font-weight: bold;
+}
+:deep(.memo-icon-wrapper) {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+  align-self: center;
+}
+.patient-item:active {
+  cursor: grabbing;
+  background-color: #e0e0e0;
+  opacity: 0.8;
+  transform: scale(1.02);
+}
+.patient-item.status-opd {
+  background-color: var(--green-bg, #e8f5e9);
+  border-color: #a5d6a7;
+}
+.patient-item.status-ipd {
+  background-color: var(--red-bg, #ffebee);
+  border-color: #ef9a9a;
+}
+.patient-item.status-er {
+  background-color: var(--purple-bg, #f3e5f5);
+  border-color: #ce93d8;
+}
+.patient-item.status-biweekly {
+  background-color: #ffcc80;
+  border-color: #ffb74d;
+}
+.patient-item.tag-chou {
+  background-color: #658ee0 !important;
+  color: white !important;
+  border-color: #3949ab !important;
+}
+.patient-item.tag-chou,
+.patient-item.tag-chou .patient-line-one,
+.patient-item.tag-chou .patient-line-two,
+.patient-item.tag-chou .note-display {
+  color: white !important;
+}
+.patient-item.tag-chou .stats-special-mode {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+}
+.patient-item.tag-chou .ward-number-display {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+.patient-item.tag-new {
+  background-color: #f5ec8e;
+  border-color: #e0d567;
+}
+.patient-item.tag-huan {
+  background-color: #e0f7fa;
+  border-color: #b2ebf2;
+}
+.patient-item.tag-liang {
+  background-color: #fff3e0;
+  border-color: #ffe0b2;
+}
+.patient-item.tag-b {
+  background-color: #fff9c4;
+  border-color: #fff59d;
+}
+.patient-item.has-note-highlight .patient-line-one {
+  color: #c62828;
+}
+.stats-special-mode {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 1px 5px;
+  background-color: var(--red-bg, #ffebee);
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 0.9em;
+  line-height: 1.2;
+}
+.ward-number-display {
+  display: inline-block;
+  background-color: #4a90e2;
+  color: white;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 0.9em;
+  font-weight: 500;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.is-locked .stats-section {
+  cursor: not-allowed;
+}
+.is-locked .patient-list-cell {
+  background-color: #f5f5f5;
+}
+.is-locked .name-select {
+  pointer-events: none;
+  background-color: #eeeeee;
+}
+.is-locked .patient-main-info {
+  cursor: not-allowed;
+}
+.is-locked .patient-item {
+  pointer-events: none;
+}
+.is-locked :deep(.memo-icon-wrapper),
+.is-locked .prep-list-trigger {
+  pointer-events: auto;
+  cursor: pointer;
+}
+.collapsible-header {
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.2s;
+  grid-column: 1 / -1;
+  padding: 8px;
+}
+.collapsible-header:hover {
+  background-color: #e9ecef;
+}
+.collapse-icon {
+  font-size: 0.8em;
+  transition: transform 0.3s ease-in-out;
+}
+.collapse-icon.is-expanded {
+  transform: rotate(90deg);
+}
+.grid-row-fade-enter-active,
+.grid-row-fade-leave-active {
+  transition: all 0.3s ease-out;
+}
+.grid-row-fade-enter-from,
+.grid-row-fade-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  overflow: hidden;
+}
+.grid-row-fade-enter-to,
+.grid-row-fade-leave-from {
+  opacity: 1;
+  max-height: 500px;
+}
+.grid-row-fade-leave-active {
+  display: contents;
+}
+.grid-row-fade-leave-to > * {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  margin: 0;
+  opacity: 0;
+}
+.grid-row-fade-enter-active .grid-cell,
+.grid-row-fade-leave-active .grid-cell {
+  transition: all 0.3s ease-out;
+}
+.grid-row-fade-enter-from .grid-cell,
+.grid-row-fade-leave-to .grid-cell {
+  opacity: 0;
+  transform: translateY(-10px);
+}
+.unassigned-header {
+  background-color: #ffe0b2 !important;
+  color: #8d6e63 !important;
+}
+.unassigned-cell {
+  background-color: #fff8e1 !important;
+  border-left: 2px solid #ffb74d;
+}
+.unassigned-placeholder {
+  width: 100%;
+  height: 100%;
+  background-color: #fffde7;
+}
 .duplicate-shift-btn {
   padding: 8px 15px;
   font-size: 1em;
@@ -3091,7 +2930,8 @@ button.btn-secondary:hover:not(:disabled) {
   display: flex;
   gap: 8px;
 }
-.prep-list-trigger {
+.prep-list-trigger,
+.injection-list-trigger {
   position: static;
   cursor: pointer;
   font-size: 1.2rem;
@@ -3100,18 +2940,189 @@ button.btn-secondary:hover:not(:disabled) {
   transition: background-color 0.2s;
   user-select: none;
 }
-.prep-list-trigger:hover {
-  background-color: #e0e0e0;
-}
-.injection-list-trigger {
-  cursor: pointer;
-  font-size: 1.2rem;
-  padding: 2px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-  user-select: none;
-}
+.prep-list-trigger:hover,
 .injection-list-trigger:hover {
   background-color: #e0e0e0;
+}
+
+/* ================================== */
+/* === 4. 響應式與行動版修正 (核心) === */
+/* ================================== */
+.mobile-only {
+  display: none;
+}
+.desktop-only {
+  display: block;
+}
+.desktop-only-flex {
+  display: flex;
+}
+
+@media screen and (max-width: 992px) {
+  /* --- A. 通用可見性控制 --- */
+  .desktop-only,
+  .desktop-only-flex {
+    display: none !important;
+  }
+  .mobile-only {
+    display: block !important;
+  }
+
+  /* --- B. 頁面佈局調整 --- */
+  .page-container {
+    padding: 0;
+  }
+  .page-header-content {
+    padding: 10px;
+  }
+  .scrollable-main-content {
+    padding: 0 10px 80px 10px;
+  }
+  .header-toolbar,
+  .toolbar-left {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .page-title {
+    text-align: center;
+  }
+
+  /* --- C. 日期導航列核心修正 --- */
+  .date-navigator {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .date-navigator > button {
+    margin: 0;
+    flex-grow: 0;
+  }
+  .date-text-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .current-date-text,
+  .weekday-display {
+    width: auto;
+    font-size: 20px;
+    line-height: 1.2;
+    padding: 0;
+  }
+  .weekday-display {
+    font-size: 18px;
+  }
+
+  /* --- D. 其他行動版按鈕樣式 --- */
+  .toolbar-left > button {
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: center;
+  }
+
+  /* --- E. 行動版卡片樣式 --- */
+  .mobile-shift-section {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    background-color: #fff;
+    overflow: hidden;
+  }
+  .mobile-shift-title {
+    background-color: #e3f2fd;
+    color: #005a9c;
+    font-size: 1.5em;
+    padding: 12px;
+    margin: 0;
+    border-bottom: 1px solid #ddd;
+  }
+  .mobile-team-card {
+    padding: 12px;
+    border-top: 1px solid #eee;
+  }
+  .mobile-team-card:first-of-type {
+    border-top: none;
+  }
+  .mobile-team-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .mobile-team-header h3 {
+    margin: 0;
+    font-size: 1.3em;
+    color: #333;
+  }
+  .mobile-team-header .name-select {
+    width: 150px;
+    height: auto;
+    font-size: 1em;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  .mobile-patient-lists {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .mobile-patient-list h4 {
+    margin: 0 0 8px 0;
+    font-size: 1.1em;
+    color: #555;
+    border-bottom: 2px solid #f0f0f0;
+    padding-bottom: 4px;
+  }
+  .mobile-patient-list.collapsible h4 {
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .collapsible-content {
+    padding-top: 8px;
+  }
+  .mobile-team-footer {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+    text-align: right;
+    font-weight: bold;
+    color: #333;
+  }
+  .mobile-only .name-select:disabled {
+    background-color: #f5f5f5;
+    border-color: #ddd;
+    color: #555;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: default;
+  }
+  .mobile-only .patient-main-info {
+    cursor: default;
+  }
+  .fab-mobile {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    font-size: 1.5rem;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 </style>
