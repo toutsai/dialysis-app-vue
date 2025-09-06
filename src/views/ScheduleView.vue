@@ -1,4 +1,3 @@
-// 檔案路徑: src/views/ScheduleView.vue // ✨ 最終修正版 v3 ✨
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -12,10 +11,10 @@
         <div class="toolbar-left">
           <h1 class="page-title">每日排程表</h1>
           <div class="date-navigator">
-            <button class="btn" @click="changeDate(-1)">< 上一天</button>
+            <button class="btn" @click="changeDate(-1)">&lt; 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>
             <span class="weekday-display">{{ weekdayDisplay }}</span>
-            <button class="btn" @click="changeDate(1)">下一天 ></button>
+            <button class="btn" @click="changeDate(1)">下一天 &gt;</button>
             <button class="btn" @click="goToToday">回到今日</button>
           </div>
           <!-- 以下按鈕僅在桌面版顯示 -->
@@ -1033,36 +1032,6 @@ const { scheduledPatientIds, getDailyUnassignedPatients, getDailyTemporaryPatien
     freqToDays,
   )
 
-const patientHasPendingMessages = computed(() => {
-  // ✨✨✨ START: 核心修正點 ✨✨✨
-  // 這裡我們不再返回一個函式，而是直接計算
-  if (!selectedPatientForDetail.value || recentConditionRecords.value.length === 0) {
-    return false
-  }
-
-  const patientId = selectedPatientForDetail.value.id
-  const patientRecords = recentConditionRecords.value.filter((r) => r.patientId === patientId)
-
-  if (patientRecords.length === 0) return false
-
-  const latestRecord = patientRecords.sort((a, b) => {
-    // 使用新的安全函式
-    const dateA = getSafeDate(a.createdAt)
-    const dateB = getSafeDate(b.createdAt)
-    return dateB.getTime() - dateA.getTime()
-  })[0]
-
-  if (!latestRecord) return false
-
-  const recordDate = getSafeDate(latestRecord.createdAt)
-  const threeDaysAgo = new Date()
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-
-  // 返回布林值
-  return recordDate > threeDaysAgo
-  // ✨✨✨ END: 核心修正點 ✨✨✨
-})
-
 const patientGroupsForDialog = computed(() => {
   const groups = {
     '今日應排 - 急診': [],
@@ -1190,6 +1159,36 @@ function handleIconClick(patientId, context) {
   }
 }
 provide('handleIconClick', handleIconClick)
+
+/**
+ * @description 根據最新的病情紀錄，更新 taskStore 的狀態
+ * 這會觸發 PatientMessagesIcon 的重新渲染
+ */
+function updateTaskStoreWithRecords() {
+  const recentRecordsPatientIds = new Set()
+
+  if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
+    const viewingDate = new Date(currentDate.value)
+    viewingDate.setHours(0, 0, 0, 0)
+    const viewingDateTime = viewingDate.getTime()
+
+    recentConditionRecords.value.forEach((record) => {
+      if (record.recordDate) {
+        // Firestore 的 Timestamp 或 ISO 字串都可以被 new Date() 解析
+        const recordDate = new Date(record.recordDate)
+        recordDate.setHours(0, 0, 0, 0)
+
+        // 只處理 "今天" 有紀錄的病人
+        if (recordDate.getTime() === viewingDateTime) {
+          recentRecordsPatientIds.add(record.patientId)
+        }
+      }
+    })
+  }
+  // 呼叫 store action 來更新狀態
+  taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
+}
+
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1204,6 +1203,8 @@ async function loadDataForDay(date) {
       fetchRecentRecords(),
     ])
     recentConditionRecords.value = recentRecs || []
+    updateTaskStoreWithRecords() // ✨ 更新 Store 狀態
+
     const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
     const finalSchedule = {}
     if (record.schedule) {
@@ -1307,11 +1308,18 @@ async function loadDailyStaffInfo(date) {
     dailyPhysicians.value = { early: null, noon: null, late: null }
   }
 }
+
 async function fetchRecentRecords() {
   try {
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    return await conditionRecordsApi.fetchAll([where('createdAt', '>=', sevenDaysAgo)])
+    const records = await conditionRecordsApi.fetchAll([where('createdAt', '>=', sevenDaysAgo)])
+
+    // 在資料獲取後，立即更新本地 ref 並觸發 store 更新
+    recentConditionRecords.value = records || []
+    updateTaskStoreWithRecords()
+
+    return records // 返回獲取的數據
   } catch (error) {
     console.error('獲取近期病情紀錄失敗:', error)
     return []
