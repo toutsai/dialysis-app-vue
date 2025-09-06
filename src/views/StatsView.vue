@@ -1,52 +1,57 @@
 <!-- 檔案路徑: src/views/StatsView.vue (✨ 「未分組」功能 & 午班收針伸縮/樣式修正版 ✨) -->
 <template>
   <div class="page-container">
-    <!-- ✨ [新增] 头部内容的包裹層 -->
+    <!-- 1. 固定的頂部，此區塊不滾動 -->
     <div class="page-header-content">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">護理分組檢視</h1>
+
+          <!-- Group 1: 只保留純粹的日期導覽功能 -->
           <div class="date-navigator">
-            <button @click="changeDate(-1)" class="date-nav-btn">&lt; 上一天</button>
+            <button @click="changeDate(-1)">&lt; 上一天</button>
             <span class="current-date-text">{{ formatDate(currentDate) }}</span>
             <span class="weekday-display">{{ weekdayDisplay }}</span>
-            <button @click="changeDate(1)" class="date-nav-btn">下一天 &gt;</button>
+            <button @click="changeDate(1)">下一天 &gt;</button>
             <button @click="goToToday">回到今日</button>
-            <button
-              class="btn-primary"
-              @click="isCreateTaskModalVisible = true"
-              :disabled="!hasPermission('viewer')"
-            >
-              <i class="fas fa-plus"></i> 新增交辦/留言
-            </button>
-            <button
-              v-if="!lateShiftTakeOffExists"
-              @click="promptDuplicateLateShift"
-              class="duplicate-shift-btn"
-              title="為晚班建立獨立的收針分組"
-              :disabled="isPageLocked"
-            >
-              <i class="fas fa-copy"></i> 新增夜班收針分組
-            </button>
           </div>
+
+          <!-- Group 2: 將操作按鈕移出來，作為 toolbar-left 的直接子元素 -->
+          <button
+            class="btn-primary"
+            @click="isCreateTaskModalVisible = true"
+            :disabled="!hasPermission('viewer')"
+          >
+            <i class="fas fa-plus"></i> 新增交辦/留言
+          </button>
+
+          <button
+            v-if="!lateShiftTakeOffExists"
+            @click="promptDuplicateLateShift"
+            class="duplicate-shift-btn desktop-only"
+            title="為晚班建立獨立的收針分組"
+            :disabled="isPageLocked"
+          >
+            <i class="fas fa-copy"></i> 新增夜班收針分組
+          </button>
         </div>
-        <div class="toolbar-right">
+        <div class="toolbar-right desktop-only-flex">
           <span class="status-indicator">{{ statusIndicator }}</span>
           <button
             id="save-changes-btn"
-            class="desktop-only-flex"
             :disabled="!hasUnsavedChanges || isPageLocked"
             @click="saveChangesToCloud"
           >
             儲存變更
           </button>
-          <button @click="exportAssignmentsToExcel" class="desktop-only-flex btn-secondary">
+          <button @click="exportAssignmentsToExcel" class="btn-secondary">
             <i class="fas fa-file-excel"></i> 匯出Excel
           </button>
         </div>
       </div>
 
-      <div class="daily-info-bar">
+      <!-- 此區塊在行動版上會被 CSS 隱藏 -->
+      <div class="daily-info-bar desktop-only">
         <div class="daily-staff-panel horizontal">
           <div class="staff-item shift-early">
             <span class="staff-label">早</span>
@@ -55,11 +60,6 @@
                 <span class="staff-job-title">醫師</span>
                 {{ dailyPhysicians.early?.name || '--' }}
               </div>
-              <span v-if="dailyPhysicians.early" class="staff-contact">
-                (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
-                  dailyPhysicians.early.phone || 'N/A'
-                }})
-              </span>
             </div>
           </div>
           <div class="staff-item shift-noon">
@@ -69,11 +69,6 @@
                 <span class="staff-job-title">醫師</span>
                 {{ dailyPhysicians.noon?.name || '--' }}
               </div>
-              <span v-if="dailyPhysicians.noon" class="staff-contact">
-                (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
-                  dailyPhysicians.noon.phone || 'N/A'
-                }})
-              </span>
             </div>
           </div>
           <div class="staff-item shift-late">
@@ -83,11 +78,6 @@
                 <span class="staff-job-title">醫師</span>
                 {{ dailyPhysicians.late?.name || '--' }}
               </div>
-              <span v-if="dailyPhysicians.late" class="staff-contact">
-                (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
-                  dailyPhysicians.late.phone || 'N/A'
-                }})
-              </span>
             </div>
           </div>
           <div class="staff-item shift-specialist">
@@ -154,13 +144,14 @@
       </div>
     </div>
 
-    <!-- ✨ [新增] 新的滾動容器 -->
+    <!-- 2. 可滾動的主要內容區 -->
     <div class="scrollable-main-content">
       <div v-if="isLoading" class="loading-overlay">
         <div class="loading-spinner"></div>
         <span>正在載入 {{ formatDate(currentDate) }} 的資料...</span>
       </div>
 
+      <!-- (A) 桌面版大表格 -->
       <div class="stats-sections-wrapper desktop-only">
         <!-- 早班區塊 -->
         <div class="stats-section" :class="{ 'is-locked': isPageLocked }">
@@ -633,18 +624,315 @@
           v-if="lateShiftTakeOffExists"
           class="stats-section late-takeoff-section"
           :class="{ 'is-locked': isPageLocked }"
-        >
-          <!-- ... 夜班收針區塊內容 ... -->
-        </div>
+        ></div>
       </div>
 
-      <!-- 行動版檢視 (也加上伸縮功能) -->
+      <!-- (B) 行動版卡片列表 -->
       <div class="mobile-only" :class="{ 'is-locked': isPageLocked }">
-        <!-- ... 行動版內容 ... -->
+        <!-- 早班 -->
+        <div class="mobile-shift-section">
+          <h2 class="mobile-shift-title">早班</h2>
+          <div
+            v-for="teamName in sortedEarlyTeams"
+            :key="`mobile-early-${teamName}`"
+            class="mobile-team-card"
+          >
+            <div class="mobile-team-header">
+              <h3>
+                {{ teamName.includes('未分組') ? '未分組' : teamName.replace('早', '') + '組' }}
+              </h3>
+              <!-- ✨ 修正 2: 為行動版的下拉選單添加 'disabled' 屬性 -->
+              <select
+                v-if="!teamName.includes('未分組')"
+                :value="effectiveStatsData.early[teamName]?.nurseName"
+                class="name-select"
+                disabled
+              >
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+            <div class="mobile-patient-lists">
+              <div
+                class="mobile-patient-list"
+                v-if="effectiveStatsData.early[teamName]?.earlyShift.patients.length > 0"
+              >
+                <h4>早班</h4>
+                <div
+                  v-for="patient in effectiveStatsData.early[teamName]?.earlyShift.patients"
+                  :key="patient.shiftId"
+                  :class="patient.classes"
+                >
+                  <div class="patient-main-info">
+                    <div class="patient-line-one">
+                      {{ patient.dialysisBed }} - {{ patient.name }}
+                    </div>
+                    <div class="patient-line-two">
+                      <span v-if="patient.wardNumber" class="ward-number-display">{{
+                        patient.wardNumber
+                      }}</span>
+                      <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                        >({{ patient.mode }})</span
+                      >
+                      <span v-if="patient.finalTags" class="note-display">{{
+                        patient.finalTags
+                      }}</span>
+                    </div>
+                  </div>
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                </div>
+              </div>
+              <div
+                class="mobile-patient-list"
+                v-if="effectiveStatsData.early[teamName]?.noonShiftOn.patients.length > 0"
+              >
+                <h4>午班(上針)</h4>
+                <div
+                  v-for="patient in effectiveStatsData.early[teamName]?.noonShiftOn.patients"
+                  :key="patient.shiftId"
+                  :class="patient.classes"
+                >
+                  <div class="patient-main-info">
+                    <div class="patient-line-one">
+                      {{ patient.dialysisBed }} - {{ patient.name }}
+                    </div>
+                    <div class="patient-line-two">
+                      <span v-if="patient.wardNumber" class="ward-number-display">{{
+                        patient.wardNumber
+                      }}</span>
+                      <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                        >({{ patient.mode }})</span
+                      >
+                      <span v-if="patient.finalTags" class="note-display">{{
+                        patient.finalTags
+                      }}</span>
+                    </div>
+                  </div>
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                </div>
+              </div>
+              <div
+                class="mobile-patient-list collapsible"
+                v-if="effectiveStatsData.early[teamName]?.noonShiftOff.patients.length > 0"
+              >
+                <h4 @click="toggleNoonTakeoff('early')">
+                  <span>午班(收針)</span>
+                  <span
+                    class="collapse-icon"
+                    :class="{ 'is-expanded': noonTakeoffVisibility.early }"
+                    >►</span
+                  >
+                </h4>
+                <div v-if="noonTakeoffVisibility.early" class="collapsible-content">
+                  <div
+                    v-for="patient in effectiveStatsData.early[teamName]?.noonShiftOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                  >
+                    <div class="patient-main-info">
+                      <div class="patient-line-one">
+                        {{ patient.dialysisBed }} - {{ patient.name }}
+                      </div>
+                      <div class="patient-line-two">
+                        <span v-if="patient.wardNumber" class="ward-number-display">{{
+                          patient.wardNumber
+                        }}</span>
+                        <span
+                          v-if="patient.mode && patient.mode !== 'HD'"
+                          class="stats-special-mode"
+                          >({{ patient.mode }})</span
+                        >
+                        <span v-if="patient.finalTags" class="note-display">{{
+                          patient.finalTags
+                        }}</span>
+                      </div>
+                    </div>
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="mobile-team-footer">
+              門{{ effectiveStatsData.early[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.early[teamName]?.totalIpdCount || 0
+              }}
+              急{{ effectiveStatsData.early[teamName]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 晚班 -->
+        <div class="mobile-shift-section">
+          <h2 class="mobile-shift-title">晚班</h2>
+          <div
+            v-for="teamName in sortedLateTeams"
+            :key="`mobile-late-${teamName}`"
+            class="mobile-team-card"
+          >
+            <div class="mobile-team-header">
+              <h3>
+                {{ teamName.includes('未分組') ? '未分組' : teamName.replace('晚', '') + '組' }}
+              </h3>
+              <!-- ✨ 修正 2: 為行動版的下拉選單添加 'disabled' 屬性 -->
+              <select
+                v-if="!teamName.includes('未分組')"
+                :value="effectiveStatsData.late[teamName]?.nurseName"
+                class="name-select"
+                disabled
+              >
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+            <div class="mobile-patient-lists">
+              <div
+                class="mobile-patient-list collapsible"
+                v-if="effectiveStatsData.late[teamName]?.noonShiftOff.patients.length > 0"
+              >
+                <h4 @click="toggleNoonTakeoff('late')">
+                  <span>午班(收針)</span>
+                  <span class="collapse-icon" :class="{ 'is-expanded': noonTakeoffVisibility.late }"
+                    >►</span
+                  >
+                </h4>
+                <div v-if="noonTakeoffVisibility.late" class="collapsible-content">
+                  <div
+                    v-for="patient in effectiveStatsData.late[teamName]?.noonShiftOff.patients"
+                    :key="patient.shiftId"
+                    :class="patient.classes"
+                  >
+                    <div class="patient-main-info">
+                      <div class="patient-line-one">
+                        {{ patient.dialysisBed }} - {{ patient.name }}
+                      </div>
+                      <div class="patient-line-two">
+                        <span v-if="patient.wardNumber" class="ward-number-display">{{
+                          patient.wardNumber
+                        }}</span>
+                        <span
+                          v-if="patient.mode && patient.mode !== 'HD'"
+                          class="stats-special-mode"
+                          >({{ patient.mode }})</span
+                        >
+                        <span v-if="patient.finalTags" class="note-display">{{
+                          patient.finalTags
+                        }}</span>
+                      </div>
+                    </div>
+                    <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                  </div>
+                </div>
+              </div>
+              <div
+                class="mobile-patient-list"
+                v-if="effectiveStatsData.late[teamName]?.lateShift.patients.length > 0"
+              >
+                <h4>晚班</h4>
+                <div
+                  v-for="patient in effectiveStatsData.late[teamName]?.lateShift.patients"
+                  :key="patient.shiftId"
+                  :class="patient.classes"
+                >
+                  <div class="patient-main-info">
+                    <div class="patient-line-one">
+                      {{ patient.dialysisBed }} - {{ patient.name }}
+                    </div>
+                    <div class="patient-line-two">
+                      <span v-if="patient.wardNumber" class="ward-number-display">{{
+                        patient.wardNumber
+                      }}</span>
+                      <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                        >({{ patient.mode }})</span
+                      >
+                      <span v-if="patient.finalTags" class="note-display">{{
+                        patient.finalTags
+                      }}</span>
+                    </div>
+                  </div>
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                </div>
+              </div>
+            </div>
+            <div class="mobile-team-footer">
+              門{{ effectiveStatsData.late[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.late[teamName]?.totalIpdCount || 0
+              }}
+              急{{ effectiveStatsData.late[teamName]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
+
+        <!-- 夜班收針 -->
+        <div v-if="lateShiftTakeOffExists" class="mobile-shift-section">
+          <h2 class="mobile-shift-title">夜班收針</h2>
+          <div
+            v-for="teamName in sortedLateTakeOffTeams"
+            :key="`mobile-takeoff-${teamName}`"
+            class="mobile-team-card"
+          >
+            <div class="mobile-team-header">
+              <h3>
+                {{
+                  teamName.includes('未分組') ? '未分組' : teamName.replace('夜間收針', '') + '組'
+                }}
+              </h3>
+              <!-- ✨ 修正 2: 為行動版的下拉選單添加 'disabled' 屬性 -->
+              <select
+                v-if="!teamName.includes('未分組')"
+                :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
+                class="name-select"
+                disabled
+              >
+                <option value="">-- 未指派 --</option>
+                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
+              </select>
+            </div>
+            <div class="mobile-patient-lists">
+              <div
+                class="mobile-patient-list"
+                v-if="
+                  effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff.patients.length > 0
+                "
+              >
+                <h4>夜班收針</h4>
+                <div
+                  v-for="patient in effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff
+                    .patients"
+                  :key="patient.shiftId"
+                  :class="patient.classes"
+                >
+                  <div class="patient-main-info">
+                    <div class="patient-line-one">
+                      {{ patient.dialysisBed }} - {{ patient.name }}
+                    </div>
+                    <div class="patient-line-two">
+                      <span v-if="patient.wardNumber" class="ward-number-display">{{
+                        patient.wardNumber
+                      }}</span>
+                      <span v-if="patient.mode && patient.mode !== 'HD'" class="stats-special-mode"
+                        >({{ patient.mode }})</span
+                      >
+                      <span v-if="patient.finalTags" class="note-display">{{
+                        patient.finalTags
+                      }}</span>
+                    </div>
+                  </div>
+                  <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                </div>
+              </div>
+            </div>
+            <div class="mobile-team-footer">
+              門{{ effectiveStatsData.lateTakeOff[teamName]?.totalOpdCount || 0 }} 住{{
+                effectiveStatsData.lateTakeOff[teamName]?.totalIpdCount || 0
+              }}
+              急{{ effectiveStatsData.lateTakeOff[teamName]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- Modals (保持不變) -->
+    <!-- Modals -->
     <TaskCreateDialog
       :is-visible="isCreateTaskModalVisible"
       :all-patients="patientStore.allPatients"
@@ -1825,43 +2113,38 @@ onUnmounted(() => {
 
 <style scoped>
 /* ================================== */
-/* === 1. 頁面佈局 (最終決戰版) === */
+/* === 1. 頁面佈局 (行動版修正) === */
 /* ================================== */
-
-/* ✨ 1. 最外層容器：使用 Flex 佈局，這是最常見且穩定的佈局方式 */
 .page-container {
   display: flex;
-  flex-direction: column; /* 垂直排列子元素 */
-  height: 100vh; /* 容器高度鎖定為整個視窗高度 */
+  flex-direction: column;
+  height: 100vh;
   padding: 10px;
   box-sizing: border-box;
-  overflow: hidden; /* ✨ 關鍵：阻止這個最外層容器自身產生任何滾動條 */
+  overflow: hidden;
+  background-color: #f8f9fa;
 }
 
-/* ✨ 2. 包裹所有头部信息，這部分不滚动 */
 .page-header-content {
-  flex-shrink: 0; /* 固定高度，不被壓縮 */
+  flex-shrink: 0;
+  padding-bottom: 10px;
 }
 
-/* ✨ 3. 這是新的滚动容器！ */
 .scrollable-main-content {
-  flex-grow: 1; /* 占据所有剩余空间 */
-  overflow: auto; /* ✨ 核心：让这个容器负责所有滚动 */
-  min-height: 0; /* 在 Flex 佈局中允許壓縮的必要設置 */
-  padding-bottom: 20px; /* 給底部留出一些空間 */
-  position: relative; /* 為了讓 loading-overlay 能正確定位 */
+  flex-grow: 1;
+  overflow: auto;
+  min-height: 0;
+  position: relative;
 }
 
-/* ✨ 4. 实际内容区，现在它的宽度可以自由伸展 */
 .stats-sections-wrapper {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-/* ✨ 5. 班别表格容器，只处理水平滚动 */
 .stats-section {
-  overflow-x: auto; /* 核心：讓此區塊水平滾動 */
+  overflow-x: auto;
   padding-bottom: 10px;
   scrollbar-width: thin;
   scrollbar-color: #aab7c4 #f1f1f1;
@@ -1882,9 +2165,8 @@ onUnmounted(() => {
   background: #888;
 }
 
-/* 确保 grid-container 宽度能超过容器 */
 .grid-container {
-  min-width: 1800px; /* ✨ 新增：給表格一個最小寬度，強制其溢出 */
+  min-width: 1800px;
   display: grid;
   border: 1px solid #ddd;
   border-radius: 8px;
@@ -1893,7 +2175,181 @@ onUnmounted(() => {
 }
 
 /* ================================== */
-/* === 2. 其他組件樣式 (保持不變) === */
+/* === 2. 響應式與可見性控制 === */
+/* ================================== */
+.mobile-only {
+  display: none;
+}
+.desktop-only {
+  display: block;
+}
+.desktop-only-flex {
+  display: flex;
+}
+
+@media screen and (max-width: 992px) {
+  .desktop-only,
+  .desktop-only-flex {
+    display: none !important;
+  }
+  .mobile-only {
+    display: block !important;
+  }
+
+  .page-container {
+    padding: 0;
+  }
+
+  .page-header-content {
+    padding: 10px;
+  }
+
+  .scrollable-main-content {
+    padding: 0 10px 80px 10px; /* 增加底部 padding 給 FAB 按鈕空間 */
+  }
+
+  .header-toolbar,
+  .toolbar-left,
+  .toolbar-right {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .page-title {
+    text-align: center;
+  }
+  .date-navigator {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap; /* 最好也加上這個，以防螢幕真的很窄時可以換行 */
+    gap: 15px; /* 將 5px 改為 15px 或其他您喜歡的值 */
+  }
+  .date-navigator > button {
+    margin: 4px 0;
+    flex-grow: 1;
+  }
+  .current-date-text,
+  .weekday-display {
+    font-size: 22px;
+    text-align: center;
+    width: 100%;
+  }
+  .duty-command-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .duty-dropdown-menu {
+    width: calc(100vw - 40px);
+  }
+  .duty-item {
+    grid-template-columns: 100px 1fr;
+  }
+}
+
+/* ================================== */
+/* === 3. 行動版卡片樣式 === */
+/* ================================== */
+.mobile-shift-section {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  background-color: #fff;
+  overflow: hidden;
+}
+.mobile-shift-title {
+  background-color: #e3f2fd;
+  color: #005a9c;
+  font-size: 1.5em;
+  padding: 12px;
+  margin: 0;
+  border-bottom: 1px solid #ddd;
+}
+.mobile-team-card {
+  padding: 12px;
+  border-top: 1px solid #eee;
+}
+.mobile-team-card:first-of-type {
+  border-top: none;
+}
+.mobile-team-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.mobile-team-header h3 {
+  margin: 0;
+  font-size: 1.3em;
+  color: #333;
+}
+.mobile-team-header .name-select {
+  width: 150px;
+  height: auto;
+  font-size: 1em;
+  padding: 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+.mobile-patient-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.mobile-patient-list h4 {
+  margin: 0 0 8px 0;
+  font-size: 1.1em;
+  color: #555;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 4px;
+}
+.mobile-patient-list.collapsible h4 {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.collapsible-content {
+  padding-top: 8px;
+}
+.mobile-team-footer {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+  text-align: right;
+  font-weight: bold;
+  color: #333;
+}
+.mobile-only .name-select:disabled {
+  background-color: #f5f5f5;
+  border-color: #ddd;
+  color: #555;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: default;
+}
+.mobile-only .patient-main-info {
+  cursor: default;
+}
+.fab-mobile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  font-size: 1.5rem;
+  z-index: 100;
+}
+
+/* ================================== */
+/* === 4. 其他原有組件樣式 === */
 /* ================================== */
 
 .loading-overlay {
@@ -1939,7 +2395,17 @@ onUnmounted(() => {
 }
 
 .daily-info-bar {
-  margin-top: 10px; /* 取代 gap */
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 0.75rem;
+  background-color: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #dee2e6;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
 }
 
 .toolbar-left,
@@ -1954,11 +2420,6 @@ onUnmounted(() => {
   color: #333;
   margin: 0;
   white-space: nowrap;
-}
-.date-navigator {
-  display: flex;
-  align-items: center;
-  gap: 5px;
 }
 .current-date-text {
   font-size: 26px;
@@ -2182,14 +2643,12 @@ button.btn-secondary:hover:not(:disabled) {
   color: white !important;
   border-color: #3949ab !important;
 }
-
 .patient-item.tag-chou,
 .patient-item.tag-chou .patient-line-one,
 .patient-item.tag-chou .patient-line-two,
 .patient-item.tag-chou .note-display {
   color: white !important;
 }
-
 .patient-item.tag-chou .stats-special-mode {
   background-color: rgba(255, 255, 255, 0.1);
   border-color: rgba(255, 255, 255, 0.3);
@@ -2199,7 +2658,6 @@ button.btn-secondary:hover:not(:disabled) {
   background-color: rgba(255, 255, 255, 0.2);
   color: white;
 }
-
 .patient-item.tag-new {
   background-color: #f5ec8e;
   border-color: #e0d567;
@@ -2219,6 +2677,7 @@ button.btn-secondary:hover:not(:disabled) {
 .patient-item.has-note-highlight .patient-line-one {
   color: #c62828;
 }
+
 .stats-special-mode {
   display: inline-block;
   vertical-align: middle;
@@ -2241,20 +2700,6 @@ button.btn-secondary:hover:not(:disabled) {
   font-weight: 500;
   margin-right: 4px;
   vertical-align: middle;
-}
-.prep-list-trigger {
-  position: absolute;
-  bottom: 4px;
-  right: 6px;
-  cursor: pointer;
-  font-size: 1.2rem;
-  padding: 2px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-  user-select: none;
-}
-.prep-list-trigger:hover {
-  background-color: #e0e0e0;
 }
 .is-locked .stats-section {
   cursor: not-allowed;
@@ -2314,7 +2759,7 @@ button.btn-secondary:hover:not(:disabled) {
 .grid-row-fade-enter-to,
 .grid-row-fade-leave-from {
   opacity: 1;
-  max-height: 500px; /* A sufficiently large value */
+  max-height: 500px;
 }
 .grid-row-fade-leave-active {
   display: contents;
@@ -2350,18 +2795,6 @@ button.btn-secondary:hover:not(:disabled) {
   background-color: #fffde7;
 }
 
-.daily-info-bar {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem;
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-}
 .daily-staff-panel.horizontal {
   display: flex;
   gap: 8px;
@@ -2613,7 +3046,6 @@ button.btn-secondary:hover:not(:disabled) {
   color: #6c757d;
   cursor: not-allowed;
 }
-
 .late-takeoff-section {
   border-top: 4px solid #007bff;
   margin-top: 1.5rem;
@@ -2622,12 +3054,10 @@ button.btn-secondary:hover:not(:disabled) {
   background-color: #e3f2fd;
   color: #005a9c;
 }
-
 .takeoff-title-cell {
   grid-row: 1 / 3;
   z-index: 3;
 }
-
 .takeoff-action-bar {
   grid-column: 2 / -1;
   grid-row: 1;
@@ -2639,12 +3069,10 @@ button.btn-secondary:hover:not(:disabled) {
   background-color: #f8f9fa;
   border-right: 1px solid #ddd;
 }
-
 .late-takeoff-section .team-header-cell {
   position: relative;
   top: 0;
 }
-
 .duplicate-shift-btn.remove {
   padding: 6px 12px;
   font-size: 0.9rem;
@@ -2663,7 +3091,6 @@ button.btn-secondary:hover:not(:disabled) {
   display: flex;
   gap: 8px;
 }
-
 .prep-list-trigger {
   position: static;
   cursor: pointer;
@@ -2676,7 +3103,6 @@ button.btn-secondary:hover:not(:disabled) {
 .prep-list-trigger:hover {
   background-color: #e0e0e0;
 }
-
 .injection-list-trigger {
   cursor: pointer;
   font-size: 1.2rem;
@@ -2687,161 +3113,5 @@ button.btn-secondary:hover:not(:disabled) {
 }
 .injection-list-trigger:hover {
   background-color: #e0e0e0;
-}
-
-.mobile-only {
-  display: none;
-}
-.desktop-only {
-  display: block;
-}
-.desktop-only-flex {
-  display: flex;
-}
-.mobile-shift-section {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  margin-bottom: 20px;
-  background-color: #fff;
-}
-.mobile-shift-title {
-  background-color: #e3f2fd;
-  color: #005a9c;
-  font-size: 1.5em;
-  padding: 12px;
-  margin: 0;
-  border-bottom: 1px solid #ddd;
-  border-radius: 8px 8px 0 0;
-}
-.mobile-team-card {
-  padding: 12px;
-  border-top: 1px solid #eee;
-}
-.mobile-team-card:first-of-type {
-  border-top: none;
-}
-.mobile-team-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.mobile-team-header h3 {
-  margin: 0;
-  font-size: 1.3em;
-  color: #333;
-}
-.mobile-team-header .name-select {
-  width: 150px;
-  height: auto;
-  font-size: 1em;
-  padding: 6px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-.mobile-patient-lists {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.mobile-patient-list h4 {
-  margin: 0 0 8px 0;
-  font-size: 1.1em;
-  color: #555;
-  border-bottom: 2px solid #f0f0f0;
-  padding-bottom: 4px;
-}
-.mobile-patient-list.collapsible h4 {
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.collapsible-content {
-  padding-top: 8px;
-}
-
-.mobile-team-footer {
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid #eee;
-  text-align: right;
-  font-weight: bold;
-  color: #333;
-}
-.mobile-only .name-select:disabled {
-  background-color: #f5f5f5;
-  border-color: #ddd;
-  color: #555;
-  -webkit-appearance: none;
-  appearance: none;
-  cursor: default;
-}
-.mobile-only .patient-main-info {
-  cursor: default;
-}
-.fab-mobile {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: fixed;
-  bottom: 1.5rem;
-  right: 1.5rem;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  font-size: 1.5rem;
-  z-index: 100;
-}
-
-@media screen and (max-width: 992px) {
-  .desktop-only,
-  .desktop-only-flex {
-    display: none !important;
-  }
-  .mobile-only {
-    display: block !important;
-  }
-  .page-container {
-    padding: 0;
-    display: flex;
-    grid-template-rows: none;
-    height: auto;
-  }
-  .header-toolbar,
-  .toolbar-left,
-  .toolbar-right {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  .page-title {
-    text-align: center;
-  }
-  .date-navigator {
-    justify-content: space-around;
-    flex-wrap: wrap;
-  }
-  .date-navigator > button {
-    margin: 4px 0;
-  }
-  .current-date-text,
-  .weekday-display {
-    font-size: 22px;
-  }
-  .duty-command-bar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .duty-dropdown-menu {
-    width: calc(100vw - 40px);
-  }
-  .duty-item {
-    grid-template-columns: 100px 1fr;
-  }
 }
 </style>
