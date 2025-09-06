@@ -4,31 +4,16 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import { useAuth } from '@/composables/useAuth'
 
-// ✨ 1. 在 Store 的頂部定義一個全域、更強健的日期處理函式
-/**
- * 安全地將多種日期格式轉換為 JavaScript Date 物件。
- * @param {any} timestamp - 可能是 Firestore Timestamp, Date object, ISO string, or number.
- * @returns {Date} 一個有效的 Date 物件。
- */
+// ✨ 保持這個頂部的日期處理函式
 function getSafeDate(timestamp) {
-  // 如果沒有值，返回一個過去的日期以便排序
   if (!timestamp) return new Date(0)
-
-  // Case 1: 已經是 JavaScript Date 物件 (優先處理，避免不必要的轉換)
   if (timestamp instanceof Date) {
     return timestamp
   }
-
-  // Case 2: Firestore Timestamp 物件 (它有 toDate 方法)
   if (typeof timestamp.toDate === 'function') {
     return timestamp.toDate()
   }
-
-  // Case 3: 字串或數字 (這是處理 memos 集合中字串日期的關鍵)
-  // new Date() 可以直接解析 ISO 8601 字串 (如 "2025-09-01T02:36:20.323Z")
   const date = new Date(timestamp)
-
-  // 檢查轉換結果是否有效，如果無效則返回一個預設值
   return isNaN(date.getTime()) ? new Date(0) : date
 }
 
@@ -41,63 +26,64 @@ export const useTaskStore = defineStore('task', () => {
   const isLoading = ref(true)
   let unsubscribes = []
 
+  // ✨ 1. 新增一個 Set 來儲存有「當日」病情紀錄的病人ID
+  const conditionRecordPatientIds = ref(new Set())
+
   // --- Getters ---
   const sortedFeedMessages = computed(() => {
-    // ✨ [核心修改] 1. 先用 map 統一資料格式
     const standardizedMessages = feedMessages.value.map((msg) => ({
       ...msg,
-      // 確保 createdAt 和 resolvedAt 永遠是 JS Date 物件
       createdAt: getSafeDate(msg.createdAt),
       resolvedAt: getSafeDate(msg.resolvedAt),
     }))
-
-    // ✨ 2. 然後才用標準化後的日期進行排序
     return standardizedMessages.sort((a, b) => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
       if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
-
       const dateA = aIsDone ? a.resolvedAt : a.createdAt
       const dateB = bIsDone ? b.resolvedAt : b.createdAt
-
       return dateB.getTime() - dateA.getTime()
     })
   })
 
-  // [原有 Getter] - 根據 "今天" 過濾備忘，適用於每日排程
-  // ✨ [核心修改] 將 getter 改造為一個返回函式的工廠模式
+  // ✨ 2. 修改 Getter，使其整合病情紀錄的狀態
   const getPatientMessageTypesMapForDate = computed(() => {
-    // 1. getter 現在返回一個可以接收 `targetDate` 參數的函式
     return (targetDate) => {
-      // 2. 如果沒有傳入日期，就預設使用今天的日期
       const dateToCompare = targetDate ? new Date(targetDate) : new Date()
       dateToCompare.setHours(0, 0, 0, 0)
-
       const dateStr = `${dateToCompare.getFullYear()}-${String(
         dateToCompare.getMonth() + 1,
       ).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
 
       const map = new Map()
-      // 3. 過濾邏輯保持不變，但現在是跟傳入的日期做比較
       const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
 
+      // (A) 處理備忘錄 (memos / tasks)
       for (const msg of pendingMessages) {
         if (!msg.patientId) continue
-
         let shouldDisplayIcon = false
-
         if (!msg.targetDate || msg.targetDate <= dateStr) {
           shouldDisplayIcon = true
         }
-
         if (shouldDisplayIcon) {
           if (!map.has(msg.patientId)) {
             map.set(msg.patientId, new Set())
           }
-          map.get(msg.patientId).add(msg.type || '常規')
+          // 根據原始類型決定是 'memo' 還是其他
+          map.get(msg.patientId).add(msg.type === '常規' ? 'memo' : msg.type)
         }
       }
 
+      // (B) 處理病情紀錄 (condition records)
+      conditionRecordPatientIds.value.forEach((patientId) => {
+        if (!map.has(patientId)) {
+          map.set(patientId, new Set())
+        }
+        // 為有病情紀錄的病人添加 'record' 類型
+        map.get(patientId).add('record')
+      })
+
+      // 將 Set 轉換為 Array
       const finalMap = new Map()
       for (const [patientId, typeSet] of map.entries()) {
         finalMap.set(patientId, Array.from(typeSet))
@@ -170,6 +156,11 @@ export const useTaskStore = defineStore('task', () => {
   })
 
   // --- Actions ---
+  // ✨ 3. 新增這個 Action，用來接收來自 ScheduleView 的狀態更新
+  function updateTasksFromConditionRecords(patientIdSet) {
+    conditionRecordPatientIds.value = patientIdSet
+  }
+
   function startRealtimeUpdates(uid) {
     if (unsubscribes.length > 0) return
     if (!uid || !currentUser.value) return
@@ -334,5 +325,6 @@ export const useTaskStore = defineStore('task', () => {
     getPatientMessageTypesMapForDate,
     allPendingPatientMessageTypesMap,
     todayTaskCount,
+    updateTasksFromConditionRecords,
   }
 })
