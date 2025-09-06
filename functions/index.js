@@ -971,7 +971,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 )
 
 // ===================================================================
-// 🔥 即時調班處理 - 立即修改排程
+// 🔥 即時調班處理 - 立即修改排程 (✨ 最終、最穩健的版本 ✨)
 // ===================================================================
 exports.handleNewExceptionRequest = onDocumentCreated(
   'schedule_exceptions/{exceptionId}',
@@ -980,7 +980,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
     const exceptionData = exceptionDoc.data()
     const exceptionId = exceptionDoc.id
 
-    // ✨ 智能的日誌記錄 ✨
     const logPatientName =
       exceptionData.type === 'SWAP'
         ? `${exceptionData.patient1?.patientName} <=> ${exceptionData.patient2?.patientName}`
@@ -990,24 +989,48 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       `🚀 [NewException] 新調班申請: ${exceptionId} (${exceptionData.type} - ${
         logPatientName || 'N/A'
       })`,
-      { data: JSON.stringify(exceptionData) }, // 記錄收到的完整資料
+      { data: JSON.stringify(exceptionData) },
     )
 
-    if (exceptionData.status !== 'pending') {
-      logger.info(`[NewException] 調班 ${exceptionId} 狀態為 ${exceptionData.status}，跳過處理`)
-      return null
-    }
-
     try {
+      if (exceptionData.status !== 'pending') {
+        logger.info(`[NewException] 調班 ${exceptionId} 狀態為 ${exceptionData.status}，跳過處理`)
+        return null
+      }
+
+      // --- [安全修正 1] 日期守門員 ---
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+
+      const parseDateString = (dateStr) => {
+        if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
+        return new Date(dateStr + 'T00:00:00Z')
+      }
+
+      let relevantEndDateStr
+      if (exceptionData.type === 'MOVE' || exceptionData.type === 'ADD_SESSION') {
+        relevantEndDateStr = exceptionData.to?.goalDate
+      } else {
+        relevantEndDateStr = exceptionData.endDate || exceptionData.date
+      }
+
+      if (!relevantEndDateStr) {
+        throw new Error('調班資料缺少必要的日期欄位 (endDate/goalDate/date)。')
+      }
+
+      const relevantEndDate = parseDateString(relevantEndDateStr)
+      if (!relevantEndDate || isNaN(relevantEndDate.getTime())) {
+        throw new Error(`調班日期格式無效: ${relevantEndDateStr}`)
+      }
+
+      if (relevantEndDate < today) {
+        throw new Error('無法申請或修改過去日期的調班。此申請將不會被執行。')
+      }
+
       await exceptionDoc.ref.update({
         status: 'processing',
         processingStarted: FieldValue.serverTimestamp(),
       })
-
-      // ✨ 放寬通用驗證，在各類型內部做精確驗證 ✨
-      if (!exceptionData.type) {
-        throw new Error('調班資料不完整：缺少 type 欄位')
-      }
 
       let processedDates = []
       let conflicts = []
@@ -1035,83 +1058,60 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             transaction.get(targetScheduleRef),
           ])
 
-          const updates = []
-
           if (sourceDoc.exists) {
-            const sourceSchedule = sourceDoc.data().schedule || {}
             const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
-            if (sourceSchedule[sourceKey] && sourceSchedule[sourceKey].patientId === patientId) {
-              updates.push({
-                ref: sourceScheduleRef,
-                data: {
-                  [`schedule.${sourceKey}`]: FieldValue.delete(),
-                  lastModified: FieldValue.serverTimestamp(),
-                  modifiedBy: 'exception_handler',
-                },
+            const sourceSchedule = sourceDoc.data().schedule || {}
+            if (sourceSchedule[sourceKey]?.patientId === patientId) {
+              delete sourceSchedule[sourceKey]
+              transaction.update(sourceScheduleRef, {
+                schedule: sourceSchedule,
+                lastModified: FieldValue.serverTimestamp(),
+                modifiedBy: 'exception_handler',
               })
               logger.info(`  └─ 移除 ${patientName} 從 ${from.sourceDate} ${sourceKey}`)
             } else {
-              logger.warn(`  └─ 警告：原位置 ${sourceKey} 的病人不是 ${patientName}`)
+              logger.warn(`  └─ 警告：原位置 ${sourceKey} 的病人不是 ${patientName}，不執行移除。`)
             }
           }
 
           const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
-          let hasConflict = false
-          if (targetDoc.exists) {
-            const targetSchedule = targetDoc.data().schedule || {}
-            if (targetSchedule[targetKey]) {
-              const occupant = targetSchedule[targetKey]
-              conflicts.push({
-                date: to.goalDate,
-                position: targetKey,
-                occupiedBy: occupant.patientName || occupant.patientId,
-                action: 'override',
-                originalExceptionId: occupant.exceptionId || null,
-              })
-              logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
-              hasConflict = true
-            }
-            updates.push({
-              ref: targetScheduleRef,
-              data: {
-                [`schedule.${targetKey}`]: {
-                  patientId: patientId,
-                  patientName: patientName,
-                  shiftId: to.shiftCode,
-                  manualNote: `(換班${hasConflict ? '-覆蓋' : ''})`,
-                  exceptionId: exceptionId,
-                  appliedAt: FieldValue.serverTimestamp(),
-                },
-                lastModified: FieldValue.serverTimestamp(),
-                modifiedBy: 'exception_handler',
-              },
-            })
-          } else {
-            updates.push({
-              ref: targetScheduleRef,
-              data: {
-                date: to.goalDate,
-                schedule: {
-                  [targetKey]: {
-                    patientId: patientId,
-                    patientName: patientName,
-                    shiftId: to.shiftCode,
-                    manualNote: '(換班)',
-                    exceptionId: exceptionId,
-                    appliedAt: FieldValue.serverTimestamp(),
-                  },
-                },
-                createdAt: FieldValue.serverTimestamp(),
-                lastModified: FieldValue.serverTimestamp(),
-                modifiedBy: 'exception_handler',
-              },
-              isCreate: true,
-            })
+          const newSlotData = {
+            patientId: patientId,
+            patientName: patientName,
+            shiftId: to.shiftCode,
+            manualNote: `(換班)`,
+            exceptionId: exceptionId,
+            appliedAt: FieldValue.serverTimestamp(),
           }
 
-          for (const update of updates) {
-            if (update.isCreate) transaction.set(update.ref, update.data)
-            else transaction.update(update.ref, update.data)
+          const targetSchedule = targetDoc.exists ? targetDoc.data().schedule || {} : {}
+          if (targetSchedule[targetKey]) {
+            const occupant = targetSchedule[targetKey]
+            conflicts.push({
+              date: to.goalDate,
+              position: targetKey,
+              occupiedBy: occupant.patientName || occupant.patientId,
+              action: 'override',
+            })
+            logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
+            newSlotData.manualNote = `(換班-覆蓋)`
+          }
+          targetSchedule[targetKey] = newSlotData
+
+          if (targetDoc.exists) {
+            transaction.update(targetScheduleRef, {
+              schedule: targetSchedule,
+              lastModified: FieldValue.serverTimestamp(),
+              modifiedBy: 'exception_handler',
+            })
+          } else {
+            transaction.set(targetScheduleRef, {
+              date: to.goalDate,
+              schedule: targetSchedule,
+              createdAt: FieldValue.serverTimestamp(),
+              lastModified: FieldValue.serverTimestamp(),
+              modifiedBy: 'exception_handler',
+            })
           }
 
           logger.info(`  └─ 新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
@@ -1187,7 +1187,7 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 
         await db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
-          let hasConflict = false
+
           const newSlotData = {
             patientId: patientId,
             patientName: patientName,
@@ -1197,30 +1197,31 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             appliedAt: FieldValue.serverTimestamp(),
           }
 
-          if (scheduleDoc.exists) {
-            const scheduleData = scheduleDoc.data().schedule || {}
-            if (scheduleData[targetKey]) {
-              const occupant = scheduleData[targetKey]
-              conflicts.push({
-                date: targetDate,
-                position: targetKey,
-                occupiedBy: occupant.patientName || occupant.patientId,
-                action: 'override',
-              })
-              logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
-              hasConflict = true
-              newSlotData.manualNote = `(臨時加洗-覆蓋)`
-            }
+          // ✨ [安全修正 2] 使用「讀取-修改-寫回」模式
+          const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule || {} : {}
+          if (scheduleData[targetKey]) {
+            const occupant = scheduleData[targetKey]
+            conflicts.push({
+              date: targetDate,
+              position: targetKey,
+              occupiedBy: occupant.patientName || occupant.patientId,
+              action: 'override',
+            })
+            logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
+            newSlotData.manualNote = `(臨時加洗-覆蓋)`
+          }
+          scheduleData[targetKey] = newSlotData
 
+          if (scheduleDoc.exists) {
             transaction.update(scheduleRef, {
-              [`schedule.${targetKey}`]: newSlotData,
+              schedule: scheduleData,
               lastModified: FieldValue.serverTimestamp(),
               modifiedBy: 'exception_handler',
             })
           } else {
             transaction.set(scheduleRef, {
               date: targetDate,
-              schedule: { [targetKey]: newSlotData },
+              schedule: scheduleData,
               createdAt: FieldValue.serverTimestamp(),
               lastModified: FieldValue.serverTimestamp(),
               modifiedBy: 'exception_handler',
@@ -1234,8 +1235,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       // ===== 處理 SWAP 類型 =====
       else if (exceptionData.type === 'SWAP') {
         const { date, patient1, patient2 } = exceptionData
-
-        // ✨ 更嚴格的內部驗證 ✨
         if (
           !date ||
           !patient1 ||
@@ -1306,11 +1305,11 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       await db.collection('exception_logs').add({
         exceptionId: exceptionId,
         type: exceptionData.type,
-        patientId: exceptionData.patientId, // 即使是 SWAP，也記錄發起人 ID
+        patientId: exceptionData.patientId,
         patientName: exceptionData.patientName,
         action: 'applied',
         timestamp: FieldValue.serverTimestamp(),
-        details: exceptionData, // 將完整資料存入日誌
+        details: exceptionData,
         success: true,
       })
 
@@ -1338,14 +1337,14 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         error: { message: error.message, stack: error.stack },
         success: false,
       })
-      throw error // 重新拋出錯誤，讓 Firebase 知道函式執行失敗
+      throw error
     }
     return null
   },
 )
 
 // ===================================================================
-// 處理調班刪除（恢復原始排程）
+// 處理調班刪除（恢復原始排程）(✨ 已加入日期驗證安全修正 ✨)
 // ===================================================================
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
@@ -1367,9 +1366,8 @@ exports.onExceptionDeleted = onDocumentDeleted(
       }
       const masterRules = masterScheduleDoc.data().schedule || {}
 
-      let affectedOperations = [] // { dateStr, patientIds: [id1, id2, ...] }
+      let affectedOperations = []
 
-      // ✨ 核心修正 #1: 根據不同類型，計算受影響的日期和病人
       if (
         deletedException.type === 'MOVE' ||
         deletedException.type === 'SUSPEND' ||
@@ -1410,8 +1408,18 @@ exports.onExceptionDeleted = onDocumentDeleted(
         return
       }
 
-      // ✨ 核心修正 #2: 執行恢復操作
+      // ✨✨✨ START: [核心安全修正] ✨✨✨
+      const todayStr = formatDateForQuery(new Date()) // 獲取今天的日期字串
+
       const restorePromises = affectedOperations.map(({ dateStr, patientIds }) => {
+        // 在執行任何資料庫操作前，先檢查日期
+        if (dateStr < todayStr) {
+          logger.warn(`[Reverter] 跳過恢復操作：日期 ${dateStr} 已是過去式，不予修改。`)
+          // 返回一個 resolved 的 Promise 來跳過這個日期的處理
+          return Promise.resolve()
+        }
+        // ✨✨✨ END: [核心安全修正] ✨✨✨
+
         const scheduleRef = db.collection('schedules').doc(dateStr)
         return db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
@@ -1423,9 +1431,7 @@ exports.onExceptionDeleted = onDocumentDeleted(
             modifiedBy: 'exception_reverter',
           }
 
-          // 遍歷所有受影響的病人
           for (const patientId of patientIds) {
-            // 1. 移除該病人的現有排班
             for (const key in currentSchedule) {
               if (currentSchedule[key].patientId === patientId) {
                 updates[`schedule.${key}`] = FieldValue.delete()
@@ -1433,7 +1439,6 @@ exports.onExceptionDeleted = onDocumentDeleted(
               }
             }
 
-            // 2. 如果有原始規則，恢復原始排班
             const patientRule = masterRules[patientId]
             if (patientRule && patientRule.freq) {
               const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
@@ -1446,7 +1451,6 @@ exports.onExceptionDeleted = onDocumentDeleted(
                 const shiftCode = SHIFTS[shiftIndex]
                 const scheduleKey = getScheduleKey(bedNum, shiftCode)
 
-                // 檢查恢復的位置是否已被佔用 (可能被其他未受影響的病人佔用)
                 if (
                   currentSchedule[scheduleKey] &&
                   !patientIds.includes(currentSchedule[scheduleKey].patientId)
@@ -1470,14 +1474,15 @@ exports.onExceptionDeleted = onDocumentDeleted(
           }
 
           if (Object.keys(updates).length > 1) {
-            // 至少有一個 lastModified 之外的更新
             transaction.update(scheduleRef, updates)
           }
         })
       })
 
       await Promise.all(restorePromises)
-      logger.info(`✅ [Reverter] 成功處理 ${affectedOperations.length} 個日期的恢復操作`)
+      logger.info(
+        `✅ [Reverter] 成功處理 ${affectedOperations.length} 個日期的恢復操作 (已跳過過去日期)`,
+      )
     } catch (error) {
       logger.error(`❌ [Reverter] 恢復調班 ${exceptionId} 時發生錯誤:`, error)
     }

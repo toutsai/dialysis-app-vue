@@ -189,7 +189,15 @@ const shiftMap = { early: '早班', noon: '午班', late: '晚班' }
 const calendarEvents = computed(() => {
   if (!exceptions.value) return []
   return exceptions.value.flatMap((ex) => {
-    const colorMap = {
+    // ✨ 1. 根據狀態定義顏色和前綴
+    const statusStyles = {
+      pending: { color: '#ffc107', prefix: '[待]' }, // 黃色 - 待處理
+      processing: { color: '#0dcaf0', prefix: '[中]' }, // 藍綠色 - 處理中
+      applied: { color: '#198754', prefix: '[✓]' }, // 綠色 - 已生效
+      error: { color: '#dc3545', prefix: '[!] ' }, // 紅色 - 錯誤
+      conflict_requires_resolution: { color: '#fd7e14', prefix: '[衝突]' }, // 橘色 - 衝突
+    }
+    const baseColorMap = {
       MOVE: '#17a2b8',
       SUSPEND: '#6610f2',
       ADD_SESSION: '#20c997',
@@ -197,12 +205,19 @@ const calendarEvents = computed(() => {
       SWAP: '#fd7e14',
     }
 
-    let title = ''
+    // ✨ 2. 決定最終的顏色和前綴
+    const style = statusStyles[ex.status] || { color: '#6c757d', prefix: '[?]' }
+    // 如果是已生效的調班，我們使用它原本的顏色，否則使用狀態顏色
+    const finalColor = ex.status === 'applied' ? baseColorMap[ex.type] || '#6c757d' : style.color
+
+    let baseTitle = ''
     if (ex.type === 'SWAP') {
-      title = `${ex.patient1?.patientName || ''} <=> ${ex.patient2?.patientName || ''}`
+      baseTitle = `${ex.patient1?.patientName || ''} <=> ${ex.patient2?.patientName || ''}`
     } else {
-      title = `${ex.patientName || ''} - ${typeMap[ex.type] || '未知'}`
+      baseTitle = `${ex.patientName || ''} - ${typeMap[ex.type] || '未知'}`
     }
+    // ✨ 3. 將狀態前綴加到標題上
+    const title = `${style.prefix} ${baseTitle}`
 
     let description = ''
     if (ex.type === 'MOVE' && ex.from && ex.to) {
@@ -231,11 +246,12 @@ const calendarEvents = computed(() => {
       }
       const toEvent = {
         id: ex.id,
-        title: `[新班] ${ex.patientName} - 調班`,
+        // ✨ 4. 新班次的事件也套用新的標題和顏色
+        title: title.replace('調班', '[新班]'), // 將標題微調
         start: ex.to.goalDate,
         allDay: true,
-        backgroundColor: colorMap.MOVE,
-        borderColor: colorMap.MOVE,
+        backgroundColor: finalColor,
+        borderColor: finalColor,
         extendedProps: { ...ex, formattedDetails: description },
       }
       return [fromEvent, toEvent]
@@ -255,8 +271,9 @@ const calendarEvents = computed(() => {
         start: ex.startDate,
         end: exclusiveEndDate,
         allDay: true,
-        backgroundColor: colorMap[ex.type] || '#6c757d',
-        borderColor: colorMap[ex.type] || '#6c757d',
+        // ✨ 5. 套用最終計算出的顏色
+        backgroundColor: finalColor,
+        borderColor: finalColor,
         extendedProps: { ...ex, formattedDetails: description },
       },
     ]
@@ -617,6 +634,42 @@ watch(
   },
   { immediate: true },
 )
+
+// ✨✨✨ 新增這個 Watcher 來監控後端處理狀態並提供即時反饋 ✨✨✨
+watch(exceptions, (newExceptions, oldExceptions) => {
+  // 如果舊的列表是空的（通常是第一次載入），就不做任何事
+  if (!oldExceptions || oldExceptions.length === 0) {
+    return
+  }
+
+  // 將舊的 exceptions 轉換成一個 Map，方便快速查找
+  const oldExceptionsMap = new Map(oldExceptions.map((ex) => [ex.id, ex]))
+
+  newExceptions.forEach((newEx) => {
+    const oldEx = oldExceptionsMap.get(newEx.id)
+
+    // 我們只關心從 'pending' 或 'processing' 變成失敗狀態的調班
+    if (oldEx && (oldEx.status === 'pending' || oldEx.status === 'processing')) {
+      // 情況1: 處理失敗
+      if (newEx.status === 'error') {
+        addLocalNotification({
+          message: `調班申請失敗: ${newEx.patientName || ''} (${typeMap[newEx.type] || ''}) - ${newEx.errorMessage || '未知錯誤'}`,
+          type: 'exception',
+          config: { bgColor: '#dc3545', textColor: 'white', icon: '❌' },
+        })
+      }
+
+      // 情況2: 發生衝突
+      else if (newEx.status === 'conflict_requires_resolution') {
+        addLocalNotification({
+          message: `調班申請衝突: ${newEx.patientName || ''} (${typeMap[newEx.type] || ''}) - ${newEx.errorMessage || '床位已被佔用'}`,
+          type: 'exception',
+          config: { bgColor: '#fd7e14', textColor: 'white', icon: '⚠️' },
+        })
+      }
+    }
+  })
+})
 
 onUnmounted(() => {
   if (unsubscribe) {
