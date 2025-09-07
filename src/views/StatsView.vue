@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (✨ 最終佈局修正版 ✨) -->
+<!-- 檔案路徑: src/views/StatsView.vue (✨ 最終功能整合版 ✨) -->
 <template>
   <div class="page-container">
     <!-- 1. 固定的頂部，此區塊不滾動 -->
@@ -963,11 +963,13 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
+    <!-- ✨ 核心修改：綁定 @open-order-modal 事件 -->
     <PreparationPopover
       :is-visible="isPrepPopoverVisible"
       :patients="prepPopoverData.patients"
       :target-element="prepPopoverData.targetElement"
       @close="onPrepPopoverClose"
+      @open-order-modal="openOrderModalFromPopover"
     />
     <DailyInjectionListDialog
       :is-visible="isInjectionDialogVisible"
@@ -975,6 +977,13 @@
       :injections="dailyInjections"
       :target-date="formatDate(currentDate)"
       @close="isInjectionDialogVisible = false"
+    />
+    <!-- ✨ 核心修改：確保 DialysisOrderModal 存在並綁定正確 -->
+    <DialysisOrderModal
+      :is-visible="isOrderModalVisible"
+      :patient-data="editingPatientForOrder"
+      @close="isOrderModalVisible = false"
+      @save="handleSaveOrder"
     />
     <button
       class="fab-mobile mobile-only"
@@ -995,6 +1004,8 @@ import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
+// ✨ 核心修改：從 optimizedApiService 引入儲存醫囑的函式
+import { createDialysisOrderAndUpdatePatient } from '@/services/optimizedApiService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientMessagesIcon from '@/components/PatientMessagesIcon.vue'
@@ -1008,7 +1019,7 @@ import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
-import { getMedicationUnit } from '@/utils/medicationUtils.js'
+import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import * as XLSX from 'xlsx'
 
 const patientStore = usePatientStore()
@@ -1075,6 +1086,24 @@ const dutyAssignments = {
   },
 }
 
+async function getEffectiveOrdersForDate(patientId, targetDate) {
+  if (!patientId || !targetDate) return {}
+  const dateStr = targetDate.toISOString().slice(0, 10)
+  try {
+    const results = await ordersHistoryApi.fetchAll([
+      where('patientId', '==', patientId),
+      where('orders.effectiveDate', '<=', dateStr),
+      orderBy('orders.effectiveDate', 'desc'),
+      orderBy('updatedAt', 'desc'),
+      limit(1),
+    ])
+    return results.length > 0 ? results[0].orders : {}
+  } catch (error) {
+    console.error(`獲取病人 ${patientId} 的醫囑失敗:`, error)
+    return {}
+  }
+}
+
 const isFireDutyDropdownVisible = ref(false)
 const currentDate = ref(new Date())
 const statusIndicator = ref('')
@@ -1103,6 +1132,10 @@ const isInjectionDialogVisible = ref(false)
 const dailyInjections = ref([])
 const isInjectionLoading = ref(false)
 const noonTakeoffVisibility = ref({ early: false, late: false })
+
+// ✨ 核心修改：新增醫囑 Modal 相關的 ref
+const isOrderModalVisible = ref(false)
+const editingPatientForOrder = ref(null)
 
 provide('viewingDate', currentDate)
 
@@ -1346,23 +1379,7 @@ async function loadDailyStaffInfo(date) {
     dailyPhysicians.value = { early: null, noon: null, late: null }
   }
 }
-async function getEffectiveOrdersForDate(patientId, targetDate) {
-  if (!patientId || !targetDate) return {}
-  const dateStr = targetDate.toISOString().slice(0, 10)
-  try {
-    const results = await ordersHistoryApi.fetchAll([
-      where('patientId', '==', patientId),
-      where('orders.effectiveDate', '<=', dateStr),
-      orderBy('orders.effectiveDate', 'desc'),
-      orderBy('updatedAt', 'desc'),
-      limit(1),
-    ])
-    return results.length > 0 ? results[0].orders : {}
-  } catch (error) {
-    console.error(`獲取病人 ${patientId} 的醫囑失敗:`, error)
-    return {}
-  }
-}
+
 async function loadData(date) {
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1370,42 +1387,57 @@ async function loadData(date) {
   isLoading.value = true
   const dateStr = formatDate(date)
   try {
+    // 1. 確保 Pinia Store 中的病人基本資料已載入
     await patientStore.fetchPatientsIfNeeded()
+
+    // 2. 並行獲取當天的排程和護理分組數據
     const [dailyRecords, teamsData] = await Promise.all([
       schedulesApi.fetchAll([where('date', '==', dateStr)]),
       fetchTeamsByDate(dateStr),
     ])
+
     const scheduleRecord =
       dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
-    const patientIdsInSchedule = Object.values(currentRecord.schedule)
-      .map((slot) => slot.patientId)
-      .filter(Boolean)
+
+    // ✅ [核心修正] 獲取排班內所有病人的 ID
+    const patientIdsInSchedule = [
+      ...new Set(
+        Object.values(currentRecord.schedule)
+          .map((slot) => slot.patientId)
+          .filter(Boolean),
+      ),
+    ]
+
+    // 如果排班中有病人，則為他們獲取最新的醫囑
     if (patientIdsInSchedule.length > 0) {
-      const patientsOnSchedule = patientStore.allPatients.filter((p) =>
-        patientIdsInSchedule.includes(p.id),
-      )
-      const patientsWithOrdersPromises = patientsOnSchedule.map(async (patient) => {
-        const orders = await getEffectiveOrdersForDate(patient.id, date)
-        const patientInStore = patientMap.value.get(patient.id)
+      // 為每個病人並行獲取醫囑
+      const ordersPromises = patientIdsInSchedule.map(async (patientId) => {
+        const orders = await getEffectiveOrdersForDate(patientId, date)
+        const patientInStore = patientMap.value.get(patientId)
         if (patientInStore) {
+          // ✨ 將獲取到的醫囑直接附加到 Pinia Store 的病人物件上
           patientInStore.dialysisOrders = orders
         }
       })
-      await Promise.all(patientsWithOrdersPromises)
+      // 等待所有醫囑都獲取完畢
+      await Promise.all(ordersPromises)
     }
-    if (currentRecord.schedule && currentTeamsRecord.value.teams) {
-      const localPatientMap = patientMap.value
+
+    // 重新組合最終數據 (這部分邏輯不變，但現在 patientMap 中的病人已經有 dialysisOrders 了)
+    if (currentRecord.schedule) {
       for (const shiftId in currentRecord.schedule) {
         const slot = currentRecord.schedule[shiftId]
         if (!slot || !slot.patientId) continue
-        slot.autoNote = localPatientMap.get(slot.patientId)
-          ? generateAutoNote(localPatientMap.get(slot.patientId))
-          : ''
+
+        const patient = patientMap.value.get(slot.patientId)
+        slot.autoNote = patient ? generateAutoNote(patient) : ''
+
         const shiftCode = shiftId.split('-')[2]
         const teamKey = `${slot.patientId}-${shiftCode}`
         const teamInfo = currentTeamsRecord.value.teams[teamKey]
+
         if (teamInfo) {
           slot.nurseTeam = teamInfo.nurseTeam || null
           slot.nurseTeamIn = teamInfo.nurseTeamIn || null
@@ -1419,6 +1451,7 @@ async function loadData(date) {
         }
       }
     }
+
     statusIndicator.value = currentRecord.id ? '資料已載入' : '本日無排程資料'
   } catch (error) {
     console.error('讀取報表資料失敗:', error)
@@ -1427,6 +1460,7 @@ async function loadData(date) {
     isLoading.value = false
   }
 }
+
 async function saveChangesToCloud() {
   if (isPageLocked.value || !hasUnsavedChanges.value) return
   statusIndicator.value = '儲存中...'
@@ -1974,6 +2008,43 @@ const handleIconClick = (patientId, context) => {
   }
 }
 provide('handleIconClick', handleIconClick)
+
+// ✨ 核心修改：新增醫囑儲存函式和從備物清單打開醫囑的函式
+async function handleSaveOrder(orderData) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
+  if (!editingPatientForOrder.value?.id) {
+    showAlert('儲存失敗', '找不到有效的病人資訊。')
+    return
+  }
+
+  const patientId = editingPatientForOrder.value.id
+  const patientName = editingPatientForOrder.value.name
+
+  try {
+    // 直接呼叫從 optimizedApiService 引入的函式
+    await createDialysisOrderAndUpdatePatient(patientId, patientName, orderData)
+
+    // 操作成功後續處理
+    await loadData(currentDate.value) // 重新載入所有資料以更新畫面
+    isOrderModalVisible.value = false
+    createGlobalNotification(`更新醫囑：${patientName}`, 'team') // 'team' 是一個示例，您可以改成 'order'
+    showAlert('儲存成功', `已成功更新 ${patientName} 的透析醫囑。`)
+  } catch (error) {
+    console.error('儲存醫囑失敗:', error)
+    showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
+  }
+}
+
+const openOrderModalFromPopover = (patient) => {
+  if (patient && patient.id) {
+    editingPatientForOrder.value = patient
+    isOrderModalVisible.value = true
+  }
+}
+
 onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })

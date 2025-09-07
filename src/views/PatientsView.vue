@@ -2,8 +2,8 @@
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import {
-  updatePatient as optimizedUpdatePatient,
   savePatient as optimizedSavePatient,
+  createDialysisOrderAndUpdatePatient, // ✅ 引入我們最終的函式
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -624,28 +624,29 @@ async function handleRestoreSelected(targetStatus) {
 }
 
 async function handleSaveOrder(orderData) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
   if (!editingPatientForOrder.value?.id) {
     showAlert('儲存失敗', '找不到有效的病人資訊。')
     return
   }
+
   const patientId = editingPatientForOrder.value.id
   const patientName = editingPatientForOrder.value.name
-  const parseNumeric = (v) => (v === '' || v == null ? null : Number(v))
-  const cleanOrders = {
-    ak: orderData.ak || '',
-    dialysateCa: orderData.dialysateCa || '',
-    heparinInitial: parseNumeric(orderData.heparinInitial),
-    heparinMaintenance: parseNumeric(orderData.heparinMaintenance),
-    bloodFlow: parseNumeric(orderData.bloodFlow),
-    dryWeight: parseNumeric(orderData.dryWeight),
-    effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
-  }
+
   try {
-    await optimizedUpdatePatient(patientId, { dialysisOrders: cleanOrders })
+    // ✨ [核心修正] 直接呼叫我們的一站式服務函式 ✨
+    await createDialysisOrderAndUpdatePatient(patientId, patientName, orderData)
+
+    // 操作成功後續處理
     await refreshAllData()
     isOrderModalVisible.value = false
     createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
+    showAlert('儲存成功', `已成功更新 ${patientName} 的透析醫囑。`)
   } catch (error) {
+    console.error('儲存醫囑失敗:', error)
     showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
   }
 }
