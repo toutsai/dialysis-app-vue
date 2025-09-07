@@ -971,7 +971,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 )
 
 // ===================================================================
-// 🔥 即時調班處理 - 立即修改排程 (✨ 最終、最穩健的版本 ✨)
+// 🔥 即時調班處理 - 立即修改排程 (✨ 最終、最嚴謹的日期驗證版 ✨)
 // ===================================================================
 exports.handleNewExceptionRequest = onDocumentCreated(
   'schedule_exceptions/{exceptionId}',
@@ -998,34 +998,56 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         return null
       }
 
-      // --- [安全修正 1] 日期守門員 ---
+      // ✨✨✨ START: [核心安全修正] 更嚴謹的日期守門員 ✨✨✨
       const today = new Date()
-      today.setHours(0, 0, 0, 0)
+      today.setHours(0, 0, 0, 0) // 設定為今天凌晨0點，以便比較
 
       const parseDateString = (dateStr) => {
         if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
-        return new Date(dateStr + 'T00:00:00Z')
+        return new Date(dateStr + 'T00:00:00Z') // 使用 Zulu time (UTC) 避免時區問題
       }
 
-      let relevantEndDateStr
-      if (exceptionData.type === 'MOVE' || exceptionData.type === 'ADD_SESSION') {
-        relevantEndDateStr = exceptionData.to?.goalDate
-      } else {
-        relevantEndDateStr = exceptionData.endDate || exceptionData.date
+      // 根據不同類型，找出這次申請「最早會影響的日期」
+      let relevantStartDateStr
+      switch (exceptionData.type) {
+        case 'MOVE':
+          // 對於 MOVE，來源日期和目標日期都不能在過去
+          const fromDate = parseDateString(exceptionData.from?.sourceDate)
+          const toDate = parseDateString(exceptionData.to?.goalDate)
+          if (fromDate < today || toDate < today) {
+            throw new Error('無法為過去的日期建立「調班」申請。')
+          }
+          // 如果日期合法，我們用 sourceDate 作為後續流程的基準（雖然這裡用不上）
+          relevantStartDateStr = exceptionData.from?.sourceDate
+          break
+        case 'ADD_SESSION':
+          relevantStartDateStr = exceptionData.to?.goalDate
+          break
+        case 'SWAP':
+          relevantStartDateStr = exceptionData.date
+          break
+        case 'SUSPEND':
+        case 'RANGE_MOVE':
+        default:
+          relevantStartDateStr = exceptionData.startDate
+          break
       }
 
-      if (!relevantEndDateStr) {
-        throw new Error('調班資料缺少必要的日期欄位 (endDate/goalDate/date)。')
+      if (!relevantStartDateStr) {
+        throw new Error('調班資料缺少必要的起始日期欄位 (startDate/sourceDate/goalDate/date)。')
       }
 
-      const relevantEndDate = parseDateString(relevantEndDateStr)
-      if (!relevantEndDate || isNaN(relevantEndDate.getTime())) {
-        throw new Error(`調班日期格式無效: ${relevantEndDateStr}`)
+      const relevantStartDate = parseDateString(relevantStartDateStr)
+      if (!relevantStartDate || isNaN(relevantStartDate.getTime())) {
+        throw new Error(`調班起始日期格式無效: ${relevantStartDateStr}`)
       }
 
-      if (relevantEndDate < today) {
-        throw new Error('無法申請或修改過去日期的調班。此申請將不會被執行。')
+      // 最終的核心檢查：如果最早影響日期在今天之前，則拒絕操作
+      if (relevantStartDate < today) {
+        // 提供一個更通用的錯誤訊息
+        throw new Error('無法為過去的日期建立或執行此調班申請。')
       }
+      // ✨✨✨ END: [核心安全修正] ✨✨✨
 
       await exceptionDoc.ref.update({
         status: 'processing',
@@ -1049,7 +1071,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         ) {
           throw new Error('MOVE 調班資料不完整：缺少來源或目標資訊')
         }
-
         await db.runTransaction(async (transaction) => {
           const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
           const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
@@ -1057,7 +1078,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             transaction.get(sourceScheduleRef),
             transaction.get(targetScheduleRef),
           ])
-
           if (sourceDoc.exists) {
             const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
             const sourceSchedule = sourceDoc.data().schedule || {}
@@ -1073,7 +1093,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
               logger.warn(`  └─ 警告：原位置 ${sourceKey} 的病人不是 ${patientName}，不執行移除。`)
             }
           }
-
           const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
           const newSlotData = {
             patientId: patientId,
@@ -1083,7 +1102,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             exceptionId: exceptionId,
             appliedAt: FieldValue.serverTimestamp(),
           }
-
           const targetSchedule = targetDoc.exists ? targetDoc.data().schedule || {} : {}
           if (targetSchedule[targetKey]) {
             const occupant = targetSchedule[targetKey]
@@ -1097,7 +1115,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             newSlotData.manualNote = `(換班-覆蓋)`
           }
           targetSchedule[targetKey] = newSlotData
-
           if (targetDoc.exists) {
             transaction.update(targetScheduleRef, {
               schedule: targetSchedule,
@@ -1113,7 +1130,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
               modifiedBy: 'exception_handler',
             })
           }
-
           logger.info(`  └─ 新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
           processedDates = [from.sourceDate, to.goalDate]
         })
@@ -1129,12 +1145,10 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         const end = new Date(endDate + 'T00:00:00Z')
         const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
         logger.info(`  └─ 暫停 ${patientName} 從 ${startDate} 到 ${endDate} (${days} 天)`)
-
         const BATCH_SIZE = 450
         let batch = db.batch()
         let operationCount = 0
         let removedCount = 0
-
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const dateStr = formatDateForQuery(new Date(d))
           processedDates.push(dateStr)
@@ -1184,10 +1198,8 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         const targetDate = to.goalDate
         const scheduleRef = db.collection('schedules').doc(targetDate)
         const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
-
         await db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
-
           const newSlotData = {
             patientId: patientId,
             patientName: patientName,
@@ -1196,8 +1208,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             exceptionId: exceptionId,
             appliedAt: FieldValue.serverTimestamp(),
           }
-
-          // ✨ [安全修正 2] 使用「讀取-修改-寫回」模式
           const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule || {} : {}
           if (scheduleData[targetKey]) {
             const occupant = scheduleData[targetKey]
@@ -1211,7 +1221,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             newSlotData.manualNote = `(臨時加洗-覆蓋)`
           }
           scheduleData[targetKey] = newSlotData
-
           if (scheduleDoc.exists) {
             transaction.update(scheduleRef, {
               schedule: scheduleData,
@@ -1250,11 +1259,9 @@ exports.handleNewExceptionRequest = onDocumentCreated(
             'SWAP 調班資料不完整：缺少日期或完整的 patient1/patient2 物件及其內部欄位',
           )
         }
-
         const scheduleRef = db.collection('schedules').doc(date)
         const key1 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
         const key2 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
-
         await db.runTransaction(async (transaction) => {
           const scheduleDoc = await transaction.get(scheduleRef)
           if (!scheduleDoc.exists) {
@@ -1344,147 +1351,97 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 )
 
 // ===================================================================
-// 處理調班刪除（恢復原始排程）(✨ 已加入日期驗證安全修正 ✨)
+// 處理調班刪除（✨ 採用「重新計算」模式的最終安全版 ✨）
 // ===================================================================
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [Reverter] 調班恢復處理器啟動: ${exceptionId}`)
+    logger.info(`🚀 [Reverter-V2] 調班恢復處理器(重新計算模式)啟動: ${exceptionId}`)
 
     if (!deletedException || !deletedException.type) {
-      logger.error(`❌ [Reverter] 失敗：被刪除的調班資料不完整，缺少 type。`, deletedException)
+      logger.error(`❌ [Reverter-V2] 失敗：被刪除的調班資料不完整，缺少 type。`, deletedException)
       return
     }
 
     try {
+      // --- 步驟 1: 找出所有受影響的日期 ---
+      const todayStr = formatDateForQuery(new Date())
+      const affectedDates = new Set()
+
+      // 根據不同類型，計算出所有可能受影響的日期
+      if (deletedException.from?.sourceDate) affectedDates.add(deletedException.from.sourceDate)
+      if (deletedException.to?.goalDate) affectedDates.add(deletedException.to.goalDate)
+      if (deletedException.date) affectedDates.add(deletedException.date)
+      if (deletedException.startDate && deletedException.endDate) {
+        const start = new Date(deletedException.startDate + 'T00:00:00Z')
+        const end = new Date(deletedException.endDate + 'T00:00:00Z')
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          affectedDates.add(formatDateForQuery(new Date(d)))
+        }
+      }
+
+      const futureAffectedDates = Array.from(affectedDates).filter((dateStr) => dateStr >= todayStr)
+
+      if (futureAffectedDates.length === 0) {
+        logger.warn(`[Reverter-V2] 該調班申請只影響過去的日期，無需執行恢復操作 for ${exceptionId}`)
+        return
+      }
+
+      logger.info(
+        `[Reverter-V2] 該申請影響未來的 ${futureAffectedDates.length} 個日期，開始重新計算...`,
+      )
+
+      // --- 步驟 2: 載入總表規則 ---
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       if (!masterScheduleDoc.exists) {
-        logger.error('❌ [Reverter] 嚴重錯誤：找不到總表規則，無法恢復排班。')
+        logger.error('❌ [Reverter-V2] 嚴重錯誤：找不到總表規則，無法恢復排班。')
         return
       }
       const masterRules = masterScheduleDoc.data().schedule || {}
 
-      let affectedOperations = []
+      // --- 步驟 3: 針對每一個受影響的未來日期，執行完整的重新計算 ---
+      const resyncPromises = futureAffectedDates.map(async (dateStr) => {
+        logger.info(`  └─ 正在重新計算日期: ${dateStr}`)
 
-      if (
-        deletedException.type === 'MOVE' ||
-        deletedException.type === 'SUSPEND' ||
-        deletedException.type === 'ADD_SESSION'
-      ) {
-        if (!deletedException.patientId) {
-          logger.error(`❌ [Reverter] ${deletedException.type} 類型缺少 patientId。`)
-          return
+        // 3.1 根據總表，生成當天的「乾淨」基礎排班
+        const targetDate = new Date(dateStr + 'T00:00:00Z')
+        const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+
+        // 3.2 建立一個只包含當天基礎排程的 Map，以符合 reapplyAllExceptionsInternal 的輸入格式
+        const singleDayBaseSchedule = new Map()
+        singleDayBaseSchedule.set(dateStr, dailySchedule)
+
+        // 3.3 呼叫強大的內部函式，它會自動抓取「所有」有效的調班，並套用到我們提供的基礎排程上
+        // 重要的！reapplyAllExceptionsInternal 現在不會包含剛剛被刪除的那一筆，所以結果是正確的
+        const result = await reapplyAllExceptionsInternal(singleDayBaseSchedule)
+
+        const finalScheduleForDay = result.schedulesToWrite.get(dateStr)
+
+        if (finalScheduleForDay) {
+          // 3.4 用全新計算出的結果，完全覆蓋當天的排班表
+          const scheduleRef = db.collection('schedules').doc(dateStr)
+          await scheduleRef.set(
+            {
+              date: dateStr,
+              schedule: finalScheduleForDay,
+              syncedAt: FieldValue.serverTimestamp(),
+              syncMethod: 'reverter_recalculation',
+            },
+            { merge: false },
+          ) // merge: false 確保是完全覆蓋
+          logger.info(`    └─ ✅ 日期 ${dateStr} 重新計算並覆蓋成功。`)
+        } else {
+          logger.warn(`    └─ ⚠️ 日期 ${dateStr} 重新計算後沒有產生排程資料。`)
         }
-        const dates = new Set()
-        if (deletedException.from?.sourceDate) dates.add(deletedException.from.sourceDate)
-        if (deletedException.to?.goalDate) dates.add(deletedException.to.goalDate)
-        if (deletedException.startDate && deletedException.endDate) {
-          const start = new Date(deletedException.startDate + 'T00:00:00Z')
-          const end = new Date(deletedException.endDate + 'T00:00:00Z')
-          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            dates.add(formatDateForQuery(new Date(d)))
-          }
-        }
-
-        for (const dateStr of dates) {
-          affectedOperations.push({ dateStr, patientIds: [deletedException.patientId] })
-        }
-      } else if (deletedException.type === 'SWAP') {
-        const { date, patient1, patient2 } = deletedException
-        if (!date || !patient1?.patientId || !patient2?.patientId) {
-          logger.error(`❌ [Reverter] SWAP 類型資料不完整。`, deletedException)
-          return
-        }
-        affectedOperations.push({
-          dateStr: date,
-          patientIds: [patient1.patientId, patient2.patientId],
-        })
-      }
-
-      if (affectedOperations.length === 0) {
-        logger.warn(`[Reverter] 未找到受影響的日期來恢復 for exception ${exceptionId}`)
-        return
-      }
-
-      // ✨✨✨ START: [核心安全修正] ✨✨✨
-      const todayStr = formatDateForQuery(new Date()) // 獲取今天的日期字串
-
-      const restorePromises = affectedOperations.map(({ dateStr, patientIds }) => {
-        // 在執行任何資料庫操作前，先檢查日期
-        if (dateStr < todayStr) {
-          logger.warn(`[Reverter] 跳過恢復操作：日期 ${dateStr} 已是過去式，不予修改。`)
-          // 返回一個 resolved 的 Promise 來跳過這個日期的處理
-          return Promise.resolve()
-        }
-        // ✨✨✨ END: [核心安全修正] ✨✨✨
-
-        const scheduleRef = db.collection('schedules').doc(dateStr)
-        return db.runTransaction(async (transaction) => {
-          const scheduleDoc = await transaction.get(scheduleRef)
-          if (!scheduleDoc.exists) return
-
-          const currentSchedule = scheduleDoc.data().schedule || {}
-          const updates = {
-            lastModified: FieldValue.serverTimestamp(),
-            modifiedBy: 'exception_reverter',
-          }
-
-          for (const patientId of patientIds) {
-            for (const key in currentSchedule) {
-              if (currentSchedule[key].patientId === patientId) {
-                updates[`schedule.${key}`] = FieldValue.delete()
-                logger.info(`  └─ 標記移除 ${dateStr} 的 ${patientId} (位於 ${key})`)
-              }
-            }
-
-            const patientRule = masterRules[patientId]
-            if (patientRule && patientRule.freq) {
-              const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
-              const targetDate = new Date(dateStr + 'T00:00:00Z')
-              const dayOfWeek = targetDate.getUTCDay()
-              const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-
-              if (freqDays.includes(systemDayIndex)) {
-                const { bedNum, shiftIndex, patientName, autoNote, manualNote } = patientRule
-                const shiftCode = SHIFTS[shiftIndex]
-                const scheduleKey = getScheduleKey(bedNum, shiftCode)
-
-                if (
-                  currentSchedule[scheduleKey] &&
-                  !patientIds.includes(currentSchedule[scheduleKey].patientId)
-                ) {
-                  logger.warn(
-                    `  └─ 恢復衝突：位置 ${scheduleKey} 在 ${dateStr} 已被佔用，無法為 ${patientId} 恢復原始排班。`,
-                  )
-                } else {
-                  updates[`schedule.${scheduleKey}`] = {
-                    patientId: patientId,
-                    patientName: patientName || '',
-                    shiftId: shiftCode,
-                    autoNote: autoNote || '',
-                    manualNote: manualNote || '',
-                    baseRuleId: patientId,
-                  }
-                  logger.info(`  └─ 標記恢復 ${dateStr} 的 ${patientId} 至 ${scheduleKey}`)
-                }
-              }
-            }
-          }
-
-          if (Object.keys(updates).length > 1) {
-            transaction.update(scheduleRef, updates)
-          }
-        })
       })
 
-      await Promise.all(restorePromises)
-      logger.info(
-        `✅ [Reverter] 成功處理 ${affectedOperations.length} 個日期的恢復操作 (已跳過過去日期)`,
-      )
+      await Promise.all(resyncPromises)
+
+      logger.info(`✅ [Reverter-V2] 成功完成對 ${futureAffectedDates.length} 個日期的排班恢復。`)
     } catch (error) {
-      logger.error(`❌ [Reverter] 恢復調班 ${exceptionId} 時發生錯誤:`, error)
+      logger.error(`❌ [Reverter-V2] 恢復調班 ${exceptionId} 時發生嚴重錯誤:`, error)
     }
   },
 )
