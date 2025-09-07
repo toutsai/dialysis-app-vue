@@ -1,11 +1,7 @@
-<!-- 檔案路徑: src/components/DialysisOrderModal.vue (優化版) -->
+<!-- 檔案路徑: src/components/DialysisOrderModal.vue (✨ 最終功能增強版 ✨) -->
 <script setup>
 import { ref, reactive, watch, computed } from 'vue'
 import { where, orderBy, limit } from 'firebase/firestore'
-// ❌ 移除舊的 ApiManager 導入
-// import ApiManager from '@/services/api_manager.js'
-
-// ✅ 導入優化後的函式
 import {
   fetchDialysisOrderHistory as optimizedFetchDialysisOrderHistory,
   deleteDialysisOrderHistory as optimizedDeleteDialysisOrderHistory,
@@ -20,16 +16,14 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['close', 'save', 'delete-order'])
-
-// ❌ 移除舊的 API 管理器實例
-// const ordersHistoryApi = ApiManager('dialysis_orders_history')
+const emit = defineEmits(['close', 'save'])
 
 const orderHistory = ref([])
 const isLoadingHistory = ref(false)
 const isConfirmDeleteVisible = ref(false)
 const orderToDelete = ref(null)
 
+// ✅ 選項列表
 const akOptions = [
   '13M',
   '15S',
@@ -40,10 +34,13 @@ const akOptions = [
   'Pro-19H',
   '21S',
   'Hi23',
-  '25S',
+  '25H',
   'CTA2000',
 ]
 const caOptions = ['2.5', '3.0', '3.5']
+// ✨ 新增：血管通路和穿刺針選項
+const vascAccessOptions = ['D/L', 'Perm', 'AVF', 'AVG']
+const needleSizeOptions = ['15G', '16G', '17G']
 
 const localOrderData = reactive({
   ak: '',
@@ -53,16 +50,22 @@ const localOrderData = reactive({
   bloodFlow: '',
   dryWeight: '',
   effectiveDate: '',
+  // ✨ 新增：表單資料欄位
+  vascAccess: '',
+  arterialNeedle: '',
+  venousNeedle: '',
 })
 
-// ✨ 核心修正點 2：建立一個安全的日期轉換函式 ✨
+// ✨ 新增：計算屬性，判斷是否需要顯示穿刺針選項
+const shouldShowNeedleSize = computed(() => {
+  return localOrderData.vascAccess === 'AVF' || localOrderData.vascAccess === 'AVG'
+})
+
 const getDate = (dateValue) => {
   if (!dateValue) return null
-  // 判斷是否為 Firestore Timestamp 物件，若是則轉換
   if (typeof dateValue.toDate === 'function') {
     return dateValue.toDate()
   }
-  // 否則當作一般日期字串或 Date 物件處理
   const date = new Date(dateValue)
   return isNaN(date.getTime()) ? null : date
 }
@@ -72,55 +75,40 @@ const todayStr = computed(() => new Date().toISOString().slice(0, 10))
 const activeOrder = computed(() => {
   const effectiveOrders = orderHistory.value
     .filter((o) => o.orders.effectiveDate <= todayStr.value)
-    // 使用安全的 getDate 函式進行排序
     .sort((a, b) => getDate(b.updatedAt) - getDate(a.updatedAt))
   return effectiveOrders.length > 0 ? effectiveOrders[0] : null
 })
 
 const pendingOrders = computed(() => {
-  return (
-    orderHistory.value
-      .filter((o) => o.orders.effectiveDate > todayStr.value)
-      // 使用安全的 getDate 函式進行排序
-      .sort((a, b) => getDate(a.orders.effectiveDate) - getDate(b.orders.effectiveDate))
-  )
+  return orderHistory.value
+    .filter((o) => o.orders.effectiveDate > todayStr.value)
+    .sort((a, b) => getDate(a.orders.effectiveDate) - getDate(b.orders.effectiveDate))
 })
 
 const archivedOrders = computed(() => {
   const activeId = activeOrder.value ? activeOrder.value.id : null
   const pendingIds = new Set(pendingOrders.value.map((p) => p.id))
 
-  return (
-    orderHistory.value
-      .filter((o) => o.id !== activeId && !pendingIds.has(o.id))
-      // 使用安全的 getDate 函式進行排序
-      .sort((a, b) => getDate(b.updatedAt) - getDate(a.updatedAt))
-  )
+  return orderHistory.value
+    .filter((o) => o.id !== activeId && !pendingIds.has(o.id))
+    .sort((a, b) => getDate(b.updatedAt) - getDate(a.updatedAt))
 })
 
-// ✅ 使用優化的 API 載入醫囑歷史
 async function fetchOrderHistory(patientId) {
   if (!patientId) return
   isLoadingHistory.value = true
   orderHistory.value = []
 
   try {
-    console.log('🔄 [DialysisOrderModal] 載入患者醫囑歷史...', patientId)
-
     const queryConstraints = [
       where('patientId', '==', patientId),
       orderBy('updatedAt', 'desc'),
       limit(20),
     ]
-
-    // ✅ 使用優化函式
     const historyData = await optimizedFetchDialysisOrderHistory(queryConstraints)
     orderHistory.value = historyData
-
-    console.log(`✅ [DialysisOrderModal] 醫囑歷史載入完成，共 ${historyData.length} 筆記錄`)
   } catch (error) {
     console.error('❌ [DialysisOrderModal] 讀取醫囑歷史失敗:', error)
-    // 顯示友善的錯誤訊息
     alert(`載入醫囑歷史失敗：${error.message}`)
   } finally {
     isLoadingHistory.value = false
@@ -139,10 +127,25 @@ watch(
       localOrderData.bloodFlow = orders.bloodFlow || ''
       localOrderData.dryWeight = orders.dryWeight || ''
       localOrderData.effectiveDate = orders.effectiveDate || new Date().toISOString().slice(0, 10)
+      // ✨ 新增：初始化新欄位的資料
+      localOrderData.vascAccess = orders.vascAccess || ''
+      localOrderData.arterialNeedle = orders.arterialNeedle || ''
+      localOrderData.venousNeedle = orders.venousNeedle || ''
 
       fetchOrderHistory(props.patientData.id)
     } else {
       orderHistory.value = []
+    }
+  },
+)
+
+// ✨ 新增：當血管通路改變時，如果不是 AVF/AVG，就清空穿刺針大小
+watch(
+  () => localOrderData.vascAccess,
+  (newValue) => {
+    if (newValue !== 'AVF' && newValue !== 'AVG') {
+      localOrderData.arterialNeedle = ''
+      localOrderData.venousNeedle = ''
     }
   },
 )
@@ -161,13 +164,10 @@ function requestDeleteOrder(record) {
     alert('錯誤：無法識別要刪除的記錄')
     return
   }
-
-  console.log('🗑️ [DialysisOrderModal] 準備刪除醫囑歷史:', record.id)
   orderToDelete.value = record
   isConfirmDeleteVisible.value = true
 }
 
-// ✅ 修正的刪除函式，加強錯誤處理
 async function confirmDelete() {
   if (!orderToDelete.value || !orderToDelete.value.id) {
     console.error('❌ [DialysisOrderModal] 刪除操作：缺少有效的記錄ID')
@@ -179,41 +179,12 @@ async function confirmDelete() {
   const patientName = orderToDelete.value.patientName || '未知患者'
 
   try {
-    console.log('🗑️ [DialysisOrderModal] 開始刪除醫囑歷史...', recordId)
-
-    // ✅ 使用優化的刪除函式
     await optimizedDeleteDialysisOrderHistory(recordId)
-
-    // 從本地陣列中移除已刪除的記錄
     orderHistory.value = orderHistory.value.filter((item) => item.id !== recordId)
-
-    console.log('✅ [DialysisOrderModal] 醫囑歷史刪除成功')
     alert(`成功刪除 ${patientName} 的醫囑歷史記錄`)
   } catch (error) {
     console.error('❌ [DialysisOrderModal] 刪除醫囑歷史失敗:', error)
-
-    // 根據錯誤類型顯示不同的訊息
-    let errorMessage = '刪除失敗'
-
-    if (error.message.includes('權限不足')) {
-      errorMessage = '權限不足：您沒有權限刪除此記錄'
-    } else if (error.message.includes('記錄不存在')) {
-      errorMessage = '記錄不存在：此記錄可能已被其他人刪除'
-    } else if (error.message.includes('網路')) {
-      errorMessage = '網路錯誤：請檢查網路連線後重試'
-    } else {
-      errorMessage = `刪除失敗：${error.message}`
-    }
-
-    alert(errorMessage)
-
-    // 如果是權限問題，重新載入歷史以確保資料同步
-    if (error.message.includes('權限') || error.message.includes('記錄不存在')) {
-      console.log('🔄 [DialysisOrderModal] 重新載入醫囑歷史以同步資料...')
-      if (props.patientData?.id) {
-        fetchOrderHistory(props.patientData.id)
-      }
-    }
+    alert(`刪除失敗：${error.message}`)
   } finally {
     isConfirmDeleteVisible.value = false
     orderToDelete.value = null
@@ -222,7 +193,7 @@ async function confirmDelete() {
 
 function formatDate(isoString) {
   if (!isoString) return 'N/A'
-  const date = getDate(isoString) // 直接使用我們新的輔助函式
+  const date = getDate(isoString)
   if (!date) return 'N/A'
   return date.toISOString().slice(0, 10)
 }
@@ -233,7 +204,6 @@ function getComparisonClass(currentValue, previousValue) {
 }
 </script>
 
-<!-- Template and Style sections remain unchanged -->
 <template>
   <div>
     <div v-if="isVisible" class="dialog-overlay" @click.self="handleClose">
@@ -250,6 +220,40 @@ function getComparisonClass(currentValue, previousValue) {
                 <label for="effectiveDate">醫囑生效日期</label>
                 <input id="effectiveDate" v-model="localOrderData.effectiveDate" type="date" />
               </div>
+
+              <!-- ✨ 新增：血管通路和穿刺針表單欄位 -->
+              <div class="form-group">
+                <label for="vascAccess">血管通路</label>
+                <select id="vascAccess" v-model="localOrderData.vascAccess">
+                  <option disabled value="">請選擇...</option>
+                  <option v-for="option in vascAccessOptions" :key="option" :value="option">
+                    {{ option }}
+                  </option>
+                </select>
+              </div>
+
+              <div v-if="shouldShowNeedleSize" class="form-group needle-group">
+                <div class="sub-group">
+                  <label for="arterialNeedle">動脈穿刺針</label>
+                  <select id="arterialNeedle" v-model="localOrderData.arterialNeedle">
+                    <option disabled value="">大小...</option>
+                    <option v-for="size in needleSizeOptions" :key="`a-${size}`" :value="size">
+                      {{ size }}
+                    </option>
+                  </select>
+                </div>
+                <div class="sub-group">
+                  <label for="venousNeedle">靜脈穿刺針</label>
+                  <select id="venousNeedle" v-model="localOrderData.venousNeedle">
+                    <option disabled value="">大小...</option>
+                    <option v-for="size in needleSizeOptions" :key="`v-${size}`" :value="size">
+                      {{ size }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <!-- ✨ 新增結束 -->
+
               <div class="form-group">
                 <label for="ak">人工腎臟 (AK)</label>
                 <select id="ak" v-model="localOrderData.ak">
@@ -319,7 +323,9 @@ function getComparisonClass(currentValue, previousValue) {
                   <th class="col-action">操作</th>
                   <th>狀態</th>
                   <th>修改日期</th>
-                  <th>生效日期</th>
+                  <th>生效日</th>
+                  <!-- ✨ 新增：歷史表格欄位 -->
+                  <th>通路/穿刺針</th>
                   <th>DW</th>
                   <th>BF</th>
                   <th>AK</th>
@@ -340,64 +346,23 @@ function getComparisonClass(currentValue, previousValue) {
                   </td>
                   <td><span class="status-tag active">最新</span></td>
                   <td>{{ formatDate(activeOrder.updatedAt) }}</td>
-                  <td
-                    :class="
-                      getComparisonClass(
-                        activeOrder.orders.effectiveDate,
-                        (archivedOrders[0] || pendingOrders[0])?.orders.effectiveDate,
-                      )
-                    "
-                  >
-                    {{ formatDate(activeOrder.orders.effectiveDate) }}
+                  <td>{{ formatDate(activeOrder.orders.effectiveDate) }}</td>
+                  <!-- ✨ 新增：歷史表格資料 -->
+                  <td>
+                    {{ activeOrder.orders.vascAccess || '–' }}
+                    <span
+                      v-if="activeOrder.orders.arterialNeedle || activeOrder.orders.venousNeedle"
+                    >
+                      ({{ activeOrder.orders.arterialNeedle || 'N/A' }}/{{
+                        activeOrder.orders.venousNeedle || 'N/A'
+                      }})
+                    </span>
                   </td>
-                  <td
-                    :class="
-                      getComparisonClass(
-                        activeOrder.orders.dryWeight,
-                        (archivedOrders[0] || pendingOrders[0])?.orders.dryWeight,
-                      )
-                    "
-                  >
-                    {{ activeOrder.orders.dryWeight ?? '–' }}
-                  </td>
-                  <td
-                    :class="
-                      getComparisonClass(
-                        activeOrder.orders.bloodFlow,
-                        (archivedOrders[0] || pendingOrders[0])?.orders.bloodFlow,
-                      )
-                    "
-                  >
-                    {{ activeOrder.orders.bloodFlow ?? '–' }}
-                  </td>
-                  <td
-                    :class="
-                      getComparisonClass(
-                        activeOrder.orders.ak,
-                        (archivedOrders[0] || pendingOrders[0])?.orders.ak,
-                      )
-                    "
-                  >
-                    {{ activeOrder.orders.ak || '–' }}
-                  </td>
-                  <td
-                    :class="
-                      getComparisonClass(
-                        activeOrder.orders.dialysateCa,
-                        (archivedOrders[0] || pendingOrders[0])?.orders.dialysateCa,
-                      )
-                    "
-                  >
-                    {{ activeOrder.orders.dialysateCa || '–' }}
-                  </td>
-                  <td
-                    :class="
-                      getComparisonClass(
-                        `${activeOrder.orders.heparinInitial ?? ''}/${activeOrder.orders.heparinMaintenance ?? ''}`,
-                        `${(archivedOrders[0] || pendingOrders[0])?.orders.heparinInitial ?? ''}/${(archivedOrders[0] || pendingOrders[0])?.orders.heparinMaintenance ?? ''}`,
-                      )
-                    "
-                  >
+                  <td>{{ activeOrder.orders.dryWeight ?? '–' }}</td>
+                  <td>{{ activeOrder.orders.bloodFlow ?? '–' }}</td>
+                  <td>{{ activeOrder.orders.ak || '–' }}</td>
+                  <td>{{ activeOrder.orders.dialysateCa || '–' }}</td>
+                  <td>
                     {{ activeOrder.orders.heparinInitial ?? '–' }}/{{
                       activeOrder.orders.heparinMaintenance ?? '–'
                     }}
@@ -405,7 +370,7 @@ function getComparisonClass(currentValue, previousValue) {
                 </tr>
 
                 <tr
-                  v-for="(record, index) in pendingOrders"
+                  v-for="record in pendingOrders"
                   :key="`pending-${record.id}`"
                   class="pending-order"
                 >
@@ -421,6 +386,15 @@ function getComparisonClass(currentValue, previousValue) {
                   <td><span class="status-tag pending">未生效</span></td>
                   <td>{{ formatDate(record.updatedAt) }}</td>
                   <td>{{ formatDate(record.orders.effectiveDate) }}</td>
+                  <!-- ✨ 新增：歷史表格資料 -->
+                  <td>
+                    {{ record.orders.vascAccess || '–' }}
+                    <span v-if="record.orders.arterialNeedle || record.orders.venousNeedle">
+                      ({{ record.orders.arterialNeedle || 'N/A' }}/{{
+                        record.orders.venousNeedle || 'N/A'
+                      }})
+                    </span>
+                  </td>
                   <td>{{ record.orders.dryWeight ?? '–' }}</td>
                   <td>{{ record.orders.bloodFlow ?? '–' }}</td>
                   <td>{{ record.orders.ak || '–' }}</td>
@@ -445,6 +419,15 @@ function getComparisonClass(currentValue, previousValue) {
                   <td><span class="status-tag history">歷史</span></td>
                   <td>{{ formatDate(record.updatedAt) }}</td>
                   <td>{{ formatDate(record.orders.effectiveDate) }}</td>
+                  <!-- ✨ 新增：歷史表格資料 -->
+                  <td>
+                    {{ record.orders.vascAccess || '–' }}
+                    <span v-if="record.orders.arterialNeedle || record.orders.venousNeedle">
+                      ({{ record.orders.arterialNeedle || 'N/A' }}/{{
+                        record.orders.venousNeedle || 'N/A'
+                      }})
+                    </span>
+                  </td>
                   <td>{{ record.orders.dryWeight ?? '–' }}</td>
                   <td>{{ record.orders.bloodFlow ?? '–' }}</td>
                   <td>{{ record.orders.ak || '–' }}</td>
@@ -550,7 +533,8 @@ function getComparisonClass(currentValue, previousValue) {
 }
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* ✨ 修改：增加一欄以容納新欄位 */
+  grid-template-columns: repeat(3, 1fr);
   gap: 1rem;
 }
 .form-group {
@@ -560,6 +544,23 @@ function getComparisonClass(currentValue, previousValue) {
 .form-group.full-width {
   grid-column: 1 / -1;
 }
+
+/* ✨ 新增：穿刺針群組樣式 */
+.form-group.needle-group {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  grid-column: span 2; /* 讓這個群組佔據兩欄空間 */
+}
+.needle-group .sub-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.needle-group .sub-group label {
+  white-space: nowrap;
+}
+
 .form-group label {
   margin-bottom: 0.5rem;
   font-weight: bold;
@@ -718,13 +719,18 @@ tr.pending-order td:nth-child(2) {
     gap: 0.75rem;
   }
 
+  /* ✨ 新增：在行動版上，讓穿刺針群組佔滿整行 */
+  .form-group.needle-group {
+    grid-column: 1 / -1;
+  }
+
   /* 歷史表格啟用水平滾動 */
   .history-table-wrapper {
     overflow-x: auto;
   }
 
   .history-table-wrapper table {
-    min-width: 700px; /* 給表格一個最小寬度，防止內容擠壓 */
+    min-width: 800px; /* ✨ 增加最小寬度以容納新欄位 */
   }
 
   .history-table-wrapper th,
