@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/LogView.vue (✨ 護病比功能增強版 ✨) -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -23,7 +24,6 @@
           <button @click="changeDate(1)">下一日 ❯</button>
           <button @click="goToToday">今日</button>
         </div>
-        <!-- ✨ [核心修改] 交換按鈕位置並上色 ✨ -->
         <button
           class="btn btn-handover"
           @click="isHandoverDialogVisible = true"
@@ -192,6 +192,14 @@
                 (dailyLog.stats.staffing.late || 0)
               }}
             </div>
+
+            <!-- ✨ [核心新增] 新增護病比的顯示列 ✨ -->
+            <div class="cell-item">護病比</div>
+            <div class="cell-category">總人次 / 護理人力</div>
+            <div class="cell-data">{{ nursePatientRatios.early }}</div>
+            <div class="cell-data">{{ nursePatientRatios.noon }}</div>
+            <div class="cell-data">{{ nursePatientRatios.late }}</div>
+            <div class="cell-total">{{ nursePatientRatios.total }}</div>
           </div>
         </section>
 
@@ -361,7 +369,6 @@
         <section class="log-section">
           <h2>其他事項</h2>
           <div class="autoresize-textarea-wrapper">
-            <!-- ✨ [核心修改] 將 v-model 綁定到 otherNotes，並更新 ref 名稱 ✨ -->
             <textarea
               v-model="dailyLog.otherNotes"
               ref="otherNotesTextarea"
@@ -370,6 +377,7 @@
               placeholder="請輸入其他事項..."
               @input="handleTextareaInput"
             ></textarea>
+            <div class="notes-display-for-pdf">{{ dailyLog.otherNotes }}</div>
           </div>
         </section>
 
@@ -659,7 +667,6 @@
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
-    <!-- ✨ [新增] 將新元件加到頁面中 ✨ -->
     <HandoverNotesDialog
       :is-visible="isHandoverDialogVisible"
       :initial-notes="handoverNotes"
@@ -697,7 +704,7 @@ const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
 const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
-const otherNotesTextarea = ref(null) // 對應「其他事項」
+const otherNotesTextarea = ref(null)
 const isWardDialogVisible = ref(false)
 const currentEditingMovementIndex = ref(-1)
 const isConfirmDialogVisible = ref(false)
@@ -709,7 +716,7 @@ const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 const currentSchedule = ref({})
 const isHandoverDialogVisible = ref(false)
-const handoverNotes = ref('') // 對應「組長交班」
+const handoverNotes = ref('')
 
 const initialLogState = () => ({
   id: null,
@@ -734,8 +741,8 @@ const initialLogState = () => ({
   },
   patientMovements: [],
   vascularAccessLog: [],
-  handoverNotes: '', // 組長交班
-  otherNotes: '', // 其他事項
+  handoverNotes: '',
+  otherNotes: '',
   leader: {
     early: { userId: null, name: null, signedAt: null },
     noon: { userId: null, name: null, signedAt: null },
@@ -777,7 +784,7 @@ const statusText = computed(() => {
 })
 
 const totalPatients = computed(() => {
-  const shifts = [SHIFT_CODES.EARLY, SHIFT_CODES.NOON, SHIFT_CODES.LATE]
+  const shifts = ['early', 'noon', 'late']
   const totals = { early: 0, noon: 0, late: 0 }
   shifts.forEach((shift) => {
     totals[shift] =
@@ -785,6 +792,33 @@ const totalPatients = computed(() => {
       (dailyLog.stats.peripheral_beds[shift]?.total || 0)
   })
   return totals
+})
+
+// ✨ [核心新增] 新增計算護病比的 computed 屬性 ✨
+const nursePatientRatios = computed(() => {
+  const calculateRatio = (patients, staff) => {
+    // 如果護理人力為 0 或不存在(null)，返回 'N/A'
+    if (!staff || staff === 0) {
+      return 'N/A'
+    }
+    // 計算比例並格式化到小數點後兩位
+    return (patients / staff).toFixed(2)
+  }
+
+  const totalStaff =
+    (dailyLog.stats.staffing.early || 0) +
+    (dailyLog.stats.staffing.noon || 0) +
+    (dailyLog.stats.staffing.late || 0)
+
+  const totalPatientCount =
+    totalPatients.value.early + totalPatients.value.noon + totalPatients.value.late
+
+  return {
+    early: calculateRatio(totalPatients.value.early, dailyLog.stats.staffing.early),
+    noon: calculateRatio(totalPatients.value.noon, dailyLog.stats.staffing.noon),
+    late: calculateRatio(totalPatients.value.late, dailyLog.stats.staffing.late),
+    total: calculateRatio(totalPatientCount, totalStaff),
+  }
 })
 
 function formatDate(date) {
@@ -823,7 +857,6 @@ async function saveLog(successMessage = '日誌已儲存！') {
   }
 }
 
-// ✨ [核心修正] 徹底修改資料載入邏輯 ✨
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
@@ -852,22 +885,13 @@ async function loadDailyLog(dateStr) {
       ])
 
     if (logResult) {
-      // 如果今天已有日誌
       const mergedLog = { ...initialLogState(), ...logResult }
-
-      // *** 向下相容邏輯 ***
-      // 如果舊資料中 handoverNotes 存在，但 otherNotes 不存在，
-      // 則將 handoverNotes 的內容視為「其他事項」
       if (mergedLog.handoverNotes && !mergedLog.otherNotes) {
         mergedLog.otherNotes = mergedLog.handoverNotes
-        // 如果此時 handoverNotes 也是我們新增的功能，則將其保留，否則清空
-        // 在這個場景下，我們假設舊資料的 handoverNotes 都是其他事項，所以不清空
       }
-
       Object.assign(dailyLog, mergedLog)
-      handoverNotes.value = mergedLog.handoverNotes || '' // 載入組長交班
+      handoverNotes.value = mergedLog.handoverNotes || ''
     } else {
-      // 如果今天是新日誌
       let inheritedHandoverNotes = ''
       if (yesterdayLogResult?.handoverNotes) {
         inheritedHandoverNotes = yesterdayLogResult.handoverNotes
@@ -876,8 +900,6 @@ async function loadDailyLog(dateStr) {
       }
       handoverNotes.value = inheritedHandoverNotes
       dailyLog.handoverNotes = inheritedHandoverNotes
-
-      // 對於 otherNotes，我們不需要繼承，保持為空
       dailyLog.otherNotes = ''
     }
 
@@ -1277,7 +1299,7 @@ async function exportToPDF() {
   }
 }
 
-function handleSaveHandoverNotes(newNotes) {
+function onNotesUpdated(newNotes) {
   handoverNotes.value = newNotes
   dailyLog.handoverNotes = newNotes
   hasUnsavedChanges.value = true
@@ -1305,7 +1327,6 @@ watch(
 </script>
 
 <style scoped>
-/* ✨ [Style 修改] 引入 Font Awesome 和新增按鈕樣式 ✨ */
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
 
 .btn-handover {
@@ -1450,7 +1471,6 @@ h1 {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
-/* ✨ [Style 修改] 新增同步按鈕和 section-header 樣式 ✨ */
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -1506,7 +1526,6 @@ h1 {
   border-radius: 8px;
   overflow: hidden;
 }
-/* ... (其餘所有樣式保持不變) ... */
 .stats-grid > div {
   padding: 0.75rem;
   border-bottom: 1px solid #e9ecef;
@@ -1870,6 +1889,25 @@ h1 {
     transform: rotate(360deg);
   }
 }
+
+.notes-display-for-pdf {
+  display: none;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  padding: 1rem;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  min-height: 50px;
+  word-break: break-word;
+}
+.pdf-export-mode .handover-textarea {
+  display: none;
+}
+.pdf-export-mode .notes-display-for-pdf {
+  display: block;
+}
 .pdf-export-mode .log-page-header {
   padding-bottom: 0.5rem;
   margin-bottom: 1rem;
@@ -1913,11 +1951,6 @@ h1 {
   box-shadow: none;
   border-width: 1px;
 }
-/* ================================== */
-/*     ✨ 響應式與行動版樣式 ✨       */
-/* ================================== */
-
-/* 預設隱藏行動版 */
 .mobile-only {
   display: none;
 }
@@ -1926,8 +1959,6 @@ h1 {
   flex-direction: column;
   gap: 2rem;
 }
-
-/* 當螢幕寬度小於 992px 時，切換顯示 */
 @media (max-width: 992px) {
   .desktop-only {
     display: none !important;
