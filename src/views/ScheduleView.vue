@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/ScheduleView.vue -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">

@@ -1,29 +1,19 @@
-<!-- 檔案路徑: src/views/StatsView.vue (✨ 「未分組」功能 & 午班收針伸縮/樣式修正版 ✨) -->
+<!-- 檔案路徑: src/views/StatsView.vue (✨ 最終佈局修正版 ✨) -->
 <template>
   <div class="page-container">
     <!-- 1. 固定的頂部，此區塊不滾動 -->
     <div class="page-header-content">
+      <!-- 頂部主要工具列 -->
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">護理分組檢視</h1>
-
-          <!-- Group 1: 只保留純粹的日期導覽功能 -->
           <div class="date-navigator">
-            <!-- 上一天 按鈕 -->
             <button @click="changeDate(-1)">&lt; 上一天</button>
-
-            <!-- 日期和星期的包裹層 -->
-            <div class="date-text-wrapper">
-              <span class="current-date-text">{{ formatDate(currentDate) }}</span>
-              <span class="weekday-display">{{ weekdayDisplay }}</span>
-            </div>
-
-            <!-- 下一天 按鈕 -->
+            <span class="current-date-text">{{ formatDate(currentDate) }}</span>
+            <span class="weekday-display">{{ weekdayDisplay }}</span>
             <button @click="changeDate(1)">下一天 &gt;</button>
           </div>
           <button @click="goToToday">回到今日</button>
-
-          <!-- Group 2: 將操作按鈕移出來，作為 toolbar-left 的直接子元素 -->
           <button
             class="btn-primary"
             @click="isCreateTaskModalVisible = true"
@@ -31,7 +21,6 @@
           >
             <i class="fas fa-plus"></i> 新增交辦/留言
           </button>
-
           <button
             v-if="!lateShiftTakeOffExists"
             @click="promptDuplicateLateShift"
@@ -57,8 +46,10 @@
         </div>
       </div>
 
-      <!-- 此區塊在行動版上會被 CSS 隱藏 -->
-      <div class="daily-info-bar desktop-only">
+      <!-- ✨ [這是最重要的修改！] ✨ -->
+      <!-- 我們用下面這個 info-row-wrapper，把「醫師」和「消防」包在一起，才能讓它們並排 -->
+      <div class="info-row-wrapper desktop-only">
+        <!-- (左側) 醫師資訊區塊 -->
         <div class="daily-staff-panel horizontal">
           <div class="staff-item shift-early">
             <span class="staff-label">早</span>
@@ -95,6 +86,7 @@
             </div>
           </div>
         </div>
+        <!-- (右側) 消防編組區塊 -->
         <div class="duty-command-bar">
           <div class="main-commanders">
             <span class="duty-title">消防編組:</span>
@@ -648,7 +640,6 @@
               <h3>
                 {{ teamName.includes('未分組') ? '未分組' : teamName.replace('早', '') + '組' }}
               </h3>
-              <!-- ✨ 修正 2: 為行動版的下拉選單添加 'disabled' 屬性 -->
               <select
                 v-if="!teamName.includes('未分組')"
                 :value="effectiveStatsData.early[teamName]?.nurseName"
@@ -780,7 +771,6 @@
               <h3>
                 {{ teamName.includes('未分組') ? '未分組' : teamName.replace('晚', '') + '組' }}
               </h3>
-              <!-- ✨ 修正 2: 為行動版的下拉選單添加 'disabled' 屬性 -->
               <select
                 v-if="!teamName.includes('未分組')"
                 :value="effectiveStatsData.late[teamName]?.nurseName"
@@ -883,7 +873,6 @@
                   teamName.includes('未分組') ? '未分組' : teamName.replace('夜間收針', '') + '組'
                 }}
               </h3>
-              <!-- ✨ 修正 2: 為行動版的下拉選單添加 'disabled' 屬性 -->
               <select
                 v-if="!teamName.includes('未分組')"
                 :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
@@ -1020,21 +1009,18 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
-import * as XLSX from 'xlsx' // ✨ 【新增】引入 XLSX 套件
+import * as XLSX from 'xlsx'
 
-// --- Store & Hook Instantiation ---
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
 
-// --- API Managers ---
 const schedulesApi = ApiManager('schedules')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 const usersApi = ApiManager('users')
 
-// --- Constants ---
 const nurseNameList = [
   '陳素秋',
   '古孟麗',
@@ -1064,10 +1050,8 @@ const nurseNameList = [
   '林芳羽',
   '蔡靜怡',
 ]
-
 const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
 const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
-
 const earlyTeams = earlyBaseTeams.map((t) => `早${t}`)
 const lateTeams = lateBaseTeams.map((t) => `晚${t}`)
 const dutyAssignments = {
@@ -1091,7 +1075,6 @@ const dutyAssignments = {
   },
 }
 
-// --- Reactive State ---
 const isFireDutyDropdownVisible = ref(false)
 const currentDate = ref(new Date())
 const statusIndicator = ref('')
@@ -1123,7 +1106,6 @@ const noonTakeoffVisibility = ref({ early: false, late: false })
 
 provide('viewingDate', currentDate)
 
-// --- Computed Properties ---
 const hasUnsavedChanges = computed(
   () => hasUnsavedScheduleChanges.value || hasUnsavedTeamChanges.value,
 )
@@ -1143,7 +1125,6 @@ const lateShiftTakeOffExists = computed(() =>
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
   ),
 )
-
 const sortedEarlyTeams = computed(() => {
   if (!effectiveStatsData.value || !effectiveStatsData.value.early) return []
   const teams = Object.keys(effectiveStatsData.value.early)
@@ -1177,7 +1158,6 @@ const sortedLateTakeOffTeams = computed(() => {
     return a.localeCompare(b)
   })
 })
-
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
     const stats = {}
@@ -1201,28 +1181,21 @@ const effectiveStatsData = computed(() => {
     })
     return stats
   }
-
   const lateTakeOffTeams = lateBaseTeams.map((t) => `夜間收針${t}`)
   const earlyShiftStats = createTeamStats(earlyTeams, 'early')
   const lateShiftStats = createTeamStats(lateTeams, 'late')
   const lateTakeOffStats = createTeamStats(lateTakeOffTeams, 'lateTakeOff')
-
   if (!currentRecord.schedule || patientMap.value.size === 0) {
     return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
   }
-
   const messagesMap = taskStore.getPatientMessageTypesMapForDate(currentDate.value)
-
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
-
     const patient = patientMap.value.get(shiftDetails.patientId)
     if (!patient) continue
-
     const messageTypesForPatient = messagesMap.get(patient.id) || []
     const cellStyles = getUnifiedCellStyle(shiftDetails, patient, null, messageTypesForPatient)
-
     const {
       patientId,
       autoNote,
@@ -1232,12 +1205,11 @@ const effectiveStatsData = computed(() => {
       nurseTeamOut,
       nurseTeamTakeOff,
     } = shiftDetails || {}
-
     const detail = {
       id: patientId,
       shiftId,
       name: patient.name,
-      medicalRecordNumber: patient.medicalRecordNumber, // ✨ 【新增】將病歷號加入
+      medicalRecordNumber: patient.medicalRecordNumber,
       status: patient.status,
       mode: patient.mode,
       wardNumber: patient.wardNumber || '',
@@ -1253,7 +1225,6 @@ const effectiveStatsData = computed(() => {
           .join(' '),
       dialysisOrders: patient.dialysisOrders || {},
     }
-
     const assignAndCount = (group, pDetail) => {
       if (!group) return
       group.patients.push(pDetail)
@@ -1261,9 +1232,7 @@ const effectiveStatsData = computed(() => {
       else if (pDetail.status === 'er') group.erCount++
       else group.opdCount++
     }
-
     const shiftCode = shiftId.split('-')[2]
-
     if (shiftCode === SHIFT_CODES.EARLY) {
       const targetTeam = nurseTeam || '早未分組'
       if (earlyShiftStats[targetTeam]) {
@@ -1283,7 +1252,6 @@ const effectiveStatsData = computed(() => {
       if (earlyShiftStats[targetInTeam]) {
         assignAndCount(earlyShiftStats[targetInTeam].noonShiftOn, detail)
       }
-
       const targetOutTeam = nurseTeamOut
       if (targetOutTeam) {
         if (lateShiftStats[targetOutTeam])
@@ -1297,11 +1265,9 @@ const effectiveStatsData = computed(() => {
       }
     }
   }
-
   const sortPatientsByBed = (a, b) =>
     (a.dialysisBed === '外圍' ? 100 : parseInt(a.dialysisBed, 10)) -
     (b.dialysisBed === '外圍' ? 100 : parseInt(b.dialysisBed, 10))
-
   ;[earlyShiftStats, lateShiftStats, lateTakeOffStats].forEach((stats, index) => {
     for (const team in stats) {
       const teamData = stats[team]
@@ -1311,7 +1277,6 @@ const effectiveStatsData = computed(() => {
           group.patients.sort(sortPatientsByBed)
         }
       })
-
       if (index === 0) {
         teamData.totalOpdCount =
           (teamData.earlyShift?.opdCount || 0) + (teamData.noonShiftOn?.opdCount || 0)
@@ -1320,7 +1285,6 @@ const effectiveStatsData = computed(() => {
         teamData.totalErCount =
           (teamData.earlyShift?.erCount || 0) + (teamData.noonShiftOn?.erCount || 0)
       } else if (index === 1) {
-        // ✨ [核心修正] 晚班的總人數現在只計算純晚班(lateShift)的人數
         teamData.totalOpdCount = teamData.lateShift?.opdCount || 0
         teamData.totalIpdCount = teamData.lateShift?.ipdCount || 0
         teamData.totalErCount = teamData.lateShift?.erCount || 0
@@ -1331,38 +1295,28 @@ const effectiveStatsData = computed(() => {
       }
     }
   })
-
   return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
 })
-
-// --- Functions ---
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
-  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d
-    .getDate()
-    .toString()
-    .padStart(2, '0')}`
+  return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`
 }
-
 function toggleNoonTakeoff(shiftType) {
   if (shiftType === 'early' || shiftType === 'late') {
     noonTakeoffVisibility.value[shiftType] = !noonTakeoffVisibility.value[shiftType]
   }
 }
-
 function setScheduleChange() {
   if (isPageLocked.value) return
   hasUnsavedScheduleChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
-
 function setTeamChange() {
   if (isPageLocked.value) return
   hasUnsavedTeamChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
-
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
@@ -1392,7 +1346,6 @@ async function loadDailyStaffInfo(date) {
     dailyPhysicians.value = { early: null, noon: null, late: null }
   }
 }
-
 async function getEffectiveOrdersForDate(patientId, targetDate) {
   if (!patientId || !targetDate) return {}
   const dateStr = targetDate.toISOString().slice(0, 10)
@@ -1410,7 +1363,6 @@ async function getEffectiveOrdersForDate(patientId, targetDate) {
     return {}
   }
 }
-
 async function loadData(date) {
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1475,7 +1427,6 @@ async function loadData(date) {
     isLoading.value = false
   }
 }
-
 async function saveChangesToCloud() {
   if (isPageLocked.value || !hasUnsavedChanges.value) return
   statusIndicator.value = '儲存中...'
@@ -1527,7 +1478,6 @@ async function saveChangesToCloud() {
     showAlert('儲存失敗', `儲存失敗: ${error.message}`)
   }
 }
-
 function getDutyTagClass(dutyName) {
   if (dutyName.includes('指揮官')) return 'role-field-commander'
   if (dutyName.includes('安全')) return 'role-safety'
@@ -1536,7 +1486,6 @@ function getDutyTagClass(dutyName) {
   if (dutyName.includes('通報')) return 'role-reporter'
   return 'role-default'
 }
-
 function applyTeamAndScheduleChange(
   patientDetail,
   oldShiftId,
@@ -1572,7 +1521,6 @@ function applyTeamAndScheduleChange(
   }
   performTeamChange({ ...patientDetail, shiftId: newShiftId }, newTeam, newResponsibility)
 }
-
 function onDrop(event, newTeam, newResponsibility) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -1601,25 +1549,20 @@ function onDrop(event, newTeam, newResponsibility) {
     performTeamChange(patientDetail, newTeam, newResponsibility)
   }
 }
-
 function performTeamChange(patientDetail, newTeam, newResponsibility) {
   const patientId = patientDetail.id
   const shiftId = patientDetail.shiftId
   const shiftCode = shiftId.split('-')[2]
   const teamKey = `${patientId}-${shiftCode}`
-
   if (!currentTeamsRecord.value.teams) currentTeamsRecord.value.teams = {}
   if (!currentTeamsRecord.value.teams[teamKey]) {
     currentTeamsRecord.value.teams[teamKey] = {}
   }
-
   const teamInfo = currentTeamsRecord.value.teams[teamKey]
   const slotInfo = currentRecord.schedule[shiftId]
   if (!slotInfo) return
-
   const isUnassigned = newTeam.includes('未分組')
   const finalTeamValue = isUnassigned ? null : newTeam
-
   if (newResponsibility === 'earlyShift' || newResponsibility === 'lateShift') {
     teamInfo.nurseTeam = finalTeamValue
     slotInfo.nurseTeam = finalTeamValue
@@ -1633,7 +1576,6 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
     teamInfo.nurseTeamTakeOff = finalTeamValue
     slotInfo.nurseTeamTakeOff = finalTeamValue
   }
-
   if (
     !teamInfo.nurseTeam &&
     !teamInfo.nurseTeamIn &&
@@ -1642,10 +1584,8 @@ function performTeamChange(patientDetail, newTeam, newResponsibility) {
   ) {
     delete currentTeamsRecord.value.teams[teamKey]
   }
-
   setTeamChange()
 }
-
 function onDragStart(event, patientDetail, responsibility) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -1655,7 +1595,6 @@ function onDragStart(event, patientDetail, responsibility) {
   event.dataTransfer.setData('application/json', JSON.stringify(detailWithSource))
   event.dataTransfer.effectAllowed = 'move'
 }
-
 function openBedChangeDialog(patientDetail) {
   if (isPageLocked.value) return
   if (!bedChangeTargetShift.value) {
@@ -1665,7 +1604,6 @@ function openBedChangeDialog(patientDetail) {
   editingPatientInfo.value = patientDetail
   isBedChangeDialogVisible.value = true
 }
-
 function handleBedChange({ oldShiftId, newShiftId }) {
   if (isPageLocked.value || !oldShiftId || !newShiftId || !currentRecord.schedule[oldShiftId]) {
     isBedChangeDialogVisible.value = false
@@ -1684,23 +1622,19 @@ function handleBedChange({ oldShiftId, newShiftId }) {
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
-
 function handleDialogCancel() {
   isBedChangeDialogVisible.value = false
   pendingChangeInfo.value = null
   bedChangeTargetShift.value = null
 }
-
 function onDragOver(event) {
   if (isPageLocked.value) return
   event.preventDefault()
   event.currentTarget.classList.add('drag-over-active')
 }
-
 function onDragLeave(event) {
   event.currentTarget.classList.remove('drag-over-active')
 }
-
 function showPrepPopover(event, teamData, shiftType) {
   const patientsInShift = teamData[shiftType]?.patients || []
   if (patientsInShift.length === 0) return
@@ -1708,11 +1642,9 @@ function showPrepPopover(event, teamData, shiftType) {
   prepPopoverData.targetElement = event.currentTarget
   isPrepPopoverVisible.value = true
 }
-
 function onPrepPopoverClose() {
   isPrepPopoverVisible.value = false
 }
-
 function updateNurseName(teamId, event) {
   if (isPageLocked.value) {
     event.target.value = currentTeamsRecord.value.names?.[teamId] || ''
@@ -1724,7 +1656,6 @@ function updateNurseName(teamId, event) {
   currentTeamsRecord.value.names[teamId] = event.target.value
   setTeamChange()
 }
-
 function changeDate(days) {
   const performChange = () => {
     const newDate = new Date(currentDate.value)
@@ -1739,7 +1670,6 @@ function changeDate(days) {
     performChange()
   }
 }
-
 function goToToday() {
   const performChange = () => {
     currentDate.value = new Date()
@@ -1752,29 +1682,24 @@ function goToToday() {
     performChange()
   }
 }
-
 function handleConfirm() {
   if (onConfirmAction.value) onConfirmAction.value()
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
-
 function handleCancel() {
   isConfirmDialogVisible.value = false
   onConfirmAction.value = null
 }
-
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
-
 function handleTaskCreated() {
   showAlert('操作成功', '交辦/留言已成功新增！')
   isCreateTaskModalVisible.value = false
 }
-
 async function showInjectionList(teamData, shiftType = null) {
   const patientIds = new Set()
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
@@ -1813,17 +1738,12 @@ async function showInjectionList(teamData, shiftType = null) {
     isInjectionLoading.value = false
   }
 }
-
-// ✨ 【最終修正版】替換整個 exportAssignmentsToExcel 函式 ✨
 function exportAssignmentsToExcel() {
   if (isLoading.value) {
     showAlert('提示', '資料仍在載入中，請稍後再試。')
     return
   }
-
-  const aoa = [] // Array of Arrays for the final sheet
-
-  // 輔助函式，用於格式化單一病人的儲存格內容
+  const aoa = []
   const formatPatientCell = (patients) => {
     if (!patients || patients.length === 0) return ''
     return patients
@@ -1836,12 +1756,9 @@ function exportAssignmentsToExcel() {
       })
       .join('\n')
   }
-
   const formatCountCell = (teamData) => {
     return `門${teamData?.totalOpdCount || 0} 住${teamData?.totalIpdCount || 0} 急${teamData?.totalErCount || 0}`
   }
-
-  // --- 處理早班區塊 ---
   const earlyHeaders = [
     '早班',
     ...sortedEarlyTeams.value.map((name) =>
@@ -1849,7 +1766,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(earlyHeaders)
-
   const earlyNames = [
     '姓名',
     ...sortedEarlyTeams.value.map(
@@ -1857,7 +1773,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(earlyNames)
-
   const earlyShiftRow = [
     '早班',
     ...sortedEarlyTeams.value.map((name) =>
@@ -1865,7 +1780,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(earlyShiftRow)
-
   const noonOnShiftRow = [
     '午班(上針)',
     ...sortedEarlyTeams.value.map((name) =>
@@ -1873,7 +1787,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(noonOnShiftRow)
-
   const noonOffShiftRowEarly = [
     '午班(收針)',
     ...sortedEarlyTeams.value.map((name) =>
@@ -1881,17 +1794,12 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(noonOffShiftRowEarly)
-
   const earlyCounts = [
     '照護人數',
     ...sortedEarlyTeams.value.map((name) => formatCountCell(effectiveStatsData.value.early[name])),
   ]
   aoa.push(earlyCounts)
-
-  // --- 分隔行 ---
   aoa.push([])
-
-  // --- 處理晚班區塊 ---
   const lateHeaders = [
     '晚班',
     ...sortedLateTeams.value.map((name) =>
@@ -1899,7 +1807,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(lateHeaders)
-
   const lateNames = [
     '姓名',
     ...sortedLateTeams.value.map(
@@ -1907,7 +1814,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(lateNames)
-
   const noonOffShiftRowLate = [
     '午班(收針)',
     ...sortedLateTeams.value.map((name) =>
@@ -1915,7 +1821,6 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(noonOffShiftRowLate)
-
   const lateShiftRow = [
     '晚班',
     ...sortedLateTeams.value.map((name) =>
@@ -1923,16 +1828,13 @@ function exportAssignmentsToExcel() {
     ),
   ]
   aoa.push(lateShiftRow)
-
   const lateCounts = [
     '照護人數',
     ...sortedLateTeams.value.map((name) => formatCountCell(effectiveStatsData.value.late[name])),
   ]
   aoa.push(lateCounts)
-
-  // --- 處理夜班收針區塊 (如果存在) ---
   if (lateShiftTakeOffExists.value) {
-    aoa.push([]) // 分隔行
+    aoa.push([])
     const lateTakeoffHeaders = [
       '夜班收針',
       ...sortedLateTakeOffTeams.value.map((name) =>
@@ -1940,7 +1842,6 @@ function exportAssignmentsToExcel() {
       ),
     ]
     aoa.push(lateTakeoffHeaders)
-
     const lateTakeoffNames = [
       '姓名',
       ...sortedLateTakeOffTeams.value.map(
@@ -1948,7 +1849,6 @@ function exportAssignmentsToExcel() {
       ),
     ]
     aoa.push(lateTakeoffNames)
-
     const lateTakeoffShiftRow = [
       '夜班收針',
       ...sortedLateTakeOffTeams.value.map((name) =>
@@ -1956,7 +1856,6 @@ function exportAssignmentsToExcel() {
       ),
     ]
     aoa.push(lateTakeoffShiftRow)
-
     const lateTakeoffCounts = [
       '照護人數',
       ...sortedLateTakeOffTeams.value.map((name) =>
@@ -1965,18 +1864,12 @@ function exportAssignmentsToExcel() {
     ]
     aoa.push(lateTakeoffCounts)
   }
-
-  // --- 建立並美化工作表 ---
   const ws = XLSX.utils.aoa_to_sheet(aoa)
-
-  // 設定欄寬
-  const colWidths = [{ wch: 12 }] // 第一欄寬度
+  const colWidths = [{ wch: 12 }]
   for (let i = 1; i < earlyHeaders.length; i++) {
-    colWidths.push({ wch: 25 }) // 其他組別欄寬
+    colWidths.push({ wch: 25 })
   }
   ws['!cols'] = colWidths
-
-  // 設定列高與樣式
   const rowHeights = []
   const range = XLSX.utils.decode_range(ws['!ref'])
   for (let R = range.s.r; R <= range.e.r; ++R) {
@@ -1990,16 +1883,9 @@ function exportAssignmentsToExcel() {
         if (lines > maxLines) {
           maxLines = lines
         }
-        // 套用通用樣式
-        ws[cell_ref].s = {
-          alignment: {
-            wrapText: true,
-            vertical: 'top',
-          },
-        }
+        ws[cell_ref].s = { alignment: { wrapText: true, vertical: 'top' } }
       }
     }
-    // 根據內容行數設定列高 (每行約 15 points)
     if (maxLines > 1) {
       rowHeights.push({ hpt: maxLines * 15 })
     } else {
@@ -2007,13 +1893,11 @@ function exportAssignmentsToExcel() {
     }
   }
   ws['!rows'] = rowHeights
-
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '護理分組表')
   const fileName = `護理分組表_${formatDate(currentDate.value)}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
-
 function promptDuplicateLateShift() {
   if (isPageLocked.value) return
   confirmDialogMessage.value =
@@ -2021,7 +1905,6 @@ function promptDuplicateLateShift() {
   onConfirmAction.value = duplicateLateShiftForTakeOff
   isConfirmDialogVisible.value = true
 }
-
 function duplicateLateShiftForTakeOff() {
   if (isPageLocked.value) return
   for (const shiftId in currentRecord.schedule) {
@@ -2054,7 +1937,6 @@ function duplicateLateShiftForTakeOff() {
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已建立，您可以開始調整。')
 }
-
 function promptRemoveLateShiftTakeOff() {
   if (isPageLocked.value) return
   confirmDialogMessage.value =
@@ -2062,7 +1944,6 @@ function promptRemoveLateShiftTakeOff() {
   onConfirmAction.value = removeLateShiftTakeOff
   isConfirmDialogVisible.value = true
 }
-
 function removeLateShiftTakeOff() {
   if (isPageLocked.value) return
   for (const shiftId in currentRecord.schedule) {
@@ -2083,7 +1964,6 @@ function removeLateShiftTakeOff() {
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已移除。')
 }
-
 const handleIconClick = (patientId, context) => {
   if (context === 'dialog') {
     const patient = patientMap.value.get(patientId)
@@ -2093,36 +1973,26 @@ const handleIconClick = (patientId, context) => {
     }
   }
 }
-
 provide('handleIconClick', handleIconClick)
-
-// --- Lifecycle Hooks ---
 onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
-
 watch(currentUser, (newUser) => {
   if (!newUser) {
-    // Can clear page-specific data here
   }
 })
-
 watch(currentDate, (newDate) => {
   noonTakeoffVisibility.value = { early: false, late: false }
   loadData(newDate)
   loadDailyStaffInfo(newDate)
 })
-
-onUnmounted(() => {
-  // Can clean up page-specific listeners here if any
-})
+onUnmounted(() => {})
 </script>
 
 <style scoped>
 /* ================================== */
 /* === 1. 頁面佈局 (通用) === */
 /* ================================== */
-
 .page-container {
   display: flex;
   flex-direction: column;
@@ -2145,46 +2015,60 @@ onUnmounted(() => {
   position: relative;
 }
 
-.stats-sections-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.stats-section {
-  overflow-x: auto;
-  padding-bottom: 10px;
-  scrollbar-width: thin;
-  scrollbar-color: #aab7c4 #f1f1f1;
-}
-
-.stats-section::-webkit-scrollbar {
-  height: 8px;
-}
-.stats-section::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-.stats-section::-webkit-scrollbar-thumb {
-  background: #aab7c4;
-  border-radius: 4px;
-}
-.stats-section::-webkit-scrollbar-thumb:hover {
-  background: #888;
-}
-
-.grid-container {
-  min-width: 1800px;
-  display: grid;
-  border: 1px solid #ddd;
-  border-radius: 8px;
+/* ================================== */
+/* === 2. 頂部工具列 & 資訊列 (核心修正) === */
+/* ================================== */
+.btn,
+.btn-primary,
+.btn-secondary,
+#save-changes-btn,
+.duplicate-shift-btn,
+.date-navigator button,
+button {
+  padding: 8px 15px;
+  font-size: 1em;
+  cursor: pointer;
+  border-radius: 5px;
+  border: 1px solid #ccc;
   background-color: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-/* ================================== */
-/* === 2. 頂部工具列與資訊列 (桌面版為主) === */
-/* ================================== */
+#save-changes-btn {
+  background-color: #4caf50;
+  color: white;
+  border-color: #4caf50;
+}
+#save-changes-btn:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: #0069d9;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+  border-color: #6c757d;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
 
 .header-toolbar {
   display: flex;
@@ -2192,9 +2076,10 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   gap: 20px;
+  margin-bottom: 15px;
 }
-
-.toolbar-left {
+.toolbar-left,
+.toolbar-right {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -2211,7 +2096,7 @@ onUnmounted(() => {
 .date-navigator {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
 .current-date-text {
@@ -2227,65 +2112,25 @@ onUnmounted(() => {
   color: var(--primary-color, #007bff);
 }
 
-.toolbar-left button,
-.toolbar-right button {
-  padding: 8px 15px;
-  font-size: 1em;
-  cursor: pointer;
-  border-radius: 5px;
-  border: 1px solid #ccc;
-  background-color: #fff;
-  transition:
-    background-color 0.2s,
-    border-color 0.2s;
-  white-space: nowrap;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#save-changes-btn {
-  background-color: #4caf50;
-  color: white;
-  border-color: #4caf50;
-}
-button.btn-primary {
-  background-color: #007bff;
-  color: white;
-  border-color: #007bff;
-}
-button.btn-primary:hover:not(:disabled) {
-  background-color: #0069d9;
-  border-color: #0062cc;
-}
-button.btn-secondary {
-  background-color: #6c757d;
-  color: white;
-  border-color: #6c757d;
-}
-button.btn-secondary:hover:not(:disabled) {
-  background-color: #5a6268;
-}
 .status-indicator {
   font-size: 0.9em;
   font-weight: bold;
   color: #757575;
   font-style: italic;
+  white-space: nowrap;
 }
 
-.daily-info-bar {
-  margin-top: 10px;
+/* ✨ [這是最重要的 CSS！] ✨ */
+/* 這是讓醫師和消防並排的關鍵容器樣式 */
+.info-row-wrapper {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: space-between; /* 一個靠左，一個靠右 */
+  align-items: center; /* 垂直置中對齊 */
   gap: 1.5rem;
-  padding: 0.75rem;
-  background-color: #ffffff;
-  border-radius: 8px;
-  border: 1px solid #dee2e6;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
+  margin-bottom: 15px; /* 與下方表格的間距 */
 }
+
+/* 醫師面板樣式 (不再需要 daily-info-bar 作為外層容器) */
 .daily-staff-panel.horizontal {
   display: flex;
   gap: 8px;
@@ -2347,16 +2192,20 @@ button.btn-secondary:hover:not(:disabled) {
   background-color: #6c757d;
   color: white;
 }
+
+/* 消防編組樣式 */
 .duty-command-bar {
-  background-color: transparent;
-  border: none;
-  padding: 0;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 1.5rem;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  margin-top: 0; /* ✨ 移除會導致垂直堆疊的 margin-top */
 }
+
 .main-commanders {
   display: flex;
   align-items: center;
@@ -2383,9 +2232,6 @@ button.btn-secondary:hover:not(:disabled) {
 }
 .duty-role-tag.role-field-commander {
   background-color: #d97706;
-}
-.duty-role-tag.role-worker {
-  background-color: #6d28d9;
 }
 .duty-role-tag.role-guide {
   background-color: #0d9488;
@@ -2514,7 +2360,7 @@ button.btn-secondary:hover:not(:disabled) {
 }
 
 /* ================================== */
-/* === 3. 表格通用樣式 === */
+/* === 3. 主表格樣式 === */
 /* ================================== */
 .loading-overlay {
   position: absolute;
@@ -2549,6 +2395,39 @@ button.btn-secondary:hover:not(:disabled) {
     transform: rotate(360deg);
   }
 }
+.stats-sections-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.stats-section {
+  overflow-x: auto;
+  padding-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #aab7c4 #f1f1f1;
+}
+.stats-section::-webkit-scrollbar {
+  height: 8px;
+}
+.stats-section::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+.stats-section::-webkit-scrollbar-thumb {
+  background: #aab7c4;
+  border-radius: 4px;
+}
+.stats-section::-webkit-scrollbar-thumb:hover {
+  background: #888;
+}
+.grid-container {
+  min-width: 1800px;
+  display: grid;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
 
 .grid-header,
 .grid-body,
@@ -2556,6 +2435,7 @@ button.btn-secondary:hover:not(:disabled) {
 .grid-row {
   display: contents;
 }
+
 .row-header,
 .team-header-cell,
 .grid-cell,
@@ -2565,9 +2445,17 @@ button.btn-secondary:hover:not(:disabled) {
   padding: 8px;
   word-wrap: break-word;
 }
-.grid-container div:last-child {
+
+/* 修正最後一欄的右邊框 */
+.grid-container .grid-header > *:last-child,
+.grid-container .grid-body .grid-row > *:last-child,
+.grid-container .grid-footer > *:last-child {
   border-right: none;
 }
+.grid-row > *:last-child {
+  border-right: none;
+}
+
 .grid-footer > div {
   border-bottom: none;
 }
@@ -2861,29 +2749,9 @@ button.btn-secondary:hover:not(:disabled) {
   height: 100%;
   background-color: #fffde7;
 }
-.duplicate-shift-btn {
-  padding: 8px 15px;
-  font-size: 1em;
-  border: 1px solid #007bff;
-  background-color: #e7f1ff;
-  color: #0056b3;
-  border-radius: 5px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: all 0.2s;
-}
-.duplicate-shift-btn:hover:not(:disabled) {
-  background-color: #cce0ff;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-.duplicate-shift-btn:disabled {
-  border-color: #ced4da;
-  background-color: #f8f9fa;
-  color: #6c757d;
-  cursor: not-allowed;
+.duplicate-shift-btn.desktop-only {
+  border-color: #6f42c1;
+  color: #6f42c1;
 }
 .late-takeoff-section {
   border-top: 4px solid #007bff;
@@ -2946,7 +2814,7 @@ button.btn-secondary:hover:not(:disabled) {
 }
 
 /* ================================== */
-/* === 4. 響應式與行動版修正 (核心) === */
+/* === 5. 響應式與行動版 === */
 /* ================================== */
 .mobile-only {
   display: none;
@@ -2958,8 +2826,12 @@ button.btn-secondary:hover:not(:disabled) {
   display: flex;
 }
 
+@media screen and (max-width: 1200px) {
+  .toolbar-left {
+    gap: 1rem;
+  }
+}
 @media screen and (max-width: 992px) {
-  /* --- A. 通用可見性控制 --- */
   .desktop-only,
   .desktop-only-flex {
     display: none !important;
@@ -2967,8 +2839,6 @@ button.btn-secondary:hover:not(:disabled) {
   .mobile-only {
     display: block !important;
   }
-
-  /* --- B. 頁面佈局調整 --- */
   .page-container {
     padding: 0;
   }
@@ -2986,46 +2856,23 @@ button.btn-secondary:hover:not(:disabled) {
   }
   .page-title {
     text-align: center;
+    font-size: 1.5rem;
   }
-
-  /* --- C. 日期導航列核心修正 --- */
   .date-navigator {
     display: grid;
     grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 10px;
     width: 100%;
-  }
-  .date-navigator > button {
-    margin: 0;
-    flex-grow: 0;
-  }
-  .date-text-wrapper {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
   }
   .current-date-text,
   .weekday-display {
-    width: auto;
-    font-size: 20px;
-    line-height: 1.2;
-    padding: 0;
+    font-size: 1.25rem;
+    text-align: center;
   }
-  .weekday-display {
-    font-size: 18px;
-  }
-
-  /* --- D. 其他行動版按鈕樣式 --- */
   .toolbar-left > button {
     width: 100%;
     box-sizing: border-box;
     justify-content: center;
   }
-
-  /* --- E. 行動版卡片樣式 --- */
   .mobile-shift-section {
     border: 1px solid #ddd;
     border-radius: 8px;
