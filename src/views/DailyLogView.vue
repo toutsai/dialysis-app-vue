@@ -840,15 +840,25 @@ function formatDate(date) {
   return `${year}-${month}-${day}`
 }
 
-async function saveLog(successMessage = '日誌已儲存！') {
+// ✨ [核心修改 1] 修改 saveLog 函式，使其可以選擇不安靜地儲存
+async function saveLog(options = {}) {
+  // 使用選項物件，方便未來擴充
+  const {
+    successMessage = '日誌已儲存！',
+    showSuccessAlert = true, // 預設顯示成功提示
+  } = options
+
   if (isLoading.value) return
   isLoading.value = true
+
+  // 清理空行資料
   dailyLog.patientMovements = dailyLog.patientMovements.filter(
     (item) => item.name || item.medicalRecordNumber,
   )
   dailyLog.vascularAccessLog = dailyLog.vascularAccessLog.filter(
     (item) => item.name || item.medicalRecordNumber,
   )
+
   try {
     const dataToSave = JSON.parse(JSON.stringify(dailyLog))
     if (dailyLog.id) {
@@ -859,7 +869,11 @@ async function saveLog(successMessage = '日誌已儲存！') {
       dailyLog.id = docId
     }
     hasUnsavedChanges.value = false
-    showAlert('操作成功', successMessage)
+
+    // 只有在需要時才顯示提示
+    if (showSuccessAlert) {
+      showAlert('操作成功', successMessage)
+    }
   } catch (error) {
     console.error('儲存日誌失敗:', error)
     showAlert('儲存失敗', '儲存日誌時發生錯誤')
@@ -1099,6 +1113,7 @@ function selectPatient(patient, index, type) {
   isAutocompleteVisible.value = false
 }
 
+// ✨ [核心修改 3] 更新 signAsLeader 函式，以配合新的 saveLog 格式
 async function signAsLeader(shift) {
   if (!currentUser.value) return
   const performSign = async (isOverride = false) => {
@@ -1108,8 +1123,9 @@ async function signAsLeader(shift) {
       signedAt: new Date().toISOString(),
     }
     const successMsg = isOverride ? '覆蓋簽核成功！日誌已更新。' : '簽核成功！日誌已儲存。'
-    await saveLog(successMsg)
+    await saveLog({ successMessage: successMsg })
   }
+
   const existingLeader = dailyLog.leader[shift]
   let confirmMsg = `您確定要以「${currentUser.value.name}」的名義簽核此班別，並儲存所有變更嗎？`
   let confirmTitle = '確認簽核'
@@ -1133,12 +1149,14 @@ function formatSignTime(isoString) {
   return `${hours}:${minutes}`
 }
 
+// ✨ [核心修改 4] 更新 unsignLeader 函式，以配合新的 saveLog 格式
 async function unsignLeader(shift) {
   if (!currentUser.value) return
   const performUnsign = async () => {
     dailyLog.leader[shift] = { userId: null, name: null, signedAt: null }
-    await saveLog('撤銷簽核成功！日誌已更新。')
+    await saveLog({ successMessage: '撤銷簽核成功！日誌已更新。' })
   }
+
   if (dailyLog.leader[shift]?.userId) {
     if (
       dailyLog.leader[shift]?.userId === currentUser.value.uid ||
@@ -1232,14 +1250,19 @@ function handleTextareaInput() {
   })
 }
 
+// ✨ [核心修改 2] 更新 exportToPDF 函式，呼叫安靜儲存
 async function exportToPDF() {
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
+
+  // 如果有變更，先執行安靜儲存
   if (hasUnsavedChanges.value) {
-    await saveLog('匯出前自動儲存日誌')
+    await saveLog({ showSuccessAlert: false })
   }
+
+  // 直接開始執行匯出邏輯
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
@@ -1249,7 +1272,10 @@ async function exportToPDF() {
     }
     isLoading.value = true
   }
-  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  // 等待 DOM 更新，確保 loading 畫面顯示出來
+  await nextTick()
+
   try {
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
@@ -1259,6 +1285,7 @@ async function exportToPDF() {
     exportArea.classList.add('pdf-export-mode')
     await nextTick()
     await new Promise((resolve) => setTimeout(resolve, 100))
+
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
@@ -1266,6 +1293,7 @@ async function exportToPDF() {
       ignoreElements: (element) =>
         element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
+
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
     const pdf = new jsPDF('p', 'mm', 'a4')
     const pdfWidth = pdf.internal.pageSize.getWidth()
