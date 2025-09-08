@@ -151,6 +151,14 @@
                 <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
                   <div class="shift-header-content">
                     <span>{{ getShiftDisplayName(shiftCode) }}</span>
+                    <!-- ✨ 7. 在此處加入新的針劑圖示按鈕 -->
+                    <button
+                      @click="showShiftInjections(shiftCode)"
+                      class="summary-icon-btn-table"
+                      title="查看此班針劑"
+                    >
+                      💉
+                    </button>
                     <button
                       @click="showShiftRecordsSummary(shiftCode)"
                       class="summary-icon-btn-table"
@@ -620,6 +628,14 @@
               <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="`mobile-header-${shiftCode}`">
                 <div class="shift-header-content">
                   <span>{{ getShiftDisplayName(shiftCode) }}</span>
+                  <!-- ✨ 7. 在此處加入新的針劑圖示按鈕 -->
+                  <button
+                    @click="showShiftInjections(shiftCode)"
+                    class="summary-icon-btn-table"
+                    title="查看此班針劑"
+                  >
+                    💉
+                  </button>
                   <button
                     @click="showShiftRecordsSummary(shiftCode)"
                     class="summary-icon-btn-table"
@@ -827,6 +843,15 @@
       :patient-ids="patientIdsForDialog"
       @close="closeRecordsSummaryDialog"
     />
+    <DailyInjectionListDialog
+      :is-visible="isInjectionDialogVisible"
+      :is-loading="isInjectionLoading"
+      :injections="filteredDailyInjections"
+      :target-date="injectionDialogDate"
+      v-model:filter-active="filterSpecificInjections"
+      :show-filter="true"
+      @close="isInjectionDialogVisible = false"
+    />
   </div>
 </template>
 
@@ -879,6 +904,9 @@ import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 import DailyRecordsSummaryDialog from '@/components/DailyRecordsSummaryDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@/composables/useFirebase.js'
 
 // Pinia Stores
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -1002,6 +1030,13 @@ const dailyPhysicians = ref({ early: null, noon: null, late: null })
 // ✨✨✨ [核心修改] ✨✨✨
 // 將 provide 放在這裡，在 currentDate 被定義之後
 provide('viewingDate', currentDate)
+const isInjectionDialogVisible = ref(false)
+const isInjectionLoading = ref(false)
+// ✨ 3. 重新命名，用來儲存從後端拿到的所有針劑
+const allDailyInjections = ref([])
+const injectionDialogDate = ref('')
+// ✨ 4. 新增一個 ref 來控制篩選的開關
+const filterSpecificInjections = ref(false)
 
 // ===================================================================
 // 5. Computed Properties
@@ -1136,9 +1171,95 @@ const todayInpatients = computed(() => {
   return inpatients
 })
 
+// ✨✨✨ 請用這個新版本，完整替換掉您檔案中舊的 filteredDailyInjections ✨✨✨
+const filteredDailyInjections = computed(() => {
+  // 如果篩選開關是關閉的，就回傳所有針劑
+  if (!filterSpecificInjections.value) {
+    return allDailyInjections.value
+  }
+
+  // ✨ 核心修正：從藥品名稱改為使用更穩定、唯一的「醫令碼」進行篩選
+  const specificMedCodes = ['ICAC', 'IFER2', 'IPAR1'] // 對應 Cacare, Fe-back, Parsabiv
+
+  // 過濾 allDailyInjections 陣列，只保留 orderCode 匹配的項目
+  return allDailyInjections.value.filter((injection) =>
+    specificMedCodes.includes(injection.orderCode),
+  )
+})
+
 // ===================================================================
 // 6. Methods
 // ===================================================================
+// ✨ 6. 請用這個新版的 showShiftInjections 函式，完整替換掉您檔案中的舊版本
+async function showShiftInjections(shiftCode) {
+  if (!shiftCode) return
+
+  const patientIds = Object.entries(currentRecord.schedule)
+    .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
+    .map(([, slot]) => slot.patientId)
+
+  injectionDialogDate.value = formatDate(currentDate.value)
+  isInjectionDialogVisible.value = true
+  isInjectionLoading.value = true
+  allDailyInjections.value = [] // 清空原始資料列表
+  filterSpecificInjections.value = false // 每次打開都預設為不過濾
+
+  if (patientIds.length === 0) {
+    isInjectionLoading.value = false
+    return
+  }
+
+  try {
+    const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
+    const CHUNK_SIZE = 30
+    const promises = []
+
+    for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
+      const chunk = patientIds.slice(i, i + CHUNK_SIZE)
+      const payload = {
+        targetDate: injectionDialogDate.value,
+        patientIds: chunk,
+      }
+      promises.push(getDailyInjections(payload))
+    }
+
+    const results = await Promise.all(promises)
+
+    let combinedInjections = []
+    for (const result of results) {
+      if (result.data && result.data.success) {
+        combinedInjections = combinedInjections.concat(result.data.injections)
+      } else {
+        throw new Error(result.data?.message || '從後端獲取部分針劑資料失敗')
+      }
+    }
+
+    combinedInjections.sort((a, b) => {
+      const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
+      const shiftA = a.shift || 'A'
+      const shiftB = b.shift || 'A'
+      if (shiftA !== shiftB) return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
+      const bedA = String(a.bedNum).startsWith('外')
+        ? 1000 + parseInt(String(a.bedNum).substring(1))
+        : parseInt(a.bedNum)
+      const bedB = String(b.bedNum).startsWith('外')
+        ? 1000 + parseInt(String(b.bedNum).substring(1))
+        : parseInt(b.bedNum)
+      return bedA - bedB
+    })
+
+    // 將從後端拿到的完整結果存入 allDailyInjections
+    allDailyInjections.value = combinedInjections
+  } catch (error) {
+    console.error(`獲取 ${shiftCode} 班應打針劑失敗:`, error)
+    const errorMessage = error.details?.message || error.message || '獲取應打針劑清單時發生未知錯誤'
+    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${errorMessage}`)
+    isInjectionDialogVisible.value = false
+  } finally {
+    isInjectionLoading.value = false
+  }
+}
+
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
