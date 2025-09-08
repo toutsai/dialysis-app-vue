@@ -93,11 +93,11 @@
             <span class="duty-role-tag role-commander">總指揮官</span>
             <span class="duty-person">廖丁瑩主任</span>
             <span class="duty-divider"></span>
-            <span class="duty-role-tag role-reporter">通報班</span>
-            <span class="duty-person">謝淑琴書記</span>
-            <span class="duty-divider"></span>
             <span class="duty-role-tag role-field-commander">現場指揮官</span>
             <span class="duty-person">莊明月護理長</span>
+            <span class="duty-divider"></span>
+            <span class="duty-role-tag role-reporter">通報班</span>
+            <span class="duty-person">謝淑琴書記</span>
             <span class="duty-divider"></span>
             <span class="duty-role-tag role-guide">引導救護班</span>
             <span class="duty-person">工友</span>
@@ -2194,7 +2194,8 @@ button:disabled {
 /* ✨ [這是最重要的 CSS！] ✨ */
 /* 這是讓醫師和消防並排的關鍵容器樣式 */
 .info-row-wrapper {
-  display: flex;
+  display: flex !important;
+  flex-direction: row !important;
   justify-content: space-between; /* 一個靠左，一個靠右 */
   align-items: center; /* 垂直置中對齊 */
   gap: 1.5rem;
