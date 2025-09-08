@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/LogView.vue (✨ 護病比功能增強版 ✨) -->
+<!-- 檔案路徑: src/views/DailyLogView.vue (✨ 營運統計拆分版 ✨) -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -61,8 +61,8 @@
             <div class="grid-header cell-shift">第三班 (3-11)</div>
             <div class="grid-header cell-total">合計</div>
 
-            <!-- 洗腎中心床位 -->
-            <div class="cell-item rowspan-3">洗腎中心床位 (限44床)</div>
+            <!-- ✨ [核心修改 1] 將「住院+急診」拆成獨立的三列 -->
+            <div class="cell-item rowspan-4">洗腎中心床位 (限44床)</div>
             <div class="cell-category">門診</div>
             <div class="cell-data">{{ dailyLog.stats.main_beds.early.opd }}</div>
             <div class="cell-data">{{ dailyLog.stats.main_beds.noon.opd }}</div>
@@ -75,15 +75,27 @@
               }}
             </div>
 
-            <div class="cell-category">住院+急診</div>
-            <div class="cell-data">{{ dailyLog.stats.main_beds.early.ipd_er }}</div>
-            <div class="cell-data">{{ dailyLog.stats.main_beds.noon.ipd_er }}</div>
-            <div class="cell-data">{{ dailyLog.stats.main_beds.late.ipd_er }}</div>
+            <div class="cell-category">住院</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.early.ipd }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.noon.ipd }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.late.ipd }}</div>
             <div class="cell-total">
               {{
-                (dailyLog.stats.main_beds.early.ipd_er || 0) +
-                (dailyLog.stats.main_beds.noon.ipd_er || 0) +
-                (dailyLog.stats.main_beds.late.ipd_er || 0)
+                (dailyLog.stats.main_beds.early.ipd || 0) +
+                (dailyLog.stats.main_beds.noon.ipd || 0) +
+                (dailyLog.stats.main_beds.late.ipd || 0)
+              }}
+            </div>
+
+            <div class="cell-category">急診</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.early.er }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.noon.er }}</div>
+            <div class="cell-data">{{ dailyLog.stats.main_beds.late.er }}</div>
+            <div class="cell-total">
+              {{
+                (dailyLog.stats.main_beds.early.er || 0) +
+                (dailyLog.stats.main_beds.noon.er || 0) +
+                (dailyLog.stats.main_beds.late.er || 0)
               }}
             </div>
 
@@ -98,6 +110,7 @@
                 (dailyLog.stats.main_beds.late.total || 0)
               }}
             </div>
+            <!-- ✨ (修改結束) -->
 
             <!-- 急重症床位 -->
             <div class="cell-item rowspan-2">急重症 (外圍)</div>
@@ -193,7 +206,7 @@
               }}
             </div>
 
-            <!-- ✨ [核心新增] 新增護病比的顯示列 ✨ -->
+            <!-- 護病比 -->
             <div class="cell-item">護病比</div>
             <div class="cell-category">總人次 / 護理人力</div>
             <div class="cell-data">{{ nursePatientRatios.early }}</div>
@@ -718,14 +731,15 @@ const currentSchedule = ref({})
 const isHandoverDialogVisible = ref(false)
 const handoverNotes = ref('')
 
+// ✨ [核心修改 2] 更新 initialLogState 的資料結構
 const initialLogState = () => ({
   id: null,
   date: selectedDate.value,
   stats: {
     main_beds: {
-      early: { opd: 0, ipd_er: 0, total: 0 },
-      noon: { opd: 0, ipd_er: 0, total: 0 },
-      late: { opd: 0, ipd_er: 0, total: 0 },
+      early: { opd: 0, ipd: 0, er: 0, total: 0 },
+      noon: { opd: 0, ipd: 0, er: 0, total: 0 },
+      late: { opd: 0, ipd: 0, er: 0, total: 0 },
     },
     peripheral_beds: {
       early: { ipd: 0, er: 0, total: 0 },
@@ -794,14 +808,11 @@ const totalPatients = computed(() => {
   return totals
 })
 
-// ✨ [核心新增] 新增計算護病比的 computed 屬性 ✨
 const nursePatientRatios = computed(() => {
   const calculateRatio = (patients, staff) => {
-    // 如果護理人力為 0 或不存在(null)，返回 'N/A'
     if (!staff || staff === 0) {
       return 'N/A'
     }
-    // 計算比例並格式化到小數點後兩位
     return (patients / staff).toFixed(2)
   }
 
@@ -919,12 +930,13 @@ async function loadDailyLog(dateStr) {
   }
 }
 
+// ✨ [核心修改 3] 更新 calculateStatsFromSchedule 函式
 function calculateStatsFromSchedule(scheduleRecord) {
   const newStats = {
     main_beds: {
-      early: { opd: 0, ipd_er: 0, total: 0 },
-      noon: { opd: 0, ipd_er: 0, total: 0 },
-      late: { opd: 0, ipd_er: 0, total: 0 },
+      early: { opd: 0, ipd: 0, er: 0, total: 0 },
+      noon: { opd: 0, ipd: 0, er: 0, total: 0 },
+      late: { opd: 0, ipd: 0, er: 0, total: 0 },
     },
     peripheral_beds: {
       early: { ipd: 0, er: 0, total: 0 },
@@ -944,15 +956,19 @@ function calculateStatsFromSchedule(scheduleRecord) {
     if (!patient) continue
     const shiftCode = shiftKey.split('-').pop()
     const isPeripheral = shiftKey.startsWith('peripheral')
-    if (isPeripheral) {
-      newStats.peripheral_beds[shiftCode].total++
-      if (patient.status === 'ipd') newStats.peripheral_beds[shiftCode].ipd++
-      else if (patient.status === 'er') newStats.peripheral_beds[shiftCode].er++
-    } else {
-      newStats.main_beds[shiftCode].total++
-      if (patient.status === 'opd') newStats.main_beds[shiftCode].opd++
-      else if (patient.status === 'ipd' || patient.status === 'er')
-        newStats.main_beds[shiftCode].ipd_er++
+
+    // 確保 shiftCode 是有效的班別
+    if (['early', 'noon', 'late'].includes(shiftCode)) {
+      if (isPeripheral) {
+        newStats.peripheral_beds[shiftCode].total++
+        if (patient.status === 'ipd') newStats.peripheral_beds[shiftCode].ipd++
+        else if (patient.status === 'er') newStats.peripheral_beds[shiftCode].er++
+      } else {
+        newStats.main_beds[shiftCode].total++
+        if (patient.status === 'opd') newStats.main_beds[shiftCode].opd++
+        else if (patient.status === 'ipd') newStats.main_beds[shiftCode].ipd++
+        else if (patient.status === 'er') newStats.main_beds[shiftCode].er++
+      }
     }
   }
   dailyLog.stats.main_beds = newStats.main_beds
@@ -1560,6 +1576,10 @@ h1 {
 }
 .rowspan-3 {
   grid-row: span 3;
+}
+/* ✨ [核心修改 4] 更新 rowspan 以適應新增加的列 */
+.rowspan-4 {
+  grid-row: span 4;
 }
 .cell-data {
   font-size: 1.2rem;
