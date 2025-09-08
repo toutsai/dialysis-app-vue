@@ -6,7 +6,7 @@
       <!-- 頂部主要工具列 -->
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">護理分組檢視</h1>
+          <h1 class="page-title">護理分組</h1>
           <div class="date-navigator">
             <button @click="changeDate(-1)">&lt; 上一天</button>
             <span class="current-date-text">{{ formatDate(currentDate) }}</span>
