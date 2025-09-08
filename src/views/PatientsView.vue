@@ -3,7 +3,8 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import {
   savePatient as optimizedSavePatient,
-  createDialysisOrderAndUpdatePatient, // ✅ 引入我們最終的函式
+  updatePatient as optimizedUpdatePatient, // ✅ [修正] 新增對 updatePatient 的引入並設定別名
+  createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 import { usePatientStore } from '@/stores/patientStore.js'
