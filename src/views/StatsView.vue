@@ -6,7 +6,7 @@
       <!-- 頂部主要工具列 -->
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">護理分組檢視</h1>
+          <h1 class="page-title">護理分組</h1>
           <div class="date-navigator">
             <button @click="changeDate(-1)">&lt; 上一天</button>
             <span class="current-date-text">{{ formatDate(currentDate) }}</span>
@@ -2087,15 +2087,10 @@ onUnmounted(() => {})
 }
 
 /* ================================== */
-/* === 2. 頂部工具列 & 資訊列 (核心修正) === */
+/* === 2. 按鈕樣式 (統一基礎) === */
 /* ================================== */
-.btn,
-.btn-primary,
-.btn-secondary,
-#save-changes-btn,
-.duplicate-shift-btn,
-.date-navigator button,
-button {
+button,
+.btn {
   padding: 8px 15px;
   font-size: 1em;
   cursor: pointer;
@@ -2109,6 +2104,12 @@ button {
   gap: 0.5rem;
 }
 
+button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* 按鈕變體 */
 #save-changes-btn {
   background-color: #4caf50;
   color: white;
@@ -2136,11 +2137,14 @@ button {
   background-color: #5a6268;
 }
 
-button:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
+.duplicate-shift-btn {
+  border-color: #6f42c1;
+  color: #6f42c1;
 }
 
+/* ================================== */
+/* === 3. 頂部工具列 === */
+/* ================================== */
 .header-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2149,6 +2153,7 @@ button:disabled {
   gap: 20px;
   margin-bottom: 15px;
 }
+
 .toolbar-left,
 .toolbar-right {
   display: flex;
@@ -2180,7 +2185,7 @@ button:disabled {
 .weekday-display {
   font-size: 26px;
   font-weight: bold;
-  color: var(--primary-color, #007bff);
+  color: #007bff;
 }
 
 .status-indicator {
@@ -2191,24 +2196,26 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* ✨ [這是最重要的 CSS！] ✨ */
-/* 這是讓醫師和消防並排的關鍵容器樣式 */
+/* ================================== */
+/* === 4. 醫師與消防並排佈局 (核心) === */
+/* ================================== */
 .info-row-wrapper {
   display: flex !important;
   flex-direction: row !important;
   justify-content: space-between; /* 一個靠左，一個靠右 */
   align-items: center; /* 垂直置中對齊 */
   gap: 1.5rem;
-  margin-bottom: 15px; /* 與下方表格的間距 */
+  margin-bottom: 15px;
 }
 
-/* 醫師面板樣式 (不再需要 daily-info-bar 作為外層容器) */
+/* 醫師面板 */
 .daily-staff-panel.horizontal {
   display: flex;
   gap: 8px;
   align-items: stretch;
   flex-wrap: wrap;
 }
+
 .staff-item {
   display: flex;
   align-items: center;
@@ -2217,18 +2224,21 @@ button:disabled {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(0, 0, 0, 0.05);
 }
+
 .staff-label {
   font-weight: 700;
   font-size: 0.9rem;
   margin-right: 8px;
   color: white;
 }
+
 .staff-details {
   display: flex;
   flex-direction: column;
   line-height: 1.3;
   white-space: nowrap;
 }
+
 .staff-name {
   display: flex;
   align-items: baseline;
@@ -2236,15 +2246,19 @@ button:disabled {
   font-weight: 600;
   font-size: 1rem;
 }
+
 .staff-job-title {
   font-size: 0.85em;
   font-weight: 500;
   opacity: 0.9;
 }
+
 .staff-contact {
   font-size: 0.75rem;
   opacity: 0.9;
 }
+
+/* 班別顏色 */
 .staff-item.shift-early {
   background-color: #28a745;
   color: white;
@@ -2265,17 +2279,14 @@ button:disabled {
   color: white;
 }
 
-/* 消防編組樣式 */
+/* 消防編組 */
 .duty-command-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 1.5rem;
-  background: transparent;
-  border: none;
-  box-shadow: none;
   padding: 0;
-  margin-top: 0; /* ✨ 移除會導致垂直堆疊的 margin-top */
+  margin-top: 0;
 }
 
 .main-commanders {
@@ -2284,11 +2295,13 @@ button:disabled {
   gap: 8px;
   flex-wrap: wrap;
 }
+
 .duty-title {
   font-weight: 600;
   font-size: 1em;
   color: #b45309;
 }
+
 .duty-role-tag {
   font-size: 0.8em;
   font-weight: 600;
@@ -2296,6 +2309,7 @@ button:disabled {
   border-radius: 12px;
   color: #fff;
 }
+
 .duty-role-tag.role-commander {
   background-color: #be185d;
 }
@@ -2308,21 +2322,26 @@ button:disabled {
 .duty-role-tag.role-guide {
   background-color: #0d9488;
 }
+
 .duty-person {
   font-weight: 500;
   color: #1e293b;
   font-size: 0.9em;
   margin-left: -2px;
 }
+
 .duty-divider {
   width: 1px;
   height: 16px;
   background-color: #d1d5db;
   margin: 0 4px;
 }
+
+/* 消防下拉選單 */
 .duty-dropdown-wrapper {
   position: relative;
 }
+
 .duty-dropdown-trigger {
   background-color: #f1f5f9;
   border: 1px solid #e2e8f0;
@@ -2335,16 +2354,20 @@ button:disabled {
   font-weight: 500;
   height: 40px;
 }
+
 .duty-dropdown-trigger:hover {
   background-color: #e2e8f0;
 }
-.duty-dropdown-trigger .toggle-arrow {
+
+.toggle-arrow {
   transition: transform 0.2s ease-in-out;
   font-size: 0.8em;
 }
-.duty-dropdown-trigger .toggle-arrow.is-rotated {
+
+.toggle-arrow.is-rotated {
   transform: rotate(180deg);
 }
+
 .duty-dropdown-menu {
   position: absolute;
   top: calc(100% + 5px);
@@ -2357,12 +2380,14 @@ button:disabled {
   z-index: 100;
   padding: 12px;
 }
+
 .duty-shift-group {
   margin-bottom: 12px;
 }
 .duty-shift-group:last-child {
   margin-bottom: 0;
 }
+
 .duty-shift-header {
   font-size: 1.1em;
   font-weight: bold;
@@ -2371,6 +2396,7 @@ button:disabled {
   margin-bottom: 8px;
   border-bottom: 2px solid #e2e8f0;
 }
+
 .duty-item {
   display: grid;
   grid-template-columns: 140px 1fr;
@@ -2379,6 +2405,7 @@ button:disabled {
   padding: 4px 0;
   font-size: 0.95em;
 }
+
 .duty-name {
   font-size: 0.9em;
   font-weight: 600;
@@ -2388,6 +2415,8 @@ button:disabled {
   text-align: center;
   justify-self: end;
 }
+
+/* 消防職務顏色 */
 .duty-name.role-field-commander {
   background-color: #d97706;
 }
@@ -2407,11 +2436,13 @@ button:disabled {
 .duty-name.role-default {
   background-color: #475569;
 }
+
 .duty-teams {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+
 .duty-team-tag {
   background-color: #e0e7ff;
   color: #3730a3;
@@ -2419,20 +2450,9 @@ button:disabled {
   border-radius: 4px;
   font-weight: 500;
 }
-.slide-fade-enter-active {
-  transition: all 0.2s ease-out;
-}
-.slide-fade-leave-active {
-  transition: all 0.2s cubic-bezier(1, 0.5, 0.8, 1);
-}
-.slide-fade-enter-from,
-.slide-fade-leave-to {
-  transform: translateY(-5px);
-  opacity: 0;
-}
 
 /* ================================== */
-/* === 3. 主表格樣式 === */
+/* === 5. 主表格樣式 === */
 /* ================================== */
 .loading-overlay {
   position: absolute;
@@ -2451,6 +2471,7 @@ button:disabled {
   gap: 20px;
   backdrop-filter: blur(2px);
 }
+
 .loading-spinner {
   border: 8px solid #f3f3f3;
   border-top: 8px solid #3498db;
@@ -2459,6 +2480,7 @@ button:disabled {
   height: 60px;
   animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -2467,17 +2489,20 @@ button:disabled {
     transform: rotate(360deg);
   }
 }
+
 .stats-sections-wrapper {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
+
 .stats-section {
   overflow-x: auto;
   padding-bottom: 10px;
   scrollbar-width: thin;
   scrollbar-color: #aab7c4 #f1f1f1;
 }
+
 .stats-section::-webkit-scrollbar {
   height: 8px;
 }
@@ -2492,6 +2517,8 @@ button:disabled {
 .stats-section::-webkit-scrollbar-thumb:hover {
   background: #888;
 }
+
+/* Grid 佈局 */
 .grid-container {
   min-width: 1800px;
   display: grid;
@@ -2508,6 +2535,7 @@ button:disabled {
   display: contents;
 }
 
+/* Grid 儲存格共同樣式 */
 .row-header,
 .team-header-cell,
 .grid-cell,
@@ -2518,19 +2546,17 @@ button:disabled {
   word-wrap: break-word;
 }
 
-/* 修正最後一欄的右邊框 */
-.grid-container .grid-header > *:last-child,
-.grid-container .grid-body .grid-row > *:last-child,
-.grid-container .grid-footer > *:last-child {
-  border-right: none;
-}
-.grid-row > *:last-child {
+/* 移除最後一欄右邊框 */
+.grid-container > * > *:last-child {
   border-right: none;
 }
 
-.grid-footer > div {
+/* 移除最後一列下邊框 */
+.grid-footer > * {
   border-bottom: none;
 }
+
+/* 標題儲存格 */
 .row-header {
   background-color: #f2f2f2;
   font-weight: bold;
@@ -2542,6 +2568,7 @@ button:disabled {
   align-items: center;
   justify-content: center;
 }
+
 .team-header-cell {
   background-color: #e3f2fd;
   font-weight: bold;
@@ -2553,6 +2580,7 @@ button:disabled {
   top: 0;
   z-index: 1;
 }
+
 .section-title-cell {
   font-size: 1.5em;
   color: #005a9c;
@@ -2562,9 +2590,12 @@ button:disabled {
   left: 0;
   z-index: 3;
 }
+
+/* 姓名選擇器 */
 .name-cell {
   padding: 0 !important;
 }
+
 .name-select {
   width: 100%;
   height: 100%;
@@ -2577,6 +2608,8 @@ button:disabled {
   appearance: none;
   padding: 8px;
 }
+
+/* 病人儲存格 */
 .patient-list-cell {
   position: relative;
   display: flex;
@@ -2587,20 +2620,17 @@ button:disabled {
   min-height: 120px;
   transition: background-color 0.2s;
 }
+
 .patient-list-cell.drag-over-active {
   background-color: #e8f5e9;
   border: 2px dashed #4caf50;
 }
+
 .patient-wrapper {
   flex-grow: 1;
 }
-.total-count-summary {
-  background-color: #f8f9fa;
-  font-weight: bold;
-  text-align: center;
-  color: #333;
-  padding: 10px 8px;
-}
+
+/* 病人項目 */
 .patient-item {
   display: flex;
   justify-content: space-between;
@@ -2615,6 +2645,14 @@ button:disabled {
   line-height: 1.4;
   user-select: none;
 }
+
+.patient-item:active {
+  cursor: grabbing;
+  background-color: #e0e0e0;
+  opacity: 0.8;
+  transform: scale(1.02);
+}
+
 .patient-main-info {
   display: flex;
   flex-direction: column;
@@ -2624,11 +2662,13 @@ button:disabled {
   text-overflow: ellipsis;
   cursor: pointer;
 }
+
 .patient-line-one {
   font-weight: bold;
   font-size: 1em;
   white-space: nowrap;
 }
+
 .patient-line-two {
   display: flex;
   align-items: center;
@@ -2636,57 +2676,33 @@ button:disabled {
   font-size: 0.9em;
   white-space: nowrap;
 }
-.note-display {
-  color: #c62828;
-  font-weight: bold;
-}
-:deep(.memo-icon-wrapper) {
-  flex-shrink: 0;
-  margin-left: auto;
-  padding-left: 8px;
-  align-self: center;
-}
-.patient-item:active {
-  cursor: grabbing;
-  background-color: #e0e0e0;
-  opacity: 0.8;
-  transform: scale(1.02);
-}
+
+/* 病人狀態顏色 */
 .patient-item.status-opd {
-  background-color: var(--green-bg, #e8f5e9);
+  background-color: #e8f5e9;
   border-color: #a5d6a7;
 }
 .patient-item.status-ipd {
-  background-color: var(--red-bg, #ffebee);
+  background-color: #ffebee;
   border-color: #ef9a9a;
 }
 .patient-item.status-er {
-  background-color: var(--purple-bg, #f3e5f5);
+  background-color: #f3e5f5;
   border-color: #ce93d8;
 }
 .patient-item.status-biweekly {
   background-color: #ffcc80;
   border-color: #ffb74d;
 }
+
+/* 特殊標籤 */
 .patient-item.tag-chou {
   background-color: #658ee0 !important;
   color: white !important;
   border-color: #3949ab !important;
 }
-.patient-item.tag-chou,
-.patient-item.tag-chou .patient-line-one,
-.patient-item.tag-chou .patient-line-two,
-.patient-item.tag-chou .note-display {
+.patient-item.tag-chou * {
   color: white !important;
-}
-.patient-item.tag-chou .stats-special-mode {
-  background-color: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: white;
-}
-.patient-item.tag-chou .ward-number-display {
-  background-color: rgba(255, 255, 255, 0.2);
-  color: white;
 }
 .patient-item.tag-new {
   background-color: #f5ec8e;
@@ -2704,14 +2720,18 @@ button:disabled {
   background-color: #fff9c4;
   border-color: #fff59d;
 }
-.patient-item.has-note-highlight .patient-line-one {
+
+/* 顯示元素 */
+.note-display {
   color: #c62828;
+  font-weight: bold;
 }
+
 .stats-special-mode {
   display: inline-block;
   vertical-align: middle;
   padding: 1px 5px;
-  background-color: var(--red-bg, #ffebee);
+  background-color: #ffebee;
   color: #c62828;
   border: 1px solid #ef9a9a;
   border-radius: 4px;
@@ -2719,6 +2739,7 @@ button:disabled {
   font-size: 0.9em;
   line-height: 1.2;
 }
+
 .ward-number-display {
   display: inline-block;
   background-color: #4a90e2;
@@ -2730,27 +2751,17 @@ button:disabled {
   margin-right: 4px;
   vertical-align: middle;
 }
-.is-locked .stats-section {
-  cursor: not-allowed;
+
+/* 統計摘要 */
+.total-count-summary {
+  background-color: #f8f9fa;
+  font-weight: bold;
+  text-align: center;
+  color: #333;
+  padding: 10px 8px;
 }
-.is-locked .patient-list-cell {
-  background-color: #f5f5f5;
-}
-.is-locked .name-select {
-  pointer-events: none;
-  background-color: #eeeeee;
-}
-.is-locked .patient-main-info {
-  cursor: not-allowed;
-}
-.is-locked .patient-item {
-  pointer-events: none;
-}
-.is-locked :deep(.memo-icon-wrapper),
-.is-locked .prep-list-trigger {
-  pointer-events: auto;
-  cursor: pointer;
-}
+
+/* 收合功能 */
 .collapsible-header {
   cursor: pointer;
   display: flex;
@@ -2761,108 +2772,67 @@ button:disabled {
   grid-column: 1 / -1;
   padding: 8px;
 }
+
 .collapsible-header:hover {
   background-color: #e9ecef;
 }
+
 .collapse-icon {
   font-size: 0.8em;
   transition: transform 0.3s ease-in-out;
 }
+
 .collapse-icon.is-expanded {
   transform: rotate(90deg);
 }
+
+/* 動畫效果 */
+.slide-fade-enter-active,
+.slide-fade-leave-active {
+  transition: all 0.2s ease-out;
+}
+
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  transform: translateY(-5px);
+  opacity: 0;
+}
+
 .grid-row-fade-enter-active,
 .grid-row-fade-leave-active {
   transition: all 0.3s ease-out;
 }
-.grid-row-fade-enter-from,
-.grid-row-fade-leave-to {
-  opacity: 0;
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
-  overflow: hidden;
-}
-.grid-row-fade-enter-to,
-.grid-row-fade-leave-from {
-  opacity: 1;
-  max-height: 500px;
-}
-.grid-row-fade-leave-active {
-  display: contents;
-}
-.grid-row-fade-leave-to > * {
-  padding-top: 0;
-  padding-bottom: 0;
-  border-width: 0;
-  margin: 0;
-  opacity: 0;
-}
-.grid-row-fade-enter-active .grid-cell,
-.grid-row-fade-leave-active .grid-cell {
-  transition: all 0.3s ease-out;
-}
+
 .grid-row-fade-enter-from .grid-cell,
 .grid-row-fade-leave-to .grid-cell {
   opacity: 0;
   transform: translateY(-10px);
 }
+
+/* 未分組樣式 */
 .unassigned-header {
   background-color: #ffe0b2 !important;
   color: #8d6e63 !important;
 }
+
 .unassigned-cell {
   background-color: #fff8e1 !important;
   border-left: 2px solid #ffb74d;
 }
+
 .unassigned-placeholder {
   width: 100%;
   height: 100%;
   background-color: #fffde7;
 }
-.duplicate-shift-btn.desktop-only {
-  border-color: #6f42c1;
-  color: #6f42c1;
-}
+
+/* 夜班收針區塊 */
 .late-takeoff-section {
   border-top: 4px solid #007bff;
   margin-top: 1.5rem;
 }
-.late-takeoff-section .section-title-cell {
-  background-color: #e3f2fd;
-  color: #005a9c;
-}
-.takeoff-title-cell {
-  grid-row: 1 / 3;
-  z-index: 3;
-}
-.takeoff-action-bar {
-  grid-column: 2 / -1;
-  grid-row: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid #ddd;
-  background-color: #f8f9fa;
-  border-right: 1px solid #ddd;
-}
-.late-takeoff-section .team-header-cell {
-  position: relative;
-  top: 0;
-}
-.duplicate-shift-btn.remove {
-  padding: 6px 12px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  border: 1px solid #dc3545;
-  background-color: #f8d7da;
-  color: #721c24;
-}
-.duplicate-shift-btn.remove:hover:not(:disabled) {
-  background-color: #f5c6cb;
-}
+
+/* 操作按鈕 */
 .cell-actions-container {
   position: absolute;
   bottom: 4px;
@@ -2870,9 +2840,9 @@ button:disabled {
   display: flex;
   gap: 8px;
 }
+
 .prep-list-trigger,
 .injection-list-trigger {
-  position: static;
   cursor: pointer;
   font-size: 1.2rem;
   padding: 2px;
@@ -2880,13 +2850,51 @@ button:disabled {
   transition: background-color 0.2s;
   user-select: none;
 }
+
 .prep-list-trigger:hover,
 .injection-list-trigger:hover {
   background-color: #e0e0e0;
 }
 
+/* 鎖定狀態 */
+.is-locked .stats-section {
+  cursor: not-allowed;
+}
+
+.is-locked .patient-list-cell {
+  background-color: #f5f5f5;
+}
+
+.is-locked .name-select {
+  pointer-events: none;
+  background-color: #eeeeee;
+}
+
+.is-locked .patient-main-info {
+  cursor: not-allowed;
+}
+
+.is-locked .patient-item {
+  pointer-events: none;
+}
+
+.is-locked :deep(.memo-icon-wrapper),
+.is-locked .prep-list-trigger,
+.is-locked .injection-list-trigger {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Deep 選擇器 */
+:deep(.memo-icon-wrapper) {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 8px;
+  align-self: center;
+}
+
 /* ================================== */
-/* === 5. 響應式與行動版 === */
+/* === 6. 響應式設計 === */
 /* ================================== */
 .mobile-only {
   display: none;
@@ -2903,48 +2911,60 @@ button:disabled {
     gap: 1rem;
   }
 }
+
 @media screen and (max-width: 992px) {
   .desktop-only,
   .desktop-only-flex {
     display: none !important;
   }
+
   .mobile-only {
     display: block !important;
   }
+
   .page-container {
     padding: 0;
   }
+
   .page-header-content {
     padding: 10px;
   }
+
   .scrollable-main-content {
     padding: 0 10px 80px 10px;
   }
+
   .header-toolbar,
   .toolbar-left {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
   }
+
   .page-title {
     text-align: center;
     font-size: 1.5rem;
   }
+
   .date-navigator {
     display: grid;
     grid-template-columns: auto 1fr auto;
     width: 100%;
   }
+
   .current-date-text,
   .weekday-display {
     font-size: 1.25rem;
     text-align: center;
   }
+
   .toolbar-left > button {
     width: 100%;
     box-sizing: border-box;
     justify-content: center;
   }
+
+  /* 行動版卡片樣式 */
   .mobile-shift-section {
     border: 1px solid #ddd;
     border-radius: 8px;
@@ -2952,6 +2972,7 @@ button:disabled {
     background-color: #fff;
     overflow: hidden;
   }
+
   .mobile-shift-title {
     background-color: #e3f2fd;
     color: #005a9c;
@@ -2960,24 +2981,29 @@ button:disabled {
     margin: 0;
     border-bottom: 1px solid #ddd;
   }
+
   .mobile-team-card {
     padding: 12px;
     border-top: 1px solid #eee;
   }
+
   .mobile-team-card:first-of-type {
     border-top: none;
   }
+
   .mobile-team-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
   }
+
   .mobile-team-header h3 {
     margin: 0;
     font-size: 1.3em;
     color: #333;
   }
+
   .mobile-team-header .name-select {
     width: 150px;
     height: auto;
@@ -2986,11 +3012,13 @@ button:disabled {
     border: 1px solid #ccc;
     border-radius: 4px;
   }
+
   .mobile-patient-lists {
     display: flex;
     flex-direction: column;
     gap: 16px;
   }
+
   .mobile-patient-list h4 {
     margin: 0 0 8px 0;
     font-size: 1.1em;
@@ -2998,15 +3026,18 @@ button:disabled {
     border-bottom: 2px solid #f0f0f0;
     padding-bottom: 4px;
   }
+
   .mobile-patient-list.collapsible h4 {
     cursor: pointer;
     display: flex;
     justify-content: space-between;
     align-items: center;
   }
+
   .collapsible-content {
     padding-top: 8px;
   }
+
   .mobile-team-footer {
     margin-top: 12px;
     padding-top: 8px;
@@ -3015,6 +3046,7 @@ button:disabled {
     font-weight: bold;
     color: #333;
   }
+
   .mobile-only .name-select:disabled {
     background-color: #f5f5f5;
     border-color: #ddd;
@@ -3023,9 +3055,12 @@ button:disabled {
     appearance: none;
     cursor: default;
   }
+
   .mobile-only .patient-main-info {
     cursor: default;
   }
+
+  /* FAB 按鈕 */
   .fab-mobile {
     position: fixed;
     bottom: 1.5rem;

@@ -10,7 +10,7 @@
       <!-- 第一列：主工具列 -->
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">每日排程表</h1>
+          <h1 class="page-title">每日排程</h1>
           <div class="date-navigator">
             <button class="btn" @click="changeDate(-1)">&lt; 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>

@@ -1071,67 +1071,134 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         ) {
           throw new Error('MOVE 調班資料不完整：缺少來源或目標資訊')
         }
+
         await db.runTransaction(async (transaction) => {
-          const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
-          const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
-          const [sourceDoc, targetDoc] = await Promise.all([
-            transaction.get(sourceScheduleRef),
-            transaction.get(targetScheduleRef),
-          ])
-          if (sourceDoc.exists) {
+          // ✨✨✨ 核心修正開始 ✨✨✨
+
+          // 情況 1: 同日移動 (sourceDate 與 goalDate 相同)
+          if (from.sourceDate === to.goalDate) {
+            logger.info(`  └─ 執行同日移動: ${from.sourceDate}`)
+            const scheduleRef = db.collection('schedules').doc(from.sourceDate)
+            const scheduleDoc = await transaction.get(scheduleRef)
+
+            if (!scheduleDoc.exists) {
+              // 理論上來源日期應該要有排班，如果沒有就報錯
+              throw new Error(`MOVE 失敗：找不到來源日期 ${from.sourceDate} 的排班表`)
+            }
+
+            const schedule = scheduleDoc.data().schedule || {}
             const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
-            const sourceSchedule = sourceDoc.data().schedule || {}
-            if (sourceSchedule[sourceKey]?.patientId === patientId) {
-              delete sourceSchedule[sourceKey]
-              transaction.update(sourceScheduleRef, {
-                schedule: sourceSchedule,
-                lastModified: FieldValue.serverTimestamp(),
-                modifiedBy: 'exception_handler',
-              })
+            const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
+
+            // 步驟 A: 驗證並刪除來源位置
+            if (schedule[sourceKey]?.patientId === patientId) {
+              delete schedule[sourceKey]
               logger.info(`  └─ 移除 ${patientName} 從 ${from.sourceDate} ${sourceKey}`)
             } else {
               logger.warn(`  └─ 警告：原位置 ${sourceKey} 的病人不是 ${patientName}，不執行移除。`)
             }
-          }
-          const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
-          const newSlotData = {
-            patientId: patientId,
-            patientName: patientName,
-            shiftId: to.shiftCode,
-            manualNote: `(換班)`,
-            exceptionId: exceptionId,
-            appliedAt: FieldValue.serverTimestamp(),
-          }
-          const targetSchedule = targetDoc.exists ? targetDoc.data().schedule || {} : {}
-          if (targetSchedule[targetKey]) {
-            const occupant = targetSchedule[targetKey]
-            conflicts.push({
-              date: to.goalDate,
-              position: targetKey,
-              occupiedBy: occupant.patientName || occupant.patientId,
-              action: 'override',
-            })
-            logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
-            newSlotData.manualNote = `(換班-覆蓋)`
-          }
-          targetSchedule[targetKey] = newSlotData
-          if (targetDoc.exists) {
-            transaction.update(targetScheduleRef, {
-              schedule: targetSchedule,
+
+            // 步驟 B: 檢查衝突並新增到目標位置
+            const newSlotData = {
+              patientId: patientId,
+              patientName: patientName,
+              shiftId: to.shiftCode,
+              manualNote: `(換班)`,
+              exceptionId: exceptionId,
+              appliedAt: FieldValue.serverTimestamp(),
+            }
+            if (schedule[targetKey]) {
+              const occupant = schedule[targetKey]
+              conflicts.push({
+                date: to.goalDate,
+                position: targetKey,
+                occupiedBy: occupant.patientName || occupant.patientId,
+              })
+              logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
+              newSlotData.manualNote = `(換班-覆蓋)`
+            }
+            schedule[targetKey] = newSlotData
+            logger.info(`  └─ 新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
+
+            // 步驟 C: 執行一次性的更新
+            transaction.update(scheduleRef, {
+              schedule: schedule,
               lastModified: FieldValue.serverTimestamp(),
               modifiedBy: 'exception_handler',
             })
+            processedDates = [from.sourceDate]
+
+            // 情況 2: 跨日移動 (sourceDate 與 goalDate 不同) - 維持原邏輯
           } else {
-            transaction.set(targetScheduleRef, {
-              date: to.goalDate,
-              schedule: targetSchedule,
-              createdAt: FieldValue.serverTimestamp(),
-              lastModified: FieldValue.serverTimestamp(),
-              modifiedBy: 'exception_handler',
-            })
+            logger.info(`  └─ 執行跨日移動: 從 ${from.sourceDate} 到 ${to.goalDate}`)
+            const sourceScheduleRef = db.collection('schedules').doc(from.sourceDate)
+            const targetScheduleRef = db.collection('schedules').doc(to.goalDate)
+            const [sourceDoc, targetDoc] = await Promise.all([
+              transaction.get(sourceScheduleRef),
+              transaction.get(targetScheduleRef),
+            ])
+
+            // 刪除來源
+            if (sourceDoc.exists) {
+              const sourceKey = getScheduleKey(from.bedNum, from.shiftCode)
+              const sourceSchedule = sourceDoc.data().schedule || {}
+              if (sourceSchedule[sourceKey]?.patientId === patientId) {
+                delete sourceSchedule[sourceKey]
+                transaction.update(sourceScheduleRef, {
+                  schedule: sourceSchedule,
+                  lastModified: FieldValue.serverTimestamp(),
+                  modifiedBy: 'exception_handler',
+                })
+                logger.info(`  └─ 移除 ${patientName} 從 ${from.sourceDate} ${sourceKey}`)
+              } else {
+                logger.warn(
+                  `  └─ 警告：原位置 ${sourceKey} 的病人不是 ${patientName}，不執行移除。`,
+                )
+              }
+            }
+
+            // 新增到目標
+            const targetKey = getScheduleKey(to.bedNum, to.shiftCode)
+            const newSlotData = {
+              patientId: patientId,
+              patientName: patientName,
+              shiftId: to.shiftCode,
+              manualNote: `(換班)`,
+              exceptionId: exceptionId,
+              appliedAt: FieldValue.serverTimestamp(),
+            }
+            const targetSchedule = targetDoc.exists ? targetDoc.data().schedule || {} : {}
+            if (targetSchedule[targetKey]) {
+              const occupant = targetSchedule[targetKey]
+              conflicts.push({
+                date: to.goalDate,
+                position: targetKey,
+                occupiedBy: occupant.patientName || occupant.patientId,
+              })
+              logger.warn(`  └─ 衝突：${targetKey} 被 ${occupant.patientName} 佔用，將覆蓋`)
+              newSlotData.manualNote = `(換班-覆蓋)`
+            }
+            targetSchedule[targetKey] = newSlotData
+
+            if (targetDoc.exists) {
+              transaction.update(targetScheduleRef, {
+                schedule: targetSchedule,
+                lastModified: FieldValue.serverTimestamp(),
+                modifiedBy: 'exception_handler',
+              })
+            } else {
+              transaction.set(targetScheduleRef, {
+                date: to.goalDate,
+                schedule: targetSchedule,
+                createdAt: FieldValue.serverTimestamp(),
+                lastModified: FieldValue.serverTimestamp(),
+                modifiedBy: 'exception_handler',
+              })
+            }
+            logger.info(`  └─ 新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
+            processedDates = [from.sourceDate, to.goalDate]
           }
-          logger.info(`  └─ 新增 ${patientName} 到 ${to.goalDate} ${targetKey}`)
-          processedDates = [from.sourceDate, to.goalDate]
+          // ✨✨✨ 核心修正結束 ✨✨✨
         })
       }
 
