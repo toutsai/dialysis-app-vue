@@ -618,12 +618,150 @@
           </div>
         </div>
 
-        <!-- 夜班收針區塊 -->
+        <!-- ✨ [核心修改 1] 為夜班收針區塊補上完整的顯示內容 -->
         <div
           v-if="lateShiftTakeOffExists"
           class="stats-section late-takeoff-section"
           :class="{ 'is-locked': isPageLocked }"
-        ></div>
+        >
+          <div
+            class="grid-container"
+            :style="{ gridTemplateColumns: `90px repeat(${sortedLateTakeOffTeams.length}, 1fr)` }"
+          >
+            <div class="grid-header">
+              <div class="row-header section-title-cell">夜班收針</div>
+              <div
+                v-for="teamName in sortedLateTakeOffTeams"
+                :key="teamName"
+                class="team-header-cell"
+                :class="{ 'unassigned-header': teamName.includes('未分組') }"
+              >
+                {{
+                  teamName.includes('未分組') ? '未分組' : teamName.replace('夜間收針', '') + '組'
+                }}
+              </div>
+            </div>
+            <div class="grid-body">
+              <div class="grid-row">
+                <div class="row-header">姓名</div>
+                <div
+                  v-for="teamName in sortedLateTakeOffTeams"
+                  :key="teamName"
+                  class="grid-cell name-cell"
+                >
+                  <select
+                    v-if="!teamName.includes('未分組')"
+                    :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
+                    @change="updateNurseName(teamName, $event)"
+                    class="name-select"
+                    :disabled="isPageLocked"
+                  >
+                    <option value="">-- 未指派 --</option>
+                    <option v-for="name in nurseNameList" :key="name" :value="name">
+                      {{ name }}
+                    </option>
+                  </select>
+                  <div v-else class="unassigned-placeholder"></div>
+                </div>
+              </div>
+              <div class="grid-row">
+                <div class="row-header">夜班收針</div>
+                <div
+                  v-for="teamName in sortedLateTakeOffTeams"
+                  :key="teamName"
+                  class="grid-cell patient-list-cell"
+                  :class="{ 'unassigned-cell': teamName.includes('未分組') }"
+                  @drop="!isPageLocked && onDrop($event, teamName, 'lateShiftTakeOff')"
+                  @dragover.prevent="!isPageLocked && onDragOver($event)"
+                  @dragleave="onDragLeave"
+                >
+                  <div class="patient-wrapper">
+                    <div
+                      v-for="patient in effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff
+                        .patients"
+                      :key="patient.shiftId"
+                      :class="patient.classes"
+                      :draggable="!isPageLocked"
+                      @dragstart="!isPageLocked && onDragStart($event, patient, 'lateShiftTakeOff')"
+                    >
+                      <div
+                        class="patient-main-info"
+                        @click="!isPageLocked && openBedChangeDialog(patient)"
+                        title="點擊換床"
+                      >
+                        <div class="patient-line-one">
+                          {{ patient.dialysisBed }} - {{ patient.name }}
+                        </div>
+                        <div class="patient-line-two">
+                          <span v-if="patient.wardNumber" class="ward-number-display">{{
+                            patient.wardNumber
+                          }}</span>
+                          <span
+                            v-if="patient.mode && patient.mode !== 'HD'"
+                            class="stats-special-mode"
+                            >({{ patient.mode }})</span
+                          >
+                          <span v-if="patient.finalTags" class="note-display">{{
+                            patient.finalTags
+                          }}</span>
+                        </div>
+                      </div>
+                      <PatientMessagesIcon :patient-id="patient.id" context="dialog" />
+                    </div>
+                  </div>
+                  <div class="cell-actions-container">
+                    <div
+                      class="prep-list-trigger"
+                      v-if="
+                        effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff.patients.length >
+                        0
+                      "
+                      @click="
+                        showPrepPopover(
+                          $event,
+                          effectiveStatsData.lateTakeOff[teamName],
+                          'lateShiftTakeOff',
+                        )
+                      "
+                      title="顯示備物清單"
+                    >
+                      📋
+                    </div>
+                    <div
+                      class="injection-list-trigger"
+                      v-if="
+                        effectiveStatsData.lateTakeOff[teamName]?.lateShiftTakeOff.patients.length >
+                        0
+                      "
+                      @click="
+                        showInjectionList(
+                          effectiveStatsData.lateTakeOff[teamName],
+                          'lateShiftTakeOff',
+                        )
+                      "
+                      title="顯示本日應打針劑"
+                    >
+                      💉
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="grid-footer">
+              <div class="row-header">照護人數</div>
+              <div
+                v-for="teamName in sortedLateTakeOffTeams"
+                :key="teamName"
+                class="total-count-summary"
+              >
+                門{{ effectiveStatsData.lateTakeOff[teamName]?.totalOpdCount || 0 }} 住{{
+                  effectiveStatsData.lateTakeOff[teamName]?.totalIpdCount || 0
+                }}
+                急{{ effectiveStatsData.lateTakeOff[teamName]?.totalErCount || 0 }}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- (B) 行動版卡片列表 -->
@@ -2063,7 +2201,7 @@ onUnmounted(() => {})
 
 <style scoped>
 /* ================================== */
-/* === 1. 頁面佈局 (通用) === */
+/* === 1. 頁面佈局 (核心修改) === */
 /* ================================== */
 .page-container {
   display: flex;
@@ -2080,11 +2218,23 @@ onUnmounted(() => {})
   padding-bottom: 10px;
 }
 
+/* ✨ 移除此處的 overflow，讓它只是一個 flex 容器 */
 .scrollable-main-content {
   flex-grow: 1;
-  overflow: auto;
   min-height: 0;
   position: relative;
+  display: flex; /* 新增，使其子元素可以 flex */
+}
+
+/* ✨ 將滾動功能移到這個包裝層 */
+.stats-sections-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex-grow: 1; /* 新增，使其填滿父容器 */
+  overflow-y: auto; /* ✨ 核心修改：讓這個元素自己滾動 */
+  min-height: 0; /* 新增，確保 flex-grow 能正常運作 */
+  padding-bottom: 10px; /* 增加一點底部空間 */
 }
 
 /* ================================== */
@@ -2142,6 +2292,8 @@ button:disabled {
   border-color: #6f42c1;
   color: #6f42c1;
 }
+
+/* ... 以下所有其他樣式保持不變 ... */
 
 /* ================================== */
 /* === 3. 頂部工具列 === */
@@ -2489,12 +2641,6 @@ button:disabled {
   100% {
     transform: rotate(360deg);
   }
-}
-
-.stats-sections-wrapper {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
 }
 
 .stats-section {
