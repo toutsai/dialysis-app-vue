@@ -849,6 +849,7 @@
       :injections="filteredDailyInjections"
       :target-date="injectionDialogDate"
       v-model:filter-active="filterSpecificInjections"
+      :show-filter="true"
       @close="isInjectionDialogVisible = false"
     />
   </div>

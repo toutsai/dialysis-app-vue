@@ -977,6 +977,7 @@
       :injections="dailyInjections"
       :target-date="formatDate(currentDate)"
       @close="isInjectionDialogVisible = false"
+      :show-filter="false"
     />
     <!-- ✨ 核心修改：確保 DialysisOrderModal 存在並綁定正確 -->
     <DialysisOrderModal

@@ -1,10 +1,9 @@
-<!-- 檔案路徑: src/components/DailyInjectionListDialog.vue (已修改) -->
+<!-- 檔案路徑: src/components/DailyInjectionListDialog.vue (最終版) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="closeDialog">
     <div class="dialog-content">
       <div class="dialog-header">
         <h3>
-          <!-- ✨ 標題會動態顯示篩選後的數量 -->
           本日應打針劑清單
           <span v-if="titleDate">- {{ titleDate }} ({{ injections.length }} 筆)</span>
         </h3>
@@ -58,8 +57,8 @@
         </div>
       </div>
 
-      <!-- ✨ [核心修改 1] 新增頁尾區塊 -->
-      <footer class="dialog-footer">
+      <!-- ✨ [核心修改 1] 使用 v-if="showFilter" 來控制頁尾的顯示 -->
+      <footer v-if="showFilter" class="dialog-footer">
         <label class="filter-checkbox">
           <input
             type="checkbox"
@@ -77,7 +76,7 @@
 import { computed } from 'vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
-// ✨ [核心修改 2] 更新 props，加入 filterActive
+// ✨ [核心修改 2] 在 props 中新增 showFilter
 const props = defineProps({
   isVisible: Boolean,
   injections: {
@@ -93,13 +92,16 @@ const props = defineProps({
     required: true,
   },
   filterActive: {
-    // 用於接收 v-model 的值
     type: Boolean,
     default: false,
   },
+  showFilter: {
+    // 新增這個 prop
+    type: Boolean,
+    default: false, // 預設為 false (不顯示)
+  },
 })
 
-// ✨ [核心修改 3] 更新 emits，加入 update:filterActive
 const emit = defineEmits(['close', 'update:filterActive'])
 
 const closeDialog = () => {
@@ -309,7 +311,6 @@ const handlePrint = () => {
   display: none;
 }
 
-/* ✨ [核心修改 4] 新增頁尾和篩選器的樣式 */
 .dialog-footer {
   padding: 1rem 1.5rem;
   border-top: 1px solid #e9ecef;
