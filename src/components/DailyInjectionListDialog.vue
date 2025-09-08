@@ -1,10 +1,12 @@
-<!-- 檔案路徑: src/components/DailyInjectionListDialog.vue -->
+<!-- 檔案路徑: src/components/DailyInjectionListDialog.vue (已修改) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="closeDialog">
     <div class="dialog-content">
       <div class="dialog-header">
         <h3>
-          本日應打針劑清單 <span v-if="titleDate">- {{ titleDate }}</span>
+          <!-- ✨ 標題會動態顯示篩選後的數量 -->
+          本日應打針劑清單
+          <span v-if="titleDate">- {{ titleDate }} ({{ injections.length }} 筆)</span>
         </h3>
         <div class="header-actions">
           <button @click="handlePrint" class="btn-primary-dialog">
@@ -55,6 +57,18 @@
           <p><i class="fas fa-check-circle"></i> 今日無應打針劑項目</p>
         </div>
       </div>
+
+      <!-- ✨ [核心修改 1] 新增頁尾區塊 -->
+      <footer class="dialog-footer">
+        <label class="filter-checkbox">
+          <input
+            type="checkbox"
+            :checked="filterActive"
+            @change="emit('update:filterActive', $event.target.checked)"
+          />
+          僅顯示特定針劑 (Cacare, Fe-back, Parsabiv)
+        </label>
+      </footer>
     </div>
   </div>
 </template>
@@ -63,6 +77,7 @@
 import { computed } from 'vue'
 import { getMedicationUnit } from '@/utils/medicationUtils.js'
 
+// ✨ [核心修改 2] 更新 props，加入 filterActive
 const props = defineProps({
   isVisible: Boolean,
   injections: {
@@ -77,9 +92,15 @@ const props = defineProps({
     type: String, // 格式 YYYY-MM-DD
     required: true,
   },
+  filterActive: {
+    // 用於接收 v-model 的值
+    type: Boolean,
+    default: false,
+  },
 })
 
-const emit = defineEmits(['close'])
+// ✨ [核心修改 3] 更新 emits，加入 update:filterActive
+const emit = defineEmits(['close', 'update:filterActive'])
 
 const closeDialog = () => {
   emit('close')
@@ -286,5 +307,32 @@ const handlePrint = () => {
 /* 列印專用樣式 */
 .print-header {
   display: none;
+}
+
+/* ✨ [核心修改 4] 新增頁尾和篩選器的樣式 */
+.dialog-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e9ecef;
+  background-color: #f8f9fa;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.filter-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1rem;
+  cursor: pointer;
+  user-select: none; /* 讓文字不可選取 */
+}
+
+.filter-checkbox input {
+  width: 1.2em;
+  height: 1.2em;
+  cursor: pointer;
 }
 </style>
