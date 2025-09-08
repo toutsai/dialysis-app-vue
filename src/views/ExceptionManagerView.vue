@@ -407,6 +407,8 @@ function closeCreateDialog() {
     exceptionToReEdit.value = null
   }, 300)
 }
+
+// ✨ [核心修改] 更新 handleCreateException 函式 ✨
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
@@ -441,6 +443,7 @@ async function handleCreateException(formData) {
       message = `${actionText}申請: ${formData.patientName} (${typeText})`
     }
     createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
+
     let messageContent = ''
     const reasonText = `\n原因: ${formData.reason}`
     switch (formData.type) {
@@ -468,6 +471,7 @@ async function handleCreateException(formData) {
           reasonText
         break
     }
+
     if (messageContent && currentUser.value) {
       const createMessageTask = (patientInfo) => ({
         category: 'message',
@@ -483,8 +487,11 @@ async function handleCreateException(formData) {
           title: currentUser.value.title,
         },
         createdAt: serverTimestamp(),
+        // ✨ 在這裡為自動產生的留言也加上 expireAt 欄位 ✨
+        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 天後過期
         assignee: null,
       })
+
       if (formData.type === 'SWAP') {
         const task1 = createMessageTask({
           id: formData.patient1.patientId,
