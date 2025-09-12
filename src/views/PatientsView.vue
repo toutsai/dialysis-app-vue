@@ -408,6 +408,7 @@ async function handleSavePatient(patientData) {
     const wasPaused = originalPatient.patientStatus?.isPaused?.active || false
     const isNowPaused = patientData.patientStatus?.isPaused?.active || false
 
+    // 處理「暫停/中止透析」的特殊情況
     if (!wasPaused && isNowPaused) {
       showConfirm(
         '確認暫停/中止透析',
@@ -423,6 +424,10 @@ async function handleSavePatient(patientData) {
               removeRuleFromMasterSchedule(patientData.id),
             ])
             await refreshAllData()
+
+            // ✨✨✨【已加入通知】✨✨✨
+            window.dispatchEvent(new CustomEvent('patient-data-updated'))
+
             createGlobalNotification(`暫停/中止透析：${patientData.name}`, 'patient')
             showAlert(
               '操作成功',
@@ -433,24 +438,29 @@ async function handleSavePatient(patientData) {
           }
         },
       )
-      return
+      return // 結束函式，等待使用者確認
     }
 
+    // 處理「一般編輯」
     try {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
       dataToUpdate.updatedAt = new Date().toISOString()
       await optimizedUpdatePatient(patientData.id, dataToUpdate)
       await refreshAllData()
+
+      // ✨✨✨【已加入通知】✨✨✨
+      window.dispatchEvent(new CustomEvent('patient-data-updated'))
+
       createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
       closeModal()
     } catch (err) {
       showAlert('操作失敗', '更新病人資料失敗！')
     }
-    return
+    return // 結束函式
   }
 
-  // --- 新增病人的邏輯 (保持不變) ---
+  // --- 新增病人的邏輯 ---
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
@@ -471,6 +481,7 @@ async function handleSavePatient(patientData) {
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
   } else {
+    // 新增病人不需要發送通知，因為 BaseScheduleView 不認識這個新病人
     try {
       const dataToCreate = {
         ...patientData,
@@ -494,6 +505,7 @@ async function handleConflictSelected() {
   const existingPatient = existingPatientForConflict.value
   const newPatientData = newPatientDataForConflict.value
   if (!existingPatient || !newPatientData) return
+
   try {
     const dataToUpdate = {
       ...newPatientData,
@@ -506,6 +518,10 @@ async function handleConflictSelected() {
     delete dataToUpdate.id
     await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
     await refreshAllData()
+
+    // ✨✨✨【已加入通知】✨✨✨
+    window.dispatchEvent(new CustomEvent('patient-data-updated'))
+
     const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
     createGlobalNotification(`轉移病人：${newPatientData.name} 至 ${statusText}`, 'patient')
     showAlert('操作成功', `病人 ${newPatientData.name} 已成功更新並轉移至 ${statusText} 清單。`)
@@ -537,6 +553,7 @@ async function transferPatient(patientId, newStatus) {
         }
         await optimizedUpdatePatient(patientId, updateData)
         await refreshAllData()
+        window.dispatchEvent(new CustomEvent('patient-data-updated'))
         createGlobalNotification(`轉移病人：${patient.name} 至 ${targetStatusText}`, 'patient')
         showAlert('轉移成功', `${patient.name} 已成功轉至${targetStatusText}。`)
         globalSearchTerm.value = ''

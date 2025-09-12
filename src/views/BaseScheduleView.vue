@@ -128,7 +128,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, computed, nextTick, onUnmounted, watch } from 'vue'
 import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
 import { updatePatient } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
@@ -150,6 +150,7 @@ import { storeToRefs } from 'pinia'
 // ✨ 實例化 Store 並獲取響應式狀態
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
+const { removeRuleFromMasterSchedule } = patientStore
 
 // --- API and Constants ---
 const baseSchedulesApi = ApiManager('base_schedules')
@@ -358,17 +359,36 @@ const searchResults = computed(() => {
 
 // --- Functions ---
 function updateScheduleRule(patientId, newRuleData) {
+  // 複製一份當前的 schedule 物件
   const newSchedule = { ...(masterRecord.value.schedule || {}) }
+
   if (newRuleData) {
+    // 新增或更新規則
     newSchedule[patientId] = newRuleData
   } else {
+    // 刪除規則 (傳入的 newRuleData 為 null)
     if (newSchedule[patientId]) {
       delete newSchedule[patientId]
     }
   }
-  masterRecord.value.schedule = newSchedule
+
+  // ✨✨✨【核心修正】✨✨✨
+  // 將 masterRecord.value 整個替換為一個包含新 schedule 的新物件
+  // 而不是只修改 masterRecord.value.schedule 屬性
+  masterRecord.value = {
+    ...masterRecord.value, // 複製舊有的 id 等屬性
+    schedule: newSchedule, // 使用我們剛剛修改過的新 schedule
+  }
+
   setChange()
 }
+
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
+}
+
 function onDragStart(event, slotId) {
   if (isPageLocked.value) {
     event.preventDefault()
@@ -488,15 +508,49 @@ async function handleBedAssigned({ patientId, bedNum, shiftCode, newFreq }) {
   isAssignmentDialogVisible.value = false
   console.log(`✅ [BaseScheduleView] 已為病人 ${patient.name} 建立/更新規則`)
 }
-function handleDeleteRule() {
+
+async function handleDeleteRule() {
+  const patientId = actionTarget.value.patientId
+  const patientName = actionTarget.value.patientName
+
+  if (!patientId) return
+
   confirmDialogTitle.value = `刪除排班規則`
-  confirmDialogMessage.value = `您確定要將 ${actionTarget.value.patientName} 從總表中移除嗎？`
-  confirmAction.value = () => {
-    updateScheduleRule(actionTarget.value.patientId, null)
-    console.log(`🗑️ [BaseScheduleView] 已刪除病人 ${actionTarget.value.patientName} 的規則`)
+  confirmDialogMessage.value = `您確定要將 ${patientName} 從總表中移除嗎？\n\n此操作會立即生效並儲存。`
+
+  // 將 confirmAction 的內容徹底替換
+  confirmAction.value = async () => {
+    try {
+      // 直接呼叫 Store 中可靠的刪除函式
+      const success = await removeRuleFromMasterSchedule(patientId)
+
+      if (success) {
+        console.log(`🗑️ [BaseScheduleView] 已透過 Store 成功刪除病人 ${patientName} 的規則`)
+
+        // 因為後台資料已變更，我們需要重新載入總表資料以同步前端畫面
+        await loadAllData()
+
+        // 通知使用者操作成功
+        alertDialogTitle.value = '操作成功'
+        alertDialogMessage.value = `已成功將 ${patientName} 從總表中移除。`
+        isAlertDialogVisible.value = true
+
+        // 因為已經儲存，所以重置未儲存狀態
+        hasUnsavedChanges.value = false
+        statusText.value = '總表規則已更新'
+      } else {
+        // Store 可能回傳 false 表示未找到規則
+        showAlert('提示', `${patientName} 在總表中並無排班規則可刪除。`)
+      }
+    } catch (error) {
+      console.error('❌ [BaseScheduleView] 透過 Store 刪除規則失敗:', error)
+      showAlert('操作失敗', `移除排班規則時發生錯誤: ${error.message}`)
+    }
   }
+
   isConfirmDialogVisible.value = true
 }
+
 function handlePatientSelect({ patientId }) {
   if (isPageLocked.value || !patientId || !currentSlotId.value) return
   const patient = patientMap.value.get(patientId)
@@ -878,6 +932,7 @@ async function loadAllData() {
   statusText.value = '讀取中...'
   try {
     await patientStore.fetchPatientsIfNeeded()
+
     const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
 
     if (baseScheduleDoc && baseScheduleDoc.schedule) {
@@ -885,6 +940,9 @@ async function loadAllData() {
     } else {
       masterRecord.value = { id: 'MASTER_SCHEDULE', schedule: {} }
     }
+
+    // 每次重載都視為乾淨狀態
+    hasUnsavedChanges.value = false
     statusText.value = '總床位表已載入'
   } catch (error) {
     console.error('❌ [BaseScheduleView] 載入資料失敗:', error)
@@ -893,10 +951,15 @@ async function loadAllData() {
   }
 }
 
-function handlePatientDataUpdate() {
-  console.log('🔄 [BaseScheduleView] 收到病人資料更新通知，正在強制重新渲染...')
-  tableKey.value = Date.now()
+// ✨✨✨【核心修正】✨✨✨
+// 當收到病人資料更新的廣播時，直接呼叫 loadAllData() 重新載入所有資料
+async function handlePatientDataUpdate() {
+  console.log('🔄 [BaseScheduleView] 收到病人資料更新通知，正在從後台重新載入所有資料...')
+  await loadAllData()
+  // 注意：我們不再需要手動更新 tableKey，因為 loadAllData 載入新資料後，
+  // Vue 的響應式系統會自動觸發畫面更新。
 }
+
 function handleScheduleUpdate() {
   console.log('🔄 [BaseScheduleView] 收到排程儲存通知，正在重新載入總表資料...')
   async function reloadSchedule() {

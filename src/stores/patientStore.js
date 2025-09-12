@@ -1,5 +1,3 @@
-// 檔案路徑: src/stores/patientStore.js (✨ 最終性能優化版 ✨)
-
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
@@ -8,20 +6,21 @@ import { db } from '@/composables/useFirebase.js'
 
 // 使用 Setup Store 語法，更靈活且有利於 TypeScript
 export const usePatientStore = defineStore('patient', () => {
-  // --- State ---
+  // --- State (狀態) ---
   const allPatients = ref([])
   const isLoading = ref(false)
   const error = ref(null)
   const hasFetched = ref(false)
 
-  // --- Getters ---
+  // --- Getters (計算屬性) ---
   const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
+
   const opdPatients = computed(() =>
     allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted),
   )
   // 您可以根據需要添加 ipdPatients, erPatients 等 getters
 
-  // --- Actions ---
+  // --- Actions (動作) ---
 
   /**
    * 按需獲取所有病人資料。
@@ -69,8 +68,6 @@ export const usePatientStore = defineStore('patient', () => {
     }
   }
 
-  // ✨ --- START: 新增的局部更新 Actions --- ✨
-
   /**
    * 在 Store 中新增一位病人，用於避免全量刷新。
    * @param {object} newPatient - 新增的病人完整物件。
@@ -115,31 +112,57 @@ export const usePatientStore = defineStore('patient', () => {
     }
   }
 
-  // ✨ --- END: 新增的局部更新 Actions --- ✨
-
   /**
    * 從總表中移除指定病人的排班規則。
+   * 採用最可靠的「讀取-修改-寫回」模式，確保資料同步。
    * @param {string} patientId - 病人 ID。
+   * @returns {Promise<boolean>} 操作是否成功。
    */
   async function removeRuleFromMasterSchedule(patientId) {
     if (!patientId) {
-      console.error('[Pinia] 無效的 patientId，無法從總表移除。')
-      return
+      console.error('[Store] removeRuleFromMasterSchedule: patientId is missing.')
+      return false
     }
+
     const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
+
     try {
+      // 【核心】在執行任何操作前，先從後台獲取最新的文件快照
       const docSnap = await getDoc(masterScheduleRef)
-      if (docSnap.exists()) {
-        const masterRules = docSnap.data().schedule || {}
-        if (masterRules[patientId]) {
-          delete masterRules[patientId]
-          await updateDoc(masterScheduleRef, { schedule: masterRules })
-          console.log(`✅ [Pinia] 已成功從總表中移除病人 ${patientId} 的規則。`)
-        }
+
+      if (!docSnap.exists()) {
+        console.warn('[Store] MASTER_SCHEDULE document does not exist.')
+        return false // 文件不存在，自然也無規則可刪
+      }
+
+      const schedule = docSnap.data().schedule || {}
+
+      // 根據「最新的資料」來判斷規則是否存在
+      if (schedule[patientId]) {
+        console.log(`[Store] Found rule for patient ${patientId}. Preparing to delete...`)
+
+        // 從 schedule 物件中刪除該病人的 key
+        delete schedule[patientId]
+
+        // 將修改後的整個 schedule 物件寫回後台
+        await updateDoc(masterScheduleRef, {
+          schedule: schedule,
+          updatedAt: new Date(),
+        })
+
+        console.log(
+          `[Store] Successfully removed rule for patient ${patientId} and updated Firestore.`,
+        )
+        // 只有在真正執行了刪除和更新後，才回傳 true
+        return true
+      } else {
+        // 如果在最新的資料中找不到規則，明確告知並回傳 false
+        console.log(`[Store] No rule found for patient ${patientId} in the latest master schedule.`)
+        return false
       }
     } catch (error) {
-      console.error(`❌ [Pinia] 從總表移除病人規則時失敗:`, error)
-      throw new Error('從總床位表移除規則失敗，請檢查權限或網路。')
+      console.error('[Store] Error removing rule from master schedule:', error)
+      return false // 發生任何錯誤都應回傳 false
     }
   }
 
@@ -153,14 +176,19 @@ export const usePatientStore = defineStore('patient', () => {
     hasFetched.value = false
   }
 
-  // 導出所有 state, getters, 和 actions
+  // 導出所有 state, getters, 和 actions，讓外部元件可以使用
   return {
+    // State
     allPatients,
     isLoading,
     error,
     hasFetched,
+
+    // Getters
     patientMap,
     opdPatients,
+
+    // Actions
     fetchPatientsIfNeeded,
     forceRefreshPatients,
     addPatientInStore,
