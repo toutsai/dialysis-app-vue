@@ -51,6 +51,16 @@ service cloud.firestore {
       allow write: if isEditor(); // 寫入權限保持不變
     }
     
+    // ✨ --- 【請在此處新增以下規則】 --- ✨
+    match /expired_schedules/{scheduleId} {
+      // 權限設定：
+      // 讀取 (read): 所有已登入的使用者 (viewer) 都可以讀取歷史歸檔資料。
+      // 寫入 (write): 不允許任何客戶端直接寫入、更新或刪除歸檔資料。
+      // 歸檔資料只能由後端的 Cloud Function (具有管理員權限) 寫入。
+      allow read: if isViewer();
+      allow write: if false;
+    }
+
     match /base_schedules/{scheduleId} {
       allow read: if isViewer();
       allow write: if isEditor();

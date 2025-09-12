@@ -238,14 +238,20 @@ async function triggerMigration() {
         showAlert('處理中...', '正在呼叫後端遷移函式，請稍候... 這可能需要幾分鐘時間。')
         const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
         try {
-          showAlert('處理中...', '正在手動歸檔 2025-09-12 的資料...')
+          // 計算前天的日期
+          const today = new Date()
+          const dayBeforeYesterday = new Date(today)
+          dayBeforeYesterday.setDate(today.getDate() - 2)
+          const year = dayBeforeYesterday.getFullYear()
+          const month = (dayBeforeYesterday.getMonth() + 1).toString().padStart(2, '0')
+          const day = dayBeforeYesterday.getDate().toString().padStart(2, '0')
+          const endDate = `${year}-${month}-${day}`
+
           const result = await migrate({
-            // ✨ 將開始和結束日期都設為 9/12
-            startDate: '2025-09-12',
-            endDate: '2025-09-12',
+            startDate: '2024-01-01', // 您可以根據需求修改最早的遷移日期
+            endDate: endDate,
           })
-          console.log('遷移成功:', result.data)
-          showAlert(`遷移成功！`, result.data.message)
+          showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
         } catch (error) {
           console.error('遷移失敗:', error)
           showAlert('遷移失敗', `發生錯誤: ${error.message}`)
