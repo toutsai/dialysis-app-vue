@@ -23,7 +23,7 @@ const isLoadingHistory = ref(false)
 const isConfirmDeleteVisible = ref(false)
 const orderToDelete = ref(null)
 
-// ✅ 選項列表
+// 選項列表 (保持不變)
 const akOptions = [
   '13M',
   '15S',
@@ -38,29 +38,45 @@ const akOptions = [
   'CTA2000',
 ]
 const caOptions = ['2.5', '3.0', '3.5']
-// ✨ 新增：血管通路和穿刺針選項
 const vascAccessOptions = ['D/L', 'Perm', 'AVF', 'AVG']
 const needleSizeOptions = ['15G', '16G', '17G']
 
+// ✨✨✨ 核心修改 #1: 修改 localOrderData 狀態 ✨✨✨
 const localOrderData = reactive({
-  ak: '',
+  // 將 ak 改為 aks 陣列，並初始化為至少有一個空字串
+  aks: [''],
   dialysateCa: '',
   heparinInitial: '',
   heparinMaintenance: '',
   bloodFlow: '',
   dryWeight: '',
   effectiveDate: '',
-  // ✨ 新增：表單資料欄位
   vascAccess: '',
   arterialNeedle: '',
   venousNeedle: '',
 })
 
-// ✨ 新增：計算屬性，判斷是否需要顯示穿刺針選項
+// ✨✨✨ 核心修改 #2: 新增控制 AK 下拉選單的函式 ✨✨✨
+function addAkSelect() {
+  // 限制最多只能有 3 個
+  if (localOrderData.aks.length < 3) {
+    localOrderData.aks.push('')
+  }
+}
+
+function removeAkSelect(index) {
+  // 至少保留一個
+  if (localOrderData.aks.length > 1) {
+    localOrderData.aks.splice(index, 1)
+  }
+}
+
+// shouldShowNeedleSize 計算屬性 (保持不變)
 const shouldShowNeedleSize = computed(() => {
   return localOrderData.vascAccess === 'AVF' || localOrderData.vascAccess === 'AVG'
 })
 
+// (其他既有函式: getDate, todayStr, activeOrder, pendingOrders, archivedOrders, fetchOrderHistory... 都保持不變)
 const getDate = (dateValue) => {
   if (!dateValue) return null
   if (typeof dateValue.toDate === 'function') {
@@ -115,19 +131,29 @@ async function fetchOrderHistory(patientId) {
   }
 }
 
+// ✨✨✨ 核心修改 #3: 修改 watch 來處理資料格式轉換 ✨✨✨
 watch(
   () => props.isVisible,
   (newValue) => {
     if (newValue && props.patientData) {
       const orders = props.patientData.dialysisOrders || {}
-      localOrderData.ak = orders.ak || ''
+
+      // --- AK 資料轉換 (從字串轉為陣列) ---
+      const akValue = orders.ak || ''
+      if (akValue && typeof akValue === 'string') {
+        localOrderData.aks = akValue.split('/')
+      } else {
+        // 如果沒有值，或格式不對，就重置為一個空的
+        localOrderData.aks = ['']
+      }
+
+      // --- 其他欄位保持不變 ---
       localOrderData.dialysateCa = orders.dialysateCa || ''
       localOrderData.heparinInitial = orders.heparinInitial || ''
       localOrderData.heparinMaintenance = orders.heparinMaintenance || ''
       localOrderData.bloodFlow = orders.bloodFlow || ''
       localOrderData.dryWeight = orders.dryWeight || ''
       localOrderData.effectiveDate = orders.effectiveDate || new Date().toISOString().slice(0, 10)
-      // ✨ 新增：初始化新欄位的資料
       localOrderData.vascAccess = orders.vascAccess || ''
       localOrderData.arterialNeedle = orders.arterialNeedle || ''
       localOrderData.venousNeedle = orders.venousNeedle || ''
@@ -139,7 +165,7 @@ watch(
   },
 )
 
-// ✨ 新增：當血管通路改變時，如果不是 AVF/AVG，就清空穿刺針大小
+// (其他 watch 保持不變)
 watch(
   () => localOrderData.vascAccess,
   (newValue) => {
@@ -150,10 +176,25 @@ watch(
   },
 )
 
+// ✨✨✨ 核心修改 #4: 修改 handleSave 來處理資料格式轉換 ✨✨✨
 function handleSave() {
-  emit('save', { ...localOrderData })
+  // --- AK 資料轉換 (從陣列轉為字串) ---
+  // 先過濾掉使用者可能沒選的空值，再用 '/' 串接
+  const formattedAk = localOrderData.aks.filter((ak) => ak).join('/')
+
+  // 建立一個新的物件來發送，避免修改原始的 reactive 物件
+  const dataToSave = {
+    ...localOrderData,
+    ak: formattedAk, // 使用格式化後的 ak 字串
+  }
+
+  // 從要儲存的物件中刪除我們自訂的 aks 陣列
+  delete dataToSave.aks
+
+  emit('save', dataToSave)
 }
 
+// (其他函式: handleClose, requestDeleteOrder, confirmDelete, formatDate, getComparisonClass... 都保持不變)
 function handleClose() {
   emit('close')
 }
@@ -221,7 +262,7 @@ function getComparisonClass(currentValue, previousValue) {
                 <input id="effectiveDate" v-model="localOrderData.effectiveDate" type="date" />
               </div>
 
-              <!-- ✨ 新增：血管通路和穿刺針表單欄位 -->
+              <!-- 血管通路和穿刺針表單 (保持不變) -->
               <div class="form-group">
                 <label for="vascAccess">血管通路</label>
                 <select id="vascAccess" v-model="localOrderData.vascAccess">
@@ -231,7 +272,6 @@ function getComparisonClass(currentValue, previousValue) {
                   </option>
                 </select>
               </div>
-
               <div v-if="shouldShowNeedleSize" class="form-group needle-group">
                 <div class="sub-group">
                   <label for="arterialNeedle">動脈穿刺針</label>
@@ -252,17 +292,48 @@ function getComparisonClass(currentValue, previousValue) {
                   </select>
                 </div>
               </div>
-              <!-- ✨ 新增結束 -->
+              <!-- 血管通路結束 -->
 
-              <div class="form-group">
-                <label for="ak">人工腎臟 (AK)</label>
-                <select id="ak" v-model="localOrderData.ak">
-                  <option disabled value="">請選擇...</option>
-                  <option v-for="option in akOptions" :key="option" :value="option">
-                    {{ option }}
-                  </option>
-                </select>
+              <!-- ✨✨✨ 核心修改 #5: 修改人工腎臟的 HTML 結構 ✨✨✨ -->
+              <div class="form-group ak-dynamic-group">
+                <label>人工腎臟 (AK)</label>
+                <!-- 使用 v-for 迴圈來渲染下拉選單 -->
+                <div
+                  v-for="(ak, index) in localOrderData.aks"
+                  :key="index"
+                  class="ak-select-wrapper"
+                >
+                  <select v-model="localOrderData.aks[index]">
+                    <option disabled value="">請選擇...</option>
+                    <option v-for="option in akOptions" :key="option" :value="option">
+                      {{ option }}
+                    </option>
+                  </select>
+                  <!-- 只有在下拉選單超過一個時，才顯示移除按鈕 -->
+                  <button
+                    v-if="localOrderData.aks.length > 1"
+                    type="button"
+                    class="btn-ak-action remove"
+                    @click="removeAkSelect(index)"
+                    title="移除"
+                  >
+                    –
+                  </button>
+                </div>
+                <!-- 只有在下拉選單少於三個時，才顯示新增按鈕 -->
+                <button
+                  v-if="localOrderData.aks.length < 3"
+                  type="button"
+                  class="btn-ak-action add"
+                  @click="addAkSelect"
+                  title="新增另一種人工腎臟"
+                >
+                  +
+                </button>
               </div>
+              <!-- ✨✨✨ 修改結束 ✨✨✨ -->
+
+              <!-- 其他表單欄位 (保持不變) -->
               <div class="form-group">
                 <label for="dialysateCa">透析液鈣離子 (Ca)</label>
                 <select id="dialysateCa" v-model="localOrderData.dialysateCa">
@@ -692,6 +763,59 @@ tr.pending-order td:nth-child(2) {
 .is-changed {
   color: #dc3545;
   font-weight: bold;
+}
+.form-group.ak-dynamic-group {
+  /* 讓這個群組佔據兩欄空間，看起來更協調 */
+  grid-column: span 2;
+}
+
+.ak-select-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px; /* 每個下拉選單之間的間距 */
+}
+
+.ak-select-wrapper select {
+  flex-grow: 1; /* 讓下拉選單填滿可用空間 */
+}
+
+.btn-ak-action {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid #ccc;
+  background-color: #f0f0f0;
+  font-size: 1.2rem;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.btn-ak-action.add {
+  color: #28a745;
+  border-color: #28a745;
+  background-color: #e9f7ef;
+  margin-top: 4px; /* 與上方下拉選單的間距 */
+}
+.btn-ak-action.add:hover {
+  background-color: #28a745;
+  color: white;
+}
+
+.btn-ak-action.remove {
+  color: #dc3545;
+  border-color: #dc3545;
+  background-color: #fbebee;
+}
+.btn-ak-action.remove:hover {
+  background-color: #dc3545;
+  color: white;
 }
 
 /* ================================== */
