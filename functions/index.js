@@ -16,7 +16,7 @@ admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
 const { FieldValue } = require('firebase-admin/firestore')
 
-// ... (所有輔助函式，如 formatDateForQuery 等，保持不變) ...
+//============ 所有輔助函式，如 formatDateForQuery 等，保持不變)=====
 function formatDateForQuery(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -2402,5 +2402,124 @@ exports.getDailyInjections = onCall(
       logger.error(`[getDailyInjections V2.5] 處理針劑計算時發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
     }
+  },
+)
+
+// ===================================================================
+// ✨ --- 【全新 - 強化版】每日自動歸檔排程的 Cloud Function (支援大批量病人) --- ✨
+// ===================================================================
+
+exports.archiveDailySchedule = onSchedule(
+  // 設定排程：每天凌晨 00:00 (午夜12點) (台北時間) 執行
+  { schedule: 'every day 00:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '512MiB' },
+  async (event) => {
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(today.getDate() - 1)
+    const dateStr = formatDateForQuery(yesterday)
+
+    logger.info(`[Archiver V2] 🚀 開始歸檔日期為 ${dateStr} 的排班資料...`)
+
+    const sourceScheduleRef = db.collection('schedules').doc(dateStr)
+    const targetArchiveRef = db.collection('expired_schedules').doc(dateStr)
+
+    try {
+      const scheduleDoc = await sourceScheduleRef.get()
+      if (!scheduleDoc.exists) {
+        logger.warn(`[Archiver V2] ⚠️ 日期 ${dateStr} 的排班文件不存在，無需歸檔。`)
+        return null
+      }
+
+      const originalData = scheduleDoc.data()
+      const originalSchedule = originalData.schedule || {}
+      const patientIds = [
+        ...new Set(
+          Object.values(originalSchedule)
+            .map((slot) => slot.patientId)
+            .filter(Boolean),
+        ),
+      ]
+
+      if (patientIds.length === 0) {
+        logger.info(`[Archiver V2] 📄 日期 ${dateStr} 的排班中沒有病人，直接歸檔空排班。`)
+        await targetArchiveRef.set({ ...originalData, archivedAt: FieldValue.serverTimestamp() })
+        await sourceScheduleRef.delete()
+        logger.info(`[Archiver V2] ✅ 成功歸檔並刪除空的原始排班 ${dateStr}。`)
+        return null
+      }
+
+      logger.info(`[Archiver V2] 🔍 找到 ${patientIds.length} 位病人，開始分批查詢其狀態快照...`)
+
+      // ✨ --- START: 核心強化 - 分批次查詢病人資料 --- ✨
+      const patientDataMap = new Map()
+      const CHUNK_SIZE = 30 // Firestore 'in' 查詢的上限
+
+      for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
+        const chunk = patientIds.slice(i, i + CHUNK_SIZE)
+        logger.info(
+          `  └─ 正在查詢批次 ${Math.floor(i / CHUNK_SIZE) + 1} (共 ${chunk.length} 位病人)...`,
+        )
+
+        const patientQuery = db
+          .collection('patients')
+          .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+        const patientDocs = await patientQuery.get()
+
+        patientDocs.forEach((doc) => {
+          patientDataMap.set(doc.id, doc.data())
+        })
+      }
+      logger.info(
+        `[Archiver V2] ✅ 所有批次查詢完成，成功獲取 ${patientDataMap.size} 位病人的資料。`,
+      )
+      // ✨ --- END: 核心強化 --- ✨
+
+      const archivedSchedule = { ...originalSchedule }
+      let missingPatientCount = 0
+      for (const shiftId in archivedSchedule) {
+        const slot = archivedSchedule[shiftId]
+        if (slot?.patientId) {
+          const patientData = patientDataMap.get(slot.patientId)
+          if (patientData) {
+            slot.archivedPatientInfo = {
+              status: patientData.status,
+              mode: patientData.mode,
+              wardNumber: patientData.wardNumber || null,
+            }
+          } else {
+            missingPatientCount++
+            slot.archivedPatientInfo = {
+              status: 'deleted',
+              mode: 'N/A',
+              wardNumber: null,
+              name: slot.patientName || '未知 (已刪除)',
+            }
+          }
+        }
+      }
+
+      if (missingPatientCount > 0) {
+        logger.warn(
+          `[Archiver V2] ⚠️ 有 ${missingPatientCount} 位病人的資料在 patients 集合中找不到，可能已被刪除。`,
+        )
+      }
+
+      const dataToArchive = {
+        ...originalData,
+        schedule: archivedSchedule,
+        archivedAt: FieldValue.serverTimestamp(),
+      }
+
+      const batch = db.batch()
+      batch.set(targetArchiveRef, dataToArchive)
+      batch.delete(sourceScheduleRef)
+      await batch.commit()
+
+      logger.info(`[Archiver V2] ✅ 成功歸檔並刪除原始排班 ${dateStr}。`)
+    } catch (error) {
+      logger.error(`[Archiver V2] ❌ 歸檔日期 ${dateStr} 的排班時發生嚴重錯誤:`, error)
+      throw error
+    }
+    return null
   },
 )
