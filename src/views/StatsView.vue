@@ -7,12 +7,16 @@
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">護理分組</h1>
+          <!-- ✨ [這是修改後、更緊湊的日期導航] ✨ -->
           <div class="date-navigator">
             <button @click="changeDate(-1)">&lt; 上一天</button>
-            <span class="current-date-text">{{ formatDate(currentDate) }}</span>
-            <span class="weekday-display">{{ weekdayDisplay }}</span>
+            <div class="date-display-wrapper">
+              <span class="current-date-text">{{ formatDate(currentDate) }}</span>
+              <span class="weekday-display">{{ weekdayDisplay }}</span>
+            </div>
             <button @click="changeDate(1)">下一天 &gt;</button>
           </div>
+
           <button @click="goToToday">回到今日</button>
           <button
             class="btn-primary"
@@ -2209,7 +2213,7 @@ onUnmounted(() => {})
   height: 100vh;
   padding: 10px;
   box-sizing: border-box;
-  overflow: hidden;
+  overflow: hidden; /* 保持 hidden，控制權交給子元素 */
   background-color: #f8f9fa;
 }
 
@@ -2218,23 +2222,24 @@ onUnmounted(() => {})
   padding-bottom: 10px;
 }
 
-/* ✨ 移除此處的 overflow，讓它只是一個 flex 容器 */
+/* ✨ [這就是關鍵的修復！] ✨ */
+/* 將滾動功能直接賦予這個 flex-grow 的容器 */
 .scrollable-main-content {
   flex-grow: 1;
-  min-height: 0;
+  min-height: 0; /* 確保在 flex 容器中可以正確計算高度 */
+  overflow-y: auto; /* ✨ 加上這一行，讓這個區塊自己負責垂直滾動 */
   position: relative;
-  display: flex; /* 新增，使其子元素可以 flex */
 }
 
-/* ✨ 將滾動功能移到這個包裝層 */
+/* 您原先為桌面版做的滾動層可以移除 overflow，或保留也無妨，
+   因為現在它的父層已經可以滾動了。
+   為了架構清晰，建議將滾動職責統一交給 .scrollable-main-content */
 .stats-sections-wrapper {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  flex-grow: 1; /* 新增，使其填滿父容器 */
-  overflow-y: auto; /* ✨ 核心修改：讓這個元素自己滾動 */
-  min-height: 0; /* 新增，確保 flex-grow 能正常運作 */
-  padding-bottom: 10px; /* 增加一點底部空間 */
+  /* overflow-y: auto; <-- 這行可以移除，因為父層已有滾動功能 */
+  padding-bottom: 10px;
 }
 
 /* ================================== */
@@ -2293,8 +2298,6 @@ button:disabled {
   color: #6f42c1;
 }
 
-/* ... 以下所有其他樣式保持不變 ... */
-
 /* ================================== */
 /* === 3. 頂部工具列 === */
 /* ================================== */
@@ -2316,23 +2319,31 @@ button:disabled {
 }
 
 .page-title {
-  font-size: 32px;
+  font-size: 28px; /* 稍微調整大小以平衡視覺 */
   color: #333;
   margin: 0;
   white-space: nowrap;
 }
 
+/* ✨ [這是對應的樣式修改] ✨ */
 .date-navigator {
+  display: flex; /* 關鍵：讓內部元素水平排列 */
+  align-items: center; /* 垂直居中對齊 */
+  gap: 12px; /* 設定元素之間的間距 */
+}
+
+/* 新增一個包裝容器，讓日期和星期能更好地對齊 */
+.date-display-wrapper {
   display: flex;
-  align-items: center;
-  gap: 5px;
+  align-items: baseline; /* 讓不同大小的文字基線對齊，更美觀 */
+  gap: 8px;
 }
 
 .current-date-text {
   font-size: 26px;
   font-weight: bold;
   color: #333;
-  padding: 0 10px;
+  padding: 0; /* 移除舊的 padding */
 }
 
 .weekday-display {
@@ -2340,6 +2351,12 @@ button:disabled {
   font-weight: bold;
   color: #007bff;
 }
+
+/* 確保按鈕不會因為空間不足而被壓縮 */
+.date-navigator button {
+  flex-shrink: 0;
+}
+/* ✨ [樣式修改結束] ✨ */
 
 .status-indicator {
   font-size: 0.9em;

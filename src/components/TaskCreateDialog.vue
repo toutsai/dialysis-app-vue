@@ -239,7 +239,6 @@ import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 
-// ✨ [新增] initialData Prop
 const props = defineProps({
   isVisible: Boolean,
   preselectedPatient: Object,
@@ -258,13 +257,11 @@ const { createGlobalNotification } = useGlobalNotifier()
 const isSubmitting = ref(false)
 const isPatientDialogVisible = ref(false)
 const selectedPatient = ref(null)
-
-// ✨ [新增] 判斷是否為編輯模式
 const isEditMode = computed(() => !!props.initialData)
 
 const formData = reactive({
-  id: null, // ✨ [新增] 用於存放正在編輯的項目ID
-  isLegacy: false, // ✨ [新增] 判斷是否為舊的 memo
+  id: null,
+  isLegacy: false,
   category: 'message',
   assigneeValue: '',
   targetDate: new Date().toISOString().slice(0, 10),
@@ -272,7 +269,6 @@ const formData = reactive({
   messageType: '常規',
 })
 
-// ... messageTypeOptions 和 assigneeOptions 保持不變 ...
 const messageTypeOptions = [
   { value: '常規', label: '一般交班', icon: '📝' },
   { value: '抽血', label: '抽血提醒', icon: '🩸' },
@@ -324,14 +320,7 @@ const isClerkSupplyTask = computed(
 )
 
 const isFormValid = computed(() => {
-  // ✨ [核心修改] 移除所有對 formData.content.trim() 的檢查
-
-  // 編輯模式下，因為內容非必填，所以永遠視為有效，允許更新
-  if (isEditMode.value) {
-    return true
-  }
-
-  // 書記耗材的邏輯保持不變，因為它有自己的驗證規則
+  if (isEditMode.value) return true
   if (isClerkSupplyTask.value) {
     const allItemsValid = dynamicSupplyItems.value.every((item) => {
       if (['AK', 'A液', 'B液', '耗衛材'].includes(item.type)) {
@@ -344,24 +333,17 @@ const isFormValid = computed(() => {
     }
     return allItemsValid
   }
-
-  // 對於一般的「交辦事項」，現在只檢查是否已選擇「交辦給誰」
   if (formData.category === 'task' && !formData.assigneeValue) {
     return false
   }
-
-  // 對於「病人留言」，因為內容和目標日期都非必填，所以永遠有效
-  // 對於已選擇交辦對象的「交辦事項」，也視為有效
   return true
 })
 
-// ✨ [修改] watch isVisible 的邏輯，加入處理 initialData 的部分
 watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
       if (isEditMode.value) {
-        // --- 編輯模式 ---
         const item = props.initialData
         formData.id = item.id
         formData.isLegacy = item.isLegacy || false
@@ -370,14 +352,12 @@ watch(
         formData.targetDate = item.targetDate || new Date().toISOString().slice(0, 10)
         formData.content = item.content
         formData.messageType = item.type || '常規'
-
         if (item.patientId) {
           selectedPatient.value = props.allPatients.find((p) => p.id === item.patientId)
         } else {
           selectedPatient.value = null
         }
       } else {
-        // --- 新增模式 ---
         resetForm()
       }
     }
@@ -385,12 +365,7 @@ watch(
 )
 
 function addSupplyItem() {
-  dynamicSupplyItems.value.push({
-    id: Date.now(),
-    type: '',
-    spec: '',
-    quantity: 1,
-  })
+  dynamicSupplyItems.value.push({ id: Date.now(), type: '', spec: '', quantity: 1 })
 }
 
 function removeSupplyItem(index) {
@@ -423,7 +398,7 @@ function clearPatient() {
   selectedPatient.value = null
 }
 
-// ✨ [修改] 讓 handleSubmit 處理新增和更新兩種情況
+// ✨ [核心修改] 更新 handleSubmit 函式 ✨
 async function handleSubmit() {
   if (isClerkSupplyTask.value) {
     const parts = dynamicSupplyItems.value
@@ -431,9 +406,7 @@ async function handleSubmit() {
       .map((item) => {
         let itemName =
           supplyTypeOptions.value.find((opt) => opt.value === item.type)?.label || item.type
-        if (item.spec) {
-          itemName += ` (${item.spec})`
-        }
+        if (item.spec) itemName += ` (${item.spec})`
         return `${itemName} x${item.quantity}`
       })
 
@@ -447,8 +420,8 @@ async function handleSubmit() {
   if (!isFormValid.value) return
   isSubmitting.value = true
 
-  // --- 新增模式 ---
   if (!isEditMode.value) {
+    // --- 新增模式 ---
     const dataToSave = {
       category: formData.category,
       content: formData.content.trim(),
@@ -461,6 +434,8 @@ async function handleSubmit() {
       patientId: selectedPatient.value?.id || null,
       patientName: selectedPatient.value?.name || null,
       createdAt: serverTimestamp(),
+      // ✨ 在這裡計算並加入 expireAt 欄位 ✨
+      expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 設定 7 天後過期
     }
 
     if (dataToSave.category === 'task') {
@@ -474,7 +449,6 @@ async function handleSubmit() {
 
     try {
       const savedDoc = await tasksApi.save(dataToSave)
-      // ... 通知邏輯不變 ...
       let notifMessage = ''
       let notifType = 'info'
       if (dataToSave.category === 'message') {
@@ -492,34 +466,29 @@ async function handleSubmit() {
         notifType = 'task'
       }
       createGlobalNotification(notifMessage, notifType, { documentId: savedDoc.id })
-      emit('submit', { ...dataToSave, id: savedDoc.id }) // ✨ 發送帶有新ID的事件
+      emit('submit', { ...dataToSave, id: savedDoc.id })
       close()
     } catch (error) {
       console.error('新增失敗:', error)
     } finally {
       isSubmitting.value = false
     }
-
-    // --- 編輯模式 ---
   } else {
+    // --- 編輯模式 ---
     const dataToUpdate = {
       content: formData.content.trim(),
-      // 如果是 message，可以更新 type 和 targetDate
       ...(formData.category === 'message' && {
         type: formData.messageType,
         targetDate: formData.targetDate,
       }),
-      // ✨ [新增] 更新編輯者資訊
       lastEditedBy: {
         uid: currentUser.value.uid,
         name: currentUser.value.name,
       },
       lastEditedAt: serverTimestamp(),
     }
-
-    // ✨ [新增] 將更新的資料發送回父元件
     emit('submit', { id: formData.id, isLegacy: formData.isLegacy, ...dataToUpdate })
-    isSubmitting.value = false // 在父元件處理 API，這裡直接關閉
+    isSubmitting.value = false
   }
 }
 
