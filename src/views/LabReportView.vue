@@ -421,6 +421,25 @@ const selectedPatientForHistory = ref(null)
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
 // ✨ 修改點 2: 新增班別索引對照表，用於顯示和匯出
 const SHIFT_INDEX_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
+// ✨ 1. 新增：為「其他」頻率定義自訂排序順序
+const FREQ_CUSTOM_ORDER = {
+  // --- 每周兩次 (權重最低，排最前面) ---
+  一四: 10,
+  二五: 11,
+  三六: 12,
+  一五: 13,
+  二六: 14,
+  // --- 每周一次 ---
+  一: 20,
+  二: 21,
+  三: 22,
+  四: 23,
+  五: 24,
+  六: 25,
+  日: 26,
+  // --- 每日 (權重最高，排最後面) ---
+  每日: 30,
+}
 
 const prioritizedLabItems = [
   'WBC',
@@ -954,7 +973,6 @@ async function searchGroupReports() {
   const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
   const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
 
-  // ✨ 修改點 4: 在 patientList 中就帶入頻率與班別資訊
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -1000,7 +1018,6 @@ async function searchGroupReports() {
     }
   })
 
-  // ✨ 修改點 5: 將頻率與班別資訊傳遞到最終的 reportData
   reportData.value = patientList
     .map((p) => {
       const labData = aggregatedReports.get(p.patientId) || {}
@@ -1020,7 +1037,22 @@ async function searchGroupReports() {
         labData: labData,
       }
     })
-    .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
+    // ✨ 2. 修改排序邏輯
+    .sort((a, b) => {
+      // 只有在查詢「其他」群組時才套用自訂頻率排序
+      if (groupSearchParams.freq === 'other') {
+        const orderA = FREQ_CUSTOM_ORDER[a.freq] || 99 // 未定義的頻率(例如'一三')排在最後
+        const orderB = FREQ_CUSTOM_ORDER[b.freq] || 99
+
+        // 如果頻率權重不同，直接依權重排序
+        if (orderA !== orderB) {
+          return orderA - orderB
+        }
+      }
+
+      // 頻率順序相同 或 不是查詢「其他」群組時，則依床號排序
+      return String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true })
+    })
 }
 
 async function searchIndividualReports() {
