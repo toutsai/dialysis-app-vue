@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/WeeklyView.vue (已整合 taskStore) -->
+<!-- 檔案路徑: src/views/WeeklyView.vue (已重構) -->
 <template>
   <div>
     <div class="page-container">
@@ -51,7 +51,6 @@
             >
               儲存變更
             </button>
-            <!-- ✨ 【新增】將匯出按鈕移動到這裡 ✨ -->
             <button class="btn btn-secondary" @click="exportWeeklyScheduleToExcel">
               匯出Excel
             </button>
@@ -70,7 +69,6 @@
             />
           </div>
 
-          <!-- ✨ 核心修改點: 傳入我們在 script 中新計算的 typesMapForThisWeek -->
           <ScheduleTable
             class="schedule-table-component"
             :layout="bedLayout"
@@ -157,20 +155,19 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted, nextTick, provide } from 'vue'
+import { ref, onMounted, computed, watch, onUnmounted, nextTick, provide } from 'vue'
 import { where } from 'firebase/firestore'
-import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
+import * as XLSX from 'xlsx'
 import {
-  fetchAllSchedules as optimizedFetchAllSchedules,
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
 } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import {
-  SHIFT_CODES, // 確保 SHIFT_CODES 有被引入，從您提供的程式碼來看應該是有的
+  SHIFT_CODES,
   ORDERED_SHIFT_CODES,
-  getShiftDisplayName as getShiftDisplayNameFromConstant, // 可以考慮從常數檔引入
+  getShiftDisplayName,
 } from '@/constants/scheduleConstants.js'
 import {
   createEmptySlotData,
@@ -186,21 +183,21 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-
-// --- Pinia Stores ---
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
+import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
+import ApiManager from '@/services/api_manager.js'
 
-// --- 實例化 Stores ---
 const patientStore = usePatientStore()
-const { allPatients, patientMap } = storeToRefs(patientStore)
-
 const taskStore = useTaskStore()
-// ✨ 我們需要從 store 獲取原始的 feedMessages 來自己過濾 ✨
+const archiveStore = useArchiveStore()
+const { allPatients, patientMap } = storeToRefs(patientStore)
 const { sortedFeedMessages } = storeToRefs(taskStore)
 
-// --- Helper Functions ---
+const auth = useAuth()
+const { isAdmin, canEditSchedules } = useAuth()
+
 function getStartOfWeek(date) {
   const d = new Date(date)
   const day = d.getDay()
@@ -226,13 +223,7 @@ function formatDateForQuery(date) {
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-function getWeeklyCellStyle(slotId) {
-  const slotData = weekScheduleMap.value[slotId]
-  const patient = patientMap.value.get(slotData?.patientId)
-  return getUnifiedCellStyle(slotData, patient)
-}
 
-// --- Constants ---
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const CLEAR_OPTIONS = [
@@ -309,7 +300,6 @@ const FREQ_MAP_TO_DAY_INDEX = {
   每周六: [5],
 }
 
-// --- Reactive State ---
 const weekScheduleRecords = ref(new Map())
 const currentWeekStartDate = ref(getStartOfWeek(new Date()))
 const hasUnsavedChanges = ref(false)
@@ -334,24 +324,15 @@ const patientIdForDialog = ref(null)
 const patientNameForDialog = ref('')
 const searchQuery = ref('')
 const isSearchFocused = ref(false)
-const auth = useAuth()
-const isPageLocked = computed(() => !auth.canEditSchedules.value)
+const isPageLocked = computed(() => !canEditSchedules.value)
 
-// --- Computed Properties ---
-// ✨✨✨ 全新、更精確的 Computed 屬性 ✨✨✨
 const typesMapForThisWeek = computed(() => {
   if (weekDates.value.length < 6) return new Map()
-
-  // 獲取本週的結束日期 (週六)
   const endOfWeekDateStr = weekDates.value[5].queryDate
-
   const map = new Map()
   const pendingMessages = sortedFeedMessages.value.filter((msg) => msg.status === 'pending')
-
   for (const msg of pendingMessages) {
     if (!msg.patientId) continue
-
-    // 只要備忘的目標日期在本週六或之前，就應該在本週的規劃中被看到
     if (!msg.targetDate || msg.targetDate <= endOfWeekDateStr) {
       if (!map.has(msg.patientId)) {
         map.set(msg.patientId, new Set())
@@ -359,8 +340,6 @@ const typesMapForThisWeek = computed(() => {
       map.get(msg.patientId).add(msg.type || '常規')
     }
   }
-
-  // 將 Set 轉換為 Array
   const finalMap = new Map()
   for (const [patientId, typeSet] of map.entries()) {
     finalMap.set(patientId, Array.from(typeSet))
@@ -374,6 +353,7 @@ const weekDisplay = computed(() => {
   end.setDate(start.getDate() + 5)
   return `${formatDate(start, true)} ~ ${formatDate(end, true)}`
 })
+
 const weekDates = computed(() =>
   Array.from({ length: 6 }).map((_, i) => {
     const d = new Date(currentWeekStartDate.value)
@@ -381,6 +361,7 @@ const weekDates = computed(() =>
     return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateForQuery(d) }
   }),
 )
+
 const weekScheduleMap = computed(() => {
   const combinedSchedule = {}
   weekDates.value.forEach((day, dayIndex) => {
@@ -409,14 +390,17 @@ const weekScheduleMap = computed(() => {
   })
   return combinedSchedule
 })
+
 const { globallyUnassignedPatients, scheduledPatientIds } = useScheduleAnalysis(
   allPatients,
   weekScheduleMap,
   FREQ_MAP_TO_DAY_INDEX,
 )
+
 const problemsToSolve = computed(() => ({
   '本週未排床病人 (有頻率)': globallyUnassignedPatients.value,
 }))
+
 const statsToolbarData = computed(() => {
   const baseData = WEEKDAYS.map(() => ({
     counts: {
@@ -426,25 +410,23 @@ const statsToolbarData = computed(() => {
     },
     total: 0,
   }))
-  const localPatientMap = patientMap.value
   for (const [dateStr, record] of weekScheduleRecords.value.entries()) {
     if (record && record.schedule) {
       const d = new Date(dateStr + 'T00:00:00')
       const dayIndex = d.getDay() === 0 ? 6 : d.getDay() - 1
       if (dayIndex >= 0 && dayIndex < 6 && baseData[dayIndex]) {
         for (const [dailyShiftKey, slotData] of Object.entries(record.schedule)) {
-          if (slotData && slotData.patientId) {
-            const patient = localPatientMap.get(slotData.patientId)
-            if (!patient) continue
-            const shiftCode = dailyShiftKey.split('-').pop()
-            if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
-              const shiftStats = baseData[dayIndex].counts[shiftCode]
-              shiftStats.total++
-              baseData[dayIndex].total++
-              if (patient.status === 'opd') shiftStats.opd++
-              else if (patient.status === 'ipd') shiftStats.ipd++
-              else if (patient.status === 'er') shiftStats.er++
-            }
+          const patientInfo = getArchivedOrLivePatientInfo(slotData)
+          if (!patientInfo) continue
+
+          const shiftCode = dailyShiftKey.split('-').pop()
+          if (shiftCode && baseData[dayIndex].counts[shiftCode]) {
+            const shiftStats = baseData[dayIndex].counts[shiftCode]
+            shiftStats.total++
+            baseData[dayIndex].total++
+            if (patientInfo.status === 'opd') shiftStats.opd++
+            else if (patientInfo.status === 'ipd') shiftStats.ipd++
+            else if (patientInfo.status === 'er') shiftStats.er++
           }
         }
       }
@@ -452,7 +434,9 @@ const statsToolbarData = computed(() => {
   }
   return baseData
 })
+
 const statsToolbarWeekdays = computed(() => WEEKDAYS.map((w) => w.slice(-1)))
+
 const searchResults = computed(() => {
   if (!searchQuery.value) return []
   const query = searchQuery.value.toLowerCase()
@@ -465,13 +449,86 @@ const searchResults = computed(() => {
     .slice(0, 5)
 })
 
-// --- Functions ---
-// ✨ 【新增】在這裡補上 getShiftDisplayName 函式的定義 ✨
-function getShiftDisplayName(shiftCode) {
-  if (shiftCode === SHIFT_CODES.EARLY) return '早班'
-  if (shiftCode === SHIFT_CODES.NOON) return '午班'
-  if (shiftCode === SHIFT_CODES.LATE) return '晚班'
-  return shiftCode
+function getArchivedOrLivePatientInfo(slotData) {
+  if (!slotData || !slotData.patientId) return null
+  if (slotData.archivedPatientInfo) {
+    return slotData.archivedPatientInfo
+  }
+  return patientMap.value.get(slotData.patientId) || null
+}
+
+async function fetchArchivedSchedulesForWeek(dateStrings) {
+  const promises = dateStrings.map((dateStr) => archiveStore.fetchScheduleByDate(dateStr))
+  return await Promise.all(promises)
+}
+
+async function fetchLiveSchedulesForWeek(dateStrings) {
+  const schedulesApi = ApiManager('schedules')
+  const records = await schedulesApi.fetchAll([where('date', 'in', dateStrings)])
+  records.forEach((record) => {
+    if (record.schedule) {
+      for (const shiftId in record.schedule) {
+        const slot = record.schedule[shiftId]
+        if (slot?.patientId && patientMap.value.has(slot.patientId)) {
+          const patient = patientMap.value.get(slot.patientId)
+          slot.autoNote = patient ? generateAutoNote(patient) : ''
+        }
+      }
+    }
+  })
+  return records
+}
+
+async function loadDataForWeek() {
+  hasUnsavedChanges.value = false
+  statusText.value = '讀取中...'
+  try {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    const datesToFetch = weekDates.value.map((d) => d.queryDate)
+    const pastDates = datesToFetch.filter((d) => new Date(d) < today)
+    const liveDates = datesToFetch.filter((d) => new Date(d) >= today)
+
+    let fetchedRecords = []
+
+    if (liveDates.length > 0) {
+      await patientStore.fetchPatientsIfNeeded()
+      const liveRecords = await fetchLiveSchedulesForWeek(liveDates)
+      fetchedRecords.push(...liveRecords)
+    }
+    if (pastDates.length > 0) {
+      const archivedRecords = await fetchArchivedSchedulesForWeek(pastDates)
+      fetchedRecords.push(...archivedRecords.filter(Boolean))
+    }
+
+    const newWeekRecords = new Map()
+    weekDates.value.forEach((day) => {
+      newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {} })
+    })
+    fetchedRecords.forEach((record) => {
+      newWeekRecords.set(record.date, record)
+    })
+
+    weekScheduleRecords.value = newWeekRecords
+    statusText.value = '資料已載入'
+  } catch (error) {
+    console.error('❌ [WeeklyView] 讀取週排班資料失敗:', error)
+    statusText.value = '讀取失敗'
+  }
+}
+
+function getWeeklyCellStyle(slotId) {
+  const slotData = weekScheduleMap.value[slotId]
+  const patientForStyle = getArchivedOrLivePatientInfo(slotData)
+  if (!patientForStyle) return {}
+
+  const patientId = slotData?.patientId
+  if (!patientId) return getUnifiedCellStyle(slotData, patientForStyle, null, [])
+
+  // ✨ 週排班的 typesMap 直接從 computed 屬性拿，不用再計算
+  const messageTypesForPatient = typesMapForThisWeek.value.get(patientId) || []
+  return getUnifiedCellStyle(slotData, patientForStyle, null, messageTypesForPatient)
 }
 
 function updateLeftOffset(newOffset) {
@@ -515,9 +572,7 @@ function showPatientMemos(patientId) {
   isMemoDialogVisible.value = true
 }
 
-// ✨ 核心修正 #2: 新增 handleIconClick 函式並 provide
 const handleIconClick = (patientId, context) => {
-  // 在 WeeklyView 中，我們假設所有點擊都是為了顯示備忘錄
   showPatientMemos(patientId)
 }
 provide('handleIconClick', handleIconClick)
@@ -707,6 +762,8 @@ async function saveChangesToCloud() {
   try {
     const promises = []
     for (const date of weekDates.value.map((d) => d.queryDate)) {
+      if (isDateInPast(weekDates.value.findIndex((d) => d.queryDate === date))) continue
+
       const dailyRecord = weekScheduleRecords.value.get(date)
       if (dailyRecord) {
         const scheduleToSave = {}
@@ -839,74 +896,20 @@ function changeWeek(days) {
       const newDate = new Date(currentWeekStartDate.value)
       newDate.setDate(newDate.getDate() + days)
       currentWeekStartDate.value = newDate
-      loadDataForWeek()
     })
   } else {
     const newDate = new Date(currentWeekStartDate.value)
     newDate.setDate(newDate.getDate() + days)
     currentWeekStartDate.value = newDate
-    loadDataForWeek()
   }
 }
 function goToToday() {
   if (hasUnsavedChanges.value && !isPageLocked.value) {
     showConfirmDialog('未儲存的變更', '您有未儲存的變更，確定要切換到本週嗎？', () => {
       currentWeekStartDate.value = getStartOfWeek(new Date())
-      loadDataForWeek()
     })
   } else {
     currentWeekStartDate.value = getStartOfWeek(new Date())
-    loadDataForWeek()
-  }
-}
-async function loadDataForWeek() {
-  hasUnsavedChanges.value = false
-  statusText.value = '讀取中...'
-  try {
-    await patientStore.fetchPatientsIfNeeded()
-    const startDate = formatDateForQuery(currentWeekStartDate.value)
-    const tempDate = new Date(currentWeekStartDate.value)
-    tempDate.setDate(tempDate.getDate() + 5)
-    const endDate = formatDateForQuery(tempDate)
-    const schedules = await optimizedFetchAllSchedules([
-      where('date', '>=', startDate),
-      where('date', '<=', endDate),
-    ])
-    const localPatientMap = patientMap.value
-    const newWeekRecords = new Map()
-    weekDates.value.forEach((day) => {
-      newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {} })
-    })
-    schedules.forEach((record) => {
-      if (record.schedule) {
-        for (const shiftId in record.schedule) {
-          const slotData = record.schedule[shiftId]
-          if (slotData && slotData.patientId && localPatientMap.has(slotData.patientId)) {
-            const patient = localPatientMap.get(slotData.patientId)
-            slotData.autoNote = patient ? generateAutoNote(patient) : ''
-            slotData.manualNote = slotData.manualNote || ''
-          } else if (slotData && slotData.patientId) {
-            console.warn(
-              `[WeeklyView] 在日期 ${record.date} 的排程中發現無效的病人ID ${slotData.patientId}，將其忽略。`,
-            )
-            delete record.schedule[shiftId]
-          }
-        }
-      }
-      newWeekRecords.set(record.date, record)
-    })
-    weekScheduleRecords.value = newWeekRecords
-    statusText.value = '資料已載入'
-  } catch (error) {
-    console.error('❌ [WeeklyView] 讀取週排班資料失敗:', error)
-    statusText.value = '讀取失敗'
-  }
-}
-function handleScheduleUpdate(event) {
-  const { date } = event.detail
-  if (weekDates.value.some((d) => d.queryDate === date)) {
-    console.log(`🔄 [WeeklyView] 監聽到日期 ${date} 的變更，正在重新載入本週資料...`)
-    loadDataForWeek()
   }
 }
 function handleConfirm() {
@@ -1083,54 +1086,40 @@ function openBedAssignmentDialog() {
   isProblemSolverDialogVisible.value = true
 }
 
-// ✨ 【確認】您的 exportWeeklyScheduleToExcel 函式保持不變 ✨
 function exportWeeklyScheduleToExcel() {
   if (patientStore.isLoading) {
     showAlert('提示', '資料正在載入中，請稍後再試。')
     return
   }
-
-  // --- 1. 準備資料 ---
   const data = []
-  let merges = []
-
-  // 標題和日期範圍
   data.push(['部立台北醫院 週排班總表'])
   data.push([`週別: ${weekDisplay.value}`])
-  data.push([]) // 空白列
-
-  // 表格標頭
+  data.push([])
   const headers = ['床號', ...weekDates.value.map((d) => `${d.weekday} ${d.date}`)]
   data.push(headers)
-
-  // 整理所有床號
   const allBedsToExport = [
     ...bedLayout.filter((b) => typeof b === 'number').sort((a, b) => a - b),
     ...bedLayout.filter((b) => typeof b === 'string').sort(),
   ].map((b) => (String(b).startsWith('peripheral-') ? `外圍 ${String(b).split('-')[1]}` : b))
-
   const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
 
-  // 建立表格內容
   allBedsToExport.forEach((bedKey) => {
     const row = [bedKey]
     for (let dayIndex = 0; dayIndex < 6; dayIndex++) {
       let cellText = ''
       ORDERED_SHIFT_CODES.forEach((shiftCode) => {
         const shiftIndex = SHIFTS.indexOf(shiftCode)
-
         const bedNumForId = String(bedKey).startsWith('外圍')
           ? `peripheral-${String(bedKey).replace('外圍 ', '')}`
           : bedKey
-
         const weeklySlotId = `${bedNumForId}-${shiftIndex}-${dayIndex}`
         const slot = weekScheduleMap.value[weeklySlotId]
 
         if (slot && slot.patientId) {
           const patient = patientMap.value.get(slot.patientId)
-          if (patient) {
-            // 現在這裡可以正常呼叫 getShiftDisplayName
-            cellText += `${getShiftDisplayName(shiftCode)}: ${patient.name} (${statusMap[patient.status] || '未知'})\n`
+          const patientInfo = getArchivedOrLivePatientInfo(slot)
+          if (patient && patientInfo) {
+            cellText += `${getShiftDisplayName(shiftCode)}: ${patient.name} (${statusMap[patientInfo.status] || '未知'})\n`
           }
         }
       })
@@ -1139,15 +1128,12 @@ function exportWeeklyScheduleToExcel() {
     data.push(row)
   })
 
-  // --- 2. 建立工作表並設定樣式 (以下內容不變) ---
   const worksheet = XLSX.utils.aoa_to_sheet(data)
-
   worksheet['!merges'] = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
   ]
   worksheet['!cols'] = [{ wch: 8 }, ...Array(6).fill({ wch: 30 })]
-
   const ensureCellAndStyle = (r, c) => {
     const cellAddress = XLSX.utils.encode_cell({ r, c })
     if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' }
@@ -1157,7 +1143,6 @@ function exportWeeklyScheduleToExcel() {
     if (!worksheet[cellAddress].s.font) worksheet[cellAddress].s.font = {}
     return worksheet[cellAddress]
   }
-
   for (let r = 0; r < data.length; r++) {
     for (let c = 0; c < (data[r] ? data[r].length : 0); c++) {
       const cell = ensureCellAndStyle(r, c)
@@ -1170,28 +1155,28 @@ function exportWeeklyScheduleToExcel() {
       }
     }
   }
-
   ensureCellAndStyle(0, 0).s.font = { sz: 18, bold: true }
   ensureCellAndStyle(1, 0).s.font = { sz: 12 }
-
   headers.forEach((_, c) => {
     ensureCellAndStyle(3, c).s.font = { bold: true }
     ensureCellAndStyle(3, c).s.fill = { fgColor: { rgb: 'FFF2F2F2' } }
   })
 
-  // --- 3. 產生檔案並下載 (不變) ---
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '週排班表')
   XLSX.writeFile(workbook, `週排班表_${formatDateForQuery(currentWeekStartDate.value)}.xlsx`)
 }
 
 onMounted(() => {
-  console.log('🚀 [WeeklyView] 組件已掛載，開始初始化...')
   loadDataForWeek()
-  window.addEventListener('schedule-updated', handleScheduleUpdate)
 })
+
+watch(currentWeekStartDate, () => {
+  loadDataForWeek()
+})
+
 onUnmounted(() => {
-  window.removeEventListener('schedule-updated', handleScheduleUpdate)
+  // 這裡可以加入清理監聽器的邏輯，如果有的話
 })
 </script>
 
