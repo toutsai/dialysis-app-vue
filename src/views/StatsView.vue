@@ -1147,7 +1147,6 @@ import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
-// ✨ 核心修改：從 optimizedApiService 引入儲存醫囑的函式
 import { createDialysisOrderAndUpdatePatient } from '@/services/optimizedApiService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
@@ -1158,6 +1157,7 @@ import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
+import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
@@ -1167,6 +1167,7 @@ import * as XLSX from 'xlsx'
 
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
+const archiveStore = useArchiveStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1275,8 +1276,6 @@ const isInjectionDialogVisible = ref(false)
 const dailyInjections = ref([])
 const isInjectionLoading = ref(false)
 const noonTakeoffVisibility = ref({ early: false, late: false })
-
-// ✨ 核心修改：新增醫囑 Modal 相關的 ref
 const isOrderModalVisible = ref(false)
 const editingPatientForOrder = ref(null)
 
@@ -1334,6 +1333,7 @@ const sortedLateTakeOffTeams = computed(() => {
     return a.localeCompare(b)
   })
 })
+
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
     const stats = {}
@@ -1357,40 +1357,44 @@ const effectiveStatsData = computed(() => {
     })
     return stats
   }
+
   const lateTakeOffTeams = lateBaseTeams.map((t) => `夜間收針${t}`)
   const earlyShiftStats = createTeamStats(earlyTeams, 'early')
   const lateShiftStats = createTeamStats(lateTeams, 'late')
   const lateTakeOffStats = createTeamStats(lateTakeOffTeams, 'lateTakeOff')
-  if (!currentRecord.schedule || patientMap.value.size === 0) {
+
+  if (!currentRecord.schedule) {
     return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
   }
+
   const messagesMap = taskStore.getPatientMessageTypesMapForDate(currentDate.value)
+
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
-    const patient = patientMap.value.get(shiftDetails.patientId)
-    if (!patient) continue
-    const messageTypesForPatient = messagesMap.get(patient.id) || []
-    const cellStyles = getUnifiedCellStyle(shiftDetails, patient, null, messageTypesForPatient)
-    const {
-      patientId,
-      autoNote,
-      manualNote,
-      nurseTeam,
-      nurseTeamIn,
-      nurseTeamOut,
-      nurseTeamTakeOff,
-    } = shiftDetails || {}
+
+    const patientInfo = getArchivedOrLivePatientInfo(shiftDetails)
+    const patientDetails = patientMap.value.get(shiftDetails.patientId)
+    if (!patientInfo || !patientDetails) continue
+
+    const messageTypesForPatient = messagesMap.get(patientDetails.id) || []
+    const cellStyles = getUnifiedCellStyle(shiftDetails, patientInfo, null, messageTypesForPatient)
+
     const detail = {
-      id: patientId,
+      id: patientDetails.id,
       shiftId,
-      name: patient.name,
-      medicalRecordNumber: patient.medicalRecordNumber,
-      status: patient.status,
-      mode: patient.mode,
-      wardNumber: patient.wardNumber || '',
+      name: patientDetails.name,
+      medicalRecordNumber: patientDetails.medicalRecordNumber,
+      status: patientInfo.status,
+      mode: patientInfo.mode,
+      wardNumber: patientInfo.wardNumber || '',
       dialysisBed: shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || '',
-      finalTags: [...new Set([...(autoNote || '').split(' '), ...(manualNote || '').split(' ')])]
+      finalTags: [
+        ...new Set([
+          ...(shiftDetails.autoNote || '').split(' '),
+          ...(shiftDetails.manualNote || '').split(' '),
+        ]),
+      ]
         .filter((tag) => tag && !['住', '急'].includes(tag))
         .join(' '),
       classes:
@@ -1399,8 +1403,9 @@ const effectiveStatsData = computed(() => {
           .filter(([, v]) => v)
           .map(([k]) => k)
           .join(' '),
-      dialysisOrders: patient.dialysisOrders || {},
+      dialysisOrders: patientDetails.dialysisOrders || {},
     }
+
     const assignAndCount = (group, pDetail) => {
       if (!group) return
       group.patients.push(pDetail)
@@ -1408,7 +1413,10 @@ const effectiveStatsData = computed(() => {
       else if (pDetail.status === 'er') group.erCount++
       else group.opdCount++
     }
+
     const shiftCode = shiftId.split('-')[2]
+    const { nurseTeam, nurseTeamIn, nurseTeamOut, nurseTeamTakeOff } = shiftDetails
+
     if (shiftCode === SHIFT_CODES.EARLY) {
       const targetTeam = nurseTeam || '早未分組'
       if (earlyShiftStats[targetTeam]) {
@@ -1428,12 +1436,11 @@ const effectiveStatsData = computed(() => {
       if (earlyShiftStats[targetInTeam]) {
         assignAndCount(earlyShiftStats[targetInTeam].noonShiftOn, detail)
       }
-      const targetOutTeam = nurseTeamOut
-      if (targetOutTeam) {
-        if (lateShiftStats[targetOutTeam])
-          assignAndCount(lateShiftStats[targetOutTeam].noonShiftOff, detail)
-        else if (earlyShiftStats[targetOutTeam])
-          assignAndCount(earlyShiftStats[targetOutTeam].noonShiftOff, detail)
+      if (nurseTeamOut) {
+        if (lateShiftStats[nurseTeamOut])
+          assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
+        else if (earlyShiftStats[nurseTeamOut])
+          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
       } else {
         if (lateShiftStats['晚未分組']) {
           assignAndCount(lateShiftStats['晚未分組'].noonShiftOff, detail)
@@ -1441,9 +1448,11 @@ const effectiveStatsData = computed(() => {
       }
     }
   }
+
   const sortPatientsByBed = (a, b) =>
     (a.dialysisBed === '外圍' ? 100 : parseInt(a.dialysisBed, 10)) -
     (b.dialysisBed === '外圍' ? 100 : parseInt(b.dialysisBed, 10))
+
   ;[earlyShiftStats, lateShiftStats, lateTakeOffStats].forEach((stats, index) => {
     for (const team in stats) {
       const teamData = stats[team]
@@ -1471,8 +1480,10 @@ const effectiveStatsData = computed(() => {
       }
     }
   })
+
   return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
 })
+
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
@@ -1523,28 +1534,56 @@ async function loadDailyStaffInfo(date) {
   }
 }
 
+async function fetchArchivedSchedule(dateStr) {
+  return await archiveStore.fetchScheduleByDate(dateStr)
+}
+
+async function fetchLiveSchedule(dateStr) {
+  const schedulesApi = ApiManager('schedules')
+  const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+  const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+
+  if (record.schedule) {
+    for (const shiftId in record.schedule) {
+      const slot = record.schedule[shiftId]
+      if (slot?.patientId && patientMap.value.has(slot.patientId)) {
+        const patient = patientMap.value.get(slot.patientId)
+        slot.autoNote = patient ? generateAutoNote(patient) : ''
+      }
+    }
+  }
+  return record
+}
+
 async function loadData(date) {
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
   statusIndicator.value = '讀取中...'
   isLoading.value = true
   const dateStr = formatDate(date)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const targetDate = new Date(date)
+  targetDate.setHours(0, 0, 0, 0)
+
   try {
-    // 1. 確保 Pinia Store 中的病人基本資料已載入
-    await patientStore.fetchPatientsIfNeeded()
+    const isPastDate = targetDate < today
+    if (!isPastDate) {
+      await patientStore.fetchPatientsIfNeeded()
+    }
 
-    // 2. 並行獲取當天的排程和護理分組數據
-    const [dailyRecords, teamsData] = await Promise.all([
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-      fetchTeamsByDate(dateStr),
-    ])
+    let scheduleRecord
+    if (isPastDate) {
+      scheduleRecord = await fetchArchivedSchedule(dateStr)
+    } else {
+      scheduleRecord = await fetchLiveSchedule(dateStr)
+    }
 
-    const scheduleRecord =
-      dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+    const [teamsData] = await Promise.all([fetchTeamsByDate(dateStr)])
+
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
 
-    // ✅ [核心修正] 獲取排班內所有病人的 ID
     const patientIdsInSchedule = [
       ...new Set(
         Object.values(currentRecord.schedule)
@@ -1552,45 +1591,26 @@ async function loadData(date) {
           .filter(Boolean),
       ),
     ]
-
-    // 如果排班中有病人，則為他們獲取最新的醫囑
     if (patientIdsInSchedule.length > 0) {
-      // 為每個病人並行獲取醫囑
       const ordersPromises = patientIdsInSchedule.map(async (patientId) => {
         const orders = await getEffectiveOrdersForDate(patientId, date)
         const patientInStore = patientMap.value.get(patientId)
         if (patientInStore) {
-          // ✨ 將獲取到的醫囑直接附加到 Pinia Store 的病人物件上
           patientInStore.dialysisOrders = orders
         }
       })
-      // 等待所有醫囑都獲取完畢
       await Promise.all(ordersPromises)
     }
 
-    // 重新組合最終數據 (這部分邏輯不變，但現在 patientMap 中的病人已經有 dialysisOrders 了)
     if (currentRecord.schedule) {
       for (const shiftId in currentRecord.schedule) {
         const slot = currentRecord.schedule[shiftId]
         if (!slot || !slot.patientId) continue
-
-        const patient = patientMap.value.get(slot.patientId)
-        slot.autoNote = patient ? generateAutoNote(patient) : ''
-
         const shiftCode = shiftId.split('-')[2]
         const teamKey = `${slot.patientId}-${shiftCode}`
         const teamInfo = currentTeamsRecord.value.teams[teamKey]
-
         if (teamInfo) {
-          slot.nurseTeam = teamInfo.nurseTeam || null
-          slot.nurseTeamIn = teamInfo.nurseTeamIn || null
-          slot.nurseTeamOut = teamInfo.nurseTeamOut || null
-          slot.nurseTeamTakeOff = teamInfo.nurseTeamTakeOff || null
-        } else {
-          slot.nurseTeam = null
-          slot.nurseTeamIn = null
-          slot.nurseTeamOut = null
-          slot.nurseTeamTakeOff = null
+          Object.assign(slot, teamInfo)
         }
       }
     }
@@ -1602,6 +1622,14 @@ async function loadData(date) {
   } finally {
     isLoading.value = false
   }
+}
+
+function getArchivedOrLivePatientInfo(slotData) {
+  if (!slotData || !slotData.patientId) return null
+  if (slotData.archivedPatientInfo) {
+    return slotData.archivedPatientInfo
+  }
+  return patientMap.value.get(slotData.patientId) || null
 }
 
 async function saveChangesToCloud() {
@@ -2152,7 +2180,6 @@ const handleIconClick = (patientId, context) => {
 }
 provide('handleIconClick', handleIconClick)
 
-// ✨ 核心修改：新增醫囑儲存函式和從備物清單打開醫囑的函式
 async function handleSaveOrder(orderData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -2162,18 +2189,13 @@ async function handleSaveOrder(orderData) {
     showAlert('儲存失敗', '找不到有效的病人資訊。')
     return
   }
-
   const patientId = editingPatientForOrder.value.id
   const patientName = editingPatientForOrder.value.name
-
   try {
-    // 直接呼叫從 optimizedApiService 引入的函式
     await createDialysisOrderAndUpdatePatient(patientId, patientName, orderData)
-
-    // 操作成功後續處理
-    await loadData(currentDate.value) // 重新載入所有資料以更新畫面
+    await loadData(currentDate.value)
     isOrderModalVisible.value = false
-    createGlobalNotification(`更新醫囑：${patientName}`, 'team') // 'team' 是一個示例，您可以改成 'order'
+    createGlobalNotification(`更新醫囑：${patientName}`, 'team')
     showAlert('儲存成功', `已成功更新 ${patientName} 的透析醫囑。`)
   } catch (error) {
     console.error('儲存醫囑失敗:', error)
