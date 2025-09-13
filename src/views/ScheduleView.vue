@@ -1,4 +1,5 @@
 <!-- 檔案路徑: src/views/ScheduleView.vue -->
+<!-- 檔案路徑: src/views/ScheduleView.vue -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -52,7 +53,6 @@
           >
             儲存
           </button>
-          <!-- ✨ 【修改】將列印按鈕替換為匯出 Excel 按鈕 ✨ -->
           <button class="btn btn-secondary desktop-only" @click="exportScheduleToExcel">
             匯出Excel
           </button>
@@ -79,57 +79,11 @@
           </button>
         </div>
         <div class="controls-right">
-          <div class="daily-staff-panel horizontal">
-            <div class="staff-item shift-early">
-              <span class="staff-label">早班</span>
-              <div class="staff-details">
-                <div class="staff-name">
-                  <span class="staff-job-title">醫師</span>
-                  {{ dailyPhysicians.early?.name || '--' }}
-                </div>
-                <span v-if="dailyPhysicians.early" class="staff-contact">
-                  (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.early.phone || 'N/A'
-                  }})
-                </span>
-              </div>
-            </div>
-            <div class="staff-item shift-noon">
-              <span class="staff-label">午班</span>
-              <div class="staff-details">
-                <div class="staff-name">
-                  <span class="staff-job-title">醫師</span>
-                  {{ dailyPhysicians.noon?.name || '--' }}
-                </div>
-                <span v-if="dailyPhysicians.noon" class="staff-contact">
-                  (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.noon.phone || 'N/A'
-                  }})
-                </span>
-              </div>
-            </div>
-            <div class="staff-item shift-late">
-              <span class="staff-label">晚班</span>
-              <div class="staff-details">
-                <div class="staff-name">
-                  <span class="staff-job-title">醫師</span>
-                  {{ dailyPhysicians.late?.name || '--' }}
-                </div>
-                <span v-if="dailyPhysicians.late" class="staff-contact">
-                  (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
-                    dailyPhysicians.late.phone || 'N/A'
-                  }})
-                </span>
-              </div>
-            </div>
-            <div class="staff-item shift-specialist">
-              <span class="staff-label">專師</span>
-              <div class="staff-details">
-                <span class="staff-name">賴若蕎</span>
-                <span class="staff-contact">(電: 665129)</span>
-              </div>
-            </div>
-          </div>
+          <!-- ✨ 核心：使用 DailyStaffDisplay 元件 ✨ -->
+          <DailyStaffDisplay
+            :daily-physicians="dailyPhysicians"
+            :daily-consult-physicians="dailyConsultPhysicians"
+          />
 
           <StatsToolbar
             :stats-data="statsToolbarData"
@@ -151,7 +105,6 @@
                 <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
                   <div class="shift-header-content">
                     <span>{{ getShiftDisplayName(shiftCode) }}</span>
-                    <!-- ✨ 7. 在此處加入新的針劑圖示按鈕 -->
                     <button
                       @click="showShiftInjections(shiftCode)"
                       class="summary-icon-btn-table"
@@ -628,7 +581,6 @@
               <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="`mobile-header-${shiftCode}`">
                 <div class="shift-header-content">
                   <span>{{ getShiftDisplayName(shiftCode) }}</span>
-                  <!-- ✨ 7. 在此處加入新的針劑圖示按鈕 -->
                   <button
                     @click="showShiftInjections(shiftCode)"
                     class="summary-icon-btn-table"
@@ -856,10 +808,7 @@
 </template>
 
 <script setup>
-// ===================================================================
-// 1. Imports
-// ===================================================================
-import { ref, onMounted, computed, reactive, watch, nextTick, provide } from 'vue'
+import { ref, onMounted, computed, reactive, watch, nextTick, provide, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   fetchAllSchedules as optimizedFetchAllSchedules,
@@ -874,7 +823,7 @@ import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
-import * as XLSX from 'xlsx' // ✨ 【新增】引入 xlsx 套件
+import * as XLSX from 'xlsx'
 
 // Constants
 import {
@@ -905,52 +854,39 @@ import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 import DailyRecordsSummaryDialog from '@/components/DailyRecordsSummaryDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
+import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue' // ✨ 1. 引入新元件
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 
 // Pinia Stores
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
+import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 
-// ===================================================================
-// 2. Store & Hook Instantiation
-// ===================================================================
+// Store & Hook Instantiation
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
+const archiveStore = useArchiveStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
-
 const auth = useAuth()
 const { createGlobalNotifier } = useGlobalNotifier()
 const router = useRouter()
 const { distributePatients } = useTeamAssigner()
-
 const conditionRecordsApi = ApiManager('condition_records')
 const usersApi = ApiManager('users')
 
-// ===================================================================
-// 3. Constants and Helper Functions
-// ===================================================================
-
-// ✨✨✨ START: 新增的安全日期轉換函式 ✨✨✨
-/**
- * 安全地將多種日期格式轉換為 JavaScript Date 物件。
- * @param {any} timestamp - 可能是 Firestore Timestamp, Date object, or ISO string.
- * @returns {Date} 一個有效的 Date 物件。
- */
+// Helper Functions
 function getSafeDate(timestamp) {
   if (!timestamp) return new Date(0)
-  // 如果是 Firestore Timestamp，它會有 .toDate() 方法
   if (typeof timestamp.toDate === 'function') {
     return timestamp.toDate()
   }
-  // 否則，直接嘗試用 new Date() 轉換 (可以處理 Date 物件和 ISO 字串)
   const date = new Date(timestamp)
-  // 如果轉換失敗，返回一個極早的日期以避免排序錯誤
   return isNaN(date.getTime()) ? new Date(0) : date
 }
-// ✨✨✨ END: 新增的安全日期轉換函式 ✨✨✨
 
+// Constants
 const layoutData = {
   leftWingRows: [
     ['空', 32, 31],
@@ -992,9 +928,7 @@ const freqToDays = {
 }
 const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
 
-// ===================================================================
-// 4. Reactive State (Refs and Reactives)
-// ===================================================================
+// Reactive State
 const currentDate = ref(new Date())
 const recentConditionRecords = ref([])
 const hasUnsavedChanges = ref(false)
@@ -1026,21 +960,19 @@ const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
 const shiftCodeForDialog = ref(null)
 const patientIdsForDialog = ref([])
-const dailyPhysicians = ref({ early: null, noon: null, late: null })
-// ✨✨✨ [核心修改] ✨✨✨
-// 將 provide 放在這裡，在 currentDate 被定義之後
-provide('viewingDate', currentDate)
 const isInjectionDialogVisible = ref(false)
 const isInjectionLoading = ref(false)
-// ✨ 3. 重新命名，用來儲存從後端拿到的所有針劑
 const allDailyInjections = ref([])
 const injectionDialogDate = ref('')
-// ✨ 4. 新增一個 ref 來控制篩選的開關
 const filterSpecificInjections = ref(false)
 
-// ===================================================================
-// 5. Computed Properties
-// ===================================================================
+// ✨ 父層需要提供給 DailyStaffDisplay 元件的資料狀態
+const dailyPhysicians = ref({ early: null, noon: null, late: null })
+const dailyConsultPhysicians = ref({ morning: null, afternoon: null, night: null })
+
+provide('viewingDate', currentDate)
+
+// Computed Properties
 const isPageLocked = computed(() => {
   if (!auth.canEditSchedules.value) return true
   const today = new Date()
@@ -1067,7 +999,6 @@ const { scheduledPatientIds, getDailyUnassignedPatients, getDailyTemporaryPatien
     computed(() => currentRecord.schedule),
     freqToDays,
   )
-
 const patientGroupsForDialog = computed(() => {
   const groups = {
     '今日應排 - 急診': [],
@@ -1121,18 +1052,23 @@ const todayInpatients = computed(() => {
     for (const shiftId in currentRecord.schedule) {
       const slot = currentRecord.schedule[shiftId]
       if (slot && slot.patientId && !shiftId.startsWith('peripheral')) {
-        const patient = patientMap.value.get(slot.patientId)
-        if (patient && (patient.status === 'ipd' || patient.status === 'er')) {
+        const patientInfo = getArchivedOrLivePatientInfo(slot)
+        const patientDetails = patientMap.value.get(slot.patientId)
+        if (
+          patientInfo &&
+          patientDetails &&
+          (patientInfo.status === 'ipd' || patientInfo.status === 'er')
+        ) {
           const shiftCode = shiftId.split('-')[2]
           const dialysisBed = String(shiftId.split('-')[1] || 'N/A')
-          if (!inpatientsMap.has(patient.id)) {
-            inpatientsMap.set(patient.id, {
-              id: `${patient.id}-${shiftId}`,
+          if (!inpatientsMap.has(patientDetails.id)) {
+            inpatientsMap.set(patientDetails.id, {
+              id: `${patientDetails.id}-${shiftId}`,
               shiftId: shiftId,
               dialysisBed,
-              medicalRecordNumber: patient.medicalRecordNumber,
-              name: patient.name,
-              wardNumber: patient.wardNumber || '未登錄',
+              medicalRecordNumber: patientDetails.medicalRecordNumber,
+              name: patientDetails.name,
+              wardNumber: patientInfo.wardNumber || '未登錄',
               shift: shiftCode,
               transportMethod: slot.transportMethod,
             })
@@ -1161,70 +1097,46 @@ const todayInpatients = computed(() => {
   const inpatients = Array.from(inpatientsMap.values())
   inpatients.sort((a, b) => {
     const shiftOrder = { early: 1, noon: 2, late: 3, unknown: 4 }
-    if (a.shift !== b.shift) {
-      return shiftOrder[a.shift] - shiftOrder[b.shift]
-    }
+    if (a.shift !== b.shift) return shiftOrder[a.shift] - shiftOrder[b.shift]
     const bedA = a.dialysisBed === '未排床' ? 1000 : parseInt(a.dialysisBed)
     const bedB = b.dialysisBed === '未排床' ? 1000 : parseInt(b.dialysisBed)
     return bedA - bedB
   })
   return inpatients
 })
-
-// ✨✨✨ 請用這個新版本，完整替換掉您檔案中舊的 filteredDailyInjections ✨✨✨
 const filteredDailyInjections = computed(() => {
-  // 如果篩選開關是關閉的，就回傳所有針劑
-  if (!filterSpecificInjections.value) {
-    return allDailyInjections.value
-  }
-
-  // ✨ 核心修正：從藥品名稱改為使用更穩定、唯一的「醫令碼」進行篩選
-  const specificMedCodes = ['ICAC', 'IFER2', 'IPAR1'] // 對應 Cacare, Fe-back, Parsabiv
-
-  // 過濾 allDailyInjections 陣列，只保留 orderCode 匹配的項目
+  if (!filterSpecificInjections.value) return allDailyInjections.value
+  const specificMedCodes = ['ICAC', 'IFER2', 'IPAR1']
   return allDailyInjections.value.filter((injection) =>
     specificMedCodes.includes(injection.orderCode),
   )
 })
 
-// ===================================================================
-// 6. Methods
-// ===================================================================
-// ✨ 6. 請用這個新版的 showShiftInjections 函式，完整替換掉您檔案中的舊版本
+// Methods
 async function showShiftInjections(shiftCode) {
   if (!shiftCode) return
-
   const patientIds = Object.entries(currentRecord.schedule)
     .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
     .map(([, slot]) => slot.patientId)
-
   injectionDialogDate.value = formatDate(currentDate.value)
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
-  allDailyInjections.value = [] // 清空原始資料列表
-  filterSpecificInjections.value = false // 每次打開都預設為不過濾
-
+  allDailyInjections.value = []
+  filterSpecificInjections.value = false
   if (patientIds.length === 0) {
     isInjectionLoading.value = false
     return
   }
-
   try {
     const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
     const CHUNK_SIZE = 30
     const promises = []
-
     for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
       const chunk = patientIds.slice(i, i + CHUNK_SIZE)
-      const payload = {
-        targetDate: injectionDialogDate.value,
-        patientIds: chunk,
-      }
+      const payload = { targetDate: injectionDialogDate.value, patientIds: chunk }
       promises.push(getDailyInjections(payload))
     }
-
     const results = await Promise.all(promises)
-
     let combinedInjections = []
     for (const result of results) {
       if (result.data && result.data.success) {
@@ -1233,7 +1145,6 @@ async function showShiftInjections(shiftCode) {
         throw new Error(result.data?.message || '從後端獲取部分針劑資料失敗')
       }
     }
-
     combinedInjections.sort((a, b) => {
       const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
       const shiftA = a.shift || 'A'
@@ -1247,8 +1158,6 @@ async function showShiftInjections(shiftCode) {
         : parseInt(b.bedNum)
       return bedA - bedB
     })
-
-    // 將從後端拿到的完整結果存入 allDailyInjections
     allDailyInjections.value = combinedInjections
   } catch (error) {
     console.error(`獲取 ${shiftCode} 班應打針劑失敗:`, error)
@@ -1259,7 +1168,6 @@ async function showShiftInjections(shiftCode) {
     isInjectionLoading.value = false
   }
 }
-
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
@@ -1276,84 +1184,105 @@ function handleIconClick(patientId, context) {
     patientNameForDialog.value = patient.name
     isMemoDialogVisible.value = true
   } else {
-    selectedPatientForDetail.value = patient
+    selectedPatientForDetail.value = { ...patient }
+    shiftForDetailModal.value = null
+    for (const shiftId in currentRecord.schedule) {
+      if (currentRecord.schedule[shiftId].patientId === patientId) {
+        shiftForDetailModal.value = { shiftId: shiftId, ...currentRecord.schedule[shiftId] }
+        break
+      }
+    }
     isDetailModalVisible.value = true
   }
 }
 provide('handleIconClick', handleIconClick)
-
-/**
- * @description 根據最新的病情紀錄，更新 taskStore 的狀態
- * 這會觸發 PatientMessagesIcon 的重新渲染
- */
 function updateTaskStoreWithRecords() {
   const recentRecordsPatientIds = new Set()
-
   if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
     const viewingDate = new Date(currentDate.value)
     viewingDate.setHours(0, 0, 0, 0)
     const viewingDateTime = viewingDate.getTime()
-
     recentConditionRecords.value.forEach((record) => {
       if (record.recordDate) {
-        // Firestore 的 Timestamp 或 ISO 字串都可以被 new Date() 解析
-        const recordDate = new Date(record.recordDate)
+        const recordDate = new Date(
+          record.recordDate.toDate ? record.recordDate.toDate() : record.recordDate,
+        )
         recordDate.setHours(0, 0, 0, 0)
-
-        // 只處理 "今天" 有紀錄的病人
         if (recordDate.getTime() === viewingDateTime) {
           recentRecordsPatientIds.add(record.patientId)
         }
       }
     })
   }
-  // 呼叫 store action 來更新狀態
   taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
 }
-
+async function fetchArchivedSchedule(dateStr) {
+  return await archiveStore.fetchScheduleByDate(dateStr)
+}
+async function fetchLiveSchedule(dateStr) {
+  const schedulesApi = ApiManager('schedules')
+  const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+  if (dailyRecords.length === 0) return { date: dateStr, schedule: {} }
+  const record = dailyRecords[0]
+  const finalSchedule = {}
+  if (record.schedule) {
+    for (const shiftId in record.schedule) {
+      const dbSlotData = record.schedule[shiftId]
+      if (dbSlotData?.patientId && patientMap.value.has(dbSlotData.patientId)) {
+        const patient = patientMap.value.get(dbSlotData.patientId)
+        const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
+        if (patient) mergedSlot.autoNote = generateAutoNote(patient)
+        finalSchedule[shiftId] = mergedSlot
+      }
+    }
+  }
+  record.schedule = finalSchedule
+  return record
+}
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   hasUnsavedTeamChanges.value = false
   statusIndicator.value = '讀取中...'
   isLoading.value = true
   const dateStr = formatDate(date)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const targetDate = new Date(date)
+  targetDate.setHours(0, 0, 0, 0)
   try {
-    await patientStore.fetchPatientsIfNeeded()
-    const [dailyRecords, teamsData, recentRecs] = await Promise.all([
-      optimizedFetchAllSchedules([where('date', '==', dateStr)]),
+    const isPastDate = targetDate < today
+    if (!isPastDate) {
+      await patientStore.fetchPatientsIfNeeded()
+    }
+    let scheduleRecord
+    if (isPastDate) {
+      scheduleRecord = await fetchArchivedSchedule(dateStr)
+    } else {
+      scheduleRecord = await fetchLiveSchedule(dateStr)
+    }
+    const [teamsData, recentRecs] = await Promise.all([
       fetchTeamsByDate(dateStr),
       fetchRecentRecords(),
     ])
-    recentConditionRecords.value = recentRecs || []
-    updateTaskStoreWithRecords() // ✨ 更新 Store 狀態
-
-    const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
-    const finalSchedule = {}
-    if (record.schedule) {
-      for (const shiftId in record.schedule) {
-        const dbSlotData = record.schedule[shiftId]
-        if (dbSlotData?.patientId && patientMap.value.has(dbSlotData.patientId)) {
-          const patient = patientMap.value.get(dbSlotData.patientId)
-          const mergedSlot = { ...createEmptySlotData(shiftId), ...dbSlotData }
-          if (patient) mergedSlot.autoNote = generateAutoNote(patient)
-          finalSchedule[shiftId] = mergedSlot
-        }
-      }
-    }
     Object.assign(currentRecord, {
-      id: record.id || null,
+      id: scheduleRecord.id || null,
       date: dateStr,
-      schedule: finalSchedule,
-      names: record.names || {},
+      schedule: scheduleRecord.schedule || {},
+      names: scheduleRecord.names || {},
     })
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {} }
-    statusIndicator.value = record.id ? '資料已載入' : '本日無排程'
+    statusIndicator.value = scheduleRecord.id ? '資料已載入' : '本日無排程資料'
   } catch (error) {
-    console.error('載入資料失敗:', error)
+    console.error(`載入 ${dateStr} 資料失敗:`, error)
     statusIndicator.value = '讀取失敗'
   } finally {
     isLoading.value = false
   }
+}
+function getArchivedOrLivePatientInfo(slotData) {
+  if (!slotData || !slotData.patientId) return null
+  if (slotData.archivedPatientInfo) return slotData.archivedPatientInfo
+  return patientMap.value.get(slotData.patientId) || null
 }
 async function saveDataToCloud() {
   if (isPageLocked.value) {
@@ -1405,29 +1334,47 @@ async function saveDataToCloud() {
     showAlert('操作失敗', `儲存失敗: ${error.message}`)
   }
 }
+
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
     const physicianSchedulesApi = ApiManager('physician_schedules')
-    const monthScheduleDoc = await physicianSchedulesApi.fetchById(dateStr)
-    const physiciansSnapshot = await usersApi.fetchAll([where('title', '==', '主治醫師')])
-    const userMap = new Map(physiciansSnapshot.map((u) => [u.id, u]))
-    if (monthScheduleDoc && monthScheduleDoc.schedule) {
+    const [monthScheduleDoc, usersSnapshot] = await Promise.all([
+      physicianSchedulesApi.fetchById(dateStr),
+      usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
+    ])
+    const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
+
+    const dialysisPhysiciansData = { early: null, noon: null, late: null }
+    const consultPhysiciansData = { morning: null, afternoon: null, night: null }
+
+    if (monthScheduleDoc) {
       const dayOfMonth = date.getDate()
-      const daySchedule = monthScheduleDoc.schedule[dayOfMonth]
+
+      const daySchedule = monthScheduleDoc.schedule?.[dayOfMonth]
       if (daySchedule) {
-        dailyPhysicians.value.early = userMap.get(daySchedule.early?.physicianId) || null
-        dailyPhysicians.value.noon = userMap.get(daySchedule.noon?.physicianId) || null
-        dailyPhysicians.value.late = userMap.get(daySchedule.late?.physicianId) || null
-      } else {
-        dailyPhysicians.value = { early: null, noon: null, late: null }
+        dialysisPhysiciansData.early = userMap.get(daySchedule.early?.physicianId) || null
+        dialysisPhysiciansData.noon = userMap.get(daySchedule.noon?.physicianId) || null
+        dialysisPhysiciansData.late = userMap.get(daySchedule.late?.physicianId) || null
       }
-    } else {
-      dailyPhysicians.value = { early: null, noon: null, late: null }
+
+      const consultationDaySchedule = monthScheduleDoc.consultationSchedule?.[dayOfMonth]
+      if (consultationDaySchedule) {
+        consultPhysiciansData.morning =
+          userMap.get(consultationDaySchedule.morning?.physicianId) || null
+        consultPhysiciansData.afternoon =
+          userMap.get(consultationDaySchedule.afternoon?.physicianId) || null
+        consultPhysiciansData.night =
+          userMap.get(consultationDaySchedule.night?.physicianId) || null
+      }
     }
+
+    dailyPhysicians.value = dialysisPhysiciansData
+    dailyConsultPhysicians.value = consultPhysiciansData
   } catch (error) {
     console.error('載入每日負責人資訊失敗:', error)
     dailyPhysicians.value = { early: null, noon: null, late: null }
+    dailyConsultPhysicians.value = { morning: null, afternoon: null, night: null }
   }
 }
 
@@ -1436,50 +1383,45 @@ async function fetchRecentRecords() {
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
     const records = await conditionRecordsApi.fetchAll([where('createdAt', '>=', sevenDaysAgo)])
-
-    // 在資料獲取後，立即更新本地 ref 並觸發 store 更新
     recentConditionRecords.value = records || []
     updateTaskStoreWithRecords()
-
-    return records // 返回獲取的數據
+    return records
   } catch (error) {
     console.error('獲取近期病情紀錄失敗:', error)
     return []
   }
 }
-
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
-  if (!slotData || !slotData.patientId) return {}
-
-  const patient = patientMap.value.get(slotData.patientId)
-  if (!patient) return {}
-
-  // 從 taskStore 的 getter 中獲取該病人在「當前檢視日期」下的任務類型
+  const patientForStyle = getArchivedOrLivePatientInfo(slotData)
+  if (!patientForStyle) return {}
+  const patientId = slotData?.patientId
+  if (!patientId) return getUnifiedCellStyle(slotData, patientForStyle, null, [])
   const messageTypesForPatient =
-    taskStore.getPatientMessageTypesMapForDate(currentDate.value).get(patient.id) || []
-
-  // 將任務類型傳遞給統一的樣式函式
-  return getUnifiedCellStyle(slotData, patient, null, messageTypesForPatient)
+    taskStore.getPatientMessageTypesMapForDate(currentDate.value).get(patientId) || []
+  return getUnifiedCellStyle(slotData, patientForStyle, null, messageTypesForPatient)
 }
-
-function getPatientWardNumber(patientId) {
+function getPatientWardNumber(patientId, shiftId) {
+  const slotData = currentRecord.schedule[shiftId]
+  const patientInfo = getArchivedOrLivePatientInfo(slotData)
+  if (patientInfo && patientInfo.wardNumber !== undefined && patientInfo.wardNumber !== null)
+    return patientInfo.wardNumber
   if (!patientId) return ''
   const patient = patientMap.value.get(patientId)
   return patient?.wardNumber || ''
 }
 function isInpatientOrER(shiftId) {
-  const slot = currentRecord.schedule[shiftId]
-  if (!slot?.patientId) return false
-  const patient = patientMap.value.get(slot.patientId)
-  return patient?.status === 'ipd' || patient?.status === 'er'
+  const slotData = currentRecord.schedule[shiftId]
+  const patientInfo = getArchivedOrLivePatientInfo(slotData)
+  return patientInfo?.status === 'ipd' || patientInfo?.status === 'er'
 }
 function promptWardNumber(shiftId) {
   if (isPageLocked.value) return
   const slot = currentRecord.schedule[shiftId]
   if (!slot?.patientId) return
   const patient = patientMap.value.get(slot.patientId)
-  if (!patient || (patient.status !== 'ipd' && patient.status !== 'er')) {
+  const patientInfo = getArchivedOrLivePatientInfo(slot)
+  if (!patient || !patientInfo || (patientInfo.status !== 'ipd' && patientInfo.status !== 'er')) {
     showAlert('提示', '只有住院或急診病人才能設定床號')
     return
   }
@@ -1537,11 +1479,10 @@ function goToToday() {
 }
 function handleSlotClick(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
-  if (isPageLocked.value || !slotData?.patientId) {
-    if (!slotData?.patientId && !isPageLocked.value) {
-      currentSlotId.value = shiftId
-      isPatientSelectDialogVisible.value = true
-    }
+  if (isPageLocked.value) return
+  if (!slotData?.patientId) {
+    currentSlotId.value = shiftId
+    isPatientSelectDialogVisible.value = true
     return
   }
   const patient = patientMap.value.get(slotData.patientId)
@@ -1649,7 +1590,6 @@ function handleSlotUpdate(shiftId, patientId, fullSlotData = null) {
 }
 async function handleInpatientTransportUpdate(updatedPatients) {
   if (isPageLocked.value || !updatedPatients || updatedPatients.length === 0) {
-    console.warn('[Save Transport] Page is locked or no data to save.')
     return
   }
   let changesMade = false
@@ -1804,7 +1744,6 @@ function getCombinedNote(shiftId) {
   const finalTags = combinedTags.filter((tag) => !['住', '急'].includes(tag))
   return finalTags.join(' ')
 }
-
 function handleConfirm() {
   if (typeof onConfirmAction.value === 'function') onConfirmAction.value()
   isConfirmDialogVisible.value = false
@@ -1995,42 +1934,29 @@ function setTeamChange() {
   hasUnsavedChanges.value = true
   statusIndicator.value = '有未儲存的變更'
 }
-
-// ✨ 【全新版本】替換掉整個 exportScheduleToExcel 函式 ✨
 function exportScheduleToExcel() {
   if (isLoading.value) {
     showAlert('提示', '資料正在載入中，請稍後再試。')
     return
   }
-
-  // --- 1. 準備資料 ---
   const data = []
-
-  // 獲取統計數據
   const stats = statsToolbarData.value[0]
   const statsString = `總計: ${stats.total}人 (早: ${stats.counts.early.total}, 午: ${stats.counts.noon.total}, 晚: ${stats.counts.late.total})`
-
-  // 建立標題、日期和統計列
-  data.push(['部立台北醫院 每日排程表']) // 第 1 列: 標題
-  data.push(['日期:', currentDateDisplay.value]) // 第 2 列: 日期
-  data.push(['人數統計:', statsString]) // 第 3 列: 人數統計
-  data.push([]) // 第 4 列: 空白列，用於分隔
-
-  // 建立表格標頭
+  data.push(['部立台北醫院 每日排程表'])
+  data.push(['日期:', currentDateDisplay.value])
+  data.push(['人數統計:', statsString])
+  data.push([])
   const headers = [
     '床號',
     getShiftDisplayName('early'),
     getShiftDisplayName('noon'),
     getShiftDisplayName('late'),
   ]
-  data.push(headers) // 第 5 列: 表格標頭
-
-  // 建立表格內容
+  data.push(headers)
   const allBedsToExport = [...sortedBedNumbers.value]
   for (let i = 1; i <= peripheralBedCount; i++) {
     allBedsToExport.push(`外圍 ${i}`)
   }
-
   allBedsToExport.forEach((bedKey) => {
     const row = [bedKey]
     ORDERED_SHIFT_CODES.forEach((shiftCode) => {
@@ -2038,15 +1964,11 @@ function exportScheduleToExcel() {
       const shiftId = String(bedKey).startsWith('外圍')
         ? `peripheral-${bedNum}-${shiftCode}`
         : `bed-${bedNum}-${shiftCode}`
-
       const slot = currentRecord.schedule[shiftId]
       if (slot && slot.patientId) {
         const patient = patientMap.value.get(slot.patientId)
         const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
-        const cellText =
-          `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n` +
-          `[${statusMap[patient?.status] || '未知'}]\n` +
-          `${getCombinedNote(shiftId)}`
+        const cellText = `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n[${statusMap[patient?.status] || '未知'}]\n${getCombinedNote(shiftId)}`
         row.push(cellText)
       } else {
         row.push('')
@@ -2054,78 +1976,57 @@ function exportScheduleToExcel() {
     })
     data.push(row)
   })
-
-  // --- 2. 建立工作表並設定樣式 ---
   const worksheet = XLSX.utils.aoa_to_sheet(data)
-
-  // 設定儲存格合併
   worksheet['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } }, // 合併標題列
-    { s: { r: 1, c: 1 }, e: { r: 1, c: 3 } }, // 合併日期值
-    { s: { r: 2, c: 1 }, e: { r: 2, c: 3 } }, // 合併統計值
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+    { s: { r: 1, c: 1 }, e: { r: 1, c: 3 } },
+    { s: { r: 2, c: 1 }, e: { r: 2, c: 3 } },
   ]
-
-  // 設定欄寬 (wch: width in characters)
   worksheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 30 }, { wch: 30 }]
-
-  // 設定列高並遍歷所有儲存格以設定樣式 (置中 + 自動換行)
-  const dataRowsHeight = 55 // 設定資料列的預設高度
-  worksheet['!rows'] = [{ hpt: 25 }] // 標題列高度
-  worksheet['!rows'][1] = { hpt: 20 } // 日期列高度
-  worksheet['!rows'][2] = { hpt: 20 } // 統計列高度
-  worksheet['!rows'][3] = { hpt: 10 } // 空白列高度
-  worksheet['!rows'][4] = { hpt: 20 } // 表格標頭高度
-
+  const dataRowsHeight = 55
+  worksheet['!rows'] = [{ hpt: 25 }]
+  worksheet['!rows'][1] = { hpt: 20 }
+  worksheet['!rows'][2] = { hpt: 20 }
+  worksheet['!rows'][3] = { hpt: 10 }
+  worksheet['!rows'][4] = { hpt: 20 }
   for (let i = 0; i < data.length; i++) {
-    // 為資料內容設定預設高度
     if (i >= 5) {
       worksheet['!rows'][i] = { hpt: dataRowsHeight }
     }
     for (let j = 0; j < data[i].length; j++) {
       const cellAddress = XLSX.utils.encode_cell({ r: i, c: j })
       if (!worksheet[cellAddress]) continue
-
-      // 預設樣式：垂直置中、水平置中、自動換行
       worksheet[cellAddress].s = {
         alignment: { vertical: 'center', horizontal: 'center', wrapText: true },
       }
     }
   }
-
-  // 微調特定儲存格的對齊方式
-  worksheet['A1'].s.alignment.horizontal = 'left' // 標題靠左
-  worksheet['A2'].s.alignment.horizontal = 'right' // "日期:" 標籤靠右
-  worksheet['B2'].s.alignment.horizontal = 'left' // 日期值靠左
-  worksheet['A3'].s.alignment.horizontal = 'right' // "人數統計:" 標籤靠右
-  worksheet['B3'].s.alignment.horizontal = 'left' // 統計值靠左
-
-  // --- 3. 產生檔案並下載 ---
+  worksheet['A1'].s.alignment.horizontal = 'left'
+  worksheet['A2'].s.alignment.horizontal = 'right'
+  worksheet['B2'].s.alignment.horizontal = 'left'
+  worksheet['A3'].s.alignment.horizontal = 'right'
+  worksheet['B3'].s.alignment.horizontal = 'left'
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '每日排程')
   XLSX.writeFile(workbook, `每日排程表_${formatDate(currentDate.value)}.xlsx`)
 }
 
-// ===================================================================
-// 7. Lifecycle Hooks
-// ===================================================================
+// Lifecycle Hooks
 onMounted(async () => {
   isLoading.value = true
   await auth.waitForAuthInit()
-
   if (auth.currentUser.value) {
     taskStore.startRealtimeUpdates(auth.currentUser.value.uid)
   }
   await Promise.all([loadDataForDay(currentDate.value), loadDailyStaffInfo(currentDate.value)])
   isLoading.value = false
 })
-
 watch(currentDate, (newDate, oldDate) => {
   if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
     loadDataForDay(newDate)
     loadDailyStaffInfo(newDate)
   }
 })
-
 watch(
   () => auth.currentUser.value,
   (newUser) => {
@@ -2141,7 +2042,7 @@ watch(
 
 <style scoped>
 /* =================================================================== */
-/* === 1. 原始樣式 (無變動) === */
+/* === 1. 基礎與通用樣式 === */
 /* =================================================================== */
 .loading-overlay {
   position: absolute;
@@ -2176,7 +2077,6 @@ watch(
     transform: rotate(360deg);
   }
 }
-
 .page-container.is-locked .btn,
 .page-container.is-locked .add-btn,
 .page-container.is-locked input[type='date'] {
@@ -2205,7 +2105,6 @@ watch(
   pointer-events: auto;
   cursor: pointer;
 }
-
 .page-container {
   position: relative;
   display: flex;
@@ -2287,11 +2186,9 @@ watch(
   display: flex;
   align-items: center;
 }
-
 .controls-left > button {
   margin-right: 12px;
 }
-
 .controls-left > button:last-child {
   margin-right: 0;
 }
@@ -2333,7 +2230,6 @@ button {
   background-color: #6c757d;
   color: white;
   border-color: #6c757d;
-  gap: 20px;
 }
 .btn-secondary:hover:not(:disabled) {
   background-color: #545b62;
@@ -2342,6 +2238,67 @@ button:disabled {
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+/* ✨ 樣式已移除，只保留 controls-right 的對齊樣式 */
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+/* =================================================================== */
+/* === 2. 病人狀態與標籤顏色 (從舊版 ScheduleView.vue 找回) === */
+/* =================================================================== */
+.shift-row.status-opd,
+.peripheral-shift-row.status-opd,
+.simplified-table td.status-opd {
+  background-color: var(--green-bg, #e8f5e9);
+}
+
+.shift-row.status-ipd,
+.peripheral-shift-row.status-ipd,
+.simplified-table td.status-ipd {
+  background-color: var(--red-bg, #ffebee);
+}
+
+.shift-row.status-er,
+.peripheral-shift-row.status-er,
+.simplified-table td.status-er {
+  background-color: var(--purple-bg, #f3e5f5);
+}
+
+.shift-row.status-biweekly,
+.peripheral-shift-row.status-biweekly,
+.simplified-table td.status-biweekly {
+  background-color: #ffcc80; /* 兩班 - 橘色 */
+}
+
+.shift-row.tag-chou,
+.peripheral-shift-row.tag-chou,
+.simplified-table td.tag-chou {
+  background-color: #658ee0; /* 抽血 - 藍色 */
+}
+
+.shift-row.tag-new,
+.peripheral-shift-row.tag-new,
+.simplified-table td.tag-new {
+  background-color: #f5ec8e; /* 新病人/衛教 - 金黃 */
+}
+
+/* 為了確保簡化視圖中文字顏色正確，也一併加入 */
+.simplified-table td[class*='status-'] .patient-mrn-name,
+.simplified-table td[class*='tag-'] .patient-mrn-name {
+  color: #212529;
+  font-weight: 600;
+}
+
+.simplified-table td[class*='status-'] .patient-note,
+.simplified-table td[class*='tag-'] .patient-note {
+  color: #dc3545;
+}
+
+/* =================================================================== */
+/* === 3. 排班表 (Bed Grid) 樣式 (無變動) === */
+/* =================================================================== */
 .dialysis-unit {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -2527,42 +2484,6 @@ button:disabled {
 .bed.aisle-side.left-wing-bed {
   border-right: 5px solid #4caf50;
 }
-.shift-row.status-opd,
-.peripheral-shift-row.status-opd {
-  background-color: var(--green-bg, #e8f5e9);
-}
-.shift-row.status-ipd,
-.peripheral-shift-row.status-ipd {
-  background-color: var(--red-bg, #ffebee);
-}
-.shift-row.status-er,
-.peripheral-shift-row.status-er {
-  background-color: var(--purple-bg, #f3e5f5);
-}
-.shift-row.status-biweekly,
-.peripheral-shift-row.status-biweekly {
-  background-color: #ffcc80;
-}
-.shift-row.tag-chou,
-.peripheral-shift-row.tag-chou {
-  background-color: #658ee0;
-}
-.shift-row.tag-new,
-.peripheral-shift-row.tag-new {
-  background-color: #f5ec8e;
-}
-.shift-row.tag-huan,
-.peripheral-shift-row.tag-huan {
-  background-color: #e0f7fa;
-}
-.shift-row.tag-liang,
-.peripheral-shift-row.tag-liang {
-  background-color: #fff3e0;
-}
-.shift-row.tag-b,
-.peripheral-shift-row.tag-b {
-  background-color: #fff9c4;
-}
 .patient-name,
 .peripheral-patient-name {
   font-size: 1.1em;
@@ -2641,6 +2562,10 @@ button:disabled {
 .mobile-and-print-only {
   display: none;
 }
+
+/* =================================================================== */
+/* === 4. 臨床查閱 & 簡化模式樣式 === */
+/* =================================================================== */
 .view-toggle-btn {
   background-color: #e9ecef;
   border-color: #adb5bd;
@@ -2731,17 +2656,6 @@ button:disabled {
   align-items: center;
   gap: 4px;
 }
-.record-indicator {
-  font-size: 1rem;
-  line-height: 1;
-}
-.desktop-only :deep(.simplified-table td[class*='status-']) .patient-mrn-name {
-  color: #212529;
-  font-weight: 600;
-}
-.desktop-only :deep(.simplified-table td[class*='status-']) .patient-note {
-  color: #dc3545;
-}
 .shift-header-content {
   display: flex;
   align-items: center;
@@ -2805,6 +2719,56 @@ button:disabled {
 .patient-name-wrapper:hover {
   background-color: #e9ecef;
 }
+.ward-number-display {
+  font-weight: bold;
+  color: #007bff;
+  margin-right: 8px;
+}
+.peripheral-bed-number {
+  font-size: 0.9em;
+  min-width: 80px;
+  padding: 4px 8px;
+  border-left: 1px solid #e0e0e0;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.peripheral-bed-number:focus {
+  outline: 2px solid #007bff;
+  outline-offset: -2px;
+  background-color: #f0f8ff;
+}
+.peripheral-bed-number[contenteditable='false'] {
+  background-color: #f5f5f5;
+}
+.peripheral-bed-number .ward-number-badge {
+  display: inline-block;
+  background-color: #007bff;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+.peripheral-bed-number .ward-number-badge:hover {
+  background-color: #0056b3;
+}
+.peripheral-bed-number .ward-edit-icon {
+  font-size: 0.9em;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  opacity: 0.6;
+  line-height: 1;
+}
+
+/* =================================================================== */
+/* === 5. 響應式 (Media Queries) === */
+/* =================================================================== */
 @media screen and (min-width: 993px) {
   .desktop-only .simplified-table td {
     padding: 0.6rem;
@@ -2861,126 +2825,5 @@ button:disabled {
   .page-title {
     text-align: center;
   }
-}
-.ward-number-display {
-  font-weight: bold;
-  color: #007bff;
-  margin-right: 8px;
-}
-.peripheral-bed-number {
-  font-size: 0.9em;
-  min-width: 80px;
-  padding: 4px 8px;
-  border-left: 1px solid #e0e0e0;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.peripheral-bed-number:focus {
-  outline: 2px solid #007bff;
-  outline-offset: -2px;
-  background-color: #f0f8ff;
-}
-.peripheral-bed-number[contenteditable='false'] {
-  background-color: #f5f5f5;
-}
-.peripheral-bed-number .ward-number-badge {
-  display: inline-block;
-  background-color: #007bff;
-  color: white;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.85em;
-  font-weight: bold;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-.peripheral-bed-number .ward-number-badge:hover {
-  background-color: #0056b3;
-}
-.peripheral-bed-number .ward-edit-icon {
-  font-size: 0.9em;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  opacity: 0.6;
-  line-height: 1;
-}
-.daily-staff-panel.horizontal {
-  display: flex;
-  gap: 12px;
-  background-color: #f8f9fa;
-  border: none;
-  padding: 0;
-  align-items: stretch;
-}
-.staff-item {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  border-radius: 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  transition: all 0.2s ease-in-out;
-}
-.staff-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-.staff-label {
-  font-weight: 700;
-  font-size: 0.9rem;
-  margin-right: 10px;
-  color: white;
-}
-.staff-details {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-}
-.staff-name {
-  font-weight: 600;
-  font-size: 1rem;
-}
-.staff-contact {
-  font-size: 0.8rem;
-  opacity: 0.9;
-}
-.staff-item.shift-early {
-  background-color: #28a745;
-  color: white;
-}
-.staff-item.shift-noon {
-  background-color: #ffc107;
-  color: #212529;
-}
-.staff-item.shift-noon .staff-label {
-  color: #212529;
-}
-.staff-item.shift-late {
-  background-color: #17a2b8;
-  color: white;
-}
-.staff-item.shift-specialist {
-  background-color: #6c757d;
-  color: white;
-}
-.controls-right {
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-}
-.staff-name {
-  display: flex;
-  align-items: baseline;
-  gap: 0.3em;
-  font-weight: 600;
-  font-size: 1rem;
-}
-.staff-job-title {
-  font-size: 0.85em;
-  font-weight: 500;
-  opacity: 0.9;
 }
 </style>
