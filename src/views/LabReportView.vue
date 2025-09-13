@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/LabReportView.vue (已修正 Firestore IN 查詢上限問題) -->
+<!-- 檔案路徑: src/views/LabReportView.vue (已修正，加入頻率與班別欄位) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -41,7 +41,9 @@
               <div class="search-field">
                 <label for="group-freq">頻率</label>
                 <select id="group-freq" v-model="groupSearchParams.freq">
-                  <option v-for="freq in freqOptions" :key="freq" :value="freq">{{ freq }}</option>
+                  <option value="一三五">一三五</option>
+                  <option value="二四六">二四六</option>
+                  <option value="other">其他</option>
                 </select>
               </div>
               <div class="search-field">
@@ -103,10 +105,13 @@
             查無符合條件的報告。
           </div>
           <div v-else class="table-container">
+            <!-- ✨ 修改點 1: 更新群組查詢的表格結構 -->
             <table v-if="searchType === 'group'">
               <thead>
                 <tr>
-                  <th class="sticky-col">床號</th>
+                  <th class="sticky-col col-freq">頻率</th>
+                  <th class="sticky-col col-shift">班別</th>
+                  <th class="sticky-col col-bed">床號</th>
                   <th class="sticky-col col-name">姓名</th>
                   <th v-for="itemKey in prioritizedLabItems" :key="itemKey">
                     {{ labItemDisplayNames[itemKey] || itemKey }}
@@ -115,7 +120,9 @@
               </thead>
               <tbody>
                 <tr v-for="row in reportData" :key="row.patientId">
-                  <td class="sticky-col">{{ row.bedNum || '-' }}</td>
+                  <td class="sticky-col col-freq">{{ row.freq || '-' }}</td>
+                  <td class="sticky-col col-shift">{{ formatShift(row.shiftIndex) }}</td>
+                  <td class="sticky-col col-bed">{{ row.bedNum || '-' }}</td>
                   <td class="sticky-col col-name">{{ row.patientName }}</td>
                   <td v-for="itemKey in prioritizedLabItems" :key="itemKey">
                     {{ row.labData[itemKey] !== undefined ? row.labData[itemKey] : '-' }}
@@ -258,14 +265,15 @@
           </p>
           <div class="manual-controls">
             <select v-model="manualEntryGroup.freq">
-              <option v-for="freq in freqOptions" :key="freq" :value="freq">{{ freq }}</option>
+              <option value="一三五">一三五</option>
+              <option value="二四六">二四六</option>
+              <option value="other">其他</option>
             </select>
             <select v-model="manualEntryGroup.shift">
               <option value="early">早班</option>
               <option value="noon">午班</option>
               <option value="late">晚班</option>
             </select>
-            <!-- ✨ 關鍵新增：月份選擇器 -->
             <input type="month" v-model="manualEntryGroup.month" />
             <button @click="findMissingPatients" :disabled="isFindingMissing">
               {{ isFindingMissing ? '查詢中...' : '查詢缺漏' }}
@@ -273,7 +281,6 @@
           </div>
           <div class="missing-patients-list">
             <div v-if="isFindingMissing" class="placeholder-item">正在從資料庫比對缺漏名單...</div>
-            <!-- ✨ 邏輯變更：使用 searchedForMissing 來判斷是否已執行過查詢 -->
             <div
               v-else-if="searchedForMissing && missingPatients.length === 0"
               class="placeholder-item"
@@ -339,26 +346,21 @@ import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
 
-// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 import { useAuth } from '@/composables/useAuth.js'
 
-// ✨ --- 核心修改 #2: 實例化 Store --- ✨
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 const auth = useAuth()
 
-// --- Router and State ---
 const route = useRoute()
 const router = useRouter()
 const showBackButton = ref(false)
 
-// --- 頁籤與搜尋面板狀態 ---
 const activeTab = ref('query')
 const isSearchVisible = ref(true)
 
-// --- 資料上傳狀態 ---
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
@@ -391,7 +393,6 @@ const manualEntryItems = [
   { key: 'PostBUN', label: '血中尿素氮(洗後專用)' },
 ]
 
-// --- 報告查詢狀態 ---
 const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
@@ -405,7 +406,6 @@ const searchPerformed = ref(false)
 const reportData = ref([])
 const reportColumns = ref([])
 
-// --- 警示報告相關的狀態 ---
 const isLoadingAlerts = ref(false)
 const alertList = ref([])
 const alertCurrentMonth = ref(new Date())
@@ -418,9 +418,10 @@ const CONSECUTIVE_ABNORMAL_CRITERIA = {
 const isHistoryModalVisible = ref(false)
 const selectedPatientForHistory = ref(null)
 
-// --- 常數定義 ---
-const freqOptions = ['一三五', '二四六', '一四', '二五', '三六', '一五', '二六']
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
+// ✨ 修改點 2: 新增班別索引對照表，用於顯示和匯出
+const SHIFT_INDEX_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
+
 const prioritizedLabItems = [
   'WBC',
   'Platelet',
@@ -470,11 +471,9 @@ const labItemDisplayNames = {
   TSAT: 'TSAT (%)',
 }
 
-// --- API Manager ---
 const labReportsApi = ApiManager('lab_reports')
 const baseSchedulesApi = ApiManager('base_schedules')
 
-// --- Computed Properties ---
 const alertMonthRange = computed(() => {
   const end = new Date(alertCurrentMonth.value)
   const start = new Date(alertCurrentMonth.value)
@@ -505,6 +504,11 @@ const groupedAlerts = computed(() => {
 
 // --- Methods ---
 const FREQ_ORDER = { 一三五: 1, 二四六: 2, 一四: 3, 二五: 4, 三六: 5, 一五: 6, 二六: 7 }
+
+// ✨ 修改點 3: 新增格式化班別的輔助函式
+function formatShift(shiftIndex) {
+  return SHIFT_INDEX_MAP[shiftIndex] ?? 'N/A'
+}
 
 function sortAlertItems(items) {
   return [...items].sort((a, b) => {
@@ -732,10 +736,20 @@ async function findMissingPatients() {
     const shiftIndex = SHIFT_MAP[manualEntryGroup.shift]
     const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     const masterRules = masterScheduleDoc?.schedule || {}
-    const allPatientIdsInGroup = Object.keys(masterRules).filter(
-      (id) =>
-        masterRules[id].freq === manualEntryGroup.freq && masterRules[id].shiftIndex === shiftIndex,
-    )
+
+    const regularFreqs = ['一三五', '二四六']
+    const allPatientIdsInGroup = Object.keys(masterRules).filter((id) => {
+      const rule = masterRules[id]
+      if (!rule || rule.shiftIndex !== shiftIndex) {
+        return false
+      }
+      if (manualEntryGroup.freq === 'other') {
+        return !regularFreqs.includes(rule.freq)
+      } else {
+        return rule.freq === manualEntryGroup.freq
+      }
+    })
+
     if (allPatientIdsInGroup.length === 0) {
       return
     }
@@ -886,7 +900,7 @@ async function handleSearch() {
     isSearchVisible.value = false
   }
   try {
-    await patientStore.fetchPatientsIfNeeded() // 確保查詢前數據可用
+    await patientStore.fetchPatientsIfNeeded()
     if (searchType.value === 'group') {
       await searchGroupReports()
     } else {
@@ -918,10 +932,20 @@ async function searchGroupReports() {
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
-  const allPatientIdsInGroup = Object.keys(masterRules).filter(
-    (id) =>
-      masterRules[id].freq === groupSearchParams.freq && masterRules[id].shiftIndex === shiftIndex,
-  )
+
+  const regularFreqs = ['一三五', '二四六']
+  const allPatientIdsInGroup = Object.keys(masterRules).filter((id) => {
+    const rule = masterRules[id]
+    if (!rule || rule.shiftIndex !== shiftIndex) {
+      return false
+    }
+    if (groupSearchParams.freq === 'other') {
+      return !regularFreqs.includes(rule.freq)
+    } else {
+      return rule.freq === groupSearchParams.freq
+    }
+  })
+
   if (allPatientIdsInGroup.length === 0) {
     reportData.value = []
     return
@@ -930,10 +954,20 @@ async function searchGroupReports() {
   const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
   const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
 
+  // ✨ 修改點 4: 在 patientList 中就帶入頻率與班別資訊
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
-      return info ? { patientId: id, patientName: info.name, bedNum: masterRules[id].bedNum } : null
+      const rule = masterRules[id]
+      return info
+        ? {
+            patientId: id,
+            patientName: info.name,
+            bedNum: rule.bedNum,
+            freq: rule.freq,
+            shiftIndex: rule.shiftIndex,
+          }
+        : null
     })
     .filter(Boolean)
 
@@ -966,6 +1000,7 @@ async function searchGroupReports() {
     }
   })
 
+  // ✨ 修改點 5: 將頻率與班別資訊傳遞到最終的 reportData
   reportData.value = patientList
     .map((p) => {
       const labData = aggregatedReports.get(p.patientId) || {}
@@ -980,6 +1015,8 @@ async function searchGroupReports() {
         patientId: p.patientId,
         patientName: p.patientName,
         bedNum: p.bedNum,
+        freq: p.freq,
+        shiftIndex: p.shiftIndex,
         labData: labData,
       }
     })
@@ -1080,16 +1117,24 @@ function exportGroupReportToExcel() {
     return
   }
   const { freq, shift, month } = groupSearchParams
-  const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
-  const shiftName = shiftNameMap[shift] || shift
-  const title = `檢驗報告查詢結果: ${freq} / ${shiftName} / ${month}`
+  const shiftName = SHIFT_INDEX_MAP[SHIFT_MAP[shift]] || shift
+
+  const freqName = freq === 'other' ? '其他' : freq
+
+  const title = `檢驗報告查詢結果: ${freqName} / ${shiftName} / ${month}`
+  // ✨ 修改點 6: 更新匯出的表頭
   const headers = [
+    '頻率',
+    '班別',
     '床號',
     '姓名',
     ...prioritizedLabItems.map((key) => labItemDisplayNames[key] || key),
   ]
   const dataRows = reportData.value.map((row) => {
+    // ✨ 修改點 7: 更新匯出的資料行
     return [
+      row.freq || '-',
+      formatShift(row.shiftIndex),
       row.bedNum || '-',
       row.patientName,
       ...prioritizedLabItems.map((itemKey) => {
@@ -1105,13 +1150,14 @@ function exportGroupReportToExcel() {
   ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '報告查詢結果')
-  const fileName = `檢驗報告查詢_${freq}_${shiftName}_${month}.xlsx`
+  const fileName = `檢驗報告查詢_${freqName}_${shiftName}_${month}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
 </script>
 
+<!-- ✨ 修改點 8: 更新 Sticky Column 的 CSS -->
 <style scoped>
-/* --- 基礎樣式 --- */
+/* --- 基礎樣式 (部分省略) --- */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1321,11 +1367,31 @@ th {
   z-index: 10;
   background-color: #f8f9fa;
   text-align: left;
-  min-width: 120px;
+}
+
+/* --- 新的 Sticky Column 樣式 --- */
+.sticky-col.col-freq {
+  left: 0;
+  min-width: 80px;
+}
+.sticky-col.col-shift {
+  left: 80px; /* 頻率寬度 */
+  min-width: 80px;
+}
+.sticky-col.col-bed {
+  left: 160px; /* 頻率+班別寬度 */
+  min-width: 80px;
 }
 .sticky-col.col-name {
-  left: 120px;
+  left: 240px; /* 頻率+班別+床號寬度 */
+  min-width: 120px;
 }
+/* Individual search only has one sticky column */
+table[v-if="searchType === 'individual'"] .sticky-col {
+  min-width: 120px;
+}
+/* ---------------------------------- */
+
 tbody .sticky-col {
   background-color: #fff;
   font-weight: bold;
@@ -1337,7 +1403,7 @@ tbody tr:nth-child(even) .sticky-col {
   background-color: #f8f9fa;
 }
 
-/* --- 警示報告頁籤樣式 --- */
+/* --- 警示報告頁籤樣式 (無變動，省略) --- */
 .alert-controls {
   flex-shrink: 0;
   display: flex;
@@ -1347,7 +1413,6 @@ tbody tr:nth-child(even) .sticky-col {
   background-color: #e9ecef;
   border-radius: 8px;
 }
-/* (A) 設定控制列中【所有按鈕】的通用基礎樣式 */
 .alert-controls button {
   padding: 0.5rem 1.5rem;
   border-radius: 4px;
@@ -1358,30 +1423,22 @@ tbody tr:nth-child(even) .sticky-col {
   font-weight: 500;
   transition: background-color 0.2s;
 }
-
-/* (B) 設定【導航按鈕】("前/後三個月") 的獨特樣式 */
 .alert-controls button:not(.export-btn) {
   background-color: #f8f9fa; /* 淺灰色背景 */
   color: #333;
   border-color: #ccc;
 }
-
-/* (C) 設定【匯出按鈕】的獨特樣式 */
 .alert-controls .export-btn {
   background-color: #198754; /* 綠色 */
   color: white;
   border-color: #198754;
 }
-
-/* (D) 禁用時的樣式 (對所有按鈕都有效) */
 .alert-controls button:disabled {
   background-color: #6c757d;
   border-color: #6c757d;
   cursor: not-allowed;
   opacity: 0.65;
 }
-
-/* (E) 為「報告查詢」頁籤的匯出按鈕也套用相同樣式 */
 .search-controls .export-btn {
   padding: 0.5rem 1.5rem;
   border-radius: 4px;
@@ -1407,7 +1464,7 @@ tbody tr:nth-child(even) .sticky-col {
 .export-btn {
   background-color: #198754; /* 綠色 */
   border-color: #198754;
-  color: white; /* ✨ 確保文字是白色 */
+  color: white;
 }
 .export-btn:disabled {
   background-color: #6c757d;
@@ -1450,29 +1507,24 @@ tbody tr:nth-child(even) .sticky-col {
   width: 20%;
 }
 
-/* --- 資料上傳頁籤擴充樣式 --- */
+/* --- 資料上傳頁籤擴充樣式 (無變動，省略) --- */
 .upload-panel.expanded {
   display: grid;
-  /* ✨ 核心修改：改變 Grid 佈局比例 */
   grid-template-columns: 350px 1fr;
   gap: 1.5rem;
 }
-
 .upload-core-panel {
   display: flex;
   flex-direction: column;
-  gap: 1rem; /* 縮小間距 */
+  gap: 1rem;
   align-items: center;
   padding: 1rem;
-  background-color: #f8f9fa; /* 給左側一個淡淡的背景色 */
+  background-color: #f8f9fa;
   border-radius: 8px;
 }
-
 .upload-core-panel h4 {
   margin: 0;
 }
-
-/* ✨ 新增：上傳結果的 Toast 樣式 */
 .upload-result-toast {
   width: 100%;
   padding: 1rem;
@@ -1643,7 +1695,8 @@ input[type='file'] {
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
-.manual-controls select {
+.manual-controls select,
+.manual-controls input {
   flex-grow: 1;
   padding: 0.5rem;
   border-radius: 4px;
@@ -1656,6 +1709,7 @@ input[type='file'] {
   background-color: #007bff;
   color: white;
   cursor: pointer;
+  flex-shrink: 0; /* 防止按鈕被壓縮 */
 }
 .manual-controls button:disabled {
   background-color: #6c757d;
@@ -1724,7 +1778,7 @@ input[type='file'] {
   border-radius: 4px;
 }
 
-/* --- 行動版響應式樣式 --- */
+/* --- 行動版響應式樣式 (無變動，省略) --- */
 .search-toggle-btn {
   display: none;
 }
@@ -1815,12 +1869,25 @@ input[type='file'] {
   td {
     padding: 0.5rem 0.4rem;
   }
-  .sticky-col {
-    min-width: 80px;
+  .sticky-col.col-freq,
+  .sticky-col.col-shift,
+  .sticky-col.col-bed {
+    min-width: 60px;
   }
   .sticky-col.col-name {
-    left: 80px;
+    min-width: 80px;
   }
+
+  .sticky-col.col-shift {
+    left: 60px;
+  }
+  .sticky-col.col-bed {
+    left: 120px;
+  }
+  .sticky-col.col-name {
+    left: 180px;
+  }
+
   .upload-panel.expanded {
     grid-template-columns: 1fr;
   }
