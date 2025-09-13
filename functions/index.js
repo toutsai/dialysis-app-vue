@@ -1685,6 +1685,7 @@ exports.processLabReport = onCall(
         副甲狀腺素: 'iPTH',
         '血中尿素氮(洗後專用)': 'PostBUN',
         鐵蛋白: 'Ferritin',
+        丙胺酸轉胺酶: 'ALT',
         // ✨ 您可以根據新的 Excel 內容，在這裡增加更多對應項目
       }
       const reports = new Map()
