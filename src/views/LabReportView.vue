@@ -48,7 +48,12 @@
               </div>
               <div class="search-field">
                 <label for="group-shift">班別</label>
-                <select id="group-shift" v-model="groupSearchParams.shift">
+                <!-- ✨ UI 優化：當頻率為 'other' 時，禁用班別選擇 -->
+                <select
+                  id="group-shift"
+                  v-model="groupSearchParams.shift"
+                  :disabled="groupSearchParams.freq === 'other'"
+                >
                   <option value="early">早班</option>
                   <option value="noon">午班</option>
                   <option value="late">晚班</option>
@@ -105,7 +110,7 @@
             查無符合條件的報告。
           </div>
           <div v-else class="table-container">
-            <!-- ✨ 修改點 1: 更新群組查詢的表格結構 -->
+            <!-- ✨ 更新群組查詢的表格結構 -->
             <table v-if="searchType === 'group'">
               <thead>
                 <tr>
@@ -269,7 +274,8 @@
               <option value="二四六">二四六</option>
               <option value="other">其他</option>
             </select>
-            <select v-model="manualEntryGroup.shift">
+            <!-- ✨ UI 優化：手動補登區塊也同步禁用 -->
+            <select v-model="manualEntryGroup.shift" :disabled="manualEntryGroup.freq === 'other'">
               <option value="early">早班</option>
               <option value="noon">午班</option>
               <option value="late">晚班</option>
@@ -346,21 +352,26 @@ import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
 
+// ✨ --- 核心修改 #1: 引入 Pinia Store --- ✨
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 import { useAuth } from '@/composables/useAuth.js'
 
+// ✨ --- 核心修改 #2: 實例化 Store --- ✨
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 const auth = useAuth()
 
+// --- Router and State ---
 const route = useRoute()
 const router = useRouter()
 const showBackButton = ref(false)
 
+// --- 頁籤與搜尋面板狀態 ---
 const activeTab = ref('query')
 const isSearchVisible = ref(true)
 
+// --- 資料上傳狀態 ---
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
@@ -393,6 +404,7 @@ const manualEntryItems = [
   { key: 'PostBUN', label: '血中尿素氮(洗後專用)' },
 ]
 
+// --- 報告查詢狀態 ---
 const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
@@ -406,6 +418,7 @@ const searchPerformed = ref(false)
 const reportData = ref([])
 const reportColumns = ref([])
 
+// --- 警示報告相關的狀態 ---
 const isLoadingAlerts = ref(false)
 const alertList = ref([])
 const alertCurrentMonth = ref(new Date())
@@ -418,10 +431,11 @@ const CONSECUTIVE_ABNORMAL_CRITERIA = {
 const isHistoryModalVisible = ref(false)
 const selectedPatientForHistory = ref(null)
 
+// --- 常數定義 ---
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
-// ✨ 修改點 2: 新增班別索引對照表，用於顯示和匯出
 const SHIFT_INDEX_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
-// ✨ 1. 新增：為「其他」頻率定義自訂排序順序
+
+// ✨ 新增：為「其他」頻率定義自訂排序順序
 const FREQ_CUSTOM_ORDER = {
   // --- 每周兩次 (權重最低，排最前面) ---
   一四: 10,
@@ -490,9 +504,11 @@ const labItemDisplayNames = {
   TSAT: 'TSAT (%)',
 }
 
+// --- API Manager ---
 const labReportsApi = ApiManager('lab_reports')
 const baseSchedulesApi = ApiManager('base_schedules')
 
+// --- Computed Properties ---
 const alertMonthRange = computed(() => {
   const end = new Date(alertCurrentMonth.value)
   const start = new Date(alertCurrentMonth.value)
@@ -524,7 +540,7 @@ const groupedAlerts = computed(() => {
 // --- Methods ---
 const FREQ_ORDER = { 一三五: 1, 二四六: 2, 一四: 3, 二五: 4, 三六: 5, 一五: 6, 二六: 7 }
 
-// ✨ 修改點 3: 新增格式化班別的輔助函式
+// ✨ 新增：格式化班別的輔助函式
 function formatShift(shiftIndex) {
   return SHIFT_INDEX_MAP[shiftIndex] ?? 'N/A'
 }
@@ -757,16 +773,22 @@ async function findMissingPatients() {
     const masterRules = masterScheduleDoc?.schedule || {}
 
     const regularFreqs = ['一三五', '二四六']
+    // ✨ 邏輯修改：同步更新手動補登的篩選邏輯，當 freq 為 'other' 時忽略班別
     const allPatientIdsInGroup = Object.keys(masterRules).filter((id) => {
       const rule = masterRules[id]
-      if (!rule || rule.shiftIndex !== shiftIndex) {
-        return false
-      }
-      if (manualEntryGroup.freq === 'other') {
-        return !regularFreqs.includes(rule.freq)
-      } else {
-        return rule.freq === manualEntryGroup.freq
-      }
+      if (!rule) return false
+
+      const isOtherFreqSelected = manualEntryGroup.freq === 'other'
+
+      // 班別條件：如果選擇 'other'，則忽略班別 (恆為 true)；否則，檢查班別是否相符
+      const shiftCondition = isOtherFreqSelected || rule.shiftIndex === shiftIndex
+
+      // 頻率條件：與之前相同
+      const freqCondition = isOtherFreqSelected
+        ? !regularFreqs.includes(rule.freq)
+        : rule.freq === manualEntryGroup.freq
+
+      return shiftCondition && freqCondition
     })
 
     if (allPatientIdsInGroup.length === 0) {
@@ -919,7 +941,7 @@ async function handleSearch() {
     isSearchVisible.value = false
   }
   try {
-    await patientStore.fetchPatientsIfNeeded()
+    await patientStore.fetchPatientsIfNeeded() // 確保查詢前數據可用
     if (searchType.value === 'group') {
       await searchGroupReports()
     } else {
@@ -953,16 +975,23 @@ async function searchGroupReports() {
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
 
   const regularFreqs = ['一三五', '二四六']
+  // ✨ 邏輯修改：報告查詢的主要篩選邏輯，當 freq 為 'other' 時忽略班別
   const allPatientIdsInGroup = Object.keys(masterRules).filter((id) => {
     const rule = masterRules[id]
-    if (!rule || rule.shiftIndex !== shiftIndex) {
-      return false
-    }
-    if (groupSearchParams.freq === 'other') {
-      return !regularFreqs.includes(rule.freq)
-    } else {
-      return rule.freq === groupSearchParams.freq
-    }
+    if (!rule) return false // 確保規則存在
+
+    const isOtherFreqSelected = groupSearchParams.freq === 'other'
+
+    // 班別條件：如果選擇 'other'，則忽略班別 (恆為 true)；否則，檢查班別是否相符
+    const shiftCondition = isOtherFreqSelected || rule.shiftIndex === shiftIndex
+
+    // 頻率條件：如果選擇 'other'，則篩選出不在常規頻率中的；否則，檢查頻率是否完全相符
+    const freqCondition = isOtherFreqSelected
+      ? !regularFreqs.includes(rule.freq)
+      : rule.freq === groupSearchParams.freq
+
+    // 必須同時滿足兩個條件
+    return shiftCondition && freqCondition
   })
 
   if (allPatientIdsInGroup.length === 0) {
@@ -973,7 +1002,6 @@ async function searchGroupReports() {
   const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
   const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
 
-  // ✨ 修改點 4: 在 patientList 中就帶入頻率與班別資訊
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -1019,7 +1047,6 @@ async function searchGroupReports() {
     }
   })
 
-  // ✨ 修改點 5: 將頻率與班別資訊傳遞到最終的 reportData
   reportData.value = patientList
     .map((p) => {
       const labData = aggregatedReports.get(p.patientId) || {}
@@ -1039,7 +1066,7 @@ async function searchGroupReports() {
         labData: labData,
       }
     })
-    // ✨ 2. 修改排序邏輯
+    // ✨ 排序邏輯：包含自訂頻率排序 + 床號排序
     .sort((a, b) => {
       // 只有在查詢「其他」群組時才套用自訂頻率排序
       if (groupSearchParams.freq === 'other') {
@@ -1123,7 +1150,7 @@ async function searchIndividualReports() {
     }
     if (bun && postBun > 0) {
       if (!processedData['URR']) processedData['URR'] = {}
-      if (!processedData['Kt/V']) processedData['Kt/V'] = {}
+      if (!processedData['Kt/V']) data['Kt/V'] = {}
       processedData['URR'][monthKey] = (((bun - postBun) / bun) * 100).toFixed(1)
       processedData['Kt/V'][monthKey] = Math.log(bun / postBun).toFixed(2)
     }
@@ -1145,18 +1172,27 @@ function handleFileDrop(event) {
     uploadResult.value = null
   }
 }
+
 function exportGroupReportToExcel() {
   if (searchType.value !== 'group' || reportData.value.length === 0) {
     alert('目前沒有可匯出的群組報告資料。')
     return
   }
   const { freq, shift, month } = groupSearchParams
-  const shiftName = SHIFT_INDEX_MAP[SHIFT_MAP[shift]] || shift
 
-  const freqName = freq === 'other' ? '其他' : freq
+  // ✨ 邏輯修改：更新 Excel 檔名與標題
+  let title = ''
+  let fileNameIdentifier = ''
 
-  const title = `檢驗報告查詢結果: ${freqName} / ${shiftName} / ${month}`
-  // ✨ 修改點 6: 更新匯出的表頭
+  if (freq === 'other') {
+    title = `檢驗報告查詢結果: 其他頻率 (所有班別) / ${month}`
+    fileNameIdentifier = `其他(所有班別)`
+  } else {
+    const shiftName = SHIFT_INDEX_MAP[SHIFT_MAP[shift]] || shift
+    title = `檢驗報告查詢結果: ${freq} / ${shiftName} / ${month}`
+    fileNameIdentifier = `${freq}_${shiftName}`
+  }
+
   const headers = [
     '頻率',
     '班別',
@@ -1165,7 +1201,6 @@ function exportGroupReportToExcel() {
     ...prioritizedLabItems.map((key) => labItemDisplayNames[key] || key),
   ]
   const dataRows = reportData.value.map((row) => {
-    // ✨ 修改點 7: 更新匯出的資料行
     return [
       row.freq || '-',
       formatShift(row.shiftIndex),
@@ -1184,7 +1219,7 @@ function exportGroupReportToExcel() {
   ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } })
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '報告查詢結果')
-  const fileName = `檢驗報告查詢_${freqName}_${shiftName}_${month}.xlsx`
+  const fileName = `檢驗報告查詢_${fileNameIdentifier}_${month}.xlsx`
   XLSX.writeFile(wb, fileName)
 }
 </script>
