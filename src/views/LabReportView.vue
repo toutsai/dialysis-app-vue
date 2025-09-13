@@ -973,6 +973,7 @@ async function searchGroupReports() {
   const patientDetails = await queryWithInChunks('patients', documentId(), allPatientIdsInGroup)
   const patientInfoMap = new Map(patientDetails.map((p) => [p.id, p]))
 
+  // ✨ 修改點 4: 在 patientList 中就帶入頻率與班別資訊
   const patientList = allPatientIdsInGroup
     .map((id) => {
       const info = patientInfoMap.get(id)
@@ -1018,6 +1019,7 @@ async function searchGroupReports() {
     }
   })
 
+  // ✨ 修改點 5: 將頻率與班別資訊傳遞到最終的 reportData
   reportData.value = patientList
     .map((p) => {
       const labData = aggregatedReports.get(p.patientId) || {}
@@ -1422,8 +1424,6 @@ th {
 table[v-if="searchType === 'individual'"] .sticky-col {
   min-width: 120px;
 }
-/* ---------------------------------- */
-
 tbody .sticky-col {
   background-color: #fff;
   font-weight: bold;
