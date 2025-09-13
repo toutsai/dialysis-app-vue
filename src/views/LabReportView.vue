@@ -459,13 +459,13 @@ const prioritizedLabItems = [
   'WBC',
   'Platelet',
   'Hb',
-  'Hct',
   'Ferritin',
-  'Iron',
-  'TIBC',
   'TSAT',
   'GlucoseAC',
+  'Triglyceride',
+  'LDL',
   'Albumin',
+  'ALT',
   'Na',
   'K',
   'P',
@@ -502,6 +502,10 @@ const labItemDisplayNames = {
   'Kt/V': 'Kt/V',
   URR: 'URR (%)',
   TSAT: 'TSAT (%)',
+  // ✨ 2. 新增 TG, LDL, ALT 的顯示名稱
+  Triglyceride: 'TG',
+  LDL: 'LDL',
+  ALT: 'ALT',
 }
 
 // --- API Manager ---
