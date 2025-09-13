@@ -975,22 +975,16 @@ async function searchGroupReports() {
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
 
   const regularFreqs = ['一三五', '二四六']
-  // ✨ 邏輯修改：報告查詢的主要篩選邏輯，當 freq 為 'other' 時忽略班別
   const allPatientIdsInGroup = Object.keys(masterRules).filter((id) => {
     const rule = masterRules[id]
-    if (!rule) return false // 確保規則存在
+    if (!rule) return false
 
     const isOtherFreqSelected = groupSearchParams.freq === 'other'
-
-    // 班別條件：如果選擇 'other'，則忽略班別 (恆為 true)；否則，檢查班別是否相符
     const shiftCondition = isOtherFreqSelected || rule.shiftIndex === shiftIndex
-
-    // 頻率條件：如果選擇 'other'，則篩選出不在常規頻率中的；否則，檢查頻率是否完全相符
     const freqCondition = isOtherFreqSelected
       ? !regularFreqs.includes(rule.freq)
       : rule.freq === groupSearchParams.freq
 
-    // 必須同時滿足兩個條件
     return shiftCondition && freqCondition
   })
 
@@ -1066,20 +1060,27 @@ async function searchGroupReports() {
         labData: labData,
       }
     })
-    // ✨ 排序邏輯：包含自訂頻率排序 + 床號排序
+    // ✨ 修改點：實現三層級排序邏輯
     .sort((a, b) => {
-      // 只有在查詢「其他」群組時才套用自訂頻率排序
+      // 此特殊排序僅在查詢「其他」群組時生效
       if (groupSearchParams.freq === 'other') {
-        const orderA = FREQ_CUSTOM_ORDER[a.freq] || 99 // 未定義的頻率(例如'一三')排在最後
+        // 層級 1: 依頻率排序
+        const orderA = FREQ_CUSTOM_ORDER[a.freq] || 99
         const orderB = FREQ_CUSTOM_ORDER[b.freq] || 99
-
-        // 如果頻率權重不同，直接依權重排序
         if (orderA !== orderB) {
           return orderA - orderB
         }
+
+        // 層級 2: 頻率相同時，依班別排序 (早->午->晚)
+        // 使用 shiftIndex (0, 1, 2) 進行數字比較最簡單
+        const shiftA = a.shiftIndex ?? 99 // 使用 ?? 處理 undefined 的情況
+        const shiftB = b.shiftIndex ?? 99
+        if (shiftA !== shiftB) {
+          return shiftA - shiftB
+        }
       }
 
-      // 頻率順序相同 或 不是查詢「其他」群組時，則依床號排序
+      // 層級 3 (或預設排序): 依床號排序
       return String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true })
     })
 }
