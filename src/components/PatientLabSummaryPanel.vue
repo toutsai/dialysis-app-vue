@@ -141,13 +141,16 @@ const prioritizedLabItems = [
   'WBC',
   'Platelet',
   'Hb',
-  'Hct',
+  // 'Hct', // 移除
   'Ferritin',
-  'Iron',
-  'TIBC',
+  // 'Iron', // 移除
+  // 'TIBC', // 移除
   'TSAT',
   'GlucoseAC',
+  'Triglyceride', // ✨ 新增
+  'LDL', // ✨ 新增
   'Albumin',
+  'ALT', // ✨ 新增
   'Na',
   'K',
   'P',
@@ -161,27 +164,41 @@ const prioritizedLabItems = [
   'URR',
 ]
 const labItemDisplayNames = {
+  BUN: 'BUN',
   Creatinine: 'Cr',
   Albumin: 'ALB',
+  P: 'P',
+  Ca: 'Ca',
+  Hb: 'Hb',
+  Hct: 'Hct', // 雖然不顯示在表格，但摘要區可能用到，保留無妨
+  Platelet: 'PLT',
+  WBC: 'WBC',
+  Na: 'Na',
+  K: 'K',
+  eGFR: 'eGFR',
   GlucoseAC: 'Glucose',
+  TotalProtein: 'Total Protein',
+  Iron: 'Fe', // 雖然不顯示在表格，但摘要區可能用到，保留無妨
+  TIBC: 'TIBC', // 雖然不顯示在表格，但摘要區可能用到，保留無妨
+  Ferritin: 'Ferritin',
+  iPTH: 'iPTH',
   PostBUN: 'Post-BUN',
   CaXP: 'Ca x P',
   'Kt/V': 'Kt/V',
   URR: 'URR (%)',
   TSAT: 'TSAT (%)',
-  iPTH: 'iPTH',
-  Hb: 'Hb',
-  P: 'P',
-  WBC: 'WBC',
-  Hct: 'Hct',
-  K: 'K',
-  Ca: 'Ca',
-  BUN: 'BUN',
+  // ✨ 新增 TG, LDL, ALT 的顯示名稱
+  Triglyceride: 'TG',
+  LDL: 'LDL',
+  ALT: 'ALT',
 }
 const LAB_REFERENCE_RANGES = {
   WBC: { min: 4.0, max: 10.0 },
   Hb: { min: 8, max: 12 },
   P: { max: 5.5 },
+  ALT: { max: 40 },
+  Triglyceride: { max: 150 },
+  LDL: { max: 100 },
   Albumin: { min: 3.5 },
   'Kt/V': { min: 1.2 },
   URR: { min: 65 },
