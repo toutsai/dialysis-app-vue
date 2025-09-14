@@ -185,7 +185,6 @@
             </div>
             <div class="cell-total">-</div>
 
-            <!-- ✨ 新增/修改開始 ✨: 護理人力改為整合式可收合表格 -->
             <!-- 護理人力總計列 -->
             <div class="cell-item">護理人力</div>
             <div class="cell-category">
@@ -281,7 +280,6 @@
                 <button @click="addStaffingRow" class="add-row-btn-header">新增計算項目</button>
               </div>
             </template>
-            <!-- ✨ 新增/修改結束 ✨ -->
 
             <!-- 護病比 -->
             <div class="cell-item">護病比</div>
@@ -911,6 +909,7 @@ const calculatedStaffingTotals = computed(() => {
     })
   }
 
+  // ✨ 錯誤修復 ✨: 增加保護，防止在 deductions 不存在時出錯
   if (staffingData && staffingData.deductions) {
     totals.early -= Number(staffingData.deductions.shift1) || 0
     totals.noon -= Number(staffingData.deductions.shift2) || 0
@@ -1050,6 +1049,35 @@ async function loadDailyLog(dateStr) {
       ])
 
     if (logResult) {
+      // ✨ 錯誤修復 ✨: 在合併資料前，檢查並轉換舊的 staffing 結構
+      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
+        console.warn('偵測到舊版護理人力資料格式，正在進行轉換...')
+        const oldStaffingData = logResult.stats.staffing || {}
+        const newStaffingStructure = initialLogState().stats.staffing
+
+        // 如果舊資料有值，將其轉換為新結構中的一個項目
+        const oldTotal =
+          (oldStaffingData.early || 0) + (oldStaffingData.noon || 0) + (oldStaffingData.late || 0)
+
+        if (oldTotal > 0) {
+          newStaffingStructure.details = [
+            {
+              id: Date.now(),
+              label: '舊日誌人力總計',
+              count: 1, // 將總數拆分到各班比例中
+              ratio1: oldStaffingData.early || 0,
+              ratio2: oldStaffingData.noon || 0,
+              ratio3: oldStaffingData.late || 0,
+            },
+          ]
+        } else {
+          // 如果舊資料為空或0，則使用預設的空範本
+          newStaffingStructure.details = initialLogState().stats.staffing.details
+        }
+
+        logResult.stats.staffing = newStaffingStructure
+      }
+
       const mergedLog = { ...initialLogState(), ...logResult }
       if (mergedLog.handoverNotes && !mergedLog.otherNotes) {
         mergedLog.otherNotes = mergedLog.handoverNotes
@@ -1664,7 +1692,6 @@ h1 {
 /* 統計表格 */
 .stats-grid {
   display: grid;
-  /* ✨ 修改欄寬定義以更好地容納內容 ✨ */
   grid-template-columns: 140px 220px repeat(3, 1fr) 120px;
   border: 1px solid #dee2e6;
   border-radius: 8px;
@@ -1751,13 +1778,12 @@ h1 {
   font-size: 0.9rem;
   font-weight: 500;
   color: #495057;
-  padding: 0.5rem; /* 減小子標題 padding */
+  padding: 0.5rem;
 }
 .cell-item.nested-header {
-  background-color: #f0f2f5; /* 輕微區分 */
+  background-color: #f0f2f5;
 }
 
-/* ✨ 新增 ✨: 用於子標題的 Flex 佈局 */
 .label-count-header {
   display: flex;
   justify-content: space-between;
@@ -1768,13 +1794,13 @@ h1 {
   text-align: left;
 }
 .label-count-header span:last-child {
-  width: 60px; /* 給人數標題一個固定寬度 */
+  width: 60px;
   text-align: center;
 }
 
 .nested-item {
   background-color: #fff;
-  padding: 0.4rem; /* 減小明細列 padding */
+  padding: 0.4rem;
 }
 .cell-item.nested-item {
   background-color: #f0f2f5;
@@ -1783,7 +1809,6 @@ h1 {
   justify-content: flex-start;
 }
 
-/* ✨ 新增 ✨: 用於合併「項目」和「人數」輸入框的儲存格 */
 .label-count-cell {
   display: flex;
   gap: 0.5rem;
@@ -1793,7 +1818,7 @@ h1 {
   flex-grow: 1;
 }
 .label-count-cell .count-input {
-  width: 60px; /* 與標題寬度對應 */
+  width: 60px;
   flex-shrink: 0;
 }
 
@@ -1828,7 +1853,7 @@ h1 {
 }
 
 .add-row-cell {
-  grid-column: 2 / -1; /* 讓按鈕跨越多欄 */
+  grid-column: 2 / -1;
   justify-content: flex-end !important;
   padding: 0.5rem !important;
   background-color: #f0f2f5;
