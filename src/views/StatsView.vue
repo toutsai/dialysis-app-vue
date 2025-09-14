@@ -2337,7 +2337,7 @@ button:disabled {
 }
 
 .page-title {
-  font-size: 28px; /* 稍微調整大小以平衡視覺 */
+  font-size: 32px; /* 稍微調整大小以平衡視覺 */
   color: #333;
   margin: 0;
   white-space: nowrap;
