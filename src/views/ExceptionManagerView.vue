@@ -687,7 +687,6 @@ onUnmounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .page-container {
-  height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -892,12 +891,15 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
-  /* ✨✨✨ 核心修正：在這裡重置 page-container 的佈局 ✨✨✨ */
+  /* ✨✨✨【核心修正】我們不再需要特別重置 page-container 的樣式 ✨✨✨ */
+  /*
   .page-container {
-    height: auto; /* 允許容器高度隨內容增長，而不是鎖定100% */
-    display: block; /* 解除 Flex 佈局，回歸正常的文檔流 */
+    height: auto;
+    display: block;
     padding: 0;
   }
+  */
+  /* 因為基礎樣式已經被修正，這裡的覆蓋就不再需要了，可以刪除或註解掉 */
 
   .fab.mobile-only {
     display: flex;
