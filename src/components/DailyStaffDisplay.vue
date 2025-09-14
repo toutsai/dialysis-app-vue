@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/DailyStaffDisplay.vue -->
+<!-- 檔案路徑: src/components/DailyStaffDisplay.vue (樣式更新) -->
 <template>
   <div class="daily-staff-container">
     <!-- 查房醫師 (固定顯示) -->
@@ -10,9 +10,8 @@
           {{ dailyPhysicians.early?.name || '--' }}
         </div>
         <span v-if="dailyPhysicians.early" class="staff-contact">
-          (員:{{ dailyPhysicians.early.staffId || 'N/A' }} / 電:{{
-            dailyPhysicians.early.phone || 'N/A'
-          }})
+          (員 {{ dailyPhysicians.early.staffId || 'N/A' }} / 電
+          {{ dailyPhysicians.early.phone || 'N/A' }})
         </span>
       </div>
     </div>
@@ -24,9 +23,8 @@
           {{ dailyPhysicians.noon?.name || '--' }}
         </div>
         <span v-if="dailyPhysicians.noon" class="staff-contact">
-          (員:{{ dailyPhysicians.noon.staffId || 'N/A' }} / 電:{{
-            dailyPhysicians.noon.phone || 'N/A'
-          }})
+          (員 {{ dailyPhysicians.noon.staffId || 'N/A' }} / 電
+          {{ dailyPhysicians.noon.phone || 'N/A' }})
         </span>
       </div>
     </div>
@@ -38,9 +36,8 @@
           {{ dailyPhysicians.late?.name || '--' }}
         </div>
         <span v-if="dailyPhysicians.late" class="staff-contact">
-          (員:{{ dailyPhysicians.late.staffId || 'N/A' }} / 電:{{
-            dailyPhysicians.late.phone || 'N/A'
-          }})
+          (員 {{ dailyPhysicians.late.staffId || 'N/A' }} / 電
+          {{ dailyPhysicians.late.phone || 'N/A' }})
         </span>
       </div>
     </div>
@@ -54,9 +51,8 @@
           {{ displayedConsultPhysician.data?.name || '--' }}
         </div>
         <span v-if="displayedConsultPhysician.data" class="staff-contact">
-          (員:{{ displayedConsultPhysician.data.staffId || 'N/A' }} / 電:{{
-            displayedConsultPhysician.data.phone || 'N/A'
-          }})
+          (員 {{ displayedConsultPhysician.data.staffId || 'N/A' }} / 電
+          {{ displayedConsultPhysician.data.phone || 'N/A' }})
         </span>
       </div>
     </div>
@@ -66,7 +62,7 @@
       <span class="staff-label">專師</span>
       <div class="staff-details">
         <span class="staff-name">賴若蕎</span>
-        <span class="staff-contact">(電: 665129)</span>
+        <span class="staff-contact">(電 665129)</span>
       </div>
     </div>
   </div>
@@ -89,31 +85,24 @@ const props = defineProps({
   },
 })
 
-// 使用響應式的當前時間
+// Script 邏輯不變
 const currentTime = ref(new Date())
 let timeUpdateInterval = null
-
-// computed 屬性依賴 `currentTime`
 const displayedConsultPhysician = computed(() => {
   const currentHour = currentTime.value.getHours()
-  // 上午 08:00 - 11:59
   if (currentHour >= 8 && currentHour < 12) {
     return {
       key: 'morning',
       shiftLabel: '上午',
       data: props.dailyConsultPhysicians.morning,
     }
-  }
-  // 下午 12:00 - 16:59
-  else if (currentHour >= 12 && currentHour < 17) {
+  } else if (currentHour >= 12 && currentHour < 17) {
     return {
       key: 'afternoon',
       shiftLabel: '下午',
       data: props.dailyConsultPhysicians.afternoon,
     }
-  }
-  // 夜間 (其他所有時間)
-  else {
+  } else {
     return {
       key: 'night',
       shiftLabel: '夜間',
@@ -121,15 +110,12 @@ const displayedConsultPhysician = computed(() => {
     }
   }
 })
-
-// 使用生命週期鉤子來管理時間更新
 onMounted(() => {
   if (timeUpdateInterval) clearInterval(timeUpdateInterval)
   timeUpdateInterval = setInterval(() => {
     currentTime.value = new Date()
   }, 60000)
 })
-
 onUnmounted(() => {
   if (timeUpdateInterval) clearInterval(timeUpdateInterval)
 })
@@ -198,17 +184,17 @@ onUnmounted(() => {
   color: white;
 }
 
-/* === 【顏色修改】將所有會診醫師的樣式統一為橘紅色系 === */
+/* === 【核心修改】將所有會診醫師的樣式統一為實心紅底白字 === */
 .staff-item.shift-consult-morning,
 .staff-item.shift-consult-afternoon,
 .staff-item.shift-consult-night {
-  background-color: #fee2e2; /* 淡紅色背景 */
-  color: #b91c1c; /* 深紅色文字 */
+  background-color: #ef4444; /* 柔和的紅色背景 */
+  color: white; /* 內部所有文字都設為白色 */
 }
 .staff-item.shift-consult-morning .staff-label,
 .staff-item.shift-consult-afternoon .staff-label,
 .staff-item.shift-consult-night .staff-label {
-  color: #b91c1c; /* 深紅色文字 */
+  color: white; /* 再次確保標籤文字是白色 */
 }
 /* ======================================================= */
 
