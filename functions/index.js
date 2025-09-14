@@ -2518,3 +2518,48 @@ exports.migrateSchedulesToArchive = onCall(
     }
   },
 )
+
+/**
+ * ✨✨✨【全新函式】✨✨✨
+ * 手動觸發，將所有已過期的 `message` 類型的 task 狀態更新為 `expired`。
+ * 僅限管理員使用。
+ */
+exports.manuallyExpireTasks = onCall({ timeoutSeconds: 300 }, async (request) => {
+  // 1. 權限檢查：確保只有 admin 角色的使用者可以呼叫
+  if (request.auth?.token?.role !== 'admin') {
+    throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
+  }
+
+  logger.info(`[Manual Trigger] Manually expiring tasks, triggered by admin: ${request.auth.uid}`)
+
+  const todayStr = formatDateForQuery(new Date())
+  try {
+    // 2. 執行與排程函式完全相同的查詢邏輯
+    const query = db
+      .collection('tasks')
+      .where('status', '==', 'pending')
+      .where('category', '==', 'message')
+      .where('targetDate', '<', todayStr)
+
+    const snapshot = await query.get()
+    if (snapshot.empty) {
+      logger.info('[Manual Trigger] No expired tasks (messages) found to update.')
+      return { success: true, message: '找不到需要更新的過期留言。', updatedCount: 0 }
+    }
+
+    const batch = db.batch()
+    snapshot.forEach((doc) => {
+      logger.info(`[Manual Trigger] Expiring task (message) ${doc.id}.`)
+      batch.update(doc.ref, { status: 'expired' })
+    })
+    await batch.commit()
+
+    const successMessage = `成功將 ${snapshot.size} 則留言標記為已過期。`
+    logger.info(`[Manual Trigger] ${successMessage}`)
+    // 3. 回傳詳細的成功訊息給前端
+    return { success: true, message: successMessage, updatedCount: snapshot.size }
+  } catch (error) {
+    logger.error('[Manual Trigger] Failed to manually expire tasks:', error)
+    throw new HttpsError('internal', '手動更新過期留言時發生錯誤。', error)
+  }
+})
