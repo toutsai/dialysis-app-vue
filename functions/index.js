@@ -2407,40 +2407,33 @@ exports.getDailyInjections = onCall(
 )
 
 // ===================================================================
-// ✨ --- 【最終修正版】每日自動歸檔排程的 Cloud Function (已修正時區問題) --- ✨
+// // ✨ --- 【最終修正版 V2.3】每日自動歸檔 (徹底修正時區計算) --- ✨
 // ===================================================================
 
 exports.archiveDailySchedule = onSchedule(
-  { schedule: 'every day 00:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '512MiB' },
+  { schedule: 'every day 00:05', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '512MiB' },
   async (event) => {
-    const now = new Date() // 獲取當前伺服器時間 (UTC)
+    // 1. 直接獲取「台北時區」當下的日期字串 (YYYY-MM-DD)
+    const taipeiDateString = new Date()
+      .toLocaleDateString('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+      .replace(/\//g, '-')
 
-    // 為了在日誌中清晰顯示，我們建立一個台北時間的字串
-    const taipeiTimeString = new Intl.DateTimeFormat('zh-TW', {
-      timeZone: 'Asia/Taipei',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    }).format(now)
+    // 2. 基於這個台北日期字串，建立一個 Date 物件來計算昨天
+    const todayInTaipei = new Date(taipeiDateString)
+    const yesterdayInTaipei = new Date(todayInTaipei)
+    yesterdayInTaipei.setDate(todayInTaipei.getDate() - 1)
 
-    // 以當前時間為基礎，直接計算前一天的日期
-    const yesterday = new Date(now)
-    yesterday.setDate(now.getDate() - 1)
-
-    // 使用我們的輔助函式將「昨天」格式化
-    // 因為我們的排程器時區是 Asia/Taipei，所以觸發時的 'now' 已經是台北的午夜
-    // 我們只需要簡單地減去一天即可得到正確的目標日期
-    const dateStr = formatDateForQuery(yesterday)
+    // 3. 將計算出的「昨天的日期」格式化為我們需要的 YYYY-MM-DD 格式
+    const dateStr = formatDateForQuery(yesterdayInTaipei)
 
     logger.info(
-      `[Archiver V2.2] 🚀 歸檔任務啟動於台北時間 ${taipeiTimeString}，目標歸檔日期: ${dateStr}`,
+      `[Archiver V2.3] 🚀 歸檔任務啟動，當前台北日期: ${taipeiDateString}，目標歸檔日期: ${dateStr}`,
     )
-
-    // ... 以下所有程式碼與之前版本完全相同 ...
 
     const sourceScheduleRef = db.collection('schedules').doc(dateStr)
     const targetArchiveRef = db.collection('expired_schedules').doc(dateStr)
@@ -2448,7 +2441,7 @@ exports.archiveDailySchedule = onSchedule(
     try {
       const scheduleDoc = await sourceScheduleRef.get()
       if (!scheduleDoc.exists) {
-        logger.warn(`[Archiver V2.2] ⚠️ 日期 ${dateStr} 的排班文件不存在，無需歸檔。`)
+        logger.warn(`[Archiver V2.3] ⚠️ 日期 ${dateStr} 的排班文件不存在，無需歸檔。`)
         return null
       }
 
@@ -2463,14 +2456,14 @@ exports.archiveDailySchedule = onSchedule(
       ]
 
       if (patientIds.length === 0) {
-        logger.info(`[Archiver V2.2] 📄 日期 ${dateStr} 的排班中沒有病人，直接歸檔空排班。`)
+        logger.info(`[Archiver V2.3] 📄 日期 ${dateStr} 的排班中沒有病人，直接歸檔空排班。`)
         await targetArchiveRef.set({ ...originalData, archivedAt: FieldValue.serverTimestamp() })
         await sourceScheduleRef.delete()
-        logger.info(`[Archiver V2.2] ✅ 成功歸檔並刪除空的原始排班 ${dateStr}。`)
+        logger.info(`[Archiver V2.3] ✅ 成功歸檔並刪除空的原始排班 ${dateStr}。`)
         return null
       }
 
-      logger.info(`[Archiver V2.2] 🔍 找到 ${patientIds.length} 位病人，開始分批查詢其狀態快照...`)
+      logger.info(`[Archiver V2.3] 🔍 找到 ${patientIds.length} 位病人，開始分批查詢其狀態快照...`)
 
       const patientDataMap = new Map()
       const CHUNK_SIZE = 30
@@ -2485,7 +2478,7 @@ exports.archiveDailySchedule = onSchedule(
         })
       }
       logger.info(
-        `[Archiver V2.2] ✅ 所有批次查詢完成，成功獲取 ${patientDataMap.size} 位病人的資料。`,
+        `[Archiver V2.3] ✅ 所有批次查詢完成，成功獲取 ${patientDataMap.size} 位病人的資料。`,
       )
 
       const archivedSchedule = { ...originalSchedule }
@@ -2514,7 +2507,7 @@ exports.archiveDailySchedule = onSchedule(
 
       if (missingPatientCount > 0) {
         logger.warn(
-          `[Archiver V2.2] ⚠️ 有 ${missingPatientCount} 位病人的資料在 patients 集合中找不到，可能已被刪除。`,
+          `[Archiver V2.3] ⚠️ 有 ${missingPatientCount} 位病人的資料在 patients 集合中找不到，可能已被刪除。`,
         )
       }
 
@@ -2529,9 +2522,9 @@ exports.archiveDailySchedule = onSchedule(
       batch.delete(sourceScheduleRef)
       await batch.commit()
 
-      logger.info(`[Archiver V2.2] ✅ 成功歸檔並刪除原始排班 ${dateStr}。`)
+      logger.info(`[Archiver V2.3] ✅ 成功歸檔並刪除原始排班 ${dateStr}。`)
     } catch (error) {
-      logger.error(`[Archiver V2.2] ❌ 歸檔日期 ${dateStr} 的排班時發生嚴重錯誤:`, error)
+      logger.error(`[Archiver V2.3] ❌ 歸檔日期 ${dateStr} 的排班時發生嚴重錯誤:`, error)
       throw error
     }
     return null
