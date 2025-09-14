@@ -45,24 +45,20 @@
       </div>
     </div>
 
-    <!-- 會診醫師 (智慧輪播) -->
-    <div class="consult-carousel-wrapper">
-      <button class="carousel-arrow" @click="cycleConsultShift(-1)">&lt;</button>
-      <div class="staff-item" :class="`shift-consult-${displayedConsultPhysician.key}`">
-        <span class="staff-label">{{ displayedConsultPhysician.shiftLabel }}</span>
-        <div class="staff-details">
-          <div class="staff-name">
-            <span class="staff-job-title">會診</span>
-            {{ displayedConsultPhysician.data?.name || '--' }}
-          </div>
-          <span v-if="displayedConsultPhysician.data" class="staff-contact">
-            (員:{{ displayedConsultPhysician.data.staffId || 'N/A' }} / 電:{{
-              displayedConsultPhysician.data.phone || 'N/A'
-            }})
-          </span>
+    <!-- 【修改】會診醫師 (改為依據時間自動顯示，移除輪播) -->
+    <div class="staff-item" :class="`shift-consult-${displayedConsultPhysician.key}`">
+      <span class="staff-label">{{ displayedConsultPhysician.shiftLabel }}</span>
+      <div class="staff-details">
+        <div class="staff-name">
+          <span class="staff-job-title">會診</span>
+          {{ displayedConsultPhysician.data?.name || '--' }}
         </div>
+        <span v-if="displayedConsultPhysician.data" class="staff-contact">
+          (員:{{ displayedConsultPhysician.data.staffId || 'N/A' }} / 電:{{
+            displayedConsultPhysician.data.phone || 'N/A'
+          }})
+        </span>
       </div>
-      <button class="carousel-arrow" @click="cycleConsultShift(1)">&gt;</button>
     </div>
 
     <!-- 專師 -->
@@ -79,7 +75,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
-// 1. 定義 props，用來接收從父層傳來的資料
+// 1. Props 定義不變
 const props = defineProps({
   dailyPhysicians: {
     type: Object,
@@ -93,109 +89,66 @@ const props = defineProps({
   },
 })
 
-// 2. 將所有輪播相關的邏輯都搬到這個元件內部
-const activeConsultShiftIndex = ref(0)
-const consultShiftCycleOrder = ['morning', 'afternoon', 'night']
-let shiftCycleInterval = null
+// 【修改】2. 移除輪播邏輯，改用響應式的當前時間
+const currentTime = ref(new Date())
+let timeUpdateInterval = null
 
+// 【修改】3. 重新撰寫 computed 屬性，使其直接依賴 `currentTime`
 const displayedConsultPhysician = computed(() => {
-  const currentShiftKey = consultShiftCycleOrder[activeConsultShiftIndex.value]
-  switch (currentShiftKey) {
-    case 'morning':
-      return {
-        key: 'morning',
-        shiftLabel: '上午',
-        data: props.dailyConsultPhysicians.morning,
-      }
-    case 'afternoon':
-      return {
-        key: 'afternoon',
-        shiftLabel: '下午',
-        data: props.dailyConsultPhysicians.afternoon,
-      }
-    case 'night':
-      return {
-        key: 'night',
-        shiftLabel: '夜間',
-        data: props.dailyConsultPhysicians.night,
-      }
-    default:
-      return { key: 'morning', shiftLabel: '上午', data: null }
+  // 這個 computed 屬性現在會因為 currentTime 的變化而自動重新計算
+  const currentHour = currentTime.value.getHours()
+
+  // 上午 08:00 - 11:59
+  if (currentHour >= 8 && currentHour < 12) {
+    return {
+      key: 'morning',
+      shiftLabel: '上午',
+      data: props.dailyConsultPhysicians.morning,
+    }
+  }
+  // 下午 12:00 - 16:59
+  else if (currentHour >= 12 && currentHour < 17) {
+    return {
+      key: 'afternoon',
+      shiftLabel: '下午',
+      data: props.dailyConsultPhysicians.afternoon,
+    }
+  }
+  // 夜間 (其他所有時間)
+  else {
+    return {
+      key: 'night',
+      shiftLabel: '夜間',
+      data: props.dailyConsultPhysicians.night,
+    }
   }
 })
 
-function cycleConsultShift(direction) {
-  if (shiftCycleInterval) clearInterval(shiftCycleInterval) // 手動切換時停止自動輪播
-
-  const newIndex = activeConsultShiftIndex.value + direction
-  if (newIndex >= consultShiftCycleOrder.length) {
-    activeConsultShiftIndex.value = 0
-  } else if (newIndex < 0) {
-    activeConsultShiftIndex.value = consultShiftCycleOrder.length - 1
-  } else {
-    activeConsultShiftIndex.value = newIndex
-  }
-}
-
-function setupInitialConsultShiftDisplay() {
-  const currentHour = new Date().getHours()
-  if (currentHour >= 8 && currentHour < 12) {
-    activeConsultShiftIndex.value = 0 // 上午
-  } else if (currentHour >= 12 && currentHour < 17) {
-    activeConsultShiftIndex.value = 1 // 下午
-  } else {
-    activeConsultShiftIndex.value = 2 // 夜間
-  }
-
-  // 設定每 10 秒自動輪播
-  if (shiftCycleInterval) clearInterval(shiftCycleInterval)
-  shiftCycleInterval = setInterval(() => {
-    cycleConsultShift(1)
-  }, 10000)
-}
-
+// 【修改】4. 使用生命週期鉤子來管理時間更新
 onMounted(() => {
-  setupInitialConsultShiftDisplay()
+  // 每分鐘更新一次時間，這樣跨越班次時顯示會自動變化
+  // (例如從 11:59 -> 12:00，會自動從上午班切換到下午班)
+  if (timeUpdateInterval) clearInterval(timeUpdateInterval)
+  timeUpdateInterval = setInterval(() => {
+    currentTime.value = new Date()
+  }, 60000) // 60000 毫秒 = 1 分鐘
 })
 
 onUnmounted(() => {
-  if (shiftCycleInterval) clearInterval(shiftCycleInterval)
+  // 元件銷毀時清除計時器，避免記憶體洩漏
+  if (timeUpdateInterval) clearInterval(timeUpdateInterval)
 })
 </script>
 
 <style scoped>
-/* 3. 將所有相關的 CSS 都搬到這裡，成為元件的專屬樣式 */
+/* 樣式基本不變，只移除不再需要的 carousel 相關樣式 */
 .daily-staff-container {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-.consult-carousel-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.carousel-arrow {
-  background: #f1f5f9;
-  border: 1px solid #cbd5e1;
-  color: #64748b;
-  border-radius: 50%;
-  width: 26px;
-  height: 26px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  line-height: 1;
-  transition: all 0.2s;
-  flex-shrink: 0;
-}
-.carousel-arrow:hover {
-  background-color: #e2e8f0;
-  color: #1e293b;
-}
+/* 【移除】.consult-carousel-wrapper 和 .carousel-arrow 的樣式 */
+
 .staff-item {
   display: flex;
   align-items: center;
