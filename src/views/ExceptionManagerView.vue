@@ -1,8 +1,8 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版 - 修正版) -->
 <template>
   <div class="page-container">
-    <!-- 頁首區域保持不變，包含標題和新增按鈕 -->
-    <header class="page-header">
+    <!-- ✅ 改為 div，避免與 MainLayout 的 <header class="main-header"> 混淆 -->
+    <div class="page-header-section">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">調班管理</h1>
@@ -18,7 +18,7 @@
       <p class="page-description">
         此處用於處理「臨時調班」、「區間暫停」或「臨時加洗」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
       </p>
-    </header>
+    </div>
 
     <!-- 主要內容區域 -->
     <main class="page-main-content">
@@ -694,7 +694,9 @@ onUnmounted(() => {
   background-color: #f8f9fa;
   padding: 0.5rem;
 }
-.page-header {
+
+/* ✅ 由 header 改名為 page-header-section，避免與 MainLayout 的 .main-header 衝突 */
+.page-header-section {
   border-bottom: 2px solid #dee2e6;
   margin-bottom: 1.5rem;
   flex-shrink: 0;
@@ -883,11 +885,13 @@ button:disabled {
   display: inline-flex;
 }
 
+/* ============================= */
+/* 行動版（<= 992px）重點修正    */
+/* ============================= */
 @media (max-width: 992px) {
   .page-container {
-    padding: 0;
-    /* 保持 flex 佈局，不要改成 block */
-    /* 不要設定 height: auto */
+    padding: 1rem 0 0 0; /* 重置左右 padding，避免內縮 */
+    padding-top: 60px; /* ✅ 預留 MainLayout 頂部列高度，避免被擠掉或覆蓋 */
   }
   .fab.mobile-only {
     display: flex;
@@ -896,10 +900,11 @@ button:disabled {
   .desktop-only-flex {
     display: none !important;
   }
-  .page-header {
+  .page-header-section {
     margin-bottom: 1rem;
     padding: 1rem 1rem 0.75rem;
     border-radius: 0;
+    background-color: #fff;
   }
   .page-title {
     font-size: 28px;
@@ -940,7 +945,7 @@ button:disabled {
   .page-title {
     font-size: 24px;
   }
-  .page-header {
+  .page-header-section {
     padding: 1rem 1rem 0.5rem;
     margin-bottom: 1rem;
   }
