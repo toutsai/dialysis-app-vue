@@ -1201,6 +1201,48 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       }
 
       // ===== 更新調班狀態為已套用 =====
+      // ✨✨✨【核心修改】基於 endDate 計算一個月後的過期時間 ✨✨✨
+
+      // 1. 找出這次申請的「結束日期」。對於單日事件，endDate 就是 startDate 或 date。
+      let relevantEndDateStr
+      if (exceptionData.endDate) {
+        relevantEndDateStr = exceptionData.endDate
+      } else if (exceptionData.type === 'MOVE') {
+        // 對於 MOVE，取來源日和目標日中較晚的那個
+        relevantEndDateStr =
+          exceptionData.to?.goalDate > exceptionData.from?.sourceDate
+            ? exceptionData.to.goalDate
+            : exceptionData.from.sourceDate
+      } else if (exceptionData.type === 'ADD_SESSION') {
+        relevantEndDateStr = exceptionData.to?.goalDate
+      } else if (exceptionData.type === 'SWAP') {
+        relevantEndDateStr = exceptionData.date
+      } else {
+        // 作為備用，使用 startDate
+        relevantEndDateStr = exceptionData.startDate
+      }
+
+      let expireAt = null
+      if (relevantEndDateStr) {
+        // 2. 將結束日期字串轉為 Date 物件
+        const endDate = new Date(relevantEndDateStr)
+
+        // 3. 在結束日期的基礎上，增加一個月
+        endDate.setMonth(endDate.getMonth() + 1)
+        expireAt = endDate // 直接賦值
+        logger.info(
+          `[NewException] Calculated expireAt for ${exceptionId}: ${expireAt.toISOString()}`,
+        )
+      } else {
+        // 如果找不到任何有效日期，則設定一個預設的過期時間（例如從現在起一個月）
+        const now = new Date()
+        now.setMonth(now.getMonth() + 1)
+        expireAt = now
+        logger.warn(
+          `[NewException] Could not determine endDate for ${exceptionId}. Setting default expireAt.`,
+        )
+      }
+
       const updateData = {
         status: 'applied',
         appliedAt: FieldValue.serverTimestamp(),
@@ -1208,10 +1250,11 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         conflicts: conflicts.length > 0 ? conflicts : null,
         conflictCount: conflicts.length,
         applyMethod: 'realtime',
+        expireAt: expireAt, // ✨ 將計算出的過期時間加入
       }
       await exceptionDoc.ref.update(updateData)
 
-      // ===== 記錄操作日誌 =====
+      // ===== 記錄操作日誌 (保持不變) =====
       await db.collection('exception_logs').add({
         exceptionId: exceptionId,
         type: exceptionData.type,
