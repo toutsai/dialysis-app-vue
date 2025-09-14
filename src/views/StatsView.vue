@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (✨ 最終功能整合版 ✨) -->
+<!-- 檔案路徑: src/views/StatsView.vue (重構完成版) -->
 <template>
   <div class="page-container">
     <!-- 1. 固定的頂部，此區塊不滾動 -->
@@ -7,7 +7,6 @@
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">護理分組</h1>
-          <!-- ✨ [這是修改後、更緊湊的日期導航] ✨ -->
           <div class="date-navigator">
             <button @click="changeDate(-1)">&lt; 上一天</button>
             <div class="date-display-wrapper">
@@ -50,62 +49,42 @@
         </div>
       </div>
 
-      <!-- ✨ [這是最重要的修改！] ✨ -->
-      <!-- 我們用下面這個 info-row-wrapper，把「醫師」和「消防」包在一起，才能讓它們並排 -->
+      <!-- 【核心修改 1】: 將醫師資訊和消防編組並排 -->
       <div class="info-row-wrapper desktop-only">
-        <!-- (左側) 醫師資訊區塊 -->
-        <div class="daily-staff-panel horizontal">
-          <div class="staff-item shift-early">
-            <span class="staff-label">早</span>
-            <div class="staff-details">
-              <div class="staff-name">
-                <span class="staff-job-title">醫師</span>
-                {{ dailyPhysicians.early?.name || '--' }}
-              </div>
-            </div>
-          </div>
-          <div class="staff-item shift-noon">
-            <span class="staff-label">午</span>
-            <div class="staff-details">
-              <div class="staff-name">
-                <span class="staff-job-title">醫師</span>
-                {{ dailyPhysicians.noon?.name || '--' }}
-              </div>
-            </div>
-          </div>
-          <div class="staff-item shift-late">
-            <span class="staff-label">晚</span>
-            <div class="staff-details">
-              <div class="staff-name">
-                <span class="staff-job-title">醫師</span>
-                {{ dailyPhysicians.late?.name || '--' }}
-              </div>
-            </div>
-          </div>
-          <div class="staff-item shift-specialist">
-            <span class="staff-label">專</span>
-            <div class="staff-details">
-              <span class="staff-name">賴若蕎</span>
-              <span class="staff-contact">(電: 665129)</span>
-            </div>
-          </div>
-        </div>
-        <!-- (右側) 消防編組區塊 -->
+        <!-- (左側) 使用 DailyStaffDisplay 元件 -->
+        <DailyStaffDisplay
+          :daily-physicians="dailyPhysicians"
+          :daily-consult-physicians="dailyConsultPhysicians"
+        />
+
+        <!-- 【核心修改 1】: 重構消防編組的 HTML 結構 -->
         <div class="duty-command-bar">
-          <div class="main-commanders">
+          <div class="fire-duty-panel">
             <span class="duty-title">消防編組:</span>
-            <span class="duty-role-tag role-commander">總指揮官</span>
-            <span class="duty-person">廖丁瑩主任</span>
-            <span class="duty-divider"></span>
-            <span class="duty-role-tag role-field-commander">現場指揮官</span>
-            <span class="duty-person">莊明月護理長</span>
-            <span class="duty-divider"></span>
-            <span class="duty-role-tag role-reporter">通報班</span>
-            <span class="duty-person">謝淑琴書記</span>
-            <span class="duty-divider"></span>
-            <span class="duty-role-tag role-guide">引導救護班</span>
-            <span class="duty-person">工友</span>
+            <div class="duty-grid">
+              <!-- Grid Item 1: 總指揮官 -->
+              <div class="duty-item-pair">
+                <span class="duty-role-tag role-commander">總指揮官</span>
+                <span class="duty-person">廖丁瑩主任</span>
+              </div>
+              <!-- Grid Item 2: 現場指揮官 -->
+              <div class="duty-item-pair">
+                <span class="duty-role-tag role-field-commander">現場指揮官</span>
+                <span class="duty-person">莊明月護理長</span>
+              </div>
+              <!-- Grid Item 3: 通報班 -->
+              <div class="duty-item-pair">
+                <span class="duty-role-tag role-reporter">通報班</span>
+                <span class="duty-person">謝淑琴書記</span>
+              </div>
+              <!-- Grid Item 4: 引導救護班 -->
+              <div class="duty-item-pair">
+                <span class="duty-role-tag role-guide">引導救護班</span>
+                <span class="duty-person">工友</span>
+              </div>
+            </div>
           </div>
+
           <div class="duty-dropdown-wrapper">
             <button
               class="duty-dropdown-trigger"
@@ -1147,7 +1126,6 @@ import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
-// ✨ 核心修改：從 optimizedApiService 引入儲存醫囑的函式
 import { createDialysisOrderAndUpdatePatient } from '@/services/optimizedApiService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
@@ -1158,15 +1136,18 @@ import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
+import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import * as XLSX from 'xlsx'
+import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
+const archiveStore = useArchiveStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1271,12 +1252,11 @@ const isPrepPopoverVisible = ref(false)
 const prepPopoverData = reactive({ patients: [], targetElement: null })
 const isCreateTaskModalVisible = ref(false)
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
+const dailyConsultPhysicians = ref({ morning: null, afternoon: null, night: null })
 const isInjectionDialogVisible = ref(false)
 const dailyInjections = ref([])
 const isInjectionLoading = ref(false)
 const noonTakeoffVisibility = ref({ early: false, late: false })
-
-// ✨ 核心修改：新增醫囑 Modal 相關的 ref
 const isOrderModalVisible = ref(false)
 const editingPatientForOrder = ref(null)
 
@@ -1334,6 +1314,7 @@ const sortedLateTakeOffTeams = computed(() => {
     return a.localeCompare(b)
   })
 })
+
 const effectiveStatsData = computed(() => {
   const createTeamStats = (teams, shiftType) => {
     const stats = {}
@@ -1357,40 +1338,44 @@ const effectiveStatsData = computed(() => {
     })
     return stats
   }
+
   const lateTakeOffTeams = lateBaseTeams.map((t) => `夜間收針${t}`)
   const earlyShiftStats = createTeamStats(earlyTeams, 'early')
   const lateShiftStats = createTeamStats(lateTeams, 'late')
   const lateTakeOffStats = createTeamStats(lateTakeOffTeams, 'lateTakeOff')
-  if (!currentRecord.schedule || patientMap.value.size === 0) {
+
+  if (!currentRecord.schedule) {
     return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
   }
+
   const messagesMap = taskStore.getPatientMessageTypesMapForDate(currentDate.value)
+
   for (const shiftId in currentRecord.schedule) {
     const shiftDetails = currentRecord.schedule[shiftId]
     if (!shiftDetails || !shiftDetails.patientId) continue
-    const patient = patientMap.value.get(shiftDetails.patientId)
-    if (!patient) continue
-    const messageTypesForPatient = messagesMap.get(patient.id) || []
-    const cellStyles = getUnifiedCellStyle(shiftDetails, patient, null, messageTypesForPatient)
-    const {
-      patientId,
-      autoNote,
-      manualNote,
-      nurseTeam,
-      nurseTeamIn,
-      nurseTeamOut,
-      nurseTeamTakeOff,
-    } = shiftDetails || {}
+
+    const patientInfo = getArchivedOrLivePatientInfo(shiftDetails)
+    const patientDetails = patientMap.value.get(shiftDetails.patientId)
+    if (!patientInfo || !patientDetails) continue
+
+    const messageTypesForPatient = messagesMap.get(patientDetails.id) || []
+    const cellStyles = getUnifiedCellStyle(shiftDetails, patientInfo, null, messageTypesForPatient)
+
     const detail = {
-      id: patientId,
+      id: patientDetails.id,
       shiftId,
-      name: patient.name,
-      medicalRecordNumber: patient.medicalRecordNumber,
-      status: patient.status,
-      mode: patient.mode,
-      wardNumber: patient.wardNumber || '',
+      name: patientDetails.name,
+      medicalRecordNumber: patientDetails.medicalRecordNumber,
+      status: patientInfo.status,
+      mode: patientInfo.mode,
+      wardNumber: patientInfo.wardNumber || '',
       dialysisBed: shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || '',
-      finalTags: [...new Set([...(autoNote || '').split(' '), ...(manualNote || '').split(' ')])]
+      finalTags: [
+        ...new Set([
+          ...(shiftDetails.autoNote || '').split(' '),
+          ...(shiftDetails.manualNote || '').split(' '),
+        ]),
+      ]
         .filter((tag) => tag && !['住', '急'].includes(tag))
         .join(' '),
       classes:
@@ -1399,8 +1384,9 @@ const effectiveStatsData = computed(() => {
           .filter(([, v]) => v)
           .map(([k]) => k)
           .join(' '),
-      dialysisOrders: patient.dialysisOrders || {},
+      dialysisOrders: patientDetails.dialysisOrders || {},
     }
+
     const assignAndCount = (group, pDetail) => {
       if (!group) return
       group.patients.push(pDetail)
@@ -1408,7 +1394,10 @@ const effectiveStatsData = computed(() => {
       else if (pDetail.status === 'er') group.erCount++
       else group.opdCount++
     }
+
     const shiftCode = shiftId.split('-')[2]
+    const { nurseTeam, nurseTeamIn, nurseTeamOut, nurseTeamTakeOff } = shiftDetails
+
     if (shiftCode === SHIFT_CODES.EARLY) {
       const targetTeam = nurseTeam || '早未分組'
       if (earlyShiftStats[targetTeam]) {
@@ -1428,12 +1417,11 @@ const effectiveStatsData = computed(() => {
       if (earlyShiftStats[targetInTeam]) {
         assignAndCount(earlyShiftStats[targetInTeam].noonShiftOn, detail)
       }
-      const targetOutTeam = nurseTeamOut
-      if (targetOutTeam) {
-        if (lateShiftStats[targetOutTeam])
-          assignAndCount(lateShiftStats[targetOutTeam].noonShiftOff, detail)
-        else if (earlyShiftStats[targetOutTeam])
-          assignAndCount(earlyShiftStats[targetOutTeam].noonShiftOff, detail)
+      if (nurseTeamOut) {
+        if (lateShiftStats[nurseTeamOut])
+          assignAndCount(lateShiftStats[nurseTeamOut].noonShiftOff, detail)
+        else if (earlyShiftStats[nurseTeamOut])
+          assignAndCount(earlyShiftStats[nurseTeamOut].noonShiftOff, detail)
       } else {
         if (lateShiftStats['晚未分組']) {
           assignAndCount(lateShiftStats['晚未分組'].noonShiftOff, detail)
@@ -1441,9 +1429,11 @@ const effectiveStatsData = computed(() => {
       }
     }
   }
+
   const sortPatientsByBed = (a, b) =>
     (a.dialysisBed === '外圍' ? 100 : parseInt(a.dialysisBed, 10)) -
     (b.dialysisBed === '外圍' ? 100 : parseInt(b.dialysisBed, 10))
+
   ;[earlyShiftStats, lateShiftStats, lateTakeOffStats].forEach((stats, index) => {
     for (const team in stats) {
       const teamData = stats[team]
@@ -1471,8 +1461,10 @@ const effectiveStatsData = computed(() => {
       }
     }
   })
+
   return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
 })
+
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
@@ -1502,25 +1494,61 @@ async function loadDailyStaffInfo(date) {
       usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
     ])
     const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
-    if (monthScheduleDoc && monthScheduleDoc.schedule) {
+
+    const dialysisPhysiciansData = { early: null, noon: null, late: null }
+    const consultPhysiciansData = { morning: null, afternoon: null, night: null }
+
+    if (monthScheduleDoc) {
       const dayOfMonth = date.getDate()
-      const daySchedule = monthScheduleDoc.schedule[dayOfMonth]
-      dailyPhysicians.value.early = daySchedule
-        ? userMap.get(daySchedule.early?.physicianId) || null
-        : null
-      dailyPhysicians.value.noon = daySchedule
-        ? userMap.get(daySchedule.noon?.physicianId) || null
-        : null
-      dailyPhysicians.value.late = daySchedule
-        ? userMap.get(daySchedule.late?.physicianId) || null
-        : null
-    } else {
-      dailyPhysicians.value = { early: null, noon: null, late: null }
+
+      // 獲取查房醫師
+      const daySchedule = monthScheduleDoc.schedule?.[dayOfMonth]
+      if (daySchedule) {
+        dialysisPhysiciansData.early = userMap.get(daySchedule.early?.physicianId) || null
+        dialysisPhysiciansData.noon = userMap.get(daySchedule.noon?.physicianId) || null
+        dialysisPhysiciansData.late = userMap.get(daySchedule.late?.physicianId) || null
+      }
+
+      // 獲取會診醫師
+      const consultationDaySchedule = monthScheduleDoc.consultationSchedule?.[dayOfMonth]
+      if (consultationDaySchedule) {
+        consultPhysiciansData.morning =
+          userMap.get(consultationDaySchedule.morning?.physicianId) || null
+        consultPhysiciansData.afternoon =
+          userMap.get(consultationDaySchedule.afternoon?.physicianId) || null
+        consultPhysiciansData.night =
+          userMap.get(consultationDaySchedule.night?.physicianId) || null
+      }
     }
+
+    dailyPhysicians.value = dialysisPhysiciansData
+    dailyConsultPhysicians.value = consultPhysiciansData
   } catch (error) {
     console.error('載入每日負責人資訊失敗:', error)
     dailyPhysicians.value = { early: null, noon: null, late: null }
+    dailyConsultPhysicians.value = { morning: null, afternoon: null, night: null }
   }
+}
+
+async function fetchArchivedSchedule(dateStr) {
+  return await archiveStore.fetchScheduleByDate(dateStr)
+}
+
+async function fetchLiveSchedule(dateStr) {
+  const schedulesApi = ApiManager('schedules')
+  const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+  const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+
+  if (record.schedule) {
+    for (const shiftId in record.schedule) {
+      const slot = record.schedule[shiftId]
+      if (slot?.patientId && patientMap.value.has(slot.patientId)) {
+        const patient = patientMap.value.get(slot.patientId)
+        slot.autoNote = patient ? generateAutoNote(patient) : ''
+      }
+    }
+  }
+  return record
 }
 
 async function loadData(date) {
@@ -1529,22 +1557,29 @@ async function loadData(date) {
   statusIndicator.value = '讀取中...'
   isLoading.value = true
   const dateStr = formatDate(date)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const targetDate = new Date(date)
+  targetDate.setHours(0, 0, 0, 0)
+
   try {
-    // 1. 確保 Pinia Store 中的病人基本資料已載入
-    await patientStore.fetchPatientsIfNeeded()
+    const isPastDate = targetDate < today
+    if (!isPastDate) {
+      await patientStore.fetchPatientsIfNeeded()
+    }
 
-    // 2. 並行獲取當天的排程和護理分組數據
-    const [dailyRecords, teamsData] = await Promise.all([
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-      fetchTeamsByDate(dateStr),
-    ])
+    let scheduleRecord
+    if (isPastDate) {
+      scheduleRecord = await fetchArchivedSchedule(dateStr)
+    } else {
+      scheduleRecord = await fetchLiveSchedule(dateStr)
+    }
 
-    const scheduleRecord =
-      dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+    const [teamsData] = await Promise.all([fetchTeamsByDate(dateStr)])
+
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
 
-    // ✅ [核心修正] 獲取排班內所有病人的 ID
     const patientIdsInSchedule = [
       ...new Set(
         Object.values(currentRecord.schedule)
@@ -1552,45 +1587,26 @@ async function loadData(date) {
           .filter(Boolean),
       ),
     ]
-
-    // 如果排班中有病人，則為他們獲取最新的醫囑
     if (patientIdsInSchedule.length > 0) {
-      // 為每個病人並行獲取醫囑
       const ordersPromises = patientIdsInSchedule.map(async (patientId) => {
         const orders = await getEffectiveOrdersForDate(patientId, date)
         const patientInStore = patientMap.value.get(patientId)
         if (patientInStore) {
-          // ✨ 將獲取到的醫囑直接附加到 Pinia Store 的病人物件上
           patientInStore.dialysisOrders = orders
         }
       })
-      // 等待所有醫囑都獲取完畢
       await Promise.all(ordersPromises)
     }
 
-    // 重新組合最終數據 (這部分邏輯不變，但現在 patientMap 中的病人已經有 dialysisOrders 了)
     if (currentRecord.schedule) {
       for (const shiftId in currentRecord.schedule) {
         const slot = currentRecord.schedule[shiftId]
         if (!slot || !slot.patientId) continue
-
-        const patient = patientMap.value.get(slot.patientId)
-        slot.autoNote = patient ? generateAutoNote(patient) : ''
-
         const shiftCode = shiftId.split('-')[2]
         const teamKey = `${slot.patientId}-${shiftCode}`
         const teamInfo = currentTeamsRecord.value.teams[teamKey]
-
         if (teamInfo) {
-          slot.nurseTeam = teamInfo.nurseTeam || null
-          slot.nurseTeamIn = teamInfo.nurseTeamIn || null
-          slot.nurseTeamOut = teamInfo.nurseTeamOut || null
-          slot.nurseTeamTakeOff = teamInfo.nurseTeamTakeOff || null
-        } else {
-          slot.nurseTeam = null
-          slot.nurseTeamIn = null
-          slot.nurseTeamOut = null
-          slot.nurseTeamTakeOff = null
+          Object.assign(slot, teamInfo)
         }
       }
     }
@@ -1602,6 +1618,14 @@ async function loadData(date) {
   } finally {
     isLoading.value = false
   }
+}
+
+function getArchivedOrLivePatientInfo(slotData) {
+  if (!slotData || !slotData.patientId) return null
+  if (slotData.archivedPatientInfo) {
+    return slotData.archivedPatientInfo
+  }
+  return patientMap.value.get(slotData.patientId) || null
 }
 
 async function saveChangesToCloud() {
@@ -2152,7 +2176,6 @@ const handleIconClick = (patientId, context) => {
 }
 provide('handleIconClick', handleIconClick)
 
-// ✨ 核心修改：新增醫囑儲存函式和從備物清單打開醫囑的函式
 async function handleSaveOrder(orderData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -2162,18 +2185,13 @@ async function handleSaveOrder(orderData) {
     showAlert('儲存失敗', '找不到有效的病人資訊。')
     return
   }
-
   const patientId = editingPatientForOrder.value.id
   const patientName = editingPatientForOrder.value.name
-
   try {
-    // 直接呼叫從 optimizedApiService 引入的函式
     await createDialysisOrderAndUpdatePatient(patientId, patientName, orderData)
-
-    // 操作成功後續處理
-    await loadData(currentDate.value) // 重新載入所有資料以更新畫面
+    await loadData(currentDate.value)
     isOrderModalVisible.value = false
-    createGlobalNotification(`更新醫囑：${patientName}`, 'team') // 'team' 是一個示例，您可以改成 'order'
+    createGlobalNotification(`更新醫囑：${patientName}`, 'team')
     showAlert('儲存成功', `已成功更新 ${patientName} 的透析醫囑。`)
   } catch (error) {
     console.error('儲存醫囑失敗:', error)
@@ -2319,7 +2337,7 @@ button:disabled {
 }
 
 .page-title {
-  font-size: 28px; /* 稍微調整大小以平衡視覺 */
+  font-size: 32px; /* 稍微調整大小以平衡視覺 */
   color: #333;
   margin: 0;
   white-space: nowrap;
@@ -2366,112 +2384,54 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* ================================== */
-/* === 4. 醫師與消防並排佈局 (核心) === */
-/* ================================== */
+/* ================================================= */
+/* === 【核心修改 4】: 全新的醫師與消防並排佈局樣式 === */
+/* ================================================= */
 .info-row-wrapper {
   display: flex !important;
-  flex-direction: row !important;
-  justify-content: space-between; /* 一個靠左，一個靠右 */
-  align-items: center; /* 垂直置中對齊 */
+  justify-content: space-between;
+  align-items: center;
   gap: 1.5rem;
   margin-bottom: 15px;
 }
 
-/* 醫師面板 */
-.daily-staff-panel.horizontal {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-  flex-wrap: wrap;
-}
-
-.staff-item {
-  display: flex;
-  align-items: center;
-  padding: 6px 14px;
-  border-radius: 25px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-}
-
-.staff-label {
-  font-weight: 700;
-  font-size: 0.9rem;
-  margin-right: 8px;
-  color: white;
-}
-
-.staff-details {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.staff-name {
-  display: flex;
-  align-items: baseline;
-  gap: 0.3em;
-  font-weight: 600;
-  font-size: 1rem;
-}
-
-.staff-job-title {
-  font-size: 0.85em;
-  font-weight: 500;
-  opacity: 0.9;
-}
-
-.staff-contact {
-  font-size: 0.75rem;
-  opacity: 0.9;
-}
-
-/* 班別顏色 */
-.staff-item.shift-early {
-  background-color: #28a745;
-  color: white;
-}
-.staff-item.shift-noon {
-  background-color: #ffc107;
-  color: #212529;
-}
-.staff-item.shift-noon .staff-label {
-  color: #212529;
-}
-.staff-item.shift-late {
-  background-color: #17a2b8;
-  color: white;
-}
-.staff-item.shift-specialist {
-  background-color: #6c757d;
-  color: white;
-}
-
-/* 消防編組 */
+/* (右側) 消防編組整體容器 */
 .duty-command-bar {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 1.5rem;
-  padding: 0;
-  margin-top: 0;
 }
 
-.main-commanders {
+/* 消防編組的水平佈局容器 (標題 + 網格) */
+.fire-duty-panel {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  align-items: center; /* 讓標題和網格垂直居中對齊 */
+  gap: 12px; /* 標題和網格之間的間距 */
 }
 
+/* 消防編組標題 */
 .duty-title {
   font-weight: 600;
-  font-size: 1em;
+  font-size: 0.95em;
   color: #b45309;
 }
 
+/* 2x2 網格容器 */
+.duty-grid {
+  display: grid;
+  grid-template-columns: repeat(2, auto); /* 兩列，寬度自適應 */
+  gap: 4px 20px; /* 上下間距 4px, 左右間距 20px */
+}
+
+/* 每一對"標籤+姓名"的容器 */
+.duty-item-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px; /* 標籤和姓名之間的間距 */
+  white-space: nowrap; /* 防止姓名換行 */
+}
+
+/* 標籤樣式 (保持不變) */
 .duty-role-tag {
   font-size: 0.8em;
   font-weight: 600;
@@ -2479,7 +2439,6 @@ button:disabled {
   border-radius: 12px;
   color: #fff;
 }
-
 .duty-role-tag.role-commander {
   background-color: #be185d;
 }
@@ -2493,25 +2452,17 @@ button:disabled {
   background-color: #0d9488;
 }
 
+/* 人員姓名樣式 (從舊版繼承，保持不變) */
 .duty-person {
   font-weight: 500;
   color: #1e293b;
   font-size: 0.9em;
-  margin-left: -2px;
 }
 
-.duty-divider {
-  width: 1px;
-  height: 16px;
-  background-color: #d1d5db;
-  margin: 0 4px;
-}
-
-/* 消防下拉選單 */
+/* 消防下拉選單 (保持不變) */
 .duty-dropdown-wrapper {
   position: relative;
 }
-
 .duty-dropdown-trigger {
   background-color: #f1f5f9;
   border: 1px solid #e2e8f0;
@@ -2524,20 +2475,16 @@ button:disabled {
   font-weight: 500;
   height: 40px;
 }
-
 .duty-dropdown-trigger:hover {
   background-color: #e2e8f0;
 }
-
 .toggle-arrow {
   transition: transform 0.2s ease-in-out;
   font-size: 0.8em;
 }
-
 .toggle-arrow.is-rotated {
   transform: rotate(180deg);
 }
-
 .duty-dropdown-menu {
   position: absolute;
   top: calc(100% + 5px);
@@ -2550,14 +2497,12 @@ button:disabled {
   z-index: 100;
   padding: 12px;
 }
-
 .duty-shift-group {
   margin-bottom: 12px;
 }
 .duty-shift-group:last-child {
   margin-bottom: 0;
 }
-
 .duty-shift-header {
   font-size: 1.1em;
   font-weight: bold;
@@ -2566,7 +2511,6 @@ button:disabled {
   margin-bottom: 8px;
   border-bottom: 2px solid #e2e8f0;
 }
-
 .duty-item {
   display: grid;
   grid-template-columns: 140px 1fr;
@@ -2575,7 +2519,6 @@ button:disabled {
   padding: 4px 0;
   font-size: 0.95em;
 }
-
 .duty-name {
   font-size: 0.9em;
   font-weight: 600;
@@ -2585,8 +2528,6 @@ button:disabled {
   text-align: center;
   justify-self: end;
 }
-
-/* 消防職務顏色 */
 .duty-name.role-field-commander {
   background-color: #d97706;
 }
@@ -2606,13 +2547,11 @@ button:disabled {
 .duty-name.role-default {
   background-color: #475569;
 }
-
 .duty-teams {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-
 .duty-team-tag {
   background-color: #e0e7ff;
   color: #3730a3;

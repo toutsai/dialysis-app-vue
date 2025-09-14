@@ -3,10 +3,13 @@
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
-import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js' // 假設這個 composable 存在
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import UserFormModal from '@/components/UserFormModal.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+// ✨ 1. 引入 Firebase Cloud Functions 相關模組
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@/composables/useFirebase.js'
 
 // --- API and State ---
 const usersApi = ApiManager('users')
@@ -34,7 +37,7 @@ const confirmInfo = ref({
 
 // --- 權限控制 ---
 const { isAdmin } = useAuth()
-const { createGlobalNotification } = useGlobalNotifier()
+const { createGlobalNotifier } = useGlobalNotifier()
 
 // --- Helper Functions ---
 function formatDate(timestamp) {
@@ -224,6 +227,54 @@ async function copyEmail(email) {
   }
 }
 
+// ✨ 2. 新增觸發遷移的函式
+async function triggerMigration() {
+  // 1. 計算遷移的結束日期（昨天）
+  const today = new Date()
+  const yesterday = new Date(today)
+  // ✨ 核心修改：從 -2 改為 -1，將範圍延伸到昨天 ✨
+  yesterday.setDate(today.getDate() - 1)
+
+  // 2. 設定一個固定的起始日期
+  const startDateStr = '2024-01-01' // 您可以根據需求修改最早的遷移日期
+  const endDateStr = yesterday.toISOString().split('T')[0]
+
+  // 3. 安全檢查
+  if (endDateStr < startDateStr) {
+    showAlert('無需操作', '所有歷史排班資料似乎都已完成歸檔，無需執行手動遷移。')
+    return
+  }
+
+  // 4. 顯示雙重確認對話框，並清楚告知使用者將要遷移的範圍
+  showConfirm(
+    '⚠️ 高風險操作確認',
+    `此操作將會遷移從 ${startDateStr} 到 ${endDateStr} (昨天) 的所有歷史排班資料到歸檔區。您確定要繼續嗎？`,
+    () => {
+      // 第二次確認
+      showConfirm(
+        '最終確認',
+        `請再次確認，即將開始遷移 ${startDateStr} 至 ${endDateStr} 的排班資料。`,
+        async () => {
+          showAlert('處理中...', `正在呼叫後端遷移函式，請稍候... 這可能需要幾分鐘時間。`)
+
+          const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
+
+          try {
+            const result = await migrate({
+              startDate: startDateStr,
+              endDate: endDateStr,
+            })
+            showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
+          } catch (error) {
+            console.error('遷移失敗:', error)
+            showAlert('遷移失敗', `發生錯誤: ${error.message}`)
+          }
+        },
+      )
+    },
+  )
+}
+
 onMounted(() => {
   if (isAdmin.value) {
     fetchUsers()
@@ -283,6 +334,15 @@ onMounted(() => {
           </div>
         </div>
         <div class="header-actions">
+          <!-- ✨ 3. 在此處新增遷移按鈕 -->
+          <button
+            v-if="isAdmin"
+            class="btn btn-danger"
+            @click="triggerMigration"
+            title="這是一個一次性的資料庫維護操作"
+          >
+            ⚠️ 遷移歷史排班
+          </button>
           <button
             v-if="isAdmin"
             class="btn btn-primary"
@@ -295,6 +355,8 @@ onMounted(() => {
         </div>
       </div>
     </header>
+
+    <!-- (以下 template 的其餘部分完全不變) -->
 
     <div v-if="isLoading" class="loading-container">
       <div class="loading-spinner"></div>

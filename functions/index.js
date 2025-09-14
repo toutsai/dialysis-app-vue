@@ -14,9 +14,9 @@ const functions = require('firebase-functions')
 const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
-const { FieldValue } = require('firebase-admin/firestore')
+const { FieldValue, FieldPath } = require('firebase-admin/firestore')
 
-// ... (所有輔助函式，如 formatDateForQuery 等，保持不變) ...
+//============ 所有輔助函式，如 formatDateForQuery 等，保持不變)=====
 function formatDateForQuery(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -2402,6 +2402,242 @@ exports.getDailyInjections = onCall(
     } catch (error) {
       logger.error(`[getDailyInjections V2.5] 處理針劑計算時發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `計算應打針劑時發生錯誤: ${error.message}`)
+    }
+  },
+)
+
+// ===================================================================
+// // ✨ --- 【最終修正版 V2.3】每日自動歸檔 (徹底修正時區計算) --- ✨
+// ===================================================================
+
+exports.archiveDailySchedule = onSchedule(
+  { schedule: 'every day 00:05', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '512MiB' },
+  async (event) => {
+    // 1. 直接獲取「台北時區」當下的日期字串 (YYYY-MM-DD)
+    const taipeiDateString = new Date()
+      .toLocaleDateString('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+      .replace(/\//g, '-')
+
+    // 2. 基於這個台北日期字串，建立一個 Date 物件來計算昨天
+    const todayInTaipei = new Date(taipeiDateString)
+    const yesterdayInTaipei = new Date(todayInTaipei)
+    yesterdayInTaipei.setDate(todayInTaipei.getDate() - 1)
+
+    // 3. 將計算出的「昨天的日期」格式化為我們需要的 YYYY-MM-DD 格式
+    const dateStr = formatDateForQuery(yesterdayInTaipei)
+
+    logger.info(
+      `[Archiver V2.3] 🚀 歸檔任務啟動，當前台北日期: ${taipeiDateString}，目標歸檔日期: ${dateStr}`,
+    )
+
+    const sourceScheduleRef = db.collection('schedules').doc(dateStr)
+    const targetArchiveRef = db.collection('expired_schedules').doc(dateStr)
+
+    try {
+      const scheduleDoc = await sourceScheduleRef.get()
+      if (!scheduleDoc.exists) {
+        logger.warn(`[Archiver V2.3] ⚠️ 日期 ${dateStr} 的排班文件不存在，無需歸檔。`)
+        return null
+      }
+
+      const originalData = scheduleDoc.data()
+      const originalSchedule = originalData.schedule || {}
+      const patientIds = [
+        ...new Set(
+          Object.values(originalSchedule)
+            .map((slot) => slot.patientId)
+            .filter(Boolean),
+        ),
+      ]
+
+      if (patientIds.length === 0) {
+        logger.info(`[Archiver V2.3] 📄 日期 ${dateStr} 的排班中沒有病人，直接歸檔空排班。`)
+        await targetArchiveRef.set({ ...originalData, archivedAt: FieldValue.serverTimestamp() })
+        await sourceScheduleRef.delete()
+        logger.info(`[Archiver V2.3] ✅ 成功歸檔並刪除空的原始排班 ${dateStr}。`)
+        return null
+      }
+
+      logger.info(`[Archiver V2.3] 🔍 找到 ${patientIds.length} 位病人，開始分批查詢其狀態快照...`)
+
+      const patientDataMap = new Map()
+      const CHUNK_SIZE = 30
+
+      for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
+        const chunk = patientIds.slice(i, i + CHUNK_SIZE)
+        const patientQuery = db.collection('patients').where(FieldPath.documentId(), 'in', chunk)
+        const patientDocs = await patientQuery.get()
+
+        patientDocs.forEach((doc) => {
+          patientDataMap.set(doc.id, doc.data())
+        })
+      }
+      logger.info(
+        `[Archiver V2.3] ✅ 所有批次查詢完成，成功獲取 ${patientDataMap.size} 位病人的資料。`,
+      )
+
+      const archivedSchedule = { ...originalSchedule }
+      let missingPatientCount = 0
+      for (const shiftId in archivedSchedule) {
+        const slot = archivedSchedule[shiftId]
+        if (slot?.patientId) {
+          const patientData = patientDataMap.get(slot.patientId)
+          if (patientData) {
+            slot.archivedPatientInfo = {
+              status: patientData.status,
+              mode: patientData.mode,
+              wardNumber: patientData.wardNumber || null,
+            }
+          } else {
+            missingPatientCount++
+            slot.archivedPatientInfo = {
+              status: 'deleted',
+              mode: 'N/A',
+              wardNumber: null,
+              name: slot.patientName || '未知 (已刪除)',
+            }
+          }
+        }
+      }
+
+      if (missingPatientCount > 0) {
+        logger.warn(
+          `[Archiver V2.3] ⚠️ 有 ${missingPatientCount} 位病人的資料在 patients 集合中找不到，可能已被刪除。`,
+        )
+      }
+
+      const dataToArchive = {
+        ...originalData,
+        schedule: archivedSchedule,
+        archivedAt: FieldValue.serverTimestamp(),
+      }
+
+      const batch = db.batch()
+      batch.set(targetArchiveRef, dataToArchive)
+      batch.delete(sourceScheduleRef)
+      await batch.commit()
+
+      logger.info(`[Archiver V2.3] ✅ 成功歸檔並刪除原始排班 ${dateStr}。`)
+    } catch (error) {
+      logger.error(`[Archiver V2.3] ❌ 歸檔日期 ${dateStr} 的排班時發生嚴重錯誤:`, error)
+      throw error
+    }
+    return null
+  },
+)
+
+// ✨ --- 【全新】手動遷移歷史排班的一次性 Cloud Function --- ✨
+exports.migrateSchedulesToArchive = onCall(
+  { timeoutSeconds: 540, memory: '1GiB' },
+  async (request) => {
+    if (request.auth?.token?.role !== 'admin') {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
+    }
+
+    const { startDate, endDate } = request.data
+    if (!startDate || !endDate) {
+      throw new HttpsError('invalid-argument', '請提供 startDate 和 endDate (格式 YYYY-MM-DD)。')
+    }
+
+    logger.info(`[Migrator V2] 🚀 手動遷移啟動，範圍: ${startDate} 至 ${endDate}`)
+
+    try {
+      const schedulesSnapshot = await db
+        .collection('schedules')
+        .where('date', '>=', startDate)
+        .where('date', '<=', endDate)
+        .get()
+
+      if (schedulesSnapshot.empty) {
+        logger.info('[Migrator V2] 在此日期範圍內找不到需要遷移的排班文件。')
+        return {
+          success: true,
+          message: '在此日期範圍內找不到需要遷移的排班文件。',
+          migratedCount: 0,
+        }
+      }
+
+      logger.info(`[Migrator V2] 🔍 找到 ${schedulesSnapshot.size} 份排班文件準備遷移...`)
+      let migratedCount = 0
+
+      for (const scheduleDoc of schedulesSnapshot.docs) {
+        const dateStr = scheduleDoc.id
+        const originalData = scheduleDoc.data()
+        const originalSchedule = originalData.schedule || {}
+
+        logger.info(`  └─ 正在處理 ${dateStr}...`)
+
+        const patientIds = [
+          ...new Set(
+            Object.values(originalSchedule)
+              .map((slot) => slot.patientId)
+              .filter(Boolean),
+          ),
+        ]
+        const archivedSchedule = { ...originalSchedule }
+
+        if (patientIds.length > 0) {
+          const patientDataMap = new Map()
+          const CHUNK_SIZE = 30
+          for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
+            const chunk = patientIds.slice(i, i + CHUNK_SIZE)
+            // ✨ --- 核心修正點 --- ✨
+            // 將 admin.firestore.FieldPath.documentId() 改為 FieldPath.documentId()
+            const patientDocs = await db
+              .collection('patients')
+              .where(FieldPath.documentId(), 'in', chunk)
+              .get()
+            patientDocs.forEach((doc) => patientDataMap.set(doc.id, doc.data()))
+          }
+
+          for (const shiftId in archivedSchedule) {
+            const slot = archivedSchedule[shiftId]
+            if (slot?.patientId) {
+              const patientData = patientDataMap.get(slot.patientId)
+              if (patientData) {
+                slot.archivedPatientInfo = {
+                  status: patientData.status,
+                  mode: patientData.mode,
+                  wardNumber: patientData.wardNumber || null,
+                }
+              } else {
+                slot.archivedPatientInfo = {
+                  status: 'deleted',
+                  mode: 'N/A',
+                  wardNumber: null,
+                  name: slot.patientName || '未知(已刪除)',
+                }
+              }
+            }
+          }
+        }
+
+        const dataToArchive = {
+          ...originalData,
+          schedule: archivedSchedule,
+          archivedAt: FieldValue.serverTimestamp(),
+          migrationNote: 'Manually migrated on ' + new Date().toISOString(),
+        }
+
+        const batch = db.batch()
+        batch.set(db.collection('expired_schedules').doc(dateStr), dataToArchive)
+        batch.delete(db.collection('schedules').doc(dateStr))
+        await batch.commit()
+        migratedCount++
+        logger.info(`    └─ ✅ ${dateStr} 遷移成功！`)
+      }
+
+      const successMessage = `成功遷移 ${migratedCount} 份排班文件！`
+      logger.info(`[Migrator V2] ✅ ${successMessage}`)
+      return { success: true, message: successMessage, migratedCount }
+    } catch (error) {
+      logger.error(`[Migrator V2] ❌ 遷移過程中發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `遷移失敗: ${error.message}`)
     }
   },
 )
