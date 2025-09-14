@@ -687,7 +687,6 @@ onUnmounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .page-container {
-  height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
