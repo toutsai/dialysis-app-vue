@@ -45,7 +45,7 @@
       </div>
     </div>
 
-    <!-- 【修改】會診醫師 (改為依據時間自動顯示，移除輪播) -->
+    <!-- 會診醫師 (依據時間自動顯示) -->
     <div class="staff-item" :class="`shift-consult-${displayedConsultPhysician.key}`">
       <span class="staff-label">{{ displayedConsultPhysician.shiftLabel }}</span>
       <div class="staff-details">
@@ -75,7 +75,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
-// 1. Props 定義不變
+// Props 定義不變
 const props = defineProps({
   dailyPhysicians: {
     type: Object,
@@ -89,15 +89,13 @@ const props = defineProps({
   },
 })
 
-// 【修改】2. 移除輪播邏輯，改用響應式的當前時間
+// 使用響應式的當前時間
 const currentTime = ref(new Date())
 let timeUpdateInterval = null
 
-// 【修改】3. 重新撰寫 computed 屬性，使其直接依賴 `currentTime`
+// computed 屬性依賴 `currentTime`
 const displayedConsultPhysician = computed(() => {
-  // 這個 computed 屬性現在會因為 currentTime 的變化而自動重新計算
   const currentHour = currentTime.value.getHours()
-
   // 上午 08:00 - 11:59
   if (currentHour >= 8 && currentHour < 12) {
     return {
@@ -124,31 +122,25 @@ const displayedConsultPhysician = computed(() => {
   }
 })
 
-// 【修改】4. 使用生命週期鉤子來管理時間更新
+// 使用生命週期鉤子來管理時間更新
 onMounted(() => {
-  // 每分鐘更新一次時間，這樣跨越班次時顯示會自動變化
-  // (例如從 11:59 -> 12:00，會自動從上午班切換到下午班)
   if (timeUpdateInterval) clearInterval(timeUpdateInterval)
   timeUpdateInterval = setInterval(() => {
     currentTime.value = new Date()
-  }, 60000) // 60000 毫秒 = 1 分鐘
+  }, 60000)
 })
 
 onUnmounted(() => {
-  // 元件銷毀時清除計時器，避免記憶體洩漏
   if (timeUpdateInterval) clearInterval(timeUpdateInterval)
 })
 </script>
 
 <style scoped>
-/* 樣式基本不變，只移除不再需要的 carousel 相關樣式 */
 .daily-staff-container {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-/* 【移除】.consult-carousel-wrapper 和 .carousel-arrow 的樣式 */
-
 .staff-item {
   display: flex;
   align-items: center;
@@ -205,27 +197,21 @@ onUnmounted(() => {
   background-color: #17a2b8;
   color: white;
 }
-.staff-item.shift-consult-morning {
-  background-color: #d1fae5;
-  color: #065f46;
-}
-.staff-item.shift-consult-morning .staff-label {
-  color: #065f46;
-}
-.staff-item.shift-consult-afternoon {
-  background-color: #fef3c7;
-  color: #92400e;
-}
-.staff-item.shift-consult-afternoon .staff-label {
-  color: #92400e;
-}
+
+/* === 【顏色修改】將所有會診醫師的樣式統一為橘紅色系 === */
+.staff-item.shift-consult-morning,
+.staff-item.shift-consult-afternoon,
 .staff-item.shift-consult-night {
-  background-color: #cffafe;
-  color: #155e75;
+  background-color: #fee2e2; /* 淡紅色背景 */
+  color: #b91c1c; /* 深紅色文字 */
 }
+.staff-item.shift-consult-morning .staff-label,
+.staff-item.shift-consult-afternoon .staff-label,
 .staff-item.shift-consult-night .staff-label {
-  color: #155e75;
+  color: #b91c1c; /* 深紅色文字 */
 }
+/* ======================================================= */
+
 .staff-item.shift-specialist {
   background-color: #e5e7eb;
   color: #1f2937;
