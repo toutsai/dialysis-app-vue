@@ -42,7 +42,7 @@
               </div>
             </RouterLink>
           </li>
-          <li>
+          <li class="desktop-only-nav-item">
             <RouterLink to="/exception-manager" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">調班換床</span>

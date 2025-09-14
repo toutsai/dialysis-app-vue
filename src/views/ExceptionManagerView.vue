@@ -937,7 +937,7 @@ button:disabled {
     font-size: 1.5rem;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    z-index: 10;
   }
 }
 
