@@ -687,7 +687,6 @@ onUnmounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .page-container {
-  /* 在桌面版，我們依然需要 Flex 佈局來讓日曆填滿剩餘空間 */
   height: 100%;
   box-sizing: border-box;
   display: flex;
@@ -791,9 +790,6 @@ button:disabled {
   margin-top: 4px;
 }
 
-/* ================================== */
-/* ✨      自訂日曆標題列 新增樣式      ✨ */
-/* ================================== */
 .custom-calendar-header {
   display: flex;
   justify-content: space-between;
@@ -858,9 +854,7 @@ button:disabled {
 .calendar-title-text.is-clickable:hover {
   color: #007bff;
 }
-/* ================================== */
-/* ✨      FullCalendar 內部樣式      ✨ */
-/* ================================== */
+
 :deep(.fc) {
   font-family: inherit;
 }
@@ -882,9 +876,6 @@ button:disabled {
   background-color: #eaf6ff !important;
 }
 
-/* ================================== */
-/*         響應式樣式 (既有)            */
-/* ================================== */
 .fab.mobile-only {
   display: none;
 }
@@ -893,14 +884,11 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
-  /* ✨✨✨【核心修正】在這裡重置 page-container 的佈局 ✨✨✨ */
   .page-container {
-    height: auto; /* 允許容器高度隨內容增長 */
-    display: block; /* 解除 Flex 佈局，回歸正常的文檔流 */
-    padding: 0; /* 通常行動版會移除邊距，由父層控制 */
+    height: auto;
+    display: block;
+    padding: 0;
   }
-  */
-  /* 因為基礎樣式已經被修正，這裡的覆蓋就不再需要了，可以刪除或註解掉 */
 
   .fab.mobile-only {
     display: flex;
