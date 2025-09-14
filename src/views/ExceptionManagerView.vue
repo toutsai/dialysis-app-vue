@@ -687,6 +687,9 @@ onUnmounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .page-container {
+  /* ✨✨✨【核心修正】移除 height: 100% ✨✨✨ */
+  /* height: 100%; */ /* <--- 移除這一行 */
+
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -844,9 +847,9 @@ button:disabled {
 }
 
 .calendar-wrapper {
-  flex-grow: 1; /* 保持這個，讓它填滿空間 */
-  overflow-y: auto; /* ✨ 關鍵新增：如果內容超高，產生垂直滾動條 */
-  min-height: 0; /* ✨ 關鍵新增：在 Flex 佈局中，這是讓 overflow 生效的必要條件 */
+  flex-grow: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 .calendar-title-text.is-clickable {
   cursor: pointer;
@@ -921,7 +924,6 @@ button:disabled {
     font-size: 0.9rem;
   }
   .page-main-content {
-    /* 因為父層不再是 flex，這裡也不需要 flex-grow */
     padding: 1rem;
     border-radius: 0;
     box-shadow: none;
