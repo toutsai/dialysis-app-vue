@@ -1,8 +1,8 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版 - 修正版) -->
 <template>
   <div class="page-container">
-    <!-- 頁首區域保持不變，包含標題和新增按鈕 -->
-    <header class="page-header">
+    <!-- ✅ 改為 div，避免與 MainLayout 的 <header class="main-header"> 混淆 -->
+    <div class="page-header-section">
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">調班管理</h1>
@@ -18,7 +18,7 @@
       <p class="page-description">
         此處用於處理「臨時調班」、「區間暫停」或「臨時加洗」等特殊情況。此處建立的申請將會自動更新對應日期的排班表。
       </p>
-    </header>
+    </div>
 
     <!-- 主要內容區域 -->
     <main class="page-main-content">
@@ -693,7 +693,9 @@ onUnmounted(() => {
   background-color: #f8f9fa;
   padding: 0.5rem;
 }
-.page-header {
+
+/* ✅ 由 header 改名為 page-header-section，避免與 MainLayout 的 .main-header 衝突 */
+.page-header-section {
   border-bottom: 2px solid #dee2e6;
   margin-bottom: 1.5rem;
   flex-shrink: 0;
@@ -789,9 +791,6 @@ button:disabled {
   margin-top: 4px;
 }
 
-/* ================================== */
-/* ✨      自訂日曆標題列 新增樣式      ✨ */
-/* ================================== */
 .custom-calendar-header {
   display: flex;
   justify-content: space-between;
@@ -844,9 +843,9 @@ button:disabled {
 }
 
 .calendar-wrapper {
-  flex-grow: 1; /* 保持這個，讓它填滿空間 */
-  overflow-y: auto; /* ✨ 關鍵新增：如果內容超高，產生垂直滾動條 */
-  min-height: 0; /* ✨ 關鍵新增：在 Flex 佈局中，這是讓 overflow 生效的必要條件 */
+  flex-grow: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 .calendar-title-text.is-clickable {
   cursor: pointer;
@@ -856,9 +855,7 @@ button:disabled {
 .calendar-title-text.is-clickable:hover {
   color: #007bff;
 }
-/* ================================== */
-/* ✨      FullCalendar 內部樣式      ✨ */
-/* ================================== */
+
 :deep(.fc) {
   font-family: inherit;
 }
@@ -880,9 +877,6 @@ button:disabled {
   background-color: #eaf6ff !important;
 }
 
-/* ================================== */
-/*         響應式樣式 (既有)            */
-/* ================================== */
 .fab.mobile-only {
   display: none;
 }
@@ -890,17 +884,14 @@ button:disabled {
   display: inline-flex;
 }
 
+/* ============================= */
+/* 行動版（<= 992px）重點修正    */
+/* ============================= */
 @media (max-width: 992px) {
-  /* ✨✨✨【核心修正】我們不再需要特別重置 page-container 的樣式 ✨✨✨ */
-  /*
   .page-container {
-    height: auto;
-    display: block;
-    padding: 0;
+    padding: 1rem 0 0 0; /* 重置左右 padding，避免內縮 */
+    padding-top: 60px; /* ✅ 預留 MainLayout 頂部列高度，避免被擠掉或覆蓋 */
   }
-  */
-  /* 因為基礎樣式已經被修正，這裡的覆蓋就不再需要了，可以刪除或註解掉 */
-
   .fab.mobile-only {
     display: flex;
   }
@@ -908,11 +899,11 @@ button:disabled {
   .desktop-only-flex {
     display: none !important;
   }
-
-  .page-header {
+  .page-header-section {
     margin-bottom: 1rem;
     padding: 1rem 1rem 0.75rem;
     border-radius: 0;
+    background-color: #fff;
   }
   .page-title {
     font-size: 28px;
@@ -921,10 +912,11 @@ button:disabled {
     font-size: 0.9rem;
   }
   .page-main-content {
-    /* 因為父層不再是 flex，這裡也不需要 flex-grow */
     padding: 1rem;
     border-radius: 0;
     box-shadow: none;
+    /* 確保主內容區域可以正確滾動 */
+    overflow-y: auto;
   }
   .section-title {
     font-size: 1.3rem;
@@ -944,7 +936,7 @@ button:disabled {
     font-size: 1.5rem;
     align-items: center;
     justify-content: center;
-    z-index: 100;
+    z-index: 10;
   }
 }
 
@@ -952,7 +944,7 @@ button:disabled {
   .page-title {
     font-size: 24px;
   }
-  .page-header {
+  .page-header-section {
     padding: 1rem 1rem 0.5rem;
     margin-bottom: 1rem;
   }

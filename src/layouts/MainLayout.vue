@@ -42,7 +42,7 @@
               </div>
             </RouterLink>
           </li>
-          <li>
+          <li class="desktop-only-nav-item">
             <RouterLink to="/exception-manager" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">調班換床</span>
@@ -792,14 +792,15 @@ onUnmounted(() => {
     width: 100%;
   }
   .main-header {
+    position: sticky; /* ✅ 或 fixed 亦可視需求 */
+    top: 0;
+    z-index: 999;
+    background-color: #fff;
+    height: 60px;
     display: flex;
     align-items: center;
     padding: 0 1rem;
-    height: 60px;
-    background-color: #fff;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    flex-shrink: 0;
-    z-index: 900;
   }
   .sidebar-toggle {
     display: block;
