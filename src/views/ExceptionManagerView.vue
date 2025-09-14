@@ -687,9 +687,8 @@ onUnmounted(() => {
 /*         通用及桌面版樣式            */
 /* ================================== */
 .page-container {
-  /* ✨✨✨【核心修正】移除 height: 100% ✨✨✨ */
-  /* height: 100%; */ /* <--- 移除這一行 */
-
+  /* 在桌面版，我們依然需要 Flex 佈局來讓日曆填滿剩餘空間 */
+  height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -894,12 +893,11 @@ button:disabled {
 }
 
 @media (max-width: 992px) {
-  /* ✨✨✨【核心修正】我們不再需要特別重置 page-container 的樣式 ✨✨✨ */
-  /*
+  /* ✨✨✨【核心修正】在這裡重置 page-container 的佈局 ✨✨✨ */
   .page-container {
-    height: auto;
-    display: block;
-    padding: 0;
+    height: auto; /* 允許容器高度隨內容增長 */
+    display: block; /* 解除 Flex 佈局，回歸正常的文檔流 */
+    padding: 0; /* 通常行動版會移除邊距，由父層控制 */
   }
   */
   /* 因為基礎樣式已經被修正，這裡的覆蓋就不再需要了，可以刪除或註解掉 */
