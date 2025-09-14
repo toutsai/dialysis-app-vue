@@ -1,4 +1,4 @@
-// functions/index.js (✨ ADD_SESSION 修正版 ✨)
+// functions/index.js (✨ 訊息中心整合 + TTL 優化最終版 ✨)
 const { setGlobalOptions } = require('firebase-functions/v2')
 setGlobalOptions({ region: 'asia-east1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 100 })
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
@@ -16,7 +16,7 @@ admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
 const { FieldValue, FieldPath } = require('firebase-admin/firestore')
 
-//============ 所有輔助函式，如 formatDateForQuery 等，保持不變)=====
+//============ 輔助函式 =====================
 function formatDateForQuery(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -77,38 +77,24 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
   return dailySchedule
 }
 
-// ✨ [第 1 步] 請將這個新的輔助函式完整地複製到您的檔案頂部
-/**
- * 清理指定病人在未來排程中的附加資料 (護理師分組、手動備註)。
- * @param {string} patientId 病人 ID。
- * @param {object} options 清理選項。
- * @param {boolean} options.clearTeams 是否清理護理師分組。
- * @param {boolean} options.clearManualNote 是否清空手動備註。
- */
 async function cleanupFuturePatientMetadata(patientId, options = {}) {
   const { clearTeams = false, clearManualNote = false } = options
-
   if (!clearTeams && !clearManualNote) {
     logger.info(
       `[Metadata Cleanup] No cleanup options provided for patient ${patientId}. Skipping.`,
     )
     return
   }
-
   logger.info(`[Metadata Cleanup] Starting for patient ${patientId}...`, options)
   const todayStr = formatDateForQuery(new Date())
-
   const batch = db.batch()
   let updatesCount = 0
-
   try {
-    // 1. 清理 nurse_assignments
     if (clearTeams) {
       const assignmentsSnapshot = await db
         .collection('nurse_assignments')
         .where('date', '>=', todayStr)
         .get()
-
       assignmentsSnapshot.forEach((doc) => {
         const teamsData = doc.data().teams || {}
         const updates = {}
@@ -125,11 +111,8 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
         }
       })
     }
-
-    // 2. 清理 schedules 中的 manualNote
     if (clearManualNote) {
       const schedulesSnapshot = await db.collection('schedules').where('date', '>=', todayStr).get()
-
       schedulesSnapshot.forEach((doc) => {
         const scheduleData = doc.data().schedule || {}
         const updates = {}
@@ -146,7 +129,6 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
         }
       })
     }
-
     if (updatesCount > 0) {
       await batch.commit()
       logger.info(`[Metadata Cleanup] Successfully committed cleanup for patient ${patientId}.`)
@@ -165,30 +147,23 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
       .collection('schedule_exceptions')
       .where('status', 'in', ['applied', 'pending', 'processing', 'conflict_requires_resolution'])
       .get()
-
     if (exceptionsSnapshot.empty) {
       logger.info('✅ 沒有需要套用的調班')
       return { success: true, processed: 0, schedulesToWrite: baseSchedules }
     }
-
     const exceptions = exceptionsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toMillis() || Date.parse(doc.createTime) || 0,
     }))
     logger.info(`找到 ${exceptions.length} 個調班需要處理`)
-
-    // ====================== 預處理：區分 MOVE 鏈和其他調班 ======================
     const moveChains = new Map()
     const otherExceptions = []
-
     exceptions.sort((a, b) => a.createdAt - b.createdAt)
-
     for (const ex of exceptions) {
       if (ex.type === 'MOVE' && ex.from && ex.to) {
         const date = ex.from.sourceDate
         const key = `${ex.patientId}-${date}`
-
         if (!moveChains.has(key)) {
           moveChains.set(key, {
             initialFrom: { ...ex.from },
@@ -205,22 +180,15 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           chain.finalException = ex
         }
       } else {
-        // SUSPEND, ADD_SESSION, SWAP 等都會被歸類到這裡
         otherExceptions.push(ex)
       }
     }
     logger.info(
       `預處理完成：發現 ${moveChains.size} 個 MOVE 調班鏈，以及 ${otherExceptions.length} 個其他調班。`,
     )
-    // =================================================================================
-
     const modifiedSchedules = new Map(JSON.parse(JSON.stringify(Array.from(baseSchedules))))
-
-    // 📝 第一階段：處理所有刪除 (使用預處理後的結果)
     logger.info('📝 第一階段：處理所有刪除')
     let deletionsCount = 0
-
-    // 1.1 處理 MOVE 鏈的「初始起點」
     for (const chain of moveChains.values()) {
       const { sourceDate, bedNum, shiftCode } = chain.initialFrom
       if (modifiedSchedules.has(sourceDate)) {
@@ -233,8 +201,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
         }
       }
     }
-
-    // 1.2 處理 SUSPEND, SWAP 等其他類型的刪除
     for (const exception of otherExceptions) {
       if (exception.type === 'SUSPEND') {
         const start = new Date(exception.startDate + 'T00:00:00Z')
@@ -255,20 +221,16 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
             }
           }
         }
-      }
-      // ✨ 新增 SWAP 處理：刪除兩個原始位置
-      else if (exception.type === 'SWAP') {
+      } else if (exception.type === 'SWAP') {
         const { date, patient1, patient2 } = exception
         if (modifiedSchedules.has(date)) {
           const schedule = modifiedSchedules.get(date)
-          // 刪除病人1的原始位置
           const key1 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
           if (schedule[key1]?.patientId === patient1.patientId) {
             delete schedule[key1]
             deletionsCount++
             logger.info(`  └─ (SWAP) 標記移除: ${date} ${key1} (${patient1.patientName})`)
           }
-          // 刪除病人2的原始位置
           const key2 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
           if (schedule[key2]?.patientId === patient2.patientId) {
             delete schedule[key2]
@@ -279,19 +241,14 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
       }
     }
     logger.info(`第一階段完成：標記了 ${deletionsCount} 個位置要刪除`)
-
-    // 📝 第二階段：處理所有新增 (使用預處理後的結果)
     logger.info('📝 第二階段：處理所有新增')
     const conflicts = []
     let additionsCount = 0
-
-    // 2.1 處理 MOVE 鏈的「最終終點」
     for (const chain of moveChains.values()) {
       const { goalDate, bedNum, shiftCode } = chain.finalTo
       if (modifiedSchedules.has(goalDate)) {
         const position = getScheduleKey(bedNum, shiftCode)
         const schedule = modifiedSchedules.get(goalDate)
-
         if (schedule[position]) {
           const occupant = schedule[position]
           conflicts.push({
@@ -313,7 +270,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           }
           continue
         }
-
         schedule[position] = {
           patientId: chain.patientId,
           patientName: chain.patientName,
@@ -323,7 +279,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
         }
         additionsCount++
         logger.info(`  └─ (MOVE鏈) 標記新增: ${goalDate} ${position} (${chain.patientName})`)
-
         for (const exId of chain.exceptionIds) {
           const exDoc = await db.collection('schedule_exceptions').doc(exId).get()
           if (exDoc.exists && exDoc.data().status !== 'applied') {
@@ -332,15 +287,12 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
         }
       }
     }
-
-    // 2.2 處理 ADD_SESSION, SWAP 等其他新增類型
     for (const exception of otherExceptions) {
       if (exception.type === 'ADD_SESSION' && exception.to) {
         const { goalDate, bedNum, shiftCode } = exception.to
         if (modifiedSchedules.has(goalDate)) {
           const position = getScheduleKey(bedNum, shiftCode)
           const schedule = modifiedSchedules.get(goalDate)
-
           if (schedule[position]) {
             const occupant = schedule[position]
             conflicts.push({
@@ -362,7 +314,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
               })
             continue
           }
-
           schedule[position] = {
             patientId: exception.patientId,
             patientName: exception.patientName,
@@ -372,7 +323,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           }
           additionsCount++
           logger.info(`  └─ (加洗) 標記新增: ${goalDate} ${position} (${exception.patientName})`)
-
           if (exception.status !== 'applied') {
             await db
               .collection('schedule_exceptions')
@@ -380,13 +330,10 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
               .update({ status: 'applied', errorMessage: '' })
           }
         }
-      }
-      // ✨ 新增 SWAP 處理：新增兩個到交換後的位置
-      else if (exception.type === 'SWAP') {
+      } else if (exception.type === 'SWAP') {
         const { date, patient1, patient2, id: exceptionId } = exception
         if (modifiedSchedules.has(date)) {
           const schedule = modifiedSchedules.get(date)
-          // 把病人1加到病人2的原始位置
           const keyForPatient1 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
           schedule[keyForPatient1] = {
             patientId: patient1.patientId,
@@ -397,8 +344,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           }
           additionsCount++
           logger.info(`  └─ (SWAP) 標記新增: ${date} ${keyForPatient1} (${patient1.patientName})`)
-
-          // 把病人2加到病人1的原始位置
           const keyForPatient2 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
           schedule[keyForPatient2] = {
             patientId: patient2.patientId,
@@ -409,8 +354,6 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
           }
           additionsCount++
           logger.info(`  └─ (SWAP) 標記新增: ${date} ${keyForPatient2} (${patient2.patientName})`)
-
-          // 更新狀態
           if (exception.status !== 'applied') {
             await db
               .collection('schedule_exceptions')
@@ -420,11 +363,9 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
         }
       }
     }
-
     logger.info(
       `第二階段完成：標記了 ${additionsCount} 個位置要新增，發現 ${conflicts.length} 個衝突。`,
     )
-
     return {
       success: true,
       processed: exceptions.length,
@@ -437,16 +378,12 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
   }
 }
 
-// ✨ [第 2 步] 請用以下完整函式替換您現有的 onPatientDataChange
+//============ Firestore Triggers =====================
 exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
   const patientId = event.params.patientId
   const beforeData = event.data?.before.data()
   const afterData = event.data?.after.data()
-
-  // 建立一個任務陣列，用來收集所有需要執行的非同步操作
   const tasks = []
-
-  // 輔助函式，建立一個包含所有必要欄位的快照
   const createSnapshot = (data) => ({
     medicalRecordNumber: data.medicalRecordNumber || null,
     firstDialysisDate: data.firstDialysisDate || null,
@@ -456,11 +393,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     inpatientReason: data.inpatientReason || null,
     dialysisReason: data.dialysisReason || null,
   })
-
-  // --- 任務 1: 寫入病人歷史記錄 ---
   let historyWritten = false
-
-  // 情況 1: 新增病人
   if (!beforeData && afterData) {
     logger.info(`[History] 新增病人 ${afterData.name} (ID: ${patientId})`)
     tasks.push(
@@ -474,9 +407,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
       }),
     )
     historyWritten = true
-  }
-  // 情況 2: 刪除病人
-  else if (
+  } else if (
     beforeData &&
     afterData &&
     beforeData.isDeleted === false &&
@@ -497,9 +428,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
       }),
     )
     historyWritten = true
-  }
-  // 情況 3: 復原病人
-  else if (
+  } else if (
     beforeData &&
     afterData &&
     beforeData.isDeleted === true &&
@@ -520,9 +449,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
       }),
     )
     historyWritten = true
-  }
-  // 情況 4: 狀態轉移
-  else if (
+  } else if (
     beforeData &&
     afterData &&
     beforeData.isDeleted === false &&
@@ -547,25 +474,16 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     )
     historyWritten = true
   }
-
   if (!historyWritten) {
     logger.info(`[History] 病人 ${patientId} 的一般資料更新，無需記錄動向歷史。`)
   }
-
-  // --- 任務 2: 根據狀態變更，執行資料清理 ---
-
-  // 情況 A: 病人被標記為刪除。
   if (beforeData && afterData && beforeData.isDeleted === false && afterData.isDeleted === true) {
     logger.info(`[Cleanup Trigger] Patient ${patientId} was deleted. Cleaning up...`)
-    // 清理護理師分組 (排程本身會由 syncMasterScheduleToFuture 處理)
     tasks.push(cleanupFuturePatientMetadata(patientId, { clearTeams: true }))
-    // 如果病人身上還有 wardNumber，則清空它
     if (afterData.wardNumber) {
       tasks.push(event.data.after.ref.update({ wardNumber: null }))
     }
   }
-
-  // 情況 B: 病人從住院/急診轉為門診。
   if (
     beforeData &&
     afterData &&
@@ -574,15 +492,11 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     afterData.status === 'opd'
   ) {
     logger.info(`[Cleanup Trigger] Patient ${patientId} transferred to OPD. Cleaning up...`)
-    // 清理未來的 manualNote 和護理師分組
     tasks.push(cleanupFuturePatientMetadata(patientId, { clearManualNote: true, clearTeams: true }))
-    // 如果病人身上還有 wardNumber，則清空它
     if (afterData.wardNumber) {
       tasks.push(event.data.after.ref.update({ wardNumber: null }))
     }
   }
-
-  // --- 統一執行所有收集到的任務 ---
   try {
     if (tasks.length > 0) {
       await Promise.all(tasks)
@@ -591,108 +505,35 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   } catch (error) {
     logger.error(`Error executing tasks for patient ${patientId}:`, error)
   }
-
   return null
 })
 
-// ... (所有其他函式，如 checkExpiredMemos, customLogin, syncMasterScheduleToFuture 等，保持不變) ...
-exports.checkExpiredMemos = onSchedule(
-  { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 540 },
+//============ Scheduled Functions =====================
+exports.checkExpiredTasks = onSchedule(
+  { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
-    logger.info('[Scheduler] Running daily check for expired memos...')
+    logger.info('[Scheduler] Running daily check for expired tasks (messages)...')
     const todayStr = formatDateForQuery(new Date())
     try {
       const query = db
-        .collection('memos')
+        .collection('tasks')
         .where('status', '==', 'pending')
-        .where('targetDate', '<=', todayStr)
+        .where('category', '==', 'message')
+        .where('targetDate', '<', todayStr)
       const snapshot = await query.get()
       if (snapshot.empty) {
-        logger.info('[Scheduler] No expired memos found.')
+        logger.info('[Scheduler] No expired tasks (messages) found.')
         return null
       }
       const batch = db.batch()
       snapshot.forEach((doc) => {
-        logger.info(`[Scheduler] Memo ${doc.id} has expired. Updating status.`)
+        logger.info(`[Scheduler] Task (message) ${doc.id} has expired. Updating status.`)
         batch.update(doc.ref, { status: 'expired' })
       })
       await batch.commit()
-      logger.info(`[Scheduler] Successfully updated ${snapshot.size} memos to 'expired'.`)
+      logger.info(`[Scheduler] Successfully updated ${snapshot.size} tasks to 'expired'.`)
     } catch (error) {
-      logger.error('[Scheduler] Failed to check for expired memos:', error)
-    }
-    return null
-  },
-)
-exports.cleanupExpiredExceptionsScheduled = onSchedule(
-  { schedule: 'every day 02:05', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
-  async (event) => {
-    logger.info('[Scheduler] Running daily check for expired schedule exceptions...')
-    const todayStr = formatDateForQuery(new Date())
-    try {
-      const query = db
-        .collection('schedule_exceptions')
-        .where('status', '==', 'applied')
-        .where('endDate', '<', todayStr)
-      const snapshot = await query.get()
-      if (snapshot.empty) {
-        logger.info('[Scheduler] No expired schedule exceptions found to clean up.')
-        return null
-      }
-      logger.info(`[Scheduler] Found ${snapshot.size} expired exceptions. Preparing to delete...`)
-      const batch = db.batch()
-      snapshot.forEach((doc) => {
-        logger.info(`[Scheduler] Scheduling exception ${doc.id} for deletion.`)
-        batch.delete(doc.ref)
-      })
-      await batch.commit()
-      logger.info(`[Scheduler] Successfully deleted ${snapshot.size} expired schedule exceptions.`)
-    } catch (error) {
-      logger.error('[Scheduler] Failed to clean up expired exceptions:', error)
-    }
-    return null
-  },
-)
-
-// ✨ --- 【新增】每日自動清理舊備忘的排程函式 --- ✨
-exports.cleanupOldMemos = onSchedule(
-  // 每天凌晨 2:10 執行 (在檢查到期之後)
-  { schedule: 'every day 02:10', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
-  async (event) => {
-    logger.info('[Scheduler] Running daily cleanup for old memos...')
-
-    // 1. 計算 7 天前的日期字串 (YYYY-MM-DD)
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const sevenDaysAgoStr = formatDateForQuery(sevenDaysAgo) // formatDateForQuery 是您已有的輔助函式
-
-    try {
-      // 2. 建立查詢：找出所有狀態為 'expired' 或 'resolved'，且到期日早於 7 天前的備忘
-      const query = db
-        .collection('memos')
-        .where('status', 'in', ['expired', 'resolved'])
-        .where('targetDate', '<', sevenDaysAgoStr)
-
-      const snapshot = await query.get()
-
-      if (snapshot.empty) {
-        logger.info('[Scheduler] No old memos found to delete.')
-        return null
-      }
-
-      logger.info(`[Scheduler] Found ${snapshot.size} old memos to delete.`)
-
-      // 3. 使用批次刪除來提高效率
-      const batch = db.batch()
-      snapshot.forEach((doc) => {
-        logger.info(`[Scheduler] Deleting memo ${doc.id} with targetDate ${doc.data().targetDate}.`)
-        batch.delete(doc.ref)
-      })
-
-      await batch.commit()
-      logger.info(`[Scheduler] Successfully deleted ${snapshot.size} old memos.`)
-    } catch (error) {
-      logger.error('[Scheduler] Failed to clean up old memos:', error)
+      logger.error('[Scheduler] Failed to check for expired tasks:', error)
     }
     return null
   },
@@ -750,6 +591,7 @@ exports.initializeFutureSchedules = onSchedule(
   },
 )
 
+//============ Callable Functions =====================
 exports.customLogin = onCall(async (request) => {
   const { username, password } = request.data
   if (!username || !password) {
@@ -767,17 +609,11 @@ exports.customLogin = onCall(async (request) => {
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
     const uid = userDoc.id
-
-    // ==========================================================
-    // ✨✨✨ 核心修改點在這裡 ✨✨✨
-    // ==========================================================
     const customToken = await admin.auth().createCustomToken(uid, {
       role: userData.role,
       name: userData.name,
-      title: userData.title, // 從 Firestore user document 讀取 title 並加入 token
+      title: userData.title,
     })
-    // ==========================================================
-
     return { token: customToken }
   } catch (error) {
     logger.error('[customLogin] Login function error:', error)
@@ -1365,6 +1201,48 @@ exports.handleNewExceptionRequest = onDocumentCreated(
       }
 
       // ===== 更新調班狀態為已套用 =====
+      // ✨✨✨【核心修改】基於 endDate 計算一個月後的過期時間 ✨✨✨
+
+      // 1. 找出這次申請的「結束日期」。對於單日事件，endDate 就是 startDate 或 date。
+      let relevantEndDateStr
+      if (exceptionData.endDate) {
+        relevantEndDateStr = exceptionData.endDate
+      } else if (exceptionData.type === 'MOVE') {
+        // 對於 MOVE，取來源日和目標日中較晚的那個
+        relevantEndDateStr =
+          exceptionData.to?.goalDate > exceptionData.from?.sourceDate
+            ? exceptionData.to.goalDate
+            : exceptionData.from.sourceDate
+      } else if (exceptionData.type === 'ADD_SESSION') {
+        relevantEndDateStr = exceptionData.to?.goalDate
+      } else if (exceptionData.type === 'SWAP') {
+        relevantEndDateStr = exceptionData.date
+      } else {
+        // 作為備用，使用 startDate
+        relevantEndDateStr = exceptionData.startDate
+      }
+
+      let expireAt = null
+      if (relevantEndDateStr) {
+        // 2. 將結束日期字串轉為 Date 物件
+        const endDate = new Date(relevantEndDateStr)
+
+        // 3. 在結束日期的基礎上，增加一個月
+        endDate.setMonth(endDate.getMonth() + 1)
+        expireAt = endDate // 直接賦值
+        logger.info(
+          `[NewException] Calculated expireAt for ${exceptionId}: ${expireAt.toISOString()}`,
+        )
+      } else {
+        // 如果找不到任何有效日期，則設定一個預設的過期時間（例如從現在起一個月）
+        const now = new Date()
+        now.setMonth(now.getMonth() + 1)
+        expireAt = now
+        logger.warn(
+          `[NewException] Could not determine endDate for ${exceptionId}. Setting default expireAt.`,
+        )
+      }
+
       const updateData = {
         status: 'applied',
         appliedAt: FieldValue.serverTimestamp(),
@@ -1372,10 +1250,11 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         conflicts: conflicts.length > 0 ? conflicts : null,
         conflictCount: conflicts.length,
         applyMethod: 'realtime',
+        expireAt: expireAt, // ✨ 將計算出的過期時間加入
       }
       await exceptionDoc.ref.update(updateData)
 
-      // ===== 記錄操作日誌 =====
+      // ===== 記錄操作日誌 (保持不變) =====
       await db.collection('exception_logs').add({
         exceptionId: exceptionId,
         type: exceptionData.type,
@@ -1609,7 +1488,6 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 // ===================================================================
 // Lab Report Functions (檢驗報告相關函式)
 // ===================================================================
-
 exports.processLabReport = onCall(
   {
     timeoutSeconds: 300,
