@@ -2489,9 +2489,9 @@ exports.archiveDailySchedule = onSchedule(
           const patientData = patientDataMap.get(slot.patientId)
           if (patientData) {
             slot.archivedPatientInfo = {
-              status: patientData.status,
-              mode: patientData.mode,
-              wardNumber: patientData.wardNumber || null,
+              status: patientData.status || 'unknown', // 如果 status 不存在，給個預設值
+              mode: patientData.mode || null, // 如果 mode 不存在，存入 null
+              wardNumber: patientData.wardNumber || null, // 這行原本就是安全的
             }
           } else {
             missingPatientCount++
@@ -2544,7 +2544,7 @@ exports.migrateSchedulesToArchive = onCall(
       throw new HttpsError('invalid-argument', '請提供 startDate 和 endDate (格式 YYYY-MM-DD)。')
     }
 
-    logger.info(`[Migrator V2] 🚀 手動遷移啟動，範圍: ${startDate} 至 ${endDate}`)
+    logger.info(`[Migrator V2.1] 🚀 手動遷移啟動，範圍: ${startDate} 至 ${endDate}`)
 
     try {
       const schedulesSnapshot = await db
@@ -2554,7 +2554,7 @@ exports.migrateSchedulesToArchive = onCall(
         .get()
 
       if (schedulesSnapshot.empty) {
-        logger.info('[Migrator V2] 在此日期範圍內找不到需要遷移的排班文件。')
+        logger.info('[Migrator V2.1] 在此日期範圍內找不到需要遷移的排班文件。')
         return {
           success: true,
           message: '在此日期範圍內找不到需要遷移的排班文件。',
@@ -2562,7 +2562,7 @@ exports.migrateSchedulesToArchive = onCall(
         }
       }
 
-      logger.info(`[Migrator V2] 🔍 找到 ${schedulesSnapshot.size} 份排班文件準備遷移...`)
+      logger.info(`[Migrator V2.1] 🔍 找到 ${schedulesSnapshot.size} 份排班文件準備遷移...`)
       let migratedCount = 0
 
       for (const scheduleDoc of schedulesSnapshot.docs) {
@@ -2586,8 +2586,6 @@ exports.migrateSchedulesToArchive = onCall(
           const CHUNK_SIZE = 30
           for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
             const chunk = patientIds.slice(i, i + CHUNK_SIZE)
-            // ✨ --- 核心修正點 --- ✨
-            // 將 admin.firestore.FieldPath.documentId() 改為 FieldPath.documentId()
             const patientDocs = await db
               .collection('patients')
               .where(FieldPath.documentId(), 'in', chunk)
@@ -2600,9 +2598,10 @@ exports.migrateSchedulesToArchive = onCall(
             if (slot?.patientId) {
               const patientData = patientDataMap.get(slot.patientId)
               if (patientData) {
+                // ✨ --- 核心修正點 --- ✨
                 slot.archivedPatientInfo = {
-                  status: patientData.status,
-                  mode: patientData.mode,
+                  status: patientData.status || 'unknown',
+                  mode: patientData.mode || null,
                   wardNumber: patientData.wardNumber || null,
                 }
               } else {
@@ -2633,10 +2632,10 @@ exports.migrateSchedulesToArchive = onCall(
       }
 
       const successMessage = `成功遷移 ${migratedCount} 份排班文件！`
-      logger.info(`[Migrator V2] ✅ ${successMessage}`)
+      logger.info(`[Migrator V2.1] ✅ ${successMessage}`)
       return { success: true, message: successMessage, migratedCount }
     } catch (error) {
-      logger.error(`[Migrator V2] ❌ 遷移過程中發生嚴重錯誤:`, error)
+      logger.error(`[Migrator V2.1] ❌ 遷移過程中發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `遷移失敗: ${error.message}`)
     }
   },
