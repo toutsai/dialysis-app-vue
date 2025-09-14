@@ -61,7 +61,7 @@
             <div class="grid-header cell-shift">第三班 (3-11)</div>
             <div class="grid-header cell-total">合計</div>
 
-            <!-- ✨ [核心修改 1] 將「住院+急診」拆成獨立的三列 -->
+            <!-- 洗腎中心床位 -->
             <div class="cell-item rowspan-4">洗腎中心床位 (限44床)</div>
             <div class="cell-category">門診</div>
             <div class="cell-data">{{ dailyLog.stats.main_beds.early.opd }}</div>
@@ -110,7 +110,6 @@
                 (dailyLog.stats.main_beds.late.total || 0)
               }}
             </div>
-            <!-- ✨ (修改結束) -->
 
             <!-- 急重症床位 -->
             <div class="cell-item rowspan-2">急重症 (外圍)</div>
@@ -186,25 +185,103 @@
             </div>
             <div class="cell-total">-</div>
 
-            <!-- 護理人力 -->
+            <!-- ✨ 新增/修改開始 ✨: 護理人力改為整合式可收合表格 -->
+            <!-- 護理人力總計列 -->
             <div class="cell-item">護理人力</div>
-            <div class="cell-category"></div>
-            <div class="cell-input">
-              <input type="number" min="0" v-model.number="dailyLog.stats.staffing.early" />
+            <div class="cell-category">
+              <button @click="toggleStaffingDetails" class="toggle-details-btn">
+                {{ isStaffingDetailsVisible ? '收合計' : '展開計算' }}
+                <i
+                  class="fas"
+                  :class="isStaffingDetailsVisible ? 'fa-chevron-up' : 'fa-chevron-down'"
+                ></i>
+              </button>
             </div>
-            <div class="cell-input">
-              <input type="number" min="0" v-model.number="dailyLog.stats.staffing.noon" />
+            <div class="cell-data total-final">{{ calculatedStaffingTotals.early.toFixed(2) }}</div>
+            <div class="cell-data total-final">{{ calculatedStaffingTotals.noon.toFixed(2) }}</div>
+            <div class="cell-data total-final">{{ calculatedStaffingTotals.late.toFixed(2) }}</div>
+            <div class="cell-total total-final">
+              {{ calculatedStaffingTotals.total.toFixed(2) }}
             </div>
-            <div class="cell-input">
-              <input type="number" min="0" v-model.number="dailyLog.stats.staffing.late" />
-            </div>
-            <div class="cell-total">
-              {{
-                (dailyLog.stats.staffing.early || 0) +
-                (dailyLog.stats.staffing.noon || 0) +
-                (dailyLog.stats.staffing.late || 0)
-              }}
-            </div>
+
+            <!-- 護理人力計算明細 (條件渲染) -->
+            <template v-if="isStaffingDetailsVisible">
+              <!-- 子標題列 -->
+              <div class="cell-item nested-header"></div>
+              <div class="cell-category nested-header label-count-header">
+                <span>計算項目</span>
+                <span>人數</span>
+              </div>
+              <div class="nested-header">第一班 比例</div>
+              <div class="nested-header">第二班 比例</div>
+              <div class="nested-header">第三班 比例</div>
+              <div class="nested-header">操作</div>
+
+              <!-- 明細項目 v-for -->
+              <template v-for="(item, index) in dailyLog.stats.staffing.details" :key="item.id">
+                <div class="cell-item nested-item"></div>
+                <div class="cell-category nested-item label-count-cell">
+                  <input
+                    type="text"
+                    v-model="item.label"
+                    placeholder="項目名稱"
+                    class="label-input"
+                  />
+                  <input type="number" min="0" v-model.number="item.count" class="count-input" />
+                </div>
+                <div class="cell-input nested-item">
+                  <input type="number" min="0" step="0.01" v-model.number="item.ratio1" />
+                </div>
+                <div class="cell-input nested-item">
+                  <input type="number" min="0" step="0.01" v-model.number="item.ratio2" />
+                </div>
+                <div class="cell-input nested-item">
+                  <input type="number" min="0" step="0.01" v-model.number="item.ratio3" />
+                </div>
+                <div class="cell-input nested-item action-cell">
+                  <button @click="deleteStaffingRow(index)" class="delete-btn mini">移除</button>
+                </div>
+              </template>
+
+              <!-- 扣除時數行 -->
+              <div class="cell-item nested-item deduction-row"></div>
+              <div class="cell-category nested-item deduction-row">扣除時數(直接減去)</div>
+              <div class="cell-input nested-item deduction-row">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  v-model.number="dailyLog.stats.staffing.deductions.shift1"
+                  placeholder="留空不扣"
+                />
+              </div>
+              <div class="cell-input nested-item deduction-row">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  v-model.number="dailyLog.stats.staffing.deductions.shift2"
+                  placeholder="留空不扣"
+                />
+              </div>
+              <div class="cell-input nested-item deduction-row">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  v-model.number="dailyLog.stats.staffing.deductions.shift3"
+                  placeholder="留空不扣"
+                />
+              </div>
+              <div class="cell-input nested-item deduction-row"></div>
+
+              <!-- 新增按鈕行 -->
+              <div class="cell-item nested-item"></div>
+              <div class="add-row-cell">
+                <button @click="addStaffingRow" class="add-row-btn-header">新增計算項目</button>
+              </div>
+            </template>
+            <!-- ✨ 新增/修改結束 ✨ -->
 
             <!-- 護病比 -->
             <div class="cell-item">護病比</div>
@@ -731,7 +808,8 @@ const currentSchedule = ref({})
 const isHandoverDialogVisible = ref(false)
 const handoverNotes = ref('')
 
-// ✨ [核心修改 2] 更新 initialLogState 的資料結構
+const isStaffingDetailsVisible = ref(false)
+
 const initialLogState = () => ({
   id: null,
   date: selectedDate.value,
@@ -751,7 +829,19 @@ const initialLogState = () => ({
       akChange: { early: '', noon: '', late: '' },
       noShow: { early: '', noon: '', late: '' },
     },
-    staffing: { early: null, noon: null, late: null },
+    staffing: {
+      details: [
+        { id: Date.now() + 1, label: '7-4(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0 },
+        { id: Date.now() + 2, label: '7-5(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.25 },
+        { id: Date.now() + 3, label: '8-16(ICU)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.25 },
+        { id: Date.now() + 4, label: '12-8', count: 1, ratio1: 0, ratio2: 1, ratio3: 1 },
+        { id: Date.now() + 5, label: '3-11(夜班)', count: 1, ratio1: 0, ratio2: 0, ratio3: 1 },
+      ],
+      deductions: { shift1: null, shift2: null, shift3: null },
+      early: 0,
+      noon: 0,
+      late: 0,
+    },
   },
   patientMovements: [],
   vascularAccessLog: [],
@@ -808,6 +898,64 @@ const totalPatients = computed(() => {
   return totals
 })
 
+const calculatedStaffingTotals = computed(() => {
+  const totals = { early: 0, noon: 0, late: 0, total: 0 }
+  const staffingData = dailyLog.stats.staffing
+
+  if (staffingData && Array.isArray(staffingData.details)) {
+    staffingData.details.forEach((item) => {
+      const count = Number(item.count) || 0
+      totals.early += count * (Number(item.ratio1) || 0)
+      totals.noon += count * (Number(item.ratio2) || 0)
+      totals.late += count * (Number(item.ratio3) || 0)
+    })
+  }
+
+  if (staffingData && staffingData.deductions) {
+    totals.early -= Number(staffingData.deductions.shift1) || 0
+    totals.noon -= Number(staffingData.deductions.shift2) || 0
+    totals.late -= Number(staffingData.deductions.shift3) || 0
+  }
+
+  totals.early = Math.max(0, totals.early)
+  totals.noon = Math.max(0, totals.noon)
+  totals.late = Math.max(0, totals.late)
+  totals.total = totals.early + totals.noon + totals.late
+
+  return totals
+})
+
+watch(
+  calculatedStaffingTotals,
+  (newTotals) => {
+    if (dailyLog.stats.staffing) {
+      dailyLog.stats.staffing.early = newTotals.early
+      dailyLog.stats.staffing.noon = newTotals.noon
+      dailyLog.stats.staffing.late = newTotals.late
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+function toggleStaffingDetails() {
+  isStaffingDetailsVisible.value = !isStaffingDetailsVisible.value
+}
+
+function addStaffingRow() {
+  dailyLog.stats.staffing.details.push({
+    id: Date.now(),
+    label: '',
+    count: 1,
+    ratio1: 0,
+    ratio2: 0,
+    ratio3: 0,
+  })
+}
+
+function deleteStaffingRow(index) {
+  dailyLog.stats.staffing.details.splice(index, 1)
+}
+
 const nursePatientRatios = computed(() => {
   const calculateRatio = (patients, staff) => {
     if (!staff || staff === 0) {
@@ -840,18 +988,12 @@ function formatDate(date) {
   return `${year}-${month}-${day}`
 }
 
-// ✨ [核心修改 1] 修改 saveLog 函式，使其可以選擇不安靜地儲存
 async function saveLog(options = {}) {
-  // 使用選項物件，方便未來擴充
-  const {
-    successMessage = '日誌已儲存！',
-    showSuccessAlert = true, // 預設顯示成功提示
-  } = options
+  const { successMessage = '日誌已儲存！', showSuccessAlert = true } = options
 
   if (isLoading.value) return
   isLoading.value = true
 
-  // 清理空行資料
   dailyLog.patientMovements = dailyLog.patientMovements.filter(
     (item) => item.name || item.medicalRecordNumber,
   )
@@ -870,7 +1012,6 @@ async function saveLog(options = {}) {
     }
     hasUnsavedChanges.value = false
 
-    // 只有在需要時才顯示提示
     if (showSuccessAlert) {
       showAlert('操作成功', successMessage)
     }
@@ -881,7 +1022,6 @@ async function saveLog(options = {}) {
     isLoading.value = false
   }
 }
-
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
@@ -943,8 +1083,6 @@ async function loadDailyLog(dateStr) {
     handleTextareaInput()
   }
 }
-
-// ✨ [核心修改 3] 更新 calculateStatsFromSchedule 函式
 function calculateStatsFromSchedule(scheduleRecord) {
   const newStats = {
     main_beds: {
@@ -971,7 +1109,6 @@ function calculateStatsFromSchedule(scheduleRecord) {
     const shiftCode = shiftKey.split('-').pop()
     const isPeripheral = shiftKey.startsWith('peripheral')
 
-    // 確保 shiftCode 是有效的班別
     if (['early', 'noon', 'late'].includes(shiftCode)) {
       if (isPeripheral) {
         newStats.peripheral_beds[shiftCode].total++
@@ -988,7 +1125,6 @@ function calculateStatsFromSchedule(scheduleRecord) {
   dailyLog.stats.main_beds = newStats.main_beds
   dailyLog.stats.peripheral_beds = newStats.peripheral_beds
 }
-
 async function syncStatsWithSchedule() {
   showConfirm(
     '確認同步人數',
@@ -1013,21 +1149,17 @@ async function syncStatsWithSchedule() {
     },
   )
 }
-
 function changeDate(days) {
   const newDate = new Date(selectedDate.value)
   newDate.setDate(newDate.getDate() + days)
   selectedDate.value = formatDate(newDate)
 }
-
 function goToToday() {
   selectedDate.value = formatDate(new Date())
 }
-
 function triggerDateInput() {
   document.querySelector('.hidden-date-input').showPicker()
 }
-
 function addRow(targetArrayKey) {
   const newId = Date.now()
   if (targetArrayKey === 'patientMovements') {
@@ -1053,13 +1185,11 @@ function addRow(targetArrayKey) {
     })
   }
 }
-
 function deleteRow(index, targetArrayKey) {
   showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
     dailyLog[targetArrayKey].splice(index, 1)
   })
 }
-
 function handlePatientSearch(index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   const query = targetArray[index].name.toLowerCase()
@@ -1071,7 +1201,6 @@ function handlePatientSearch(index, type) {
     (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
   )
 }
-
 function showAutocomplete(event, index, type) {
   activeSearch.value = { type, index }
   handlePatientSearch(index, type)
@@ -1082,13 +1211,11 @@ function showAutocomplete(event, index, type) {
   autocompleteStyle.width = `${rect.width}px`
   isAutocompleteVisible.value = true
 }
-
 function hideAutocomplete() {
   setTimeout(() => {
     isAutocompleteVisible.value = false
   }, 200)
 }
-
 function selectPatient(patient, index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
   targetArray[index].name = patient.name
@@ -1112,8 +1239,6 @@ function selectPatient(patient, index, type) {
   }
   isAutocompleteVisible.value = false
 }
-
-// ✨ [核心修改 3] 更新 signAsLeader 函式，以配合新的 saveLog 格式
 async function signAsLeader(shift) {
   if (!currentUser.value) return
   const performSign = async (isOverride = false) => {
@@ -1140,7 +1265,6 @@ async function signAsLeader(shift) {
   }
   showConfirm(confirmTitle, confirmMsg, performSign)
 }
-
 function formatSignTime(isoString) {
   if (!isoString) return ''
   const date = new Date(isoString)
@@ -1148,8 +1272,6 @@ function formatSignTime(isoString) {
   const minutes = date.getMinutes().toString().padStart(2, '0')
   return `${hours}:${minutes}`
 }
-
-// ✨ [核心修改 4] 更新 unsignLeader 函式，以配合新的 saveLog 格式
 async function unsignLeader(shift) {
   if (!currentUser.value) return
   const performUnsign = async () => {
@@ -1172,34 +1294,29 @@ async function unsignLeader(shift) {
     }
   }
 }
-
 function showConfirm(title, message, onConfirmCallback) {
   confirmDialogTitle.value = title
   confirmDialogMessage.value = message
   confirmAction.value = onConfirmCallback
   isConfirmDialogVisible.value = true
 }
-
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
   }
   handleCancel()
 }
-
 function handleCancel() {
   isConfirmDialogVisible.value = false
   confirmDialogTitle.value = ''
   confirmDialogMessage.value = ''
   confirmAction.value = null
 }
-
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
-
 function promptWardNumber(index) {
   const patientId = dailyLog.patientMovements[index]?.patientId
   if (!patientId) {
@@ -1217,7 +1334,6 @@ function promptWardNumber(index) {
   currentEditingMovementIndex.value = index
   isWardDialogVisible.value = true
 }
-
 async function handleWardNumberConfirm(newWardNumber) {
   const index = currentEditingMovementIndex.value
   if (index < 0) return
@@ -1234,12 +1350,10 @@ async function handleWardNumberConfirm(newWardNumber) {
     handleWardNumberCancel()
   }
 }
-
 function handleWardNumberCancel() {
   isWardDialogVisible.value = false
   currentEditingMovementIndex.value = -1
 }
-
 function handleTextareaInput() {
   const textareas = [otherNotesTextarea.value]
   textareas.forEach((textarea) => {
@@ -1249,20 +1363,14 @@ function handleTextareaInput() {
     }
   })
 }
-
-// ✨ [核心修改 2] 更新 exportToPDF 函式，呼叫安靜儲存
 async function exportToPDF() {
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
-
-  // 如果有變更，先執行安靜儲存
   if (hasUnsavedChanges.value) {
     await saveLog({ showSuccessAlert: false })
   }
-
-  // 直接開始執行匯出邏輯
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
   const loadingOverlay = document.querySelector('.loading-overlay')
   const loadingTextElement = document.querySelector('.loading-overlay p')
@@ -1272,10 +1380,7 @@ async function exportToPDF() {
     }
     isLoading.value = true
   }
-
-  // 等待 DOM 更新，確保 loading 畫面顯示出來
   await nextTick()
-
   try {
     const exportArea = document.getElementById('pdf-export-area')
     if (!exportArea) {
@@ -1285,7 +1390,6 @@ async function exportToPDF() {
     exportArea.classList.add('pdf-export-mode')
     await nextTick()
     await new Promise((resolve) => setTimeout(resolve, 100))
-
     const canvas = await html2canvas(exportArea, {
       scale: 2,
       useCORS: true,
@@ -1293,7 +1397,6 @@ async function exportToPDF() {
       ignoreElements: (element) =>
         element.classList.contains('header-right') || element.classList.contains('loading-overlay'),
     })
-
     const imgData = canvas.toDataURL('image/jpeg', 0.95)
     const pdf = new jsPDF('p', 'mm', 'a4')
     const pdfWidth = pdf.internal.pageSize.getWidth()
@@ -1342,24 +1445,20 @@ async function exportToPDF() {
     isLoading.value = false
   }
 }
-
 function onNotesUpdated(newNotes) {
   handoverNotes.value = newNotes
   dailyLog.handoverNotes = newNotes
   hasUnsavedChanges.value = true
   isHandoverDialogVisible.value = false
 }
-
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 })
-
 watch(selectedDate, (newDate) => {
   if (newDate) {
     loadDailyLog(newDate)
   }
 })
-
 watch(
   dailyLog,
   () => {
@@ -1565,7 +1664,8 @@ h1 {
 /* 統計表格 */
 .stats-grid {
   display: grid;
-  grid-template-columns: 140px 160px repeat(3, 1fr) 100px;
+  /* ✨ 修改欄寬定義以更好地容納內容 ✨ */
+  grid-template-columns: 140px 220px repeat(3, 1fr) 120px;
   border: 1px solid #dee2e6;
   border-radius: 8px;
   overflow: hidden;
@@ -1605,7 +1705,6 @@ h1 {
 .rowspan-3 {
   grid-row: span 3;
 }
-/* ✨ [核心修改 4] 更新 rowspan 以適應新增加的列 */
 .rowspan-4 {
   grid-row: span 4;
 }
@@ -1628,6 +1727,114 @@ h1 {
   text-align: center;
   font-size: 1.1rem;
 }
+
+/* ✨ 新增/修改開始 ✨: 護理人力整合表格樣式 */
+.toggle-details-btn {
+  background: none;
+  border: 1px solid #ced4da;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #495057;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: all 0.2s;
+}
+.toggle-details-btn:hover {
+  background-color: #e9ecef;
+}
+
+.nested-header {
+  background-color: #f8f9fa;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #495057;
+  padding: 0.5rem; /* 減小子標題 padding */
+}
+.cell-item.nested-header {
+  background-color: #f0f2f5; /* 輕微區分 */
+}
+
+/* ✨ 新增 ✨: 用於子標題的 Flex 佈局 */
+.label-count-header {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+.label-count-header span:first-child {
+  flex-grow: 1;
+  text-align: left;
+}
+.label-count-header span:last-child {
+  width: 60px; /* 給人數標題一個固定寬度 */
+  text-align: center;
+}
+
+.nested-item {
+  background-color: #fff;
+  padding: 0.4rem; /* 減小明細列 padding */
+}
+.cell-item.nested-item {
+  background-color: #f0f2f5;
+}
+.cell-category.nested-item {
+  justify-content: flex-start;
+}
+
+/* ✨ 新增 ✨: 用於合併「項目」和「人數」輸入框的儲存格 */
+.label-count-cell {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.label-count-cell .label-input {
+  flex-grow: 1;
+}
+.label-count-cell .count-input {
+  width: 60px; /* 與標題寬度對應 */
+  flex-shrink: 0;
+}
+
+.nested-item input {
+  width: 100%;
+  padding: 0.4rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 1rem;
+}
+
+.action-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.delete-btn.mini {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.deduction-row {
+  background-color: #fffbe3 !important;
+  font-weight: 500;
+  font-style: italic;
+  color: #6c757d;
+}
+.deduction-row.cell-category {
+  justify-content: center;
+}
+
+.add-row-cell {
+  grid-column: 2 / -1; /* 讓按鈕跨越多欄 */
+  justify-content: flex-end !important;
+  padding: 0.5rem !important;
+  background-color: #f0f2f5;
+}
+/* ✨ 新增/修改結束 ✨ */
+
 .dynamic-table-container {
   width: 100%;
   overflow-x: auto;
