@@ -899,6 +899,8 @@ button:disabled {
     display: block; /* 解除 Flex 佈局，回歸正常的文檔流 */
     padding: 0; /* 通常行動版會移除邊距，由父層控制 */
   }
+  */
+  /* 因為基礎樣式已經被修正，這裡的覆蓋就不再需要了，可以刪除或註解掉 */
 
   .fab.mobile-only {
     display: flex;
