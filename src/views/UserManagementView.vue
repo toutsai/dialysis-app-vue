@@ -229,34 +229,48 @@ async function copyEmail(email) {
 
 // ✨ 2. 新增觸發遷移的函式
 async function triggerMigration() {
+  // 1. 計算遷移的結束日期（昨天）
+  const today = new Date()
+  const yesterday = new Date(today)
+  // ✨ 核心修改：從 -2 改為 -1，將範圍延伸到昨天 ✨
+  yesterday.setDate(today.getDate() - 1)
+
+  // 2. 設定一個固定的起始日期
+  const startDateStr = '2024-01-01' // 您可以根據需求修改最早的遷移日期
+  const endDateStr = yesterday.toISOString().split('T')[0]
+
+  // 3. 安全檢查
+  if (endDateStr < startDateStr) {
+    showAlert('無需操作', '所有歷史排班資料似乎都已完成歸檔，無需執行手動遷移。')
+    return
+  }
+
+  // 4. 顯示雙重確認對話框，並清楚告知使用者將要遷移的範圍
   showConfirm(
     '⚠️ 高風險操作確認',
-    '此操作將會開始遷移所有舊的排班資料到歸檔區，這是一個一次性的過程。您確定要繼續嗎？',
+    `此操作將會遷移從 ${startDateStr} 到 ${endDateStr} (昨天) 的所有歷史排班資料到歸檔區。您確定要繼續嗎？`,
     () => {
-      // 第二次確認，防止誤觸
-      showConfirm('最終確認', '請再次確認，即將開始遷移排班資料。', async () => {
-        showAlert('處理中...', '正在呼叫後端遷移函式，請稍候... 這可能需要幾分鐘時間。')
-        const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
-        try {
-          // 計算前天的日期
-          const today = new Date()
-          const dayBeforeYesterday = new Date(today)
-          dayBeforeYesterday.setDate(today.getDate() - 2)
-          const year = dayBeforeYesterday.getFullYear()
-          const month = (dayBeforeYesterday.getMonth() + 1).toString().padStart(2, '0')
-          const day = dayBeforeYesterday.getDate().toString().padStart(2, '0')
-          const endDate = `${year}-${month}-${day}`
+      // 第二次確認
+      showConfirm(
+        '最終確認',
+        `請再次確認，即將開始遷移 ${startDateStr} 至 ${endDateStr} 的排班資料。`,
+        async () => {
+          showAlert('處理中...', `正在呼叫後端遷移函式，請稍候... 這可能需要幾分鐘時間。`)
 
-          const result = await migrate({
-            startDate: '2024-01-01', // 您可以根據需求修改最早的遷移日期
-            endDate: endDate,
-          })
-          showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
-        } catch (error) {
-          console.error('遷移失敗:', error)
-          showAlert('遷移失敗', `發生錯誤: ${error.message}`)
-        }
-      })
+          const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
+
+          try {
+            const result = await migrate({
+              startDate: startDateStr,
+              endDate: endDateStr,
+            })
+            showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
+          } catch (error) {
+            console.error('遷移失敗:', error)
+            showAlert('遷移失敗', `發生錯誤: ${error.message}`)
+          }
+        },
+      )
     },
   )
 }
