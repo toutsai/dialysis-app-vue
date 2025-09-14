@@ -885,11 +885,10 @@ button:disabled {
 
 @media (max-width: 992px) {
   .page-container {
-    height: auto;
-    display: block;
     padding: 0;
+    /* 保持 flex 佈局，不要改成 block */
+    /* 不要設定 height: auto */
   }
-
   .fab.mobile-only {
     display: flex;
   }
@@ -897,7 +896,6 @@ button:disabled {
   .desktop-only-flex {
     display: none !important;
   }
-
   .page-header {
     margin-bottom: 1rem;
     padding: 1rem 1rem 0.75rem;
@@ -913,6 +911,8 @@ button:disabled {
     padding: 1rem;
     border-radius: 0;
     box-shadow: none;
+    /* 確保主內容區域可以正確滾動 */
+    overflow-y: auto;
   }
   .section-title {
     font-size: 1.3rem;
