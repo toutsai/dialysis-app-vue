@@ -24,6 +24,8 @@ const sortBy = ref('name')
 const sortOrder = ref('asc')
 const isSubmitting = ref(false)
 const isDeletingUser = ref(null)
+const isMigrationLoading = ref(false)
+const isExpireLoading = ref(false)
 
 // --- Dialog State ---
 const alertInfo = ref({ isVisible: false, title: '', message: '' })
@@ -232,11 +234,10 @@ async function triggerMigration() {
   // 1. 計算遷移的結束日期（昨天）
   const today = new Date()
   const yesterday = new Date(today)
-  // ✨ 核心修改：從 -2 改為 -1，將範圍延伸到昨天 ✨
   yesterday.setDate(today.getDate() - 1)
 
   // 2. 設定一個固定的起始日期
-  const startDateStr = '2024-01-01' // 您可以根據需求修改最早的遷移日期
+  const startDateStr = '2024-01-01'
   const endDateStr = yesterday.toISOString().split('T')[0]
 
   // 3. 安全檢查
@@ -245,7 +246,7 @@ async function triggerMigration() {
     return
   }
 
-  // 4. 顯示雙重確認對話框，並清楚告知使用者將要遷移的範圍
+  // 4. 顯示雙重確認對話框
   showConfirm(
     '⚠️ 高風險操作確認',
     `此操作將會遷移從 ${startDateStr} 到 ${endDateStr} (昨天) 的所有歷史排班資料到歸檔區。您確定要繼續嗎？`,
@@ -255,7 +256,10 @@ async function triggerMigration() {
         '最終確認',
         `請再次確認，即將開始遷移 ${startDateStr} 至 ${endDateStr} 的排班資料。`,
         async () => {
-          showAlert('處理中...', `正在呼叫後端遷移函式，請稍候... 這可能需要幾分鐘時間。`)
+          // ✨ 在呼叫後端前，設置 loading 狀態為 true ✨
+          isMigrationLoading.value = true
+          // 移除舊的 showAlert 提示，因為按鈕本身就會顯示載入狀態
+          // showAlert('處理中...', `正在呼叫後端遷移函式...`);
 
           const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
 
@@ -264,13 +268,42 @@ async function triggerMigration() {
               startDate: startDateStr,
               endDate: endDateStr,
             })
+            // 成功後顯示結果
             showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
           } catch (error) {
             console.error('遷移失敗:', error)
+            // 失敗後顯示錯誤
             showAlert('遷移失敗', `發生錯誤: ${error.message}`)
+          } finally {
+            // ✨ 無論成功或失敗，最後都將 loading 狀態設回 false ✨
+            isMigrationLoading.value = false
           }
         },
       )
+    },
+  )
+}
+
+// 函式二：手動更新過期留言 (使用新的 loading 狀態)
+async function triggerManualExpire() {
+  showConfirm(
+    // 直接使用 showConfirm
+    '確認操作',
+    '您確定要立即將所有過期的留言標記為「已過期」嗎？',
+    async () => {
+      // 將要執行的邏輯作為第三個參數傳入
+      isExpireLoading.value = true
+      try {
+        const manuallyExpireTasks = httpsCallable(functions, 'manuallyExpireTasks')
+        const result = await manuallyExpireTasks()
+        showAlert('操作成功', result.data.message) // 使用 showAlert
+        console.log(result.data)
+      } catch (error) {
+        console.error('手動更新失敗:', error)
+        showAlert('操作失敗', `發生錯誤: ${error.message}`) // 使用 showAlert
+      } finally {
+        isExpireLoading.value = false
+      }
     },
   )
 }
@@ -334,14 +367,28 @@ onMounted(() => {
           </div>
         </div>
         <div class="header-actions">
-          <!-- ✨ 3. 在此處新增遷移按鈕 -->
+          <!-- 按鈕一：遷移歷史排班 -->
           <button
             v-if="isAdmin"
             class="btn btn-danger"
             @click="triggerMigration"
+            :disabled="isMigrationLoading"
             title="這是一個一次性的資料庫維護操作"
           >
-            ⚠️ 遷移歷史排班
+            <i v-if="isMigrationLoading" class="fas fa-spinner fa-spin"></i>
+            {{ isMigrationLoading ? '遷移中...' : '⚠️ 遷移歷史排班' }}
+          </button>
+
+          <!-- 按鈕二：手動更新過期留言 -->
+          <button
+            v-if="isAdmin"
+            class="btn btn-warning"
+            @click="triggerManualExpire"
+            :disabled="isExpireLoading"
+            title="手動將已過期的留言標記為 'expired' 狀態"
+          >
+            <i v-if="isExpireLoading" class="fas fa-spinner fa-spin"></i>
+            {{ isExpireLoading ? '更新中...' : '手動更新過期留言' }}
           </button>
           <button
             v-if="isAdmin"
