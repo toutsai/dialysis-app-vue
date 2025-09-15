@@ -15,6 +15,35 @@ const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
 const { FieldValue, FieldPath } = require('firebase-admin/firestore')
+const { google } = require('googleapis')
+const stream = require('stream')
+const path = require('path')
+
+// ✨✨✨【核心修改點：動態設定 Google Drive Folder ID】✨✨✨
+
+// 1. 取得您的 Firebase 專案 ID
+//    functionsConfig 已經在檔案頂部從 process.env.FIREBASE_CONFIG 解析而來
+const PROJECT_ID = functionsConfig.projectId
+
+// 2. 根據專案 ID 決定要使用哪個 Google Drive 資料夾 ID
+let SHARED_DRIVE_FOLDER_ID
+
+if (PROJECT_ID === 'dialysis-schedule-cd36c') {
+  // --- 這是正式環境 ---
+  SHARED_DRIVE_FOLDER_ID = '1JBR5rDRjsVqf_fYOJItlWOGTNhle2VkJ' // ⚠️ 請替換成您正式版的 Folder ID
+  logger.info(`Running in PRODUCTION environment. Using Production Google Drive Folder.`)
+} else if (PROJECT_ID === 'my-dialysis-app-develop') {
+  // --- 這是開發環境 ---
+  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe' // ⚠️ 請替換成您開發版的 Folder ID
+  logger.info(`Running in DEVELOPMENT environment. Using Development Google Drive Folder.`)
+} else {
+  // --- 備用方案：如果專案 ID 不匹配，拋出錯誤或使用一個預設值 ---
+  logger.error(`Unknown Project ID: ${PROJECT_ID}. Could not determine Google Drive Folder ID.`)
+  // 在這裡您可以選擇拋出錯誤來停止執行，或者給一個安全的預設值
+  // throw new Error(`Unknown Project ID: ${PROJECT_ID}`);
+  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe' // 作為安全的備用，指向開發版
+}
+// ✨✨✨【修改結束】✨✨✨
 
 //============ 輔助函式 =====================
 function formatDateForQuery(date) {
@@ -727,6 +756,128 @@ exports.ensureFutureSchedules = onCall(
     }
   },
 )
+
+// ===================================================================
+// 串接google drive
+// ===================================================================
+/**
+ * 取得 Google API 的授權客戶端。
+ * 會自動判斷是在 Emulator 環境還是正式環境。
+ * @returns {Promise<object>} Authorized Google Auth client.
+ */
+async function getGoogleAuthClient() {
+  const scopes = ['https://www.googleapis.com/auth/drive']
+
+  if (process.env.FUNCTIONS_EMULATOR === 'true') {
+    logger.info('在模擬器模式下運行，嘗試使用本地憑證...')
+
+    const relativePath = process.env.GDRIVE_CREDENTIALS_PATH
+
+    if (!relativePath) {
+      logger.error('模擬器的環境變數 GDRIVE_CREDENTIALS_PATH 未設定。')
+      logger.error(
+        "請確保您有名為 '.env.<project_id>' 的檔案，並在其中定義了 GDRIVE_CREDENTIALS_PATH。",
+      )
+      throw new Error('缺少用於模擬器的 Google Drive 憑證路徑。')
+    }
+
+    // ✨ 2. 使用 path.join 將相對路徑轉換為絕對路徑
+    // __dirname 是一個 Node.js 全局變數，代表當前 index.js 檔案所在的目錄
+    const absolutePath = path.join(__dirname, relativePath)
+
+    logger.info(`正在使用絕對路徑的金鑰檔案: ${absolutePath}`)
+
+    try {
+      const auth = new google.auth.GoogleAuth({
+        keyFile: absolutePath, // ✨ 3. 傳入絕對路徑
+        scopes: scopes,
+      })
+      return await auth.getClient()
+    } catch (e) {
+      // 增加一個更詳細的錯誤日誌，方便未來除錯
+      logger.error('使用金鑰檔案進行 GoogleAuth 認證失敗。', {
+        errorMessage: e.message,
+        pathUsed: absolutePath,
+      })
+      throw e // 重新拋出原始錯誤
+    }
+  } else {
+    logger.info('在正式環境中運行，使用應用程式預設憑證。')
+    const auth = new google.auth.GoogleAuth({
+      scopes: scopes,
+    })
+    return await auth.getClient()
+  }
+}
+
+/**
+ * 【可呼叫函式】上傳檔案到 Google Drive。
+ * 接收 Base64 格式的檔案內容、檔名和 MIME 類型。
+ */
+exports.uploadFileToDrive = onCall(async (request) => {
+  // 權限檢查：確保使用者已登入
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
+  }
+
+  const { fileName, fileContentBase64, mimeType } = request.data
+  if (!fileName || !fileContentBase64 || !mimeType) {
+    throw new HttpsError('invalid-argument', '請求中缺少檔名、檔案內容或 MIME 類型。')
+  }
+
+  try {
+    const auth = await getGoogleAuthClient()
+    const drive = google.drive({ version: 'v3', auth })
+
+    const fileBuffer = Buffer.from(fileContentBase64, 'base64')
+    const bufferStream = new stream.PassThrough()
+    bufferStream.end(fileBuffer)
+
+    const fileMetadata = {
+      name: fileName,
+      parents: [SHARED_DRIVE_FOLDER_ID],
+    }
+
+    const media = {
+      mimeType: mimeType,
+      body: bufferStream,
+    }
+
+    // 6. 執行上傳
+    const response = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id, name, webViewLink, webContentLink',
+      // ✨✨✨【核心修正】加入這個參數 ✨✨✨
+      supportsAllDrives: true,
+    })
+
+    const fileData = response.data
+    logger.info(`File uploaded successfully: ${fileData.name} (ID: ${fileData.id})`)
+
+    return {
+      success: true,
+      message: '檔案成功上傳至 Google Drive！',
+      file: {
+        id: fileData.id,
+        name: fileData.name,
+        viewLink: fileData.webViewLink,
+        downloadLink: fileData.webContentLink,
+      },
+    }
+  } catch (error) {
+    // 增加對特定錯誤的日誌記錄
+    if (error.message.includes('storage quota')) {
+      logger.error(
+        'Google Drive Storage Quota Error. This is often solved by adding `supportsAllDrives: true` to the drive.files.create call.',
+        error,
+      )
+    } else {
+      logger.error('Error uploading file to Google Drive:', error)
+    }
+    throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
+  }
+})
 
 // ===================================================================
 // 🔥 基礎同步 + 兩階調班處理（統一流程）
