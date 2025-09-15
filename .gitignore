@@ -170,5 +170,8 @@ functions/index.js.backup-20250816
 my-dialysis-app-develop-key.json
 
 
-gdrive-credentials.json
+# Firebase
 .runtimeconfig.json
+
+# Custom credentials
+gdrive-credentials.json

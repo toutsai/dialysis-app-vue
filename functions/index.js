@@ -811,11 +811,9 @@ async function getGoogleAuthClient() {
 }
 
 /**
- * 【可呼叫函式】上傳檔案到 Google Drive。
- * 接收 Base64 格式的檔案內容、檔名和 MIME 類型。
+ * 【可呼叫函式】上傳檔案到 Google Drive，並轉移所有權。
  */
 exports.uploadFileToDrive = onCall(async (request) => {
-  // 權限檢查：確保使用者已登入
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
   }
@@ -823,6 +821,20 @@ exports.uploadFileToDrive = onCall(async (request) => {
   const { fileName, fileContentBase64, mimeType } = request.data
   if (!fileName || !fileContentBase64 || !mimeType) {
     throw new HttpsError('invalid-argument', '請求中缺少檔名、檔案內容或 MIME 類型。')
+  }
+
+  // ✨ 1. 定義檔案的最終擁有者 Email
+  //    這裡也使用動態判斷，確保開發和正式環境使用不同的 Email
+  const PROJECT_ID = functionsConfig.projectId
+  let FILE_OWNER_EMAIL = ''
+  if (PROJECT_ID === 'dialysis-schedule-cd36c') {
+    FILE_OWNER_EMAIL = 'hdrhdr2330@gmail.com' // 正式版擁有者
+  } else {
+    FILE_OWNER_EMAIL = 'suiam74@gmail.com' // 開發版擁有者
+  }
+
+  if (!FILE_OWNER_EMAIL) {
+    throw new HttpsError('internal', '伺服器未設定檔案擁有者 Email。')
   }
 
   try {
@@ -843,21 +855,41 @@ exports.uploadFileToDrive = onCall(async (request) => {
       body: bufferStream,
     }
 
-    // 6. 執行上傳
+    // 步驟 A: 服務帳戶先建立檔案
     const response = await drive.files.create({
       resource: fileMetadata,
       media: media,
-      fields: 'id, name, webViewLink, webContentLink',
-      // ✨✨✨【核心修正】加入這個參數 ✨✨✨
-      supportsAllDrives: true,
+      // 這次我們請求 'id' 和 'permissions' 欄位
+      fields: 'id, name, webViewLink, webContentLink, permissions',
+      supportsAllDrives: true, // 保留這個參數，它是好的實踐
     })
 
     const fileData = response.data
-    logger.info(`File uploaded successfully: ${fileData.name} (ID: ${fileData.id})`)
+    const fileId = fileData.id
+    if (!fileId) {
+      throw new Error('File created but did not return an ID.')
+    }
+
+    logger.info(`File created by service account: ${fileData.name} (ID: ${fileId})`)
+
+    // ✨ 2. 步驟 B: 立即建立一個權限，將 "owner" 角色轉移給您
+    await drive.permissions.create({
+      fileId: fileId,
+      // ✨ 3. 這個參數會將所有權從服務帳戶轉移出去
+      transferOwnership: true,
+      requestBody: {
+        role: 'owner',
+        type: 'user',
+        emailAddress: FILE_OWNER_EMAIL,
+      },
+      supportsAllDrives: true, // 在操作權限時也建議加上
+    })
+
+    logger.info(`Ownership of file ${fileId} transferred to ${FILE_OWNER_EMAIL}`)
 
     return {
       success: true,
-      message: '檔案成功上傳至 Google Drive！',
+      message: '檔案成功上傳並設定所有權！',
       file: {
         id: fileData.id,
         name: fileData.name,
@@ -866,15 +898,10 @@ exports.uploadFileToDrive = onCall(async (request) => {
       },
     }
   } catch (error) {
-    // 增加對特定錯誤的日誌記錄
-    if (error.message.includes('storage quota')) {
-      logger.error(
-        'Google Drive Storage Quota Error. This is often solved by adding `supportsAllDrives: true` to the drive.files.create call.',
-        error,
-      )
-    } else {
-      logger.error('Error uploading file to Google Drive:', error)
-    }
+    logger.error(
+      'Error uploading file to Google Drive and transferring ownership:',
+      error?.response?.data || error,
+    )
     throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
   }
 })
