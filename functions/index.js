@@ -19,33 +19,34 @@ const { google } = require('googleapis')
 const stream = require('stream')
 const path = require('path')
 
-// ✨✨✨【核心修改點：動態設定 Google Drive Folder ID】✨✨✨
+// ===================================================================
+// 全域設定 (Global Configurations)
+// ===================================================================
 
-// 1. 取得您的 Firebase 專案 ID
-//    functionsConfig 已經在檔案頂部從 process.env.FIREBASE_CONFIG 解析而來
 const PROJECT_ID = functionsConfig.projectId
 
-// 2. 根據專案 ID 決定要使用哪個 Google Drive 資料夾 ID
+// --- Google Drive 動態設定 ---
 let SHARED_DRIVE_FOLDER_ID
-
 if (PROJECT_ID === 'dialysis-schedule-cd36c') {
-  // --- 這是正式環境 ---
-  SHARED_DRIVE_FOLDER_ID = '1JBR5rDRjsVqf_fYOJItlWOGTNhle2VkJ' // ⚠️ 請替換成您正式版的 Folder ID
+  SHARED_DRIVE_FOLDER_ID = '1JBR5rDRjsVqf_fYOJItlWOGTNhle2VkJ'
   logger.info(`Running in PRODUCTION environment. Using Production Google Drive Folder.`)
-} else if (PROJECT_ID === 'my-dialysis-app-develop') {
-  // --- 這是開發環境 ---
-  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe' // ⚠️ 請替換成您開發版的 Folder ID
-  logger.info(`Running in DEVELOPMENT environment. Using Development Google Drive Folder.`)
 } else {
-  // --- 備用方案：如果專案 ID 不匹配，拋出錯誤或使用一個預設值 ---
-  logger.error(`Unknown Project ID: ${PROJECT_ID}. Could not determine Google Drive Folder ID.`)
-  // 在這裡您可以選擇拋出錯誤來停止執行，或者給一個安全的預設值
-  // throw new Error(`Unknown Project ID: ${PROJECT_ID}`);
-  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe' // 作為安全的備用，指向開發版
+  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe'
+  logger.info(
+    `Running in DEVELOPMENT or EMULATOR environment. Using Development Google Drive Folder.`,
+  )
 }
-// ✨✨✨【修改結束】✨✨✨
 
-//============ 輔助函式 =====================
+// --- CORS 跨來源請求設定 ---
+const allowedOrigins = [
+  'https://my-dialysis-app-develop.web.app', // 開發版前端網址
+  'https://dialysis-schedule-cd36c.web.app', // 正式版前端網址
+  'http://localhost:5173', // 本地 Vite 開發伺服器
+]
+
+// ===================================================================
+// 輔助函式 (Helper Functions)
+// ===================================================================
 function formatDateForQuery(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -407,7 +408,9 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
   }
 }
 
-//============ Firestore Triggers =====================
+// ===================================================================
+// Firestore 文件觸發器 (Document Triggers)
+// ===================================================================
 exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
   const patientId = event.params.patientId
   const beforeData = event.data?.before.data()
@@ -537,7 +540,9 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   return null
 })
 
-//============ Scheduled Functions =====================
+// ===================================================================
+// 排程函式 (Scheduled Functions)
+// ===================================================================
 exports.checkExpiredTasks = onSchedule(
   { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
@@ -620,8 +625,10 @@ exports.initializeFutureSchedules = onSchedule(
   },
 )
 
-//============ Callable Functions =====================
-exports.customLogin = onCall(async (request) => {
+// ===================================================================
+// 可呼叫函式 (Callable Functions) - ✨ 全面加入 CORS 設定 ✨
+// ===================================================================
+exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
   const { username, password } = request.data
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
@@ -651,7 +658,7 @@ exports.customLogin = onCall(async (request) => {
   }
 })
 
-exports.changeUserPassword = onCall(async (request) => {
+exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
   }
@@ -691,7 +698,7 @@ exports.changeUserPassword = onCall(async (request) => {
 })
 
 exports.ensureFutureSchedules = onCall(
-  { timeoutSeconds: 300, memory: '512MiB' },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '512MiB' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
@@ -791,7 +798,7 @@ async function getGoogleAuthClient() {
   logger.info(`Successfully created OAuth2 client for user.`)
   return oauth2Client
 }
-//------------------------------------------------------------------
+
 /**
  * (新輔助函式) 在指定的父資料夾中，尋找或建立一個子資料夾。
  * @param {object} drive - 已授權的 Google Drive API 實例。
@@ -835,66 +842,12 @@ async function findOrCreateFolder(drive, folderName, parentFolderId) {
   }
 }
 
-// uploadFileToDrive 函式維持原樣，但這次它會收到一個不同的 auth 物件
-//------------------------------------------------------------------
-exports.uploadFileToDrive = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
-  }
-  const { fileName, fileContentBase64, mimeType } = request.data
-  if (!fileName || !fileContentBase64 || !mimeType) {
-    throw new HttpsError('invalid-argument', '請求中缺少檔名、檔案內容或 MIME 類型。')
-  }
-  try {
-    // 這裡的 auth 現在是代表您個人帳號的 OAuth2 client
-    const auth = await getGoogleAuthClient()
-    const drive = google.drive({ version: 'v3', auth })
-
-    const fileBuffer = Buffer.from(fileContentBase64, 'base64')
-    const bufferStream = new stream.PassThrough()
-    bufferStream.end(fileBuffer)
-
-    const fileMetadata = {
-      name: fileName,
-      parents: [SHARED_DRIVE_FOLDER_ID],
-    }
-    const media = {
-      mimeType: mimeType,
-      body: bufferStream,
-    }
-
-    const response = await drive.files.create({
-      resource: fileMetadata,
-      media: media,
-      fields: 'id, name, webViewLink, webContentLink',
-      // supportsAllDrives: true, // 在個人帳號模式下，這個參數非必要但保留也無妨
-    })
-
-    const fileData = response.data
-    logger.info(`File uploaded successfully: ${fileData.name} (ID: ${fileData.id})`)
-
-    return {
-      success: true,
-      message: '檔案成功上傳至 Google Drive！',
-      file: {
-        id: fileData.id,
-        name: fileData.name,
-        viewLink: fileData.webViewLink,
-        downloadLink: fileData.webContentLink,
-      },
-    }
-  } catch (error) {
-    logger.error('Error uploading file to Google Drive:', error)
-    throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
-  }
-})
-
 //------------------------------------------------------------------
 /**
  * 【可呼叫函式 - 最終統一版】上傳檔案到 Google Drive 中指定的路徑。
  * 此函式會自動遞迴地尋找或建立 targetPath 中定義的子資料夾結構。
  */
-exports.uploadFile = onCall(async (request) => {
+exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
   }
@@ -994,53 +947,64 @@ exports.uploadFile = onCall(async (request) => {
   }
 })
 
+//------------------------------------------------------------------
 /**
- * 【可呼叫函式】根據病人的病歷號，在指定的 Google Drive 資料夾中搜尋檔案。
- * 檔名必須符合 `[病歷號]_...` 的格式。
- * @param {object} data - 包含 `medicalRecordNumber` 的物件。
- * @returns {Promise<object>} 包含檔案列表的物件。
+ * 【新增的可呼叫函式】根據指定的路徑，在 Google Drive 中搜尋檔案。
  */
-exports.getDriveFilesForPatient = onCall(async (request) => {
-  // 權限檢查：確保使用者已登入
+exports.getDriveFiles = onCall({ cors: allowedOrigins }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '您必須登入才能查詢檔案。')
   }
 
-  const { medicalRecordNumber } = request.data
-  if (!medicalRecordNumber) {
-    throw new HttpsError('invalid-argument', '請求中缺少病人病歷號。')
+  const { targetPath } = request.data
+  if (!Array.isArray(targetPath) || targetPath.length === 0) {
+    throw new HttpsError('invalid-argument', '請求中缺少目標路徑 (targetPath)。')
   }
 
   try {
-    const auth = await getGoogleAuthClient() // 複用我們已有的授權函式
+    const auth = await getGoogleAuthClient()
     const drive = google.drive({ version: 'v3', auth })
 
-    // 建立一個查詢字串 (query string)
-    // 1. 檔案名稱以 `[病歷號]` 開頭
-    // 2. 檔案必須位於我們的共享資料夾內
-    // 3. 檔案未被移至垃圾桶
-    const query = `'${SHARED_DRIVE_FOLDER_ID}' in parents and name contains '[${medicalRecordNumber}]' and trashed = false`
+    // 1. 遞迴找到最終的目標資料夾 ID
+    let currentParentFolderId = SHARED_DRIVE_FOLDER_ID
+    for (const folderName of targetPath) {
+      // 這裡我們只搜尋，不建立，因為查詢時資料夾應該已經存在
+      const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and '${currentParentFolderId}' in parents and trashed=false`
+      const response = await drive.files.list({
+        q: query,
+        fields: 'files(id)',
+        supportsAllDrives: true,
+      })
 
-    logger.info(`Executing Google Drive search query: ${query}`)
+      if (response.data.files && response.data.files.length > 0) {
+        currentParentFolderId = response.data.files[0].id
+      } else {
+        logger.info(`查詢路徑 ${targetPath.join('/')} 時，找不到資料夾 ${folderName}。`)
+        // 如果路徑中任何一層資料夾不存在，就回傳空陣列
+        return { success: true, files: [] }
+      }
+    }
+    const finalTargetFolderId = currentParentFolderId
 
+    // 2. 在最終的資料夾中搜尋所有檔案
+    const fileQuery = `'${finalTargetFolderId}' in parents and trashed = false`
     const response = await drive.files.list({
-      q: query,
-      // 指定我們希望回傳的欄位，以減少資料傳輸量
+      q: fileQuery,
       fields: 'files(id, name, thumbnailLink, webViewLink, createdTime, iconLink)',
-      orderBy: 'createdTime desc', // 按建立時間降序排序 (最新的在前面)
-      pageSize: 50, // 最多回傳 50 筆結果
+      orderBy: 'createdTime desc',
+      pageSize: 50,
       supportsAllDrives: true,
     })
 
     const files = response.data.files
-    logger.info(`Found ${files.length} files for medical record number: ${medicalRecordNumber}`)
+    logger.info(`Found ${files.length} files in path: ${targetPath.join('/')}`)
 
     return {
       success: true,
       files: files,
     }
   } catch (error) {
-    logger.error(`Error searching files in Google Drive for MRN ${medicalRecordNumber}:`, error)
+    logger.error(`Error searching files in Google Drive for path ${targetPath.join('/')}:`, error)
     throw new HttpsError('internal', '在 Google Drive 中搜尋檔案時發生錯誤。', error.message)
   }
 })
@@ -1806,10 +1770,7 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 // Lab Report Functions (檢驗報告相關函式)
 // ===================================================================
 exports.processLabReport = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
@@ -2001,10 +1962,7 @@ exports.processLabReport = onCall(
 // ===================================================================
 
 exports.processConsumables = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
@@ -2187,10 +2145,7 @@ exports.processConsumables = onCall(
 // ===================================================================
 
 exports.processOrders = onCall(
-  {
-    timeoutSeconds: 540,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
     const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
@@ -2442,10 +2397,7 @@ const parseFlexibleDate = (dateStr, targetDate) => {
 }
 
 exports.getDailyInjections = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
@@ -2728,7 +2680,7 @@ exports.archiveDailySchedule = onSchedule(
 
 // ✨ --- 【全新】手動遷移歷史排班的一次性 Cloud Function --- ✨
 exports.migrateSchedulesToArchive = onCall(
-  { timeoutSeconds: 540, memory: '1GiB' },
+  { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
     if (request.auth?.token?.role !== 'admin') {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
@@ -2841,42 +2793,45 @@ exports.migrateSchedulesToArchive = onCall(
  * 手動觸發，將所有已過期的 `message` 類型的 task 狀態更新為 `expired`。
  * 僅限管理員使用。
  */
-exports.manuallyExpireTasks = onCall({ timeoutSeconds: 300 }, async (request) => {
-  // 1. 權限檢查：確保只有 admin 角色的使用者可以呼叫
-  if (request.auth?.token?.role !== 'admin') {
-    throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
-  }
-
-  logger.info(`[Manual Trigger] Manually expiring tasks, triggered by admin: ${request.auth.uid}`)
-
-  const todayStr = formatDateForQuery(new Date())
-  try {
-    // 2. 執行與排程函式完全相同的查詢邏輯
-    const query = db
-      .collection('tasks')
-      .where('status', '==', 'pending')
-      .where('category', '==', 'message')
-      .where('targetDate', '<', todayStr)
-
-    const snapshot = await query.get()
-    if (snapshot.empty) {
-      logger.info('[Manual Trigger] No expired tasks (messages) found to update.')
-      return { success: true, message: '找不到需要更新的過期留言。', updatedCount: 0 }
+exports.manuallyExpireTasks = onCall(
+  { cors: allowedOrigins, timeoutSeconds: 300 },
+  async (request) => {
+    // 1. 權限檢查：確保只有 admin 角色的使用者可以呼叫
+    if (request.auth?.token?.role !== 'admin') {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
     }
 
-    const batch = db.batch()
-    snapshot.forEach((doc) => {
-      logger.info(`[Manual Trigger] Expiring task (message) ${doc.id}.`)
-      batch.update(doc.ref, { status: 'expired' })
-    })
-    await batch.commit()
+    logger.info(`[Manual Trigger] Manually expiring tasks, triggered by admin: ${request.auth.uid}`)
 
-    const successMessage = `成功將 ${snapshot.size} 則留言標記為已過期。`
-    logger.info(`[Manual Trigger] ${successMessage}`)
-    // 3. 回傳詳細的成功訊息給前端
-    return { success: true, message: successMessage, updatedCount: snapshot.size }
-  } catch (error) {
-    logger.error('[Manual Trigger] Failed to manually expire tasks:', error)
-    throw new HttpsError('internal', '手動更新過期留言時發生錯誤。', error)
-  }
-})
+    const todayStr = formatDateForQuery(new Date())
+    try {
+      // 2. 執行與排程函式完全相同的查詢邏輯
+      const query = db
+        .collection('tasks')
+        .where('status', '==', 'pending')
+        .where('category', '==', 'message')
+        .where('targetDate', '<', todayStr)
+
+      const snapshot = await query.get()
+      if (snapshot.empty) {
+        logger.info('[Manual Trigger] No expired tasks (messages) found to update.')
+        return { success: true, message: '找不到需要更新的過期留言。', updatedCount: 0 }
+      }
+
+      const batch = db.batch()
+      snapshot.forEach((doc) => {
+        logger.info(`[Manual Trigger] Expiring task (message) ${doc.id}.`)
+        batch.update(doc.ref, { status: 'expired' })
+      })
+      await batch.commit()
+
+      const successMessage = `成功將 ${snapshot.size} 則留言標記為已過期。`
+      logger.info(`[Manual Trigger] ${successMessage}`)
+      // 3. 回傳詳細的成功訊息給前端
+      return { success: true, message: successMessage, updatedCount: snapshot.size }
+    } catch (error) {
+      logger.error('[Manual Trigger] Failed to manually expire tasks:', error)
+      throw new HttpsError('internal', '手動更新過期留言時發生錯誤。', error)
+    }
+  },
+)
