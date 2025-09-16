@@ -845,6 +845,57 @@ exports.uploadFileToDrive = onCall(async (request) => {
   }
 })
 
+/**
+ * 【可呼叫函式】根據病人的病歷號，在指定的 Google Drive 資料夾中搜尋檔案。
+ * 檔名必須符合 `[病歷號]_...` 的格式。
+ * @param {object} data - 包含 `medicalRecordNumber` 的物件。
+ * @returns {Promise<object>} 包含檔案列表的物件。
+ */
+exports.getDriveFilesForPatient = onCall(async (request) => {
+  // 權限檢查：確保使用者已登入
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能查詢檔案。')
+  }
+
+  const { medicalRecordNumber } = request.data
+  if (!medicalRecordNumber) {
+    throw new HttpsError('invalid-argument', '請求中缺少病人病歷號。')
+  }
+
+  try {
+    const auth = await getGoogleAuthClient() // 複用我們已有的授權函式
+    const drive = google.drive({ version: 'v3', auth })
+
+    // 建立一個查詢字串 (query string)
+    // 1. 檔案名稱以 `[病歷號]` 開頭
+    // 2. 檔案必須位於我們的共享資料夾內
+    // 3. 檔案未被移至垃圾桶
+    const query = `'${SHARED_DRIVE_FOLDER_ID}' in parents and name contains '[${medicalRecordNumber}]' and trashed = false`
+
+    logger.info(`Executing Google Drive search query: ${query}`)
+
+    const response = await drive.files.list({
+      q: query,
+      // 指定我們希望回傳的欄位，以減少資料傳輸量
+      fields: 'files(id, name, thumbnailLink, webViewLink, createdTime, iconLink)',
+      orderBy: 'createdTime desc', // 按建立時間降序排序 (最新的在前面)
+      pageSize: 50, // 最多回傳 50 筆結果
+      supportsAllDrives: true,
+    })
+
+    const files = response.data.files
+    logger.info(`Found ${files.length} files for medical record number: ${medicalRecordNumber}`)
+
+    return {
+      success: true,
+      files: files,
+    }
+  } catch (error) {
+    logger.error(`Error searching files in Google Drive for MRN ${medicalRecordNumber}:`, error)
+    throw new HttpsError('internal', '在 Google Drive 中搜尋檔案時發生錯誤。', error.message)
+  }
+})
+
 // ===================================================================
 // 🔥 基礎同步 + 兩階調班處理（統一流程）
 // ===================================================================
