@@ -21,6 +21,10 @@
         <button :class="{ active: activeTab === 'labs' }" @click="activeTab = 'labs'">
           檢驗報告
         </button>
+        <!-- ✨ 1. 新增頁籤按鈕 ✨ -->
+        <button :class="{ active: activeTab === 'correlation' }" @click="activeTab = 'correlation'">
+          報告藥物趨勢
+        </button>
       </div>
 
       <!-- 頁籤內容 -->
@@ -133,6 +137,10 @@
             @save-record="handleSaveLabSummaryAsRecord"
           />
         </div>
+        <!-- ✨ 3. 新增頁籤的內容面板 ✨ -->
+        <div v-show="activeTab === 'correlation'" class="tab-panel">
+          <LabMedCorrelationView v-if="patient && activeTab === 'correlation'" :patient="patient" />
+        </div>
       </div>
     </div>
   </div>
@@ -150,6 +158,7 @@ import { functions } from '@/composables/useFirebase.js'
 // 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
 import MemoPanel from './MemoPanel.vue'
+import LabMedCorrelationView from './LabMedCorrelationView.vue'
 import PatientLabSummaryPanel from './PatientLabSummaryPanel.vue'
 
 // --- Props & Emits ---
