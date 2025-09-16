@@ -582,7 +582,9 @@ watch(
   justify-content: center;
 }
 
-.image-uploader button {
+.image-uploader button,
+.image-viewer button {
+  /* ✨ 將 .image-viewer button 也加入進來 */
   padding: 0.75rem 1.5rem;
   border-radius: 8px;
   border: none;
@@ -594,7 +596,10 @@ watch(
   align-items: center;
   gap: 0.5rem;
 }
-.image-uploader button:disabled {
+
+.image-uploader button:disabled,
+.image-viewer button:disabled {
+  /* ✨ 也為 viewer 的按鈕加上 disabled 樣式 */
   opacity: 0.6;
   cursor: not-allowed;
 }
