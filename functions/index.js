@@ -15,6 +15,35 @@ const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
 const { FieldValue, FieldPath } = require('firebase-admin/firestore')
+const { google } = require('googleapis')
+const stream = require('stream')
+const path = require('path')
+
+// ✨✨✨【核心修改點：動態設定 Google Drive Folder ID】✨✨✨
+
+// 1. 取得您的 Firebase 專案 ID
+//    functionsConfig 已經在檔案頂部從 process.env.FIREBASE_CONFIG 解析而來
+const PROJECT_ID = functionsConfig.projectId
+
+// 2. 根據專案 ID 決定要使用哪個 Google Drive 資料夾 ID
+let SHARED_DRIVE_FOLDER_ID
+
+if (PROJECT_ID === 'dialysis-schedule-cd36c') {
+  // --- 這是正式環境 ---
+  SHARED_DRIVE_FOLDER_ID = '1JBR5rDRjsVqf_fYOJItlWOGTNhle2VkJ' // ⚠️ 請替換成您正式版的 Folder ID
+  logger.info(`Running in PRODUCTION environment. Using Production Google Drive Folder.`)
+} else if (PROJECT_ID === 'my-dialysis-app-develop') {
+  // --- 這是開發環境 ---
+  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe' // ⚠️ 請替換成您開發版的 Folder ID
+  logger.info(`Running in DEVELOPMENT environment. Using Development Google Drive Folder.`)
+} else {
+  // --- 備用方案：如果專案 ID 不匹配，拋出錯誤或使用一個預設值 ---
+  logger.error(`Unknown Project ID: ${PROJECT_ID}. Could not determine Google Drive Folder ID.`)
+  // 在這裡您可以選擇拋出錯誤來停止執行，或者給一個安全的預設值
+  // throw new Error(`Unknown Project ID: ${PROJECT_ID}`);
+  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe' // 作為安全的備用，指向開發版
+}
+// ✨✨✨【修改結束】✨✨✨
 
 //============ 輔助函式 =====================
 function formatDateForQuery(date) {
@@ -727,6 +756,94 @@ exports.ensureFutureSchedules = onCall(
     }
   },
 )
+
+// ===================================================================
+// 串接google drive
+// ===================================================================
+/**
+ * 【超簡化最終版】取得 Google API 的授權客戶端。
+ * 直接使用開發人員的 OAuth 2.0 憑證進行授權。
+ * @returns {Promise<object>} Authorized Google Auth client.
+ */
+async function getGoogleAuthClient() {
+  // 從環境變數讀取 OAuth 2.0 憑證
+  const clientId = process.env.GDRIVE_CLIENT_ID
+  const clientSecret = process.env.GDRIVE_CLIENT_SECRET
+  const refreshToken = process.env.GDRIVE_REFRESH_TOKEN
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    logger.error('Missing Google Drive OAuth 2.0 credentials in environment variables.')
+    throw new Error('Server configuration error for Google Drive access.')
+  }
+
+  // 建立 OAuth2 客戶端
+  const oauth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    'https://developers.google.com/oauthplayground', // 重新導向 URI 必須與設定時一致
+  )
+
+  // 設定 Refresh Token，客戶端會自動用它來獲取 Access Token
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+  })
+
+  logger.info(`Successfully created OAuth2 client for user.`)
+  return oauth2Client
+}
+
+// uploadFileToDrive 函式維持原樣，但這次它會收到一個不同的 auth 物件
+exports.uploadFileToDrive = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
+  }
+  const { fileName, fileContentBase64, mimeType } = request.data
+  if (!fileName || !fileContentBase64 || !mimeType) {
+    throw new HttpsError('invalid-argument', '請求中缺少檔名、檔案內容或 MIME 類型。')
+  }
+  try {
+    // 這裡的 auth 現在是代表您個人帳號的 OAuth2 client
+    const auth = await getGoogleAuthClient()
+    const drive = google.drive({ version: 'v3', auth })
+
+    const fileBuffer = Buffer.from(fileContentBase64, 'base64')
+    const bufferStream = new stream.PassThrough()
+    bufferStream.end(fileBuffer)
+
+    const fileMetadata = {
+      name: fileName,
+      parents: [SHARED_DRIVE_FOLDER_ID],
+    }
+    const media = {
+      mimeType: mimeType,
+      body: bufferStream,
+    }
+
+    const response = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id, name, webViewLink, webContentLink',
+      // supportsAllDrives: true, // 在個人帳號模式下，這個參數非必要但保留也無妨
+    })
+
+    const fileData = response.data
+    logger.info(`File uploaded successfully: ${fileData.name} (ID: ${fileData.id})`)
+
+    return {
+      success: true,
+      message: '檔案成功上傳至 Google Drive！',
+      file: {
+        id: fileData.id,
+        name: fileData.name,
+        viewLink: fileData.webViewLink,
+        downloadLink: fileData.webContentLink,
+      },
+    }
+  } catch (error) {
+    logger.error('Error uploading file to Google Drive:', error)
+    throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
+  }
+})
 
 // ===================================================================
 // 🔥 基礎同步 + 兩階調班處理（統一流程）

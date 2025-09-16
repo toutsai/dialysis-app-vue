@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/views/UserManagementView.vue (已加入響應式設計) -->
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
@@ -7,7 +6,6 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import UserFormModal from '@/components/UserFormModal.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-// ✨ 1. 引入 Firebase Cloud Functions 相關模組
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 
@@ -24,8 +22,12 @@ const sortBy = ref('name')
 const sortOrder = ref('asc')
 const isSubmitting = ref(false)
 const isDeletingUser = ref(null)
+
+// --- Admin Tools State ---
 const isMigrationLoading = ref(false)
 const isExpireLoading = ref(false)
+const isUploadingToDrive = ref(false)
+const selectedFileForDrive = ref(null)
 
 // --- Dialog State ---
 const alertInfo = ref({ isVisible: false, title: '', message: '' })
@@ -229,53 +231,40 @@ async function copyEmail(email) {
   }
 }
 
-// ✨ 2. 新增觸發遷移的函式
+// --- Admin Tools Functions ---
+
 async function triggerMigration() {
-  // 1. 計算遷移的結束日期（昨天）
   const today = new Date()
   const yesterday = new Date(today)
   yesterday.setDate(today.getDate() - 1)
-
-  // 2. 設定一個固定的起始日期
   const startDateStr = '2024-01-01'
   const endDateStr = yesterday.toISOString().split('T')[0]
 
-  // 3. 安全檢查
   if (endDateStr < startDateStr) {
     showAlert('無需操作', '所有歷史排班資料似乎都已完成歸檔，無需執行手動遷移。')
     return
   }
 
-  // 4. 顯示雙重確認對話框
   showConfirm(
     '⚠️ 高風險操作確認',
     `此操作將會遷移從 ${startDateStr} 到 ${endDateStr} (昨天) 的所有歷史排班資料到歸檔區。您確定要繼續嗎？`,
     () => {
-      // 第二次確認
       showConfirm(
         '最終確認',
         `請再次確認，即將開始遷移 ${startDateStr} 至 ${endDateStr} 的排班資料。`,
         async () => {
-          // ✨ 在呼叫後端前，設置 loading 狀態為 true ✨
           isMigrationLoading.value = true
-          // 移除舊的 showAlert 提示，因為按鈕本身就會顯示載入狀態
-          // showAlert('處理中...', `正在呼叫後端遷移函式...`);
-
           const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
-
           try {
             const result = await migrate({
               startDate: startDateStr,
               endDate: endDateStr,
             })
-            // 成功後顯示結果
             showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
           } catch (error) {
             console.error('遷移失敗:', error)
-            // 失敗後顯示錯誤
             showAlert('遷移失敗', `發生錯誤: ${error.message}`)
           } finally {
-            // ✨ 無論成功或失敗，最後都將 loading 狀態設回 false ✨
             isMigrationLoading.value = false
           }
         },
@@ -284,28 +273,74 @@ async function triggerMigration() {
   )
 }
 
-// 函式二：手動更新過期留言 (使用新的 loading 狀態)
 async function triggerManualExpire() {
-  showConfirm(
-    // 直接使用 showConfirm
-    '確認操作',
-    '您確定要立即將所有過期的留言標記為「已過期」嗎？',
-    async () => {
-      // 將要執行的邏輯作為第三個參數傳入
-      isExpireLoading.value = true
-      try {
-        const manuallyExpireTasks = httpsCallable(functions, 'manuallyExpireTasks')
-        const result = await manuallyExpireTasks()
-        showAlert('操作成功', result.data.message) // 使用 showAlert
-        console.log(result.data)
-      } catch (error) {
-        console.error('手動更新失敗:', error)
-        showAlert('操作失敗', `發生錯誤: ${error.message}`) // 使用 showAlert
-      } finally {
-        isExpireLoading.value = false
-      }
-    },
-  )
+  showConfirm('確認操作', '您確定要立即將所有過期的留言標記為「已過期」嗎？', async () => {
+    isExpireLoading.value = true
+    try {
+      const manuallyExpireTasks = httpsCallable(functions, 'manuallyExpireTasks')
+      const result = await manuallyExpireTasks()
+      showAlert('操作成功', result.data.message)
+      console.log(result.data)
+    } catch (error) {
+      console.error('手動更新失敗:', error)
+      showAlert('操作失敗', `發生錯誤: ${error.message}`)
+    } finally {
+      isExpireLoading.value = false
+    }
+  })
+}
+
+function handleFileSelectForDrive(event) {
+  selectedFileForDrive.value = event.target.files[0]
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = () => {
+      const base64String = reader.result.split(',')[1]
+      resolve(base64String)
+    }
+    reader.onerror = (error) => reject(error)
+  })
+}
+
+async function triggerUploadToDrive() {
+  if (!selectedFileForDrive.value) {
+    showAlert('提示', '請先選擇一個要上傳的檔案！')
+    return
+  }
+
+  isUploadingToDrive.value = true
+  try {
+    const fileContentBase64 = await fileToBase64(selectedFileForDrive.value)
+
+    const payload = {
+      fileName: selectedFileForDrive.value.name,
+      fileContentBase64: fileContentBase64,
+      mimeType: selectedFileForDrive.value.type,
+    }
+
+    const uploadFileToDrive = httpsCallable(functions, 'uploadFileToDrive')
+    const result = await uploadFileToDrive(payload)
+
+    console.log('上傳成功:', result.data)
+    showAlert(
+      '上傳成功',
+      `${result.data.message}\n檔案名稱: ${result.data.file.name}\n檔案ID: ${result.data.file.id}`,
+    )
+
+    selectedFileForDrive.value = null
+    // This is a common way to clear the file input, but it requires a ref on the input element
+    // e.g., <input type="file" ref="fileInput" ... />
+    // if (fileInput.value) { fileInput.value.value = ''; }
+  } catch (error) {
+    console.error('上傳失敗:', error)
+    showAlert('上傳失敗', `發生錯誤: ${error.message}`)
+  } finally {
+    isUploadingToDrive.value = false
+  }
 }
 
 onMounted(() => {
@@ -367,7 +402,7 @@ onMounted(() => {
           </div>
         </div>
         <div class="header-actions">
-          <!-- 按鈕一：遷移歷史排班 -->
+          <!-- 遷移歷史排班按鈕 -->
           <button
             v-if="isAdmin"
             class="btn btn-danger"
@@ -379,7 +414,7 @@ onMounted(() => {
             {{ isMigrationLoading ? '遷移中...' : '⚠️ 遷移歷史排班' }}
           </button>
 
-          <!-- 按鈕二：手動更新過期留言 -->
+          <!-- 手動更新過期留言按鈕 -->
           <button
             v-if="isAdmin"
             class="btn btn-warning"
@@ -390,6 +425,21 @@ onMounted(() => {
             <i v-if="isExpireLoading" class="fas fa-spinner fa-spin"></i>
             {{ isExpireLoading ? '更新中...' : '手動更新過期留言' }}
           </button>
+
+          <!-- Google Drive 上傳測試區塊 -->
+          <div v-if="isAdmin" class="gdrive-upload-group">
+            <input type="file" @change="handleFileSelectForDrive" class="file-input-drive" />
+            <button
+              class="btn btn-info"
+              @click="triggerUploadToDrive"
+              :disabled="!selectedFileForDrive || isUploadingToDrive"
+            >
+              <i v-if="isUploadingToDrive" class="fas fa-spinner fa-spin"></i>
+              {{ isUploadingToDrive ? '上傳中...' : '上傳至雲端硬碟' }}
+            </button>
+          </div>
+
+          <!-- 新增使用者按鈕 -->
           <button
             v-if="isAdmin"
             class="btn btn-primary"
@@ -403,15 +453,13 @@ onMounted(() => {
       </div>
     </header>
 
-    <!-- (以下 template 的其餘部分完全不變) -->
-
     <div v-if="isLoading" class="loading-container">
       <div class="loading-spinner"></div>
       <p>正在載入用戶列表...</p>
     </div>
 
     <div v-else-if="filteredUsers.length > 0" class="user-table-container">
-      <!-- ‼️ 桌機版表格 -->
+      <!-- 桌機版表格 -->
       <table class="user-table desktop-only">
         <thead>
           <tr>
@@ -473,7 +521,7 @@ onMounted(() => {
         </tbody>
       </table>
 
-      <!-- ‼️ 手機版卡片列表 -->
+      <!-- 手機版卡片列表 -->
       <div class="user-cards-container mobile-only">
         <div
           v-for="user in filteredUsers"
@@ -709,6 +757,7 @@ onMounted(() => {
   display: flex;
   gap: 1rem;
   align-items: center;
+  flex-wrap: wrap; /* 允許換行 */
 }
 .loading-container {
   display: flex;
@@ -826,6 +875,27 @@ onMounted(() => {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
 }
+.btn-danger {
+  background: #dc3545;
+  color: white;
+}
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
+}
+.btn-warning {
+  background: #ffc107;
+  color: #212529;
+}
+.btn-warning:hover:not(:disabled) {
+  background: #e0a800;
+}
+.btn-info {
+  background-color: #17a2b8;
+  color: white;
+}
+.btn-info:hover:not(:disabled) {
+  background-color: #138496;
+}
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -891,14 +961,38 @@ onMounted(() => {
   font-weight: 500;
 }
 .action-buttons-cell {
-  width: 150px; /* 給操作按鈕一個固定寬度 */
+  width: 150px;
+}
+
+.gdrive-upload-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border: 1px dashed #ced4da;
+  border-radius: 8px;
+}
+.file-input-drive {
+  font-size: 0.9rem;
+}
+.file-input-drive::file-selector-button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: 1px solid #ced4da;
+  cursor: pointer;
+  background-color: #f8f9fa;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+.file-input-drive::file-selector-button:hover {
+  border-color: #868e96;
+  background-color: #e9ecef;
 }
 
 /* ================================== */
-/* ‼️        新增的響應式樣式        ‼️ */
+/*         響應式樣式 (手機版)         */
 /* ================================== */
 
-/* 手機版預設隱藏表格，顯示卡片 */
 .user-table.desktop-only {
   display: table;
 }
@@ -906,16 +1000,13 @@ onMounted(() => {
   display: none;
 }
 
-/* 當螢幕寬度小於 768px 時 */
 @media (max-width: 768px) {
-  /* 隱藏桌面版表格，顯示手機版卡片 */
   .user-table.desktop-only {
     display: none;
   }
   .user-cards-container.mobile-only {
     display: block;
   }
-
   .user-management-container {
     padding: 0;
     background-color: #f8f9fa;
@@ -944,10 +1035,18 @@ onMounted(() => {
   }
   .header-actions {
     width: 100%;
+    flex-direction: column;
   }
-  .btn-primary {
+  .btn-primary,
+  .btn-danger,
+  .btn-warning,
+  .btn-info {
     width: 100%;
     justify-content: center;
+  }
+  .gdrive-upload-group {
+    width: 100%;
+    flex-direction: column;
   }
   .user-table-container {
     background: none;
@@ -955,7 +1054,6 @@ onMounted(() => {
     border-radius: 0;
   }
 
-  /* 卡片樣式 */
   .user-card {
     background-color: #fff;
     border-radius: 8px;
