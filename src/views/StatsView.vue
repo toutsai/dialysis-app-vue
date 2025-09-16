@@ -2834,7 +2834,6 @@ button:disabled {
   display: inline-block;
   vertical-align: middle;
   padding: 1px 5px;
-  background-color: #ffebee;
   color: #c62828;
   border: 1px solid #ef9a9a;
   border-radius: 4px;
