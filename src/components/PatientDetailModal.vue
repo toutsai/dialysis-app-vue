@@ -328,14 +328,20 @@ async function uploadToDrive() {
 
     const fileName = `[${props.patient.medicalRecordNumber}]_${props.patient.name}_${dateStr}_${timeStr}.jpg`
 
+    // 根據您的架構，定義病人專屬的資料夾路徑
+    const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
+    const targetPath = ['影像', patientFolderName]
+
     const payload = {
       fileName: fileName,
       fileContentBase64: base64String,
       mimeType: 'image/jpeg',
+      targetPath: targetPath, // 傳入目標路徑
     }
 
-    const uploadFileToDrive = httpsCallable(functions, 'uploadFileToDrive')
-    const result = await uploadFileToDrive(payload)
+    // 呼叫統一的 uploadFile 函式
+    const uploadFile = httpsCallable(functions, 'uploadFile')
+    const result = await uploadFile(payload)
 
     console.log('上傳成功:', result.data)
     addLocalNotification(`影像 "${result.data.file.name}" 上傳成功！`, 'success')
@@ -377,8 +383,14 @@ async function fetchDriveFiles() {
   driveFiles.value = []
 
   try {
-    const getFiles = httpsCallable(functions, 'getDriveFilesForPatient')
-    const result = await getFiles({ medicalRecordNumber: props.patient.medicalRecordNumber })
+    // 假設您後端有一個 getDriveFiles 函式，它接收一個 targetPath
+    const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
+    const targetPath = ['影像', patientFolderName]
+
+    // 注意：您需要建立一個新的 getDriveFiles 函式來取代 getDriveFilesForPatient
+    // 這裡我先假設新函式的名稱是 getDriveFiles
+    const getFiles = httpsCallable(functions, 'getDriveFiles')
+    const result = await getFiles({ targetPath: targetPath })
 
     if (result.data.success) {
       driveFiles.value = result.data.files
@@ -399,11 +411,14 @@ watch(
   (newVal) => {
     if (newVal) {
       activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records'
-      // 當 Modal 打開時，自動觸發一次查詢
       if (props.patient) {
+        // 當 Modal 打開時，如果影像頁籤是預設頁籤，或為了預先載入，可以觸發一次查詢
+        // 為了避免不必要的 API 呼叫，也可以只在點擊頁籤時才載入
+        // 這裡我們先保持打開就載入的行為
         fetchDriveFiles()
       }
     } else {
+      // 當 Modal 關閉時，重置所有狀態
       stopCamera()
       driveFiles.value = []
       hasSearched.value = false

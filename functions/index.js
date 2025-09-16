@@ -791,8 +791,52 @@ async function getGoogleAuthClient() {
   logger.info(`Successfully created OAuth2 client for user.`)
   return oauth2Client
 }
+//------------------------------------------------------------------
+/**
+ * (新輔助函式) 在指定的父資料夾中，尋找或建立一個子資料夾。
+ * @param {object} drive - 已授權的 Google Drive API 實例。
+ * @param {string} folderName - 要尋找或建立的子資料夾名稱。
+ * @param {string} parentFolderId - 父資料夾的 ID。
+ * @returns {Promise<string>} 子資料夾的 ID。
+ */
+async function findOrCreateFolder(drive, folderName, parentFolderId) {
+  // 1. 建立搜尋查詢
+  const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and '${parentFolderId}' in parents and trashed=false`
+
+  // 2. 執行搜尋
+  const response = await drive.files.list({
+    q: query,
+    fields: 'files(id, name)',
+    supportsAllDrives: true,
+  })
+
+  // 3. 判斷結果
+  if (response.data.files && response.data.files.length > 0) {
+    // 如果找到了，直接回傳第一個匹配項的 ID
+    const existingFolderId = response.data.files[0].id
+    logger.info(`Found existing folder: "${folderName}" (ID: ${existingFolderId})`)
+    return existingFolderId
+  } else {
+    // 如果沒找到，就建立一個新的
+    logger.info(`Folder "${folderName}" not found. Creating new one...`)
+    const fileMetadata = {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    }
+    const newFolder = await drive.files.create({
+      resource: fileMetadata,
+      fields: 'id',
+      supportsAllDrives: true,
+    })
+    const newFolderId = newFolder.data.id
+    logger.info(`Successfully created new folder: "${folderName}" (ID: ${newFolderId})`)
+    return newFolderId
+  }
+}
 
 // uploadFileToDrive 函式維持原樣，但這次它會收到一個不同的 auth 物件
+//------------------------------------------------------------------
 exports.uploadFileToDrive = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
@@ -832,6 +876,111 @@ exports.uploadFileToDrive = onCall(async (request) => {
     return {
       success: true,
       message: '檔案成功上傳至 Google Drive！',
+      file: {
+        id: fileData.id,
+        name: fileData.name,
+        viewLink: fileData.webViewLink,
+        downloadLink: fileData.webContentLink,
+      },
+    }
+  } catch (error) {
+    logger.error('Error uploading file to Google Drive:', error)
+    throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
+  }
+})
+
+//------------------------------------------------------------------
+/**
+ * 【可呼叫函式 - 最終統一版】上傳檔案到 Google Drive 中指定的路徑。
+ * 此函式會自動遞迴地尋找或建立 targetPath 中定義的子資料夾結構。
+ */
+exports.uploadFile = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
+  }
+
+  const { fileName, fileContentBase64, mimeType, targetPath } = request.data
+
+  if (
+    !fileName ||
+    !fileContentBase64 ||
+    !mimeType ||
+    !Array.isArray(targetPath) ||
+    targetPath.length === 0
+  ) {
+    throw new HttpsError('invalid-argument', '請求中缺少必要的檔案資訊或目標路徑 (targetPath)。')
+  }
+
+  try {
+    const auth = await getGoogleAuthClient()
+    const drive = google.drive({ version: 'v3', auth })
+
+    // 1. 遞迴地尋找或建立資料夾結構
+    let currentParentFolderId = SHARED_DRIVE_FOLDER_ID // 從共享根目錄開始
+    for (const folderName of targetPath) {
+      // 依序尋找或建立路徑中的每一個資料夾
+      currentParentFolderId = await findOrCreateFolder(drive, folderName, currentParentFolderId)
+    }
+
+    // 最終得到的 currentParentFolderId 就是我們要上傳檔案的目標位置
+    const finalTargetFolderId = currentParentFolderId
+    logger.info(`Final target folder ID for upload: ${finalTargetFolderId}`)
+
+    // 2. 準備並上傳檔案 (這部分邏輯不變)
+    const fileBuffer = Buffer.from(fileContentBase64, 'base64')
+    const bufferStream = new stream.PassThrough()
+    bufferStream.end(fileBuffer)
+
+    const fileMetadata = {
+      name: fileName,
+      parents: [finalTargetFolderId],
+    }
+
+    const media = {
+      mimeType: mimeType,
+      body: bufferStream,
+    }
+
+    const response = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id, name, webViewLink, webContentLink',
+      supportsAllDrives: true,
+    })
+
+    const fileData = response.data
+    logger.info(
+      `File uploaded successfully to path "${targetPath.join('/')}": ${fileData.name} (ID: ${fileData.id})`,
+    )
+
+    // 3. 根據不同上傳類型，可以考慮轉移所有權 (特別是病人影像)
+    if (targetPath[0] === '影像') {
+      const PROJECT_ID = functionsConfig.projectId
+      let FILE_OWNER_EMAIL = ''
+      if (PROJECT_ID === 'dialysis-schedule-cd36c') {
+        FILE_OWNER_EMAIL = 'hdrhdr2330@gmail.com'
+      } else {
+        FILE_OWNER_EMAIL = 'suiam74@gmail.com'
+      }
+
+      if (FILE_OWNER_EMAIL && fileData.id) {
+        await drive.permissions.create({
+          fileId: fileData.id,
+          transferOwnership: true,
+          requestBody: {
+            role: 'owner',
+            type: 'user',
+            emailAddress: FILE_OWNER_EMAIL,
+          },
+          supportsAllDrives: true,
+        })
+        logger.info(`Ownership of image ${fileData.id} transferred to ${FILE_OWNER_EMAIL}`)
+      }
+    }
+
+    return {
+      success: true,
+      message: `檔案成功上傳至 [${targetPath.join(' / ')}]！`,
       file: {
         id: fileData.id,
         name: fileData.name,
