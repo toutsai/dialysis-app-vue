@@ -761,83 +761,48 @@ exports.ensureFutureSchedules = onCall(
 // 串接google drive
 // ===================================================================
 /**
- * 取得 Google API 的授權客戶端。
- * 會自動判斷是在 Emulator 環境還是正式環境。
+ * 【超簡化最終版】取得 Google API 的授權客戶端。
+ * 直接使用開發人員的 OAuth 2.0 憑證進行授權。
  * @returns {Promise<object>} Authorized Google Auth client.
  */
 async function getGoogleAuthClient() {
-  const scopes = ['https://www.googleapis.com/auth/drive']
+  // 從環境變數讀取 OAuth 2.0 憑證
+  const clientId = process.env.GDRIVE_CLIENT_ID
+  const clientSecret = process.env.GDRIVE_CLIENT_SECRET
+  const refreshToken = process.env.GDRIVE_REFRESH_TOKEN
 
-  if (process.env.FUNCTIONS_EMULATOR === 'true') {
-    logger.info('在模擬器模式下運行，嘗試使用本地憑證...')
-
-    const relativePath = process.env.GDRIVE_CREDENTIALS_PATH
-
-    if (!relativePath) {
-      logger.error('模擬器的環境變數 GDRIVE_CREDENTIALS_PATH 未設定。')
-      logger.error(
-        "請確保您有名為 '.env.<project_id>' 的檔案，並在其中定義了 GDRIVE_CREDENTIALS_PATH。",
-      )
-      throw new Error('缺少用於模擬器的 Google Drive 憑證路徑。')
-    }
-
-    // ✨ 2. 使用 path.join 將相對路徑轉換為絕對路徑
-    // __dirname 是一個 Node.js 全局變數，代表當前 index.js 檔案所在的目錄
-    const absolutePath = path.join(__dirname, relativePath)
-
-    logger.info(`正在使用絕對路徑的金鑰檔案: ${absolutePath}`)
-
-    try {
-      const auth = new google.auth.GoogleAuth({
-        keyFile: absolutePath, // ✨ 3. 傳入絕對路徑
-        scopes: scopes,
-      })
-      return await auth.getClient()
-    } catch (e) {
-      // 增加一個更詳細的錯誤日誌，方便未來除錯
-      logger.error('使用金鑰檔案進行 GoogleAuth 認證失敗。', {
-        errorMessage: e.message,
-        pathUsed: absolutePath,
-      })
-      throw e // 重新拋出原始錯誤
-    }
-  } else {
-    logger.info('在正式環境中運行，使用應用程式預設憑證。')
-    const auth = new google.auth.GoogleAuth({
-      scopes: scopes,
-    })
-    return await auth.getClient()
+  if (!clientId || !clientSecret || !refreshToken) {
+    logger.error('Missing Google Drive OAuth 2.0 credentials in environment variables.')
+    throw new Error('Server configuration error for Google Drive access.')
   }
+
+  // 建立 OAuth2 客戶端
+  const oauth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    'https://developers.google.com/oauthplayground', // 重新導向 URI 必須與設定時一致
+  )
+
+  // 設定 Refresh Token，客戶端會自動用它來獲取 Access Token
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+  })
+
+  logger.info(`Successfully created OAuth2 client for user.`)
+  return oauth2Client
 }
 
-/**
- * 【可呼叫函式】上傳檔案到 Google Drive，並轉移所有權。
- */
+// uploadFileToDrive 函式維持原樣，但這次它會收到一個不同的 auth 物件
 exports.uploadFileToDrive = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
   }
-
   const { fileName, fileContentBase64, mimeType } = request.data
   if (!fileName || !fileContentBase64 || !mimeType) {
     throw new HttpsError('invalid-argument', '請求中缺少檔名、檔案內容或 MIME 類型。')
   }
-
-  // ✨ 1. 定義檔案的最終擁有者 Email
-  //    這裡也使用動態判斷，確保開發和正式環境使用不同的 Email
-  const PROJECT_ID = functionsConfig.projectId
-  let FILE_OWNER_EMAIL = ''
-  if (PROJECT_ID === 'dialysis-schedule-cd36c') {
-    FILE_OWNER_EMAIL = 'hdrhdr2330@gmail.com' // 正式版擁有者
-  } else {
-    FILE_OWNER_EMAIL = 'suiam74@gmail.com' // 開發版擁有者
-  }
-
-  if (!FILE_OWNER_EMAIL) {
-    throw new HttpsError('internal', '伺服器未設定檔案擁有者 Email。')
-  }
-
   try {
+    // 這裡的 auth 現在是代表您個人帳號的 OAuth2 client
     const auth = await getGoogleAuthClient()
     const drive = google.drive({ version: 'v3', auth })
 
@@ -849,47 +814,24 @@ exports.uploadFileToDrive = onCall(async (request) => {
       name: fileName,
       parents: [SHARED_DRIVE_FOLDER_ID],
     }
-
     const media = {
       mimeType: mimeType,
       body: bufferStream,
     }
 
-    // 步驟 A: 服務帳戶先建立檔案
     const response = await drive.files.create({
       resource: fileMetadata,
       media: media,
-      // 這次我們請求 'id' 和 'permissions' 欄位
-      fields: 'id, name, webViewLink, webContentLink, permissions',
-      supportsAllDrives: true, // 保留這個參數，它是好的實踐
+      fields: 'id, name, webViewLink, webContentLink',
+      // supportsAllDrives: true, // 在個人帳號模式下，這個參數非必要但保留也無妨
     })
 
     const fileData = response.data
-    const fileId = fileData.id
-    if (!fileId) {
-      throw new Error('File created but did not return an ID.')
-    }
-
-    logger.info(`File created by service account: ${fileData.name} (ID: ${fileId})`)
-
-    // ✨ 2. 步驟 B: 立即建立一個權限，將 "owner" 角色轉移給您
-    await drive.permissions.create({
-      fileId: fileId,
-      // ✨ 3. 這個參數會將所有權從服務帳戶轉移出去
-      transferOwnership: true,
-      requestBody: {
-        role: 'owner',
-        type: 'user',
-        emailAddress: FILE_OWNER_EMAIL,
-      },
-      supportsAllDrives: true, // 在操作權限時也建議加上
-    })
-
-    logger.info(`Ownership of file ${fileId} transferred to ${FILE_OWNER_EMAIL}`)
+    logger.info(`File uploaded successfully: ${fileData.name} (ID: ${fileData.id})`)
 
     return {
       success: true,
-      message: '檔案成功上傳並設定所有權！',
+      message: '檔案成功上傳至 Google Drive！',
       file: {
         id: fileData.id,
         name: fileData.name,
@@ -898,10 +840,7 @@ exports.uploadFileToDrive = onCall(async (request) => {
       },
     }
   } catch (error) {
-    logger.error(
-      'Error uploading file to Google Drive and transferring ownership:',
-      error?.response?.data || error,
-    )
+    logger.error('Error uploading file to Google Drive:', error)
     throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
   }
 })
