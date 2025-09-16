@@ -15,8 +15,38 @@ const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
 admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
 const { FieldValue, FieldPath } = require('firebase-admin/firestore')
+const { google } = require('googleapis')
+const stream = require('stream')
+const path = require('path')
 
-//============ 輔助函式 =====================
+// ===================================================================
+// 全域設定 (Global Configurations)
+// ===================================================================
+
+const PROJECT_ID = functionsConfig.projectId
+
+// --- Google Drive 動態設定 ---
+let SHARED_DRIVE_FOLDER_ID
+if (PROJECT_ID === 'dialysis-schedule-cd36c') {
+  SHARED_DRIVE_FOLDER_ID = '1JBR5rDRjsVqf_fYOJItlWOGTNhle2VkJ'
+  logger.info(`Running in PRODUCTION environment. Using Production Google Drive Folder.`)
+} else {
+  SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe'
+  logger.info(
+    `Running in DEVELOPMENT or EMULATOR environment. Using Development Google Drive Folder.`,
+  )
+}
+
+// --- CORS 跨來源請求設定 ---
+const allowedOrigins = [
+  'https://my-dialysis-app-develop.web.app', // 開發版前端網址
+  'https://dialysis-schedule-cd36c.web.app', // 正式版前端網址
+  'http://localhost:5173', // 本地 Vite 開發伺服器
+]
+
+// ===================================================================
+// 輔助函式 (Helper Functions)
+// ===================================================================
 function formatDateForQuery(date) {
   const year = date.getFullYear()
   const month = (date.getMonth() + 1).toString().padStart(2, '0')
@@ -378,7 +408,9 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
   }
 }
 
-//============ Firestore Triggers =====================
+// ===================================================================
+// Firestore 文件觸發器 (Document Triggers)
+// ===================================================================
 exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
   const patientId = event.params.patientId
   const beforeData = event.data?.before.data()
@@ -508,7 +540,9 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   return null
 })
 
-//============ Scheduled Functions =====================
+// ===================================================================
+// 排程函式 (Scheduled Functions)
+// ===================================================================
 exports.checkExpiredTasks = onSchedule(
   { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
@@ -591,8 +625,10 @@ exports.initializeFutureSchedules = onSchedule(
   },
 )
 
-//============ Callable Functions =====================
-exports.customLogin = onCall(async (request) => {
+// ===================================================================
+// 可呼叫函式 (Callable Functions) - ✨ 全面加入 CORS 設定 ✨
+// ===================================================================
+exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
   const { username, password } = request.data
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
@@ -622,7 +658,7 @@ exports.customLogin = onCall(async (request) => {
   }
 })
 
-exports.changeUserPassword = onCall(async (request) => {
+exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
   }
@@ -662,7 +698,7 @@ exports.changeUserPassword = onCall(async (request) => {
 })
 
 exports.ensureFutureSchedules = onCall(
-  { timeoutSeconds: 300, memory: '512MiB' },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '512MiB' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
@@ -727,6 +763,251 @@ exports.ensureFutureSchedules = onCall(
     }
   },
 )
+
+// ===================================================================
+// 串接google drive
+// ===================================================================
+/**
+ * 【超簡化最終版】取得 Google API 的授權客戶端。
+ * 直接使用開發人員的 OAuth 2.0 憑證進行授權。
+ * @returns {Promise<object>} Authorized Google Auth client.
+ */
+async function getGoogleAuthClient() {
+  // 從環境變數讀取 OAuth 2.0 憑證
+  const clientId = process.env.GDRIVE_CLIENT_ID
+  const clientSecret = process.env.GDRIVE_CLIENT_SECRET
+  const refreshToken = process.env.GDRIVE_REFRESH_TOKEN
+
+  if (!clientId || !clientSecret || !refreshToken) {
+    logger.error('Missing Google Drive OAuth 2.0 credentials in environment variables.')
+    throw new Error('Server configuration error for Google Drive access.')
+  }
+
+  // 建立 OAuth2 客戶端
+  const oauth2Client = new google.auth.OAuth2(
+    clientId,
+    clientSecret,
+    'https://developers.google.com/oauthplayground', // 重新導向 URI 必須與設定時一致
+  )
+
+  // 設定 Refresh Token，客戶端會自動用它來獲取 Access Token
+  oauth2Client.setCredentials({
+    refresh_token: refreshToken,
+  })
+
+  logger.info(`Successfully created OAuth2 client for user.`)
+  return oauth2Client
+}
+
+/**
+ * (新輔助函式) 在指定的父資料夾中，尋找或建立一個子資料夾。
+ * @param {object} drive - 已授權的 Google Drive API 實例。
+ * @param {string} folderName - 要尋找或建立的子資料夾名稱。
+ * @param {string} parentFolderId - 父資料夾的 ID。
+ * @returns {Promise<string>} 子資料夾的 ID。
+ */
+async function findOrCreateFolder(drive, folderName, parentFolderId) {
+  // 1. 建立搜尋查詢
+  const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and '${parentFolderId}' in parents and trashed=false`
+
+  // 2. 執行搜尋
+  const response = await drive.files.list({
+    q: query,
+    fields: 'files(id, name)',
+    supportsAllDrives: true,
+  })
+
+  // 3. 判斷結果
+  if (response.data.files && response.data.files.length > 0) {
+    // 如果找到了，直接回傳第一個匹配項的 ID
+    const existingFolderId = response.data.files[0].id
+    logger.info(`Found existing folder: "${folderName}" (ID: ${existingFolderId})`)
+    return existingFolderId
+  } else {
+    // 如果沒找到，就建立一個新的
+    logger.info(`Folder "${folderName}" not found. Creating new one...`)
+    const fileMetadata = {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: [parentFolderId],
+    }
+    const newFolder = await drive.files.create({
+      resource: fileMetadata,
+      fields: 'id',
+      supportsAllDrives: true,
+    })
+    const newFolderId = newFolder.data.id
+    logger.info(`Successfully created new folder: "${folderName}" (ID: ${newFolderId})`)
+    return newFolderId
+  }
+}
+
+//------------------------------------------------------------------
+/**
+ * 【可呼叫函式 - 最終統一版】上傳檔案到 Google Drive 中指定的路徑。
+ * 此函式會自動遞迴地尋找或建立 targetPath 中定義的子資料夾結構。
+ */
+exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
+  }
+
+  const { fileName, fileContentBase64, mimeType, targetPath } = request.data
+
+  if (
+    !fileName ||
+    !fileContentBase64 ||
+    !mimeType ||
+    !Array.isArray(targetPath) ||
+    targetPath.length === 0
+  ) {
+    throw new HttpsError('invalid-argument', '請求中缺少必要的檔案資訊或目標路徑 (targetPath)。')
+  }
+
+  try {
+    const auth = await getGoogleAuthClient()
+    const drive = google.drive({ version: 'v3', auth })
+
+    // 1. 遞迴地尋找或建立資料夾結構
+    let currentParentFolderId = SHARED_DRIVE_FOLDER_ID // 從共享根目錄開始
+    for (const folderName of targetPath) {
+      // 依序尋找或建立路徑中的每一個資料夾
+      currentParentFolderId = await findOrCreateFolder(drive, folderName, currentParentFolderId)
+    }
+
+    // 最終得到的 currentParentFolderId 就是我們要上傳檔案的目標位置
+    const finalTargetFolderId = currentParentFolderId
+    logger.info(`Final target folder ID for upload: ${finalTargetFolderId}`)
+
+    // 2. 準備並上傳檔案 (這部分邏輯不變)
+    const fileBuffer = Buffer.from(fileContentBase64, 'base64')
+    const bufferStream = new stream.PassThrough()
+    bufferStream.end(fileBuffer)
+
+    const fileMetadata = {
+      name: fileName,
+      parents: [finalTargetFolderId],
+    }
+
+    const media = {
+      mimeType: mimeType,
+      body: bufferStream,
+    }
+
+    const response = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id, name, webViewLink, webContentLink',
+      supportsAllDrives: true,
+    })
+
+    const fileData = response.data
+    logger.info(
+      `File uploaded successfully to path "${targetPath.join('/')}": ${fileData.name} (ID: ${fileData.id})`,
+    )
+
+    // 3. 根據不同上傳類型，可以考慮轉移所有權 (特別是病人影像)
+    if (targetPath[0] === '影像') {
+      const PROJECT_ID = functionsConfig.projectId
+      let FILE_OWNER_EMAIL = ''
+      if (PROJECT_ID === 'dialysis-schedule-cd36c') {
+        FILE_OWNER_EMAIL = 'hdrhdr2330@gmail.com'
+      } else {
+        FILE_OWNER_EMAIL = 'suiam74@gmail.com'
+      }
+
+      if (FILE_OWNER_EMAIL && fileData.id) {
+        await drive.permissions.create({
+          fileId: fileData.id,
+          transferOwnership: true,
+          requestBody: {
+            role: 'owner',
+            type: 'user',
+            emailAddress: FILE_OWNER_EMAIL,
+          },
+          supportsAllDrives: true,
+        })
+        logger.info(`Ownership of image ${fileData.id} transferred to ${FILE_OWNER_EMAIL}`)
+      }
+    }
+
+    return {
+      success: true,
+      message: `檔案成功上傳至 [${targetPath.join(' / ')}]！`,
+      file: {
+        id: fileData.id,
+        name: fileData.name,
+        viewLink: fileData.webViewLink,
+        downloadLink: fileData.webContentLink,
+      },
+    }
+  } catch (error) {
+    logger.error('Error uploading file to Google Drive:', error)
+    throw new HttpsError('internal', '上傳檔案至 Google Drive 時發生錯誤。', error.message)
+  }
+})
+
+//------------------------------------------------------------------
+/**
+ * 【新增的可呼叫函式】根據指定的路徑，在 Google Drive 中搜尋檔案。
+ */
+exports.getDriveFiles = onCall({ cors: allowedOrigins }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能查詢檔案。')
+  }
+
+  const { targetPath } = request.data
+  if (!Array.isArray(targetPath) || targetPath.length === 0) {
+    throw new HttpsError('invalid-argument', '請求中缺少目標路徑 (targetPath)。')
+  }
+
+  try {
+    const auth = await getGoogleAuthClient()
+    const drive = google.drive({ version: 'v3', auth })
+
+    // 1. 遞迴找到最終的目標資料夾 ID
+    let currentParentFolderId = SHARED_DRIVE_FOLDER_ID
+    for (const folderName of targetPath) {
+      // 這裡我們只搜尋，不建立，因為查詢時資料夾應該已經存在
+      const query = `mimeType='application/vnd.google-apps.folder' and name='${folderName}' and '${currentParentFolderId}' in parents and trashed=false`
+      const response = await drive.files.list({
+        q: query,
+        fields: 'files(id)',
+        supportsAllDrives: true,
+      })
+
+      if (response.data.files && response.data.files.length > 0) {
+        currentParentFolderId = response.data.files[0].id
+      } else {
+        logger.info(`查詢路徑 ${targetPath.join('/')} 時，找不到資料夾 ${folderName}。`)
+        // 如果路徑中任何一層資料夾不存在，就回傳空陣列
+        return { success: true, files: [] }
+      }
+    }
+    const finalTargetFolderId = currentParentFolderId
+
+    // 2. 在最終的資料夾中搜尋所有檔案
+    const fileQuery = `'${finalTargetFolderId}' in parents and trashed = false`
+    const response = await drive.files.list({
+      q: fileQuery,
+      fields: 'files(id, name, thumbnailLink, webViewLink, createdTime, iconLink)',
+      orderBy: 'createdTime desc',
+      pageSize: 50,
+      supportsAllDrives: true,
+    })
+
+    const files = response.data.files
+    logger.info(`Found ${files.length} files in path: ${targetPath.join('/')}`)
+
+    return {
+      success: true,
+      files: files,
+    }
+  } catch (error) {
+    logger.error(`Error searching files in Google Drive for path ${targetPath.join('/')}:`, error)
+    throw new HttpsError('internal', '在 Google Drive 中搜尋檔案時發生錯誤。', error.message)
+  }
+})
 
 // ===================================================================
 // 🔥 基礎同步 + 兩階調班處理（統一流程）
@@ -1489,10 +1770,7 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 // Lab Report Functions (檢驗報告相關函式)
 // ===================================================================
 exports.processLabReport = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
@@ -1684,10 +1962,7 @@ exports.processLabReport = onCall(
 // ===================================================================
 
 exports.processConsumables = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
@@ -1870,10 +2145,7 @@ exports.processConsumables = onCall(
 // ===================================================================
 
 exports.processOrders = onCall(
-  {
-    timeoutSeconds: 540,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
     const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
@@ -2125,10 +2397,7 @@ const parseFlexibleDate = (dateStr, targetDate) => {
 }
 
 exports.getDailyInjections = onCall(
-  {
-    timeoutSeconds: 300,
-    memory: '1GiB',
-  },
+  { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
@@ -2411,7 +2680,7 @@ exports.archiveDailySchedule = onSchedule(
 
 // ✨ --- 【全新】手動遷移歷史排班的一次性 Cloud Function --- ✨
 exports.migrateSchedulesToArchive = onCall(
-  { timeoutSeconds: 540, memory: '1GiB' },
+  { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
     if (request.auth?.token?.role !== 'admin') {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
@@ -2524,42 +2793,45 @@ exports.migrateSchedulesToArchive = onCall(
  * 手動觸發，將所有已過期的 `message` 類型的 task 狀態更新為 `expired`。
  * 僅限管理員使用。
  */
-exports.manuallyExpireTasks = onCall({ timeoutSeconds: 300 }, async (request) => {
-  // 1. 權限檢查：確保只有 admin 角色的使用者可以呼叫
-  if (request.auth?.token?.role !== 'admin') {
-    throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
-  }
-
-  logger.info(`[Manual Trigger] Manually expiring tasks, triggered by admin: ${request.auth.uid}`)
-
-  const todayStr = formatDateForQuery(new Date())
-  try {
-    // 2. 執行與排程函式完全相同的查詢邏輯
-    const query = db
-      .collection('tasks')
-      .where('status', '==', 'pending')
-      .where('category', '==', 'message')
-      .where('targetDate', '<', todayStr)
-
-    const snapshot = await query.get()
-    if (snapshot.empty) {
-      logger.info('[Manual Trigger] No expired tasks (messages) found to update.')
-      return { success: true, message: '找不到需要更新的過期留言。', updatedCount: 0 }
+exports.manuallyExpireTasks = onCall(
+  { cors: allowedOrigins, timeoutSeconds: 300 },
+  async (request) => {
+    // 1. 權限檢查：確保只有 admin 角色的使用者可以呼叫
+    if (request.auth?.token?.role !== 'admin') {
+      throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
     }
 
-    const batch = db.batch()
-    snapshot.forEach((doc) => {
-      logger.info(`[Manual Trigger] Expiring task (message) ${doc.id}.`)
-      batch.update(doc.ref, { status: 'expired' })
-    })
-    await batch.commit()
+    logger.info(`[Manual Trigger] Manually expiring tasks, triggered by admin: ${request.auth.uid}`)
 
-    const successMessage = `成功將 ${snapshot.size} 則留言標記為已過期。`
-    logger.info(`[Manual Trigger] ${successMessage}`)
-    // 3. 回傳詳細的成功訊息給前端
-    return { success: true, message: successMessage, updatedCount: snapshot.size }
-  } catch (error) {
-    logger.error('[Manual Trigger] Failed to manually expire tasks:', error)
-    throw new HttpsError('internal', '手動更新過期留言時發生錯誤。', error)
-  }
-})
+    const todayStr = formatDateForQuery(new Date())
+    try {
+      // 2. 執行與排程函式完全相同的查詢邏輯
+      const query = db
+        .collection('tasks')
+        .where('status', '==', 'pending')
+        .where('category', '==', 'message')
+        .where('targetDate', '<', todayStr)
+
+      const snapshot = await query.get()
+      if (snapshot.empty) {
+        logger.info('[Manual Trigger] No expired tasks (messages) found to update.')
+        return { success: true, message: '找不到需要更新的過期留言。', updatedCount: 0 }
+      }
+
+      const batch = db.batch()
+      snapshot.forEach((doc) => {
+        logger.info(`[Manual Trigger] Expiring task (message) ${doc.id}.`)
+        batch.update(doc.ref, { status: 'expired' })
+      })
+      await batch.commit()
+
+      const successMessage = `成功將 ${snapshot.size} 則留言標記為已過期。`
+      logger.info(`[Manual Trigger] ${successMessage}`)
+      // 3. 回傳詳細的成功訊息給前端
+      return { success: true, message: successMessage, updatedCount: snapshot.size }
+    } catch (error) {
+      logger.error('[Manual Trigger] Failed to manually expire tasks:', error)
+      throw new HttpsError('internal', '手動更新過期留言時發生錯誤。', error)
+    }
+  },
+)

@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/components/PatientDetailModal.vue (最終整合版) -->
 <template>
   <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
     <div class="modal-container large">
@@ -13,8 +12,11 @@
           病情紀錄
         </button>
         <button :class="{ active: activeTab === 'memos' }" @click="activeTab = 'memos'">
-          <span v-if="hasPendingMemos" class="memo-indicator">!</span>
+          <span v-if="hasPendingMemosForPatient" class="memo-indicator">!</span>
           查看備忘
+        </button>
+        <button :class="{ active: activeTab === 'imaging' }" @click="activeTab = 'imaging'">
+          影像上傳與查看
         </button>
         <button :class="{ active: activeTab === 'labs' }" @click="activeTab = 'labs'">
           檢驗報告
@@ -25,7 +27,6 @@
       <div class="modal-body">
         <!-- 病情紀錄頁籤 -->
         <div v-show="activeTab === 'records'" class="tab-panel">
-          <!-- 綁定 save, update, delete 事件到處理函式上 -->
           <ConditionRecordPanel
             v-if="patient"
             :patient="patient"
@@ -41,9 +42,91 @@
           <MemoPanel v-if="patient" :patient-id="patient.id" />
         </div>
 
+        <!-- 影像頁籤 -->
+        <div v-show="activeTab === 'imaging'" class="tab-panel imaging-panel">
+          <!-- 上傳區塊 -->
+          <div class="image-uploader">
+            <!-- 階段一：初始狀態，顯示拍照按鈕 -->
+            <button v-if="cameraState === 'idle'" @click="startCamera" class="btn-primary">
+              <i class="fas fa-camera"></i> 開啟相機拍照
+            </button>
+
+            <!-- 階段二：相機開啟狀態 -->
+            <div v-if="cameraState === 'streaming'" class="camera-view">
+              <video ref="videoPlayer" autoplay playsinline class="video-preview"></video>
+              <div class="camera-controls">
+                <button @click="captureImage" class="btn-capture" title="拍照">
+                  <i class="fas fa-circle"></i>
+                </button>
+                <button @click="stopCamera" class="btn-cancel">取消</button>
+              </div>
+            </div>
+
+            <!-- 階段三：照片預覽與上傳狀態 -->
+            <div
+              v-if="cameraState === 'captured' || cameraState === 'uploading'"
+              class="preview-view"
+            >
+              <img :src="capturedImage" alt="Captured image preview" class="image-preview" />
+              <div class="preview-controls">
+                <button @click="uploadToDrive" :disabled="isUploading" class="btn-success">
+                  <i v-if="isUploading" class="fas fa-spinner fa-spin"></i>
+                  {{ isUploading ? '上傳中...' : '確認上傳' }}
+                </button>
+                <button @click="retakePhoto" :disabled="isUploading" class="btn-secondary">
+                  重新拍照
+                </button>
+              </div>
+            </div>
+
+            <!-- 上傳錯誤訊息顯示 -->
+            <div v-if="cameraErrorMessage" class="error-message">
+              {{ cameraErrorMessage }}
+            </div>
+          </div>
+
+          <!-- 分隔線 -->
+          <hr class="panel-divider" />
+
+          <!-- 查詢與顯示區塊 -->
+          <div class="image-viewer">
+            <div class="viewer-header">
+              <h3>歷史影像紀錄</h3>
+              <button @click="fetchDriveFiles" :disabled="isFetchingFiles" class="btn-secondary">
+                <i v-if="isFetchingFiles" class="fas fa-spinner fa-spin"></i>
+                {{ isFetchingFiles ? '查詢中...' : '重新整理影像' }}
+              </button>
+            </div>
+
+            <!-- 狀態顯示 -->
+            <div v-if="isFetchingFiles" class="loading-state">正在從雲端硬碟讀取資料...</div>
+            <div v-else-if="fetchError" class="error-message">{{ fetchError }}</div>
+            <div v-else-if="driveFiles.length === 0 && hasSearched" class="empty-state">
+              找不到此病人的相關影像紀錄。
+            </div>
+
+            <!-- 影像列表 -->
+            <div v-else-if="driveFiles.length > 0" class="image-grid">
+              <a
+                v-for="file in driveFiles"
+                :key="file.id"
+                :href="file.webViewLink"
+                target="_blank"
+                class="image-card"
+                title="點擊在新分頁中開啟原始圖片"
+              >
+                <img :src="file.thumbnailLink" :alt="file.name" class="thumbnail-img" />
+                <div class="image-info">
+                  <p class="file-name">{{ file.name }}</p>
+                  <p class="created-time">{{ formatDateTime(file.createdTime) }}</p>
+                </div>
+              </a>
+            </div>
+          </div>
+        </div>
+
         <!-- 檢驗報告頁籤 -->
         <div v-show="activeTab === 'labs'" class="tab-panel">
-          <!-- 綁定 save-record 事件到處理函式上 -->
           <PatientLabSummaryPanel
             v-if="patient"
             :patient="patient"
@@ -56,11 +139,13 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue' // ✨ [修改] 引入 computed
+import { ref, watch, computed } from 'vue'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
-import { useTaskStore } from '@/stores/taskStore.js' // ✨ [新增] 引入 taskStore
+import { useTaskStore } from '@/stores/taskStore.js'
+import { httpsCallable } from 'firebase/functions'
+import { functions } from '@/composables/useFirebase.js'
 
 // 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
@@ -72,7 +157,6 @@ const props = defineProps({
   isVisible: Boolean,
   patient: Object,
   currentDate: Date,
-  // hasPendingMemos: Boolean, // ✨ [移除] 不再需要從外部傳入此 prop
 })
 const emit = defineEmits(['close', 'record-updated'])
 
@@ -81,25 +165,26 @@ const activeTab = ref('records')
 const { addLocalNotification } = useRealtimeNotifications()
 const conditionRecordsApi = ApiManager('condition_records')
 const auth = useAuth()
-const taskStore = useTaskStore() // ✨ [新增] 實例化 taskStore
+const taskStore = useTaskStore()
 
-// ✨ [新增] computed 屬性，直接從 store 計算此病人是否有待辦事項
+// --- Computed Properties ---
 const hasPendingMemosForPatient = computed(() => {
   if (!props.patient?.id) return false
-  // 使用 .some() 檢查是否存在任何符合條件的訊息，效率更高
   return taskStore.sortedFeedMessages.some(
     (msg) =>
       msg.patientId === props.patient.id &&
       msg.status === 'pending' &&
-      // 保持一致性：過濾掉系統自動產生的調班訊息
       msg.content &&
       !msg.content.startsWith('【'),
   )
 })
 
 // --- Methods ---
-// (所有 handle... 相關的方法都保持不變，無需修改)
 function handleClose() {
+  stopCamera()
+  driveFiles.value = []
+  hasSearched.value = false
+  fetchError.value = ''
   emit('close')
 }
 
@@ -162,13 +247,182 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
   }
 }
 
+// --- Camera, Upload & Viewer State ---
+const cameraState = ref('idle') // 'idle', 'streaming', 'captured', 'uploading'
+const videoPlayer = ref(null)
+const capturedImage = ref(null)
+const cameraStream = ref(null)
+const cameraErrorMessage = ref('')
+const isUploading = ref(false)
+const driveFiles = ref([])
+const isFetchingFiles = ref(false)
+const fetchError = ref('')
+const hasSearched = ref(false)
+
+// --- Camera, Upload & Viewer Methods ---
+
+async function startCamera() {
+  cameraErrorMessage.value = ''
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    try {
+      cameraStream.value = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      })
+      cameraState.value = 'streaming'
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      if (videoPlayer.value) {
+        videoPlayer.value.srcObject = cameraStream.value
+      }
+    } catch (error) {
+      console.error('相機啟動失敗:', error)
+      cameraErrorMessage.value = `無法開啟相機: ${error.message}`
+      cameraState.value = 'idle'
+    }
+  } else {
+    cameraErrorMessage.value = '您的瀏覽器不支援相機功能。'
+  }
+}
+
+function stopCamera() {
+  if (cameraStream.value) {
+    cameraStream.value.getTracks().forEach((track) => track.stop())
+  }
+  cameraStream.value = null
+  if (cameraState.value === 'streaming') {
+    cameraState.value = 'idle'
+  }
+}
+
+function captureImage() {
+  const canvas = document.createElement('canvas')
+  if (videoPlayer.value) {
+    canvas.width = videoPlayer.value.videoWidth
+    canvas.height = videoPlayer.value.videoHeight
+    const context = canvas.getContext('2d')
+    context.drawImage(videoPlayer.value, 0, 0, canvas.width, canvas.height)
+
+    capturedImage.value = canvas.toDataURL('image/jpeg')
+    stopCamera()
+    cameraState.value = 'captured'
+  }
+}
+
+function retakePhoto() {
+  capturedImage.value = null
+  startCamera()
+}
+
+async function uploadToDrive() {
+  if (!capturedImage.value || !props.patient) return
+
+  isUploading.value = true
+  cameraState.value = 'uploading'
+  cameraErrorMessage.value = ''
+
+  try {
+    const base64String = capturedImage.value.split(',')[1]
+
+    const date = new Date()
+    const dateStr = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
+    const timeStr = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`
+
+    const fileName = `[${props.patient.medicalRecordNumber}]_${props.patient.name}_${dateStr}_${timeStr}.jpg`
+
+    // 根據您的架構，定義病人專屬的資料夾路徑
+    const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
+    const targetPath = ['影像', patientFolderName]
+
+    const payload = {
+      fileName: fileName,
+      fileContentBase64: base64String,
+      mimeType: 'image/jpeg',
+      targetPath: targetPath, // 傳入目標路徑
+    }
+
+    // 呼叫統一的 uploadFile 函式
+    const uploadFile = httpsCallable(functions, 'uploadFile')
+    const result = await uploadFile(payload)
+
+    console.log('上傳成功:', result.data)
+    addLocalNotification(`影像 "${result.data.file.name}" 上傳成功！`, 'success')
+
+    cameraState.value = 'idle'
+    capturedImage.value = null
+
+    // 上傳成功後，自動重新整理影像列表
+    await fetchDriveFiles()
+  } catch (error) {
+    console.error('上傳失敗:', error)
+    cameraErrorMessage.value = `上傳失敗: ${error.message}`
+    cameraState.value = 'captured'
+  } finally {
+    isUploading.value = false
+  }
+}
+
+function formatDateTime(isoString) {
+  if (!isoString) return ''
+  return new Date(isoString).toLocaleString('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+async function fetchDriveFiles() {
+  if (!props.patient?.medicalRecordNumber) {
+    fetchError.value = '錯誤：找不到病人的病歷號。'
+    return
+  }
+
+  isFetchingFiles.value = true
+  hasSearched.value = true
+  fetchError.value = ''
+  driveFiles.value = []
+
+  try {
+    // 假設您後端有一個 getDriveFiles 函式，它接收一個 targetPath
+    const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
+    const targetPath = ['影像', patientFolderName]
+
+    // 注意：您需要建立一個新的 getDriveFiles 函式來取代 getDriveFilesForPatient
+    // 這裡我先假設新函式的名稱是 getDriveFiles
+    const getFiles = httpsCallable(functions, 'getDriveFiles')
+    const result = await getFiles({ targetPath: targetPath })
+
+    if (result.data.success) {
+      driveFiles.value = result.data.files
+    } else {
+      throw new Error('後端回傳查詢失敗。')
+    }
+  } catch (error) {
+    console.error('查詢雲端檔案失敗:', error)
+    fetchError.value = `查詢失敗: ${error.message}`
+  } finally {
+    isFetchingFiles.value = false
+  }
+}
+
 // --- Watcher ---
 watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      // ✨ [修改] 使用我們自己計算的 hasPendingMemosForPatient 來決定預設頁籤
       activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records'
+      if (props.patient) {
+        // 當 Modal 打開時，如果影像頁籤是預設頁籤，或為了預先載入，可以觸發一次查詢
+        // 為了避免不必要的 API 呼叫，也可以只在點擊頁籤時才載入
+        // 這裡我們先保持打開就載入的行為
+        fetchDriveFiles()
+      }
+    } else {
+      // 當 Modal 關閉時，重置所有狀態
+      stopCamera()
+      driveFiles.value = []
+      hasSearched.value = false
+      fetchError.value = ''
     }
   },
 )
@@ -254,30 +508,235 @@ watch(
   height: 10px;
   background-color: #dc3545;
   border-radius: 50%;
-  border: 2px solid #e9ecef; /* 與背景色相同的邊框，使其看起來更精緻 */
+  border: 2px solid #e9ecef;
 }
 .tabs-navigation button.active .memo-indicator {
-  border-color: #fff; /* Active 時邊框與頁籤背景色相同 */
+  border-color: #fff;
 }
 
 .modal-body {
   flex-grow: 1;
-  /* overflow-y: auto; (移除這個，讓子元素自己決定滾動) */
-  overflow: hidden; /* ✨ 新增：防止 body 自身滾動 */
+  overflow: hidden;
   background-color: #fff;
   padding: 1.5rem;
-  display: flex; /* ✨ 新增：將 body 設為 flex 容器 */
+  display: flex;
 }
 
 .tab-panel {
   width: 100%;
-  /* height: 100%; (移除這個) */
-  display: flex; /* ✨ 新增：將頁籤面板也設為 flex 容器 */
-  flex-direction: column; /* ✨ 新增：讓面板內的元素垂直排列 */
+  display: flex;
+  flex-direction: column;
 }
+
+.imaging-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow: hidden;
+}
+
+.panel-divider {
+  border: none;
+  border-top: 1px solid #e9ecef;
+  width: 100%;
+}
+
+.image-uploader {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  border: 2px dashed #ccc;
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 1rem;
+  background-color: #f9f9f9;
+}
+
+.camera-view,
+.preview-view {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.video-preview,
+.image-preview {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background-color: #000;
+}
+
+.camera-controls,
+.preview-controls {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.image-uploader button,
+.image-viewer button {
+  /* ✨ 將 .image-viewer button 也加入進來 */
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.image-uploader button:disabled,
+.image-viewer button:disabled {
+  /* ✨ 也為 viewer 的按鈕加上 disabled 樣式 */
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.btn-capture {
+  background-color: #dc3545;
+  color: white;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  font-size: 1.5rem;
+  justify-content: center;
+  border: 4px solid white;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+}
+.btn-capture:hover:not(:disabled) {
+  background-color: #b02a37;
+}
+
+.btn-cancel {
+  background-color: #6c757d;
+  color: white;
+}
+.btn-cancel:hover:not(:disabled) {
+  background-color: #5a6268;
+}
+
+.btn-success {
+  background-color: #28a745;
+  color: white;
+}
+.btn-success:hover:not(:disabled) {
+  background-color: #218838;
+}
+
+.btn-secondary {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  color: #343a40;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: #e2e6ea;
+}
+
+.error-message {
+  color: #dc3545;
+  font-weight: 500;
+  margin-top: 0.5rem;
+}
+
+.image-viewer {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 10px;
+}
+
+.viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-shrink: 0;
+}
+
+.viewer-header h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  color: #343a40;
+}
+
+.loading-state,
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: #6c757d;
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.image-card {
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+}
+.image-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.thumbnail-img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  background-color: #f8f9fa;
+}
+
+.image-info {
+  padding: 0.75rem;
+}
+
+.file-name {
+  font-weight: 600;
+  margin: 0 0 0.25rem 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.created-time {
+  font-size: 0.8rem;
+  color: #6c757d;
+  margin: 0;
+}
+
 @media (max-width: 992px) {
   .modal-body {
-    /* 在行動版上，恢復 body 的滾動能力，因為內部 panel 變成了自然高度 */
     overflow-y: auto;
   }
 }

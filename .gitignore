@@ -168,3 +168,10 @@ saved-data/
 firebase-debug.log
 functions/index.js.backup-20250816
 my-dialysis-app-develop-key.json
+
+
+# Firebase
+.runtimeconfig.json
+
+# Custom credentials
+gdrive-credentials.json
