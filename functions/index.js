@@ -28,7 +28,7 @@ const PROJECT_ID = functionsConfig.projectId
 // --- Google Drive 動態設定 ---
 let SHARED_DRIVE_FOLDER_ID
 if (PROJECT_ID === 'dialysis-schedule-cd36c') {
-  SHARED_DRIVE_FOLDER_ID = '1JBR5rDRjsVqf_fYOJItlWOGTNhle2VkJ'
+  SHARED_DRIVE_FOLDER_ID = '1uGKoMfJicJoNR2CYOznEj_62Wh_FSrg8'
   logger.info(`Running in PRODUCTION environment. Using Production Google Drive Folder.`)
 } else {
   SHARED_DRIVE_FOLDER_ID = '1FPdK5sHy90zXzUAv0dHuF6fzpdilwjVe'
@@ -847,6 +847,10 @@ async function findOrCreateFolder(drive, folderName, parentFolderId) {
  * 【可呼叫函式 - 最終統一版】上傳檔案到 Google Drive 中指定的路徑。
  * 此函式會自動遞迴地尋找或建立 targetPath 中定義的子資料夾結構。
  */
+/**
+ * 【可呼叫函式 - 最終簡化版】上傳檔案到 Google Drive 中指定的路徑。
+ * 此函式會自動遞迴地尋找或建立 targetPath 中定義的子資料夾結構。
+ */
 exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', '您必須登入才能上傳檔案。')
@@ -865,11 +869,12 @@ exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
   }
 
   try {
+    // 取得代表目標 Google 帳號的授權
     const auth = await getGoogleAuthClient()
     const drive = google.drive({ version: 'v3', auth })
 
     // 1. 遞迴地尋找或建立資料夾結構
-    let currentParentFolderId = SHARED_DRIVE_FOLDER_ID // 從共享根目錄開始
+    let currentParentFolderId = SHARED_DRIVE_FOLDER_ID // 從對應環境的共享根目錄開始
     for (const folderName of targetPath) {
       // 依序尋找或建立路徑中的每一個資料夾
       currentParentFolderId = await findOrCreateFolder(drive, folderName, currentParentFolderId)
@@ -879,7 +884,7 @@ exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
     const finalTargetFolderId = currentParentFolderId
     logger.info(`Final target folder ID for upload: ${finalTargetFolderId}`)
 
-    // 2. 準備並上傳檔案 (這部分邏輯不變)
+    // 2. 準備並上傳檔案
     const fileBuffer = Buffer.from(fileContentBase64, 'base64')
     const bufferStream = new stream.PassThrough()
     bufferStream.end(fileBuffer)
@@ -898,7 +903,7 @@ exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
       resource: fileMetadata,
       media: media,
       fields: 'id, name, webViewLink, webContentLink',
-      supportsAllDrives: true,
+      supportsAllDrives: true, // 保留此參數是好的實踐
     })
 
     const fileData = response.data
@@ -906,30 +911,7 @@ exports.uploadFile = onCall({ cors: allowedOrigins }, async (request) => {
       `File uploaded successfully to path "${targetPath.join('/')}": ${fileData.name} (ID: ${fileData.id})`,
     )
 
-    // 3. 根據不同上傳類型，可以考慮轉移所有權 (特別是病人影像)
-    if (targetPath[0] === '影像') {
-      const PROJECT_ID = functionsConfig.projectId
-      let FILE_OWNER_EMAIL = ''
-      if (PROJECT_ID === 'dialysis-schedule-cd36c') {
-        FILE_OWNER_EMAIL = 'hdrhdr2330@gmail.com'
-      } else {
-        FILE_OWNER_EMAIL = 'suiam74@gmail.com'
-      }
-
-      if (FILE_OWNER_EMAIL && fileData.id) {
-        await drive.permissions.create({
-          fileId: fileData.id,
-          transferOwnership: true,
-          requestBody: {
-            role: 'owner',
-            type: 'user',
-            emailAddress: FILE_OWNER_EMAIL,
-          },
-          supportsAllDrives: true,
-        })
-        logger.info(`Ownership of image ${fileData.id} transferred to ${FILE_OWNER_EMAIL}`)
-      }
-    }
+    // 所有權轉移的邏輯已移除，因為 Refresh Token 的所有者就是檔案的所有者，不再需要轉移。
 
     return {
       success: true,
