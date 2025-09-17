@@ -152,5 +152,20 @@ service cloud.firestore {
       allow update: if false; // 禁止客戶端直接更新歷史紀錄
       allow delete: if isAdmin(); // 只允許系統管理員刪除錯誤的紀錄
     }
+
+    match /medication_drafts/{draftId} {
+      // 允許任何已登入的使用者讀取草稿 (為了管理頁面)
+      allow read: if request.auth != null;
+
+      // 允許使用者建立屬於自己的草稿
+      // request.resource.data 指的是即將要寫入的新資料
+      allow create: if request.auth != null 
+                    && request.resource.data.authorId == request.auth.uid;
+      
+      // 允許使用者更新或刪除屬於自己的草稿
+      // resource.data 指的是資料庫中已經存在的舊資料
+      allow update, delete: if request.auth != null 
+                            && resource.data.authorId == request.auth.uid;
+    }
   }
 }
