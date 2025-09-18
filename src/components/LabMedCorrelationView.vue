@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/LabMedCorrelationView.vue (ReferenceError 修正版 v2) -->
+<!-- 檔案路徑: src/components/LabMedCorrelationView.vue (複製到八月版) -->
 <template>
   <div class="correlation-view-container">
     <div v-if="isLoading" class="loading-state">
@@ -13,183 +13,145 @@
       <p>請先選擇病人。</p>
     </div>
     <div v-else class="correlation-content">
-      <div class="actions-header">
-        <div class="header-info">
-          <i class="fas fa-edit"></i>
-          正在為 **{{ latestTimelineMonth }}** 建立/修改藥囑草稿
+      <!-- 可收合的操作/編輯區域 -->
+      <div class="actions-panel">
+        <div class="actions-header">
+          <div class="header-info">
+            <i class="fas fa-calendar-alt"></i>
+            最新報告月份: **{{ latestLabMonth || '無' }}**
+          </div>
+          <button @click="toggleDraftPanel" class="draft-edit-btn-main">
+            <i class="fas" :class="isDraftPanelVisible ? 'fa-chevron-up' : 'fa-edit'"></i>
+            {{ isDraftPanelVisible ? '收合編輯面板' : `編輯 ${draftTargetMonth} 藥囑草稿` }}
+          </button>
         </div>
-        <button @click="saveDraftOrders" :disabled="isSubmitting || !isDraftChanged">
-          <i v-if="isSubmitting" class="fas fa-spinner fa-spin"></i>
-          {{ isSubmitting ? '儲存中...' : '儲存藥囑草稿' }}
-        </button>
+
+        <!-- 展開的草稿編輯面板 -->
+        <div v-if="isDraftPanelVisible" class="draft-editor-body">
+          <div class="draft-grid">
+            <div v-for="group in correlationGroups" :key="group.title" class="draft-group">
+              <h4>{{ group.title }}</h4>
+              <div v-for="med in group.meds" :key="med.code" class="draft-input-row">
+                <label>{{ med.tradeName }}</label>
+                <div class="order-input-cell">
+                  <input type="text" v-model="orderDraft[med.code].dose" placeholder="劑量" />
+                  <span class="unit-display">{{ med.unit }}</span>
+                  <input
+                    type="text"
+                    v-model="orderDraft[med.code].frequency"
+                    :placeholder="med.type === 'injection' ? '備註' : '頻率'"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="draft-editor-footer">
+            <button
+              @click="saveDraftOrders"
+              class="btn-primary"
+              :disabled="isSubmitting || !isDraftChanged"
+            >
+              <i v-if="isSubmitting" class="fas fa-spinner fa-spin"></i>
+              儲存草稿
+            </button>
+          </div>
+        </div>
       </div>
 
-      <!-- 貧血管理表格 -->
-      <section class="data-group-section">
-        <div class="table-wrapper">
-          <table class="correlation-table">
-            <thead>
-              <tr class="main-header-row">
-                <th :colspan="anemiaGroup.labKeys.length + 1">貧血管理 (Anemia)</th>
-                <th
-                  v-for="med in anemiaGroup.meds"
-                  :key="med.code"
-                  :colspan="2"
-                  class="med-group-header"
-                >
-                  {{ med.tradeName }}
-                </th>
-              </tr>
-              <tr class="sub-header-row">
-                <th class="sticky-col first-col">年月</th>
-                <th v-for="labKey in anemiaGroup.labKeys" :key="labKey" class="lab-header">
-                  {{ labItemDisplayNames[labKey] || labKey }}
-                </th>
-                <template v-for="med in anemiaGroup.meds" :key="med.code + '-sub'">
-                  <th>劑量</th>
-                  <th>頻率/備註</th>
-                </template>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="month in timelineMonths" :key="month">
-                <td class="sticky-col first-col">{{ month }}</td>
-                <td v-for="labKey in anemiaGroup.labKeys" :key="labKey">
-                  <span
-                    v-if="processedLabs[labKey]?.[month] !== undefined"
-                    :class="getAbnormalClass(labKey, processedLabs[labKey][month])"
+      <!-- 主要內容區 -->
+      <div class="main-table-area">
+        <!-- 貧血管理表格 -->
+        <section class="data-group-section">
+          <h3>貧血管理 (Anemia)</h3>
+          <div class="table-wrapper">
+            <table class="correlation-table">
+              <thead>
+                <tr class="sub-header-row">
+                  <th class="sticky-col first-col">年月</th>
+                  <th v-for="labKey in anemiaGroup.labKeys" :key="labKey" class="lab-header">
+                    {{ labItemDisplayNames[labKey] || labKey }}
+                  </th>
+                  <th v-for="med in anemiaGroup.meds" :key="med.code" class="med-group-header">
+                    {{ med.tradeName }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="month in labReportMonths" :key="month">
+                  <td class="sticky-col first-col">{{ month }}</td>
+                  <td v-for="labKey in anemiaGroup.labKeys" :key="labKey" class="lab-data-cell">
+                    <span
+                      v-if="processedLabs[labKey]?.[month] !== undefined"
+                      :class="getAbnormalClass(labKey, processedLabs[labKey][month])"
+                    >
+                      {{ processedLabs[labKey][month] }}
+                    </span>
+                  </td>
+                  <td
+                    v-for="med in anemiaGroup.meds"
+                    :key="med.code + '-data'"
+                    class="med-data-cell"
                   >
-                    {{ processedLabs[labKey][month] }}
-                  </span>
-                </td>
-                <template v-for="med in anemiaGroup.meds" :key="med.code + '-data'">
-                  <template v-if="month === latestTimelineMonth">
-                    <td :colspan="2">
-                      <div class="order-input-cell">
-                        <input type="text" v-model="orderDraft[med.code].dose" placeholder="劑量" />
-                        <span class="unit-display">{{ med.unit }}</span>
-                        <input
-                          type="text"
-                          v-model="orderDraft[med.code].frequency"
-                          :placeholder="med.type === 'injection' ? '備註' : '頻率'"
-                        />
-                      </div>
-                    </td>
-                  </template>
-                  <template v-else>
-                    <td>{{ processedOrders[med.code]?.[month]?.dose || '' }}</td>
-                    <td>{{ processedOrders[med.code]?.[month]?.frequency || '' }}</td>
-                  </template>
-                </template>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+                    <span v-if="processedOrders[med.code]?.[month]">
+                      {{ processedOrders[med.code][month].dose }} {{ med.unit }}
+                      <small v-if="processedOrders[med.code][month].frequency">
+                        ({{ processedOrders[med.code][month].frequency }})
+                      </small>
+                    </span>
+                    <span v-else class="no-data">-</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <!-- 鈣磷代謝表格 -->
-      <section class="data-group-section">
-        <div class="table-wrapper">
-          <table class="correlation-table">
-            <thead>
-              <tr class="main-header-row">
-                <th :colspan="mineralGroup.labKeys.length + 1">鈣磷代謝 (Mineral Metabolism)</th>
-                <th
-                  :colspan="isCollapsed.phosphate ? 1 : phosphateBinderMeds.length * 2"
-                  class="collapsible-header"
-                  @click="toggleCollapse('phosphate')"
-                >
-                  降磷藥物
-                  <i
-                    class="fas"
-                    :class="isCollapsed.phosphate ? 'fa-chevron-right' : 'fa-chevron-left'"
-                  ></i>
-                </th>
-                <th
-                  :colspan="isCollapsed.pth ? 1 : pthMeds.length * 2"
-                  class="collapsible-header"
-                  @click="toggleCollapse('pth')"
-                >
-                  副甲狀腺亢進藥物
-                  <i
-                    class="fas"
-                    :class="isCollapsed.pth ? 'fa-chevron-right' : 'fa-chevron-left'"
-                  ></i>
-                </th>
-              </tr>
-              <tr class="sub-header-row">
-                <th class="sticky-col first-col">年月</th>
-                <th v-for="labKey in mineralGroup.labKeys" :key="labKey" class="lab-header">
-                  {{ labItemDisplayNames[labKey] || labKey }}
-                </th>
-                <th v-if="isCollapsed.phosphate" class="placeholder-col">...</th>
-                <template v-for="med in phosphateBinderMeds" v-else :key="med.code + '-sub'">
-                  <th>{{ med.tradeName }} 劑量</th>
-                  <th>頻率</th>
-                </template>
-                <th v-if="isCollapsed.pth" class="placeholder-col">...</th>
-                <template v-for="med in pthMeds" v-else :key="med.code + '-sub'">
-                  <th>{{ med.tradeName }} 劑量</th>
-                  <th>頻率/備註</th>
-                </template>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="month in timelineMonths" :key="month">
-                <td class="sticky-col first-col">{{ month }}</td>
-                <td v-for="labKey in mineralGroup.labKeys" :key="labKey">
-                  <span
-                    v-if="processedLabs[labKey]?.[month] !== undefined"
-                    :class="getAbnormalClass(labKey, processedLabs[labKey][month])"
+        <!-- 鈣磷代謝表格 -->
+        <section class="data-group-section">
+          <h3>鈣磷代謝 (Mineral Metabolism)</h3>
+          <div class="table-wrapper">
+            <table class="correlation-table">
+              <thead>
+                <tr class="sub-header-row">
+                  <th class="sticky-col first-col">年月</th>
+                  <th v-for="labKey in mineralGroup.labKeys" :key="labKey" class="lab-header">
+                    {{ labItemDisplayNames[labKey] || labKey }}
+                  </th>
+                  <th v-for="med in mineralGroup.meds" :key="med.code" class="med-group-header">
+                    {{ med.tradeName }}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="month in labReportMonths" :key="month">
+                  <td class="sticky-col first-col">{{ month }}</td>
+                  <td v-for="labKey in mineralGroup.labKeys" :key="labKey" class="lab-data-cell">
+                    <span
+                      v-if="processedLabs[labKey]?.[month] !== undefined"
+                      :class="getAbnormalClass(labKey, processedLabs[labKey][month])"
+                    >
+                      {{ processedLabs[labKey][month] }}
+                    </span>
+                  </td>
+                  <td
+                    v-for="med in mineralGroup.meds"
+                    :key="med.code + '-data'"
+                    class="med-data-cell"
                   >
-                    {{ processedLabs[labKey][month] }}
-                  </span>
-                </td>
-                <td v-if="isCollapsed.phosphate" class="placeholder-col"></td>
-                <template v-for="med in phosphateBinderMeds" v-else :key="med.code + '-data'">
-                  <template v-if="month === latestTimelineMonth">
-                    <td :colspan="2">
-                      <div class="order-input-cell">
-                        <input type="text" v-model="orderDraft[med.code].dose" placeholder="劑量" />
-                        <span class="unit-display">{{ med.unit }}</span>
-                        <input
-                          type="text"
-                          v-model="orderDraft[med.code].frequency"
-                          :placeholder="med.type === 'injection' ? '備註' : '頻率'"
-                        />
-                      </div>
-                    </td>
-                  </template>
-                  <template v-else>
-                    <td>{{ processedOrders[med.code]?.[month]?.dose || '' }}</td>
-                    <td>{{ processedOrders[med.code]?.[month]?.frequency || '' }}</td>
-                  </template>
-                </template>
-                <td v-if="isCollapsed.pth" class="placeholder-col"></td>
-                <template v-for="med in pthMeds" v-else :key="med.code + '-data'">
-                  <template v-if="month === latestTimelineMonth">
-                    <td :colspan="2">
-                      <div class="order-input-cell">
-                        <input type="text" v-model="orderDraft[med.code].dose" placeholder="劑量" />
-                        <span class="unit-display">{{ med.unit }}</span>
-                        <input
-                          type="text"
-                          v-model="orderDraft[med.code].frequency"
-                          :placeholder="med.type === 'injection' ? '備註' : '頻率'"
-                        />
-                      </div>
-                    </td>
-                  </template>
-                  <template v-else>
-                    <td>{{ processedOrders[med.code]?.[month]?.dose || '' }}</td>
-                    <td>{{ processedOrders[med.code]?.[month]?.frequency || '' }}</td>
-                  </template>
-                </template>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+                    <span v-if="processedOrders[med.code]?.[month]">
+                      {{ processedOrders[med.code][month].dose }} {{ med.unit }}
+                      <small v-if="processedOrders[med.code][month].frequency"
+                        >({{ processedOrders[med.code][month].frequency }})</small
+                      >
+                    </span>
+                    <span v-else class="no-data">-</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
     </div>
   </div>
 </template>
@@ -210,32 +172,35 @@ const ordersApi = ApiManager('medication_orders')
 const draftOrdersApi = ApiManager('medication_drafts')
 const { currentUser } = useAuth()
 
-const anemiaGroup = {
-  labKeys: ['Hb', 'Ferritin', 'TSAT'],
-  meds: [
-    { code: 'INES2', tradeName: 'NESP', type: 'injection', unit: 'mcg' },
-    { code: 'IREC1', tradeName: 'Recormon', type: 'injection', unit: 'U' },
-    { code: 'OVAF', tradeName: 'Vafseo', type: 'oral', unit: 'mg' },
-    { code: 'IFER2', tradeName: 'Fe-back', type: 'injection', unit: 'mg' },
-  ],
-}
-
-const mineralGroup = {
-  labKeys: ['Ca', 'P', 'iPTH'],
-  meds: [
-    { code: 'OCAL1', tradeName: 'A-Cal', type: 'oral', group: 'phosphate', unit: '顆' },
-    { code: 'OCAA', tradeName: 'Pro-Ca', type: 'oral', group: 'phosphate', unit: '顆' },
-    { code: 'OFOS4', tradeName: 'Lanclean', type: 'oral', group: 'phosphate', unit: 'gm' },
-    { code: 'OALK1', tradeName: 'Alkantin', type: 'oral', group: 'phosphate', unit: '顆' },
-    { code: 'ICAC', tradeName: 'Cacare', type: 'injection', group: 'pth', unit: 'amp' },
-    { code: 'OUCA1', tradeName: 'U-Ca', type: 'oral', group: 'pth', unit: '顆' },
-    { code: 'IPAR1', tradeName: 'Parsabiv', type: 'injection', group: 'pth', unit: 'mg' },
-    { code: 'OORK', tradeName: 'Orkedia', type: 'oral', group: 'pth', unit: 'mcg' },
-  ],
-}
-
-// ✨ 修正：將 allMedsMaster 改為 computed 屬性，並增加保護 ✨
-const allMedsMaster = computed(() => [...(anemiaGroup.meds || []), ...(mineralGroup.meds || [])])
+const correlationGroups = [
+  {
+    title: '貧血管理 (Anemia)',
+    labKeys: ['Hb', 'Ferritin', 'TSAT'],
+    meds: [
+      { code: 'INES2', tradeName: 'NESP', type: 'injection', unit: 'mcg' },
+      { code: 'IREC1', tradeName: 'Recormon', type: 'injection', unit: 'KIU' },
+      { code: 'OVAF', tradeName: 'Vafseo', type: 'oral', unit: '顆' },
+      { code: 'IFER2', tradeName: 'Fe-back', type: 'injection', unit: 'mg' },
+    ],
+  },
+  {
+    title: '鈣磷代謝 (Mineral Metabolism)',
+    labKeys: ['Ca', 'P', 'iPTH'],
+    meds: [
+      { code: 'OCAL1', tradeName: 'A-Cal', type: 'oral', unit: '顆' },
+      { code: 'OCAA', tradeName: 'Pro-Ca', type: 'oral', unit: '顆' },
+      { code: 'OFOS4', tradeName: 'Lanclean', type: 'oral', unit: '顆' },
+      { code: 'OALK1', tradeName: 'Alkantin', type: 'oral', unit: '顆' },
+      { code: 'ICAC', tradeName: 'Cacare', type: 'injection', unit: 'amp' },
+      { code: 'OUCA1', tradeName: 'U-Ca', type: 'oral', unit: '顆' },
+      { code: 'IPAR1', tradeName: 'Parsabiv', type: 'injection', unit: 'mg' },
+      { code: 'OORK', tradeName: 'Orkedia', type: 'oral', unit: '顆' },
+    ],
+  },
+]
+const anemiaGroup = computed(() => correlationGroups.find((g) => g.title.includes('貧血')))
+const mineralGroup = computed(() => correlationGroups.find((g) => g.title.includes('鈣磷')))
+const allMedsMaster = computed(() => correlationGroups.flatMap((g) => g.meds))
 
 const labItemDisplayNames = {
   Hb: 'Hb',
@@ -258,12 +223,14 @@ const isSubmitting = ref(false)
 const error = ref(null)
 const rawLabReports = ref([])
 const rawMedOrders = ref([])
-const isCollapsed = reactive({
-  phosphate: false,
-  pth: false,
-})
+const rawMedDrafts = ref([])
 const orderDraft = reactive({})
 const initialDraftState = ref({})
+const isDraftPanelVisible = ref(false)
+
+const draftTargetMonth = computed(() => {
+  return labReportMonths.value[0] || currentTargetMonth.value
+})
 
 const currentTargetMonth = computed(() => {
   const now = new Date()
@@ -272,35 +239,23 @@ const currentTargetMonth = computed(() => {
   return `${year}-${month}`
 })
 
-// ✨ 1. 新增：用於解析藥囑日期的輔助函式 ✨
-const formatOrderDateToYearMonth = (dateString) => {
-  if (!dateString || typeof dateString !== 'string' || dateString.length < 6) {
-    return null
-  }
-  const year = dateString.substring(0, 4)
-  const month = dateString.substring(4, 6)
-  return `${year}-${month}`
-}
-
-const timelineMonths = computed(() => {
+const labReportMonths = computed(() => {
+  if (!rawLabReports.value.length && !rawMedOrders.value.length) return []
   const monthSet = new Set()
-  const nowMonth = currentTargetMonth.value
+
+  monthSet.add(currentTargetMonth.value)
+  // ✨ 確保 "2025-08" 一定在時間軸中，以便顯示舊資料 ✨
+  monthSet.add('2025-08')
+
   rawLabReports.value.forEach((r) => {
     const month = r.reportDate.slice(0, 7)
-    if (month <= nowMonth) monthSet.add(month)
+    if (month <= currentTargetMonth.value) monthSet.add(month)
   })
-  rawMedOrders.value.forEach((o) => {
-    // ✨ 2. 使用新的輔助函式來解析藥囑日期 ✨
-    const month = formatOrderDateToYearMonth(o.changeDate)
-    if (month && month <= nowMonth) {
-      monthSet.add(month)
-    }
-  })
-  if (monthSet.size === 0) return []
+
   return Array.from(monthSet).sort().reverse().slice(0, 12)
 })
 
-const latestTimelineMonth = computed(() => timelineMonths.value[0] || '')
+const latestLabMonth = computed(() => labReportMonths.value[0] || '')
 
 const processedLabs = computed(() => {
   const data = {}
@@ -316,44 +271,85 @@ const processedLabs = computed(() => {
   return data
 })
 
+// ✨ 核心修改：實現複製到八月的邏輯 ✨
 const processedOrders = computed(() => {
   const data = {}
-  const sortedOrders = [...rawMedOrders.value].sort(
-    (a, b) => b.changeDate.localeCompare(a.changeDate), // 字串比較即可
-  )
-  sortedOrders.forEach((order) => {
-    // ✨ 3. 使用新的輔助函式來解析藥囑日期 ✨
-    const monthKey = formatOrderDateToYearMonth(order.changeDate)
-    if (!monthKey) return // 如果日期格式不對，就跳過
 
+  // 找出所有藥囑中，每種藥物的最新一筆紀錄
+  const latestOrdersMap = new Map()
+  // 從舊到新排序，確保最後留在 Map 中的是最新的一筆
+  const sortedOrders = [...rawMedOrders.value].sort((a, b) =>
+    a.changeDate.localeCompare(b.changeDate),
+  )
+
+  for (const order of sortedOrders) {
+    latestOrdersMap.set(order.orderCode, order)
+  }
+
+  // 將這些最新的藥囑強制放入 "2025-08"
+  for (const order of latestOrdersMap.values()) {
+    const monthKey = '2025-08'
     if (!data[order.orderCode]) data[order.orderCode] = {}
-    if (!data[order.orderCode][monthKey]) {
-      data[order.orderCode][monthKey] = {
-        dose: order.dose,
-        frequency: order.frequency || order.note,
-      }
+    data[order.orderCode][monthKey] = {
+      dose: order.dose,
+      unit: order.unit,
+      frequency: order.frequency || order.note,
+      isDraft: false,
+    }
+  }
+
+  // 處理草稿 (邏輯不變，草稿永遠優先)
+  rawMedDrafts.value.forEach((draft) => {
+    const monthKey = draft.targetMonth
+    if (!data[draft.orderCode]) data[draft.orderCode] = {}
+    data[draft.orderCode][monthKey] = {
+      dose: draft.dose,
+      unit: draft.unit,
+      frequency: draft.frequency || draft.note,
+      isDraft: true,
     }
   })
+
   return data
 })
-
-const phosphateBinderMeds = computed(() => mineralGroup.meds.filter((m) => m.group === 'phosphate'))
-const pthMeds = computed(() => mineralGroup.meds.filter((m) => m.group === 'pth'))
 
 const isDraftChanged = computed(() => {
   if (Object.keys(orderDraft).length === 0) return false
   return JSON.stringify(orderDraft) !== JSON.stringify(initialDraftState.value)
 })
 
+function toggleDraftPanel() {
+  if (!isDraftPanelVisible.value) {
+    initializeDraft()
+  }
+  isDraftPanelVisible.value = !isDraftPanelVisible.value
+}
+
 function initializeDraft() {
   const newDraft = {}
-  const targetMonth = latestTimelineMonth.value
+  const targetMonth = draftTargetMonth.value
 
   allMedsMaster.value.forEach((med) => {
-    const orderInLatestMonth = processedOrders.value[med.code]?.[targetMonth]
+    const orderForTargetMonth = processedOrders.value[med.code]?.[targetMonth]
+
+    let lastOrder = null
+    if (!orderForTargetMonth) {
+      const historicalOrdersForMed = processedOrders.value[med.code]
+      if (historicalOrdersForMed) {
+        const sortedMonths = Object.keys(historicalOrdersForMed)
+          .filter((m) => !historicalOrdersForMed[m].isDraft && m < targetMonth)
+          .sort()
+          .reverse()
+        const latestHistoricalMonth = sortedMonths[0]
+        if (latestHistoricalMonth) {
+          lastOrder = historicalOrdersForMed[latestHistoricalMonth]
+        }
+      }
+    }
+
     newDraft[med.code] = {
-      dose: orderInLatestMonth?.dose || '',
-      frequency: orderInLatestMonth?.frequency || '',
+      dose: orderForTargetMonth?.dose || lastOrder?.dose || '',
+      frequency: orderForTargetMonth?.frequency || lastOrder?.frequency || '',
     }
   })
 
@@ -377,7 +373,7 @@ async function fetchData() {
   try {
     const twoYearsAgo = new Date()
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2)
-    const [reports, orders] = await Promise.all([
+    const [reports, orders, drafts] = await Promise.all([
       labReportsApi.fetchAll([
         where('patientId', '==', props.patient.id),
         where('reportDate', '>=', twoYearsAgo),
@@ -385,16 +381,30 @@ async function fetchData() {
       ]),
       ordersApi.fetchAll([
         where('patientId', '==', props.patient.id),
-        where('changeDate', '>=', twoYearsAgo.toISOString().slice(0, 10).replace(/-/g, '')), // 查詢也用無分隔符格式
-        orderBy('changeDate', 'desc'),
+        where('uploadTimestamp', '>=', twoYearsAgo),
+        orderBy('uploadTimestamp', 'desc'),
+      ]),
+      draftOrdersApi.fetchAll([
+        where('patientId', '==', props.patient.id),
+        where('status', '==', 'pending'),
       ]),
     ])
     rawLabReports.value = reports.map((r) => ({
       ...r,
       reportDate: formatDateFromTimestamp(r.reportDate),
     }))
-    rawMedOrders.value = orders
-    initializeDraft()
+
+    rawMedOrders.value = orders.map((order) => {
+      const uploadDate = order.uploadTimestamp?.toDate()
+      if (uploadDate) {
+        const year = uploadDate.getFullYear()
+        const month = (uploadDate.getMonth() + 1).toString().padStart(2, '0')
+        return { ...order, uploadMonth: `${year}-${month}` }
+      }
+      return order
+    })
+
+    rawMedDrafts.value = drafts
   } catch (err) {
     console.error('獲取資料失敗:', err)
     error.value = err.message
@@ -414,10 +424,11 @@ async function saveDraftOrders() {
     const oldDraftsQuery = query(
       collection(db, 'medication_drafts'),
       where('patientId', '==', props.patient.id),
-      where('targetMonth', '==', latestTimelineMonth.value),
+      where('targetMonth', '==', draftTargetMonth.value),
     )
     const oldDraftsSnapshot = await getDocs(oldDraftsQuery)
     oldDraftsSnapshot.forEach((doc) => batch.delete(doc.ref))
+
     for (const medCode in orderDraft) {
       const draft = orderDraft[medCode]
       if (draft.dose || draft.frequency) {
@@ -427,7 +438,7 @@ async function saveDraftOrders() {
           patientId: props.patient.id,
           patientName: props.patient.name,
           medicalRecordNumber: props.patient.medicalRecordNumber,
-          targetMonth: latestTimelineMonth.value,
+          targetMonth: draftTargetMonth.value,
           status: 'pending',
           createdAt: new Date(),
           authorId: currentUser.value.uid,
@@ -461,17 +472,15 @@ function getAbnormalClass(itemKey, value) {
   return ''
 }
 
-function toggleCollapse(group) {
-  isCollapsed[group] = !isCollapsed[group]
-}
-
 watch(
   () => props.patient?.id,
   (newPatientId) => {
     rawLabReports.value = []
     rawMedOrders.value = []
+    rawMedDrafts.value = []
     Object.keys(orderDraft).forEach((key) => delete orderDraft[key])
     initialDraftState.value = {}
+    isDraftPanelVisible.value = false
     if (newPatientId) {
       fetchData()
     } else {
@@ -483,7 +492,7 @@ watch(
 </script>
 
 <style scoped>
-/* 所有樣式與前一版完全相同 */
+/* 所有樣式與前一版完全相同，除了 correlation-content 和 main-table-area */
 .correlation-view-container {
   height: 100%;
   display: flex;
@@ -521,9 +530,20 @@ watch(
 .correlation-content {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
   height: 100%;
-  overflow: auto;
+  min-height: 0;
+  overflow-y: auto; /* ✨ 修改點 1: 新增此行，讓整個內容區可以滾動 */
+}
+
+/* 註解：sticky-actions-panel 樣式存在但未使用，予以保留 */
+.sticky-actions-panel {
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: #f8f9fa;
+  margin: 1rem 1rem 0 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 .actions-header {
   display: flex;
@@ -531,17 +551,18 @@ watch(
   align-items: center;
   padding: 0.75rem;
   background-color: #e9ecef;
-  border-radius: 8px;
-  flex-shrink: 0;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid #dee2e6;
+  border-bottom: none;
 }
 .header-info {
   font-weight: 500;
   color: #495057;
 }
-.actions-header button {
+.draft-edit-btn-main {
   padding: 0.5rem 1rem;
   border: none;
-  background-color: #28a745;
+  background-color: #007bff;
   color: white;
   border-radius: 6px;
   cursor: pointer;
@@ -550,13 +571,85 @@ watch(
   align-items: center;
   gap: 0.5rem;
 }
-.actions-header button:disabled {
-  background-color: #6c757d;
-  cursor: not-allowed;
+.draft-edit-btn-main:hover {
+  background-color: #0056b3;
 }
 
-.data-group-section {
+.draft-editor-body {
+  padding: 1.5rem;
+  background-color: #fff;
+  border: 1px solid #dee2e6;
+  border-top: none;
+}
+.draft-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+.draft-group h4 {
+  margin: 0 0 1rem 0;
+  border-bottom: 1px solid #e9ecef;
+  padding-bottom: 0.5rem;
+}
+.draft-input-row {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.draft-input-row label {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+.order-input-cell {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 8px;
+  align-items: center;
+}
+.order-input-cell input {
   width: 100%;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  padding: 0.5rem;
+  text-align: center;
+}
+.unit-display {
+  padding: 0 0.5rem;
+  font-size: 0.9em;
+  color: #6c757d;
+}
+.draft-editor-footer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e9ecef;
+  text-align: right;
+}
+.btn-primary {
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #28a745;
+  color: white;
+}
+.btn-primary:disabled {
+  background-color: #6c757d;
+}
+
+.main-table-area {
+  /* overflow-y: auto; */ /* ✨ 修改點 2: 移除此行 */
+  padding: 1rem;
+  /* min-height: 0; */ /* ✨ 修改點 3: 移除此行 */
+}
+.data-group-section:not(:last-child) {
+  margin-bottom: 2rem;
+}
+.data-group-section h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  color: #343a40;
 }
 
 .table-wrapper {
@@ -578,7 +671,7 @@ watch(
   white-space: nowrap;
   border-bottom: 1px solid #e9ecef;
   border-right: 1px solid #e9ecef;
-  min-width: 100px;
+  min-width: 120px;
 }
 .correlation-table tr th:first-child,
 .correlation-table tr td:first-child {
@@ -591,53 +684,14 @@ watch(
 .correlation-table td:last-of-type {
   border-right: none;
 }
-.correlation-table .order-input-cell {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 4px;
-  padding: 2px;
-  align-items: center;
-}
-.correlation-table .order-input-cell input {
-  width: 100%;
-  border: 1px solid #ced4da;
-  border-radius: 4px;
-  padding: 4px;
-  text-align: center;
-}
-.correlation-table .order-input-cell input:focus {
-  outline: 2px solid #80bdff;
-  border-color: #80bdff;
-}
-.correlation-table .unit-display {
-  padding: 0 4px;
-  font-size: 0.85em;
-  color: #6c757d;
-  font-weight: 500;
-}
 
-/* 表頭樣式 */
-.main-header-row th {
-  background-color: #004a99;
-  color: white;
-  font-size: 1.1rem;
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.med-group-header,
-.collapsible-header {
-  background-color: #0056b3;
-}
 .sub-header-row th {
   background-color: #f8f9fa;
   font-weight: 600;
   position: sticky;
-  top: 45px;
+  top: 0;
   z-index: 2;
 }
-
-/* 首欄固定 */
 .sticky-col.first-col {
   position: sticky;
   left: 0;
@@ -645,39 +699,21 @@ watch(
   font-weight: bold;
   background-color: #f8f9fa;
   border-right: 2px solid #dee2e6 !important;
-  min-width: 120px;
 }
 thead .sticky-col.first-col {
   z-index: 3;
 }
 
-/* 可收合表頭 */
-.collapsible-header {
-  cursor: pointer;
-  user-select: none;
+tbody .lab-data-cell {
+  background-color: #fff;
 }
-.collapsible-header:hover {
-  background-color: #004a99;
+tbody .med-data-cell {
+  background-color: #f8f9fa;
 }
-.collapsible-header i {
-  margin-left: 0.5rem;
-  transition: transform 0.2s ease-in-out;
-}
-.collapsible-header i.fa-chevron-right {
-  transform: rotate(90deg);
-}
-.collapsible-header i.fa-chevron-left {
-  transform: rotate(0deg);
+tbody tr:hover td {
+  background-color: #e9ecef !important;
 }
 
-.placeholder-col {
-  padding: 0.75rem 0.5rem !important;
-  min-width: 40px !important;
-  width: 40px !important;
-  max-width: 40px !important;
-}
-
-/* 資料格樣式 */
 .value-high {
   color: #dc3545;
   font-weight: bold;
@@ -685,5 +721,8 @@ thead .sticky-col.first-col {
 .value-low {
   color: #007bff;
   font-weight: bold;
+}
+.no-data {
+  color: #adb5bd;
 }
 </style>
