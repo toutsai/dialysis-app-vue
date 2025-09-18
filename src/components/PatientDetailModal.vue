@@ -9,21 +9,18 @@
       <!-- 頁籤導覽列 -->
       <div class="tabs-navigation">
         <button :class="{ active: activeTab === 'records' }" @click="activeTab = 'records'">
-          病情紀錄
+          紀錄
         </button>
         <button :class="{ active: activeTab === 'memos' }" @click="activeTab = 'memos'">
           <span v-if="hasPendingMemosForPatient" class="memo-indicator">!</span>
-          查看備忘
+          備忘
+        </button>
+        <button :class="{ active: activeTab === 'labs' }" @click="activeTab = 'labs'">檢驗</button>
+        <button :class="{ active: activeTab === 'correlation' }" @click="activeTab = 'correlation'">
+          開藥
         </button>
         <button :class="{ active: activeTab === 'imaging' }" @click="activeTab = 'imaging'">
-          影像上傳與查看
-        </button>
-        <button :class="{ active: activeTab === 'labs' }" @click="activeTab = 'labs'">
-          檢驗報告
-        </button>
-        <!-- ✨ 1. 新增頁籤按鈕 ✨ -->
-        <button :class="{ active: activeTab === 'correlation' }" @click="activeTab = 'correlation'">
-          報告藥物趨勢
+          影像
         </button>
       </div>
 
