@@ -1,4 +1,4 @@
-// functions/index.js (✨ 訊息中心整合 + TTL 優化最終版 ✨)
+// functions/index.js (✨ 最終版：時區校驗 + 鏈式調班 ✨)
 const { setGlobalOptions } = require('firebase-functions/v2')
 setGlobalOptions({ region: 'asia-east1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 100 })
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
@@ -171,231 +171,244 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
 }
 
 async function reapplyAllExceptionsInternal(baseSchedules) {
-  logger.info('🔄 [ReapplyExceptions] 開始執行升級版兩階段調班處理')
+  logger.info('🔄 [ReapplyExceptions-v3] 開始執行以病人為中心的鏈式調班處理')
   try {
     const exceptionsSnapshot = await db
       .collection('schedule_exceptions')
       .where('status', 'in', ['applied', 'pending', 'processing', 'conflict_requires_resolution'])
       .get()
+
     if (exceptionsSnapshot.empty) {
-      logger.info('✅ 沒有需要套用的調班')
+      logger.info('✅ [ReapplyExceptions-v3] 沒有需要套用的調班')
       return { success: true, processed: 0, schedulesToWrite: baseSchedules }
     }
+
     const exceptions = exceptionsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
       createdAt: doc.data().createdAt?.toMillis() || Date.parse(doc.createTime) || 0,
     }))
-    logger.info(`找到 ${exceptions.length} 個調班需要處理`)
-    const moveChains = new Map()
-    const otherExceptions = []
-    exceptions.sort((a, b) => a.createdAt - b.createdAt)
-    for (const ex of exceptions) {
-      if (ex.type === 'MOVE' && ex.from && ex.to) {
-        const date = ex.from.sourceDate
-        const key = `${ex.patientId}-${date}`
-        if (!moveChains.has(key)) {
-          moveChains.set(key, {
-            initialFrom: { ...ex.from },
-            finalTo: { ...ex.to },
-            patientId: ex.patientId,
-            patientName: ex.patientName,
-            exceptionIds: [ex.id],
-            finalException: ex,
-          })
-        } else {
-          const chain = moveChains.get(key)
-          chain.finalTo = { ...ex.to }
-          chain.exceptionIds.push(ex.id)
-          chain.finalException = ex
-        }
-      } else {
-        otherExceptions.push(ex)
-      }
-    }
-    logger.info(
-      `預處理完成：發現 ${moveChains.size} 個 MOVE 調班鏈，以及 ${otherExceptions.length} 個其他調班。`,
-    )
-    const modifiedSchedules = new Map(JSON.parse(JSON.stringify(Array.from(baseSchedules))))
-    logger.info('📝 第一階段：處理所有刪除')
-    let deletionsCount = 0
-    for (const chain of moveChains.values()) {
-      const { sourceDate, bedNum, shiftCode } = chain.initialFrom
-      if (modifiedSchedules.has(sourceDate)) {
-        const position = getScheduleKey(bedNum, shiftCode)
-        const schedule = modifiedSchedules.get(sourceDate)
-        if (schedule[position]?.patientId === chain.patientId) {
-          delete schedule[position]
-          deletionsCount++
-          logger.info(`  └─ (MOVE鏈) 標記移除: ${sourceDate} ${position} (${chain.patientName})`)
-        }
-      }
-    }
-    for (const exception of otherExceptions) {
-      if (exception.type === 'SUSPEND') {
-        const start = new Date(exception.startDate + 'T00:00:00Z')
-        const end = new Date(exception.endDate + 'T00:00:00Z')
+    logger.info(`[ReapplyExceptions-v3] 找到 ${exceptions.length} 個 active 調班進行處理`)
+
+    // --- 步驟 1: 按照 '病人ID-日期' 分組並排序 ---
+    const groupedByPatientAndDate = exceptions.reduce((acc, ex) => {
+      let key = ''
+      let date = ''
+      if (ex.type === 'MOVE') {
+        date = ex.from.sourceDate
+        key = `${ex.patientId}-${date}`
+      } else if (ex.type === 'ADD_SESSION') {
+        date = ex.to.goalDate
+        key = `${ex.patientId}-${date}`
+      } else if (ex.type === 'SWAP') {
+        const key1 = `${ex.patient1.patientId}-${ex.date}`
+        const key2 = `${ex.patient2.patientId}-${ex.date}`
+        if (!acc[key1]) acc[key1] = []
+        if (!acc[key2]) acc[key2] = []
+        acc[key1].push({ ...ex, context: 'patient1' })
+        acc[key2].push({ ...ex, context: 'patient2' })
+        return acc
+      } else if (ex.type === 'SUSPEND') {
+        const start = new Date(ex.startDate + 'T00:00:00Z')
+        const end = new Date(ex.endDate + 'T00:00:00Z')
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
           const dateStr = formatDateForQuery(new Date(d))
-          if (modifiedSchedules.has(dateStr)) {
-            const schedule = modifiedSchedules.get(dateStr)
-            for (const [position, slot] of Object.entries(schedule)) {
-              if (slot.patientId === exception.patientId) {
-                delete schedule[position]
-                deletionsCount++
-                logger.info(
-                  `  └─ (SUSPEND) 標記刪除: ${dateStr} ${position} (${exception.patientName})`,
-                )
-                break
-              }
+          key = `${ex.patientId}-${dateStr}`
+          if (!acc[key]) acc[key] = []
+          acc[key].push(ex)
+        }
+        return acc
+      }
+
+      if (key) {
+        if (!acc[key]) acc[key] = []
+        acc[key].push(ex)
+      }
+      return acc
+    }, {})
+
+    for (const key in groupedByPatientAndDate) {
+      groupedByPatientAndDate[key].sort((a, b) => a.createdAt - b.createdAt)
+    }
+
+    // --- 步驟 2: 解析每個鏈的頭和尾 ---
+    const chains = new Map()
+    for (const [key, exceptionsChain] of Object.entries(groupedByPatientAndDate)) {
+      if (exceptionsChain.length === 0) continue
+
+      let initialSource = null
+      let finalDestination = null
+      let isSuspended = false
+      let allExceptionIds = []
+
+      for (const ex of exceptionsChain) {
+        allExceptionIds.push(ex.id)
+        if (ex.type === 'SUSPEND') {
+          isSuspended = true
+          finalDestination = null
+          break
+        }
+
+        let currentFrom = null
+        let currentTo = null
+
+        if (ex.type === 'MOVE') {
+          currentFrom = ex.from
+          currentTo = ex.to
+        } else if (ex.type === 'ADD_SESSION') {
+          currentFrom = null
+          currentTo = ex.to
+        } else if (ex.type === 'SWAP') {
+          if (ex.context === 'patient1') {
+            currentFrom = {
+              sourceDate: ex.date,
+              bedNum: ex.patient1.fromBedNum,
+              shiftCode: ex.patient1.fromShiftCode,
+            }
+            currentTo = {
+              goalDate: ex.date,
+              bedNum: ex.patient2.fromBedNum,
+              shiftCode: ex.patient2.fromShiftCode,
+            }
+          } else {
+            currentFrom = {
+              sourceDate: ex.date,
+              bedNum: ex.patient2.fromBedNum,
+              shiftCode: ex.patient2.fromShiftCode,
+            }
+            currentTo = {
+              goalDate: ex.date,
+              bedNum: ex.patient1.fromBedNum,
+              shiftCode: ex.patient1.fromShiftCode,
             }
           }
         }
-      } else if (exception.type === 'SWAP') {
-        const { date, patient1, patient2 } = exception
-        if (modifiedSchedules.has(date)) {
-          const schedule = modifiedSchedules.get(date)
-          const key1 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
-          if (schedule[key1]?.patientId === patient1.patientId) {
-            delete schedule[key1]
-            deletionsCount++
-            logger.info(`  └─ (SWAP) 標記移除: ${date} ${key1} (${patient1.patientName})`)
-          }
-          const key2 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
-          if (schedule[key2]?.patientId === patient2.patientId) {
-            delete schedule[key2]
-            deletionsCount++
-            logger.info(`  └─ (SWAP) 標記移除: ${date} ${key2} (${patient2.patientName})`)
-          }
+
+        if (!initialSource && currentFrom) {
+          initialSource = { ...currentFrom }
+        }
+        if (currentTo) {
+          finalDestination = { ...currentTo }
         }
       }
+
+      const [patientId, date] = key.split('-')
+      chains.set(key, {
+        patientId,
+        date,
+        patientName:
+          exceptionsChain[0].patientName ||
+          (exceptionsChain[0].patient1 && exceptionsChain[0].context === 'patient1'
+            ? exceptionsChain[0].patient1.patientName
+            : exceptionsChain[0].patient2?.patientName),
+        initialSource,
+        finalDestination,
+        isSuspended,
+        exceptionIds: [...new Set(allExceptionIds)],
+        finalException: exceptionsChain[exceptionsChain.length - 1],
+      })
     }
-    logger.info(`第一階段完成：標記了 ${deletionsCount} 個位置要刪除`)
-    logger.info('📝 第二階段：處理所有新增')
+    logger.info(`[ReapplyExceptions-v3] 預處理完成：解析出 ${chains.size} 個病人-日期的調班鏈。`)
+
+    // --- 步驟 3: 兩階段應用 ---
+    const modifiedSchedules = new Map(JSON.parse(JSON.stringify(Array.from(baseSchedules))))
     const conflicts = []
+    let deletionsCount = 0
     let additionsCount = 0
-    for (const chain of moveChains.values()) {
-      const { goalDate, bedNum, shiftCode } = chain.finalTo
-      if (modifiedSchedules.has(goalDate)) {
-        const position = getScheduleKey(bedNum, shiftCode)
-        const schedule = modifiedSchedules.get(goalDate)
-        if (schedule[position]) {
-          const occupant = schedule[position]
-          conflicts.push({
-            exceptionId: chain.finalException.id,
-            date: goalDate,
-            position,
-            wantedBy: chain.patientName,
-            occupiedBy: occupant.patientName || occupant.patientId,
-          })
-          logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`)
-          for (const exId of chain.exceptionIds) {
-            await db
-              .collection('schedule_exceptions')
-              .doc(exId)
-              .update({
-                status: 'conflict_requires_resolution',
-                errorMessage: `目標床位已被 ${occupant.patientName} 佔用`,
-              })
+
+    logger.info('📝 [ReapplyExceptions-v3] 第一階段：處理所有刪除')
+    for (const chain of chains.values()) {
+      if (chain.isSuspended) {
+        if (modifiedSchedules.has(chain.date)) {
+          const schedule = modifiedSchedules.get(chain.date)
+          for (const [position, slot] of Object.entries(schedule)) {
+            if (slot.patientId === chain.patientId) {
+              delete schedule[position]
+              deletionsCount++
+              logger.info(
+                `  └─ (SUSPEND) 標記刪除: ${chain.date} ${position} (${chain.patientName})`,
+              )
+              break
+            }
           }
-          continue
         }
-        schedule[position] = {
-          patientId: chain.patientId,
-          patientName: chain.patientName,
-          shiftId: shiftCode,
-          manualNote: '(換班)',
-          exceptionId: chain.finalException.id,
-        }
-        additionsCount++
-        logger.info(`  └─ (MOVE鏈) 標記新增: ${goalDate} ${position} (${chain.patientName})`)
-        for (const exId of chain.exceptionIds) {
-          const exDoc = await db.collection('schedule_exceptions').doc(exId).get()
-          if (exDoc.exists && exDoc.data().status !== 'applied') {
-            await exDoc.ref.update({ status: 'applied', errorMessage: '' })
+      } else if (chain.initialSource) {
+        const { sourceDate, bedNum, shiftCode } = chain.initialSource
+        if (modifiedSchedules.has(sourceDate)) {
+          const position = getScheduleKey(bedNum, shiftCode)
+          const schedule = modifiedSchedules.get(sourceDate)
+          if (schedule[position]?.patientId === chain.patientId) {
+            delete schedule[position]
+            deletionsCount++
+            logger.info(`  └─ (鏈式) 標記移除: ${sourceDate} ${position} (${chain.patientName})`)
           }
         }
       }
     }
-    for (const exception of otherExceptions) {
-      if (exception.type === 'ADD_SESSION' && exception.to) {
-        const { goalDate, bedNum, shiftCode } = exception.to
+    logger.info(`[ReapplyExceptions-v3] 第一階段完成：標記了 ${deletionsCount} 個位置要刪除`)
+
+    logger.info('📝 [ReapplyExceptions-v3] 第二階段：處理所有新增')
+    for (const chain of chains.values()) {
+      if (chain.finalDestination) {
+        const { goalDate, bedNum, shiftCode } = chain.finalDestination
         if (modifiedSchedules.has(goalDate)) {
           const position = getScheduleKey(bedNum, shiftCode)
           const schedule = modifiedSchedules.get(goalDate)
+
           if (schedule[position]) {
             const occupant = schedule[position]
             conflicts.push({
-              exceptionId: exception.id,
+              exceptionId: chain.finalException.id,
               date: goalDate,
               position,
-              wantedBy: exception.patientName,
+              wantedBy: chain.patientName,
               occupiedBy: occupant.patientName || occupant.patientId,
             })
-            logger.warn(
-              `  └─ (加洗) 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`,
-            )
-            await db
-              .collection('schedule_exceptions')
-              .doc(exception.id)
-              .update({
-                status: 'conflict_requires_resolution',
-                errorMessage: `目標床位已被 ${occupant.patientName} 佔用`,
-              })
+            logger.warn(`  └─ 衝突: ${goalDate} ${position} 已被 ${occupant.patientName} 佔用`)
+            for (const exId of chain.exceptionIds) {
+              await db
+                .collection('schedule_exceptions')
+                .doc(exId)
+                .update({
+                  status: 'conflict_requires_resolution',
+                  errorMessage: `目標床位已被 ${occupant.patientName} 佔用`,
+                })
+            }
             continue
           }
+
           schedule[position] = {
-            patientId: exception.patientId,
-            patientName: exception.patientName,
+            patientId: chain.patientId,
+            patientName: chain.patientName,
             shiftId: shiftCode,
-            manualNote: '(臨時加洗)',
-            exceptionId: exception.id,
+            manualNote: '(調班)',
+            exceptionId: chain.finalException.id,
           }
           additionsCount++
-          logger.info(`  └─ (加洗) 標記新增: ${goalDate} ${position} (${exception.patientName})`)
-          if (exception.status !== 'applied') {
-            await db
-              .collection('schedule_exceptions')
-              .doc(exception.id)
-              .update({ status: 'applied', errorMessage: '' })
+          logger.info(`  └─ (鏈式) 標記新增: ${goalDate} ${position} (${chain.patientName})`)
+
+          for (const exId of chain.exceptionIds) {
+            const exDoc = await db.collection('schedule_exceptions').doc(exId).get()
+            if (exDoc.exists && exDoc.data().status !== 'applied') {
+              await exDoc.ref.update({ status: 'applied', errorMessage: '' })
+            }
           }
         }
-      } else if (exception.type === 'SWAP') {
-        const { date, patient1, patient2, id: exceptionId } = exception
-        if (modifiedSchedules.has(date)) {
-          const schedule = modifiedSchedules.get(date)
-          const keyForPatient1 = getScheduleKey(patient2.fromBedNum, patient2.fromShiftCode)
-          schedule[keyForPatient1] = {
-            patientId: patient1.patientId,
-            patientName: patient1.patientName,
-            shiftId: patient2.fromShiftCode,
-            manualNote: '(互調)',
-            exceptionId: exceptionId,
-          }
-          additionsCount++
-          logger.info(`  └─ (SWAP) 標記新增: ${date} ${keyForPatient1} (${patient1.patientName})`)
-          const keyForPatient2 = getScheduleKey(patient1.fromBedNum, patient1.fromShiftCode)
-          schedule[keyForPatient2] = {
-            patientId: patient2.patientId,
-            patientName: patient2.patientName,
-            shiftId: patient1.fromShiftCode,
-            manualNote: '(互調)',
-            exceptionId: exceptionId,
-          }
-          additionsCount++
-          logger.info(`  └─ (SWAP) 標記新增: ${date} ${keyForPatient2} (${patient2.patientName})`)
-          if (exception.status !== 'applied') {
-            await db
-              .collection('schedule_exceptions')
-              .doc(exceptionId)
-              .update({ status: 'applied', errorMessage: '' })
+      } else {
+        if (chain.isSuspended) {
+          for (const exId of chain.exceptionIds) {
+            const exDoc = await db.collection('schedule_exceptions').doc(exId).get()
+            if (exDoc.exists && exDoc.data().status !== 'applied') {
+              await exDoc.ref.update({ status: 'applied', errorMessage: '' })
+            }
           }
         }
       }
     }
     logger.info(
-      `第二階段完成：標記了 ${additionsCount} 個位置要新增，發現 ${conflicts.length} 個衝突。`,
+      `[ReapplyExceptions-v3] 第二階段完成：標記了 ${additionsCount} 個位置要新增，發現 ${conflicts.length} 個衝突。`,
     )
+
     return {
       success: true,
       processed: exceptions.length,
@@ -403,7 +416,7 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
       stats: { deletions: deletionsCount, additions: additionsCount, conflicts: conflicts.length },
     }
   } catch (error) {
-    logger.error('❌ [ReapplyExceptions] 升級版兩階段處理失敗:', error)
+    logger.error('❌ [ReapplyExceptions-v3] 鏈式處理失敗:', error)
     throw error
   }
 }
@@ -1097,26 +1110,33 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         return null
       }
 
-      // ✨✨✨ START: [核心安全修正] 更嚴謹的日期守門員 ✨✨✨
-      const today = new Date()
-      today.setHours(0, 0, 0, 0) // 設定為今天凌晨0點，以便比較
+      // ✨✨✨ 核心修正 1: 開始 [時區感知日期守門員] ✨✨✨
+      // 1. 獲取「台北時區」的今天日期字串
+      const taipeiDateString = new Date()
+        .toLocaleDateString('zh-TW', {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+        .replace(/\//g, '-')
+      // 2. 根據此字串建立一個標準化的 Date 物件，代表台北今天的凌晨
+      const todayInTaipei = new Date(taipeiDateString + 'T00:00:00Z')
 
       const parseDateString = (dateStr) => {
         if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null
-        return new Date(dateStr + 'T00:00:00Z') // 使用 Zulu time (UTC) 避免時區問題
+        return new Date(dateStr + 'T00:00:00Z') // 使用 UTC 避免時區問題
       }
 
       // 根據不同類型，找出這次申請「最早會影響的日期」
       let relevantStartDateStr
       switch (exceptionData.type) {
         case 'MOVE':
-          // 對於 MOVE，來源日期和目標日期都不能在過去
           const fromDate = parseDateString(exceptionData.from?.sourceDate)
           const toDate = parseDateString(exceptionData.to?.goalDate)
-          if (fromDate < today || toDate < today) {
+          if (fromDate < todayInTaipei || toDate < todayInTaipei) {
             throw new Error('無法為過去的日期建立「調班」申請。')
           }
-          // 如果日期合法，我們用 sourceDate 作為後續流程的基準（雖然這裡用不上）
           relevantStartDateStr = exceptionData.from?.sourceDate
           break
         case 'ADD_SESSION':
@@ -1141,12 +1161,11 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         throw new Error(`調班起始日期格式無效: ${relevantStartDateStr}`)
       }
 
-      // 最終的核心檢查：如果最早影響日期在今天之前，則拒絕操作
-      if (relevantStartDate < today) {
-        // 提供一個更通用的錯誤訊息
+      // 最終的核心檢查：如果最早影響日期在台北今天之前，則拒絕操作
+      if (relevantStartDate < todayInTaipei) {
         throw new Error('無法為過去的日期建立或執行此調班申請。')
       }
-      // ✨✨✨ END: [核心安全修正] ✨✨✨
+      // ✨✨✨ 核心修正 1: 結束 ✨✨✨
 
       await exceptionDoc.ref.update({
         status: 'processing',
@@ -1575,11 +1594,21 @@ exports.onExceptionDeleted = onDocumentDeleted(
     }
 
     try {
-      // --- 步驟 1: 找出所有受影響的日期 ---
-      const todayStr = formatDateForQuery(new Date())
+      // --- 步驟 1: 找出所有受影響的日期，並修正時區問題 ---
+      // ✨✨✨ 核心修正 1: 開始 [時區感知日期守門員] ✨✨✨
+      const taipeiDateString = new Date()
+        .toLocaleDateString('zh-TW', {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+        .replace(/\//g, '-')
+      const todayStrInTaipei = taipeiDateString
+      // ✨✨✨ 核心修正 1: 結束 ✨✨✨
+
       const affectedDates = new Set()
 
-      // 根據不同類型，計算出所有可能受影響的日期
       if (deletedException.from?.sourceDate) affectedDates.add(deletedException.from.sourceDate)
       if (deletedException.to?.goalDate) affectedDates.add(deletedException.to.goalDate)
       if (deletedException.date) affectedDates.add(deletedException.date)
@@ -1591,7 +1620,10 @@ exports.onExceptionDeleted = onDocumentDeleted(
         }
       }
 
-      const futureAffectedDates = Array.from(affectedDates).filter((dateStr) => dateStr >= todayStr)
+      // 使用台北時區的今天來過濾
+      const futureAffectedDates = Array.from(affectedDates).filter(
+        (dateStr) => dateStr >= todayStrInTaipei,
+      )
 
       if (futureAffectedDates.length === 0) {
         logger.warn(`[Reverter-V2] 該調班申請只影響過去的日期，無需執行恢復操作 for ${exceptionId}`)
@@ -1614,22 +1646,16 @@ exports.onExceptionDeleted = onDocumentDeleted(
       const resyncPromises = futureAffectedDates.map(async (dateStr) => {
         logger.info(`  └─ 正在重新計算日期: ${dateStr}`)
 
-        // 3.1 根據總表，生成當天的「乾淨」基礎排班
         const targetDate = new Date(dateStr + 'T00:00:00Z')
         const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
 
-        // 3.2 建立一個只包含當天基礎排程的 Map，以符合 reapplyAllExceptionsInternal 的輸入格式
         const singleDayBaseSchedule = new Map()
         singleDayBaseSchedule.set(dateStr, dailySchedule)
 
-        // 3.3 呼叫強大的內部函式，它會自動抓取「所有」有效的調班，並套用到我們提供的基礎排程上
-        // 重要的！reapplyAllExceptionsInternal 現在不會包含剛剛被刪除的那一筆，所以結果是正確的
         const result = await reapplyAllExceptionsInternal(singleDayBaseSchedule)
-
         const finalScheduleForDay = result.schedulesToWrite.get(dateStr)
 
         if (finalScheduleForDay) {
-          // 3.4 用全新計算出的結果，完全覆蓋當天的排班表
           const scheduleRef = db.collection('schedules').doc(dateStr)
           await scheduleRef.set(
             {
@@ -1639,7 +1665,7 @@ exports.onExceptionDeleted = onDocumentDeleted(
               syncMethod: 'reverter_recalculation',
             },
             { merge: false },
-          ) // merge: false 確保是完全覆蓋
+          )
           logger.info(`    └─ ✅ 日期 ${dateStr} 重新計算並覆蓋成功。`)
         } else {
           logger.warn(`    └─ ⚠️ 日期 ${dateStr} 重新計算後沒有產生排程資料。`)
