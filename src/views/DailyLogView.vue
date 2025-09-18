@@ -830,8 +830,8 @@ const initialLogState = () => ({
     staffing: {
       details: [
         { id: Date.now() + 1, label: '7-4(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0 },
-        { id: Date.now() + 2, label: '7-5(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.25 },
-        { id: Date.now() + 3, label: '8-16(ICU)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.25 },
+        { id: Date.now() + 2, label: '7-5(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.125 },
+        { id: Date.now() + 3, label: '8-16(ICU)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.125 },
         { id: Date.now() + 4, label: '12-8', count: 1, ratio1: 0, ratio2: 1, ratio3: 1 },
         { id: Date.now() + 5, label: '3-11(夜班)', count: 1, ratio1: 0, ratio2: 0, ratio3: 1 },
       ],
