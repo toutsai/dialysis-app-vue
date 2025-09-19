@@ -794,8 +794,7 @@
       :is-visible="isDetailModalVisible"
       :patient="selectedPatientForDetail"
       :current-date="currentDate"
-      :patient-shift="shiftForDetailModal"
-      :patient-list="orderedPatientsForModal"
+      :slot-list="sortedSlotsForModal"
       :current-index="currentPatientIndexForModal"
       @switch-patient="handleSwitchPatientInModal"
       @close="isDetailModalVisible = false"
@@ -1005,8 +1004,8 @@ const isDraftLoading = ref(false)
 const dailyDrafts = ref([])
 const draftDialogDate = ref('')
 const patientsForDraftDialog = ref([])
-// ✨ 1. 新增兩個 ref 來管理 modal 的病人列表和當前索引
-const orderedPatientsForModal = ref([])
+// ✨ 1. 為了清晰起見，重新命名 ref
+const sortedSlotsForModal = ref([]) // 原名 orderedPatientsForModal
 const currentPatientIndexForModal = ref(0)
 
 // ✨ 父層需要提供給 DailyStaffDisplay 元件的資料狀態
@@ -1240,22 +1239,19 @@ async function showShiftInjections(shiftCode) {
   }
 }
 
-// ✨ 3. 修改開啟 Modal 的函式 (handleIconClick 和 handleSimplifiedCellClick)
-//    我們將開啟邏輯統一到一個新函式中
+// ✨ 2. 修改開啟 Modal 的函式 openDetailModalForPatient
 function openDetailModalForPatient(patientId) {
-  // 從剛才建立的排序列表中找到目標病人
   const patientList = sortedScheduleSlots.value
   const targetIndex = patientList.findIndex((p) => p.patientId === patientId)
 
   if (targetIndex === -1) {
     console.error('在排班清單中找不到此病人:', patientId)
-    // 作為備用方案，只顯示單一病人，不提供切換功能
     selectedPatientForDetail.value = patientMap.value.get(patientId)
-    orderedPatientsForModal.value = []
+    sortedSlotsForModal.value = [] // 清空列表
     currentPatientIndexForModal.value = 0
   } else {
-    // 設定好列表和當前索引
-    orderedPatientsForModal.value = patientList.map((p) => p.patient)
+    // ✨ 核心修改：直接傳遞完整的時段物件列表
+    sortedSlotsForModal.value = patientList
     currentPatientIndexForModal.value = targetIndex
     selectedPatientForDetail.value = patientList[targetIndex].patient
   }
@@ -1307,11 +1303,12 @@ provide('handleIconClick', (patientId, context) => {
   }
 })
 
-// ✨ 4. 新增處理切換事件的函式
+// ✨ 3. 修改處理切換事件的函式 handleSwitchPatientInModal
 function handleSwitchPatientInModal(newIndex) {
-  if (newIndex >= 0 && newIndex < orderedPatientsForModal.value.length) {
+  if (newIndex >= 0 && newIndex < sortedSlotsForModal.value.length) {
     currentPatientIndexForModal.value = newIndex
-    selectedPatientForDetail.value = orderedPatientsForModal.value[newIndex]
+    // ✨ 核心修改：從時段物件中取出 .patient 來更新
+    selectedPatientForDetail.value = sortedSlotsForModal.value[newIndex].patient
   }
 }
 
