@@ -1,5 +1,4 @@
 <!-- 檔案路徑: src/views/ScheduleView.vue -->
-<!-- 檔案路徑: src/views/ScheduleView.vue -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -796,6 +795,9 @@
       :patient="selectedPatientForDetail"
       :current-date="currentDate"
       :patient-shift="shiftForDetailModal"
+      :patient-list="orderedPatientsForModal"
+      :current-index="currentPatientIndexForModal"
+      @switch-patient="handleSwitchPatientInModal"
       @close="isDetailModalVisible = false"
       @record-updated="fetchRecentRecords"
     />
@@ -1003,6 +1005,9 @@ const isDraftLoading = ref(false)
 const dailyDrafts = ref([])
 const draftDialogDate = ref('')
 const patientsForDraftDialog = ref([])
+// ✨ 1. 新增兩個 ref 來管理 modal 的病人列表和當前索引
+const orderedPatientsForModal = ref([])
+const currentPatientIndexForModal = ref(0)
 
 // ✨ 父層需要提供給 DailyStaffDisplay 元件的資料狀態
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
@@ -1150,6 +1155,34 @@ const filteredDailyInjections = computed(() => {
   )
 })
 
+// ✨ 2. 新增一個 computed 屬性，用來產生排序好的當日排班病人列表
+const sortedScheduleSlots = computed(() => {
+  if (!currentRecord.schedule) return []
+
+  const getSortKey = (shiftId) => {
+    const parts = shiftId.split('-') // e.g., ['bed', '1', 'early'] or ['peripheral', '1', 'noon']
+    const shiftOrder = { early: 1, noon: 2, late: 3 }
+
+    const shift = shiftOrder[parts[2]] || 99
+    const isPeripheral = parts[0] === 'peripheral'
+    const bedNum = parseInt(parts[1], 10)
+
+    // 排序邏輯: 班別 > 主院區/外圍 > 床號
+    return shift * 10000 + (isPeripheral ? 1000 : 0) + bedNum
+  }
+
+  return Object.entries(currentRecord.schedule)
+    .filter(([, slot]) => slot?.patientId)
+    .map(([shiftId, slot]) => ({
+      shiftId,
+      patientId: slot.patientId,
+      patient: patientMap.value.get(slot.patientId),
+      sortKey: getSortKey(shiftId),
+    }))
+    .filter((item) => item.patient) // 確保病患資料存在
+    .sort((a, b) => a.sortKey - b.sortKey)
+})
+
 // Methods
 async function showShiftInjections(shiftCode) {
   if (!shiftCode) return
@@ -1207,6 +1240,29 @@ async function showShiftInjections(shiftCode) {
   }
 }
 
+// ✨ 3. 修改開啟 Modal 的函式 (handleIconClick 和 handleSimplifiedCellClick)
+//    我們將開啟邏輯統一到一個新函式中
+function openDetailModalForPatient(patientId) {
+  // 從剛才建立的排序列表中找到目標病人
+  const patientList = sortedScheduleSlots.value
+  const targetIndex = patientList.findIndex((p) => p.patientId === patientId)
+
+  if (targetIndex === -1) {
+    console.error('在排班清單中找不到此病人:', patientId)
+    // 作為備用方案，只顯示單一病人，不提供切換功能
+    selectedPatientForDetail.value = patientMap.value.get(patientId)
+    orderedPatientsForModal.value = []
+    currentPatientIndexForModal.value = 0
+  } else {
+    // 設定好列表和當前索引
+    orderedPatientsForModal.value = patientList.map((p) => p.patient)
+    currentPatientIndexForModal.value = targetIndex
+    selectedPatientForDetail.value = patientList[targetIndex].patient
+  }
+
+  isDetailModalVisible.value = true
+}
+
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
@@ -1236,26 +1292,27 @@ function handleIconClick(patientId, context) {
   }
 }
 
-provide('handleIconClick', handleIconClick)
-function updateTaskStoreWithRecords() {
-  const recentRecordsPatientIds = new Set()
-  if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
-    const viewingDate = new Date(currentDate.value)
-    viewingDate.setHours(0, 0, 0, 0)
-    const viewingDateTime = viewingDate.getTime()
-    recentConditionRecords.value.forEach((record) => {
-      if (record.recordDate) {
-        const recordDate = new Date(
-          record.recordDate.toDate ? record.recordDate.toDate() : record.recordDate,
-        )
-        recordDate.setHours(0, 0, 0, 0)
-        if (recordDate.getTime() === viewingDateTime) {
-          recentRecordsPatientIds.add(record.patientId)
-        }
-      }
-    })
+// 修改 handleIconClick (在 provide 中)
+provide('handleIconClick', (patientId, context) => {
+  const patient = patientMap.value.get(patientId)
+  if (!patient) return
+
+  if (context === 'quick-view') {
+    patientIdForDialog.value = patient.id
+    patientNameForDialog.value = patient.name
+    isMemoDialogVisible.value = true
+  } else {
+    // 直接呼叫新的開啟函式
+    openDetailModalForPatient(patientId)
   }
-  taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
+})
+
+// ✨ 4. 新增處理切換事件的函式
+function handleSwitchPatientInModal(newIndex) {
+  if (newIndex >= 0 && newIndex < orderedPatientsForModal.value.length) {
+    currentPatientIndexForModal.value = newIndex
+    selectedPatientForDetail.value = orderedPatientsForModal.value[newIndex]
+  }
 }
 
 async function fetchArchivedSchedule(dateStr) {
@@ -1508,6 +1565,7 @@ async function fetchRecentRecords() {
     return []
   }
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   const patientForStyle = getArchivedOrLivePatientInfo(slotData)
@@ -1607,12 +1665,15 @@ function handleSlotClick(shiftId) {
     handleSlotUpdate(shiftId, null)
   })
 }
+
+// 修改 handleSimplifiedCellClick
 function handleSimplifiedCellClick(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   if (patientId) {
-    handleIconClick(patientId, 'detail')
+    openDetailModalForPatient(patientId)
   }
 }
+
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()
