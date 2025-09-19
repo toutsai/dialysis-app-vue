@@ -1,5 +1,4 @@
 <!-- 檔案路徑: src/views/ScheduleView.vue -->
-<!-- 檔案路徑: src/views/ScheduleView.vue -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -795,7 +794,9 @@
       :is-visible="isDetailModalVisible"
       :patient="selectedPatientForDetail"
       :current-date="currentDate"
-      :patient-shift="shiftForDetailModal"
+      :slot-list="sortedSlotsForModal"
+      :current-index="currentPatientIndexForModal"
+      @switch-patient="handleSwitchPatientInModal"
       @close="isDetailModalVisible = false"
       @record-updated="fetchRecentRecords"
     />
@@ -1003,6 +1004,9 @@ const isDraftLoading = ref(false)
 const dailyDrafts = ref([])
 const draftDialogDate = ref('')
 const patientsForDraftDialog = ref([])
+// ✨ 1. 為了清晰起見，重新命名 ref
+const sortedSlotsForModal = ref([]) // 原名 orderedPatientsForModal
+const currentPatientIndexForModal = ref(0)
 
 // ✨ 父層需要提供給 DailyStaffDisplay 元件的資料狀態
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
@@ -1150,6 +1154,34 @@ const filteredDailyInjections = computed(() => {
   )
 })
 
+// ✨ 2. 新增一個 computed 屬性，用來產生排序好的當日排班病人列表
+const sortedScheduleSlots = computed(() => {
+  if (!currentRecord.schedule) return []
+
+  const getSortKey = (shiftId) => {
+    const parts = shiftId.split('-') // e.g., ['bed', '1', 'early'] or ['peripheral', '1', 'noon']
+    const shiftOrder = { early: 1, noon: 2, late: 3 }
+
+    const shift = shiftOrder[parts[2]] || 99
+    const isPeripheral = parts[0] === 'peripheral'
+    const bedNum = parseInt(parts[1], 10)
+
+    // 排序邏輯: 班別 > 主院區/外圍 > 床號
+    return shift * 10000 + (isPeripheral ? 1000 : 0) + bedNum
+  }
+
+  return Object.entries(currentRecord.schedule)
+    .filter(([, slot]) => slot?.patientId)
+    .map(([shiftId, slot]) => ({
+      shiftId,
+      patientId: slot.patientId,
+      patient: patientMap.value.get(slot.patientId),
+      sortKey: getSortKey(shiftId),
+    }))
+    .filter((item) => item.patient) // 確保病患資料存在
+    .sort((a, b) => a.sortKey - b.sortKey)
+})
+
 // Methods
 async function showShiftInjections(shiftCode) {
   if (!shiftCode) return
@@ -1207,6 +1239,26 @@ async function showShiftInjections(shiftCode) {
   }
 }
 
+// ✨ 2. 修改開啟 Modal 的函式 openDetailModalForPatient
+function openDetailModalForPatient(patientId) {
+  const patientList = sortedScheduleSlots.value
+  const targetIndex = patientList.findIndex((p) => p.patientId === patientId)
+
+  if (targetIndex === -1) {
+    console.error('在排班清單中找不到此病人:', patientId)
+    selectedPatientForDetail.value = patientMap.value.get(patientId)
+    sortedSlotsForModal.value = [] // 清空列表
+    currentPatientIndexForModal.value = 0
+  } else {
+    // ✨ 核心修改：直接傳遞完整的時段物件列表
+    sortedSlotsForModal.value = patientList
+    currentPatientIndexForModal.value = targetIndex
+    selectedPatientForDetail.value = patientList[targetIndex].patient
+  }
+
+  isDetailModalVisible.value = true
+}
+
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
@@ -1236,26 +1288,28 @@ function handleIconClick(patientId, context) {
   }
 }
 
-provide('handleIconClick', handleIconClick)
-function updateTaskStoreWithRecords() {
-  const recentRecordsPatientIds = new Set()
-  if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
-    const viewingDate = new Date(currentDate.value)
-    viewingDate.setHours(0, 0, 0, 0)
-    const viewingDateTime = viewingDate.getTime()
-    recentConditionRecords.value.forEach((record) => {
-      if (record.recordDate) {
-        const recordDate = new Date(
-          record.recordDate.toDate ? record.recordDate.toDate() : record.recordDate,
-        )
-        recordDate.setHours(0, 0, 0, 0)
-        if (recordDate.getTime() === viewingDateTime) {
-          recentRecordsPatientIds.add(record.patientId)
-        }
-      }
-    })
+// 修改 handleIconClick (在 provide 中)
+provide('handleIconClick', (patientId, context) => {
+  const patient = patientMap.value.get(patientId)
+  if (!patient) return
+
+  if (context === 'quick-view') {
+    patientIdForDialog.value = patient.id
+    patientNameForDialog.value = patient.name
+    isMemoDialogVisible.value = true
+  } else {
+    // 直接呼叫新的開啟函式
+    openDetailModalForPatient(patientId)
   }
-  taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
+})
+
+// ✨ 3. 修改處理切換事件的函式 handleSwitchPatientInModal
+function handleSwitchPatientInModal(newIndex) {
+  if (newIndex >= 0 && newIndex < sortedSlotsForModal.value.length) {
+    currentPatientIndexForModal.value = newIndex
+    // ✨ 核心修改：從時段物件中取出 .patient 來更新
+    selectedPatientForDetail.value = sortedSlotsForModal.value[newIndex].patient
+  }
 }
 
 async function fetchArchivedSchedule(dateStr) {
@@ -1495,6 +1549,27 @@ async function showShiftMedicationDrafts(shiftCode) {
   }
 }
 
+function updateTaskStoreWithRecords() {
+  const recentRecordsPatientIds = new Set()
+  if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
+    const viewingDate = new Date(currentDate.value)
+    viewingDate.setHours(0, 0, 0, 0)
+    const viewingDateTime = viewingDate.getTime()
+    recentConditionRecords.value.forEach((record) => {
+      if (record.recordDate) {
+        const recordDate = new Date(
+          record.recordDate.toDate ? record.recordDate.toDate() : record.recordDate,
+        )
+        recordDate.setHours(0, 0, 0, 0)
+        if (recordDate.getTime() === viewingDateTime) {
+          recentRecordsPatientIds.add(record.patientId)
+        }
+      }
+    })
+  }
+  taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
+}
+
 async function fetchRecentRecords() {
   try {
     const sevenDaysAgo = new Date()
@@ -1508,6 +1583,7 @@ async function fetchRecentRecords() {
     return []
   }
 }
+
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   const patientForStyle = getArchivedOrLivePatientInfo(slotData)
@@ -1607,12 +1683,15 @@ function handleSlotClick(shiftId) {
     handleSlotUpdate(shiftId, null)
   })
 }
+
+// 修改 handleSimplifiedCellClick
 function handleSimplifiedCellClick(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   if (patientId) {
-    handleIconClick(patientId, 'detail')
+    openDetailModalForPatient(patientId)
   }
 }
+
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()

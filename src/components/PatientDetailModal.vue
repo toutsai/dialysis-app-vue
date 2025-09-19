@@ -2,7 +2,35 @@
   <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
     <div class="modal-container large">
       <div class="modal-header">
-        <h2>{{ patient?.name }} - 詳細資料</h2>
+        <div class="header-title-area">
+          <h2>{{ patient?.name }} - 詳細資料</h2>
+        </div>
+
+        <!-- 病人導覽列 -->
+        <div v-if="slotList.length > 1" class="patient-navigator">
+          <button
+            @click="switchToPatient(currentIndex - 1)"
+            :disabled="currentIndex === 0"
+            class="nav-btn"
+            title="前一床病人"
+          >
+            <i class="fas fa-chevron-left"></i> 前一床
+          </button>
+
+          <span class="nav-counter"
+            >{{ currentSlotInfo.shift }} / {{ currentSlotInfo.bedNum }}</span
+          >
+
+          <button
+            @click="switchToPatient(currentIndex + 1)"
+            :disabled="currentIndex >= slotList.length - 1"
+            class="nav-btn"
+            title="後一床病人"
+          >
+            後一床 <i class="fas fa-chevron-right"></i>
+          </button>
+        </div>
+
         <button @click="handleClose" class="close-btn">×</button>
       </div>
 
@@ -134,7 +162,7 @@
             @save-record="handleSaveLabSummaryAsRecord"
           />
         </div>
-        <!-- ✨ 3. 新增頁籤的內容面板 ✨ -->
+
         <div v-show="activeTab === 'correlation'" class="tab-panel">
           <LabMedCorrelationView v-if="patient && activeTab === 'correlation'" :patient="patient" />
         </div>
@@ -151,6 +179,7 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
+import { getShiftDisplayName as getShiftName } from '@/constants/scheduleConstants.js'
 
 // 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
@@ -163,8 +192,17 @@ const props = defineProps({
   isVisible: Boolean,
   patient: Object,
   currentDate: Date,
+  // ✨ 核心修正：將 prop 名稱從 patientList 改為 slotList
+  slotList: {
+    type: Array,
+    default: () => [],
+  },
+  currentIndex: {
+    type: Number,
+    default: 0,
+  },
 })
-const emit = defineEmits(['close', 'record-updated'])
+const emit = defineEmits(['close', 'record-updated', 'switch-patient'])
 
 // --- Component State ---
 const activeTab = ref('records')
@@ -174,6 +212,24 @@ const auth = useAuth()
 const taskStore = useTaskStore()
 
 // --- Computed Properties ---
+const currentSlotInfo = computed(() => {
+  // ✨ 核心修正：確認這裡讀取的是 props.slotList
+  if (!props.slotList || props.slotList.length === 0) {
+    return { bedNum: 'N/A', shift: '未知' }
+  }
+  const currentSlot = props.slotList[props.currentIndex]
+  // ... (此計算屬性的其餘部分不變)
+  if (!currentSlot || !currentSlot.shiftId) {
+    return { bedNum: 'N/A', shift: '未知' }
+  }
+  const shiftId = currentSlot.shiftId
+  const parts = shiftId.split('-')
+  const shiftCode = parts[2]
+  const bedNum = parts[0] === 'peripheral' ? `外${parts[1]}` : parts[1]
+  const shift = getShiftName(shiftCode)
+  return { bedNum, shift }
+})
+
 const hasPendingMemosForPatient = computed(() => {
   if (!props.patient?.id) return false
   return taskStore.sortedFeedMessages.some(
@@ -250,6 +306,14 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
     activeTab.value = 'records'
   } catch (error) {
     console.error('儲存檢驗摘要紀錄失敗:', error)
+  }
+}
+
+// 新增切換病人的函式
+function switchToPatient(newIndex) {
+  // ✨ 核心修正：確認這裡讀取的是 props.slotList
+  if (newIndex >= 0 && newIndex < props.slotList.length) {
+    emit('switch-patient', newIndex)
   }
 }
 
@@ -334,7 +398,6 @@ async function uploadToDrive() {
 
     const fileName = `[${props.patient.medicalRecordNumber}]_${props.patient.name}_${dateStr}_${timeStr}.jpg`
 
-    // 根據您的架構，定義病人專屬的資料夾路徑
     const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
     const targetPath = ['影像', patientFolderName]
 
@@ -342,10 +405,9 @@ async function uploadToDrive() {
       fileName: fileName,
       fileContentBase64: base64String,
       mimeType: 'image/jpeg',
-      targetPath: targetPath, // 傳入目標路徑
+      targetPath: targetPath,
     }
 
-    // 呼叫統一的 uploadFile 函式
     const uploadFile = httpsCallable(functions, 'uploadFile')
     const result = await uploadFile(payload)
 
@@ -355,7 +417,6 @@ async function uploadToDrive() {
     cameraState.value = 'idle'
     capturedImage.value = null
 
-    // 上傳成功後，自動重新整理影像列表
     await fetchDriveFiles()
   } catch (error) {
     console.error('上傳失敗:', error)
@@ -389,12 +450,9 @@ async function fetchDriveFiles() {
   driveFiles.value = []
 
   try {
-    // 假設您後端有一個 getDriveFiles 函式，它接收一個 targetPath
     const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
     const targetPath = ['影像', patientFolderName]
 
-    // 注意：您需要建立一個新的 getDriveFiles 函式來取代 getDriveFilesForPatient
-    // 這裡我先假設新函式的名稱是 getDriveFiles
     const getFiles = httpsCallable(functions, 'getDriveFiles')
     const result = await getFiles({ targetPath: targetPath })
 
@@ -416,19 +474,34 @@ watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records'
+      // 當切換病人時，activeTab 不應該被重置，除非是第一次打開
+      if (activeTab.value === '') {
+        activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records'
+      }
       if (props.patient) {
-        // 當 Modal 打開時，如果影像頁籤是預設頁籤，或為了預先載入，可以觸發一次查詢
-        // 為了避免不必要的 API 呼叫，也可以只在點擊頁籤時才載入
-        // 這裡我們先保持打開就載入的行為
         fetchDriveFiles()
       }
     } else {
-      // 當 Modal 關閉時，重置所有狀態
+      // 當 Modal 完整關閉時，才重置所有狀態
       stopCamera()
       driveFiles.value = []
       hasSearched.value = false
       fetchError.value = ''
+      activeTab.value = '' // 重置頁籤狀態，以便下次打開時重新判斷
+    }
+  },
+)
+
+// 新增一個 watcher 來監聽 patient prop 的變化
+watch(
+  () => props.patient,
+  (newPatient, oldPatient) => {
+    // 確保 Modal 是可見的，且病人真的改變了
+    if (props.isVisible && newPatient && newPatient.id !== oldPatient?.id) {
+      // 重置頁籤特定狀態，例如重新載入影像
+      fetchDriveFiles()
+      // 你也可以選擇在這裡重置頁籤到預設值
+      // activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records';
     }
   },
 )
@@ -461,10 +534,14 @@ watch(
 .modal-header {
   padding: 1rem 1.5rem;
   border-bottom: 1px solid #dee2e6;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   flex-shrink: 0;
+  /* 修改 header 的排版以容納新按鈕 */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+.header-title-area {
+  justify-self: start; /* 讓標題靠左 */
 }
 .modal-header h2 {
   margin: 0;
@@ -476,9 +553,46 @@ watch(
   font-size: 2rem;
   cursor: pointer;
   color: #6c757d;
+  justify-self: end; /* 讓關閉按鈕靠右 */
 }
 .close-btn:hover {
   color: #343a40;
+}
+
+/* 新增的導覽列樣式 */
+.patient-navigator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+.nav-btn {
+  background-color: #e9ecef;
+  border: 1px solid #dee2e6;
+  color: #495057;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition:
+    background-color 0.2s,
+    color 0.2s;
+}
+.nav-btn:hover:not(:disabled) {
+  background-color: #007bff;
+  color: white;
+}
+.nav-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.nav-counter {
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-weight: bold;
 }
 
 .tabs-navigation {
@@ -519,7 +633,6 @@ watch(
 .tabs-navigation button.active .memo-indicator {
   border-color: #fff;
 }
-
 .modal-body {
   flex-grow: 1;
   overflow: hidden;
@@ -527,26 +640,22 @@ watch(
   padding: 1.5rem;
   display: flex;
 }
-
 .tab-panel {
   width: 100%;
   display: flex;
   flex-direction: column;
 }
-
 .imaging-panel {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
   overflow: hidden;
 }
-
 .panel-divider {
   border: none;
   border-top: 1px solid #e9ecef;
   width: 100%;
 }
-
 .image-uploader {
   flex-shrink: 0;
   width: 100%;
@@ -562,7 +671,6 @@ watch(
   gap: 1rem;
   background-color: #f9f9f9;
 }
-
 .camera-view,
 .preview-view {
   width: 100%;
@@ -571,7 +679,6 @@ watch(
   align-items: center;
   gap: 1rem;
 }
-
 .video-preview,
 .image-preview {
   max-width: 100%;
@@ -580,17 +687,14 @@ watch(
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   background-color: #000;
 }
-
 .camera-controls,
 .preview-controls {
   display: flex;
   gap: 1rem;
   justify-content: center;
 }
-
 .image-uploader button,
 .image-viewer button {
-  /* ✨ 將 .image-viewer button 也加入進來 */
   padding: 0.75rem 1.5rem;
   border-radius: 8px;
   border: none;
@@ -602,14 +706,11 @@ watch(
   align-items: center;
   gap: 0.5rem;
 }
-
 .image-uploader button:disabled,
 .image-viewer button:disabled {
-  /* ✨ 也為 viewer 的按鈕加上 disabled 樣式 */
   opacity: 0.6;
   cursor: not-allowed;
 }
-
 .btn-primary {
   background-color: #007bff;
   color: white;
@@ -617,7 +718,6 @@ watch(
 .btn-primary:hover:not(:disabled) {
   background-color: #0056b3;
 }
-
 .btn-capture {
   background-color: #dc3545;
   color: white;
@@ -632,7 +732,6 @@ watch(
 .btn-capture:hover:not(:disabled) {
   background-color: #b02a37;
 }
-
 .btn-cancel {
   background-color: #6c757d;
   color: white;
@@ -640,7 +739,6 @@ watch(
 .btn-cancel:hover:not(:disabled) {
   background-color: #5a6268;
 }
-
 .btn-success {
   background-color: #28a745;
   color: white;
@@ -648,7 +746,6 @@ watch(
 .btn-success:hover:not(:disabled) {
   background-color: #218838;
 }
-
 .btn-secondary {
   background-color: #f8f9fa;
   border: 1px solid #dee2e6;
@@ -657,13 +754,11 @@ watch(
 .btn-secondary:hover:not(:disabled) {
   background-color: #e2e6ea;
 }
-
 .error-message {
   color: #dc3545;
   font-weight: 500;
   margin-top: 0.5rem;
 }
-
 .image-viewer {
   flex-grow: 1;
   display: flex;
@@ -672,7 +767,6 @@ watch(
   overflow-y: auto;
   padding-right: 10px;
 }
-
 .viewer-header {
   display: flex;
   justify-content: space-between;
@@ -680,26 +774,22 @@ watch(
   margin-bottom: 1rem;
   flex-shrink: 0;
 }
-
 .viewer-header h3 {
   margin: 0;
   font-size: 1.2rem;
   color: #343a40;
 }
-
 .loading-state,
 .empty-state {
   text-align: center;
   padding: 2rem;
   color: #6c757d;
 }
-
 .image-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
   gap: 1rem;
 }
-
 .image-card {
   border: 1px solid #dee2e6;
   border-radius: 8px;
@@ -715,18 +805,15 @@ watch(
   transform: translateY(-5px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
-
 .thumbnail-img {
   width: 100%;
   height: 150px;
   object-fit: cover;
   background-color: #f8f9fa;
 }
-
 .image-info {
   padding: 0.75rem;
 }
-
 .file-name {
   font-weight: 600;
   margin: 0 0 0.25rem 0;
@@ -734,13 +821,11 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .created-time {
   font-size: 0.8rem;
   color: #6c757d;
   margin: 0;
 }
-
 @media (max-width: 992px) {
   .modal-body {
     overflow-y: auto;
