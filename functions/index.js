@@ -2843,3 +2843,98 @@ exports.manuallyExpireTasks = onCall(
     }
   },
 )
+
+// ===================================================================
+// 當月當班藥物草稿整理函式 (藥物草稿處理函式) - v1.0
+// ===================================================================
+
+exports.getDailyMedicationDrafts = onCall(
+  { cors: allowedOrigins, timeoutSeconds: 180, memory: '512MiB' },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', '使用者未登入，無法執行此操作。')
+    }
+
+    const { targetDate, patientIds } = request.data
+    if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
+      throw new HttpsError('invalid-argument', '請提供有效的目標日期 (格式 YYYY-MM-DD)。')
+    }
+
+    if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
+      return { success: true, targetDate, drafts: [] }
+    }
+    if (patientIds.length > 100) {
+      throw new HttpsError('invalid-argument', '單次查詢的病人數不能超過100人。')
+    }
+
+    // 從 targetDate (e.g., "2025-08-15") 推算出 targetMonth (e.g., "2025-08")
+    const targetMonth = targetDate.substring(0, 7)
+
+    logger.info(
+      `[getDailyMedicationDrafts] 開始為 ${patientIds.length} 位病人計算 ${targetMonth} 的藥囑草稿...`,
+    )
+
+    try {
+      // --- 步驟 1: 查詢所有相關的藥囑草稿 ---
+      const draftsQuery = db
+        .collection('medication_drafts')
+        .where('patientId', 'in', patientIds)
+        .where('targetMonth', '==', targetMonth)
+        .where('status', '==', 'pending') // 只撈取待處理的草稿
+
+      const draftsSnapshot = await draftsQuery.get()
+      const allDrafts = draftsSnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+
+      // --- 步驟 2: 撈取當天的排班資料以取得床號和班別 ---
+      const scheduleDoc = await db.collection('schedules').doc(targetDate).get()
+      const scheduleData = scheduleDoc.exists ? scheduleDoc.data().schedule : {}
+      const patientSlotMap = new Map()
+      for (const shiftId in scheduleData) {
+        const slot = scheduleData[shiftId]
+        if (slot.patientId) {
+          patientSlotMap.set(slot.patientId, {
+            bedNum: shiftId.startsWith('peripheral')
+              ? `外${shiftId.split('-')[1]}`
+              : shiftId.split('-')[1],
+            shift: shiftId.split('-')[2],
+          })
+        }
+      }
+
+      // --- 步驟 3: 組合資料 ---
+      const finalDraftList = allDrafts.map((draft) => {
+        const slotInfo = patientSlotMap.get(draft.patientId) || { bedNum: 'N/A', shift: 'N/A' }
+        return {
+          ...draft,
+          bedNum: slotInfo.bedNum,
+          shift: slotInfo.shift,
+        }
+      })
+
+      // --- 步驟 4: 排序 ---
+      finalDraftList.sort((a, b) => {
+        const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
+        const shiftA = a.shift || 'A'
+        const shiftB = b.shift || 'A'
+        if (shiftA !== shiftB) return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
+
+        const bedA = String(a.bedNum).startsWith('外')
+          ? 1000 + parseInt(String(a.bedNum).substring(1))
+          : parseInt(a.bedNum)
+        const bedB = String(b.bedNum).startsWith('外')
+          ? 1000 + parseInt(String(b.bedNum).substring(1))
+          : parseInt(b.bedNum)
+        if (bedA !== bedB) return bedA - bedB
+
+        // 如果床位班別都相同，按藥物名稱排序
+        return (a.orderName || '').localeCompare(b.orderName || '')
+      })
+
+      logger.info(`[getDailyMedicationDrafts] 計算完成，找到 ${finalDraftList.length} 筆藥囑草稿。`)
+      return { success: true, targetDate, drafts: finalDraftList }
+    } catch (error) {
+      logger.error(`[getDailyMedicationDrafts] 處理藥囑草稿計算時發生嚴重錯誤:`, error)
+      throw new HttpsError('internal', `計算藥囑草稿時發生錯誤: ${error.message}`)
+    }
+  },
+)
