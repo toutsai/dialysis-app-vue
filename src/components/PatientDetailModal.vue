@@ -7,7 +7,7 @@
         </div>
 
         <!-- 病人導覽列 -->
-        <div v-if="patientList.length > 1" class="patient-navigator">
+        <div v-if="slotList.length > 1" class="patient-navigator">
           <button
             @click="switchToPatient(currentIndex - 1)"
             :disabled="currentIndex === 0"
@@ -16,10 +16,14 @@
           >
             <i class="fas fa-chevron-left"></i> 前一床
           </button>
-          <span class="nav-counter">{{ currentIndex + 1 }} / {{ patientList.length }}</span>
+
+          <span class="nav-counter"
+            >{{ currentSlotInfo.shift }} / {{ currentSlotInfo.bedNum }}</span
+          >
+
           <button
             @click="switchToPatient(currentIndex + 1)"
-            :disabled="currentIndex >= patientList.length - 1"
+            :disabled="currentIndex >= slotList.length - 1"
             class="nav-btn"
             title="後一床病人"
           >
@@ -175,6 +179,7 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
+import { getShiftDisplayName as getShiftName } from '@/constants/scheduleConstants.js'
 
 // 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
@@ -187,8 +192,8 @@ const props = defineProps({
   isVisible: Boolean,
   patient: Object,
   currentDate: Date,
-  // 新增 props
-  patientList: {
+  // ✨ 核心修正：將 prop 名稱從 patientList 改為 slotList
+  slotList: {
     type: Array,
     default: () => [],
   },
@@ -197,7 +202,6 @@ const props = defineProps({
     default: 0,
   },
 })
-// 在 emits 中加入 'switch-patient'
 const emit = defineEmits(['close', 'record-updated', 'switch-patient'])
 
 // --- Component State ---
@@ -208,6 +212,24 @@ const auth = useAuth()
 const taskStore = useTaskStore()
 
 // --- Computed Properties ---
+const currentSlotInfo = computed(() => {
+  // ✨ 核心修正：確認這裡讀取的是 props.slotList
+  if (!props.slotList || props.slotList.length === 0) {
+    return { bedNum: 'N/A', shift: '未知' }
+  }
+  const currentSlot = props.slotList[props.currentIndex]
+  // ... (此計算屬性的其餘部分不變)
+  if (!currentSlot || !currentSlot.shiftId) {
+    return { bedNum: 'N/A', shift: '未知' }
+  }
+  const shiftId = currentSlot.shiftId
+  const parts = shiftId.split('-')
+  const shiftCode = parts[2]
+  const bedNum = parts[0] === 'peripheral' ? `外${parts[1]}` : parts[1]
+  const shift = getShiftName(shiftCode)
+  return { bedNum, shift }
+})
+
 const hasPendingMemosForPatient = computed(() => {
   if (!props.patient?.id) return false
   return taskStore.sortedFeedMessages.some(
@@ -289,7 +311,8 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
 
 // 新增切換病人的函式
 function switchToPatient(newIndex) {
-  if (newIndex >= 0 && newIndex < props.patientList.length) {
+  // ✨ 核心修正：確認這裡讀取的是 props.slotList
+  if (newIndex >= 0 && newIndex < props.slotList.length) {
     emit('switch-patient', newIndex)
   }
 }
