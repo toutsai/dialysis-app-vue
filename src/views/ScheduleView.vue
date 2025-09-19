@@ -105,6 +105,7 @@
                 <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
                   <div class="shift-header-content">
                     <span>{{ getShiftDisplayName(shiftCode) }}</span>
+                    <!-- 按鈕 1: 查看此班針劑 (Emoji) -->
                     <button
                       @click="showShiftInjections(shiftCode)"
                       class="summary-icon-btn-table"
@@ -112,6 +113,17 @@
                     >
                       💉
                     </button>
+
+                    <!-- 按鈕 2: 查看此班藥囑草稿 (新的處方籤圖示) -->
+                    <button
+                      @click="showShiftMedicationDrafts(shiftCode)"
+                      class="summary-icon-btn-table"
+                      title="查看此班藥囑草稿"
+                    >
+                      <i class="fas fa-file-prescription"></i>
+                    </button>
+
+                    <!-- 按鈕 3: 查看此班紀錄 (Emoji) -->
                     <button
                       @click="showShiftRecordsSummary(shiftCode)"
                       class="summary-icon-btn-table"
@@ -581,6 +593,7 @@
               <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="`mobile-header-${shiftCode}`">
                 <div class="shift-header-content">
                   <span>{{ getShiftDisplayName(shiftCode) }}</span>
+                  <!-- 按鈕 1: 查看此班針劑 (Emoji) -->
                   <button
                     @click="showShiftInjections(shiftCode)"
                     class="summary-icon-btn-table"
@@ -588,6 +601,17 @@
                   >
                     💉
                   </button>
+
+                  <!-- 按鈕 2: 查看此班藥囑草稿 (新的處方籤圖示) -->
+                  <button
+                    @click="showShiftMedicationDrafts(shiftCode)"
+                    class="summary-icon-btn-table"
+                    title="查看此班藥囑草稿"
+                  >
+                    <i class="fas fa-file-prescription"></i>
+                  </button>
+
+                  <!-- 按鈕 3: 查看此班紀錄 (Emoji) -->
                   <button
                     @click="showShiftRecordsSummary(shiftCode)"
                     class="summary-icon-btn-table"
@@ -804,6 +828,14 @@
       :show-filter="true"
       @close="isInjectionDialogVisible = false"
     />
+    <DailyDraftListDialog
+      :is-visible="isDraftDialogVisible"
+      :is-loading="isDraftLoading"
+      :drafts="dailyDrafts"
+      :patients-in-shift="patientsForDraftDialog"
+      :target-date="draftDialogDate"
+      @close="isDraftDialogVisible = false"
+    />
   </div>
 </template>
 
@@ -857,6 +889,7 @@ import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue' // ✨ 1. 引入新元件
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
+import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
 
 // Pinia Stores
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -965,6 +998,11 @@ const isInjectionLoading = ref(false)
 const allDailyInjections = ref([])
 const injectionDialogDate = ref('')
 const filterSpecificInjections = ref(false)
+const isDraftDialogVisible = ref(false)
+const isDraftLoading = ref(false)
+const dailyDrafts = ref([])
+const draftDialogDate = ref('')
+const patientsForDraftDialog = ref([])
 
 // ✨ 父層需要提供給 DailyStaffDisplay 元件的資料狀態
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
@@ -1168,6 +1206,7 @@ async function showShiftInjections(shiftCode) {
     isInjectionLoading.value = false
   }
 }
+
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
@@ -1176,6 +1215,7 @@ function formatDate(date) {
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
+
 function handleIconClick(patientId, context) {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
@@ -1195,6 +1235,7 @@ function handleIconClick(patientId, context) {
     isDetailModalVisible.value = true
   }
 }
+
 provide('handleIconClick', handleIconClick)
 function updateTaskStoreWithRecords() {
   const recentRecordsPatientIds = new Set()
@@ -1216,6 +1257,7 @@ function updateTaskStoreWithRecords() {
   }
   taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
 }
+
 async function fetchArchivedSchedule(dateStr) {
   return await archiveStore.fetchScheduleByDate(dateStr)
 }
@@ -1239,6 +1281,7 @@ async function fetchLiveSchedule(dateStr) {
   record.schedule = finalSchedule
   return record
 }
+
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1375,6 +1418,80 @@ async function loadDailyStaffInfo(date) {
     console.error('載入每日負責人資訊失敗:', error)
     dailyPhysicians.value = { early: null, noon: null, late: null }
     dailyConsultPhysicians.value = { morning: null, afternoon: null, night: null }
+  }
+}
+
+async function showShiftMedicationDrafts(shiftCode) {
+  if (!shiftCode) return
+
+  // ✨ 核心修改：找出該班次的病人，並從 patientMap 中取得完整的病人物件
+  const patientsInShift = Object.entries(currentRecord.schedule)
+    .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
+    .map(([shiftId, slot]) => {
+      const patientData = patientMap.value.get(slot.patientId)
+      if (!patientData) return null
+
+      // 附加床號和班別資訊到病人物件上
+      const bedNum = shiftId.startsWith('peripheral')
+        ? `外${shiftId.split('-')[1]}`
+        : shiftId.split('-')[1]
+      const shift = shiftId.split('-')[2]
+
+      return { ...patientData, bedNum, shift }
+    })
+    .filter(Boolean)
+    // 按床號排序，確保表格順序正確
+    .sort((a, b) => {
+      const bedA = String(a.bedNum).startsWith('外')
+        ? 1000 + parseInt(String(a.bedNum).substring(1))
+        : parseInt(a.bedNum)
+      const bedB = String(b.bedNum).startsWith('外')
+        ? 1000 + parseInt(String(b.bedNum).substring(1))
+        : parseInt(b.bedNum)
+      return bedA - bedB
+    })
+
+  // ✨ 將整理好的病人列表存到 ref 中
+  patientsForDraftDialog.value = patientsInShift
+  const patientIds = patientsInShift.map((p) => p.id)
+
+  draftDialogDate.value = formatDate(currentDate.value)
+  isDraftDialogVisible.value = true
+  isDraftLoading.value = true
+  dailyDrafts.value = []
+
+  if (patientIds.length === 0) {
+    isDraftLoading.value = false
+    return
+  }
+
+  // 後續的 try-catch-finally 區塊保持不變
+  try {
+    const getDailyMedicationDrafts = httpsCallable(functions, 'getDailyMedicationDrafts')
+    const CHUNK_SIZE = 30
+    const promises = []
+    for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
+      const chunk = patientIds.slice(i, i + CHUNK_SIZE)
+      const payload = { targetDate: draftDialogDate.value, patientIds: chunk }
+      promises.push(getDailyMedicationDrafts(payload))
+    }
+    const results = await Promise.all(promises)
+    let combinedDrafts = []
+    for (const result of results) {
+      if (result.data && result.data.success) {
+        combinedDrafts = combinedDrafts.concat(result.data.drafts)
+      } else {
+        throw new Error(result.data?.message || '從後端獲取部分藥囑草稿失敗')
+      }
+    }
+    dailyDrafts.value = combinedDrafts
+  } catch (error) {
+    console.error(`獲取 ${shiftCode} 班藥囑草稿失敗:`, error)
+    const errorMessage = error.details?.message || error.message || '獲取藥囑草稿時發生未知錯誤'
+    showAlert('查詢失敗', `獲取藥囑草稿清單時發生錯誤: ${errorMessage}`)
+    isDraftDialogVisible.value = false
+  } finally {
+    isDraftLoading.value = false
   }
 }
 
@@ -2667,13 +2784,32 @@ button:disabled {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 1.2rem;
+  font-size: 1.2rem; /* 設定基準大小 */
   opacity: 0.6;
   transition: all 0.2s;
+
+  /* ✨ 以下為核心修改，確保所有圖示垂直置中且排版整齊 ✨ */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; /* 給定固定寬度，避免圖示大小不一造成跳動 */
+  height: 28px; /* 給定固定高度 */
 }
+
 .summary-icon-btn-table:hover {
   opacity: 1;
-  transform: scale(1.1);
+  transform: scale(1.15); /* 稍微增加放大效果 */
+}
+
+/* 針對 Font Awesome 圖示的顏色進行微調 */
+.summary-icon-btn-table i {
+  color: #495057; /* 設定一個沉穩的深灰色 */
+  transition: color 0.2s;
+}
+
+/* 滑鼠懸停時讓圖示顏色變深 */
+.summary-icon-btn-table:hover i {
+  color: #000;
 }
 .stats-special-mode {
   display: inline-block;
