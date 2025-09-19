@@ -1549,6 +1549,27 @@ async function showShiftMedicationDrafts(shiftCode) {
   }
 }
 
+function updateTaskStoreWithRecords() {
+  const recentRecordsPatientIds = new Set()
+  if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
+    const viewingDate = new Date(currentDate.value)
+    viewingDate.setHours(0, 0, 0, 0)
+    const viewingDateTime = viewingDate.getTime()
+    recentConditionRecords.value.forEach((record) => {
+      if (record.recordDate) {
+        const recordDate = new Date(
+          record.recordDate.toDate ? record.recordDate.toDate() : record.recordDate,
+        )
+        recordDate.setHours(0, 0, 0, 0)
+        if (recordDate.getTime() === viewingDateTime) {
+          recentRecordsPatientIds.add(record.patientId)
+        }
+      }
+    })
+  }
+  taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
+}
+
 async function fetchRecentRecords() {
   try {
     const sevenDaysAgo = new Date()
