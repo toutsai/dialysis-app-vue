@@ -1045,12 +1045,14 @@ function listenToBulletinData(dateStr) {
     try {
       // 嘗試獲取昨天的日誌
       const yesterdayLog = await logsApi.fetchById(yesterdayStr)
-      // ✨ [核心修改] 從 handoverNotes 改為 otherNotes ✨
       if (yesterdayLog && yesterdayLog.otherNotes) {
+        // ✨ 核心修正：將原本複雜的 .split(/[\d]+\.\s*/)
+        // 改為直接根據換行符 (\n) 來分割字串。
         const notes = yesterdayLog.otherNotes
-          .split(/[\d]+\.\s*/)
+          .split('\n') // <--- 修改的就是這一行
           .map((item) => item.trim())
           .filter((item) => item)
+
         yesterdaysLogItems.value = notes
         console.log(
           `[CollaborationView] Displaying log notes (otherNotes) from yesterday (${yesterdayStr})`,
@@ -1060,12 +1062,13 @@ function listenToBulletinData(dateStr) {
 
       // 嘗試獲取前天的日誌
       const dayBeforeLog = await logsApi.fetchById(dayBeforeYesterdayStr)
-      // ✨ [核心修改] 從 handoverNotes 改為 otherNotes ✨
       if (dayBeforeLog && dayBeforeLog.otherNotes) {
+        // ✨ 核心修正：這裡也要同步修改
         const notes = dayBeforeLog.otherNotes
-          .split(/[\d]+\.\s*/)
+          .split('\n') // <--- 修改的就是這一行
           .map((item) => item.trim())
           .filter((item) => item)
+
         yesterdaysLogItems.value = notes
         console.log(
           `[CollaborationView] Displaying log notes (otherNotes) from the day before yesterday (${dayBeforeYesterdayStr})`,
