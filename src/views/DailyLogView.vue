@@ -1021,14 +1021,17 @@ async function saveLog(options = {}) {
     isLoading.value = false
   }
 }
+
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
+  // 重置 dailyLog 狀態，並設定正確的日期
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
-  handoverNotes.value = ''
+  handoverNotes.value = '' // 清空給彈窗的 prop
 
   try {
+    // 步驟 1: 平行獲取所有需要的資料
     await patientStore.fetchPatientsIfNeeded()
 
     const today = new Date(dateStr)
@@ -1048,14 +1051,30 @@ async function loadDailyLog(dateStr) {
         schedulesApi.fetchAll([where('date', '==', dateStr)]),
       ])
 
+    // 步驟 2: 處理日誌資料 (核心邏輯區塊)
     if (logResult) {
-      // ✨ 錯誤修復 ✨: 在合併資料前，檢查並轉換舊的 staffing 結構
+      // --- 情況 A: 如果今天有日誌 ---
+      console.log(`[DailyLog] Found log for ${dateStr}.`)
+
+      const mergedLog = { ...initialLogState(), ...logResult }
+
+      // ✨ 核心修正 1: 處理舊資料兼容性 ✨
+      // 檢查是否為舊格式 (有 handoverNotes 但沒有 otherNotes)，如果是，則進行一次性資料遷移
+      if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
+        console.warn(
+          `[DailyLog] Old log format detected for ${dateStr}. Migrating 'handoverNotes' to 'otherNotes'.`,
+        )
+        // 將舊的 handoverNotes (實際上是其他事項) 賦值給 otherNotes
+        mergedLog.otherNotes = mergedLog.handoverNotes
+        // 清空 handoverNotes，因為舊日誌沒有組長交班功能
+        mergedLog.handoverNotes = ''
+      }
+
+      // (舊的護理人力 staffing 兼容邏輯保持不變)
       if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
         console.warn('偵測到舊版護理人力資料格式，正在進行轉換...')
         const oldStaffingData = logResult.stats.staffing || {}
         const newStaffingStructure = initialLogState().stats.staffing
-
-        // 如果舊資料有值，將其轉換為新結構中的一個項目
         const oldTotal =
           (oldStaffingData.early || 0) + (oldStaffingData.noon || 0) + (oldStaffingData.late || 0)
 
@@ -1064,40 +1083,48 @@ async function loadDailyLog(dateStr) {
             {
               id: Date.now(),
               label: '舊日誌人力總計',
-              count: 1, // 將總數拆分到各班比例中
+              count: 1,
               ratio1: oldStaffingData.early || 0,
               ratio2: oldStaffingData.noon || 0,
               ratio3: oldStaffingData.late || 0,
             },
           ]
         } else {
-          // 如果舊資料為空或0，則使用預設的空範本
           newStaffingStructure.details = initialLogState().stats.staffing.details
         }
-
         logResult.stats.staffing = newStaffingStructure
       }
 
-      const mergedLog = { ...initialLogState(), ...logResult }
-      if (mergedLog.handoverNotes && !mergedLog.otherNotes) {
-        mergedLog.otherNotes = mergedLog.handoverNotes
-      }
       Object.assign(dailyLog, mergedLog)
-      handoverNotes.value = mergedLog.handoverNotes || ''
+      handoverNotes.value = dailyLog.handoverNotes || ''
     } else {
+      // --- 情況 B: 如果今天是空的，需要繼承舊的交班事項 ---
+      console.log(`[DailyLog] No log for ${dateStr}. Checking previous days for handover notes.`)
+
       let inheritedHandoverNotes = ''
       if (yesterdayLogResult?.handoverNotes) {
         inheritedHandoverNotes = yesterdayLogResult.handoverNotes
+        console.log(`[DailyLog] Inherited handover notes from yesterday (${yesterdayStr}).`)
       } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
         inheritedHandoverNotes = dayBeforeYesterdayLogResult.handoverNotes
+        console.log(
+          `[DailyLog] Inherited handover notes from the day before (${dayBeforeYesterdayStr}).`,
+        )
       }
+
+      // ✨ 核心修正 2: 確保只繼承 handoverNotes，不污染 otherNotes
+      // 將繼承的交班事項賦值給彈窗和要儲存的欄位
       handoverNotes.value = inheritedHandoverNotes
       dailyLog.handoverNotes = inheritedHandoverNotes
+
+      // ✨ 關鍵防火牆：明確地將「其他事項」欄位設為空，等待使用者輸入當天的內容
       dailyLog.otherNotes = ''
     }
 
+    // 步驟 3: 處理排班資料 (這部分邏輯不變)
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
+      // 如果日誌是空的，才需要從排班表計算初始統計
       if (!logResult) {
         calculateStatsFromSchedule(scheduleData[0])
       }
@@ -1108,9 +1135,10 @@ async function loadDailyLog(dateStr) {
   } finally {
     isLoading.value = false
     await nextTick()
-    handleTextareaInput()
+    handleTextareaInput() // 確保 textarea 高度正確
   }
 }
+
 function calculateStatsFromSchedule(scheduleRecord) {
   const newStats = {
     main_beds: {
