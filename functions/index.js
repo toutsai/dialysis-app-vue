@@ -18,7 +18,6 @@ const { FieldValue, FieldPath } = require('firebase-admin/firestore')
 const { google } = require('googleapis')
 const stream = require('stream')
 const path = require('path')
-const XLSX = require('xlsx')
 
 // ===================================================================
 // 全域設定 (Global Configurations)
