@@ -1083,6 +1083,505 @@ exports.getDriveFiles = onCall({ cors: allowedOrigins }, async (request) => {
     throw new HttpsError('internal', '在 Google Drive 中搜尋檔案時發生錯誤。', error.message)
   }
 })
+// ===================================================================
+// 自動備份輔助函式 (如果您的檔案中已有，請勿重複添加)
+// ===================================================================
+const XLSX = require('xlsx') // 確保在檔案頂部引入
+
+/**
+ * 在指定的 Google Drive 資料夾中尋找特定名稱的檔案並刪除。
+ * @param {object} drive - 已授權的 Google Drive API 實例。
+ * @param {string} fileName - 要尋找並刪除的檔案名稱。
+ * @param {string} parentFolderId - 檔案所在的父資料夾 ID。
+ * @returns {Promise<boolean>} 是否成功刪除。
+ */
+async function findAndDeleteFile(drive, fileName, parentFolderId) {
+  try {
+    const query = `'${parentFolderId}' in parents and name = '${fileName}' and trashed = false`
+    const res = await drive.files.list({
+      q: query,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    })
+
+    if (res.data.files && res.data.files.length > 0) {
+      const fileId = res.data.files[0].id
+      logger.info(`[Backup] Found old pre-backup file "${fileName}" (ID: ${fileId}). Deleting...`)
+      await drive.files.delete({
+        fileId: fileId,
+        supportsAllDrives: true,
+      })
+      logger.info(`[Backup] Successfully deleted old pre-backup file.`)
+      return true
+    } else {
+      logger.info(`[Backup] No old pre-backup file named "${fileName}" found to delete.`)
+      return false
+    }
+  } catch (error) {
+    logger.error(`[Backup] Error during findAndDeleteFile for "${fileName}":`, error)
+    return false
+  }
+}
+
+/**
+ * 將 Buffer 內容上傳到 Google Drive 的指定路徑。
+ * @param {object} drive - 已授權的 Google Drive API 實例。
+ * @param {Buffer} fileBuffer - 檔案的 Buffer 內容。
+ * @param {string} fileName - 檔案名稱。
+ * @param {string} mimeType - 檔案的 MIME 類型。
+ * @param {Array<string>} targetPath - 目標路徑陣列，例如 ['資料備份', '2025 年']。
+ */
+async function uploadBufferToDrive(drive, fileBuffer, fileName, mimeType, targetPath) {
+  let currentParentFolderId = SHARED_DRIVE_FOLDER_ID
+  for (const folderName of targetPath) {
+    currentParentFolderId = await findOrCreateFolder(drive, folderName, currentParentFolderId)
+  }
+
+  const bufferStream = new stream.PassThrough()
+  bufferStream.end(fileBuffer)
+
+  const fileMetadata = { name: fileName, parents: [currentParentFolderId] }
+  const media = { mimeType: mimeType, body: bufferStream }
+
+  await drive.files.create({
+    resource: fileMetadata,
+    media: media,
+    fields: 'id',
+    supportsAllDrives: true,
+  })
+  logger.info(`[Backup] Successfully uploaded "${fileName}" to Google Drive.`)
+}
+
+/**
+ * [後端版 effectiveStatsData]
+ * 根據排班、分組、病人資料，產生用於統計和匯出的結構化護理分組資料。
+ * @param {object} schedule - 當日的排班資料 (來自 schedules 集合)
+ * @param {object} teams - 當日的護理師分組資料 (來自 nurse_assignments 集合的 teams 欄位)
+ * @param {object} names - 當日的護理師姓名指派 (來自 nurse_assignments 集合的 names 欄位)
+ * @param {Map<string, object>} patientMap - 病人資料的 Map
+ * @returns {object} - 包含 early, late, lateTakeOff 分組的完整資料物件
+ */
+function generateAssignmentsData(schedule, teams, names, patientMap) {
+  // --- 在函式內部定義常數，使其自給自足 ---
+  const SHIFT_CODES = { EARLY: 'early', NOON: 'noon', LATE: 'late' }
+  const baseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
+  const earlyTeams = baseTeams.map((t) => `早${t}`)
+  const lateTeams = baseTeams.map((t) => `晚${t}`)
+  const lateTakeOffTeams = baseTeams.map((t) => `夜間收針${t}`)
+
+  const createTeamStats = (teamList, shiftType) => {
+    const stats = {}
+    teamList.forEach((team) => {
+      stats[team] = {
+        nurseName: names?.[team] || '',
+        totalOpdCount: 0,
+        totalIpdCount: 0,
+        totalErCount: 0,
+      }
+      if (shiftType === 'early') {
+        stats[team].earlyShift = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+        stats[team].noonShiftOn = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+        stats[team].noonShiftOff = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+      } else if (shiftType === 'late') {
+        stats[team].noonShiftOff = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+        stats[team].lateShift = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+      } else if (shiftType === 'lateTakeOff') {
+        stats[team].lateShiftTakeOff = { patients: [], opdCount: 0, ipdCount: 0, erCount: 0 }
+      }
+    })
+    return stats
+  }
+
+  const stats = {
+    early: createTeamStats(earlyTeams, 'early'),
+    late: createTeamStats(lateTeams, 'late'),
+    lateTakeOff: createTeamStats(lateTakeOffTeams, 'lateTakeOff'),
+  }
+
+  for (const shiftId in schedule) {
+    const slot = schedule[shiftId]
+    if (!slot || !slot.patientId) continue
+
+    const patientDetails = patientMap.get(slot.patientId)
+    if (!patientDetails) continue
+
+    const detail = {
+      id: slot.patientId,
+      shiftId,
+      name: patientDetails.name,
+      status: patientDetails.status,
+      dialysisBed: shiftId.startsWith('peripheral') ? '外圍' : shiftId.split('-')[1] || '',
+      finalTags: `${slot.autoNote || ''} ${slot.manualNote || ''}`.trim(),
+    }
+
+    const assignAndCount = (group, pDetail) => {
+      if (!group) return
+      group.patients.push(pDetail)
+      if (pDetail.status === 'ipd') group.ipdCount++
+      else if (pDetail.status === 'er') group.erCount++
+      else group.opdCount++
+    }
+
+    const shiftCode = shiftId.split('-')[2]
+    const teamKey = `${slot.patientId}-${shiftCode}`
+    const teamInfo = teams[teamKey] || {}
+
+    if (shiftCode === SHIFT_CODES.EARLY) {
+      const targetTeam = teamInfo.nurseTeam || '早未分組'
+      if (stats.early[targetTeam]) assignAndCount(stats.early[targetTeam].earlyShift, detail)
+    } else if (shiftCode === SHIFT_CODES.LATE) {
+      const targetTeam = teamInfo.nurseTeam || '晚未分組'
+      if (stats.late[targetTeam]) assignAndCount(stats.late[targetTeam].lateShift, detail)
+
+      const targetTakeOffTeam = teamInfo.nurseTeamTakeOff || '夜間收針未分組'
+      if (stats.lateTakeOff[targetTakeOffTeam])
+        assignAndCount(stats.lateTakeOff[targetTakeOffTeam].lateShiftTakeOff, detail)
+    } else if (shiftCode === SHIFT_CODES.NOON) {
+      const targetInTeam = teamInfo.nurseTeamIn || '早未分組'
+      if (stats.early[targetInTeam]) assignAndCount(stats.early[targetInTeam].noonShiftOn, detail)
+
+      const targetOutTeam = teamInfo.nurseTeamOut || '晚未分組'
+      if (stats.late[targetOutTeam]) assignAndCount(stats.late[targetOutTeam].noonShiftOff, detail)
+    }
+  }
+
+  // 計算總人數
+  Object.values(stats).forEach((shiftGroup) => {
+    for (const team in shiftGroup) {
+      const teamData = shiftGroup[team]
+      if (!teamData) continue
+      teamData.totalOpdCount = Object.values(teamData).reduce(
+        (sum, part) => sum + (part.opdCount || 0),
+        0,
+      )
+      teamData.totalIpdCount = Object.values(teamData).reduce(
+        (sum, part) => sum + (part.ipdCount || 0),
+        0,
+      )
+      teamData.totalErCount = Object.values(teamData).reduce(
+        (sum, part) => sum + (part.erCount || 0),
+        0,
+      )
+    }
+  })
+
+  return stats
+}
+
+/**
+ * 根據處理好的護理分組資料，產生 Excel 檔案的 Buffer。
+ * @param {object} statsData - 從 generateAssignmentsData 函式得到的資料
+ * @param {object} names - 護理師姓名指派
+ * @returns {Buffer|null} Excel 檔案的 Buffer，或在無資料時返回 null
+ */
+function generateAssignmentsExcelBuffer(statsData, names) {
+  if (!statsData) return null
+
+  const aoa = []
+  const formatPatientCell = (patients) => {
+    if (!patients || patients.length === 0) return ''
+    return patients
+      .map((p) => `${p.dialysisBed} - ${p.name} ${p.finalTags ? '(' + p.finalTags + ')' : ''}`)
+      .join('\n')
+  }
+  const formatCountCell = (teamData) =>
+    `門${teamData?.totalOpdCount || 0} 住${teamData?.totalIpdCount || 0} 急${teamData?.totalErCount || 0}`
+
+  // --- 早班 ---
+  const sortedEarlyTeams = Object.keys(statsData.early).sort((a, b) => a.localeCompare(b))
+  aoa.push(['早班', ...sortedEarlyTeams.map((name) => name.replace('早', '') + '組')])
+  aoa.push(['姓名', ...sortedEarlyTeams.map((name) => names[name] || '-- 未指派 --')])
+  aoa.push([
+    '早班',
+    ...sortedEarlyTeams.map((name) =>
+      formatPatientCell(statsData.early[name]?.earlyShift.patients),
+    ),
+  ])
+  aoa.push([
+    '午班(上針)',
+    ...sortedEarlyTeams.map((name) =>
+      formatPatientCell(statsData.early[name]?.noonShiftOn.patients),
+    ),
+  ])
+  aoa.push([
+    '午班(收針)',
+    ...sortedEarlyTeams.map((name) =>
+      formatPatientCell(statsData.early[name]?.noonShiftOff.patients),
+    ),
+  ])
+  aoa.push(['照護人數', ...sortedEarlyTeams.map((name) => formatCountCell(statsData.early[name]))])
+
+  aoa.push([]) // 分隔
+
+  // --- 晚班 ---
+  const sortedLateTeams = Object.keys(statsData.late).sort((a, b) => a.localeCompare(b))
+  aoa.push(['晚班', ...sortedLateTeams.map((name) => name.replace('晚', '') + '組')])
+  aoa.push(['姓名', ...sortedLateTeams.map((name) => names[name] || '-- 未指派 --')])
+  aoa.push([
+    '午班(收針)',
+    ...sortedLateTeams.map((name) =>
+      formatPatientCell(statsData.late[name]?.noonShiftOff.patients),
+    ),
+  ])
+  aoa.push([
+    '晚班',
+    ...sortedLateTeams.map((name) => formatPatientCell(statsData.late[name]?.lateShift.patients)),
+  ])
+  aoa.push(['照護人數', ...sortedLateTeams.map((name) => formatCountCell(statsData.late[name]))])
+
+  // --- 夜班收針 (如果存在) ---
+  const lateTakeOffTeams = Object.keys(statsData.lateTakeOff).filter(
+    (t) =>
+      statsData.lateTakeOff[t].totalOpdCount +
+        statsData.lateTakeOff[t].totalIpdCount +
+        statsData.lateTakeOff[t].totalErCount >
+      0,
+  )
+  if (lateTakeOffTeams.length > 0) {
+    aoa.push([]) // 分隔
+    const sortedTakeoffTeams = lateTakeOffTeams.sort((a, b) => a.localeCompare(b))
+    aoa.push(['夜班收針', ...sortedTakeoffTeams.map((name) => name.replace('夜間收針', '') + '組')])
+    aoa.push(['姓名', ...sortedTakeoffTeams.map((name) => names[name] || '-- 未指派 --')])
+    aoa.push([
+      '夜班收針',
+      ...sortedTakeoffTeams.map((name) =>
+        formatPatientCell(statsData.lateTakeOff[name]?.lateShiftTakeOff.patients),
+      ),
+    ])
+    aoa.push([
+      '照護人數',
+      ...sortedTakeoffTeams.map((name) => formatCountCell(statsData.lateTakeOff[name])),
+    ])
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+  const colWidths = [
+    { wch: 12 },
+    ...Array(Math.max(sortedEarlyTeams.length, sortedLateTeams.length)).fill({ wch: 25 }),
+  ]
+  ws['!cols'] = colWidths
+  // ... (可以添加更多樣式設定) ...
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '護理分組表')
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+}
+
+// ===================================================================
+// ✨ 每日自動資料備份 (Excel) ✨
+// ===================================================================
+exports.scheduledDataBackup = onSchedule(
+  {
+    schedule: '30 23 * * *', // 每日 23:30
+    timeZone: 'Asia/Taipei',
+    timeoutSeconds: 540,
+    memory: '1GiB',
+  },
+  async (event) => {
+    logger.info('[Backup] Starting scheduled Excel data backup to Google Drive...')
+
+    try {
+      const auth = await getGoogleAuthClient()
+      const drive = google.drive({ version: 'v3', auth })
+
+      // --- 1. 準備日期和資料夾路徑 ---
+      const nowInTaipei = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }))
+      const today = new Date(
+        nowInTaipei.getFullYear(),
+        nowInTaipei.getMonth(),
+        nowInTaipei.getDate(),
+      )
+
+      const tomorrow = new Date(today)
+      tomorrow.setDate(today.getDate() + 1)
+
+      const todayStr = formatDateForQuery(today)
+      const tomorrowStr = formatDateForQuery(tomorrow)
+
+      const year = today.getFullYear()
+      const month = (today.getMonth() + 1).toString().padStart(2, '0')
+      const targetPath = ['資料備份', `${year} 年`, `${month} 月`]
+
+      // --- 2. 刪除前一天為今天建立的預備檔 ---
+      const oldPreBackupScheduleName = `${todayStr}_Schedule_PREBACKUP.xlsx`
+      const oldPreBackupAssignmentsName = `${todayStr}_Assignments_PREBACKUP.xlsx`
+
+      let parentFolderId = SHARED_DRIVE_FOLDER_ID
+      for (const folderName of targetPath) {
+        parentFolderId = await findOrCreateFolder(drive, folderName, parentFolderId)
+      }
+      await findAndDeleteFile(drive, oldPreBackupScheduleName, parentFolderId)
+      await findAndDeleteFile(drive, oldPreBackupAssignmentsName, parentFolderId)
+
+      // --- 3. 獲取所有需要的資料 ---
+      const [
+        patientsSnapshot,
+        todayScheduleDoc,
+        tomorrowScheduleDoc,
+        todayAssignmentsDoc,
+        tomorrowAssignmentsDoc,
+        masterScheduleDoc,
+      ] = await Promise.all([
+        db.collection('patients').get(),
+        db.collection('schedules').doc(todayStr).get(),
+        db.collection('schedules').doc(tomorrowStr).get(),
+        db.collection('nurse_assignments').doc(todayStr).get(),
+        db.collection('nurse_assignments').doc(tomorrowStr).get(),
+        db.collection('base_schedules').doc('MASTER_SCHEDULE').get(),
+      ])
+
+      const patientMap = new Map(patientsSnapshot.docs.map((doc) => [doc.id, doc.data()]))
+      const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+      // --- 4. 備份「每日排程」 ---
+      const generateScheduleExcel = (scheduleDoc, dateStr) => {
+        if (!scheduleDoc.exists) return null
+        const scheduleData = scheduleDoc.data().schedule || {}
+        const aoa = [['床號', '班別', '姓名', '病歷號', '狀態', '手動備註', '自動備註']]
+        for (const shiftId in scheduleData) {
+          const slot = scheduleData[shiftId]
+          const patient = patientMap.get(slot.patientId)
+          if (patient) {
+            const parts = shiftId.split('-')
+            const type = parts[0]
+            const bedNum = parts[1]
+            const shift = parts[2]
+            aoa.push([
+              type === 'peripheral' ? `外圍${bedNum}` : bedNum,
+              shift,
+              patient.name,
+              patient.medicalRecordNumber,
+              patient.status,
+              slot.manualNote || '',
+              slot.autoNote || '',
+            ])
+          }
+        }
+        const ws = XLSX.utils.aoa_to_sheet(aoa)
+        ws['!cols'] = [
+          { wch: 10 },
+          { wch: 10 },
+          { wch: 12 },
+          { wch: 12 },
+          { wch: 10 },
+          { wch: 20 },
+          { wch: 20 },
+        ]
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, `排程 ${dateStr}`)
+        return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+      }
+
+      const todayScheduleBuffer = generateScheduleExcel(todayScheduleDoc, todayStr)
+      if (todayScheduleBuffer) {
+        await uploadBufferToDrive(
+          drive,
+          todayScheduleBuffer,
+          `${todayStr}_Schedule.xlsx`,
+          mimeType,
+          targetPath,
+        )
+      }
+      const tomorrowScheduleBuffer = generateScheduleExcel(tomorrowScheduleDoc, tomorrowStr)
+      if (tomorrowScheduleBuffer) {
+        await uploadBufferToDrive(
+          drive,
+          tomorrowScheduleBuffer,
+          `${tomorrowStr}_Schedule_PREBACKUP.xlsx`,
+          mimeType,
+          targetPath,
+        )
+      }
+
+      // --- 5. ✨ 備份「護理分組」(使用新函式) ✨ ---
+      const processAndUploadAssignments = async (
+        assignmentsDoc,
+        scheduleDoc,
+        dateStr,
+        isPreBackup = false,
+      ) => {
+        if (!assignmentsDoc.exists || !scheduleDoc.exists) return
+        const assignmentsData = assignmentsDoc.data()
+        const scheduleData = scheduleDoc.data().schedule || {}
+
+        const processedData = generateAssignmentsData(
+          scheduleData,
+          assignmentsData.teams || {},
+          assignmentsData.names || {},
+          patientMap,
+        )
+        const excelBuffer = generateAssignmentsExcelBuffer(
+          processedData,
+          assignmentsData.names || {},
+        )
+
+        if (excelBuffer) {
+          const fileName = isPreBackup
+            ? `${dateStr}_Assignments_PREBACKUP.xlsx`
+            : `${dateStr}_Assignments.xlsx`
+          await uploadBufferToDrive(drive, excelBuffer, fileName, mimeType, targetPath)
+        }
+      }
+
+      await processAndUploadAssignments(todayAssignmentsDoc, todayScheduleDoc, todayStr, false)
+      await processAndUploadAssignments(
+        tomorrowAssignmentsDoc,
+        tomorrowScheduleDoc,
+        tomorrowStr,
+        true,
+      )
+
+      // --- 6. 備份「床位總表」 ---
+      if (masterScheduleDoc.exists) {
+        const masterScheduleData = masterScheduleDoc.data().schedule || {}
+        const aoa = [['姓名', '病歷號', '狀態', '頻率', '床號', '班別', '手動備註', '自動備註']]
+        const shiftMap = { 0: '早班', 1: '午班', 2: '晚班' }
+        for (const patientId in masterScheduleData) {
+          const rule = masterScheduleData[patientId]
+          const patient = patientMap.get(patientId)
+          if (patient) {
+            aoa.push([
+              patient.name,
+              patient.medicalRecordNumber,
+              patient.status,
+              rule.freq,
+              rule.bedNum,
+              shiftMap[rule.shiftIndex] || '未知',
+              rule.manualNote || '',
+              rule.autoNote || '',
+            ])
+          }
+        }
+        const ws = XLSX.utils.aoa_to_sheet(aoa)
+        ws['!cols'] = [
+          { wch: 12 },
+          { wch: 12 },
+          { wch: 10 },
+          { wch: 12 },
+          { wch: 10 },
+          { wch: 10 },
+          { wch: 25 },
+          { wch: 25 },
+        ]
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, '總床位表')
+        const masterScheduleBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+        await uploadBufferToDrive(
+          drive,
+          masterScheduleBuffer,
+          `${todayStr}_MasterSchedule.xlsx`,
+          mimeType,
+          targetPath,
+        )
+      }
+
+      logger.info('[Backup] Scheduled Excel data backup to Google Drive completed successfully.')
+    } catch (error) {
+      logger.error('[Backup] Scheduled Excel data backup failed:', error)
+    }
+  },
+)
 
 // ===================================================================
 // 🔥 基礎同步 + 兩階調班處理（統一流程）
@@ -1905,7 +2404,6 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 exports.processLabReport = onCall(
   { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
-    const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
     if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
@@ -2097,7 +2595,6 @@ exports.processLabReport = onCall(
 exports.processConsumables = onCall(
   { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
-    const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
     if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
@@ -2280,7 +2777,6 @@ exports.processConsumables = onCall(
 exports.processOrders = onCall(
   { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
   async (request) => {
-    const XLSX = require('xlsx')
     const allowedRoles = ['admin', 'editor', 'contributor']
     if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')

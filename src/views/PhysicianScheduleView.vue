@@ -1,3 +1,4 @@
+<!-- 檔案路徑: src/views/PhysicianScheduleView.vue (整合病人搜尋功能) -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -24,20 +25,25 @@
       </div>
     </header>
 
-    <!-- ✨✨✨ 結構修正點 ✨✨✨ -->
     <div class="tabs-container">
       <div class="tabs-left">
         <a
           class="tab-link"
           :class="{ active: activeTab === 'dialysis' }"
           @click="activeTab = 'dialysis'"
-          >洗腎室/ICU 查房</a
+          >查房</a
         >
         <a
           class="tab-link"
           :class="{ active: activeTab === 'consultation' }"
           @click="activeTab = 'consultation'"
-          >腎臟科會診</a
+          >會診</a
+        >
+        <a
+          class="tab-link"
+          :class="{ active: activeTab === 'emergency' }"
+          @click="activeTab = 'emergency'"
+          >緊急出勤</a
         >
       </div>
       <div class="mobile-view-toggle">
@@ -60,7 +66,6 @@
         <!--   洗腎室/ICU 查房班表      -->
         <!-- ========================== -->
         <div v-if="activeTab === 'dialysis'">
-          <!-- 桌機/行動版週曆視圖 (查房) -->
           <div class="desktop-view" :class="{ 'mobile-week-view': mobileDisplayMode === 'week' }">
             <table v-if="!isLoading" class="schedule-table weekly-grid">
               <thead>
@@ -159,7 +164,6 @@
               </tbody>
             </table>
           </div>
-          <!-- 行動版日曆列表視圖 (查房) -->
           <div class="mobile-day-view" v-if="mobileDisplayMode === 'day'">
             <div
               v-for="day in dailyData"
@@ -199,7 +203,6 @@
         <!--     腎臟科會診班表         -->
         <!-- ========================== -->
         <div v-if="activeTab === 'consultation'">
-          <!-- 桌機/行動版週曆視圖 (會診) -->
           <div class="desktop-view" :class="{ 'mobile-week-view': mobileDisplayMode === 'week' }">
             <table v-if="!isLoading" class="schedule-table weekly-grid">
               <thead>
@@ -307,7 +310,6 @@
               </tbody>
             </table>
           </div>
-          <!-- 行動版日曆列表視圖 (會診) -->
           <div class="mobile-day-view" v-if="mobileDisplayMode === 'day'">
             <div
               v-for="day in dailyData"
@@ -351,11 +353,166 @@
             </div>
           </div>
         </div>
+
+        <!-- ========================== -->
+        <!--     緊急出勤紀錄           -->
+        <!-- ========================== -->
+        <div v-if="activeTab === 'emergency'">
+          <!-- 桌面版檢視 -->
+          <div class="desktop-view">
+            <div class="emergency-container">
+              <div class="emergency-toolbar">
+                <p class="emergency-description">
+                  此處紀錄的為**本月**發生的緊急出勤事件。此資料將會與查房、會診班表一同儲存。
+                </p>
+                <!-- ✨ 2. [核心修改] 新增匯出按鈕 -->
+                <button @click="exportEmergencyRecords" class="btn btn-secondary">
+                  <i class="fas fa-file-excel"></i> 匯出 Excel
+                </button>
+              </div>
+              <div class="emergency-table-wrapper">
+                <table class="emergency-table">
+                  <thead>
+                    <tr>
+                      <th class="col-emergency-date">日期</th>
+                      <th class="col-emergency-name">病人姓名</th>
+                      <th class="col-emergency-mrn">病歷號</th>
+                      <th class="col-emergency-reason">出勤原因</th>
+                      <th class="col-emergency-time">起 (時:分)</th>
+                      <th class="col-emergency-time">迄 (時:分)</th>
+                      <th class="col-emergency-physician">出勤醫師</th>
+                      <th class="col-emergency-actions">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(record, index) in emergencyRecords" :key="index">
+                      <td><input type="date" v-model="record.date" class="emergency-input" /></td>
+                      <td>
+                        <div class="autocomplete-wrapper">
+                          <input
+                            type="text"
+                            v-model="record.patientName"
+                            @input="handlePatientSearch(index, 'emergency')"
+                            @focus="showAutocomplete($event, index, 'emergency')"
+                            @blur="hideAutocomplete"
+                            placeholder="搜尋或手動輸入..."
+                            class="emergency-input"
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          v-model="record.medicalRecordNumber"
+                          placeholder="選填"
+                          class="emergency-input"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          v-model="record.reason"
+                          required
+                          class="emergency-input"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="time"
+                          v-model="record.startTime"
+                          required
+                          class="emergency-input"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="time"
+                          v-model="record.endTime"
+                          required
+                          class="emergency-input"
+                        />
+                      </td>
+                      <td>
+                        <select v-model="record.physicianId" required class="emergency-input">
+                          <option :value="null">請選擇</option>
+                          <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
+                            {{ doc.name }}
+                          </option>
+                        </select>
+                      </td>
+                      <td>
+                        <button
+                          @click="removeEmergencyRecord(index)"
+                          class="btn-icon btn-delete"
+                          title="刪除此行"
+                        >
+                          <i class="fas fa-trash-alt"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <button @click="addEmergencyRecord" class="btn-add-row">
+                <i class="fas fa-plus"></i> 新增一筆紀錄
+              </button>
+            </div>
+          </div>
+          <!-- ✨ 3. [核心修改] 新增行動版檢視 -->
+          <div class="mobile-day-view">
+            <div class="emergency-toolbar-mobile">
+              <button @click="addEmergencyRecord" class="btn btn-primary">
+                <i class="fas fa-plus"></i> 新增紀錄
+              </button>
+              <button @click="exportEmergencyRecords" class="btn btn-secondary">
+                <i class="fas fa-file-excel"></i> 匯出
+              </button>
+            </div>
+            <div
+              v-if="emergencyRecords.length > 0"
+              v-for="(record, index) in emergencyRecords"
+              :key="`mobile-${index}`"
+              class="mobile-emergency-card"
+            >
+              <div class="card-header">
+                <div class="header-info">
+                  <span class="card-date">{{ record.date }}</span>
+                  <span class="card-physician">{{ getPhysicianNameById(record.physicianId) }}</span>
+                </div>
+                <button
+                  @click="removeEmergencyRecord(index)"
+                  class="btn-icon btn-delete"
+                  title="刪除此行"
+                >
+                  <i class="fas fa-trash-alt"></i>
+                </button>
+              </div>
+              <div class="card-body">
+                <div class="info-row">
+                  <strong class="label">病患:</strong>
+                  <span
+                    >{{ record.patientName || 'N/A' }} ({{
+                      record.medicalRecordNumber || 'N/A'
+                    }})</span
+                  >
+                </div>
+                <div class="info-row">
+                  <strong class="label">時間:</strong>
+                  <span>{{ record.startTime }} - {{ record.endTime }}</span>
+                </div>
+                <div class="info-row reason">
+                  <strong class="label">原因:</strong>
+                  <p>{{ record.reason }}</p>
+                </div>
+              </div>
+            </div>
+            <p v-else class="no-data-text">本月尚無緊急出勤紀錄</p>
+          </div>
+        </div>
       </div>
 
       <!-- 右欄：所有輔助面板 (完全共用) -->
       <div class="panels-container">
-        <!-- 1. 桌面版面板結構 (預設顯示) -->
         <div class="desktop-panels">
           <div class="physician-legend-panel">
             <h2>醫師資訊與門診設定</h2>
@@ -592,8 +749,6 @@
             </div>
           </div>
         </div>
-
-        <!-- 2. 行動版面板結構 (預設隱藏) -->
         <div class="mobile-panels">
           <div class="panel-group">
             <div class="panel physician-legend-panel">
@@ -872,6 +1027,18 @@
         </div>
       </div>
     </main>
+
+    <ul v-if="isAutocompleteVisible" class="global-autocomplete-results" :style="autocompleteStyle">
+      <li
+        v-for="p in patientSearchResults"
+        :key="p.id"
+        @mousedown.prevent="selectPatient(p, activeSearch.index, activeSearch.type)"
+      >
+        {{ p.name }} ({{ p.medicalRecordNumber }})
+      </li>
+      <li v-if="patientSearchResults.length === 0" class="no-results">無符合結果</li>
+    </ul>
+
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
@@ -889,11 +1056,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
 import ApiManager from '@/services/api_manager.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { usePatientStore } from '@/stores/patientStore.js'
+import { storeToRefs } from 'pinia'
+import * as XLSX from 'xlsx' // ✨ 2. [核心修改] 引入 xlsx 函式庫
+
+// 初始化 Pinia Store
+const patientStore = usePatientStore()
+const { allPatients } = storeToRefs(patientStore)
 
 // --- API 管理器 ---
 const usersApi = ApiManager('users')
@@ -915,6 +1089,13 @@ const activeMobilePanel = ref('physicians')
 
 const activeTab = ref('dialysis')
 const consultationScheduleData = ref({}) // 會診班表
+const emergencyRecords = ref([]) // 緊急出勤紀錄
+
+// 病人搜尋相關狀態
+const activeSearch = ref({ type: null, index: -1 })
+const patientSearchResults = ref([])
+const isAutocompleteVisible = ref(false)
+const autocompleteStyle = reactive({ top: '0px', left: '0px', width: '0px' })
 
 // --- 面板資料 (Refs) ---
 const bloodDrawDate1 = ref('')
@@ -934,7 +1115,6 @@ const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const cancelAction = ref(null)
 
-// ... (靜態資料保持不變) ...
 const holidays2025 = [
   { name: '中華民國開國紀念日', date: '2025-01-01' },
   { name: '農曆除夕', date: '2025-01-28' },
@@ -956,7 +1136,7 @@ const physicianColorClasses = [
   'physician-color-5',
 ]
 
-// ... (所有 Computed 屬性保持不變) ...
+// ... Computed 屬性 ...
 const statusText = computed(() => (hasUnsavedChanges.value ? '有未儲存的變更' : '所有變更已儲存'))
 const selectedYear = computed(() => selectedDate.value.getFullYear())
 const selectedMonth = computed(() => selectedDate.value.getMonth() + 1)
@@ -1013,7 +1193,9 @@ const weeklyData = computed(() => {
   daysInMonth.value.forEach((dayInfo, index) => {
     currentWeek.push({
       ...dayInfo,
-      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(dayInfo.day).padStart(2, '0')}`,
+      fullDate: `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+        dayInfo.day,
+      ).padStart(2, '0')}`,
     })
     if (currentWeek.length === 7 || index === daysInMonth.value.length - 1) {
       while (currentWeek.length < 7) {
@@ -1065,7 +1247,10 @@ const scheduleStats = computed(() => {
         const date = new Date(year, monthNum - 1, day)
         const dayOfWeek = date.getDay()
         const isWeekend = dayOfWeek === 0 || dayOfWeek === 6
-        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        const dateStr = `${year}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(
+          2,
+          '0',
+        )}`
         const isHoliday = monthHolidays.has(dateStr)
         ;['early', 'noon', 'late'].forEach((shift) => {
           if (monthSchedule[day]?.[shift]?.physicianId === doc.id) {
@@ -1091,9 +1276,46 @@ const physicianClassMap = computed(() => {
   return map
 })
 
-// --- Functions (方法) ---
+// --- Methods (方法) ---
+function handlePatientSearch(index, type) {
+  if (type !== 'emergency') return
+  const query = emergencyRecords.value[index].patientName.toLowerCase()
+  if (!query) {
+    patientSearchResults.value = []
+    return
+  }
+  patientSearchResults.value = allPatients.value.filter(
+    (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
+  )
+}
 
-// ✨ --- 【核心修正點】在這裡 --- ✨
+function showAutocomplete(event, index, type) {
+  activeSearch.value = { type, index }
+  handlePatientSearch(index, type)
+  const inputElement = event.target
+  const rect = inputElement.getBoundingClientRect()
+  autocompleteStyle.top = `${rect.bottom + window.scrollY}px`
+  autocompleteStyle.left = `${rect.left + window.scrollX}px`
+  autocompleteStyle.width = `${rect.width}px`
+  isAutocompleteVisible.value = true
+}
+
+function hideAutocomplete() {
+  setTimeout(() => {
+    isAutocompleteVisible.value = false
+  }, 200)
+}
+
+function selectPatient(patient, index, type) {
+  if (type === 'emergency') {
+    const record = emergencyRecords.value[index]
+    record.patientId = patient.id
+    record.patientName = patient.name
+    record.medicalRecordNumber = patient.medicalRecordNumber
+  }
+  isAutocompleteVisible.value = false
+}
+
 async function loadScheduleForDate(date) {
   isLoading.value = true
   hasUnsavedChanges.value = false
@@ -1102,19 +1324,17 @@ async function loadScheduleForDate(date) {
   const yearMonth = `${year}-${String(month).padStart(2, '0')}`
 
   try {
-    // 步驟 0 (不變): 讀取年度資料和該月份的既有資料
     await fetchAllYearSchedules(year, month)
     const existingSchedule = await physicianSchedulesApi.fetchById(yearMonth)
 
-    // 步驟 1 (修正): 先用空白範本初始化兩個班表資料物件
     scheduleData.value = generateBlankSchedule(year, month, availablePhysicians.value)
     consultationScheduleData.value = generateBlankConsultationSchedule(
       year,
       month,
       availablePhysicians.value,
     )
+    emergencyRecords.value = []
 
-    // 初始化 PD selections
     const pdSelections = {}
     availablePhysicians.value.forEach((doc) => {
       pdSelections[doc.id] = [
@@ -1123,11 +1343,7 @@ async function loadScheduleForDate(date) {
       ]
     })
 
-    // 步驟 2 (修正): 如果有已儲存的資料，才用它來 "覆蓋" 範本
     if (existingSchedule) {
-      console.log(`[Schedule] 成功讀取 ${yearMonth} 的已存班表。`)
-
-      // 使用迴圈來深度合併，避免清空整個物件
       if (existingSchedule.schedule) {
         for (const day in existingSchedule.schedule) {
           if (scheduleData.value[day]) {
@@ -1135,7 +1351,6 @@ async function loadScheduleForDate(date) {
           }
         }
       }
-
       if (existingSchedule.consultationSchedule) {
         for (const day in existingSchedule.consultationSchedule) {
           if (consultationScheduleData.value[day]) {
@@ -1146,8 +1361,9 @@ async function loadScheduleForDate(date) {
           }
         }
       }
-
-      // 其他資料的載入邏輯保持不變
+      if (Array.isArray(existingSchedule.emergencyRecords)) {
+        emergencyRecords.value = existingSchedule.emergencyRecords
+      }
       scheduleNotes.value = existingSchedule.notes || ''
       const dates = existingSchedule.specialDates || {}
       bloodDrawDate1.value = dates.bloodDraw1 || ''
@@ -1167,8 +1383,6 @@ async function loadScheduleForDate(date) {
         }
       }
     } else {
-      console.log(`[Schedule] ${yearMonth} 班表不存在，已生成初始範本。`)
-      // 因為前面已經生成範本，這裡清空其他相關資料即可
       scheduleNotes.value = ''
       bloodDrawDate1.value = ''
       bloodDrawDate2.value = ''
@@ -1176,14 +1390,13 @@ async function loadScheduleForDate(date) {
       reportDate2.value = ''
       managedHolidays.value = []
     }
-
     monthlyPdClinicSelections.value = pdSelections
   } catch (error) {
     console.error(`讀取 ${yearMonth} 班表失敗:`, error)
     showAlert('讀取失敗', `讀取 ${yearMonth} 班表時發生錯誤。`)
-    // 發生錯誤時也清空資料
     scheduleData.value = {}
     consultationScheduleData.value = {}
+    emergencyRecords.value = []
   } finally {
     isLoading.value = false
     nextTick(() => {
@@ -1192,29 +1405,86 @@ async function loadScheduleForDate(date) {
   }
 }
 
-// ... (所有其他函式和生命週期鉤子保持不變) ...
-function toggleMobilePanel(panelName) {
-  if (activeMobilePanel.value === panelName) {
-    activeMobilePanel.value = null
-  } else {
-    activeMobilePanel.value = panelName
+function addEmergencyRecord() {
+  const today = new Date()
+  const year = selectedYear.value
+  const month = selectedMonth.value - 1
+  const defaultDate =
+    today.getFullYear() === year && today.getMonth() === month
+      ? today.toISOString().slice(0, 10)
+      : new Date(year, month, 1).toISOString().slice(0, 10)
+
+  emergencyRecords.value.push({
+    patientId: null,
+    date: defaultDate,
+    patientName: '',
+    medicalRecordNumber: '',
+    reason: '緊急透析',
+    startTime: '00:00',
+    endTime: '00:00',
+    physicianId: null,
+  })
+}
+
+function removeEmergencyRecord(index) {
+  emergencyRecords.value.splice(index, 1)
+}
+
+function saveScheduleOnly() {
+  const physicianMap = new Map(availablePhysicians.value.map((p) => [p.id, p.name]))
+  const dataToSave = {
+    year: selectedYear.value,
+    month: selectedMonth.value,
+    schedule: {},
+    consultationSchedule: {},
+    emergencyRecords: emergencyRecords.value.filter(
+      (r) => r.date && r.reason && r.startTime && r.endTime && r.physicianId,
+    ),
+    notes: scheduleNotes.value,
+    specialDates: {
+      bloodDraw1: bloodDrawDate1.value,
+      bloodDraw2: bloodDrawDate2.value,
+      report1: reportDate1.value,
+      report2: reportDate2.value,
+    },
+    pdClinicHours: {},
+    managedHolidays: managedHolidays.value,
   }
-}
-function getWeekday(dateString) {
-  const date = new Date(dateString)
-  return new Intl.DateTimeFormat('zh-TW', { weekday: 'long' }).format(date)
-}
-function getPhysicianDisplayName(day, shift, scheduleType = 'dialysis') {
-  if (!day || !day.day) return '--'
-  const targetSchedule =
-    scheduleType === 'dialysis' ? scheduleData.value : consultationScheduleData.value
-  const physicianId = targetSchedule[day.day]?.[shift]?.physicianId
-  if (physicianId) {
-    const physician = availablePhysicians.value.find((doc) => doc.id === physicianId)
-    return physician ? getDisplayName(physician) : '--'
+  for (const docId in monthlyPdClinicSelections.value) {
+    const validPdHours = monthlyPdClinicSelections.value[docId].filter((pd) => pd.date && pd.shift)
+    if (validPdHours.length > 0) {
+      dataToSave.pdClinicHours[docId] = validPdHours
+    }
   }
-  return '--'
+  for (const day in scheduleData.value) {
+    if (typeof scheduleData.value[day] !== 'object' || scheduleData.value[day] === null) continue
+    dataToSave.schedule[day] = {}
+    for (const shift of ['early', 'noon', 'late']) {
+      const physicianId = scheduleData.value[day][shift]?.physicianId || null
+      dataToSave.schedule[day][shift] = {
+        physicianId: physicianId,
+        name: physicianMap.get(physicianId) || null,
+      }
+    }
+  }
+  for (const day in consultationScheduleData.value) {
+    if (
+      typeof consultationScheduleData.value[day] !== 'object' ||
+      consultationScheduleData.value[day] === null
+    )
+      continue
+    dataToSave.consultationSchedule[day] = {}
+    for (const shift of ['morning', 'afternoon', 'night']) {
+      const physicianId = consultationScheduleData.value[day][shift]?.physicianId || null
+      dataToSave.consultationSchedule[day][shift] = {
+        physicianId: physicianId,
+        name: physicianMap.get(physicianId) || null,
+      }
+    }
+  }
+  return physicianSchedulesApi.save(selectedYearMonth.value, dataToSave)
 }
+
 async function fetchPhysicians() {
   try {
     const physicians = await usersApi.fetchAll([where('title', '==', '主治醫師')])
@@ -1239,6 +1509,7 @@ async function fetchPhysicians() {
     showAlert('錯誤', '無法從使用者列表讀取主治醫師資料。')
   }
 }
+
 function generateBlankSchedule(year, month, physicians) {
   const blankSchedule = {}
   const daysCount = new Date(year, month, 0).getDate()
@@ -1266,6 +1537,7 @@ function generateBlankSchedule(year, month, physicians) {
   })
   return blankSchedule
 }
+
 function generateBlankConsultationSchedule(year, month, physicians) {
   const blankSchedule = {}
   const daysCount = new Date(year, month, 0).getDate()
@@ -1296,6 +1568,7 @@ function generateBlankConsultationSchedule(year, month, physicians) {
   })
   return blankSchedule
 }
+
 async function saveAllChanges() {
   isLoading.value = true
   const schedulePromise = saveScheduleOnly()
@@ -1320,6 +1593,7 @@ async function saveAllChanges() {
     isLoading.value = false
   }
 }
+
 function addHoliday() {
   const name =
     holidayForm.value.name === 'custom' ? holidayForm.value.customName : holidayForm.value.name
@@ -1336,9 +1610,11 @@ function addHoliday() {
   managedHolidays.value.sort((a, b) => a.date.localeCompare(b.date))
   holidayForm.value = { name: '', customName: '', date: '' }
 }
+
 function removeHoliday(index) {
   managedHolidays.value.splice(index, 1)
 }
+
 function checkClinicConflict(event, day, shift) {
   const newPhysicianId = event.target.value
   if (!newPhysicianId) return
@@ -1346,7 +1622,9 @@ function checkClinicConflict(event, day, shift) {
   if (!physician) return
   const date = new Date(selectedYear.value, selectedMonth.value - 1, day.day)
   const dayOfWeek = date.getDay()
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+    day.day,
+  ).padStart(2, '0')}`
   const shiftToCodeMapping = {
     early: 'AM',
     noon: 'PM',
@@ -1385,12 +1663,15 @@ function checkClinicConflict(event, day, shift) {
     isConfirmDialogVisible.value = true
   }
 }
+
 function getDisplayName(physician) {
   return physician.name === '蔡亨政' ? '政' : physician.name.charAt(0)
 }
+
 function getPhysicianClassById(physicianId) {
   return physicianId ? physicianClassMap.value.get(physicianId) : ''
 }
+
 function getPhysicianClass(day, shift, scheduleType = 'dialysis') {
   if (!day || !day.day) return ''
   const targetSchedule =
@@ -1398,21 +1679,28 @@ function getPhysicianClass(day, shift, scheduleType = 'dialysis') {
   const physicianId = targetSchedule[day.day]?.[shift]?.physicianId
   return getPhysicianClassById(physicianId)
 }
+
 function getDayClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+    day.day,
+  ).padStart(2, '0')}`
   if (specialDatesSet.value.has(dateStr)) return 'is-special-date'
   if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday'
   if (day.isWeekend) return 'is-weekend'
   return 'is-weekday'
 }
+
 function getShiftCellClass(day) {
   if (!day || !day.day) return 'is-empty'
-  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(day.day).padStart(2, '0')}`
+  const dateStr = `${selectedYear.value}-${String(selectedMonth.value).padStart(2, '0')}-${String(
+    day.day,
+  ).padStart(2, '0')}`
   if (managedHolidays.value.some((h) => h.date === dateStr)) return 'is-holiday-text-only'
   if (day.isWeekend) return 'is-weekend-text-only'
   return ''
 }
+
 async function fetchAllYearSchedules(year, endMonth) {
   try {
     const schedules = await physicianSchedulesApi.fetchAll([
@@ -1429,6 +1717,7 @@ async function fetchAllYearSchedules(year, endMonth) {
     throw new Error(`獲取 ${year} 年的年度排班資料時發生錯誤。`)
   }
 }
+
 async function loadAllData() {
   isLoading.value = true
   try {
@@ -1441,60 +1730,7 @@ async function loadAllData() {
     isLoading.value = false
   }
 }
-function saveScheduleOnly() {
-  const physicianMap = new Map(availablePhysicians.value.map((p) => [p.id, p.name]))
-  const dataToSave = {
-    year: selectedYear.value,
-    month: selectedMonth.value,
-    schedule: {},
-    consultationSchedule: {},
-    notes: scheduleNotes.value,
-    specialDates: {
-      bloodDraw1: bloodDrawDate1.value,
-      bloodDraw2: bloodDrawDate2.value,
-      report1: reportDate1.value,
-      report2: reportDate2.value,
-    },
-    pdClinicHours: {},
-    managedHolidays: managedHolidays.value,
-  }
-  for (const docId in monthlyPdClinicSelections.value) {
-    const validPdHours = monthlyPdClinicSelections.value[docId].filter((pd) => pd.date && pd.shift)
-    if (validPdHours.length > 0) {
-      dataToSave.pdClinicHours[docId] = validPdHours
-    }
-  }
-  for (const day in scheduleData.value) {
-    if (typeof scheduleData.value[day] !== 'object' || scheduleData.value[day] === null) {
-      continue
-    }
-    dataToSave.schedule[day] = {}
-    for (const shift of ['early', 'noon', 'late']) {
-      const physicianId = scheduleData.value[day][shift]?.physicianId || null
-      dataToSave.schedule[day][shift] = {
-        physicianId: physicianId,
-        name: physicianMap.get(physicianId) || null,
-      }
-    }
-  }
-  for (const day in consultationScheduleData.value) {
-    if (
-      typeof consultationScheduleData.value[day] !== 'object' ||
-      consultationScheduleData.value[day] === null
-    ) {
-      continue
-    }
-    dataToSave.consultationSchedule[day] = {}
-    for (const shift of ['morning', 'afternoon', 'night']) {
-      const physicianId = consultationScheduleData.value[day][shift]?.physicianId || null
-      dataToSave.consultationSchedule[day][shift] = {
-        physicianId: physicianId,
-        name: physicianMap.get(physicianId) || null,
-      }
-    }
-  }
-  return physicianSchedulesApi.save(selectedYearMonth.value, dataToSave)
-}
+
 function goToPreviousMonth() {
   const performNavigation = () => {
     selectedDate.value = new Date(selectedDate.value.setMonth(selectedDate.value.getMonth() - 1))
@@ -1509,6 +1745,7 @@ function goToPreviousMonth() {
     performNavigation()
   }
 }
+
 function goToNextMonth() {
   const performNavigation = () => {
     selectedDate.value = new Date(selectedDate.value.setMonth(selectedDate.value.getMonth() + 1))
@@ -1523,18 +1760,21 @@ function goToNextMonth() {
     performNavigation()
   }
 }
+
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') {
     confirmAction.value()
   }
   resetConfirmDialog()
 }
+
 function handleCancel() {
   if (typeof cancelAction.value === 'function') {
     cancelAction.value()
   }
   resetConfirmDialog()
 }
+
 function resetConfirmDialog() {
   isConfirmDialogVisible.value = false
   confirmDialogTitle.value = ''
@@ -1542,19 +1782,160 @@ function resetConfirmDialog() {
   confirmAction.value = null
   cancelAction.value = null
 }
+
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
-onMounted(() => {
-  loadAllData()
+
+function getWeekday(dateString) {
+  const date = new Date(dateString)
+  return new Intl.DateTimeFormat('zh-TW', { weekday: 'long' }).format(date)
+}
+
+function getPhysicianDisplayName(day, shift, scheduleType = 'dialysis') {
+  if (!day || !day.day) return '--'
+  const targetSchedule =
+    scheduleType === 'dialysis' ? scheduleData.value : consultationScheduleData.value
+  const physicianId = targetSchedule[day.day]?.[shift]?.physicianId
+  if (physicianId) {
+    const physician = availablePhysicians.value.find((doc) => doc.id === physicianId)
+    return physician ? getDisplayName(physician) : '--'
+  }
+  return '--'
+}
+
+function toggleMobilePanel(panelName) {
+  if (activeMobilePanel.value === panelName) {
+    activeMobilePanel.value = null
+  } else {
+    activeMobilePanel.value = panelName
+  }
+}
+
+// ✨ 2. [核心修改] 新增 Excel 匯出函式
+function exportEmergencyRecords() {
+  if (emergencyRecords.value.length === 0) {
+    showAlert('提示', '沒有緊急出勤紀錄可供匯出。')
+    return
+  }
+
+  // --- 1. 準備資料 ---
+  const aoa = []
+  const title = `${selectedMonth.value}月 腎臟科醫師緊急出勤名單`
+  const headerRow = ['日期', '病人姓名', '病歷號', '出勤原因', '起(時分)', '迄(時分)', '出勤醫師']
+
+  aoa.push([title])
+  aoa.push(headerRow)
+
+  const sortedRecords = [...emergencyRecords.value].sort((a, b) => a.date.localeCompare(b.date))
+  sortedRecords.forEach((r) => {
+    aoa.push([
+      r.date,
+      r.patientName,
+      r.medicalRecordNumber,
+      r.reason,
+      r.startTime,
+      r.endTime,
+      getPhysicianNameById(r.physicianId),
+    ])
+  })
+
+  // --- 2. 建立工作表 ---
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+
+  // --- 3. (✨ 核心修正 ✨) 定義樣式物件 ---
+  const titleStyle = {
+    font: { sz: 16, bold: true },
+    alignment: { horizontal: 'center', vertical: 'center' },
+  }
+  const headerStyle = {
+    font: { bold: true },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    fill: { fgColor: { rgb: 'F0F0F0' } }, // 淺灰色背景
+  }
+  const centerCellStyle = {
+    alignment: { horizontal: 'center', vertical: 'center' },
+  }
+  const reasonCellStyle = {
+    // 為"出勤原因"欄位特別設定
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  }
+
+  // --- 4. (✨ 核心修正 ✨) 遍歷並套用樣式 ---
+  const range = XLSX.utils.decode_range(ws['!ref'])
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cell_ref = XLSX.utils.encode_cell({ c: C, r: R })
+      if (!ws[cell_ref]) continue
+
+      if (R === 0) {
+        // 標題列
+        ws[cell_ref].s = titleStyle
+      } else if (R === 1) {
+        // 標頭列
+        ws[cell_ref].s = headerStyle
+      } else {
+        // 資料列
+        // 判斷是否為 "出勤原因" 欄 (索引為 3)
+        if (C === 3) {
+          ws[cell_ref].s = reasonCellStyle
+        } else {
+          ws[cell_ref].s = centerCellStyle
+        }
+      }
+    }
+  }
+
+  // --- 5. 合併標題列儲存格 ---
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headerRow.length - 1 } }]
+
+  // --- 6. 設定欄位寬度 ---
+  ws['!cols'] = [
+    { wch: 15 }, // 日期
+    { wch: 15 }, // 病人姓名
+    { wch: 12 }, // 病歷號
+    { wch: 35 }, // 出勤原因 (加寬)
+    { wch: 15 }, // 起始時間
+    { wch: 15 }, // 結束時間
+    { wch: 15 }, // 出勤醫師
+  ]
+
+  // --- 7. 建立工作簿並下載 ---
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '緊急出勤紀錄')
+  XLSX.writeFile(wb, `醫師緊急出勤紀錄_${selectedYear.value}-${selectedMonth.value}.xlsx`)
+}
+
+// ✨ 3. [核心修改] 新增一個輔助函式，用於在行動版卡片上顯示醫師姓名
+function getPhysicianNameById(physicianId) {
+  if (!physicianId) return '未指定'
+  const physician = availablePhysicians.value.find((p) => p.id === physicianId)
+  return physician ? physician.name : '未知醫師'
+}
+
+onMounted(async () => {
+  isLoading.value = true
+  try {
+    // 確保病人資料先被載入
+    await patientStore.fetchPatientsIfNeeded()
+    // 然後再載入所有班表相關資料
+    await loadAllData()
+  } catch (error) {
+    console.error('頁面初始化失敗:', error)
+    showAlert('初始化失敗', '載入頁面所需資料時發生錯誤，請重新整理。')
+  } finally {
+    isLoading.value = false
+  }
 })
+
 watch(selectedYearMonth, (newVal, oldVal) => {
   if (newVal !== oldVal) {
     loadScheduleForDate(selectedDate.value)
   }
 })
+
 watch(
   () => holidayForm.value.name,
   (newName) => {
@@ -1565,6 +1946,14 @@ watch(
       }
     }
   },
+)
+
+watch(
+  emergencyRecords,
+  () => {
+    if (!isLoading.value) hasUnsavedChanges.value = true
+  },
+  { deep: true },
 )
 watch(
   scheduleData,
@@ -1620,10 +2009,244 @@ watch(
 
 <style scoped>
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
-
 :root {
   --panel-border-color: #dee2e6;
 }
+
+/* =================================== */
+/*        緊急出勤頁籤專屬樣式         */
+/* =================================== */
+
+/* 1. 調整桌面版表格欄位寬度 */
+.emergency-table .col-emergency-date {
+  width: 12%;
+  min-width: 140px;
+}
+.emergency-table .col-emergency-name {
+  width: 12%;
+  min-width: 130px;
+}
+.emergency-table .col-emergency-mrn {
+  width: 10%;
+  min-width: 100px;
+}
+.emergency-table .col-emergency-reason {
+  width: auto;
+  min-width: 180px;
+} /* 自動擴展 */
+.emergency-table .col-emergency-time {
+  width: 10%;
+  min-width: 110px;
+}
+.emergency-table .col-emergency-physician {
+  width: 12%;
+  min-width: 120px;
+}
+.emergency-table .col-emergency-actions {
+  width: 8%;
+  min-width: 60px;
+}
+
+/* 2. 緊急出勤頁籤的 Toolbar (桌面版與行動版) */
+.emergency-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.emergency-toolbar-mobile {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+/* 通用按鈕樣式 (給匯出、新增按鈕使用) */
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+.btn-primary:hover {
+  background-color: #0056b3;
+}
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+  border-color: #6c757d;
+}
+.btn-secondary:hover {
+  background-color: #5a6268;
+}
+
+/* 3. 新增緊急出勤行動版卡片樣式 */
+.mobile-emergency-card {
+  background-color: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.mobile-emergency-card .card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e9ecef;
+}
+.mobile-emergency-card .header-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.mobile-emergency-card .card-date {
+  font-weight: bold;
+}
+.mobile-emergency-card .card-physician {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #007bff;
+}
+.mobile-emergency-card .card-body {
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.mobile-emergency-card .info-row {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+.mobile-emergency-card .info-row .label {
+  font-weight: 500;
+  color: #6c757d;
+  flex-shrink: 0;
+}
+.mobile-emergency-card .info-row.reason {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.mobile-emergency-card .info-row.reason p {
+  margin: 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid #e9ecef;
+  word-break: break-all;
+}
+.no-data-text {
+  color: #6c757d;
+  font-style: italic;
+  padding: 2rem 0;
+  text-align: center;
+}
+.emergency-container {
+  padding: 1.5rem;
+}
+.emergency-description {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  font-size: 1rem;
+  color: #6c757d;
+  background-color: #f8f9fa;
+  border-left: 4px solid #17a2b8;
+  padding: 1rem;
+  border-radius: 4px;
+}
+.emergency-table-wrapper {
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+.emergency-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 950px; /* 確保在小螢幕上可以滾動 */
+}
+.emergency-table th,
+.emergency-table td {
+  border: 1px solid #dee2e6;
+  padding: 0.5rem;
+  text-align: center;
+  vertical-align: middle;
+}
+.emergency-table th {
+  background-color: #e9ecef;
+}
+.emergency-input {
+  width: 100%;
+  padding: 0.375rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.emergency-table select.emergency-input {
+  text-align: center;
+}
+.btn-add-row {
+  padding: 0.5rem 1rem;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.btn-add-row:hover {
+  background-color: #0056b3;
+}
+.btn-icon.btn-delete {
+  color: #dc3545;
+}
+
+/* 自動完成選單的樣式 */
+.autocomplete-wrapper {
+  position: relative;
+}
+:deep(.global-autocomplete-results) {
+  position: fixed;
+  max-height: 200px;
+  overflow-y: auto;
+  background-color: #fff;
+  border: 1px solid #ced4da;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  z-index: 1000;
+  border-radius: 4px;
+}
+:deep(.global-autocomplete-results li) {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+:deep(.global-autocomplete-results li:hover) {
+  background-color: #e9ecef;
+}
+:deep(.global-autocomplete-results .no-results) {
+  padding: 0.5rem 0.75rem;
+  color: #6c757d;
+  cursor: default;
+}
+.emergency-table .autocomplete-wrapper .emergency-input {
+  width: 100%;
+}
+
 /* =================================== */
 /*             通用佈局與元件             */
 /* =================================== */
@@ -1633,10 +2256,8 @@ watch(
   height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden; /* 桌面版預設鎖定滾動 */
+  overflow: hidden;
 }
-
-/* --- 頁首 --- */
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -1644,7 +2265,7 @@ watch(
   margin-bottom: 1rem;
   padding-bottom: 1rem;
   border-bottom: 2px solid #dee2e6;
-  flex-shrink: 0; /* ✨ 核心修改 2: 確保頁首高度固定，不被壓縮 */
+  flex-shrink: 0;
 }
 .header-left,
 .header-right {
@@ -1712,62 +2333,49 @@ watch(
   cursor: not-allowed;
   opacity: 0.7;
 }
-
-/* --- 頁籤與主內容 --- */
 .tabs-container {
   display: flex;
-  /* 移除 justify-content，讓頁籤自然靠左 */
-  align-items: flex-end; /* ✨ 新增：讓頁籤底部對齊，為下邊框做準備 */
-  gap: 0.25rem; /* 縮小頁籤間距 */
-  margin-bottom: -1px; /* ✨ 新增：讓頁籤的邊框可以覆蓋下面的主內容邊框 */
-  padding-left: 1rem; /* ✨ 新增：讓頁籤從左邊稍微內縮 */
+  align-items: flex-end;
+  gap: 0.25rem;
+  margin-bottom: -1px;
+  padding-left: 1rem;
   flex-shrink: 0;
-  /* 移除 border-bottom，我們將在父層容器 schedule-content 上處理 */
 }
 .tabs-left {
   display: flex;
 }
-
 .tab-link {
   padding: 0.75rem 1.5rem;
   font-size: 1.1rem;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
-  border: 1px solid transparent; /* 預設邊框透明 */
-  border-bottom: none; /* 底部無邊框 */
-  border-radius: 8px 8px 0 0; /* 圓角效果 */
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
   transition: all 0.2s ease-in-out;
-
-  /* ✨ 新增：非活躍狀態的樣式 ✨ */
-  background-color: #e9ecef; /* 更深的背景色 */
-  color: #6c757d; /* 較淡的文字顏色 */
+  background-color: #e9ecef;
+  color: #6c757d;
   border-color: #dee2e6;
 }
-
 .tab-link:hover {
-  /* ✨ 新增：更明顯的滑鼠懸停效果 ✨ */
   background-color: #f8f9fa;
   color: #0056b3;
 }
-
 .tab-link.active {
-  /* ✨ 新增：活躍狀態的樣式 ✨ */
-  background-color: #fff; /* 明亮的白色背景 */
-  color: #0056b3; /* 更深的藍色文字 */
-  font-weight: 600; /* 文字加粗 */
-  border-color: #dee2e6; /* 明確的邊框顏色 */
-  border-bottom: 1px solid #fff; /* ✨ 關鍵：用白色邊框覆蓋下方容器的邊框，製造無縫感 */
-  z-index: 2; /* 確保它在最上層 */
+  background-color: #fff;
+  color: #0056b3;
+  font-weight: 600;
+  border-color: #dee2e6;
+  border-bottom: 1px solid #fff;
+  z-index: 2;
 }
 .schedule-content.new-layout {
   flex-grow: 1;
-  min-height: 0; /* ✨ 核心修改 4: 允許子元素在此容器內滾動 */
+  min-height: 0;
   display: flex;
   gap: 1.5rem;
 }
-
-/* --- 載入中動畫 --- */
 .loading-overlay {
   position: fixed;
   top: 0;
@@ -1798,10 +2406,6 @@ watch(
     transform: rotate(360deg);
   }
 }
-
-/* =================================== */
-/*            桌面版主要樣式              */
-/* =================================== */
 .schedule-grid-container {
   flex: 2.5;
   min-width: 0;
@@ -1810,7 +2414,7 @@ watch(
   border-radius: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
   overflow: auto;
-  border-top-left-radius: 0; /* ✨ 新增：左上角變為直角，與頁籤無縫銜接 */
+  border-top-left-radius: 0;
 }
 .panels-container {
   flex: 1;
@@ -1821,7 +2425,6 @@ watch(
   gap: 1.5rem;
   padding-right: 8px;
 }
-/* --- 班表表格 --- */
 .schedule-table.weekly-grid {
   width: 100%;
   border-collapse: collapse;
@@ -1895,15 +2498,12 @@ tr.date-row {
 .physician-select:focus-within {
   background-color: rgba(0, 123, 255, 0.05);
 }
-
-/* --- 右側面板通用 --- */
 .desktop-panels {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
 }
 .desktop-panels > div {
-  /* 直接子元素就是各個 panel */
   background-color: #fff;
   padding: 1rem;
   border-radius: 8px;
@@ -1917,8 +2517,6 @@ tr.date-row {
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #e9ecef;
 }
-
-/* --- 醫師圖例/門診設定 --- */
 .legend-table-wrapper {
   overflow-x: auto;
 }
@@ -1986,8 +2584,6 @@ tr.date-row {
   outline: 0;
   box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
-
-/* --- 統計 --- */
 .stats-table {
   width: 100%;
   border-collapse: collapse;
@@ -2028,8 +2624,6 @@ tr.date-row {
   background-color: #007bff;
   color: white;
 }
-
-/* --- 其他面板 --- */
 .notes-textarea {
   width: 100%;
   box-sizing: border-box;
@@ -2135,8 +2729,6 @@ tr.date-row {
   color: #6c757d;
   font-style: italic;
 }
-
-/* --- 顏色與狀態 --- */
 .is-weekend {
   background-color: #fff0f1;
   color: #dc3545;
@@ -2188,35 +2780,23 @@ tr.date-row {
 .physician-color-5 {
   background-color: #fff8e1;
 }
-
-/* =================================== */
-/*             行動版響應式樣式           */
-/* =================================== */
-
-/* --- 初始隱藏行動版專用元件 --- */
 .mobile-view-toggle,
 .mobile-day-view,
 .mobile-readonly-text,
 .mobile-panels {
   display: none;
 }
-
 @media (max-width: 992px) {
-  /* --- 隱藏桌面版專用元件 --- */
   .hide-on-mobile,
   .desktop-panels {
     display: none !important;
   }
-
-  /* --- 顯示行動版專用元件 --- */
   .mobile-panels {
     display: block;
   }
-
-  /* --- 調整整體佈局 --- */
   .page-container {
-    height: auto; /* ✨ 新增規則 1: 讓頁面高度自動化 */
-    overflow: visible; /* ✨ 新增規則 2: 恢復頁面滾動 */
+    height: auto;
+    overflow: visible;
   }
   .page-header {
     flex-wrap: wrap;
@@ -2239,15 +2819,11 @@ tr.date-row {
     border: none;
     box-shadow: none;
     background-color: transparent;
-    /* overflow-y: visible; */ /* ✨✨✨ 核心修正點：刪除或註解掉這一行 ✨✨✨ */
   }
-
   .panels-container {
     padding-right: 0;
-    overflow-y: visible; /* 右側面板區塊維持 visible 是對的，因為我們希望它能完全展開 */
+    overflow-y: visible;
   }
-
-  /* --- 視圖切換器 --- */
   .mobile-view-toggle {
     display: flex;
     border: 1px solid #007bff;
@@ -2268,24 +2844,16 @@ tr.date-row {
     background-color: #007bff;
     color: white;
   }
-
-  /* --- 班表顯示模式 --- */
-  /* 1. 先定義在行動版中，要顯示哪些區塊 */
   .mobile-day-view,
   .desktop-view.mobile-week-view {
-    display: block; /* 明確告訴瀏覽器要顯示它們 */
+    display: block;
   }
-
-  /* 2. 然後才定義要隱藏哪個區塊 */
   .desktop-view:not(.mobile-week-view) {
     display: none;
   }
-
   .desktop-view.mobile-week-view {
     overflow-x: auto;
   }
-
-  /* 週曆唯讀模式 */
   .mobile-week-view .physician-select {
     display: none;
   }
@@ -2294,8 +2862,6 @@ tr.date-row {
     font-size: 1.5rem;
     font-weight: bold;
   }
-
-  /* 日曆卡片模式 */
   .mobile-day-card {
     background-color: #fff;
     border: 1px solid #dee2e6;
@@ -2352,8 +2918,6 @@ tr.date-row {
     font-weight: bold;
     padding: 0.5rem;
   }
-
-  /* --- 行動版可折疊面板 --- */
   .panel-group {
     display: flex;
     flex-direction: column;
@@ -2392,8 +2956,6 @@ tr.date-row {
     padding: 1rem;
     border-top: 1px solid #dee2e6;
   }
-
-  /* 微調行動版面板內部樣式 */
   .stats-header {
     justify-content: space-between;
     flex-wrap: wrap;
