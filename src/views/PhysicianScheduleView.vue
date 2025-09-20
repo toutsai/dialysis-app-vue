@@ -1419,7 +1419,7 @@ function addEmergencyRecord() {
     date: defaultDate,
     patientName: '',
     medicalRecordNumber: '',
-    reason: '',
+    reason: '緊急透析',
     startTime: '00:00',
     endTime: '00:00',
     physicianId: null,
@@ -1821,21 +1821,17 @@ function exportEmergencyRecords() {
     return
   }
 
+  // --- 1. 準備資料 ---
   const aoa = []
-
-  // 1. 建立標題列
   const title = `${selectedMonth.value}月 腎臟科醫師緊急出勤名單`
-  aoa.push([title])
-
-  // 2. 建立欄位標頭
   const headerRow = ['日期', '病人姓名', '病歷號', '出勤原因', '起(時分)', '迄(時分)', '出勤醫師']
+
+  aoa.push([title])
   aoa.push(headerRow)
 
-  // 3. 準備並排序資料列
   const sortedRecords = [...emergencyRecords.value].sort((a, b) => a.date.localeCompare(b.date))
-
   sortedRecords.forEach((r) => {
-    const dataRow = [
+    aoa.push([
       r.date,
       r.patientName,
       r.medicalRecordNumber,
@@ -1843,59 +1839,70 @@ function exportEmergencyRecords() {
       r.startTime,
       r.endTime,
       getPhysicianNameById(r.physicianId),
-    ]
-    aoa.push(dataRow)
+    ])
   })
 
-  // 4. 將資料陣列 (AOA) 轉換為工作表
+  // --- 2. 建立工作表 ---
   const ws = XLSX.utils.aoa_to_sheet(aoa)
 
-  // 5. 合併標題列的儲存格
-  const merge = { s: { r: 0, c: 0 }, e: { r: 0, c: headerRow.length - 1 } }
-  if (!ws['!merges']) ws['!merges'] = []
-  ws['!merges'].push(merge)
+  // --- 3. (✨ 核心修正 ✨) 定義樣式物件 ---
+  const titleStyle = {
+    font: { sz: 16, bold: true },
+    alignment: { horizontal: 'center', vertical: 'center' },
+  }
+  const headerStyle = {
+    font: { bold: true },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    fill: { fgColor: { rgb: 'F0F0F0' } }, // 淺灰色背景
+  }
+  const centerCellStyle = {
+    alignment: { horizontal: 'center', vertical: 'center' },
+  }
+  const reasonCellStyle = {
+    // 為"出勤原因"欄位特別設定
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+  }
 
-  // 6. 設定欄位寬度
+  // --- 4. (✨ 核心修正 ✨) 遍歷並套用樣式 ---
+  const range = XLSX.utils.decode_range(ws['!ref'])
+  for (let R = range.s.r; R <= range.e.r; ++R) {
+    for (let C = range.s.c; C <= range.e.c; ++C) {
+      const cell_ref = XLSX.utils.encode_cell({ c: C, r: R })
+      if (!ws[cell_ref]) continue
+
+      if (R === 0) {
+        // 標題列
+        ws[cell_ref].s = titleStyle
+      } else if (R === 1) {
+        // 標頭列
+        ws[cell_ref].s = headerStyle
+      } else {
+        // 資料列
+        // 判斷是否為 "出勤原因" 欄 (索引為 3)
+        if (C === 3) {
+          ws[cell_ref].s = reasonCellStyle
+        } else {
+          ws[cell_ref].s = centerCellStyle
+        }
+      }
+    }
+  }
+
+  // --- 5. 合併標題列儲存格 ---
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: headerRow.length - 1 } }]
+
+  // --- 6. 設定欄位寬度 ---
   ws['!cols'] = [
     { wch: 15 }, // 日期
     { wch: 15 }, // 病人姓名
     { wch: 12 }, // 病歷號
-    { wch: 30 }, // 出勤原因
+    { wch: 35 }, // 出勤原因 (加寬)
     { wch: 15 }, // 起始時間
     { wch: 15 }, // 結束時間
     { wch: 15 }, // 出勤醫師
   ]
 
-  // --- 7. (✨ 核心修改 ✨) 為所有儲存格添加樣式 (置中) ---
-  const range = XLSX.utils.decode_range(ws['!ref'])
-  for (let R = range.s.r; R <= range.e.r; ++R) {
-    for (let C = range.s.c; C <= range.e.c; ++C) {
-      const cell_address = { c: C, r: R }
-      const cell_ref = XLSX.utils.encode_cell(cell_address)
-
-      // 確保儲存格物件存在
-      if (!ws[cell_ref]) continue
-
-      // 為儲存格初始化樣式物件 (如果不存在)
-      if (!ws[cell_ref].s) ws[cell_ref].s = {}
-
-      // 設定水平和垂直置中
-      ws[cell_ref].s.alignment = { horizontal: 'center', vertical: 'center' }
-
-      // 為標題列設定特殊字體 (第一行)
-      if (R === 0) {
-        ws[cell_ref].s.font = { sz: 16, bold: true }
-      }
-
-      // 為欄位標頭設定特殊樣式 (第二行)
-      if (R === 1) {
-        ws[cell_ref].s.font = { bold: true }
-        ws[cell_ref].s.fill = { fgColor: { rgb: 'E9E9E9' } } // 淺灰色背景
-      }
-    }
-  }
-
-  // 8. 建立工作簿並下載檔案
+  // --- 7. 建立工作簿並下載 ---
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '緊急出勤紀錄')
   XLSX.writeFile(wb, `醫師緊急出勤紀錄_${selectedYear.value}-${selectedMonth.value}.xlsx`)
