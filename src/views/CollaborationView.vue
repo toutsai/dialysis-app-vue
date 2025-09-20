@@ -144,12 +144,23 @@
         <div class="message-section feed-messages">
           <div class="panel-header-with-filter">
             <h2 class="panel-title"><i class="fas fa-stream"></i> 病人留言板</h2>
-            <select v-model="selectedMessagePatientId" class="patient-filter-select">
-              <option value="all">顯示全部病人</option>
-              <option v-for="p in messagePatientOptions" :key="p.id" :value="p.id">
-                {{ p.name }}
-              </option>
-            </select>
+
+            <!-- ✨ 新增一個 div 來包裹篩選器 -->
+            <div class="filter-controls">
+              <!-- 篩選器 1: 顯示系統訊息的核取方塊 -->
+              <div class="filter-toggle">
+                <input type="checkbox" id="show-system-messages" v-model="showSystemMessages" />
+                <label for="show-system-messages">顯示系統訊息</label>
+              </div>
+
+              <!-- 篩選器 2: 病人下拉選單 (維持不變) -->
+              <select v-model="selectedMessagePatientId" class="patient-filter-select">
+                <option value="all">顯示全部病人</option>
+                <option v-for="p in messagePatientOptions" :key="p.id" :value="p.id">
+                  {{ p.name }}
+                </option>
+              </select>
+            </div>
           </div>
 
           <div v-if="taskStore.isLoading" class="panel-loading small">
@@ -727,12 +738,11 @@ const shiftFilterTab = ref('all')
 const activeMobileTab = ref('patients')
 let bulletinUnsubscribe = null
 
-// ✨ --- START: 新增狀態 --- ✨
 const selectedMessagePatientId = ref('all') // 用於病人留言板篩選
 const editingItem = ref(null) // 存放正在編輯的項目資料
 const isConfirmDeleteVisible = ref(false) // 控制刪除確認對話框
 const itemToDelete = ref(null) // 存放準備刪除的項目資料
-// ✨ --- END: 新增狀態 --- ✨
+const showSystemMessages = ref(false)
 
 const canPostAnnouncement = computed(() => {
   if (!currentUser.value) return false
@@ -827,38 +837,46 @@ const sortItems = (items) => {
 const sortedMyTasks = computed(() => sortItems(myTasks.value))
 const sortedMySentTasks = computed(() => sortItems(mySentTasks.value))
 
+// 首先，建立一個基礎的 computed 屬性，用來根據 "我的病人" / "全部病人" 頁籤篩選出相關的訊息
+const baseMessages = computed(() => {
+  if (mainPatientViewTab.value === 'all') {
+    return sortedFeedMessages.value // sortedFeedMessages 來自 taskStore
+  }
+  // 如果是 "我的病人" 頁籤，則只篩選出與我負責的病人相關的訊息
+  const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
+  return sortedFeedMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
+})
+
+// 然後，修改 filteredFeedMessages，讓它基於 baseMessages 進行後續篩選
+const filteredFeedMessages = computed(() => {
+  let messagesToDisplay = baseMessages.value
+
+  // (A) 根據新的核取方塊狀態，決定是否過濾系統訊息
+  if (!showSystemMessages.value) {
+    messagesToDisplay = messagesToDisplay.filter((msg) => !msg.content.startsWith('【'))
+  }
+
+  // (B) 根據病人下拉選單進行篩選
+  if (selectedMessagePatientId.value === 'all') {
+    return messagesToDisplay
+  } else {
+    return messagesToDisplay.filter((msg) => msg.patientId === selectedMessagePatientId.value)
+  }
+})
+
+// 最後，修改病人下拉選單的選項來源，確保它只顯示有「手動留言」的病人
 const messagePatientOptions = computed(() => {
   const patientSet = new Map()
+  // 這裡的關鍵是，不論篩選器狀態如何，下拉選單都只應顯示有 "非系統訊息" 的病人
+  const userMessages = baseMessages.value.filter((msg) => !msg.content.startsWith('【'))
 
-  // ✨ 核心修改：不再使用 sortedFeedMessages，而是使用已經過濾掉系統訊息的 filteredFeedMessages
-  //    這樣可以確保下拉選單中的病人，都是在當前列表上可見的、有實際留言的病人。
-  filteredFeedMessages.value.forEach((msg) => {
+  userMessages.forEach((msg) => {
     if (msg.patientId && msg.patientName && !patientSet.has(msg.patientId)) {
       patientSet.set(msg.patientId, { id: msg.patientId, name: msg.patientName })
     }
   })
 
   return Array.from(patientSet.values()).sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
-})
-
-const filteredFeedMessages = computed(() => {
-  if (!Array.isArray(patientsForList.value)) return []
-
-  let baseMessages = []
-  if (mainPatientViewTab.value === 'all') {
-    baseMessages = sortedFeedMessages.value
-  } else {
-    const myPatientIds = new Set(patientsForList.value.map((p) => p.id))
-    baseMessages = sortedFeedMessages.value.filter((msg) => myPatientIds.has(msg.patientId))
-  }
-
-  const noSystemMessages = baseMessages.filter((msg) => !msg.content.startsWith('【'))
-
-  if (selectedMessagePatientId.value === 'all') {
-    return noSystemMessages
-  } else {
-    return noSystemMessages.filter((msg) => msg.patientId === selectedMessagePatientId.value)
-  }
 })
 
 function getMessageTypeIcon(type) {
@@ -1027,12 +1045,14 @@ function listenToBulletinData(dateStr) {
     try {
       // 嘗試獲取昨天的日誌
       const yesterdayLog = await logsApi.fetchById(yesterdayStr)
-      // ✨ [核心修改] 從 handoverNotes 改為 otherNotes ✨
       if (yesterdayLog && yesterdayLog.otherNotes) {
+        // ✨ 核心修正：將原本複雜的 .split(/[\d]+\.\s*/)
+        // 改為直接根據換行符 (\n) 來分割字串。
         const notes = yesterdayLog.otherNotes
-          .split(/[\d]+\.\s*/)
+          .split('\n') // <--- 修改的就是這一行
           .map((item) => item.trim())
           .filter((item) => item)
+
         yesterdaysLogItems.value = notes
         console.log(
           `[CollaborationView] Displaying log notes (otherNotes) from yesterday (${yesterdayStr})`,
@@ -1042,12 +1062,13 @@ function listenToBulletinData(dateStr) {
 
       // 嘗試獲取前天的日誌
       const dayBeforeLog = await logsApi.fetchById(dayBeforeYesterdayStr)
-      // ✨ [核心修改] 從 handoverNotes 改為 otherNotes ✨
       if (dayBeforeLog && dayBeforeLog.otherNotes) {
+        // ✨ 核心修正：這裡也要同步修改
         const notes = dayBeforeLog.otherNotes
-          .split(/[\d]+\.\s*/)
+          .split('\n') // <--- 修改的就是這一行
           .map((item) => item.trim())
           .filter((item) => item)
+
         yesterdaysLogItems.value = notes
         console.log(
           `[CollaborationView] Displaying log notes (otherNotes) from the day before yesterday (${dayBeforeYesterdayStr})`,
@@ -1238,6 +1259,31 @@ watch(
   border-bottom: 1px solid #e9ecef;
   background-color: #f8f9fa;
   flex-shrink: 0; /* 確保標題列不被壓縮 */
+}
+/* 在 .panel-header-with-filter 樣式下方加入以下新樣式 */
+.filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem; /* 在兩個篩選器之間增加間距 */
+}
+
+.filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-toggle label {
+  font-size: 0.9rem;
+  color: #495057;
+  cursor: pointer;
+  user-select: none; /* 讓文字無法被選取 */
+}
+
+.filter-toggle input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
 }
 
 .panel-header-with-filter .panel-title {
