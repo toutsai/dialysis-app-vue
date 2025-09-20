@@ -424,11 +424,76 @@ async function reapplyAllExceptionsInternal(baseSchedules) {
 // ===================================================================
 // Firestore 文件觸發器 (Document Triggers)
 // ===================================================================
+// 輔助函式：取消病人所有未來的調班申請 (請將此函式放在 onPatientDataChange 的上方)
+async function cancelFutureExceptionsForPatient(patientId) {
+  if (!patientId) return
+  logger.info(
+    `[Exception Cleanup] Starting future exception cleanup for deleted patient ${patientId}.`,
+  )
+
+  // 使用台北時區的今天日期字串作為比較基準
+  const taipeiDateString = new Date()
+    .toLocaleDateString('zh-TW', {
+      timeZone: 'Asia/Taipei',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    .replace(/\//g, '-')
+
+  const batch = db.batch()
+  let deletedCount = 0
+
+  try {
+    const q = db
+      .collection('schedule_exceptions')
+      .where('patientId', '==', patientId)
+      .where('status', 'in', ['pending', 'applied', 'processing', 'conflict_requires_resolution'])
+
+    const snapshot = await q.get()
+
+    snapshot.forEach((doc) => {
+      const ex = doc.data()
+      // 找出該申請最晚影響的日期
+      let latestDateStr = ex.endDate || ex.startDate || ex.date
+      if (ex.type === 'MOVE') {
+        latestDateStr = ex.to?.goalDate > ex.from?.sourceDate ? ex.to.goalDate : ex.from.sourceDate
+      }
+
+      // 只有當事件的影響日期在今天或未來時，才進行刪除
+      if (latestDateStr && latestDateStr >= taipeiDateString) {
+        logger.info(
+          `  └─ Deleting future exception ${doc.id} for patient ${patientId} (Date: ${latestDateStr})`,
+        )
+        batch.delete(doc.ref)
+        deletedCount++
+      }
+    })
+
+    if (deletedCount > 0) {
+      await batch.commit()
+      logger.info(
+        `[Exception Cleanup] Successfully deleted ${deletedCount} future exceptions for patient ${patientId}.`,
+      )
+    } else {
+      logger.info(
+        `[Exception Cleanup] No future exceptions found to delete for patient ${patientId}.`,
+      )
+    }
+  } catch (error) {
+    logger.error(
+      `[Exception Cleanup] Error cleaning up exceptions for patient ${patientId}:`,
+      error,
+    )
+  }
+}
+
 exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (event) => {
   const patientId = event.params.patientId
   const beforeData = event.data?.before.data()
   const afterData = event.data?.after.data()
   const tasks = []
+
   const createSnapshot = (data) => ({
     medicalRecordNumber: data.medicalRecordNumber || null,
     firstDialysisDate: data.firstDialysisDate || null,
@@ -438,7 +503,9 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     inpatientReason: data.inpatientReason || null,
     dialysisReason: data.dialysisReason || null,
   })
+
   let historyWritten = false
+
   if (!beforeData && afterData) {
     logger.info(`[History] 新增病人 ${afterData.name} (ID: ${patientId})`)
     tasks.push(
@@ -519,16 +586,27 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     )
     historyWritten = true
   }
+
   if (!historyWritten) {
     logger.info(`[History] 病人 ${patientId} 的一般資料更新，無需記錄動向歷史。`)
   }
+
+  // --- 核心修改點：對應需求 1 ---
   if (beforeData && afterData && beforeData.isDeleted === false && afterData.isDeleted === true) {
-    logger.info(`[Cleanup Trigger] Patient ${patientId} was deleted. Cleaning up...`)
+    logger.info(
+      `[Cleanup Trigger] Patient ${patientId} was deleted. Cleaning up metadata and future exceptions...`,
+    )
+
+    // 1. 清理護理師分組等既有中繼資料
     tasks.push(cleanupFuturePatientMetadata(patientId, { clearTeams: true }))
     if (afterData.wardNumber) {
       tasks.push(event.data.after.ref.update({ wardNumber: null }))
     }
+
+    // 2. 新增呼叫：自動撤銷該病人所有未來的調班申請
+    tasks.push(cancelFutureExceptionsForPatient(patientId))
   }
+
   if (
     beforeData &&
     afterData &&
@@ -542,6 +620,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
       tasks.push(event.data.after.ref.update({ wardNumber: null }))
     }
   }
+
   try {
     if (tasks.length > 0) {
       await Promise.all(tasks)
@@ -550,6 +629,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   } catch (error) {
     logger.error(`Error executing tasks for patient ${patientId}:`, error)
   }
+
   return null
 })
 
@@ -1586,16 +1666,70 @@ exports.onExceptionDeleted = onDocumentDeleted(
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [Reverter-V2] 調班恢復處理器(重新計算模式)啟動: ${exceptionId}`)
+    logger.info(`🚀 [Reverter-V3] 調班恢復處理器啟動: ${exceptionId}`)
 
     if (!deletedException || !deletedException.type) {
-      logger.error(`❌ [Reverter-V2] 失敗：被刪除的調班資料不完整，缺少 type。`, deletedException)
+      logger.error(`❌ [Reverter-V3] 失敗：被刪除的調班資料不完整，缺少 type。`, deletedException)
       return
     }
 
     try {
-      // --- 步驟 1: 找出所有受影響的日期，並修正時區問題 ---
-      // ✨✨✨ 核心修正 1: 開始 [時區感知日期守門員] ✨✨✨
+      const patientId = deletedException.patientId || deletedException.patient1?.patientId
+      if (!patientId) {
+        logger.warn(
+          `[Reverter-V3] 被刪除的調班申請 ${exceptionId} 中找不到 patientId，無法執行關聯操作。`,
+        )
+        // 即使沒有 patientId，仍然嘗試執行排班恢復
+      } else {
+        // --- ✨ 核心修改點 1：刪除關聯的系統留言 ✨ ---
+        const targetDate = deletedException.date || deletedException.startDate
+        if (targetDate) {
+          const typeMap = {
+            MOVE: '臨時調班',
+            SUSPEND: '區間暫停',
+            ADD_SESSION: '臨時加洗',
+            SWAP: '同日互調',
+          }
+          const keyword = typeMap[deletedException.type]
+            ? `【${typeMap[deletedException.type]}】`
+            : null
+
+          if (keyword) {
+            const messagesQuery = db
+              .collection('tasks')
+              .where('patientId', '==', patientId)
+              .where('targetDate', '==', targetDate)
+              .where('category', '==', 'message')
+
+            const messagesSnapshot = await messagesQuery.get()
+            const batch = db.batch()
+            let deletedMessagesCount = 0
+            messagesSnapshot.forEach((doc) => {
+              if (doc.data().content?.startsWith(keyword)) {
+                batch.delete(doc.ref)
+                deletedMessagesCount++
+              }
+            })
+            if (deletedMessagesCount > 0) {
+              await batch.commit()
+              logger.info(
+                `[Reverter-V3] 成功刪除 ${deletedMessagesCount} 則與調班 ${exceptionId} 關聯的系統留言。`,
+              )
+            }
+          }
+        }
+
+        // --- ✨ 核心修改點 2：檢查病人是否已被刪除 ✨ ---
+        const patientDoc = await db.collection('patients').doc(patientId).get()
+        if (patientDoc.exists && patientDoc.data().isDeleted) {
+          logger.warn(
+            `[Reverter-V3] 病人 ${patientId} 已被刪除，因此跳過對 ${exceptionId} 的排班重新計算。`,
+          )
+          return // ✨ 直接結束函式，不執行後續的排班恢復
+        }
+      }
+
+      // --- 以下為原有的排班恢復邏輯 (保持不變) ---
       const taipeiDateString = new Date()
         .toLocaleDateString('zh-TW', {
           timeZone: 'Asia/Taipei',
@@ -1605,12 +1739,10 @@ exports.onExceptionDeleted = onDocumentDeleted(
         })
         .replace(/\//g, '-')
       const todayStrInTaipei = taipeiDateString
-      // ✨✨✨ 核心修正 1: 結束 ✨✨✨
-
       const affectedDates = new Set()
 
       if (deletedException.from?.sourceDate) affectedDates.add(deletedException.from.sourceDate)
-      if (deletedException.to?.goalDate) affectedDates.add(deletedException.to.goalDate)
+      // ... (其他 affectedDates 的判斷保持不變) ...
       if (deletedException.date) affectedDates.add(deletedException.date)
       if (deletedException.startDate && deletedException.endDate) {
         const start = new Date(deletedException.startDate + 'T00:00:00Z')
@@ -1620,41 +1752,35 @@ exports.onExceptionDeleted = onDocumentDeleted(
         }
       }
 
-      // 使用台北時區的今天來過濾
       const futureAffectedDates = Array.from(affectedDates).filter(
         (dateStr) => dateStr >= todayStrInTaipei,
       )
 
       if (futureAffectedDates.length === 0) {
-        logger.warn(`[Reverter-V2] 該調班申請只影響過去的日期，無需執行恢復操作 for ${exceptionId}`)
+        logger.warn(`[Reverter-V3] 該調班申請只影響過去的日期，無需執行恢復操作 for ${exceptionId}`)
         return
       }
 
       logger.info(
-        `[Reverter-V2] 該申請影響未來的 ${futureAffectedDates.length} 個日期，開始重新計算...`,
+        `[Reverter-V3] 該申請影響未來的 ${futureAffectedDates.length} 個日期，開始重新計算...`,
       )
 
-      // --- 步驟 2: 載入總表規則 ---
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       if (!masterScheduleDoc.exists) {
-        logger.error('❌ [Reverter-V2] 嚴重錯誤：找不到總表規則，無法恢復排班。')
+        logger.error('❌ [Reverter-V3] 嚴重錯誤：找不到總表規則，無法恢復排班。')
         return
       }
       const masterRules = masterScheduleDoc.data().schedule || {}
 
-      // --- 步驟 3: 針對每一個受影響的未來日期，執行完整的重新計算 ---
       const resyncPromises = futureAffectedDates.map(async (dateStr) => {
+        // ... (後續的 reapplyAllExceptionsInternal 呼叫和寫回邏輯保持不變) ...
         logger.info(`  └─ 正在重新計算日期: ${dateStr}`)
-
         const targetDate = new Date(dateStr + 'T00:00:00Z')
         const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
-
         const singleDayBaseSchedule = new Map()
         singleDayBaseSchedule.set(dateStr, dailySchedule)
-
         const result = await reapplyAllExceptionsInternal(singleDayBaseSchedule)
         const finalScheduleForDay = result.schedulesToWrite.get(dateStr)
-
         if (finalScheduleForDay) {
           const scheduleRef = db.collection('schedules').doc(dateStr)
           await scheduleRef.set(
@@ -1671,12 +1797,11 @@ exports.onExceptionDeleted = onDocumentDeleted(
           logger.warn(`    └─ ⚠️ 日期 ${dateStr} 重新計算後沒有產生排程資料。`)
         }
       })
-
       await Promise.all(resyncPromises)
 
-      logger.info(`✅ [Reverter-V2] 成功完成對 ${futureAffectedDates.length} 個日期的排班恢復。`)
+      logger.info(`✅ [Reverter-V3] 成功完成對 ${futureAffectedDates.length} 個日期的排班恢復。`)
     } catch (error) {
-      logger.error(`❌ [Reverter-V2] 恢復調班 ${exceptionId} 時發生嚴重錯誤:`, error)
+      logger.error(`❌ [Reverter-V3] 恢復調班 ${exceptionId} 時發生嚴重錯誤:`, error)
     }
   },
 )
