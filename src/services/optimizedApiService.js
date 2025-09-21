@@ -190,11 +190,10 @@ export async function saveDialysisOrderHistory(historyData) {
 
 // ✨ [這是最重要的修改！] ✨
 export async function createDialysisOrderAndUpdatePatient(patientId, patientName, orderData) {
-  console.log(`📝 [API] 開始為 ${patientName} 創建新醫囑...`)
+  console.log(`📝 [API] 開始為 ${patientName} 創建/更新醫囑...`, orderData)
   const parseNumeric = (v) => (v === '' || v == null ? null : Number(v))
   const now = new Date().toISOString()
 
-  // 1. 組合完整的歷史紀錄物件，包含所有欄位
   const historyRecord = {
     patientId,
     patientName,
@@ -202,23 +201,17 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
     createdAt: now,
     updatedAt: now,
     orders: {
-      // 基本欄位
       ak: orderData.ak || '',
       dialysateCa: orderData.dialysateCa || '',
       heparinInitial: parseNumeric(orderData.heparinInitial),
       heparinMaintenance: parseNumeric(orderData.heparinMaintenance),
-      // 新增 heparinLM 作為合併格式
       heparinLM: `${orderData.heparinInitial || '0'}/${orderData.heparinMaintenance || '0'}`,
       bloodFlow: parseNumeric(orderData.bloodFlow),
       dryWeight: parseNumeric(orderData.dryWeight),
       effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
-
-      // 血管通路
       vascAccess: orderData.vascAccess || '',
       arterialNeedle: orderData.arterialNeedle || '',
       venousNeedle: orderData.venousNeedle || '',
-
-      // ✅ ICU 相關欄位（新增）
       physician: orderData.physician || '',
       mode: orderData.mode || '',
       freq: orderData.freq || '',
@@ -228,18 +221,29 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
       dehydration: orderData.dehydration || '',
       mannitol: orderData.mannitol || '',
       heparinRinse: orderData.heparinRinse || '',
-
-      // 為了相容性，同時儲存兩種名稱
-      artificialKidney: orderData.ak || '', // ICU 醫囑單用
-      dialysate: orderData.dialysateCa || '', // ICU 醫囑單用
-      heparinLM: orderData.heparinLM || '', // 合併格式
+      // ✅ [核心修正 1] 將 icuNote 加入到儲存的物件中
+      icuNote: orderData.icuNote || '',
+      // 相容性欄位
+      artificialKidney: orderData.ak || '',
+      dialysate: orderData.dialysateCa || '',
     },
+  }
+
+  // 從 PP/DFPP 醫囑複製額外欄位
+  if (orderData.mode === 'PP' || orderData.mode === 'DFPP') {
+    historyRecord.orders.bw = orderData.bw
+    historyRecord.orders.hct = orderData.hct
+    historyRecord.orders.exchangeMultiplier = orderData.exchangeMultiplier
+    historyRecord.orders.plasmaVolume = orderData.plasmaVolume
+    historyRecord.orders.exchangeVolume = orderData.exchangeVolume
+    historyRecord.orders.heparin = orderData.heparin
   }
 
   const latestOrdersForPatient = { ...historyRecord.orders }
 
   try {
     await Promise.all([
+      // ✅ [核心修正 2] 呼叫 saveDialysisOrderHistory 時傳入正確的參數
       saveDialysisOrderHistory(historyRecord),
       updatePatient(patientId, { dialysisOrders: latestOrdersForPatient }),
     ])

@@ -5,7 +5,9 @@
       <header class="modal-header">
         <h2>{{ targetDate }} 外圍病房透析醫囑單</h2>
         <div class="header-actions">
-          <button @click="printContent" class="btn-print"><i class="fas fa-print"></i> 列印</button>
+          <button @click="handleSaveAndPrint" class="btn-print">
+            <i class="fas fa-print"></i> 儲存並列印
+          </button>
           <button @click="$emit('close')" class="btn-close">×</button>
         </div>
       </header>
@@ -101,8 +103,8 @@
                     <input
                       type="text"
                       class="notes-input"
-                      :value="p.dialysisOrders?.icuNote || ''"
-                      @blur="saveNote(p.id, $event.target.value)"
+                      v-model="localNotes[p.id]"
+                      @input="updateLocalNote(p.id, $event.target.value)"
                       placeholder="點此輸入備註..."
                     />
                   </div>
@@ -197,8 +199,8 @@
                     <input
                       type="text"
                       class="notes-input"
-                      :value="p.dialysisOrders?.icuNote || ''"
-                      @blur="saveNote(p.id, $event.target.value)"
+                      v-model="localNotes[p.id]"
+                      @input="updateLocalNote(p.id, $event.target.value)"
                       placeholder="點此輸入備註..."
                     />
                   </div>
@@ -293,8 +295,8 @@
                     <input
                       type="text"
                       class="notes-input"
-                      :value="p.dialysisOrders?.icuNote || ''"
-                      @blur="saveNote(p.id, $event.target.value)"
+                      v-model="localNotes[p.id]"
+                      @input="updateLocalNote(p.id, $event.target.value)"
                       placeholder="點此輸入備註..."
                     />
                   </div>
@@ -305,7 +307,7 @@
           </div>
         </section>
 
-        <!-- ... 省略 CRRT 區塊 (不需修改) ... -->
+        <!-- ... CRRT 區塊  ... -->
         <section class="order-section">
           <h3 class="section-title">CRRT 病人名單</h3>
           <div v-if="cvvhPatients.length > 0" class="crrt-container">
@@ -397,26 +399,27 @@
                       <div class="emergency-content">
                         <span class="emergency-label">緊急時是否可撤：</span>
                         <div class="withdraw-options">
-                          <label class="checkbox-label"
-                            ><input
-                              type="checkbox"
-                              :checked="p.emergencyWithdraw === 'yes'"
-                              @change="updateEmergencyWithdraw(p.id, 'yes')"
-                            />可</label
-                          >
-                          <label class="checkbox-label"
-                            ><input
-                              type="checkbox"
-                              :checked="p.emergencyWithdraw === 'no'"
-                              @change="updateEmergencyWithdraw(p.id, 'no')"
-                            />否</label
-                          >
+                          <label class="checkbox-label">
+                            <!-- ✅ [核心修改] 使用 v-model 綁定到本地狀態 -->
+                            <input
+                              type="radio"
+                              v-model="crrtEmergencyData[p.id].withdraw"
+                              value="yes"
+                            />可
+                          </label>
+                          <label class="checkbox-label">
+                            <input
+                              type="radio"
+                              v-model="crrtEmergencyData[p.id].withdraw"
+                              value="no"
+                            />否
+                          </label>
                         </div>
+                        <!-- ✅ [核心修改] 使用 v-model 綁定到本地狀態 -->
                         <input
                           type="text"
                           class="withdraw-note"
-                          :value="p.emergencyWithdrawNote"
-                          @input="updateEmergencyNote(p.id, $event.target.value)"
+                          v-model="crrtEmergencyData[p.id].note"
                           placeholder="備註..."
                         />
                       </div>
@@ -434,7 +437,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 
 const props = defineProps({
@@ -444,12 +447,45 @@ const props = defineProps({
   patientMap: Map,
 })
 
-// ✅ [核心修改] 新增 save-note 事件
-const emit = defineEmits(['close', 'open-order-modal', 'open-crrt-order-modal', 'save-note'])
+const emit = defineEmits(['close', 'open-order-modal', 'open-crrt-order-modal', 'save-and-print'])
 
-// ✅ [核心修改] 新增儲存備註的函式
-const saveNote = (patientId, note) => {
-  emit('save-note', { patientId, note })
+// ✅ [核心修改] 建立本地狀態來追蹤所有可編輯欄位的即時值
+const localNotes = reactive({})
+const crrtEmergencyData = reactive({})
+
+// 新增更新本地備註的方法
+function updateLocalNote(patientId, value) {
+  localNotes[patientId] = value
+}
+
+// 修改 watch，確保初始化時載入現有備註
+watch(
+  () => props.isVisible,
+  (newVal) => {
+    if (newVal) {
+      // 初始化 HD/SLED/PP/DFPP 病人備註
+      allPeripheralPatients.value.forEach((p) => {
+        localNotes[p.id] = p.dialysisOrders?.icuNote || ''
+      })
+      // 初始化 CRRT 病人資料
+      cvvhPatients.value.forEach((p) => {
+        crrtEmergencyData[p.id] = {
+          withdraw: p.emergencyWithdraw || null,
+          note: p.emergencyWithdrawNote || '',
+        }
+      })
+    }
+  },
+  { immediate: true },
+)
+
+// ✅ [核心修改] 新增 "儲存並列印" 的處理函式
+const handleSaveAndPrint = () => {
+  const payload = {
+    notes: { ...localNotes },
+    crrtEmergency: { ...crrtEmergencyData },
+  }
+  emit('save-and-print', payload, printContent)
 }
 
 // 為了方便在 template 中使用 v-for，我們將班別資料整理成一個陣列
@@ -545,6 +581,18 @@ const cvvhPatients = computed(() => {
 const printContent = () => {
   const printableArea = document.getElementById('icu-orders-printable-area')
   if (printableArea) {
+    // 先強制更新所有輸入框的值屬性
+    const inputs = printableArea.querySelectorAll('input[type="text"]')
+    inputs.forEach((input) => {
+      input.setAttribute('value', input.value)
+    })
+
+    // 處理 radio buttons
+    const radios = printableArea.querySelectorAll('input[type="radio"]:checked')
+    radios.forEach((radio) => {
+      radio.setAttribute('checked', 'checked')
+    })
+
     const printWindow = window.open('', '_blank')
     printWindow.document.write('<html><head><title>列印醫囑單</title>')
     const styles = Array.from(document.styleSheets)
@@ -664,7 +712,6 @@ const printContent = () => {
   border: 1px solid #dee2e6;
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-  /* ✅ [核心修改] 改為 Flexbox 佈局 */
   display: flex;
   flex-direction: column;
 }
@@ -685,7 +732,7 @@ const printContent = () => {
   flex-grow: 1; /* 讓醫囑細節填滿 body 的剩餘空間 */
 }
 
-/* ✅ [核心修改] 備註區塊的樣式 */
+/* ✅ [核心修改] 優化備註區塊和輸入框的樣式 */
 .notes-section {
   padding: 0.75rem 1rem;
   border-top: 1px solid #e9ecef;
@@ -695,22 +742,42 @@ const printContent = () => {
   background-color: #f8f9fa;
   margin-top: auto; /* 確保它總是在底部 */
 }
+
 .notes-section strong {
   white-space: nowrap;
+  color: #495057;
 }
+
 .notes-input {
   width: 100%;
-  border: 1px solid #ced4da;
+  border: 1px solid transparent; /* 預設無邊框 */
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  background-color: #fff;
+  background-color: #f8f9fa; /* 與背景色相同 */
   transition: all 0.2s;
+  color: #212529;
+  font-size: 1rem;
 }
+
+/* 當有 placeholder (即內容為空) 時，滑鼠懸停才顯示邊框 */
+.notes-input:placeholder-shown:hover {
+  border-color: #ced4da;
+  background-color: #fff;
+}
+
+/* 當有內容時，直接顯示邊框 */
+.notes-input:not(:placeholder-shown) {
+  border-color: #ced4da;
+  background-color: #fff;
+}
+
 .notes-input:focus {
   outline: none;
   border-color: #80bdff;
+  background-color: #fff;
   box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
 }
+
 .notes-input::placeholder {
   color: #6c757d;
   font-style: italic;
