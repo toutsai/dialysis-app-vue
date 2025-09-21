@@ -194,7 +194,7 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
   const parseNumeric = (v) => (v === '' || v == null ? null : Number(v))
   const now = new Date().toISOString()
 
-  // 1. 組合完整的歷史紀錄物件，包含新欄位
+  // 1. 組合完整的歷史紀錄物件，包含所有欄位
   const historyRecord = {
     patientId,
     patientName,
@@ -202,17 +202,37 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
     createdAt: now,
     updatedAt: now,
     orders: {
+      // 基本欄位
       ak: orderData.ak || '',
       dialysateCa: orderData.dialysateCa || '',
       heparinInitial: parseNumeric(orderData.heparinInitial),
       heparinMaintenance: parseNumeric(orderData.heparinMaintenance),
+      // 新增 heparinLM 作為合併格式
+      heparinLM: `${orderData.heparinInitial || '0'}/${orderData.heparinMaintenance || '0'}`,
       bloodFlow: parseNumeric(orderData.bloodFlow),
       dryWeight: parseNumeric(orderData.dryWeight),
       effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
-      // ✅ 新增欄位
+
+      // 血管通路
       vascAccess: orderData.vascAccess || '',
       arterialNeedle: orderData.arterialNeedle || '',
       venousNeedle: orderData.venousNeedle || '',
+
+      // ✅ ICU 相關欄位（新增）
+      physician: orderData.physician || '',
+      mode: orderData.mode || '',
+      freq: orderData.freq || '',
+      dialysisHours: parseNumeric(orderData.dialysisHours),
+      dialysateFlow: parseNumeric(orderData.dialysateFlow),
+      replacementFlow: parseNumeric(orderData.replacementFlow),
+      dehydration: orderData.dehydration || '',
+      mannitol: orderData.mannitol || '',
+      heparinRinse: orderData.heparinRinse || '',
+
+      // 為了相容性，同時儲存兩種名稱
+      artificialKidney: orderData.ak || '', // ICU 醫囑單用
+      dialysate: orderData.dialysateCa || '', // ICU 醫囑單用
+      heparinLM: orderData.heparinLM || '', // 合併格式
     },
   }
 
