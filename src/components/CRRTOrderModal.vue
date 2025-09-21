@@ -602,18 +602,128 @@ textarea.form-control {
   }
 }
 
+/* === 行動版優化 === */
 @media (max-width: 768px) {
+  .modal-overlay {
+    padding: 0;
+  }
+
   .modal-container {
-    width: 95%;
-    height: 95vh;
+    width: 100%;
+    height: 100vh;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
   }
-  .form-grid {
-    grid-template-columns: 1fr;
+
+  .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: white;
   }
+
+  .modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .modal-body {
+    padding: 1rem 0.75rem;
+  }
+
+  /* 病人資訊精簡顯示 */
   .patient-info-compact {
     flex-direction: column;
     gap: 0.5rem;
-    align-items: flex-start;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+  }
+
+  /* 醫師資訊單欄 */
+  .physician-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  /* 參數設定單欄 */
+  .form-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .form-control {
+    min-height: 44px;
+    font-size: 1rem;
+  }
+
+  /* 脫水速率輸入優化 */
+  .dehydration-group {
+    grid-column: 1 / -1;
+  }
+
+  .dehydration-range-inputs {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0.5rem;
+  }
+
+  /* 計算輔助區優化 */
+  .calculation-section {
+    padding: 1rem 0.75rem;
+    margin: 0 -0.75rem;
+  }
+
+  .calculation-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .formula-display {
+    font-size: 0.8rem;
+  }
+
+  .formula {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    background-color: white;
+    border-radius: 4px;
+    word-break: break-all;
+  }
+
+  /* 歷史紀錄優化 */
+  .history-section {
+    padding: 0.75rem;
+    margin: 0 -0.75rem;
+  }
+
+  .history-list {
+    max-height: 120px;
+  }
+
+  .history-item {
+    grid-template-columns: 1fr;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  .history-time,
+  .history-physician,
+  .history-action {
+    display: block;
+  }
+
+  /* 頁尾按鈕 */
+  .modal-footer {
+    position: sticky;
+    bottom: 0;
+    flex-direction: row;
+    gap: 0.5rem;
+  }
+
+  .modal-footer .btn {
+    flex: 1;
+    min-height: 44px;
   }
 }
 </style>
