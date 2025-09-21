@@ -830,6 +830,7 @@
       @close="isIcuOrdersDialogVisible = false"
       @open-order-modal="openOrderModalFromIcuDialog"
       @open-crrt-order-modal="openCRRTOrderModalFromIcuDialog"
+      @save-and-print="handleSaveAndPrintIcuOrders"
     />
 
     <DialysisOrderModal
@@ -918,7 +919,7 @@ const taskStore = useTaskStore()
 const archiveStore = useArchiveStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 const auth = useAuth()
-const { createGlobalNotifier } = useGlobalNotifier()
+const { createGlobalNotification } = useGlobalNotifier()
 const router = useRouter()
 const { distributePatients } = useTeamAssigner()
 const conditionRecordsApi = ApiManager('condition_records')
@@ -1215,6 +1216,30 @@ async function handleSaveOrder(orderData) {
   } catch (error) {
     console.error('儲存醫囑失敗:', error)
     showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
+  }
+}
+
+async function handleSaveIcuNote({ patientId, note }) {
+  if (!patientId) {
+    console.error('[ScheduleView] Save note failed: Invalid patientId')
+    return
+  }
+
+  try {
+    const patientName = patientMap.value.get(patientId)?.name || '該病人'
+
+    const updatePayload = {
+      'dialysisOrders.icuNote': note || '',
+    }
+
+    await optimizedUpdatePatient(patientId, updatePayload)
+    await patientStore.forceRefreshPatients()
+
+    // 使用正確的函式名稱和呼叫格式
+    createGlobalNotification(`${patientName} 的備註已儲存`, 'success')
+  } catch (error) {
+    console.error('儲存 ICU 備註失敗:', error)
+    showAlert('儲存失敗', `儲存備註時發生錯誤: ${error.message}`)
   }
 }
 
@@ -2211,6 +2236,53 @@ function exportScheduleToExcel() {
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '每日排程')
   XLSX.writeFile(workbook, `每日排程表_${formatDate(currentDate.value)}.xlsx`)
+}
+
+// ✅ [核心修正] 重寫 handleSaveAndPrintIcuOrders 函式，使其更穩健
+async function handleSaveAndPrintIcuOrders(payload, printCallback) {
+  const { notes, crrtEmergency } = payload
+
+  const updatePromises = []
+
+  // 處理 HD/PP 病人的備註
+  for (const patientId in notes) {
+    const note = notes[patientId]
+    const patient = patientMap.value.get(patientId)
+    if (patient) {
+      const newDialysisOrders = { ...(patient.dialysisOrders || {}) }
+      newDialysisOrders.icuNote = note || ''
+      updatePromises.push(optimizedUpdatePatient(patientId, { dialysisOrders: newDialysisOrders }))
+    }
+  }
+
+  // 處理 CRRT 病人的緊急撤離選項和備註 (這部分邏輯不變，因為是頂層欄位)
+  for (const patientId in crrtEmergency) {
+    const { withdraw, note } = crrtEmergency[patientId]
+    updatePromises.push(
+      optimizedUpdatePatient(patientId, {
+        emergencyWithdraw: withdraw,
+        emergencyWithdrawNote: note || '',
+      }),
+    )
+  }
+
+  try {
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises)
+      await patientStore.forceRefreshPatients()
+    }
+
+    createGlobalNotification('醫囑單資料已儲存', 'success')
+
+    if (typeof printCallback === 'function') {
+      nextTick(() => {
+        printCallback()
+      })
+    }
+  } catch (error) {
+    console.error('儲存 ICU 醫囑單備註失敗:', error)
+    showAlert('儲存失敗', `儲存備註時發生錯誤: ${error.message}`)
+  }
 }
 
 // Lifecycle Hooks
