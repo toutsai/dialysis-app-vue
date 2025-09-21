@@ -35,7 +35,6 @@
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
 
-                <!-- ✅ [核心修改] 將 order-details 和 notes-section 包在一個 card-body 中 -->
                 <div class="card-body">
                   <div
                     v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
@@ -131,7 +130,6 @@
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
 
-                <!-- ✅ [核心修改] 將 order-details 和 notes-section 包在一個 card-body 中 -->
                 <div class="card-body">
                   <div
                     v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
@@ -227,7 +225,6 @@
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
 
-                <!-- ✅ [核心修改] 將 order-details 和 notes-section 包在一個 card-body 中 -->
                 <div class="card-body">
                   <div
                     v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
@@ -307,10 +304,12 @@
           </div>
         </section>
 
-        <!-- ... CRRT 區塊  ... -->
+        <!-- CRRT 區塊 - 包含桌面版和行動版 -->
         <section class="order-section">
           <h3 class="section-title">CRRT 病人名單</h3>
-          <div v-if="cvvhPatients.length > 0" class="crrt-container">
+
+          <!-- 桌面版表格 (保持原樣) -->
+          <div v-if="cvvhPatients.length > 0" class="crrt-container desktop-only">
             <div v-for="p in cvvhPatients" :key="p.id" class="crrt-patient-card">
               <table class="crrt-table">
                 <thead>
@@ -400,7 +399,6 @@
                         <span class="emergency-label">緊急時是否可撤：</span>
                         <div class="withdraw-options">
                           <label class="checkbox-label">
-                            <!-- ✅ [核心修改] 使用 v-model 綁定到本地狀態 -->
                             <input
                               type="radio"
                               v-model="crrtEmergencyData[p.id].withdraw"
@@ -415,7 +413,6 @@
                             />否
                           </label>
                         </div>
-                        <!-- ✅ [核心修改] 使用 v-model 綁定到本地狀態 -->
                         <input
                           type="text"
                           class="withdraw-note"
@@ -429,6 +426,112 @@
               </table>
             </div>
           </div>
+
+          <!-- 行動版卡片 -->
+          <div v-if="cvvhPatients.length > 0" class="crrt-cards-container mobile-only">
+            <div v-for="p in cvvhPatients" :key="p.id" class="crrt-mobile-card">
+              <!-- 病人資訊頭部 -->
+              <div class="crrt-card-header">
+                <div class="crrt-patient-info">
+                  <div class="crrt-bed">床號: {{ p.wardNumber || '____' }}</div>
+                  <div class="crrt-name">{{ p.name }}</div>
+                  <div class="crrt-mrn">{{ p.medicalRecordNumber }}</div>
+                </div>
+                <button
+                  class="btn-edit-crrt-mobile"
+                  @click="$emit('open-crrt-order-modal', p)"
+                  title="新增/修正 CRRT 醫囑"
+                >
+                  <i class="fas fa-edit"></i> 修正
+                </button>
+              </div>
+
+              <!-- 醫囑內容 -->
+              <div class="crrt-card-body">
+                <div class="crrt-physician-info" v-if="p.crrtOrders?.physician">
+                  <span class="physician-label">
+                    {{ p.crrtOrders.isModified ? '修正醫師' : '開立醫師' }}:
+                  </span>
+                  <span>{{ p.crrtOrders.physician }}</span>
+                  <span v-if="p.crrtOrders?.timestamp" class="timestamp">
+                    ({{ formatDateTime(p.crrtOrders.timestamp) }})
+                  </span>
+                </div>
+
+                <!-- 醫囑參數網格 -->
+                <div class="crrt-params-grid">
+                  <div class="param-item">
+                    <span class="param-label">模式:</span>
+                    <span class="param-value">{{ getCRRTMode(p) }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="param-label">PBP:</span>
+                    <span class="param-value">{{ p.crrtOrders?.pbp || '____' }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="param-label">透析液:</span>
+                    <span class="param-value">
+                      {{
+                        p.crrtOrders?.dialysateFlowRate
+                          ? `${p.crrtOrders.dialysateFlowRate} ml/hr`
+                          : '____'
+                      }}
+                    </span>
+                  </div>
+                  <div class="param-item">
+                    <span class="param-label">補充液:</span>
+                    <span class="param-value">
+                      {{
+                        p.crrtOrders?.replacementFlowRate
+                          ? `${p.crrtOrders.replacementFlowRate} ml/hr`
+                          : '____'
+                      }}
+                    </span>
+                  </div>
+                  <div class="param-item">
+                    <span class="param-label">稀釋:</span>
+                    <span class="param-value">{{ p.crrtOrders?.dilutionRatio || '____' }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="param-label">Heparin:</span>
+                    <span class="param-value">{{ p.crrtOrders?.heparin || '____' }}</span>
+                  </div>
+                  <div class="param-item highlight">
+                    <span class="param-label">脫水速率:</span>
+                    <span class="param-value">{{ getDehydrationRateDisplay(p.crrtOrders) }}</span>
+                  </div>
+                  <div class="param-item">
+                    <span class="param-label">加KCL:</span>
+                    <span class="param-value">{{ p.crrtOrders?.addKCL ? '是' : '否' }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 緊急撤離區 -->
+              <div class="crrt-card-footer">
+                <div class="emergency-section">
+                  <span class="emergency-label">緊急時是否可撤：</span>
+                  <div class="emergency-options">
+                    <label class="radio-option">
+                      <input type="radio" v-model="crrtEmergencyData[p.id].withdraw" value="yes" />
+                      <span>可</span>
+                    </label>
+                    <label class="radio-option">
+                      <input type="radio" v-model="crrtEmergencyData[p.id].withdraw" value="no" />
+                      <span>否</span>
+                    </label>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  class="emergency-note"
+                  v-model="crrtEmergencyData[p.id].note"
+                  placeholder="備註..."
+                />
+              </div>
+            </div>
+          </div>
+
           <p v-else class="no-patients-text">本日無 CRRT 病患</p>
         </section>
       </div>
@@ -717,7 +820,7 @@ const printContent = () => {
 }
 
 .card-body {
-  flex-grow: 1; /* 讓內容區填滿剩餘空間 */
+  flex-grow: 1;
   display: flex;
   flex-direction: column;
 }
@@ -729,10 +832,9 @@ const printContent = () => {
   padding: 1rem;
   font-size: 1.05rem;
   line-height: 1.5;
-  flex-grow: 1; /* 讓醫囑細節填滿 body 的剩餘空間 */
+  flex-grow: 1;
 }
 
-/* ✅ [核心修改] 優化備註區塊和輸入框的樣式 */
 .notes-section {
   padding: 0.75rem 1rem;
   border-top: 1px solid #e9ecef;
@@ -740,7 +842,7 @@ const printContent = () => {
   align-items: center;
   gap: 0.5rem;
   background-color: #f8f9fa;
-  margin-top: auto; /* 確保它總是在底部 */
+  margin-top: auto;
 }
 
 .notes-section strong {
@@ -750,22 +852,20 @@ const printContent = () => {
 
 .notes-input {
   width: 100%;
-  border: 1px solid transparent; /* 預設無邊框 */
+  border: 1px solid transparent;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  background-color: #f8f9fa; /* 與背景色相同 */
+  background-color: #f8f9fa;
   transition: all 0.2s;
   color: #212529;
   font-size: 1rem;
 }
 
-/* 當有 placeholder (即內容為空) 時，滑鼠懸停才顯示邊框 */
 .notes-input:placeholder-shown:hover {
   border-color: #ced4da;
   background-color: #fff;
 }
 
-/* 當有內容時，直接顯示邊框 */
 .notes-input:not(:placeholder-shown) {
   border-color: #ced4da;
   background-color: #fff;
@@ -947,6 +1047,12 @@ const printContent = () => {
   display: none;
 }
 
+/* CRRT 行動版卡片隱藏（桌面版） */
+.crrt-cards-container.mobile-only {
+  display: none;
+}
+
+/* 列印樣式 */
 @media print {
   .modal-header {
     display: none !important;
@@ -1018,6 +1124,483 @@ const printContent = () => {
   .withdraw-note {
     border: 1px solid #000 !important;
     font-size: 11pt !important;
+  }
+}
+
+/* 行動版響應式設計 */
+@media screen and (max-width: 768px) {
+  /* 基礎容器修正 */
+  .modal-overlay {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .modal-content {
+    width: 100%;
+    height: 100vh;
+    max-width: 100vw;
+    border-radius: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .modal-header {
+    flex-shrink: 0;
+    padding: 0.75rem;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .modal-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.75rem;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* 區塊確保不超出 */
+  .order-section,
+  .shift-group,
+  .patient-grid,
+  .patient-order-card {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .section-title {
+    font-size: 1.1rem;
+    padding: 0.5rem;
+    margin: 0 -0.5rem 0.75rem -0.5rem;
+    background: white;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .shift-group h4 {
+    font-size: 1rem;
+    background: linear-gradient(90deg, #007bff, #0056b3);
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+  }
+
+  /* HD/PP 病人卡片 */
+  .patient-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  .patient-order-card {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .patient-header {
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .patient-header .info-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: white;
+  }
+
+  .patient-header .info-item.name {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 0.4rem;
+    border-radius: 6px;
+    text-align: center;
+    font-size: 1rem;
+    font-weight: bold;
+    text-decoration: none;
+    color: white;
+  }
+
+  .card-body {
+    background: white;
+    padding: 0;
+  }
+
+  .order-details {
+    padding: 0.75rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .order-details > div {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    word-break: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .order-details > div strong {
+    flex-shrink: 0;
+    margin-right: 0.5rem;
+    color: #495057;
+    font-size: 0.8rem;
+    min-width: 60px;
+  }
+
+  .highlight-field {
+    background: #fff3cd !important;
+    border-left: 3px solid #ffc107;
+    font-weight: bold;
+    font-size: 0.9rem !important;
+  }
+
+  .notes-section {
+    padding: 0.75rem;
+    background: #f0f8ff;
+    border-top: 1px solid #d1ecf1;
+  }
+
+  .notes-section strong {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #0c5460;
+    font-size: 0.85rem;
+  }
+
+  .notes-input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem;
+    border: 1px solid #bee5eb;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    resize: none;
+    min-height: 50px;
+    background: white;
+  }
+
+  /* CRRT 區塊 - 隱藏桌面版表格 */
+  .crrt-container.desktop-only {
+    display: none !important;
+  }
+
+  /* CRRT 行動版卡片顯示 */
+  .crrt-cards-container.mobile-only {
+    display: flex !important;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+  }
+
+  .crrt-mobile-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+  }
+
+  /* CRRT 卡片頭部 */
+  .crrt-card-header {
+    background: linear-gradient(135deg, #00acc1, #0097a7);
+    color: white;
+    padding: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .crrt-patient-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .crrt-bed {
+    font-size: 0.8rem;
+    opacity: 0.9;
+  }
+
+  .crrt-name {
+    font-size: 1.1rem;
+    font-weight: bold;
+  }
+
+  .crrt-mrn {
+    font-size: 0.85rem;
+    opacity: 0.9;
+  }
+
+  .btn-edit-crrt-mobile {
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+  }
+
+  .btn-edit-crrt-mobile:active {
+    background: rgba(255, 255, 255, 0.3);
+  }
+
+  /* CRRT 醫囑內容 */
+  .crrt-card-body {
+    padding: 0.75rem;
+    background: #f8f9fa;
+  }
+
+  .crrt-physician-info {
+    background: white;
+    padding: 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+    color: #495057;
+  }
+
+  .physician-label {
+    font-weight: 600;
+  }
+
+  .timestamp {
+    color: #6c757d;
+    font-size: 0.75rem;
+  }
+
+  /* CRRT 參數網格 */
+  .crrt-params-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+
+  .param-item {
+    background: white;
+    padding: 0.5rem;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .param-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    font-weight: 500;
+  }
+
+  .param-value {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #212529;
+  }
+
+  /* 重要參數高亮 */
+  .param-item.highlight {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+  }
+
+  /* CRRT 緊急撤離區 */
+  .crrt-card-footer {
+    padding: 0.75rem;
+    background: #e3f2fd;
+    border-top: 2px solid #90caf9;
+  }
+
+  .emergency-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .emergency-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1565c0;
+    white-space: nowrap;
+  }
+
+  .emergency-options {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .radio-option {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+  }
+
+  .radio-option input[type='radio'] {
+    width: 18px;
+    height: 18px;
+  }
+
+  .radio-option span {
+    font-size: 0.85rem;
+  }
+
+  .emergency-note {
+    width: 100%;
+    padding: 0.4rem;
+    border: 1px solid #90caf9;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    background: white;
+  }
+
+  /* 按鈕優化 */
+  .header-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .btn-print {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .btn-close {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 無病人文字 */
+  .no-patients-text {
+    text-align: center;
+    padding: 2rem 1rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+  }
+
+  /* 防止任何元素超出容器 */
+  * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  input,
+  textarea,
+  select {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .patient-name,
+  .order-details div,
+  .crrt-order-content {
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+  }
+}
+
+/* 超小螢幕優化 */
+@media screen and (max-width: 400px) {
+  .modal-body {
+    padding: 0.5rem;
+  }
+
+  .patient-order-card,
+  .crrt-mobile-card {
+    border-radius: 6px;
+  }
+
+  .patient-header,
+  .crrt-card-header {
+    padding: 0.6rem;
+  }
+
+  .patient-header .info-item {
+    font-size: 0.75rem;
+  }
+
+  .patient-header .info-item.name {
+    font-size: 0.9rem;
+  }
+
+  .order-details {
+    padding: 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .order-details > div {
+    padding: 0.4rem;
+    font-size: 0.8rem;
+  }
+
+  .order-details > div strong {
+    font-size: 0.75rem;
+    min-width: 50px;
+  }
+
+  .modal-header h2 {
+    font-size: 1rem;
+  }
+
+  .section-title {
+    font-size: 0.95rem;
+  }
+
+  .shift-group h4 {
+    font-size: 0.9rem;
+    padding: 0.4rem 0.6rem;
+  }
+
+  /* CRRT 參數單欄顯示 */
+  .crrt-params-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .crrt-card-header {
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: stretch;
+  }
+
+  .btn-edit-crrt-mobile {
+    width: 100%;
+    justify-content: center;
   }
 }
 </style>

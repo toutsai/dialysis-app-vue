@@ -957,43 +957,149 @@ tr.pending-order td:nth-child(2) {
   cursor: pointer;
 }
 
+/* === 行動版優化 === */
 @media (max-width: 768px) {
   .dialog-overlay {
-    align-items: flex-start;
-    padding-top: 2.5vh;
+    padding: 0;
   }
+
   .dialog-content {
-    width: 95%;
-    max-height: 95vh;
+    width: 100%;
+    height: 100vh;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
   }
+
+  .dialog-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background-color: white;
+    padding: 0.75rem 1rem;
+  }
+
   .dialog-header h2 {
-    font-size: 1.2rem;
+    font-size: 1.1rem;
   }
+
+  .modal-body {
+    padding: 1rem 0.75rem;
+  }
+
+  /* 單欄表單佈局 */
   .form-grid {
     grid-template-columns: 1fr;
     gap: 0.75rem;
   }
-  .form-group.needle-group,
-  .form-group.ak-dynamic-group {
+
+  .form-group {
+    margin-bottom: 0.5rem;
+  }
+
+  .form-group label {
+    font-size: 0.9rem;
+    margin-bottom: 0.3rem;
+  }
+
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    padding: 0.5rem;
+    font-size: 1rem;
+    min-height: 44px; /* 觸控友善 */
+  }
+
+  /* AK動態選擇器優化 */
+  .ak-select-wrapper {
+    margin-bottom: 0.5rem;
+  }
+
+  .btn-ak-action {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* 分針穿刺針號並排顯示 */
+  .needle-group-inline {
     grid-column: 1 / -1;
   }
-  .history-table-wrapper {
-    overflow-x: auto;
-  }
-  .history-table-wrapper table {
-    min-width: 800px;
-  }
-  .history-table-wrapper th,
-  .history-table-wrapper td {
-    padding: 6px 8px;
-    font-size: 0.9rem;
-  }
-  .dialog-footer {
-    flex-direction: column-reverse;
+
+  .needle-inputs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
   }
+
+  /* Heparin Rinse radio 優化 */
+  .radio-group {
+    gap: 2rem;
+  }
+
+  .radio-label {
+    padding: 0.25rem;
+  }
+
+  /* 歷史紀錄表格優化 */
+  .history-section {
+    margin-top: 1rem;
+  }
+
+  .history-title {
+    font-size: 1rem;
+    background-color: #f8f9fa;
+    padding: 0.5rem;
+    margin: -0.5rem -0.5rem 0.5rem -0.5rem;
+  }
+
+  .history-table-wrapper {
+    max-height: 200px;
+    font-size: 0.8rem;
+  }
+
+  .history-table-wrapper th,
+  .history-table-wrapper td {
+    padding: 0.4rem;
+    font-size: 0.75rem;
+  }
+
+  /* 簡化歷史表格欄位 */
+  .history-table-wrapper thead tr th:nth-child(n + 7),
+  .history-table-wrapper tbody tr td:nth-child(n + 7) {
+    display: none;
+  }
+
+  /* 頁尾按鈕優化 */
+  .dialog-footer {
+    position: sticky;
+    bottom: 0;
+    padding: 0.75rem;
+    flex-direction: row;
+    gap: 0.5rem;
+    background-color: white;
+    border-top: 2px solid #dee2e6;
+  }
+
   .dialog-footer button {
-    width: 100%;
+    flex: 1;
+    padding: 0.6rem 1rem;
+    font-size: 0.95rem;
+    min-height: 44px;
+  }
+}
+
+/* 超小螢幕優化 */
+@media (max-width: 400px) {
+  .dialog-header h2 {
+    font-size: 1rem;
+  }
+
+  .form-group label {
+    font-size: 0.85rem;
+  }
+
+  .history-table-wrapper {
+    font-size: 0.7rem;
   }
 }
 </style>
