@@ -1,4 +1,5 @@
 <!-- 檔案路徑: src/views/ScheduleView.vue -->
+<!-- 檔案路徑: src/views/ScheduleView.vue -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -66,7 +67,7 @@
             @click="isSimplifiedViewVisible = !isSimplifiedViewVisible"
           >
             <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
-            {{ isSimplifiedViewVisible ? '收合臨床查閱模式' : '展開臨床查閱模式' }}
+            {{ isSimplifiedViewVisible ? '收合臨床查閱' : '展開臨床查閱' }}
           </button>
           <button
             class="btn-secondary desktop-only"
@@ -74,16 +75,21 @@
             :disabled="todayInpatients.length === 0"
             title="顯示今日住院病人總覽"
           >
-            <i class="fas fa-walking"></i> 住院病人趴趴走 ({{ todayInpatients.length }})
+            <i class="fas fa-walking"></i> 住院趴趴走 ({{ todayInpatients.length }})
+          </button>
+          <button
+            class="btn-secondary desktop-only"
+            @click="isIcuOrdersDialogVisible = true"
+            title="顯示外圍病房當日透析醫囑單"
+          >
+            <i class="fas fa-notes-medical"></i> ICU醫囑單
           </button>
         </div>
         <div class="controls-right">
-          <!-- ✨ 核心：使用 DailyStaffDisplay 元件 ✨ -->
           <DailyStaffDisplay
             :daily-physicians="dailyPhysicians"
             :daily-consult-physicians="dailyConsultPhysicians"
           />
-
           <StatsToolbar
             :stats-data="statsToolbarData"
             :weekdays="statsToolbarWeekdays"
@@ -104,7 +110,6 @@
                 <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="shiftCode">
                   <div class="shift-header-content">
                     <span>{{ getShiftDisplayName(shiftCode) }}</span>
-                    <!-- 按鈕 1: 查看此班針劑 (Emoji) -->
                     <button
                       @click="showShiftInjections(shiftCode)"
                       class="summary-icon-btn-table"
@@ -112,8 +117,6 @@
                     >
                       💉
                     </button>
-
-                    <!-- 按鈕 2: 查看此班藥囑草稿 (新的處方籤圖示) -->
                     <button
                       @click="showShiftMedicationDrafts(shiftCode)"
                       class="summary-icon-btn-table"
@@ -121,8 +124,6 @@
                     >
                       <i class="fas fa-file-prescription"></i>
                     </button>
-
-                    <!-- 按鈕 3: 查看此班紀錄 (Emoji) -->
                     <button
                       @click="showShiftRecordsSummary(shiftCode)"
                       class="summary-icon-btn-table"
@@ -378,9 +379,8 @@
                                 getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
                               "
                               class="stats-special-mode-inline"
+                              >({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})</span
                             >
-                              ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
-                            </span>
                           </div>
                           <div class="patient-icons-row">
                             <span
@@ -398,13 +398,12 @@
                                 ) +
                                 '（點擊編輯）'
                               "
-                            >
-                              {{
+                              >{{
                                 getPatientWardNumber(
                                   currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
                                 )
-                              }}
-                            </span>
+                              }}</span
+                            >
                             <button
                               v-else-if="isInpatientOrER(`bed-${bedNum}-${shiftCode}`)"
                               class="ward-icon-inline"
@@ -511,13 +510,12 @@
                         ) +
                         '（點擊編輯）'
                       "
-                    >
-                      {{
+                      >{{
                         getPatientWardNumber(
                           currentRecord.schedule[`peripheral-${i}-${shiftCode}`]?.patientId,
                         )
-                      }}
-                    </span>
+                      }}</span
+                    >
                     <button
                       v-else-if="
                         getPatientName(`peripheral-${i}-${shiftCode}`) &&
@@ -554,9 +552,8 @@
                             getPatientMode(`peripheral-${i}-${shiftCode}`) !== 'HD'
                           "
                           class="stats-special-mode-inline"
+                          >({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})</span
                         >
-                          ({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})
-                        </span>
                       </div>
                       <div class="patient-icons-row">
                         <PatientMessagesIcon
@@ -592,7 +589,6 @@
               <th v-for="shiftCode in ORDERED_SHIFT_CODES" :key="`mobile-header-${shiftCode}`">
                 <div class="shift-header-content">
                   <span>{{ getShiftDisplayName(shiftCode) }}</span>
-                  <!-- 按鈕 1: 查看此班針劑 (Emoji) -->
                   <button
                     @click="showShiftInjections(shiftCode)"
                     class="summary-icon-btn-table"
@@ -600,8 +596,6 @@
                   >
                     💉
                   </button>
-
-                  <!-- 按鈕 2: 查看此班藥囑草稿 (新的處方籤圖示) -->
                   <button
                     @click="showShiftMedicationDrafts(shiftCode)"
                     class="summary-icon-btn-table"
@@ -609,8 +603,6 @@
                   >
                     <i class="fas fa-file-prescription"></i>
                   </button>
-
-                  <!-- 按鈕 3: 查看此班紀錄 (Emoji) -->
                   <button
                     @click="showShiftRecordsSummary(shiftCode)"
                     class="summary-icon-btn-table"
@@ -636,13 +628,10 @@
                   class="patient-info-cell"
                 >
                   <div class="patient-mrn-name">
-                    <span>
-                      {{
-                        patientMap.get(
-                          currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId,
-                        )?.medicalRecordNumber
-                      }}
-                    </span>
+                    <span>{{
+                      patientMap.get(currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId)
+                        ?.medicalRecordNumber
+                    }}</span>
                     <div class="patient-name-wrapper">
                       <PatientMessagesIcon
                         :patient-id="currentRecord.schedule[`bed-${bedNum}-${shiftCode}`].patientId"
@@ -655,9 +644,8 @@
                           getPatientMode(`bed-${bedNum}-${shiftCode}`) !== 'HD'
                         "
                         class="stats-special-mode"
+                        >({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})</span
                       >
-                        ({{ getPatientMode(`bed-${bedNum}-${shiftCode}`) }})
-                      </span>
                     </div>
                   </div>
                   <div class="patient-note">
@@ -668,13 +656,12 @@
                         )
                       "
                       class="ward-number-display"
-                    >
-                      [{{
+                      >[{{
                         getPatientWardNumber(
                           currentRecord.schedule[`bed-${bedNum}-${shiftCode}`]?.patientId,
                         )
-                      }}]
-                    </span>
+                      }}]</span
+                    >
                     {{ getCombinedNote(`bed-${bedNum}-${shiftCode}`) }}
                   </div>
                 </div>
@@ -693,13 +680,11 @@
                   class="patient-info-cell"
                 >
                   <div class="patient-mrn-name">
-                    <span>
-                      {{
-                        patientMap.get(
-                          currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
-                        )?.medicalRecordNumber
-                      }}
-                    </span>
+                    <span>{{
+                      patientMap.get(
+                        currentRecord.schedule[`peripheral-${i}-${shiftCode}`].patientId,
+                      )?.medicalRecordNumber
+                    }}</span>
                     <div class="patient-name-wrapper">
                       <PatientMessagesIcon
                         :patient-id="
@@ -714,9 +699,8 @@
                           getPatientMode(`peripheral-${i}-${shiftCode}`) !== 'HD'
                         "
                         class="stats-special-mode"
+                        >({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})</span
                       >
-                        ({{ getPatientMode(`peripheral-${i}-${shiftCode}`) }})
-                      </span>
                     </div>
                   </div>
                   <div class="patient-ward-note">
@@ -837,6 +821,32 @@
       :target-date="draftDialogDate"
       @close="isDraftDialogVisible = false"
     />
+
+    <IcuOrdersDialog
+      :is-visible="isIcuOrdersDialogVisible"
+      :target-date="formatDate(currentDate)"
+      :schedule="currentRecord.schedule"
+      :patient-map="patientMap"
+      @close="isIcuOrdersDialogVisible = false"
+      @open-order-modal="openOrderModalFromIcuDialog"
+      @open-crrt-order-modal="openCRRTOrderModalFromIcuDialog"
+    />
+
+    <DialysisOrderModal
+      :is-visible="isOrderModalVisible"
+      :patient-data="editingPatientForOrder"
+      @close="isOrderModalVisible = false"
+      @save="handleSaveOrder"
+    />
+
+    <!-- ✅ [核心修改] 確保 CRRT Modal 的綁定正確 -->
+    <CRRTOrderModal
+      :is-visible="isCRRTOrderModalVisible"
+      :patient-data="editingPatientForCRRT"
+      :order-history="crrtOrderHistory"
+      @close="isCRRTOrderModalVisible = false"
+      @save="handleSaveCRRTOrder"
+    />
   </div>
 </template>
 
@@ -848,13 +858,13 @@ import {
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
   updatePatient as optimizedUpdatePatient,
+  createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
-import { where } from 'firebase/firestore'
+import { where, orderBy, limit } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
-import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
+import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
 import * as XLSX from 'xlsx'
 
@@ -887,16 +897,20 @@ import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 import DailyRecordsSummaryDialog from '@/components/DailyRecordsSummaryDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
-import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue' // ✨ 1. 引入新元件
+import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
+import IcuOrdersDialog from '@/components/IcuOrdersDialog.vue'
+import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
+import CRRTOrderModal from '@/components/CRRTOrderModal.vue'
 
 // Pinia Stores
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
+import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 
 // Store & Hook Instantiation
 const patientStore = usePatientStore()
@@ -909,6 +923,7 @@ const router = useRouter()
 const { distributePatients } = useTeamAssigner()
 const conditionRecordsApi = ApiManager('condition_records')
 const usersApi = ApiManager('users')
+const ordersHistoryApi = ApiManager('dialysis_orders_history')
 
 // Helper Functions
 function getSafeDate(timestamp) {
@@ -1004,11 +1019,15 @@ const isDraftLoading = ref(false)
 const dailyDrafts = ref([])
 const draftDialogDate = ref('')
 const patientsForDraftDialog = ref([])
-// ✨ 1. 為了清晰起見，重新命名 ref
-const sortedSlotsForModal = ref([]) // 原名 orderedPatientsForModal
+const isIcuOrdersDialogVisible = ref(false)
+const sortedSlotsForModal = ref([])
 const currentPatientIndexForModal = ref(0)
+const isOrderModalVisible = ref(false)
+const editingPatientForOrder = ref(null)
+const isCRRTOrderModalVisible = ref(false)
+const editingPatientForCRRT = ref(null)
+const crrtOrderHistory = ref([])
 
-// ✨ 父層需要提供給 DailyStaffDisplay 元件的資料狀態
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
 const dailyConsultPhysicians = ref({ morning: null, afternoon: null, night: null })
 
@@ -1153,23 +1172,16 @@ const filteredDailyInjections = computed(() => {
     specificMedCodes.includes(injection.orderCode),
   )
 })
-
-// ✨ 2. 新增一個 computed 屬性，用來產生排序好的當日排班病人列表
 const sortedScheduleSlots = computed(() => {
   if (!currentRecord.schedule) return []
-
   const getSortKey = (shiftId) => {
-    const parts = shiftId.split('-') // e.g., ['bed', '1', 'early'] or ['peripheral', '1', 'noon']
+    const parts = shiftId.split('-')
     const shiftOrder = { early: 1, noon: 2, late: 3 }
-
     const shift = shiftOrder[parts[2]] || 99
     const isPeripheral = parts[0] === 'peripheral'
     const bedNum = parseInt(parts[1], 10)
-
-    // 排序邏輯: 班別 > 主院區/外圍 > 床號
     return shift * 10000 + (isPeripheral ? 1000 : 0) + bedNum
   }
-
   return Object.entries(currentRecord.schedule)
     .filter(([, slot]) => slot?.patientId)
     .map(([shiftId, slot]) => ({
@@ -1178,11 +1190,72 @@ const sortedScheduleSlots = computed(() => {
       patient: patientMap.value.get(slot.patientId),
       sortKey: getSortKey(shiftId),
     }))
-    .filter((item) => item.patient) // 確保病患資料存在
+    .filter((item) => item.patient)
     .sort((a, b) => a.sortKey - b.sortKey)
 })
 
 // Methods
+async function handleSaveOrder(orderData) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
+  if (!editingPatientForOrder.value?.id) {
+    showAlert('儲存失敗', '找不到有效的病人資訊。')
+    return
+  }
+  const patientId = editingPatientForOrder.value.id
+  const patientName = editingPatientForOrder.value.name
+  try {
+    await createDialysisOrderAndUpdatePatient(patientId, patientName, orderData)
+    await patientStore.forceRefreshPatients()
+    await loadDataForDay(currentDate.value)
+    isOrderModalVisible.value = false
+    showAlert('儲存成功', `已成功更新 ${patientName} 的透析醫囑。`)
+  } catch (error) {
+    console.error('儲存醫囑失敗:', error)
+    showAlert('操作失敗', `儲存醫囑時發生錯誤: ${error.message}`)
+  }
+}
+
+function openOrderModalFromIcuDialog(patient) {
+  if (patient && patient.id) {
+    editingPatientForOrder.value = JSON.parse(JSON.stringify(patient))
+    isOrderModalVisible.value = true
+  }
+}
+
+// ✅ [核心] 處理打開 CRRT Modal 的函式
+function openCRRTOrderModalFromIcuDialog(patient) {
+  if (patient && patient.id) {
+    editingPatientForCRRT.value = JSON.parse(JSON.stringify(patient))
+    isCRRTOrderModalVisible.value = true
+  }
+}
+
+// ✅ [核心] 處理儲存 CRRT 醫囑的函式
+async function handleSaveCRRTOrder(orderData) {
+  if (!editingPatientForCRRT.value?.id) {
+    showAlert('儲存失敗', '找不到有效的病人資訊。')
+    return
+  }
+  const patientId = editingPatientForCRRT.value.id
+  const patientName = editingPatientForCRRT.value.name
+
+  try {
+    const updatePayload = {
+      crrtOrders: orderData,
+    }
+    await optimizedUpdatePatient(patientId, updatePayload)
+    await patientStore.forceRefreshPatients()
+    isCRRTOrderModalVisible.value = false
+    showAlert('儲存成功', `已成功更新 ${patientName} 的 CRRT 醫囑。`)
+  } catch (error) {
+    console.error('儲存 CRRT 醫囑失敗:', error)
+    showAlert('操作失敗', `儲存 CRRT 醫囑時發生錯誤: ${error.message}`)
+  }
+}
+
 async function showShiftInjections(shiftCode) {
   if (!shiftCode) return
   const patientIds = Object.entries(currentRecord.schedule)
@@ -1238,27 +1311,21 @@ async function showShiftInjections(shiftCode) {
     isInjectionLoading.value = false
   }
 }
-
-// ✨ 2. 修改開啟 Modal 的函式 openDetailModalForPatient
 function openDetailModalForPatient(patientId) {
   const patientList = sortedScheduleSlots.value
   const targetIndex = patientList.findIndex((p) => p.patientId === patientId)
-
   if (targetIndex === -1) {
     console.error('在排班清單中找不到此病人:', patientId)
     selectedPatientForDetail.value = patientMap.value.get(patientId)
-    sortedSlotsForModal.value = [] // 清空列表
+    sortedSlotsForModal.value = []
     currentPatientIndexForModal.value = 0
   } else {
-    // ✨ 核心修改：直接傳遞完整的時段物件列表
     sortedSlotsForModal.value = patientList
     currentPatientIndexForModal.value = targetIndex
     selectedPatientForDetail.value = patientList[targetIndex].patient
   }
-
   isDetailModalVisible.value = true
 }
-
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
@@ -1267,51 +1334,23 @@ function formatDate(date) {
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
-function handleIconClick(patientId, context) {
-  const patient = patientMap.value.get(patientId)
-  if (!patient) return
-  if (context === 'quick-view') {
-    patientIdForDialog.value = patient.id
-    patientNameForDialog.value = patient.name
-    isMemoDialogVisible.value = true
-  } else {
-    selectedPatientForDetail.value = { ...patient }
-    shiftForDetailModal.value = null
-    for (const shiftId in currentRecord.schedule) {
-      if (currentRecord.schedule[shiftId].patientId === patientId) {
-        shiftForDetailModal.value = { shiftId: shiftId, ...currentRecord.schedule[shiftId] }
-        break
-      }
-    }
-    isDetailModalVisible.value = true
-  }
-}
-
-// 修改 handleIconClick (在 provide 中)
 provide('handleIconClick', (patientId, context) => {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
-
   if (context === 'quick-view') {
     patientIdForDialog.value = patient.id
     patientNameForDialog.value = patient.name
     isMemoDialogVisible.value = true
   } else {
-    // 直接呼叫新的開啟函式
     openDetailModalForPatient(patientId)
   }
 })
-
-// ✨ 3. 修改處理切換事件的函式 handleSwitchPatientInModal
 function handleSwitchPatientInModal(newIndex) {
   if (newIndex >= 0 && newIndex < sortedSlotsForModal.value.length) {
     currentPatientIndexForModal.value = newIndex
-    // ✨ 核心修改：從時段物件中取出 .patient 來更新
     selectedPatientForDetail.value = sortedSlotsForModal.value[newIndex].patient
   }
 }
-
 async function fetchArchivedSchedule(dateStr) {
   return await archiveStore.fetchScheduleByDate(dateStr)
 }
@@ -1335,7 +1374,6 @@ async function fetchLiveSchedule(dateStr) {
   record.schedule = finalSchedule
   return record
 }
-
 async function loadDataForDay(date) {
   hasUnsavedChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1357,10 +1395,7 @@ async function loadDataForDay(date) {
     } else {
       scheduleRecord = await fetchLiveSchedule(dateStr)
     }
-    const [teamsData, recentRecs] = await Promise.all([
-      fetchTeamsByDate(dateStr),
-      fetchRecentRecords(),
-    ])
+    const [teamsData] = await Promise.all([fetchTeamsByDate(dateStr), fetchRecentRecords()])
     Object.assign(currentRecord, {
       id: scheduleRecord.id || null,
       date: dateStr,
@@ -1431,7 +1466,6 @@ async function saveDataToCloud() {
     showAlert('操作失敗', `儲存失敗: ${error.message}`)
   }
 }
-
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
@@ -1441,20 +1475,16 @@ async function loadDailyStaffInfo(date) {
       usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
     ])
     const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
-
     const dialysisPhysiciansData = { early: null, noon: null, late: null }
     const consultPhysiciansData = { morning: null, afternoon: null, night: null }
-
     if (monthScheduleDoc) {
       const dayOfMonth = date.getDate()
-
       const daySchedule = monthScheduleDoc.schedule?.[dayOfMonth]
       if (daySchedule) {
         dialysisPhysiciansData.early = userMap.get(daySchedule.early?.physicianId) || null
         dialysisPhysiciansData.noon = userMap.get(daySchedule.noon?.physicianId) || null
         dialysisPhysiciansData.late = userMap.get(daySchedule.late?.physicianId) || null
       }
-
       const consultationDaySchedule = monthScheduleDoc.consultationSchedule?.[dayOfMonth]
       if (consultationDaySchedule) {
         consultPhysiciansData.morning =
@@ -1465,7 +1495,6 @@ async function loadDailyStaffInfo(date) {
           userMap.get(consultationDaySchedule.night?.physicianId) || null
       }
     }
-
     dailyPhysicians.value = dialysisPhysiciansData
     dailyConsultPhysicians.value = consultPhysiciansData
   } catch (error) {
@@ -1474,27 +1503,20 @@ async function loadDailyStaffInfo(date) {
     dailyConsultPhysicians.value = { morning: null, afternoon: null, night: null }
   }
 }
-
 async function showShiftMedicationDrafts(shiftCode) {
   if (!shiftCode) return
-
-  // ✨ 核心修改：找出該班次的病人，並從 patientMap 中取得完整的病人物件
   const patientsInShift = Object.entries(currentRecord.schedule)
     .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
     .map(([shiftId, slot]) => {
       const patientData = patientMap.value.get(slot.patientId)
       if (!patientData) return null
-
-      // 附加床號和班別資訊到病人物件上
       const bedNum = shiftId.startsWith('peripheral')
         ? `外${shiftId.split('-')[1]}`
         : shiftId.split('-')[1]
       const shift = shiftId.split('-')[2]
-
       return { ...patientData, bedNum, shift }
     })
     .filter(Boolean)
-    // 按床號排序，確保表格順序正確
     .sort((a, b) => {
       const bedA = String(a.bedNum).startsWith('外')
         ? 1000 + parseInt(String(a.bedNum).substring(1))
@@ -1504,22 +1526,16 @@ async function showShiftMedicationDrafts(shiftCode) {
         : parseInt(b.bedNum)
       return bedA - bedB
     })
-
-  // ✨ 將整理好的病人列表存到 ref 中
   patientsForDraftDialog.value = patientsInShift
   const patientIds = patientsInShift.map((p) => p.id)
-
   draftDialogDate.value = formatDate(currentDate.value)
   isDraftDialogVisible.value = true
   isDraftLoading.value = true
   dailyDrafts.value = []
-
   if (patientIds.length === 0) {
     isDraftLoading.value = false
     return
   }
-
-  // 後續的 try-catch-finally 區塊保持不變
   try {
     const getDailyMedicationDrafts = httpsCallable(functions, 'getDailyMedicationDrafts')
     const CHUNK_SIZE = 30
@@ -1548,7 +1564,6 @@ async function showShiftMedicationDrafts(shiftCode) {
     isDraftLoading.value = false
   }
 }
-
 function updateTaskStoreWithRecords() {
   const recentRecordsPatientIds = new Set()
   if (recentConditionRecords.value && recentConditionRecords.value.length > 0) {
@@ -1569,7 +1584,6 @@ function updateTaskStoreWithRecords() {
   }
   taskStore.updateTasksFromConditionRecords(recentRecordsPatientIds)
 }
-
 async function fetchRecentRecords() {
   try {
     const sevenDaysAgo = new Date()
@@ -1583,7 +1597,6 @@ async function fetchRecentRecords() {
     return []
   }
 }
-
 function getPatientCellStyle(shiftId) {
   const slotData = currentRecord.schedule[shiftId]
   const patientForStyle = getArchivedOrLivePatientInfo(slotData)
@@ -1594,11 +1607,7 @@ function getPatientCellStyle(shiftId) {
     taskStore.getPatientMessageTypesMapForDate(currentDate.value).get(patientId) || []
   return getUnifiedCellStyle(slotData, patientForStyle, null, messageTypesForPatient)
 }
-function getPatientWardNumber(patientId, shiftId) {
-  const slotData = currentRecord.schedule[shiftId]
-  const patientInfo = getArchivedOrLivePatientInfo(slotData)
-  if (patientInfo && patientInfo.wardNumber !== undefined && patientInfo.wardNumber !== null)
-    return patientInfo.wardNumber
+function getPatientWardNumber(patientId) {
   if (!patientId) return ''
   const patient = patientMap.value.get(patientId)
   return patient?.wardNumber || ''
@@ -1683,15 +1692,12 @@ function handleSlotClick(shiftId) {
     handleSlotUpdate(shiftId, null)
   })
 }
-
-// 修改 handleSimplifiedCellClick
 function handleSimplifiedCellClick(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   if (patientId) {
     openDetailModalForPatient(patientId)
   }
 }
-
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -2435,14 +2441,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* ✨ 樣式已移除，只保留 controls-right 的對齊樣式 */
 .controls-right {
   display: flex;
   align-items: center;
   gap: 1.5rem;
 }
 /* =================================================================== */
-/* === 2. 病人狀態與標籤顏色 (從舊版 ScheduleView.vue 找回) === */
+/* === 2. 病人狀態與標籤顏色 === */
 /* =================================================================== */
 .shift-row.status-opd,
 .peripheral-shift-row.status-opd,
@@ -2465,22 +2470,21 @@ button:disabled {
 .shift-row.status-biweekly,
 .peripheral-shift-row.status-biweekly,
 .simplified-table td.status-biweekly {
-  background-color: #ffcc80; /* 兩班 - 橘色 */
+  background-color: #ffcc80;
 }
 
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou,
 .simplified-table td.tag-chou {
-  background-color: #658ee0; /* 抽血 - 藍色 */
+  background-color: #658ee0;
 }
 
 .shift-row.tag-new,
 .peripheral-shift-row.tag-new,
 .simplified-table td.tag-new {
-  background-color: #f5ec8e; /* 新病人/衛教 - 金黃 */
+  background-color: #f5ec8e;
 }
 
-/* 為了確保簡化視圖中文字顏色正確，也一併加入 */
 .simplified-table td[class*='status-'] .patient-mrn-name,
 .simplified-table td[class*='tag-'] .patient-mrn-name {
   color: #212529;
@@ -2493,7 +2497,7 @@ button:disabled {
 }
 
 /* =================================================================== */
-/* === 3. 排班表 (Bed Grid) 樣式 (無變動) === */
+/* === 3. 排班表 (Bed Grid) 樣式 === */
 /* =================================================================== */
 .dialysis-unit {
   display: grid;
@@ -2863,30 +2867,26 @@ button:disabled {
   border: none;
   cursor: pointer;
   padding: 0;
-  font-size: 1.2rem; /* 設定基準大小 */
+  font-size: 1.2rem;
   opacity: 0.6;
   transition: all 0.2s;
-
-  /* ✨ 以下為核心修改，確保所有圖示垂直置中且排版整齊 ✨ */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px; /* 給定固定寬度，避免圖示大小不一造成跳動 */
-  height: 28px; /* 給定固定高度 */
+  width: 28px;
+  height: 28px;
 }
 
 .summary-icon-btn-table:hover {
   opacity: 1;
-  transform: scale(1.15); /* 稍微增加放大效果 */
+  transform: scale(1.15);
 }
 
-/* 針對 Font Awesome 圖示的顏色進行微調 */
 .summary-icon-btn-table i {
-  color: #495057; /* 設定一個沉穩的深灰色 */
+  color: #495057;
   transition: color 0.2s;
 }
 
-/* 滑鼠懸停時讓圖示顏色變深 */
 .summary-icon-btn-table:hover i {
   color: #000;
 }
