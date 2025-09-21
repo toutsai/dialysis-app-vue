@@ -12,6 +12,15 @@
       <div class="header-toolbar">
         <div class="toolbar-left">
           <h1 class="page-title">每日排程</h1>
+          <!-- 行動版ICU醫囑按鈕 -->
+          <button
+            class="btn-secondary mobile-only"
+            @click="isIcuOrdersDialogVisible = true"
+            title="顯示外圍病房當日透析醫囑單"
+          >
+            <i class="fas fa-notes-medical"></i>
+            <span class="mobile-btn-text">ICU醫囑</span>
+          </button>
           <div class="date-navigator">
             <button class="btn" @click="changeDate(-1)">&lt; 上一天</button>
             <span class="current-date-text">{{ currentDateDisplay }}</span>
@@ -3056,6 +3065,13 @@ button:disabled {
 /* =================================================================== */
 /* === 5. 響應式 (Media Queries) === */
 /* =================================================================== */
+
+/* 行動版專用元素在桌面版必須隱藏 */
+.mobile-only {
+  display: none !important;
+}
+
+/* 桌面版樣式保持不變 */
 @media screen and (min-width: 993px) {
   .desktop-only .simplified-table td {
     padding: 0.6rem;
@@ -3071,46 +3087,187 @@ button:disabled {
   .desktop-only .simplified-table .patient-ward-note {
     gap: 0.5em;
   }
+
+  /* 確保行動版元素在桌面版不顯示 */
+  .mobile-only {
+    display: none !important;
+  }
 }
+
+/* 行動版樣式 - 只在 992px 以下生效 */
 @media screen and (max-width: 992px) {
   .desktop-only {
     display: none !important;
   }
+
   .mobile-and-print-only {
     display: block;
   }
+
+  /* 行動版專用的 ICU 按鈕顯示 */
+  .mobile-only {
+    display: inline-flex !important;
+    align-items: center;
+  }
+
+  /* 行動版的緊湊頂部 */
   .page-container {
     padding: 0;
   }
+
   .page-header {
-    padding: 1rem;
+    padding: 0.5rem 0.75rem;
+    background-color: #fff;
   }
+
   .page-main-content {
     display: block;
     overflow-y: auto;
   }
+
   .schedule-content {
     padding: 0;
   }
+
   .simplified-view {
-    padding: 1rem;
+    padding: 0.5rem;
   }
+
+  /* 行動版工具列緊湊化 */
   .header-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1rem;
-  }
-  .toolbar-left,
-  .toolbar-right {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
   }
-  .date-navigator {
+
+  /* 行動版標題和按鈕 */
+  .toolbar-left {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
   }
+
+  .toolbar-left .page-title {
+    font-size: 1.3rem;
+    margin: 0;
+    flex: 1;
+  }
+
+  /* ICU 醫囑按鈕（行動版） */
+  .toolbar-left .mobile-only {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    background-color: #6c757d;
+    color: white;
+    border-color: #6c757d;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .mobile-btn-text {
+    font-size: 0.85rem;
+    margin-left: 0.25rem;
+  }
+
+  .toolbar-right {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.25rem;
+  }
+
+  /* 日期導航緊湊化 */
+  .date-navigator {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+  }
+
+  .date-navigator .current-date-text,
+  .date-navigator .weekday-display {
+    font-size: 1.1rem;
+  }
+
+  .date-navigator .btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
   .page-title {
-    text-align: center;
+    text-align: left;
+  }
+
+  /* 簡化表格行動版優化 */
+  .simplified-table {
+    font-size: 0.8rem;
+  }
+
+  .simplified-table th,
+  .simplified-table td {
+    padding: 0.3rem;
+  }
+
+  .simplified-table .col-bed {
+    width: 55px;
+    font-size: 0.75rem;
+  }
+
+  .patient-info-cell {
+    font-size: 0.75rem;
+  }
+
+  .patient-note {
+    font-size: 0.7rem;
+  }
+
+  /* 表格按鈕縮小 */
+  .summary-icon-btn-table {
+    width: 24px;
+    height: 24px;
+    font-size: 0.9rem;
+  }
+
+  .shift-header-content {
+    gap: 4px;
+  }
+}
+
+/* 超小螢幕（手機直向） */
+@media screen and (max-width: 576px) {
+  .page-header {
+    padding: 0.4rem 0.5rem;
+  }
+
+  .toolbar-left .page-title {
+    font-size: 1.1rem;
+  }
+
+  /* 超小螢幕只顯示圖標 */
+  .mobile-btn-text {
+    display: none;
+  }
+
+  .toolbar-left .mobile-only {
+    padding: 0.35rem 0.5rem;
+    min-width: 36px;
+  }
+
+  .date-navigator {
+    font-size: 0.85rem;
+  }
+
+  .date-navigator .current-date-text,
+  .date-navigator .weekday-display {
+    font-size: 0.95rem;
+  }
+
+  .date-navigator .btn {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.75rem;
   }
 }
 </style>
