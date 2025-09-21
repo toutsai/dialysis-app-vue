@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/IcuOrdersDialog.vue (列印自動縮放版) -->
+<!-- 檔案路徑: src/components/IcuOrdersDialog.vue (動態卡片最終版) -->
 <template>
   <div v-if="isVisible" class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-content">
@@ -13,16 +13,16 @@
       <div class="modal-body" id="icu-orders-printable-area">
         <h1 class="printable-header">{{ targetDate }} 外圍病房透析醫囑單</h1>
 
-        <!-- Part 1: 當日透析病人 -->
         <section class="order-section">
           <h3 class="section-title">當日透析病患</h3>
+
           <!-- 早班 -->
           <div class="shift-group">
             <h4>早班</h4>
             <div v-if="earlyPeripheralPatients.length > 0" class="patient-grid">
               <div v-for="p in earlyPeripheralPatients" :key="p.id" class="patient-order-card">
                 <div class="patient-header">
-                  <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || 'N/A' }}</div>
+                  <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || '____' }}</div>
                   <div
                     class="info-item name"
                     @click="$emit('open-order-modal', p)"
@@ -32,45 +32,93 @@
                   </div>
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
-                <div class="order-details">
-                  <div><strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || 'N/A' }}</div>
-                  <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || 'N/A' }}</div>
-                  <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || 'N/A' }}</div>
-                  <div class="highlight-field">
-                    <strong>AK:</strong> {{ p.dialysisOrders?.ak || 'N/A' }}
+
+                <!-- ✅ [核心修改] 將 order-details 和 notes-section 包在一個 card-body 中 -->
+                <div class="card-body">
+                  <div
+                    v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
+                    class="order-details"
+                  >
+                    <div>
+                      <strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || '____' }}
+                    </div>
+                    <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
+                    <div class="highlight-field">
+                      <strong>血漿交換量:</strong>
+                      {{
+                        p.dialysisOrders?.exchangeVolume
+                          ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
+                          : '____'
+                      }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>血液流速:</strong>
+                      {{
+                        p.dialysisOrders?.bloodFlow
+                          ? p.dialysisOrders.bloodFlow + ' ml/min'
+                          : '____'
+                      }}
+                    </div>
+                    <div>
+                      <strong>體重/Hct:</strong> {{ p.dialysisOrders?.bw || '____' }}kg /
+                      {{ p.dialysisOrders?.hct || '____' }}%
+                    </div>
+                    <div><strong>Heparin:</strong> {{ p.dialysisOrders?.heparin || '____' }}</div>
                   </div>
-                  <div class="highlight-field">
-                    <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || 'N/A' }}
+                  <div v-else class="order-details">
+                    <div>
+                      <strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || '____' }}
+                    </div>
+                    <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
+                    <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+                    <div class="highlight-field">
+                      <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                    </div>
+                    <div>
+                      <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                    </div>
+                    <div>
+                      <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
+                      {{ p.dialysisOrders?.heparinLM || '____' }}
+                    </div>
+                    <div>
+                      <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
+                      {{ p.dialysisOrders?.dialysateFlow || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
+                    </div>
                   </div>
-                  <div>
-                    <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || 'N/A' }}
-                  </div>
-                  <div>
-                    <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || 'N/A' }} /
-                    {{ p.dialysisOrders?.heparinLM || 'N/A' }}
-                  </div>
-                  <div>
-                    <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || 'N/A' }} /
-                    {{ p.dialysisOrders?.dialysateFlow || 'N/A' }}
-                  </div>
-                  <div class="highlight-field">
-                    <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || 'N/A' }}
-                  </div>
-                  <div class="highlight-field">
-                    <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || 'N/A' }}
+
+                  <div class="notes-section">
+                    <strong>備註：</strong>
+                    <input
+                      type="text"
+                      class="notes-input"
+                      :value="p.dialysisOrders?.icuNote || ''"
+                      @blur="saveNote(p.id, $event.target.value)"
+                      placeholder="點此輸入備註..."
+                    />
                   </div>
                 </div>
               </div>
             </div>
             <p v-else class="no-patients-text">早班無外圍病房病人</p>
           </div>
+
           <!-- 午班 -->
           <div class="shift-group">
             <h4>午班</h4>
             <div v-if="noonPeripheralPatients.length > 0" class="patient-grid">
               <div v-for="p in noonPeripheralPatients" :key="p.id" class="patient-order-card">
                 <div class="patient-header">
-                  <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || 'N/A' }}</div>
+                  <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || '____' }}</div>
                   <div
                     class="info-item name"
                     @click="$emit('open-order-modal', p)"
@@ -80,45 +128,93 @@
                   </div>
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
-                <div class="order-details">
-                  <div><strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || 'N/A' }}</div>
-                  <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || 'N/A' }}</div>
-                  <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || 'N/A' }}</div>
-                  <div class="highlight-field">
-                    <strong>AK:</strong> {{ p.dialysisOrders?.ak || 'N/A' }}
+
+                <!-- ✅ [核心修改] 將 order-details 和 notes-section 包在一個 card-body 中 -->
+                <div class="card-body">
+                  <div
+                    v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
+                    class="order-details"
+                  >
+                    <div>
+                      <strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || '____' }}
+                    </div>
+                    <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
+                    <div class="highlight-field">
+                      <strong>血漿交換量:</strong>
+                      {{
+                        p.dialysisOrders?.exchangeVolume
+                          ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
+                          : '____'
+                      }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>血液流速:</strong>
+                      {{
+                        p.dialysisOrders?.bloodFlow
+                          ? p.dialysisOrders.bloodFlow + ' ml/min'
+                          : '____'
+                      }}
+                    </div>
+                    <div>
+                      <strong>體重/Hct:</strong> {{ p.dialysisOrders?.bw || '____' }}kg /
+                      {{ p.dialysisOrders?.hct || '____' }}%
+                    </div>
+                    <div><strong>Heparin:</strong> {{ p.dialysisOrders?.heparin || '____' }}</div>
                   </div>
-                  <div class="highlight-field">
-                    <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || 'N/A' }}
+                  <div v-else class="order-details">
+                    <div>
+                      <strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || '____' }}
+                    </div>
+                    <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
+                    <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+                    <div class="highlight-field">
+                      <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                    </div>
+                    <div>
+                      <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                    </div>
+                    <div>
+                      <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
+                      {{ p.dialysisOrders?.heparinLM || '____' }}
+                    </div>
+                    <div>
+                      <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
+                      {{ p.dialysisOrders?.dialysateFlow || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
+                    </div>
                   </div>
-                  <div>
-                    <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || 'N/A' }}
-                  </div>
-                  <div>
-                    <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || 'N/A' }} /
-                    {{ p.dialysisOrders?.heparinLM || 'N/A' }}
-                  </div>
-                  <div>
-                    <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || 'N/A' }} /
-                    {{ p.dialysisOrders?.dialysateFlow || 'N/A' }}
-                  </div>
-                  <div class="highlight-field">
-                    <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || 'N/A' }}
-                  </div>
-                  <div class="highlight-field">
-                    <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || 'N/A' }}
+
+                  <div class="notes-section">
+                    <strong>備註：</strong>
+                    <input
+                      type="text"
+                      class="notes-input"
+                      :value="p.dialysisOrders?.icuNote || ''"
+                      @blur="saveNote(p.id, $event.target.value)"
+                      placeholder="點此輸入備註..."
+                    />
                   </div>
                 </div>
               </div>
             </div>
             <p v-else class="no-patients-text">午班無外圍病房病人</p>
           </div>
+
           <!-- 晚班 -->
           <div class="shift-group">
             <h4>晚班</h4>
             <div v-if="latePeripheralPatients.length > 0" class="patient-grid">
               <div v-for="p in latePeripheralPatients" :key="p.id" class="patient-order-card">
                 <div class="patient-header">
-                  <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || 'N/A' }}</div>
+                  <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || '____' }}</div>
                   <div
                     class="info-item name"
                     @click="$emit('open-order-modal', p)"
@@ -128,32 +224,79 @@
                   </div>
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
-                <div class="order-details">
-                  <div><strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || 'N/A' }}</div>
-                  <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || 'N/A' }}</div>
-                  <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || 'N/A' }}</div>
-                  <div class="highlight-field">
-                    <strong>AK:</strong> {{ p.dialysisOrders?.ak || 'N/A' }}
+
+                <!-- ✅ [核心修改] 將 order-details 和 notes-section 包在一個 card-body 中 -->
+                <div class="card-body">
+                  <div
+                    v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
+                    class="order-details"
+                  >
+                    <div>
+                      <strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || '____' }}
+                    </div>
+                    <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
+                    <div class="highlight-field">
+                      <strong>血漿交換量:</strong>
+                      {{
+                        p.dialysisOrders?.exchangeVolume
+                          ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
+                          : '____'
+                      }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>血液流速:</strong>
+                      {{
+                        p.dialysisOrders?.bloodFlow
+                          ? p.dialysisOrders.bloodFlow + ' ml/min'
+                          : '____'
+                      }}
+                    </div>
+                    <div>
+                      <strong>體重/Hct:</strong> {{ p.dialysisOrders?.bw || '____' }}kg /
+                      {{ p.dialysisOrders?.hct || '____' }}%
+                    </div>
+                    <div><strong>Heparin:</strong> {{ p.dialysisOrders?.heparin || '____' }}</div>
                   </div>
-                  <div class="highlight-field">
-                    <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || 'N/A' }}
+                  <div v-else class="order-details">
+                    <div>
+                      <strong>會診醫師:</strong> {{ p.dialysisOrders?.physician || '____' }}
+                    </div>
+                    <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
+                    <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+                    <div class="highlight-field">
+                      <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                    </div>
+                    <div>
+                      <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                    </div>
+                    <div>
+                      <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
+                      {{ p.dialysisOrders?.heparinLM || '____' }}
+                    </div>
+                    <div>
+                      <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
+                      {{ p.dialysisOrders?.dialysateFlow || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                    </div>
+                    <div class="highlight-field">
+                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
+                    </div>
                   </div>
-                  <div>
-                    <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || 'N/A' }}
-                  </div>
-                  <div>
-                    <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || 'N/A' }} /
-                    {{ p.dialysisOrders?.heparinLM || 'N/A' }}
-                  </div>
-                  <div>
-                    <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || 'N/A' }} /
-                    {{ p.dialysisOrders?.dialysateFlow || 'N/A' }}
-                  </div>
-                  <div class="highlight-field">
-                    <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || 'N/A' }}
-                  </div>
-                  <div class="highlight-field">
-                    <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || 'N/A' }}
+
+                  <div class="notes-section">
+                    <strong>備註：</strong>
+                    <input
+                      type="text"
+                      class="notes-input"
+                      :value="p.dialysisOrders?.icuNote || ''"
+                      @blur="saveNote(p.id, $event.target.value)"
+                      placeholder="點此輸入備註..."
+                    />
                   </div>
                 </div>
               </div>
@@ -162,7 +305,7 @@
           </div>
         </section>
 
-        <!-- Part 2: CRRT 病人名單 -->
+        <!-- ... 省略 CRRT 區塊 (不需修改) ... -->
         <section class="order-section">
           <h3 class="section-title">CRRT 病人名單</h3>
           <div v-if="cvvhPatients.length > 0" class="crrt-container">
@@ -191,10 +334,10 @@
                 </thead>
                 <tbody>
                   <tr>
-                    <td>{{ p.wardNumber || 'N/A' }}</td>
+                    <td>{{ p.wardNumber || '____' }}</td>
                     <td>{{ p.name }}</td>
                     <td>{{ p.medicalRecordNumber }}</td>
-                    <td>{{ p.physician || 'N/A' }}</td>
+                    <td>{{ p.physician || '____' }}</td>
                     <td>{{ p.mode || 'CVVHDF' }}</td>
                     <td class="crrt-orders-cell">
                       <div class="order-info" v-if="p.crrtOrders?.physician">
@@ -212,14 +355,14 @@
                         </div>
                         <div class="crrt-order-item">
                           <span class="order-label">PBP:</span
-                          ><span>{{ p.crrtOrders?.pbp || 'N/A' }}</span>
+                          ><span>{{ p.crrtOrders?.pbp || '____' }}</span>
                         </div>
                         <div class="crrt-order-item">
                           <span class="order-label">透析液流速:</span
                           ><span>{{
                             p.crrtOrders?.dialysateFlowRate
                               ? `${p.crrtOrders.dialysateFlowRate} ml/hr`
-                              : 'N/A'
+                              : '____'
                           }}</span>
                         </div>
                         <div class="crrt-order-item">
@@ -227,16 +370,16 @@
                           ><span>{{
                             p.crrtOrders?.replacementFlowRate
                               ? `${p.crrtOrders.replacementFlowRate} ml/hr`
-                              : 'N/A'
+                              : '____'
                           }}</span>
                         </div>
                         <div class="crrt-order-item">
                           <span class="order-label">前/後稀釋:</span
-                          ><span>{{ p.crrtOrders?.dilutionRatio || 'N/A' }}</span>
+                          ><span>{{ p.crrtOrders?.dilutionRatio || '____' }}</span>
                         </div>
                         <div class="crrt-order-item">
                           <span class="order-label">Heparin:</span
-                          ><span>{{ p.crrtOrders?.heparin || 'N/A' }}</span>
+                          ><span>{{ p.crrtOrders?.heparin || '____' }}</span>
                         </div>
                         <div class="crrt-order-item">
                           <span class="order-label">脫水速率:</span
@@ -301,30 +444,43 @@ const props = defineProps({
   patientMap: Map,
 })
 
-const emit = defineEmits(['close', 'open-order-modal', 'open-crrt-order-modal'])
+// ✅ [核心修改] 新增 save-note 事件
+const emit = defineEmits(['close', 'open-order-modal', 'open-crrt-order-modal', 'save-note'])
+
+// ✅ [核心修改] 新增儲存備註的函式
+const saveNote = (patientId, note) => {
+  emit('save-note', { patientId, note })
+}
+
+// 為了方便在 template 中使用 v-for，我們將班別資料整理成一個陣列
+const shifts = computed(() => [
+  { name: 'early', displayName: '早班', patients: earlyPeripheralPatients.value },
+  { name: 'noon', displayName: '午班', patients: noonPeripheralPatients.value },
+  { name: 'late', displayName: '晚班', patients: latePeripheralPatients.value },
+])
 
 const getCRRTMode = (patient) => {
   if (patient.crrtOrders?.mode) return patient.crrtOrders.mode
   if (patient.mode === 'CVVHDF') return 'CVVHDF'
   if (patient.mode === 'CVVH') return 'CVVH'
   if (patient.mode === 'CVVHD') return 'CVVHD'
-  return 'N/A'
+  return '____'
 }
 
 const getDehydrationRateDisplay = (crrtOrders) => {
-  if (!crrtOrders) return 'N/A'
+  if (!crrtOrders) return '____'
   const lower = crrtOrders.dehydrationRateLower
   const upper = crrtOrders.dehydrationRateUpper
   if (typeof lower === 'number' || typeof upper === 'number') {
-    const displayLower = typeof lower === 'number' ? lower : 'N/A'
-    const displayUpper = typeof upper === 'number' ? upper : 'N/A'
+    const displayLower = typeof lower === 'number' ? lower : '____'
+    const displayUpper = typeof upper === 'number' ? upper : '____'
     if (displayLower === displayUpper) return `${displayLower} ml/hr`
     return `${displayLower} - ${displayUpper} ml/hr`
   }
   if (typeof crrtOrders.dehydrationRate === 'number') {
     return `${crrtOrders.dehydrationRate} ml/hr`
   }
-  return 'N/A'
+  return '____'
 }
 
 const formatDateTime = (timestamp) => {
@@ -508,6 +664,56 @@ const printContent = () => {
   border: 1px solid #dee2e6;
   border-radius: 6px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  /* ✅ [核心修改] 改為 Flexbox 佈局 */
+  display: flex;
+  flex-direction: column;
+}
+
+.card-body {
+  flex-grow: 1; /* 讓內容區填滿剩餘空間 */
+  display: flex;
+  flex-direction: column;
+}
+
+.order-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem 1rem;
+  padding: 1rem;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  flex-grow: 1; /* 讓醫囑細節填滿 body 的剩餘空間 */
+}
+
+/* ✅ [核心修改] 備註區塊的樣式 */
+.notes-section {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #f8f9fa;
+  margin-top: auto; /* 確保它總是在底部 */
+}
+.notes-section strong {
+  white-space: nowrap;
+}
+.notes-input {
+  width: 100%;
+  border: 1px solid #ced4da;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background-color: #fff;
+  transition: all 0.2s;
+}
+.notes-input:focus {
+  outline: none;
+  border-color: #80bdff;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+.notes-input::placeholder {
+  color: #6c757d;
+  font-style: italic;
 }
 .patient-header {
   display: flex;
@@ -693,7 +899,6 @@ const printContent = () => {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     font-size: 14pt !important;
-    /* ✅ [核心修改] 新增 zoom 屬性以達到 70% 的縮放效果 */
     zoom: 0.7;
   }
   .modal-body {
