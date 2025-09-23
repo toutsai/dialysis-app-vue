@@ -1,5 +1,4 @@
 <!-- 檔案路徑: src/views/ScheduleView.vue -->
-<!-- 檔案路徑: src/views/ScheduleView.vue -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -16,6 +15,7 @@
           <button
             class="btn-secondary mobile-only"
             @click="isIcuOrdersDialogVisible = true"
+            :disabled="!auth.canEditClinicalNotesAndOrders"
             title="顯示外圍病房當日透析醫囑單"
           >
             <i class="fas fa-notes-medical"></i>
@@ -89,6 +89,7 @@
           <button
             class="btn-secondary desktop-only"
             @click="isIcuOrdersDialogVisible = true"
+            :disabled="!auth.canEditClinicalNotesAndOrders"
             title="顯示外圍病房當日透析醫囑單"
           >
             <i class="fas fa-notes-medical"></i> ICU醫囑單
@@ -248,6 +249,10 @@
                       </span>
                       <div
                         class="patient-name-wrapper"
+                        :class="[
+                          getPatientCellStyle(`peripheral-${i}-${shiftCode}`),
+                          { 'non-clickable': !auth.canEditClinicalNotesAndOrders }, // ✨【新增】這行 class 綁定
+                        ]"
                         @click="handleSimplifiedCellClick(`peripheral-${i}-${shiftCode}`)"
                         title="點擊查看詳細資料"
                       >
@@ -1045,17 +1050,18 @@ provide('viewingDate', currentDate)
 
 // Computed Properties
 const isPageLocked = computed(() => {
-  if (!auth.canEditSchedules.value) return true
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const currentDay = new Date(currentDate.value)
   currentDay.setHours(0, 0, 0, 0)
   return currentDay < today
 })
+
 const sortedBedNumbers = computed(() => {
   const numericBeds = allBedNumbers.filter((b) => typeof b === 'number')
   return [...numericBeds].sort((a, b) => a - b)
 })
+
 const currentDateDisplay = computed(() => formatDate(currentDate.value))
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][currentDate.value.getDay()],
@@ -1726,12 +1732,14 @@ function handleSlotClick(shiftId) {
     handleSlotUpdate(shiftId, null)
   })
 }
+
 function handleSimplifiedCellClick(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId
   if (patientId) {
     openDetailModalForPatient(patientId)
   }
 }
+
 function onDrop(event, targetShiftId) {
   if (isPageLocked.value) return
   event.preventDefault()
@@ -2249,6 +2257,24 @@ function exportScheduleToExcel() {
 
 // ✅ [核心修正] 重寫 handleSaveAndPrintIcuOrders 函式，使其更穩健
 async function handleSaveAndPrintIcuOrders(payload, printCallback) {
+  // 👇👇👇 加上這些來偵錯
+  console.log('--- 儲存醫囑權限檢查 ---')
+  console.log('當前使用者角色:', auth.claims.value?.role)
+  console.log('是否為過去日期 (isPageLocked):', isPageLocked.value)
+  console.log(
+    '是否有醫囑權限 (canEditClinicalNotesAndOrders):',
+    auth.canEditClinicalNotesAndOrders.value,
+  )
+  console.log(
+    '!auth.canEditClinicalNotesAndOrders.value is:',
+    !auth.canEditClinicalNotesAndOrders.value,
+  )
+  console.log('------------------------')
+
+  if (isPageLocked.value || !auth.canEditClinicalNotesAndOrders.value) {
+    showAlert('權限不足', '您沒有儲存 ICU 醫囑單的權限，或正在編輯過去的日期。')
+    return
+  }
   const { notes, crrtEmergency } = payload
 
   const updatePromises = []
