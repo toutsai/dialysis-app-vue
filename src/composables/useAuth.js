@@ -19,6 +19,8 @@ import { useErrorHandler } from '@/composables/useErrorHandler.js'
 // --- 全局狀態 ---
 const currentUser = ref(null)
 const authLoading = ref(true)
+// ✨ 1. 【新增】在這裡定義一個全域的 claims ref
+const claims = ref(null)
 
 // --- 建立一個只 resolve 一次的 Promise ---
 let authReadyResolve
@@ -32,13 +34,14 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     try {
       const idTokenResult = await user.getIdTokenResult()
+      // ✨ 2. 【新增】為 claims ref 賦值
+      claims.value = idTokenResult.claims
+
       const userData = {
         id: user.uid,
         uid: user.uid,
         name: idTokenResult.claims.name || '未命名',
         role: idTokenResult.claims.role || 'viewer',
-        // ✨✨✨ 核心修改: 從 token claims 中讀取 title ✨✨✨
-        // 假設您後端設定的欄位名稱為 'title'
         title: idTokenResult.claims.title || '未知職稱',
         email: user.email,
         lastLogin: new Date().toISOString(),
@@ -48,10 +51,12 @@ onAuthStateChanged(auth, async (user) => {
     } catch (error) {
       console.error('❌ Error getting user token result:', error)
       currentUser.value = null
+      claims.value = null // ✨ 登出或錯誤時也要清空 claims
       await signOut(auth) // 發生錯誤時強制登出
     }
   } else {
     currentUser.value = null
+    claims.value = null // ✨ 登出時也要清空 claims
     console.log('🚪 Auth state changed: User is logged out.')
   }
   authLoading.value = false
@@ -211,9 +216,19 @@ export function useAuth() {
     return !!currentUser.value
   })
 
+  // ✨ 3. 【修改】讓 canEditClinicalNotesAndOrders 的寫法與其他權限保持一致
+  // 這樣更穩健，並且不再直接依賴外部的 claims 變數
+  const canEditClinicalNotesAndOrders = computed(() => {
+    // 改為讀取 currentUser.value.role，確保資料來源一致
+    if (!currentUser.value?.role) return false
+    return ['admin', 'contributor'].includes(currentUser.value.role)
+  })
+
   return {
     // 狀態
     currentUser: readonly(currentUser),
+    // ✨ 4. 【可選但推薦】也可以把 claims 匯出，方便偵錯
+    claims: readonly(claims),
     isLoggedIn: readonly(isLoggedIn),
     authLoading: readonly(authLoading),
     loginLoading: readonly(loginLoading),
@@ -237,5 +252,6 @@ export function useAuth() {
     isReadOnly,
     canManageOrders, // ✨ 新增
     canViewConsumables, // ✨ 新增
+    canEditClinicalNotesAndOrders,
   }
 }

@@ -1,170 +1,185 @@
 <template>
   <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
     <div class="modal-container large">
-      <div class="modal-header">
-        <div class="header-title-area">
-          <h2>{{ patient?.name }} - 詳細資料</h2>
-        </div>
+      <!-- ✨ 1. 新增 Wrapper 來定位遮罩 -->
+      <div class="modal-body-wrapper">
+        <!-- ✨ 2. 新增權限鎖定遮罩 (內部無內容) -->
+        <div v-if="isLockedForThisUser" class="readonly-overlay"></div>
 
-        <!-- 病人導覽列 -->
-        <div v-if="slotList.length > 1" class="patient-navigator">
-          <button
-            @click="switchToPatient(currentIndex - 1)"
-            :disabled="currentIndex === 0"
-            class="nav-btn"
-            title="前一床病人"
-          >
-            <i class="fas fa-chevron-left"></i> 前一床
-          </button>
+        <!-- 3. 您原本的所有內容都放在這裡 -->
+        <div class="modal-header">
+          <div class="header-title-area">
+            <h2>{{ patient?.name }} - 詳細資料</h2>
+          </div>
 
-          <span class="nav-counter"
-            >{{ currentSlotInfo.shift }} / {{ currentSlotInfo.bedNum }}</span
-          >
-
-          <button
-            @click="switchToPatient(currentIndex + 1)"
-            :disabled="currentIndex >= slotList.length - 1"
-            class="nav-btn"
-            title="後一床病人"
-          >
-            後一床 <i class="fas fa-chevron-right"></i>
-          </button>
-        </div>
-
-        <button @click="handleClose" class="close-btn">×</button>
-      </div>
-
-      <!-- 頁籤導覽列 -->
-      <div class="tabs-navigation">
-        <button :class="{ active: activeTab === 'records' }" @click="activeTab = 'records'">
-          紀錄
-        </button>
-        <button :class="{ active: activeTab === 'memos' }" @click="activeTab = 'memos'">
-          <span v-if="hasPendingMemosForPatient" class="memo-indicator">!</span>
-          備忘
-        </button>
-        <button :class="{ active: activeTab === 'labs' }" @click="activeTab = 'labs'">檢驗</button>
-        <button :class="{ active: activeTab === 'correlation' }" @click="activeTab = 'correlation'">
-          開藥
-        </button>
-        <button :class="{ active: activeTab === 'imaging' }" @click="activeTab = 'imaging'">
-          影像
-        </button>
-      </div>
-
-      <!-- 頁籤內容 -->
-      <div class="modal-body">
-        <!-- 病情紀錄頁籤 -->
-        <div v-show="activeTab === 'records'" class="tab-panel">
-          <ConditionRecordPanel
-            v-if="patient"
-            :patient="patient"
-            :current-date="currentDate"
-            @save="handleSaveConditionRecord"
-            @update="handleUpdateConditionRecord"
-            @delete="handleDeleteConditionRecord"
-          />
-        </div>
-
-        <!-- 備忘頁籤 -->
-        <div v-show="activeTab === 'memos'" class="tab-panel">
-          <MemoPanel v-if="patient" :patient-id="patient.id" />
-        </div>
-
-        <!-- 影像頁籤 -->
-        <div v-show="activeTab === 'imaging'" class="tab-panel imaging-panel">
-          <!-- 上傳區塊 -->
-          <div class="image-uploader">
-            <!-- 階段一：初始狀態，顯示拍照按鈕 -->
-            <button v-if="cameraState === 'idle'" @click="startCamera" class="btn-primary">
-              <i class="fas fa-camera"></i> 開啟相機拍照
+          <!-- 病人導覽列 -->
+          <div v-if="slotList.length > 1" class="patient-navigator">
+            <button
+              @click="switchToPatient(currentIndex - 1)"
+              :disabled="currentIndex === 0"
+              class="nav-btn"
+              title="前一床病人"
+            >
+              <i class="fas fa-chevron-left"></i> 前一床
             </button>
 
-            <!-- 階段二：相機開啟狀態 -->
-            <div v-if="cameraState === 'streaming'" class="camera-view">
-              <video ref="videoPlayer" autoplay playsinline class="video-preview"></video>
-              <div class="camera-controls">
-                <button @click="captureImage" class="btn-capture" title="拍照">
-                  <i class="fas fa-circle"></i>
-                </button>
-                <button @click="stopCamera" class="btn-cancel">取消</button>
-              </div>
-            </div>
-
-            <!-- 階段三：照片預覽與上傳狀態 -->
-            <div
-              v-if="cameraState === 'captured' || cameraState === 'uploading'"
-              class="preview-view"
+            <span class="nav-counter"
+              >{{ currentSlotInfo.shift }} / {{ currentSlotInfo.bedNum }}</span
             >
-              <img :src="capturedImage" alt="Captured image preview" class="image-preview" />
-              <div class="preview-controls">
-                <button @click="uploadToDrive" :disabled="isUploading" class="btn-success">
-                  <i v-if="isUploading" class="fas fa-spinner fa-spin"></i>
-                  {{ isUploading ? '上傳中...' : '確認上傳' }}
-                </button>
-                <button @click="retakePhoto" :disabled="isUploading" class="btn-secondary">
-                  重新拍照
-                </button>
+
+            <button
+              @click="switchToPatient(currentIndex + 1)"
+              :disabled="currentIndex >= slotList.length - 1"
+              class="nav-btn"
+              title="後一床病人"
+            >
+              後一床 <i class="fas fa-chevron-right"></i>
+            </button>
+          </div>
+
+          <button @click="handleClose" class="close-btn">×</button>
+        </div>
+
+        <!-- 頁籤導覽列 -->
+        <div class="tabs-navigation">
+          <button :class="{ active: activeTab === 'records' }" @click="activeTab = 'records'">
+            紀錄
+          </button>
+          <button :class="{ active: activeTab === 'memos' }" @click="activeTab = 'memos'">
+            <span v-if="hasPendingMemosForPatient" class="memo-indicator">!</span>
+            備忘
+          </button>
+          <button :class="{ active: activeTab === 'labs' }" @click="activeTab = 'labs'">
+            檢驗
+          </button>
+          <button
+            :class="{ active: activeTab === 'correlation' }"
+            @click="activeTab = 'correlation'"
+          >
+            開藥
+          </button>
+          <button :class="{ active: activeTab === 'imaging' }" @click="activeTab = 'imaging'">
+            影像
+          </button>
+        </div>
+
+        <!-- 頁籤內容 -->
+        <div class="modal-body">
+          <!-- 病情紀錄頁籤 -->
+          <div v-show="activeTab === 'records'" class="tab-panel">
+            <ConditionRecordPanel
+              v-if="patient"
+              :patient="patient"
+              :current-date="currentDate"
+              @save="handleSaveConditionRecord"
+              @update="handleUpdateConditionRecord"
+              @delete="handleDeleteConditionRecord"
+            />
+          </div>
+
+          <!-- 備忘頁籤 -->
+          <div v-show="activeTab === 'memos'" class="tab-panel">
+            <MemoPanel v-if="patient" :patient-id="patient.id" />
+          </div>
+
+          <!-- 影像頁籤 -->
+          <div v-show="activeTab === 'imaging'" class="tab-panel imaging-panel">
+            <!-- 上傳區塊 -->
+            <div class="image-uploader">
+              <!-- 階段一：初始狀態，顯示拍照按鈕 -->
+              <button v-if="cameraState === 'idle'" @click="startCamera" class="btn-primary">
+                <i class="fas fa-camera"></i> 開啟相機拍照
+              </button>
+
+              <!-- 階段二：相機開啟狀態 -->
+              <div v-if="cameraState === 'streaming'" class="camera-view">
+                <video ref="videoPlayer" autoplay playsinline class="video-preview"></video>
+                <div class="camera-controls">
+                  <button @click="captureImage" class="btn-capture" title="拍照">
+                    <i class="fas fa-circle"></i>
+                  </button>
+                  <button @click="stopCamera" class="btn-cancel">取消</button>
+                </div>
+              </div>
+
+              <!-- 階段三：照片預覽與上傳狀態 -->
+              <div
+                v-if="cameraState === 'captured' || cameraState === 'uploading'"
+                class="preview-view"
+              >
+                <img :src="capturedImage" alt="Captured image preview" class="image-preview" />
+                <div class="preview-controls">
+                  <button @click="uploadToDrive" :disabled="isUploading" class="btn-success">
+                    <i v-if="isUploading" class="fas fa-spinner fa-spin"></i>
+                    {{ isUploading ? '上傳中...' : '確認上傳' }}
+                  </button>
+                  <button @click="retakePhoto" :disabled="isUploading" class="btn-secondary">
+                    重新拍照
+                  </button>
+                </div>
+              </div>
+
+              <!-- 上傳錯誤訊息顯示 -->
+              <div v-if="cameraErrorMessage" class="error-message">
+                {{ cameraErrorMessage }}
               </div>
             </div>
 
-            <!-- 上傳錯誤訊息顯示 -->
-            <div v-if="cameraErrorMessage" class="error-message">
-              {{ cameraErrorMessage }}
+            <!-- 分隔線 -->
+            <hr class="panel-divider" />
+
+            <!-- 查詢與顯示區塊 -->
+            <div class="image-viewer">
+              <div class="viewer-header">
+                <h3>歷史影像紀錄</h3>
+                <button @click="fetchDriveFiles" :disabled="isFetchingFiles" class="btn-secondary">
+                  <i v-if="isFetchingFiles" class="fas fa-spinner fa-spin"></i>
+                  {{ isFetchingFiles ? '查詢中...' : '重新整理影像' }}
+                </button>
+              </div>
+
+              <!-- 狀態顯示 -->
+              <div v-if="isFetchingFiles" class="loading-state">正在從雲端硬碟讀取資料...</div>
+              <div v-else-if="fetchError" class="error-message">{{ fetchError }}</div>
+              <div v-else-if="driveFiles.length === 0 && hasSearched" class="empty-state">
+                找不到此病人的相關影像紀錄。
+              </div>
+
+              <!-- 影像列表 -->
+              <div v-else-if="driveFiles.length > 0" class="image-grid">
+                <a
+                  v-for="file in driveFiles"
+                  :key="file.id"
+                  :href="file.webViewLink"
+                  target="_blank"
+                  class="image-card"
+                  title="點擊在新分頁中開啟原始圖片"
+                >
+                  <img :src="file.thumbnailLink" :alt="file.name" class="thumbnail-img" />
+                  <div class="image-info">
+                    <p class="file-name">{{ file.name }}</p>
+                    <p class="created-time">{{ formatDateTime(file.createdTime) }}</p>
+                  </div>
+                </a>
+              </div>
             </div>
           </div>
 
-          <!-- 分隔線 -->
-          <hr class="panel-divider" />
-
-          <!-- 查詢與顯示區塊 -->
-          <div class="image-viewer">
-            <div class="viewer-header">
-              <h3>歷史影像紀錄</h3>
-              <button @click="fetchDriveFiles" :disabled="isFetchingFiles" class="btn-secondary">
-                <i v-if="isFetchingFiles" class="fas fa-spinner fa-spin"></i>
-                {{ isFetchingFiles ? '查詢中...' : '重新整理影像' }}
-              </button>
-            </div>
-
-            <!-- 狀態顯示 -->
-            <div v-if="isFetchingFiles" class="loading-state">正在從雲端硬碟讀取資料...</div>
-            <div v-else-if="fetchError" class="error-message">{{ fetchError }}</div>
-            <div v-else-if="driveFiles.length === 0 && hasSearched" class="empty-state">
-              找不到此病人的相關影像紀錄。
-            </div>
-
-            <!-- 影像列表 -->
-            <div v-else-if="driveFiles.length > 0" class="image-grid">
-              <a
-                v-for="file in driveFiles"
-                :key="file.id"
-                :href="file.webViewLink"
-                target="_blank"
-                class="image-card"
-                title="點擊在新分頁中開啟原始圖片"
-              >
-                <img :src="file.thumbnailLink" :alt="file.name" class="thumbnail-img" />
-                <div class="image-info">
-                  <p class="file-name">{{ file.name }}</p>
-                  <p class="created-time">{{ formatDateTime(file.createdTime) }}</p>
-                </div>
-              </a>
-            </div>
+          <!-- 檢驗報告頁籤 -->
+          <div v-show="activeTab === 'labs'" class="tab-panel">
+            <PatientLabSummaryPanel
+              v-if="patient"
+              :patient="patient"
+              @save-record="handleSaveLabSummaryAsRecord"
+            />
           </div>
-        </div>
 
-        <!-- 檢驗報告頁籤 -->
-        <div v-show="activeTab === 'labs'" class="tab-panel">
-          <PatientLabSummaryPanel
-            v-if="patient"
-            :patient="patient"
-            @save-record="handleSaveLabSummaryAsRecord"
-          />
-        </div>
-
-        <div v-show="activeTab === 'correlation'" class="tab-panel">
-          <LabMedCorrelationView v-if="patient && activeTab === 'correlation'" :patient="patient" />
+          <div v-show="activeTab === 'correlation'" class="tab-panel">
+            <LabMedCorrelationView
+              v-if="patient && activeTab === 'correlation'"
+              :patient="patient"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -192,7 +207,6 @@ const props = defineProps({
   isVisible: Boolean,
   patient: Object,
   currentDate: Date,
-  // ✨ 核心修正：將 prop 名稱從 patientList 改為 slotList
   slotList: {
     type: Array,
     default: () => [],
@@ -212,13 +226,15 @@ const auth = useAuth()
 const taskStore = useTaskStore()
 
 // --- Computed Properties ---
+const isLockedForThisUser = computed(() => {
+  return !auth.canEditClinicalNotesAndOrders.value
+})
+
 const currentSlotInfo = computed(() => {
-  // ✨ 核心修正：確認這裡讀取的是 props.slotList
   if (!props.slotList || props.slotList.length === 0) {
     return { bedNum: 'N/A', shift: '未知' }
   }
   const currentSlot = props.slotList[props.currentIndex]
-  // ... (此計算屬性的其餘部分不變)
   if (!currentSlot || !currentSlot.shiftId) {
     return { bedNum: 'N/A', shift: '未知' }
   }
@@ -309,16 +325,14 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
   }
 }
 
-// 新增切換病人的函式
 function switchToPatient(newIndex) {
-  // ✨ 核心修正：確認這裡讀取的是 props.slotList
   if (newIndex >= 0 && newIndex < props.slotList.length) {
     emit('switch-patient', newIndex)
   }
 }
 
 // --- Camera, Upload & Viewer State ---
-const cameraState = ref('idle') // 'idle', 'streaming', 'captured', 'uploading'
+const cameraState = ref('idle')
 const videoPlayer = ref(null)
 const capturedImage = ref(null)
 const cameraStream = ref(null)
@@ -474,7 +488,6 @@ watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      // 當切換病人時，activeTab 不應該被重置，除非是第一次打開
       if (activeTab.value === '') {
         activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records'
       }
@@ -482,32 +495,48 @@ watch(
         fetchDriveFiles()
       }
     } else {
-      // 當 Modal 完整關閉時，才重置所有狀態
       stopCamera()
       driveFiles.value = []
       hasSearched.value = false
       fetchError.value = ''
-      activeTab.value = '' // 重置頁籤狀態，以便下次打開時重新判斷
+      activeTab.value = ''
     }
   },
 )
 
-// 新增一個 watcher 來監聽 patient prop 的變化
 watch(
   () => props.patient,
   (newPatient, oldPatient) => {
-    // 確保 Modal 是可見的，且病人真的改變了
     if (props.isVisible && newPatient && newPatient.id !== oldPatient?.id) {
-      // 重置頁籤特定狀態，例如重新載入影像
       fetchDriveFiles()
-      // 你也可以選擇在這裡重置頁籤到預設值
-      // activeTab.value = hasPendingMemosForPatient.value ? 'memos' : 'records';
     }
   },
 )
 </script>
 
 <style scoped>
+/* ✨【修改】遮罩 Wrapper 和遮罩本身的樣式 ✨ */
+.modal-body-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.readonly-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(108, 117, 125, 0.2); /* 半透明的灰色 */
+  z-index: 10;
+  border-radius: 12px;
+  cursor: not-allowed; /* 禁止圖示 */
+}
+
+/* --- 以下為您原本的樣式，保持不變 --- */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -530,18 +559,18 @@ watch(
   height: 90vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .modal-header {
   padding: 1rem 1.5rem;
   border-bottom: 1px solid #dee2e6;
   flex-shrink: 0;
-  /* 修改 header 的排版以容納新按鈕 */
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
 }
 .header-title-area {
-  justify-self: start; /* 讓標題靠左 */
+  justify-self: start;
 }
 .modal-header h2 {
   margin: 0;
@@ -553,13 +582,12 @@ watch(
   font-size: 2rem;
   cursor: pointer;
   color: #6c757d;
-  justify-self: end; /* 讓關閉按鈕靠右 */
+  justify-self: end;
 }
 .close-btn:hover {
   color: #343a40;
 }
 
-/* 新增的導覽列樣式 */
 .patient-navigator {
   display: flex;
   align-items: center;
