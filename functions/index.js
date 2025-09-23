@@ -2793,7 +2793,7 @@ exports.processConsumables = onCall(
 )
 
 // ===================================================================
-// Medication Orders Processing Function (藥囑處理函式) - v1.3 (批次處理最終版)
+// Medication Orders Processing Function (藥囑處理函式) - v1.5 (增強版日期解析)
 // ===================================================================
 
 exports.processOrders = onCall(
@@ -2809,15 +2809,14 @@ exports.processOrders = onCall(
       throw new HttpsError('invalid-argument', '請求中缺少檔案名稱或內容。')
     }
 
-    logger.info(`[ProcessOrders V1.3] 接收到檔案 ${fileName}，開始解析...`)
+    logger.info(`[ProcessOrders V1.5] 接收到檔案 ${fileName}，開始解析...`)
 
     try {
-      // 1. 解析 Excel，增加 { cellDates: true } 選項
+      // 1. 解析 Excel
       const buffer = Buffer.from(fileContent, 'base64')
       const workbook = XLSX.read(buffer, { type: 'buffer' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
-      // ✨ [核心修正 1] 使用 sheet_to_json 搭配 header:1，並讓 xlsx 幫我們處理日期
       const dataRows = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
         defval: '',
@@ -2825,6 +2824,7 @@ exports.processOrders = onCall(
         dateNF: 'YYYY-MM-DD',
       })
 
+      // ... (尋找 header 的部分保持不變)
       let headerRowIndex = -1
       let headers = []
       for (let i = 0; i < dataRows.length; i++) {
@@ -2856,17 +2856,17 @@ exports.processOrders = onCall(
         )
       }
 
-      // 2. 定義藥物類別 (已移除 OFOL 和 OKEN)
+      // 2. 定義藥物類別 (保持不變)
       const oralMedCodes = ['OALK1', 'OCAA', 'OCAL1', 'OFOS4', 'OUCA1', 'OVAF']
       const injectionMedCodes = ['INES2', 'IPAR1', 'ICAC', 'IFER2', 'IREC1']
 
       // 3. 遍歷資料行並處理
-      let batch = db.batch() // 初始化第一個批次
+      let batch = db.batch()
       const patientCache = new Map()
       let errors = []
       let processedCount = 0
-      let batchCounter = 0 // 當前批次的計數器
-      const BATCH_SIZE = 450 // 設定批次大小
+      let batchCounter = 0
+      const BATCH_SIZE = 450
 
       for (let i = headerRowIndex + 1; i < dataRows.length; i++) {
         const row = dataRows[i]
@@ -2876,17 +2876,64 @@ exports.processOrders = onCall(
           .trim()
           .replace(/^0+/, '')
         const orderCode = String(row[headerToIndex['醫令碼']] || '').trim()
-        // ✨ [核心修正 2] 直接使用 xlsx 解析好的日期字串
-        const changeDate = String(row[headerToIndex['異動日期']] || '').trim()
         const orderName = String(row[headerToIndex['名稱']] || '').trim()
 
-        if (!medicalRecordNumber || !orderCode || !changeDate || !orderName) {
-          let reason = '缺少必要欄位'
-          if (!changeDate) reason = `異動日期格式錯誤或為空`
+        // ✨ --- 【核心修正點 V1.5】增強的日期處理邏輯 --- ✨
+        const rawChangeDate = row[headerToIndex['異動日期']]
+        let changeDate = ''
+
+        if (rawChangeDate) {
+          const dateStr = String(rawChangeDate).trim()
+
+          // 優先嘗試解析 YYYYMMDD... 格式
+          if (/^\d{8,}/.test(dateStr)) {
+            const year = dateStr.substring(0, 4)
+            const month = dateStr.substring(4, 6)
+            const day = dateStr.substring(6, 8)
+            // 進行基本合理性檢查
+            if (
+              parseInt(month) >= 1 &&
+              parseInt(month) <= 12 &&
+              parseInt(day) >= 1 &&
+              parseInt(day) <= 31
+            ) {
+              changeDate = `${year}-${month}-${day}`
+            }
+          }
+
+          // 如果手動解析失敗，再嘗試標準的 Date 物件解析
+          if (!changeDate) {
+            try {
+              const dateObj = new Date(rawChangeDate)
+              if (!isNaN(dateObj.getTime())) {
+                const year = dateObj.getUTCFullYear()
+                const month = (dateObj.getUTCMonth() + 1).toString().padStart(2, '0')
+                const day = dateObj.getUTCDate().toString().padStart(2, '0')
+                changeDate = `${year}-${month}-${day}`
+              }
+            } catch (e) {
+              // 捕捉可能的錯誤，保持 changeDate 為空
+            }
+          }
+        }
+
+        // --- 錯誤檢查 (保持不變) ---
+        if (
+          !medicalRecordNumber ||
+          !orderCode ||
+          !orderName ||
+          !changeDate ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(changeDate)
+        ) {
+          let reason = '缺少必要欄位或日期格式不正確'
+          if (!changeDate || !/^\d{4}-\d{2}-\d{2}$/.test(changeDate)) {
+            reason = `異動日期格式錯誤或為空 (應為 YYYY-MM-DD)，讀取到的值為: "${rawChangeDate}"`
+          }
           errors.push({ rowNumber: i + 1, reason })
           continue
         }
 
+        // ... (後續的 patientData 查找和 batch.set 邏輯保持不變)
         let patientData
         if (patientCache.has(medicalRecordNumber)) {
           patientData = patientCache.get(medicalRecordNumber)
@@ -2939,12 +2986,11 @@ exports.processOrders = onCall(
           processedCount++
           batchCounter++
 
-          // ✨ [核心修正 3] 檢查是否達到批次大小
           if (batchCounter >= BATCH_SIZE) {
-            await batch.commit() // 提交當前批次
-            logger.info(`[ProcessOrders V1.3] 已提交 ${batchCounter} 筆資料...`)
-            batch = db.batch() // 建立新批次
-            batchCounter = 0 // 重設計數器
+            await batch.commit()
+            logger.info(`[ProcessOrders V1.5] 已提交 ${batchCounter} 筆資料...`)
+            batch = db.batch()
+            batchCounter = 0
           }
         }
       }
@@ -2952,11 +2998,11 @@ exports.processOrders = onCall(
       // 4. 提交剩餘的批次
       if (batchCounter > 0) {
         await batch.commit()
-        logger.info(`[ProcessOrders V1.3] 已提交最後 ${batchCounter} 筆資料。`)
+        logger.info(`[ProcessOrders V1.5] 已提交最後 ${batchCounter} 筆資料。`)
       }
 
       logger.info(
-        `[ProcessOrders V1.3] 處理完成，成功處理 ${processedCount} 筆藥囑，發現 ${errors.length} 個問題。`,
+        `[ProcessOrders V1.5] 處理完成，成功處理 ${processedCount} 筆藥囑，發現 ${errors.length} 個問題。`,
       )
 
       return {
@@ -2967,7 +3013,7 @@ exports.processOrders = onCall(
         errors: errors.slice(0, 50),
       }
     } catch (error) {
-      logger.error(`[ProcessOrders V1.3] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
+      logger.error(`[ProcessOrders V1.5] 處理檔案 ${fileName} 時發生嚴重錯誤:`, error)
       if (error instanceof HttpsError) throw error
       throw new HttpsError('internal', `處理 Excel 檔案時發生錯誤: ${error.message}`)
     }
