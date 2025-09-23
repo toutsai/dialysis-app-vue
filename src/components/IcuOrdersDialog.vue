@@ -5,7 +5,7 @@
       <header class="modal-header">
         <h2>{{ targetDate }} 外圍病房透析醫囑單</h2>
         <div class="header-actions">
-          <button @click="handleSaveAndPrint" class="btn-print">
+          <button v-if="canEdit" @click="handleSaveAndPrint" class="btn-print">
             <i class="fas fa-print"></i> 儲存並列印
           </button>
           <button @click="$emit('close')" class="btn-close">×</button>
@@ -27,8 +27,9 @@
                   <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || '____' }}</div>
                   <div
                     class="info-item name"
-                    @click="$emit('open-order-modal', p)"
+                    @click="canEdit && $emit('open-order-modal', p)"
                     title="點擊編輯醫囑"
+                    :style="{ cursor: canEdit ? 'pointer' : 'default' }"
                   >
                     <strong>姓名:</strong> {{ p.name }}
                   </div>
@@ -105,6 +106,7 @@
                       v-model="localNotes[p.id]"
                       @input="updateLocalNote(p.id, $event.target.value)"
                       placeholder="點此輸入備註..."
+                      :readonly="!canEdit"
                     />
                   </div>
                 </div>
@@ -122,14 +124,14 @@
                   <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || '____' }}</div>
                   <div
                     class="info-item name"
-                    @click="$emit('open-order-modal', p)"
+                    @click="canEdit && $emit('open-order-modal', p)"
                     title="點擊編輯醫囑"
+                    :style="{ cursor: canEdit ? 'pointer' : 'default' }"
                   >
                     <strong>姓名:</strong> {{ p.name }}
                   </div>
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
-
                 <div class="card-body">
                   <div
                     v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
@@ -191,7 +193,6 @@
                       <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
                     </div>
                   </div>
-
                   <div class="notes-section">
                     <strong>備註：</strong>
                     <input
@@ -200,6 +201,7 @@
                       v-model="localNotes[p.id]"
                       @input="updateLocalNote(p.id, $event.target.value)"
                       placeholder="點此輸入備註..."
+                      :readonly="!canEdit"
                     />
                   </div>
                 </div>
@@ -217,14 +219,14 @@
                   <div class="info-item"><strong>床號:</strong> {{ p.wardNumber || '____' }}</div>
                   <div
                     class="info-item name"
-                    @click="$emit('open-order-modal', p)"
+                    @click="canEdit && $emit('open-order-modal', p)"
                     title="點擊編輯醫囑"
+                    :style="{ cursor: canEdit ? 'pointer' : 'default' }"
                   >
                     <strong>姓名:</strong> {{ p.name }}
                   </div>
                   <div class="info-item"><strong>病歷號:</strong> {{ p.medicalRecordNumber }}</div>
                 </div>
-
                 <div class="card-body">
                   <div
                     v-if="p.dialysisOrders?.mode === 'PP' || p.dialysisOrders?.mode === 'DFPP'"
@@ -286,7 +288,6 @@
                       <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
                     </div>
                   </div>
-
                   <div class="notes-section">
                     <strong>備註：</strong>
                     <input
@@ -295,6 +296,7 @@
                       v-model="localNotes[p.id]"
                       @input="updateLocalNote(p.id, $event.target.value)"
                       placeholder="點此輸入備註..."
+                      :readonly="!canEdit"
                     />
                   </div>
                 </div>
@@ -304,11 +306,11 @@
           </div>
         </section>
 
-        <!-- CRRT 區塊 - 包含桌面版和行動版 -->
+        <!-- CRRT 區塊 -->
         <section class="order-section">
           <h3 class="section-title">CRRT 病人名單</h3>
 
-          <!-- 桌面版表格 (保持原樣) -->
+          <!-- 桌面版表格 -->
           <div v-if="cvvhPatients.length > 0" class="crrt-container desktop-only">
             <div v-for="p in cvvhPatients" :key="p.id" class="crrt-patient-card">
               <table class="crrt-table">
@@ -323,6 +325,7 @@
                       <div class="crrt-header-with-btn">
                         <span>CRRT 醫囑</span>
                         <button
+                          v-if="canEdit"
                           class="btn-edit-crrt"
                           @click="$emit('open-crrt-order-modal', p)"
                           title="新增/修正 CRRT 醫囑"
@@ -403,6 +406,7 @@
                               type="radio"
                               v-model="crrtEmergencyData[p.id].withdraw"
                               value="yes"
+                              :disabled="!canEdit"
                             />可
                           </label>
                           <label class="checkbox-label">
@@ -410,6 +414,7 @@
                               type="radio"
                               v-model="crrtEmergencyData[p.id].withdraw"
                               value="no"
+                              :disabled="!canEdit"
                             />否
                           </label>
                         </div>
@@ -418,6 +423,7 @@
                           class="withdraw-note"
                           v-model="crrtEmergencyData[p.id].note"
                           placeholder="備註..."
+                          :readonly="!canEdit"
                         />
                       </div>
                     </td>
@@ -430,7 +436,6 @@
           <!-- 行動版卡片 -->
           <div v-if="cvvhPatients.length > 0" class="crrt-cards-container mobile-only">
             <div v-for="p in cvvhPatients" :key="p.id" class="crrt-mobile-card">
-              <!-- 病人資訊頭部 -->
               <div class="crrt-card-header">
                 <div class="crrt-patient-info">
                   <div class="crrt-bed">床號: {{ p.wardNumber || '____' }}</div>
@@ -438,6 +443,7 @@
                   <div class="crrt-mrn">{{ p.medicalRecordNumber }}</div>
                 </div>
                 <button
+                  v-if="canEdit"
                   class="btn-edit-crrt-mobile"
                   @click="$emit('open-crrt-order-modal', p)"
                   title="新增/修正 CRRT 醫囑"
@@ -446,7 +452,6 @@
                 </button>
               </div>
 
-              <!-- 醫囑內容 -->
               <div class="crrt-card-body">
                 <div class="crrt-physician-info" v-if="p.crrtOrders?.physician">
                   <span class="physician-label">
@@ -457,8 +462,6 @@
                     ({{ formatDateTime(p.crrtOrders.timestamp) }})
                   </span>
                 </div>
-
-                <!-- 醫囑參數網格 -->
                 <div class="crrt-params-grid">
                   <div class="param-item">
                     <span class="param-label">模式:</span>
@@ -507,17 +510,26 @@
                 </div>
               </div>
 
-              <!-- 緊急撤離區 -->
               <div class="crrt-card-footer">
                 <div class="emergency-section">
                   <span class="emergency-label">緊急時是否可撤：</span>
                   <div class="emergency-options">
                     <label class="radio-option">
-                      <input type="radio" v-model="crrtEmergencyData[p.id].withdraw" value="yes" />
+                      <input
+                        type="radio"
+                        v-model="crrtEmergencyData[p.id].withdraw"
+                        value="yes"
+                        :disabled="!canEdit"
+                      />
                       <span>可</span>
                     </label>
                     <label class="radio-option">
-                      <input type="radio" v-model="crrtEmergencyData[p.id].withdraw" value="no" />
+                      <input
+                        type="radio"
+                        v-model="crrtEmergencyData[p.id].withdraw"
+                        value="no"
+                        :disabled="!canEdit"
+                      />
                       <span>否</span>
                     </label>
                   </div>
@@ -527,6 +539,7 @@
                   class="emergency-note"
                   v-model="crrtEmergencyData[p.id].note"
                   placeholder="備註..."
+                  :readonly="!canEdit"
                 />
               </div>
             </div>
@@ -542,35 +555,43 @@
 <script setup>
 import { computed, reactive, watch } from 'vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
+import { useAuth } from '@/composables/useAuth.js' // ✨ 1. 引入 useAuth
+
+const auth = useAuth() // ✨ 2. 實例化 auth
 
 const props = defineProps({
   isVisible: Boolean,
   targetDate: String,
   schedule: Object,
   patientMap: Map,
+  // ✨ 3. 新增 isEditable prop，並設定預設值為 true
+  isEditable: {
+    type: Boolean,
+    default: true,
+  },
+})
+
+// ✨ 4. 建立一個 computed 屬性來結合 prop 和權限
+const canEdit = computed(() => {
+  return props.isEditable && auth.canEditClinicalNotesAndOrders.value
 })
 
 const emit = defineEmits(['close', 'open-order-modal', 'open-crrt-order-modal', 'save-and-print'])
 
-// ✅ [核心修改] 建立本地狀態來追蹤所有可編輯欄位的即時值
 const localNotes = reactive({})
 const crrtEmergencyData = reactive({})
 
-// 新增更新本地備註的方法
 function updateLocalNote(patientId, value) {
   localNotes[patientId] = value
 }
 
-// 修改 watch，確保初始化時載入現有備註
 watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
-      // 初始化 HD/SLED/PP/DFPP 病人備註
       allPeripheralPatients.value.forEach((p) => {
         localNotes[p.id] = p.dialysisOrders?.icuNote || ''
       })
-      // 初始化 CRRT 病人資料
       cvvhPatients.value.forEach((p) => {
         crrtEmergencyData[p.id] = {
           withdraw: p.emergencyWithdraw || null,
@@ -582,8 +603,12 @@ watch(
   { immediate: true },
 )
 
-// ✅ [核心修改] 新增 "儲存並列印" 的處理函式
 const handleSaveAndPrint = () => {
+  // ✨ 5. 在處理函式中也加上權限檢查，作為雙重保險
+  if (!canEdit.value) {
+    alert('權限不足，無法儲存。')
+    return
+  }
   const payload = {
     notes: { ...localNotes },
     crrtEmergency: { ...crrtEmergencyData },
@@ -591,7 +616,6 @@ const handleSaveAndPrint = () => {
   emit('save-and-print', payload, printContent)
 }
 
-// 為了方便在 template 中使用 v-for，我們將班別資料整理成一個陣列
 const shifts = computed(() => [
   { name: 'early', displayName: '早班', patients: earlyPeripheralPatients.value },
   { name: 'noon', displayName: '午班', patients: noonPeripheralPatients.value },
@@ -625,7 +649,11 @@ const getDehydrationRateDisplay = (crrtOrders) => {
 const formatDateTime = (timestamp) => {
   if (!timestamp) return ''
   const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
-  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(
+    date.getDate(),
+  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(
+    date.getMinutes(),
+  ).padStart(2, '0')}`
 }
 
 const updateEmergencyWithdraw = (patientId, value) => {
@@ -684,13 +712,11 @@ const cvvhPatients = computed(() => {
 const printContent = () => {
   const printableArea = document.getElementById('icu-orders-printable-area')
   if (printableArea) {
-    // 先強制更新所有輸入框的值屬性
     const inputs = printableArea.querySelectorAll('input[type="text"]')
     inputs.forEach((input) => {
       input.setAttribute('value', input.value)
     })
 
-    // 處理 radio buttons
     const radios = printableArea.querySelectorAll('input[type="radio"]:checked')
     radios.forEach((radio) => {
       radio.setAttribute('checked', 'checked')
@@ -724,6 +750,27 @@ const printContent = () => {
 </script>
 
 <style scoped>
+/* ✨ 新增 disabled/readonly 狀態的樣式 ✨ */
+.btn-print:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+.notes-input:read-only,
+.withdraw-note:read-only {
+  background-color: #e9ecef;
+  cursor: not-allowed;
+  border-color: #ced4da;
+}
+.withdraw-options input[type='radio']:disabled + span,
+.withdraw-options input[type='radio']:disabled {
+  cursor: not-allowed;
+  color: #6c757d;
+}
+.info-item.name[style*='cursor: default'] {
+  text-decoration: none;
+  color: #212529; /* or any color you prefer for non-clickable text */
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
