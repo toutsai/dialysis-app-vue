@@ -556,8 +556,10 @@
 import { computed, reactive, watch } from 'vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { useAuth } from '@/composables/useAuth.js' // ✨ 1. 引入 useAuth
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 const auth = useAuth() // ✨ 2. 實例化 auth
+const { addLocalNotification } = useRealtimeNotifications()
 
 const props = defineProps({
   isVisible: Boolean,
@@ -686,22 +688,58 @@ const allPeripheralPatients = computed(() => {
     .filter(Boolean)
 })
 
+// 新增一個排序函式
+const sortPatients = (patients) => {
+  const dayOfWeek = new Date(props.targetDate).getDay()
+
+  const getUnitOrder = (wardNumber) => {
+    // ✨ 新增保護機制 ✨
+    // 如果 wardNumber 不存在或是空字串，直接返回一個預設排序值
+    if (!wardNumber || typeof wardNumber !== 'string') {
+      return 99 // 返回一個較大的數字，使其排在最後
+    }
+
+    const unit = wardNumber.toUpperCase()
+    // 週二、四、六
+    if ([2, 4, 6].includes(dayOfWeek)) {
+      if (unit.startsWith('ICUA')) return 1
+      if (unit.startsWith('ICUB')) return 2
+      if (unit.startsWith('RCC')) return 3
+    }
+    // 週一、三、五 (以及週日)
+    else {
+      if (unit.startsWith('ICUB')) return 1
+      if (unit.startsWith('ICUA')) return 2
+      if (unit.startsWith('RCC')) return 3
+    }
+    return 4 // 其他單位排在後面
+  }
+
+  return patients.sort((a, b) => {
+    const unitOrderA = getUnitOrder(a.wardNumber)
+    const unitOrderB = getUnitOrder(b.wardNumber)
+
+    if (unitOrderA !== unitOrderB) {
+      return unitOrderA - unitOrderB
+    }
+
+    // 若單位相同，則按床號數字排序 (也加上保護)
+    const bedNumA = parseInt((a.wardNumber || '').replace(/[^0-9]/g, ''), 10) || 0
+    const bedNumB = parseInt((b.wardNumber || '').replace(/[^0-9]/g, ''), 10) || 0
+    return bedNumA - bedNumB
+  })
+}
+
 const earlyPeripheralPatients = computed(() =>
-  allPeripheralPatients.value
-    .filter((p) => p.shiftCode === SHIFT_CODES.EARLY)
-    .sort((a, b) => a.bedNum.localeCompare(b.bedNum, undefined, { numeric: true })),
+  sortPatients(allPeripheralPatients.value.filter((p) => p.shiftCode === SHIFT_CODES.EARLY)),
 )
 
 const noonPeripheralPatients = computed(() =>
-  allPeripheralPatients.value
-    .filter((p) => p.shiftCode === SHIFT_CODES.NOON)
-    .sort((a, b) => a.bedNum.localeCompare(b.bedNum, undefined, { numeric: true })),
+  sortPatients(allPeripheralPatients.value.filter((p) => p.shiftCode === SHIFT_CODES.NOON)),
 )
 
 const latePeripheralPatients = computed(() =>
-  allPeripheralPatients.value
-    .filter((p) => p.shiftCode === SHIFT_CODES.LATE)
-    .sort((a, b) => a.bedNum.localeCompare(b.bedNum, undefined, { numeric: true })),
+  sortPatients(allPeripheralPatients.value.filter((p) => p.shiftCode === SHIFT_CODES.LATE)),
 )
 
 const cvvhPatients = computed(() => {
@@ -864,6 +902,7 @@ const printContent = () => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
+  page-break-inside: avoid; /* 核心屬性：避免元素內部被分頁 */
 }
 
 .card-body {
@@ -985,6 +1024,7 @@ const printContent = () => {
   border-radius: 6px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   overflow: hidden;
+  page-break-inside: avoid; /* 核心屬性：避免元素內部被分頁 */
 }
 .crrt-orders-cell {
   text-align: left !important;
@@ -1101,7 +1141,9 @@ const printContent = () => {
 
 /* 列印樣式 */
 @media print {
-  .modal-header {
+  /* --- 基本設定 --- */
+  .modal-header,
+  .btn-edit-crrt {
     display: none !important;
   }
   .printable-header {
@@ -1118,59 +1160,56 @@ const printContent = () => {
   body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    font-size: 14pt !important;
-    zoom: 0.7;
-  }
-  .modal-body {
-    padding: 0 !important;
-  }
-  .patient-header .info-item {
-    font-size: 14pt !important;
-  }
-  .patient-header .info-item.name {
-    font-size: 16pt !important;
-  }
-  .order-details {
-    font-size: 14pt !important;
-    line-height: 1.6 !important;
-    padding: 1.2rem !important;
-  }
-  .highlight-field {
-    color: #d32f2f !important;
-    font-weight: bold !important;
-    font-size: 15pt !important;
-  }
-  .patient-grid {
-    grid-template-columns: 1fr 1fr !important;
-    page-break-inside: avoid;
-  }
-  .patient-order-card {
-    page-break-inside: avoid;
-  }
-  .shift-group h4 {
-    font-size: 16pt !important;
-    margin-bottom: 1rem !important;
-  }
-  .crrt-table th {
-    font-size: 13pt !important;
-    background-color: #e9ecef !important;
-  }
-  .btn-edit-crrt {
-    display: none !important;
-  }
-  .crrt-order-content {
-    font-size: 11pt !important;
-  }
-  .order-info {
-    font-size: 10pt !important;
-    margin-bottom: 0.5rem !important;
-  }
-  .withdraw-options {
     font-size: 12pt !important;
   }
-  .withdraw-note {
-    border: 1px solid #000 !important;
-    font-size: 11pt !important;
+
+  /* --- ✨ 解決多頁內容被截斷的核心 ✨ --- */
+
+  /* 1. 重設 Modal 容器的高度與溢出行為 */
+  .modal-content,
+  .modal-body {
+    height: auto !important; /* 移除固定的可視高度 */
+    overflow: visible !important; /* 允許內容溢出，這是換頁的關鍵 */
+    display: block !important; /* 取消 flex 佈局，回歸正常文件流 */
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* 2. 重設 Modal 外層，避免 fixed 定位影響列印 */
+  .modal-overlay {
+    position: static !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+
+  /* --- 保留上一輪的分頁排版控制 --- */
+
+  .patient-grid {
+    display: block !important;
+  }
+
+  .patient-order-card {
+    width: 49%;
+    display: inline-block;
+    vertical-align: top;
+    margin-bottom: 1rem;
+    box-sizing: border-box;
+    break-inside: avoid; /* 新版 CSS 屬性 */
+    page-break-inside: avoid; /* 舊版 CSS 屬性，加強相容性 */
+  }
+
+  .patient-order-card:nth-of-type(odd) {
+    margin-right: 2%;
+  }
+
+  .shift-group + .shift-group {
+    break-before: page; /* 新版 */
+    page-break-before: always; /* 舊版 */
+  }
+
+  .crrt-patient-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
 
@@ -1356,6 +1395,7 @@ const printContent = () => {
   /* CRRT 區塊 - 隱藏桌面版表格 */
   .crrt-container.desktop-only {
     display: none !important;
+    page-break-inside: auto;
   }
 
   /* CRRT 行動版卡片顯示 */
@@ -1632,6 +1672,9 @@ const printContent = () => {
   .shift-group h4 {
     font-size: 0.9rem;
     padding: 0.4rem 0.6rem;
+    /* 讓整個班別群組盡量完整，避免標題在新的一頁，但內容卻很少 */
+    page-break-before: auto;
+    page-break-inside: avoid;
   }
 
   /* CRRT 參數單欄顯示 */
