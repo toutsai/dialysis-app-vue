@@ -1,11 +1,6 @@
-// functions/index.js (✨ 最終整理版 ✨)
-
-// --- Firebase Functions V2 全局設定 ---
+// functions/index.js (✨ 最終版：時區校驗 + 鏈式調班 ✨)
 const { setGlobalOptions } = require('firebase-functions/v2')
-// 建議在此處設定您的全局選項
 setGlobalOptions({ region: 'asia-east1', timeoutSeconds: 60, memory: '256MiB', maxInstances: 100 })
-
-// --- Firebase Functions V2 模組引入 ---
 const { onCall, HttpsError } = require('firebase-functions/v2/https')
 const { onSchedule } = require('firebase-functions/v2/scheduler')
 const {
@@ -14,21 +9,12 @@ const {
   onDocumentDeleted,
 } = require('firebase-functions/v2/firestore')
 const { logger } = require('firebase-functions')
-
-// --- Firebase Admin SDK 初始化 (只需一次) ---
 const admin = require('firebase-admin')
-// 使用 process.env.FIREBASE_CONFIG 自動初始化，無需傳入參數
-// 這是官方推薦的做法，更簡潔且安全
-admin.initializeApp()
-
-// --- 從 Admin SDK 中獲取服務實例 ---
-// 這樣可以確保整個應用程式共享同一個實例
+const functions = require('firebase-functions')
+const functionsConfig = JSON.parse(process.env.FIREBASE_CONFIG)
+admin.initializeApp({ projectId: functionsConfig.projectId })
 const db = admin.firestore()
-const auth = admin.auth()
-const storage = admin.storage()
 const { FieldValue, FieldPath } = require('firebase-admin/firestore')
-
-// --- 其他第三方函式庫 ---
 const { google } = require('googleapis')
 const stream = require('stream')
 const path = require('path')
@@ -61,15 +47,12 @@ const allowedOrigins = [
 // ===================================================================
 // 輔助函式 (Helper Functions)
 // ===================================================================
-// Helper function to format date
 function formatDateForQuery(date) {
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
+  const year = date.getFullYear()
+  const month = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
 }
-
 const getScheduleKey = (bedNum, shiftCode) => {
   const prefix = String(bedNum).startsWith('peripheral') ? '' : 'bed-'
   return `${prefix}${bedNum}-${shiftCode}`
@@ -659,19 +642,14 @@ exports.checkExpiredTasks = onSchedule(
     logger.info('[Scheduler] Running daily check for expired tasks (messages)...')
     const todayStr = formatDateForQuery(new Date())
     try {
-      // ✨ 核心修改：在這裡加入一個新的 .where() 條件
       const query = db
         .collection('tasks')
         .where('status', '==', 'pending')
         .where('category', '==', 'message')
-        // 新增的條件：確保 targetDate 是一個有效的、非空的日期字串
-        .where('targetDate', '>=', '1970-01-01')
-        // 原有的條件：找出早於今天的日期
         .where('targetDate', '<', todayStr)
-
       const snapshot = await query.get()
       if (snapshot.empty) {
-        logger.info('[Scheduler] No expired tasks (messages) with valid targetDate found.')
+        logger.info('[Scheduler] No expired tasks (messages) found.')
         return null
       }
       const batch = db.batch()
