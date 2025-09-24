@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (重構完成版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (整合 Pinia Store 更新版) -->
 <template>
   <div class="page-container">
     <!-- 1. 固定的頂部，此區塊不滾動 -->
@@ -601,7 +601,6 @@
           </div>
         </div>
 
-        <!-- ✨ [核心修改 1] 為夜班收針區塊補上完整的顯示內容 -->
         <div
           v-if="lateShiftTakeOffExists"
           class="stats-section late-takeoff-section"
@@ -1084,7 +1083,6 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-    <!-- ✨ 核心修改：綁定 @open-order-modal 事件 -->
     <PreparationPopover
       :is-visible="isPrepPopoverVisible"
       :patients="prepPopoverData.patients"
@@ -1100,7 +1098,6 @@
       @close="isInjectionDialogVisible = false"
       :show-filter="false"
     />
-    <!-- ✨ 核心修改：確保 DialysisOrderModal 存在並綁定正確 -->
     <DialysisOrderModal
       :is-visible="isOrderModalVisible"
       :patient-data="editingPatientForOrder"
@@ -1136,7 +1133,7 @@ import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
-import { useMedicationStore } from '@/stores/medicationStore.js' // 1. 引入 Store
+import { useMedicationStore } from '@/stores/medicationStore.js'
 import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
@@ -1149,6 +1146,7 @@ import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const archiveStore = useArchiveStore()
+const medicationStore = useMedicationStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1260,7 +1258,6 @@ const isInjectionLoading = ref(false)
 const noonTakeoffVisibility = ref({ early: false, late: false })
 const isOrderModalVisible = ref(false)
 const editingPatientForOrder = ref(null)
-const medicationStore = useMedicationStore() // 2. 實例化 Store
 
 provide('viewingDate', currentDate)
 
@@ -1905,13 +1902,10 @@ function handleTaskCreated() {
 }
 
 async function showInjectionList(teamData, shiftType = null) {
-  // 1. 根據傳入的組別(teamData)和班別(shiftType)，精確收集需要顯示的病人ID
   const patientIdsForFiltering = new Set()
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
-    // 情況一：點擊的是特定班別的圖示 (例如：早班、午班(上針)...)
     teamData[shiftType].patients.forEach((p) => patientIdsForFiltering.add(p.id))
   } else {
-    // 情況二：(備用邏輯) 如果沒有指定班別，則獲取該組別下的所有病人
     for (const key in teamData) {
       if (teamData[key] && Array.isArray(teamData[key].patients)) {
         teamData[key].patients.forEach((p) => patientIdsForFiltering.add(p.id))
@@ -1921,12 +1915,10 @@ async function showInjectionList(teamData, shiftType = null) {
 
   const patientIdArrayForFiltering = Array.from(patientIdsForFiltering)
 
-  // 準備彈出視窗
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
-  dailyInjections.value = [] // 先清空舊資料
+  dailyInjections.value = []
 
-  // 如果這個組別裡沒有病人，直接結束
   if (patientIdArrayForFiltering.length === 0) {
     isInjectionLoading.value = false
     return
@@ -1935,8 +1927,6 @@ async function showInjectionList(teamData, shiftType = null) {
   const targetDate = formatDate(currentDate.value)
 
   try {
-    // 2. 為了高效快取，一次性獲取「當天所有排班病人」的針劑資料
-    // Store 的 Action 會處理快取，如果已有資料則不會重複請求
     const allPatientIdsForDay = [
       ...new Set(
         Object.values(currentRecord.schedule)
@@ -1949,7 +1939,6 @@ async function showInjectionList(teamData, shiftType = null) {
       allPatientIdsForDay,
     )
 
-    // 3. 從快取好的「全天資料」中，篩選出我們這次需要顯示的病人的針劑
     const patientIdSet = new Set(patientIdArrayForFiltering)
     dailyInjections.value = allInjectionsForDay.filter((injection) =>
       patientIdSet.has(injection.patientId),
@@ -1959,7 +1948,6 @@ async function showInjectionList(teamData, shiftType = null) {
     showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
     isInjectionDialogVisible.value = false
   } finally {
-    // 最終的載入狀態以 Store 為準
     isInjectionLoading.value = medicationStore.isLoading
   }
 }
@@ -2239,6 +2227,7 @@ watch(currentUser, (newUser) => {
   }
 })
 watch(currentDate, (newDate) => {
+  medicationStore.clearCache() // ✨ 清除快取
   noonTakeoffVisibility.value = { early: false, late: false }
   loadData(newDate)
   loadDailyStaffInfo(newDate)
