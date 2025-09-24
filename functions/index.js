@@ -23,7 +23,7 @@ const path = require('path')
 // 全域設定 (Global Configurations)
 // ===================================================================
 
-const PROJECT_ID = process.env.GCP_PROJECT || process.env.GCLOUD_PROJECT
+const PROJECT_ID = functionsConfig.projectId
 
 // --- Google Drive 動態設定 ---
 let SHARED_DRIVE_FOLDER_ID
@@ -2404,7 +2404,7 @@ exports.processExceptionTask = onDocumentCreated('exception_tasks/{taskId}', asy
 exports.processLabReport = onCall(
   { cors: allowedOrigins, timeoutSeconds: 300, memory: '1GiB' },
   async (request) => {
-    const allowedRoles = ['admin', 'editor', 'contributor', 'viewer']
+    const allowedRoles = ['admin', 'editor', 'contributor']
     if (!request.auth || !allowedRoles.includes(request.auth.token.role)) {
       throw new HttpsError('permission-denied', '您沒有權限執行此操作。')
     }
