@@ -55,9 +55,9 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
-// ✨ 錯誤修復 1/2: 從正確的 firebase 設定檔中引入 db ✨
+// ✨ 修正 1/2: 從正確的 firebase 設定檔中引入 db 和 doc
 import { db } from '@/composables/useFirebase.js'
-import { where, orderBy, writeBatch, query } from 'firebase/firestore'
+import { where, orderBy, writeBatch, doc } from 'firebase/firestore'
 
 const draftOrdersApi = ApiManager('medication_drafts')
 const isLoading = ref(true)
@@ -106,12 +106,12 @@ async function confirmDrafts(group) {
   }
   const key = `${group.patientId}_${group.targetMonth}`
   confirmingState.value[key] = true
-  // ✨ 錯誤修復 2/2: 直接使用從 useFirebase.js 引入的 db 實例 ✨
   const batch = writeBatch(db)
 
   try {
     group.drafts.forEach((draft) => {
-      const docRef = draftOrdersApi.doc(draft.id)
+      // ✨ 修正 2/2: 使用 firestore 的 doc 函式來建立文件引用
+      const docRef = doc(db, 'medication_drafts', draft.id)
       batch.update(docRef, { status: 'completed' })
     })
     await batch.commit()
@@ -138,7 +138,6 @@ function formatDateTime(timestamp) {
 </script>
 
 <style scoped>
-/* 樣式與前一版完全相同，此處省略 */
 .page-container {
   padding: 0.5rem;
   background-color: #f8f9fa;

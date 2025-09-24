@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/StatsView.vue (重構完成版) -->
+<!-- 檔案路徑: src/views/StatsView.vue (整合 Pinia Store 更新版) -->
 <template>
   <div class="page-container">
     <!-- 1. 固定的頂部，此區塊不滾動 -->
@@ -601,7 +601,6 @@
           </div>
         </div>
 
-        <!-- ✨ [核心修改 1] 為夜班收針區塊補上完整的顯示內容 -->
         <div
           v-if="lateShiftTakeOffExists"
           class="stats-section late-takeoff-section"
@@ -1084,7 +1083,6 @@
       @confirm="handleConfirm"
       @cancel="handleCancel"
     />
-    <!-- ✨ 核心修改：綁定 @open-order-modal 事件 -->
     <PreparationPopover
       :is-visible="isPrepPopoverVisible"
       :patients="prepPopoverData.patients"
@@ -1100,7 +1098,6 @@
       @close="isInjectionDialogVisible = false"
       :show-filter="false"
     />
-    <!-- ✨ 核心修改：確保 DialysisOrderModal 存在並綁定正確 -->
     <DialysisOrderModal
       :is-visible="isOrderModalVisible"
       :patient-data="editingPatientForOrder"
@@ -1136,6 +1133,7 @@ import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
+import { useMedicationStore } from '@/stores/medicationStore.js'
 import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
@@ -1148,6 +1146,7 @@ import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const archiveStore = useArchiveStore()
+const medicationStore = useMedicationStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1901,44 +1900,60 @@ function handleTaskCreated() {
   showAlert('操作成功', '交辦/留言已成功新增！')
   isCreateTaskModalVisible.value = false
 }
+
 async function showInjectionList(teamData, shiftType = null) {
-  const patientIds = new Set()
+  const patientIdsToFetch = new Set()
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
-    teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
+    teamData[shiftType].patients.forEach((p) => patientIdsToFetch.add(p.id))
   } else {
     for (const key in teamData) {
       if (teamData[key] && Array.isArray(teamData[key].patients)) {
-        teamData[key].patients.forEach((p) => patientIds.add(p.id))
+        teamData[key].patients.forEach((p) => patientIdsToFetch.add(p.id))
       }
     }
   }
-  const patientIdArray = Array.from(patientIds)
-  if (patientIdArray.length === 0) {
-    dailyInjections.value = []
-    isInjectionDialogVisible.value = true
-    return
-  }
+
+  const patientIdArray = Array.from(patientIdsToFetch)
+
+  // --- 📍 日誌點 A (StatsView): 檢查要查詢的病人 ---
+  console.log(
+    `[StatsView] 準備查詢針劑，組別/班別: ${shiftType || '全部'}, 病人數: ${patientIdArray.length}`,
+    patientIdArray,
+  )
+
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
   dailyInjections.value = []
-  try {
-    const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
-    const result = await getDailyInjections({
-      targetDate: formatDate(currentDate.value),
-      patientIds: patientIdArray,
-    })
-    if (result.data && result.data.success) {
-      dailyInjections.value = result.data.injections
-    } else {
-      throw new Error(result.data?.message || '從後端獲取針劑資料失敗')
-    }
-  } catch (error) {
-    console.error('獲取本日應打針劑失敗:', error)
-    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
-  } finally {
+
+  if (patientIdArray.length === 0) {
     isInjectionLoading.value = false
+    return
+  }
+
+  const targetDate = formatDate(currentDate.value)
+
+  try {
+    const injectionsForGroup = await medicationStore.fetchDailyInjections(
+      targetDate,
+      patientIdArray,
+    )
+
+    // --- 📍 日誌點 B (StatsView): 檢查從 Store 返回的結果 ---
+    console.log(
+      `[StatsView] 從 Store 收到 ${injectionsForGroup.length} 筆針劑資料。`,
+      injectionsForGroup,
+    )
+
+    dailyInjections.value = injectionsForGroup
+  } catch (error) {
+    console.error('[StatsView] 獲取應打針劑失敗:', error)
+    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
+    isInjectionDialogVisible.value = false
+  } finally {
+    isInjectionLoading.value = medicationStore.isLoading
   }
 }
+
 function exportAssignmentsToExcel() {
   if (isLoading.value) {
     showAlert('提示', '資料仍在載入中，請稍後再試。')
@@ -2214,6 +2229,7 @@ watch(currentUser, (newUser) => {
   }
 })
 watch(currentDate, (newDate) => {
+  medicationStore.clearCache() // ✨ 清除快取
   noonTakeoffVisibility.value = { early: false, late: false }
   loadData(newDate)
   loadDailyStaffInfo(newDate)

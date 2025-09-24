@@ -242,34 +242,31 @@
                 </div>
               </template>
 
-              <!-- 扣除時數行 -->
+              <!-- 調整時數行 -->
               <div class="cell-item nested-item deduction-row"></div>
-              <div class="cell-category nested-item deduction-row">扣除時數(直接減去)</div>
+              <div class="cell-category nested-item deduction-row">調整時數 (加班+/早退-)</div>
               <div class="cell-input nested-item deduction-row">
                 <input
                   type="number"
-                  min="0"
                   step="0.01"
-                  v-model.number="dailyLog.stats.staffing.deductions.shift1"
-                  placeholder="留空不扣"
+                  v-model.number="dailyLog.stats.staffing.adjustments.shift1"
+                  placeholder="例: +2 或 -1.5"
                 />
               </div>
               <div class="cell-input nested-item deduction-row">
                 <input
                   type="number"
-                  min="0"
                   step="0.01"
-                  v-model.number="dailyLog.stats.staffing.deductions.shift2"
-                  placeholder="留空不扣"
+                  v-model.number="dailyLog.stats.staffing.adjustments.shift2"
+                  placeholder="例: +2 或 -1.5"
                 />
               </div>
               <div class="cell-input nested-item deduction-row">
                 <input
                   type="number"
-                  min="0"
                   step="0.01"
-                  v-model.number="dailyLog.stats.staffing.deductions.shift3"
-                  placeholder="留空不扣"
+                  v-model.number="dailyLog.stats.staffing.adjustments.shift3"
+                  placeholder="例: +2 或 -1.5"
                 />
               </div>
               <div class="cell-input nested-item deduction-row"></div>
@@ -829,13 +826,13 @@ const initialLogState = () => ({
     },
     staffing: {
       details: [
-        { id: Date.now() + 1, label: '7-4(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0 },
-        { id: Date.now() + 2, label: '7-5(洗腎室)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.125 },
-        { id: Date.now() + 3, label: '8-16(ICU)', count: 1, ratio1: 1, ratio2: 1, ratio3: 0.125 },
-        { id: Date.now() + 4, label: '12-8', count: 1, ratio1: 0, ratio2: 1, ratio3: 1 },
-        { id: Date.now() + 5, label: '3-11(夜班)', count: 1, ratio1: 0, ratio2: 0, ratio3: 1 },
+        { id: Date.now() + 1, label: '7-4(洗腎室)', count: 0, ratio1: 1, ratio2: 1, ratio3: 0 },
+        { id: Date.now() + 2, label: '7-5(洗腎室)', count: 0, ratio1: 1, ratio2: 1, ratio3: 0.125 },
+        { id: Date.now() + 3, label: '8-16(ICU)', count: 0, ratio1: 1, ratio2: 1, ratio3: 0.125 },
+        { id: Date.now() + 4, label: '12-8', count: 0, ratio1: 0, ratio2: 1, ratio3: 1 },
+        { id: Date.now() + 5, label: '3-11(夜班)', count: 0, ratio1: 0, ratio2: 0, ratio3: 1 },
       ],
-      deductions: { shift1: null, shift2: null, shift3: null },
+      adjustments: { shift1: null, shift2: null, shift3: null },
       early: 0,
       noon: 0,
       late: 0,
@@ -909,11 +906,13 @@ const calculatedStaffingTotals = computed(() => {
     })
   }
 
-  // ✨ 錯誤修復 ✨: 增加保護，防止在 deductions 不存在時出錯
-  if (staffingData && staffingData.deductions) {
-    totals.early -= Number(staffingData.deductions.shift1) || 0
-    totals.noon -= Number(staffingData.deductions.shift2) || 0
-    totals.late -= Number(staffingData.deductions.shift3) || 0
+  // 調整時數：正數增加（加班），負數減少（早退）
+  // 支援新舊兩種欄位名稱 (adjustments 或 deductions)
+  if (staffingData) {
+    const adjustments = staffingData.adjustments || staffingData.deductions || {}
+    totals.early += Number(adjustments.shift1) || 0
+    totals.noon += Number(adjustments.shift2) || 0
+    totals.late += Number(adjustments.shift3) || 0
   }
 
   totals.early = Math.max(0, totals.early)
@@ -944,7 +943,7 @@ function addStaffingRow() {
   dailyLog.stats.staffing.details.push({
     id: Date.now(),
     label: '',
-    count: 1,
+    count: 0,
     ratio1: 0,
     ratio2: 0,
     ratio3: 0,
@@ -1002,6 +1001,20 @@ async function saveLog(options = {}) {
 
   try {
     const dataToSave = JSON.parse(JSON.stringify(dailyLog))
+
+    // 確保使用新的 adjustments 欄位名稱
+    if (dataToSave.stats?.staffing) {
+      // 如果有舊的 deductions，轉換為 adjustments
+      if (dataToSave.stats.staffing.deductions) {
+        dataToSave.stats.staffing.adjustments = dataToSave.stats.staffing.deductions
+        delete dataToSave.stats.staffing.deductions
+      }
+      // 確保 adjustments 存在
+      if (!dataToSave.stats.staffing.adjustments) {
+        dataToSave.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
+      }
+    }
+
     if (dailyLog.id) {
       await dailyLogsApi.update(dailyLog.id, dataToSave)
     } else {
@@ -1093,6 +1106,19 @@ async function loadDailyLog(dateStr) {
           newStaffingStructure.details = initialLogState().stats.staffing.details
         }
         logResult.stats.staffing = newStaffingStructure
+      }
+
+      // 處理 deductions 到 adjustments 的轉換（向後相容）
+      if (logResult.stats?.staffing) {
+        // 如果有舊的 deductions 欄位但沒有 adjustments
+        if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
+          console.warn('偵測到舊版 deductions 欄位，正在轉換為 adjustments...')
+          logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions
+        }
+        // 確保 adjustments 欄位存在
+        if (!logResult.stats.staffing.adjustments) {
+          logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
+        }
       }
 
       Object.assign(dailyLog, mergedLog)

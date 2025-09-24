@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/OrdersView.vue -->
+<!-- 檔案路徑: src/views/OrdersView.vue (滾動問題修正版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -44,6 +44,7 @@
               <option value="noon">午班</option>
               <option value="late">晚班</option>
             </select>
+            <input type="month" v-model="groupSearchParams.month" />
           </div>
 
           <!-- 個人搜尋條件 -->
@@ -54,6 +55,11 @@
               placeholder="輸入姓名或病歷號..."
               @keyup.enter="handleSearch"
             />
+            <div class="year-selector">
+              <button @click="changeYear(-1)">&lt; 上一年</button>
+              <span>{{ individualSearchYear }} 年</span>
+              <button @click="changeYear(1)">下一年 ></button>
+            </div>
           </div>
 
           <button @click="handleSearch" :disabled="isLoading" class="search-btn">
@@ -68,128 +74,51 @@
             正在查詢藥囑資料...
           </div>
           <div v-else-if="!searchPerformed" class="placeholder-text">請選擇條件並點擊查詢。</div>
-          <div v-else-if="searchedPatients.length === 0" class="empty-state">
-            查無符合條件的病人。
+          <div v-else-if="searchResult.length === 0" class="empty-state">
+            查無符合條件的藥囑資料。
           </div>
-          <!-- ✨ [核心修改 3] 全新的橫向滾動佈局 -->
-          <div v-else class="results-scroll-area">
-            <div v-for="patient in searchedPatients" :key="patient.id" class="patient-orders-card">
-              <div class="patient-header">
-                <h3>{{ patient.name }} ({{ patient.medicalRecordNumber }})</h3>
-                <span>床號: {{ patient.scheduleRule?.bedNum || 'N/A' }}</span>
-              </div>
+          <div v-else class="table-container">
+            <!-- 群組搜尋結果表格 -->
+            <table v-if="searchType === 'group'">
+              <thead>
+                <tr>
+                  <th class="sticky-col col-freq">頻率</th>
+                  <th class="sticky-col col-shift">班別</th>
+                  <th class="sticky-col col-bed">床號</th>
+                  <th class="sticky-col col-name">姓名</th>
+                  <th v-for="med in allMedications" :key="med.code">{{ med.tradeName }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="patientRow in searchResult" :key="patientRow.patientId">
+                  <td class="sticky-col col-freq">{{ patientRow.freq }}</td>
+                  <td class="sticky-col col-shift">{{ formatShift(patientRow.shiftIndex) }}</td>
+                  <td class="sticky-col col-bed">{{ patientRow.bedNum }}</td>
+                  <td class="sticky-col col-name">{{ patientRow.patientName }}</td>
+                  <td v-for="med in allMedications" :key="med.code">
+                    {{ formatOrderCell(patientRow.orders[med.code]) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
 
-              <!-- ✨ [核心修改] 模板渲染邏輯調整 -->
-              <template
-                v-if="
-                  getEffectiveOrders(patient.id).injections.length > 0 ||
-                  getEffectiveOrders(patient.id).orals.length > 0
-                "
-              >
-                <!-- 針劑藥物表格 -->
-                <div
-                  v-if="getEffectiveOrders(patient.id).injections.length > 0"
-                  class="orders-section"
-                >
-                  <h4>針劑藥物</h4>
-                  <div class="table-wrapper">
-                    <table class="orders-table compact-table">
-                      <thead>
-                        <tr>
-                          <th rowspan="2" class="sticky-col">商品名</th>
-                          <!-- ✨ 使用 injectionDates 來生成表頭 -->
-                          <th
-                            v-for="date in getEffectiveOrders(patient.id).injectionDates"
-                            :key="date"
-                            colspan="2"
-                            class="date-header"
-                          >
-                            {{ date }}
-                          </th>
-                        </tr>
-                        <tr>
-                          <!-- ✨ 使用 injectionDates 來生成次級表頭 -->
-                          <template
-                            v-for="date in getEffectiveOrders(patient.id).injectionDates"
-                            :key="date + '-sub'"
-                          >
-                            <th>次劑量</th>
-                            <th>備註</th>
-                          </template>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr
-                          v-for="med in getEffectiveOrders(patient.id).injections"
-                          :key="med.tradeName"
-                        >
-                          <td class="sticky-col">{{ med.tradeName }}</td>
-                          <!-- ✨ 遍歷 injectionDates 來填入資料 -->
-                          <template
-                            v-for="date in getEffectiveOrders(patient.id).injectionDates"
-                            :key="date + '-data'"
-                          >
-                            <td>{{ med.ordersByDate[date]?.dose || '' }}</td>
-                            <td>{{ med.ordersByDate[date]?.note || '' }}</td>
-                          </template>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <!-- 口服藥物表格 -->
-                <div v-if="getEffectiveOrders(patient.id).orals.length > 0" class="orders-section">
-                  <h4>口服藥物</h4>
-                  <div class="table-wrapper">
-                    <table class="orders-table compact-table">
-                      <thead>
-                        <tr>
-                          <th rowspan="2" class="sticky-col">商品名</th>
-                          <!-- ✨ 使用 oralDates 來生成表頭 -->
-                          <th
-                            v-for="date in getEffectiveOrders(patient.id).oralDates"
-                            :key="date"
-                            colspan="2"
-                            class="date-header"
-                          >
-                            {{ date }}
-                          </th>
-                        </tr>
-                        <tr>
-                          <!-- ✨ 使用 oralDates 來生成次級表頭 -->
-                          <template
-                            v-for="date in getEffectiveOrders(patient.id).oralDates"
-                            :key="date + '-sub'"
-                          >
-                            <th>次劑量</th>
-                            <th>頻率服法</th>
-                          </template>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr
-                          v-for="med in getEffectiveOrders(patient.id).orals"
-                          :key="med.tradeName"
-                        >
-                          <td class="sticky-col">{{ med.tradeName }}</td>
-                          <!-- ✨ 遍歷 oralDates 來填入資料 -->
-                          <template
-                            v-for="date in getEffectiveOrders(patient.id).oralDates"
-                            :key="date + '-data'"
-                          >
-                            <td>{{ med.ordersByDate[date]?.dose || '' }}</td>
-                            <td>{{ med.ordersByDate[date]?.frequency || '' }}</td>
-                          </template>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </template>
-
-              <div v-else class="no-orders-message">此病人尚無藥囑紀錄。</div>
-            </div>
+            <!-- 個人搜尋結果表格 -->
+            <table v-if="searchType === 'individual'">
+              <thead>
+                <tr>
+                  <th class="sticky-col col-month">月份</th>
+                  <th v-for="med in allMedications" :key="med.code">{{ med.tradeName }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="monthRow in searchResult" :key="monthRow.month">
+                  <td class="sticky-col col-month">{{ monthRow.month }}</td>
+                  <td v-for="med in allMedications" :key="med.code">
+                    {{ formatOrderCell(monthRow.orders[med.code]) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -253,56 +182,57 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { functions } from '@/composables/useFirebase.js'
 import { httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
-import { where, orderBy, documentId } from 'firebase/firestore'
+import { where } from 'firebase/firestore'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
+import { useMedicationStore } from '@/stores/medicationStore.js'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
-const { opdPatients, patientMap } = storeToRefs(patientStore)
+const { opdPatients } = storeToRefs(patientStore)
+const medicationStore = useMedicationStore()
+const baseSchedulesApi = ApiManager('base_schedules')
 const ordersApi = ApiManager('medication_orders')
 
-// --- Component State ---
+// --- Component State & Parameters ---
 const activeTab = ref('query')
 const isLoading = ref(false)
 const searchPerformed = ref(false)
-
-// Search Parameters
 const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
   shift: 'early',
+  month: new Date().toISOString().slice(0, 7),
 })
 const individualSearchTerm = ref('')
-// ✨ [核心修改 1] 新增藥物主資料定義
+const individualSearchYear = ref(new Date().getFullYear())
+const searchResult = ref([])
+
+// --- Medication Master Data ---
 const INJECTION_MEDS_MASTER = [
-  { code: 'INES2', tradeName: 'NESP' },
-  { code: 'IREC1', tradeName: 'Recormon' },
-  { code: 'IFER2', tradeName: 'Fe-back' },
-  { code: 'ICAC', tradeName: 'Cacare' },
-  { code: 'IPAR1', tradeName: 'Parsabiv' },
+  { code: 'INES2', tradeName: 'NESP', unit: 'mcg' },
+  { code: 'IREC1', tradeName: 'Recormon', unit: 'KIU' },
+  { code: 'IFER2', tradeName: 'Fe-back', unit: 'mg' },
+  { code: 'ICAC', tradeName: 'Cacare', unit: 'amp' },
+  { code: 'IPAR1', tradeName: 'Parsabiv', unit: 'mg' },
 ]
-
 const ORAL_MEDS_MASTER = [
-  { code: 'OCAL1', tradeName: 'A-Cal' },
-  { code: 'OCAA', tradeName: 'Pro-Cal' },
-  { code: 'OFOS4', tradeName: 'Lanclean' },
-  { code: 'OALK1', tradeName: 'Alkantin' },
-  { code: 'OVAF', tradeName: 'Vafseo' },
-  { code: 'OORK', tradeName: 'Orkedia' },
-  { code: 'OUCA1', tradeName: 'U-Ca' },
+  { code: 'OCAL1', tradeName: 'A-Cal', unit: '顆' },
+  { code: 'OCAA', tradeName: 'Pro-Cal', unit: '顆' },
+  { code: 'OFOS4', tradeName: 'Lanclean', unit: '顆' },
+  { code: 'OALK1', tradeName: 'Alkantin', unit: '顆' },
+  { code: 'OVAF', tradeName: 'Vafseo', unit: '顆' },
+  { code: 'OORK', tradeName: 'Orkedia', unit: '顆' },
+  { code: 'OUCA1', tradeName: 'U-Ca', unit: '顆' },
 ]
+const allMedications = computed(() => [...INJECTION_MEDS_MASTER, ...ORAL_MEDS_MASTER])
 
-// Search Results
-const searchedPatients = ref([])
-const allOrdersHistory = ref([]) // 用來儲存所有查詢到的原始藥囑紀錄
-
-// Upload Tab State
+// --- Upload Tab State ---
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const uploadResult = ref(null)
@@ -313,63 +243,42 @@ onMounted(async () => {
   await patientStore.fetchPatientsIfNeeded()
 })
 
-// --- Methods ---
+// --- Helper Functions ---
+const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
+const SHIFT_INDEX_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
+function formatShift(shiftIndex) {
+  return SHIFT_INDEX_MAP[shiftIndex] ?? 'N/A'
+}
 
-// 核心查詢函式
+function formatOrderCell(order) {
+  if (!order) return '-'
+  const dose = order.dose || ''
+  if (!dose) return '-'
+  const masterMed = allMedications.value.find((med) => med.code === order.orderCode)
+  const unit = masterMed?.unit ? ` ${masterMed.unit}` : ''
+  let details = ''
+  if (order.orderType === 'injection') {
+    details = order.note || ''
+  } else if (order.orderType === 'oral') {
+    details = order.frequency || ''
+  }
+  if (details) {
+    return `${dose}${unit} (${details})`
+  }
+  return `${dose}${unit}`
+}
+
+// --- Core Search Logic ---
 async function handleSearch() {
   isLoading.value = true
   searchPerformed.value = true
-  searchedPatients.value = []
-  allOrdersHistory.value = []
-
+  searchResult.value = []
   try {
-    let targetPatients = []
-
-    // 1. 根據搜尋類型，篩選出目標病人
     if (searchType.value === 'group') {
-      const shiftIndexMap = { early: 0, noon: 1, late: 2 }
-      const shiftIndex = shiftIndexMap[groupSearchParams.shift]
-      const regularFreqs = ['一三五', '二四六']
-
-      targetPatients = opdPatients.value.filter((p) => {
-        const rule = p.scheduleRule
-        if (!rule) return false
-        const matchesShift = rule.shiftIndex === shiftIndex
-        if (!matchesShift) return false
-        if (groupSearchParams.freq === 'other') {
-          return !regularFreqs.includes(rule.freq)
-        } else {
-          return rule.freq === groupSearchParams.freq
-        }
-      })
+      await searchGroupOrders()
     } else {
-      // individual search
-      const term = individualSearchTerm.value.trim().toLowerCase()
-      if (!term) {
-        alert('請輸入姓名或病歷號')
-        isLoading.value = false
-        return
-      }
-      targetPatients = opdPatients.value.filter(
-        (p) => p.name.toLowerCase().includes(term) || p.medicalRecordNumber.includes(term),
-      )
+      await searchIndividualOrders()
     }
-
-    if (targetPatients.length === 0) {
-      isLoading.value = false
-      return
-    }
-
-    // 2. 根據病人 ID 列表，查詢所有相關的藥囑歷史紀錄
-    const patientIds = targetPatients.map((p) => p.id)
-    const ordersHistory = await queryWithInChunks('medication_orders', 'patientId', patientIds)
-
-    allOrdersHistory.value = ordersHistory
-    searchedPatients.value = targetPatients.sort((a, b) =>
-      String(a.scheduleRule?.bedNum).localeCompare(String(b.scheduleRule?.bedNum), undefined, {
-        numeric: true,
-      }),
-    )
   } catch (error) {
     console.error('查詢藥囑失敗:', error)
     alert('查詢藥囑時發生錯誤，請稍後再試。')
@@ -378,73 +287,116 @@ async function handleSearch() {
   }
 }
 
-// ✨ [核心修正 v2.0] 重寫 getEffectiveOrders 函式，使其能夠處理併行醫囑 ✨
-function getEffectiveOrders(patientId) {
-  // 步驟 A: 過濾出該病人的所有歷史藥囑
-  const patientHistory = allOrdersHistory.value.filter((order) => order.patientId === patientId)
+async function searchGroupOrders() {
+  const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+  const masterRules = masterScheduleDoc?.schedule || {}
+  const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
+  const regularFreqs = ['一三五', '二四六']
 
-  // 步驟 B: 找出每條獨立醫囑線的最新版本
-  // 我們使用 "藥物代碼 + 頻率/備註" 作為獨立醫囑的唯一標識
-  const latestEffectiveOrdersMap = new Map()
+  const patientList = Object.values(opdPatients.value)
+    .filter((p) => {
+      const rule = masterRules[p.id]
+      if (!rule) return false
+      const isOtherFreqSelected = groupSearchParams.freq === 'other'
+      const shiftCondition = isOtherFreqSelected || rule.shiftIndex === shiftIndex
+      const freqCondition = isOtherFreqSelected
+        ? !regularFreqs.includes(rule.freq)
+        : rule.freq === groupSearchParams.freq
+      return shiftCondition && freqCondition
+    })
+    .map((p) => ({
+      patientId: p.id,
+      patientName: p.name,
+      bedNum: masterRules[p.id]?.bedNum,
+      freq: masterRules[p.id]?.freq,
+      shiftIndex: masterRules[p.id]?.shiftIndex,
+    }))
 
-  // 先將歷史由新到舊排序
-  patientHistory.sort((a, b) => new Date(b.changeDate) - new Date(a.changeDate))
+  if (patientList.length === 0) return
 
-  for (const record of patientHistory) {
-    const uniqueKey = `${record.orderCode}_${(record.note || record.frequency || '').trim()}`
-    if (!latestEffectiveOrdersMap.has(uniqueKey)) {
-      latestEffectiveOrdersMap.set(uniqueKey, record)
-    }
-  }
+  const [year, month] = groupSearchParams.month.split('-').map(Number)
+  const startDate = new Date(year, month - 1, 1)
+  const endDate = new Date(year, month, 1)
+  const patientIds = patientList.map((p) => p.patientId)
 
-  const allEffectiveOrders = Array.from(latestEffectiveOrdersMap.values())
+  const allOrders = await queryWithInChunks('medication_orders', 'patientId', patientIds, [
+    where('uploadTimestamp', '>=', startDate),
+    where('uploadTimestamp', '<', endDate),
+  ])
 
-  // 步驟 C: 沿用舊的邏輯，將藥物分類、分組並排序
-  const oralOrders = allEffectiveOrders.filter((o) => o.orderType === 'oral')
-  const injectionOrders = allEffectiveOrders.filter((o) => o.orderType === 'injection')
+  const patientOrdersMap = new Map()
+  patientList.forEach((p) => patientOrdersMap.set(p.patientId, { ...p, orders: {} }))
 
-  const oralDates = Array.from(new Set(oralOrders.map((o) => o.changeDate.slice(0, 10)))).sort()
-  const injectionDates = Array.from(
-    new Set(injectionOrders.map((o) => o.changeDate.slice(0, 10))),
-  ).sort()
-
-  const buildOrdersByCode = (orders) => {
-    const ordersByCode = {}
-    for (const order of orders) {
-      if (!ordersByCode[order.orderCode]) {
-        const masterMed =
-          INJECTION_MEDS_MASTER.find((m) => m.code === order.orderCode) ||
-          ORAL_MEDS_MASTER.find((m) => m.code === order.orderCode)
-
-        ordersByCode[order.orderCode] = {
-          tradeName: masterMed ? masterMed.tradeName : order.orderName,
-          orderType: order.orderType,
-          ordersByDate: {},
-        }
+  allOrders.forEach((order) => {
+    const patientData = patientOrdersMap.get(order.patientId)
+    if (patientData) {
+      const existingOrder = patientData.orders[order.orderCode]
+      if (!existingOrder || new Date(order.changeDate) > new Date(existingOrder.changeDate)) {
+        patientData.orders[order.orderCode] = order
       }
-      // 將異動日期作為 key
-      ordersByCode[order.orderCode].ordersByDate[order.changeDate.slice(0, 10)] = order
     }
-    return ordersByCode
+  })
+
+  searchResult.value = Array.from(patientOrdersMap.values()).sort((a, b) =>
+    String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }),
+  )
+}
+
+async function searchIndividualOrders() {
+  const term = individualSearchTerm.value.trim().toLowerCase()
+  if (!term) {
+    alert('請輸入姓名或病歷號')
+    return
+  }
+  const foundPatient = opdPatients.value.find(
+    (p) => p.name.toLowerCase().includes(term) || p.medicalRecordNumber.includes(term),
+  )
+
+  if (!foundPatient) {
+    searchResult.value = []
+    return
   }
 
-  const injectionOrdersByCode = buildOrdersByCode(injectionOrders)
-  const oralOrdersByCode = buildOrdersByCode(oralOrders)
+  const year = individualSearchYear.value
+  const startDate = new Date(year, 0, 1)
+  const endDate = new Date(year + 1, 0, 1)
 
-  const sortedInjectionData = INJECTION_MEDS_MASTER.map(
-    (masterMed) => injectionOrdersByCode[masterMed.code],
-  ).filter(Boolean)
+  const allYearlyOrders = await ordersApi.fetchAll([
+    where('patientId', '==', foundPatient.id),
+    where('uploadTimestamp', '>=', startDate),
+    where('uploadTimestamp', '<', endDate),
+  ])
 
-  const sortedOralData = ORAL_MEDS_MASTER.map(
-    (masterMed) => oralOrdersByCode[masterMed.code],
-  ).filter(Boolean)
-
-  return {
-    injectionDates: injectionDates,
-    oralDates: oralDates,
-    injections: sortedInjectionData,
-    orals: sortedOralData,
+  const monthlyOrdersMap = new Map()
+  for (let i = 1; i <= 12; i++) {
+    const monthKey = `${year}-${String(i).padStart(2, '0')}`
+    monthlyOrdersMap.set(monthKey, { month: monthKey, orders: {} })
   }
+
+  allYearlyOrders.forEach((order) => {
+    const uploadDate = order.uploadTimestamp.toDate()
+    const monthKey = `${uploadDate.getFullYear()}-${String(uploadDate.getMonth() + 1).padStart(
+      2,
+      '0',
+    )}`
+
+    const monthData = monthlyOrdersMap.get(monthKey)
+    if (monthData) {
+      const existingOrder = monthData.orders[order.orderCode]
+      if (!existingOrder || new Date(order.changeDate) > new Date(existingOrder.changeDate)) {
+        monthData.orders[order.orderCode] = order
+      }
+    }
+  })
+
+  searchResult.value = Array.from(monthlyOrdersMap.values()).sort((a, b) =>
+    b.month.localeCompare(a.month),
+  )
+}
+
+function changeYear(offset) {
+  individualSearchYear.value += offset
+  if (individualSearchTerm.value.trim()) handleSearch()
 }
 
 // --- Upload Tab Methods ---
@@ -486,6 +438,11 @@ async function handleUpload() {
       fileContent: fileContentBase64,
     })
     uploadResult.value = result.data
+
+    if (result.data && result.data.success && result.data.processedCount > 0) {
+      console.log('[OrdersView] 藥囑上傳成功，正在清除針劑快取...')
+      medicationStore.clearCache()
+    }
   } catch (error) {
     console.error('上傳處理失敗:', error)
     uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1, errors: [] }
@@ -496,7 +453,7 @@ async function handleUpload() {
 </script>
 
 <style scoped>
-/* 這裡的樣式可以大量複製 ConsumablesView.vue 的樣式 */
+/* 樣式與 LabReportView.vue 非常相似 */
 .page-container {
   display: flex;
   flex-direction: column;
@@ -556,8 +513,6 @@ p {
   display: flex;
   flex-direction: column;
 }
-
-/* --- 查詢頁籤樣式 --- */
 .query-panel {
   padding: 1.5rem;
   gap: 1.5rem;
@@ -592,13 +547,17 @@ p {
 .individual-filters {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
 }
 .group-filters select,
+.group-filters input,
 .individual-filters input {
   padding: 0.5rem;
   border-radius: 4px;
   border: 1px solid #ccc;
   font-size: 1rem;
+  height: 38px;
+  box-sizing: border-box;
 }
 .search-btn {
   padding: 0.5rem 1.5rem;
@@ -610,16 +569,45 @@ p {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  height: 38px;
+  box-sizing: border-box;
 }
 .search-btn:disabled {
   background-color: #6c757d;
   border-color: #6c757d;
   cursor: not-allowed;
 }
+.year-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.year-selector span {
+  font-weight: bold;
+  font-size: 1.1rem;
+  width: 80px;
+  text-align: center;
+}
+.year-selector button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background-color: #f8f9fa;
+  color: #333;
+  cursor: pointer;
+  height: 38px;
+  box-sizing: border-box;
+}
+
+/* ✨ --- [核心CSS修改] --- ✨ */
 .results-display {
   flex-grow: 1;
   min-height: 0;
+  /* 將此容器也設定為 Flexbox，以便約束其子元素的高度 */
+  display: flex;
+  flex-direction: column;
 }
+
 .loading-state,
 .placeholder-text,
 .empty-state {
@@ -648,64 +636,74 @@ p {
     transform: rotate(360deg);
   }
 }
-
-.results-scroll-area {
-  overflow-y: auto;
-  height: 100%;
-  padding-right: 10px;
-}
-.patient-orders-card {
-  margin-bottom: 2rem;
+.table-container {
+  flex-grow: 1;
+  overflow: auto;
   border: 1px solid #dee2e6;
-  border-radius: 8px;
+  border-radius: 4px;
 }
-.patient-header {
-  background-color: #f8f9fa;
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #dee2e6;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.patient-header h3 {
-  margin: 0;
-  font-size: 1.2rem;
-}
-.patient-header small {
-  color: #6c757d;
-}
-.orders-section {
-  padding: 1rem;
-}
-.orders-section h4 {
-  margin-top: 0;
-  margin-bottom: 0.75rem;
-  font-size: 1.1rem;
-}
-.orders-table {
+table {
   width: 100%;
   border-collapse: collapse;
 }
-.orders-table th,
-.orders-table td {
+th,
+td {
+  padding: 0.75rem;
   border: 1px solid #e9ecef;
-  padding: 0.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: #f8f9fa;
   text-align: left;
 }
-.orders-table th {
+tbody .sticky-col {
+  background-color: #fff;
+  font-weight: bold;
+}
+tbody tr:nth-child(even) {
   background-color: #f8f9fa;
 }
-.no-orders-message {
-  padding: 1rem;
-  color: #6c757d;
-  font-style: italic;
+tbody tr:nth-child(even) .sticky-col {
+  background-color: #f8f9fa;
+}
+.sticky-col.col-freq {
+  left: 0;
+  min-width: 80px;
+}
+.sticky-col.col-shift {
+  left: 80px;
+  min-width: 80px;
+}
+.sticky-col.col-bed {
+  left: 160px;
+  min-width: 80px;
+}
+.sticky-col.col-name {
+  left: 240px;
+  min-width: 120px;
+}
+.sticky-col.col-month {
+  left: 0;
+  min-width: 120px;
 }
 
-/* --- 上傳頁籤樣式 --- */
+/* --- Upload Tab Styles --- */
 .upload-panel {
   display: flex;
   justify-content: center;
   align-items: flex-start;
+  padding: 1.5rem;
 }
 .upload-core-panel {
   display: flex;
@@ -798,76 +796,5 @@ input[type='file'] {
 .upload-result-toast ul {
   padding-left: 20px;
   margin-top: 10px;
-}
-.query-panel {
-  color: #6c757d;
-}
-/* 新增的表格樣式 */
-.orders-section h4 {
-  border-bottom: 2px solid #007bff;
-  padding-bottom: 0.5rem;
-  display: inline-block;
-}
-
-/* 關鍵：讓表格可以橫向滾動的容器 */
-.table-wrapper {
-  overflow-x: auto;
-  width: 100%;
-}
-
-/* 將 .orders-table 的 width: 100% 移除或修改 */
-.orders-table {
-  /* width: 100%;  <-- 刪除或註解掉這一行 */
-  border-collapse: collapse; /* 改用 collapse，讓邊框更好看 */
-  font-size: 0.9rem;
-  border-spacing: 0;
-}
-
-/* ✨ [新增] 新 class 來控制緊緻表格 */
-.orders-table.compact-table {
-  width: auto; /* 關鍵：讓表格寬度由內容決定 */
-  /* min-width: 100%; <-- 刪除或註解掉這一行 */
-}
-
-.orders-table th,
-.orders-table td {
-  padding: 0.6rem;
-  white-space: nowrap; /* 防止文字換行 */
-  border-bottom: 1px solid #e9ecef;
-  border-right: 1px solid #e9ecef;
-}
-.orders-table th:first-child,
-.orders-table td:first-child {
-  border-left: 1px solid #e9ecef;
-}
-.orders-table thead tr:first-child th {
-  border-top: 1px solid #e9ecef;
-}
-
-.orders-table th {
-  background-color: #f8f9fa;
-  font-weight: 600;
-}
-
-/* 確保第一欄的寬度是固定的 */
-.sticky-col {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  background-color: #ffffff;
-  border-right: 2px solid #dee2e6 !important;
-  width: 150px; /* ✨ 新增：固定商品名欄位的寬度 */
-  min-width: 150px;
-  max-width: 150px;
-}
-
-thead .sticky-col {
-  background-color: #f8f9fa; /* 表頭的 sticky 背景色 */
-  z-index: 2; /* 層級要高於 tbody */
-}
-
-/* 表頭日期樣式 */
-.date-header {
-  min-width: 200px; /* 確保每個日期區塊有足夠寬度 */
 }
 </style>
