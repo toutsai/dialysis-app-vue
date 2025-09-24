@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/OrdersView.vue (整合 Pinia Store 更新版) -->
+<!-- 檔案路徑: src/views/OrdersView.vue (滾動問題修正版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -190,13 +190,11 @@ import { where } from 'firebase/firestore'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
-// ✨ --- [核心修改 1] 引入 medicationStore --- ✨
 import { useMedicationStore } from '@/stores/medicationStore.js'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
 const { opdPatients } = storeToRefs(patientStore)
-// ✨ --- [核心修改 1] 實例化 medicationStore --- ✨
 const medicationStore = useMedicationStore()
 const baseSchedulesApi = ApiManager('base_schedules')
 const ordersApi = ApiManager('medication_orders')
@@ -441,7 +439,6 @@ async function handleUpload() {
     })
     uploadResult.value = result.data
 
-    // ✨ --- [核心修改 2] 上傳成功後，清除針劑快取 --- ✨
     if (result.data && result.data.success && result.data.processedCount > 0) {
       console.log('[OrdersView] 藥囑上傳成功，正在清除針劑快取...')
       medicationStore.clearCache()
@@ -601,10 +598,16 @@ p {
   height: 38px;
   box-sizing: border-box;
 }
+
+/* ✨ --- [核心CSS修改] --- ✨ */
 .results-display {
   flex-grow: 1;
   min-height: 0;
+  /* 將此容器也設定為 Flexbox，以便約束其子元素的高度 */
+  display: flex;
+  flex-direction: column;
 }
+
 .loading-state,
 .placeholder-text,
 .empty-state {

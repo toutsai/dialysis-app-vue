@@ -1902,24 +1902,30 @@ function handleTaskCreated() {
 }
 
 async function showInjectionList(teamData, shiftType = null) {
-  const patientIdsForFiltering = new Set()
+  const patientIdsToFetch = new Set()
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
-    teamData[shiftType].patients.forEach((p) => patientIdsForFiltering.add(p.id))
+    teamData[shiftType].patients.forEach((p) => patientIdsToFetch.add(p.id))
   } else {
     for (const key in teamData) {
       if (teamData[key] && Array.isArray(teamData[key].patients)) {
-        teamData[key].patients.forEach((p) => patientIdsForFiltering.add(p.id))
+        teamData[key].patients.forEach((p) => patientIdsToFetch.add(p.id))
       }
     }
   }
 
-  const patientIdArrayForFiltering = Array.from(patientIdsForFiltering)
+  const patientIdArray = Array.from(patientIdsToFetch)
+
+  // --- 📍 日誌點 A (StatsView): 檢查要查詢的病人 ---
+  console.log(
+    `[StatsView] 準備查詢針劑，組別/班別: ${shiftType || '全部'}, 病人數: ${patientIdArray.length}`,
+    patientIdArray,
+  )
 
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
   dailyInjections.value = []
 
-  if (patientIdArrayForFiltering.length === 0) {
+  if (patientIdArray.length === 0) {
     isInjectionLoading.value = false
     return
   }
@@ -1927,24 +1933,20 @@ async function showInjectionList(teamData, shiftType = null) {
   const targetDate = formatDate(currentDate.value)
 
   try {
-    const allPatientIdsForDay = [
-      ...new Set(
-        Object.values(currentRecord.schedule)
-          .map((slot) => slot.patientId)
-          .filter(Boolean),
-      ),
-    ]
-    const allInjectionsForDay = await medicationStore.fetchDailyInjections(
+    const injectionsForGroup = await medicationStore.fetchDailyInjections(
       targetDate,
-      allPatientIdsForDay,
+      patientIdArray,
     )
 
-    const patientIdSet = new Set(patientIdArrayForFiltering)
-    dailyInjections.value = allInjectionsForDay.filter((injection) =>
-      patientIdSet.has(injection.patientId),
+    // --- 📍 日誌點 B (StatsView): 檢查從 Store 返回的結果 ---
+    console.log(
+      `[StatsView] 從 Store 收到 ${injectionsForGroup.length} 筆針劑資料。`,
+      injectionsForGroup,
     )
+
+    dailyInjections.value = injectionsForGroup
   } catch (error) {
-    console.error('獲取應打針劑失敗:', error)
+    console.error('[StatsView] 獲取應打針劑失敗:', error)
     showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
     isInjectionDialogVisible.value = false
   } finally {

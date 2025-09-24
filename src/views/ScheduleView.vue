@@ -1303,6 +1303,12 @@ async function showShiftInjections(shiftCode) {
     .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
     .map(([, slot]) => slot.patientId)
 
+  // --- 📍 日誌點 C (ScheduleView): 檢查要查詢的病人 ---
+  console.log(
+    `[ScheduleView] 準備查詢針劑，班別: ${shiftCode}, 病人數: ${patientIds.length}`,
+    patientIds,
+  )
+
   injectionDialogDate.value = formatDate(currentDate.value)
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
@@ -1310,20 +1316,20 @@ async function showShiftInjections(shiftCode) {
   filterSpecificInjections.value = false
 
   try {
-    const allPatientIdsForDay = Object.values(currentRecord.schedule)
-      .map((slot) => slot?.patientId)
-      .filter(Boolean)
-
-    const allInjectionsForDay = await medicationStore.fetchDailyInjections(
+    const injectionsForShift = await medicationStore.fetchDailyInjections(
       injectionDialogDate.value,
-      allPatientIdsForDay,
+      patientIds,
     )
 
-    const shiftPatientIdSet = new Set(patientIds)
-    allDailyInjections.value = allInjectionsForDay.filter((injection) =>
-      shiftPatientIdSet.has(injection.patientId),
+    // --- 📍 日誌點 D (ScheduleView): 檢查從 Store 返回的結果 ---
+    console.log(
+      `[ScheduleView] 從 Store 收到 ${injectionsForShift.length} 筆針劑資料。`,
+      injectionsForShift,
     )
+
+    allDailyInjections.value = injectionsForShift
   } catch (error) {
+    console.error('[ScheduleView] 獲取應打針劑失敗:', error)
     showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
     isInjectionDialogVisible.value = false
   } finally {
