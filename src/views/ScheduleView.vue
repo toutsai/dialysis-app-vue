@@ -918,6 +918,7 @@ import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
 import IcuOrdersDialog from '@/components/IcuOrdersDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import CRRTOrderModal from '@/components/CRRTOrderModal.vue'
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 // Pinia Stores
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -1059,6 +1060,8 @@ const isPageLocked = computed(() => {
   currentDay.setHours(0, 0, 0, 0)
   return currentDay < today
 })
+
+const { addLocalNotification } = useRealtimeNotifications()
 
 const sortedBedNumbers = computed(() => {
   const numericBeds = allBedNumbers.filter((b) => typeof b === 'number')
@@ -2275,7 +2278,7 @@ async function handleSaveAndPrintIcuOrders(payload, printCallback) {
       await patientStore.forceRefreshPatients()
     }
 
-    createGlobalNotification('醫囑單資料已儲存', 'success')
+    addLocalNotification('醫囑單資料已儲存', 'patient')
 
     if (typeof printCallback === 'function') {
       nextTick(() => {
@@ -2284,7 +2287,7 @@ async function handleSaveAndPrintIcuOrders(payload, printCallback) {
     }
   } catch (error) {
     console.error('儲存 ICU 醫囑單備註失敗:', error)
-    showAlert('儲存失敗', `儲存備註時發生錯誤: ${error.message}`)
+    addLocalNotification('醫囑單儲存失敗', 'exception') // 'exception' 類型會顯示為紅色
   }
 }
 

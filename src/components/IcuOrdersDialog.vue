@@ -556,8 +556,10 @@
 import { computed, reactive, watch } from 'vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { useAuth } from '@/composables/useAuth.js' // ✨ 1. 引入 useAuth
+import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 const auth = useAuth() // ✨ 2. 實例化 auth
+const { addLocalNotification } = useRealtimeNotifications()
 
 const props = defineProps({
   isVisible: Boolean,
@@ -1139,7 +1141,7 @@ const printContent = () => {
 
 /* 列印樣式 */
 @media print {
-  /* --- 基本設定 (保留您原有的) --- */
+  /* --- 基本設定 --- */
   .modal-header,
   .btn-edit-crrt {
     display: none !important;
@@ -1158,46 +1160,56 @@ const printContent = () => {
   body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
-    font-size: 12pt !important; /* 稍微縮小字體以容納更多內容 */
+    font-size: 12pt !important;
   }
+
+  /* --- ✨ 解決多頁內容被截斷的核心 ✨ --- */
+
+  /* 1. 重設 Modal 容器的高度與溢出行為 */
+  .modal-content,
   .modal-body {
-    padding: 0 !important;
-    overflow: visible; /* 移除滾動條 */
+    height: auto !important; /* 移除固定的可視高度 */
+    overflow: visible !important; /* 允許內容溢出，這是換頁的關鍵 */
+    display: block !important; /* 取消 flex 佈局，回歸正常文件流 */
+    box-shadow: none !important;
+    border: none !important;
   }
 
-  /* --- ✨ 分頁控制核心 (替換/新增以下樣式) ✨ --- */
+  /* 2. 重設 Modal 外層，避免 fixed 定位影響列印 */
+  .modal-overlay {
+    position: static !important;
+    background: none !important;
+    padding: 0 !important;
+  }
 
-  /* 1. 為了分頁，將 grid 容器改為簡單的 block */
+  /* --- 保留上一輪的分頁排版控制 --- */
+
   .patient-grid {
     display: block !important;
-    width: 100%;
-    overflow: visible;
   }
 
-  /* 2. 將卡片改為 inline-block 來達成兩欄式排版 */
   .patient-order-card {
     width: 49%;
     display: inline-block;
     vertical-align: top;
     margin-bottom: 1rem;
     box-sizing: border-box;
-  }
-  /* 處理欄位間距 */
-  .patient-order-card:nth-of-type(odd) {
-    margin-right: 2%; /* 奇數卡片（左欄）在右邊留空隙 */
-  }
-
-  /* 3. 強制卡片內容不可被切斷 (最重要的一步) */
-  .patient-order-card,
-  .crrt-patient-card {
     break-inside: avoid; /* 新版 CSS 屬性 */
     page-break-inside: avoid; /* 舊版 CSS 屬性，加強相容性 */
   }
 
-  /* 4. (可選，但建議) 讓每個班別都從新的一頁開始 */
+  .patient-order-card:nth-of-type(odd) {
+    margin-right: 2%;
+  }
+
   .shift-group + .shift-group {
     break-before: page; /* 新版 */
     page-break-before: always; /* 舊版 */
+  }
+
+  .crrt-patient-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 }
 
