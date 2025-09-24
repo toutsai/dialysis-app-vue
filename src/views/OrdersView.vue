@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/OrdersView.vue (重構後完整版) -->
+<!-- 檔案路徑: src/views/OrdersView.vue (整合 Pinia Store 更新版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -44,7 +44,6 @@
               <option value="noon">午班</option>
               <option value="late">晚班</option>
             </select>
-            <!-- ✨ 新增月份選擇器 -->
             <input type="month" v-model="groupSearchParams.month" />
           </div>
 
@@ -56,7 +55,6 @@
               placeholder="輸入姓名或病歷號..."
               @keyup.enter="handleSearch"
             />
-            <!-- ✨ 新增年份選擇器 -->
             <div class="year-selector">
               <button @click="changeYear(-1)">&lt; 上一年</button>
               <span>{{ individualSearchYear }} 年</span>
@@ -125,7 +123,7 @@
         </div>
       </div>
 
-      <!-- (B) 資料上傳頁籤 (保持不變) -->
+      <!-- (B) 資料上傳頁籤 -->
       <div v-show="activeTab === 'upload'" class="tab-panel upload-panel">
         <div class="upload-core-panel">
           <h4>批次上傳藥囑 Excel</h4>
@@ -188,14 +186,18 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { functions } from '@/composables/useFirebase.js'
 import { httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
-import { where, orderBy, Timestamp } from 'firebase/firestore'
+import { where } from 'firebase/firestore'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
+// ✨ --- [核心修改 1] 引入 medicationStore --- ✨
+import { useMedicationStore } from '@/stores/medicationStore.js'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
 const { opdPatients } = storeToRefs(patientStore)
+// ✨ --- [核心修改 1] 實例化 medicationStore --- ✨
+const medicationStore = useMedicationStore()
 const baseSchedulesApi = ApiManager('base_schedules')
 const ordersApi = ApiManager('medication_orders')
 
@@ -214,7 +216,6 @@ const individualSearchYear = ref(new Date().getFullYear())
 const searchResult = ref([])
 
 // --- Medication Master Data ---
-// ✨ 1. 為每種藥物新增 unit 屬性 ✨
 const INJECTION_MEDS_MASTER = [
   { code: 'INES2', tradeName: 'NESP', unit: 'mcg' },
   { code: 'IREC1', tradeName: 'Recormon', unit: 'KIU' },
@@ -251,32 +252,25 @@ function formatShift(shiftIndex) {
   return SHIFT_INDEX_MAP[shiftIndex] ?? 'N/A'
 }
 
-// ✨ 2. 重寫 formatOrderCell 函式以包含單位 ✨
 function formatOrderCell(order) {
   if (!order) return '-'
-
   const dose = order.dose || ''
-  if (!dose) return '-' // 如果沒有劑量，直接返回
-
-  // 從主資料中尋找該藥物的預設單位
+  if (!dose) return '-'
   const masterMed = allMedications.value.find((med) => med.code === order.orderCode)
   const unit = masterMed?.unit ? ` ${masterMed.unit}` : ''
-
   let details = ''
   if (order.orderType === 'injection') {
     details = order.note || ''
   } else if (order.orderType === 'oral') {
     details = order.frequency || ''
   }
-
-  // 組合最終的顯示字串
   if (details) {
     return `${dose}${unit} (${details})`
   }
   return `${dose}${unit}`
 }
 
-// --- Core Search Logic (以下所有函式保持不變) ---
+// --- Core Search Logic ---
 async function handleSearch() {
   isLoading.value = true
   searchPerformed.value = true
@@ -407,7 +401,7 @@ function changeYear(offset) {
   if (individualSearchTerm.value.trim()) handleSearch()
 }
 
-// --- Upload Tab Methods (保持不變) ---
+// --- Upload Tab Methods ---
 function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
   uploadResult.value = null
@@ -446,6 +440,12 @@ async function handleUpload() {
       fileContent: fileContentBase64,
     })
     uploadResult.value = result.data
+
+    // ✨ --- [核心修改 2] 上傳成功後，清除針劑快取 --- ✨
+    if (result.data && result.data.success && result.data.processedCount > 0) {
+      console.log('[OrdersView] 藥囑上傳成功，正在清除針劑快取...')
+      medicationStore.clearCache()
+    }
   } catch (error) {
     console.error('上傳處理失敗:', error)
     uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1, errors: [] }

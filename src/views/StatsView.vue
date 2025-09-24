@@ -1136,6 +1136,7 @@ import PreparationPopover from '@/components/PreparationPopover.vue'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
+import { useMedicationStore } from '@/stores/medicationStore.js' // 1. 引入 Store
 import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 import { httpsCallable } from 'firebase/functions'
@@ -1259,6 +1260,7 @@ const isInjectionLoading = ref(false)
 const noonTakeoffVisibility = ref({ early: false, late: false })
 const isOrderModalVisible = ref(false)
 const editingPatientForOrder = ref(null)
+const medicationStore = useMedicationStore() // 2. 實例化 Store
 
 provide('viewingDate', currentDate)
 
@@ -1901,44 +1903,67 @@ function handleTaskCreated() {
   showAlert('操作成功', '交辦/留言已成功新增！')
   isCreateTaskModalVisible.value = false
 }
+
 async function showInjectionList(teamData, shiftType = null) {
-  const patientIds = new Set()
+  // 1. 根據傳入的組別(teamData)和班別(shiftType)，精確收集需要顯示的病人ID
+  const patientIdsForFiltering = new Set()
   if (shiftType && teamData[shiftType] && Array.isArray(teamData[shiftType].patients)) {
-    teamData[shiftType].patients.forEach((p) => patientIds.add(p.id))
+    // 情況一：點擊的是特定班別的圖示 (例如：早班、午班(上針)...)
+    teamData[shiftType].patients.forEach((p) => patientIdsForFiltering.add(p.id))
   } else {
+    // 情況二：(備用邏輯) 如果沒有指定班別，則獲取該組別下的所有病人
     for (const key in teamData) {
       if (teamData[key] && Array.isArray(teamData[key].patients)) {
-        teamData[key].patients.forEach((p) => patientIds.add(p.id))
+        teamData[key].patients.forEach((p) => patientIdsForFiltering.add(p.id))
       }
     }
   }
-  const patientIdArray = Array.from(patientIds)
-  if (patientIdArray.length === 0) {
-    dailyInjections.value = []
-    isInjectionDialogVisible.value = true
-    return
-  }
+
+  const patientIdArrayForFiltering = Array.from(patientIdsForFiltering)
+
+  // 準備彈出視窗
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
-  dailyInjections.value = []
-  try {
-    const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
-    const result = await getDailyInjections({
-      targetDate: formatDate(currentDate.value),
-      patientIds: patientIdArray,
-    })
-    if (result.data && result.data.success) {
-      dailyInjections.value = result.data.injections
-    } else {
-      throw new Error(result.data?.message || '從後端獲取針劑資料失敗')
-    }
-  } catch (error) {
-    console.error('獲取本日應打針劑失敗:', error)
-    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
-  } finally {
+  dailyInjections.value = [] // 先清空舊資料
+
+  // 如果這個組別裡沒有病人，直接結束
+  if (patientIdArrayForFiltering.length === 0) {
     isInjectionLoading.value = false
+    return
+  }
+
+  const targetDate = formatDate(currentDate.value)
+
+  try {
+    // 2. 為了高效快取，一次性獲取「當天所有排班病人」的針劑資料
+    // Store 的 Action 會處理快取，如果已有資料則不會重複請求
+    const allPatientIdsForDay = [
+      ...new Set(
+        Object.values(currentRecord.schedule)
+          .map((slot) => slot.patientId)
+          .filter(Boolean),
+      ),
+    ]
+    const allInjectionsForDay = await medicationStore.fetchDailyInjections(
+      targetDate,
+      allPatientIdsForDay,
+    )
+
+    // 3. 從快取好的「全天資料」中，篩選出我們這次需要顯示的病人的針劑
+    const patientIdSet = new Set(patientIdArrayForFiltering)
+    dailyInjections.value = allInjectionsForDay.filter((injection) =>
+      patientIdSet.has(injection.patientId),
+    )
+  } catch (error) {
+    console.error('獲取應打針劑失敗:', error)
+    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
+    isInjectionDialogVisible.value = false
+  } finally {
+    // 最終的載入狀態以 Store 為準
+    isInjectionLoading.value = medicationStore.isLoading
   }
 }
+
 function exportAssignmentsToExcel() {
   if (isLoading.value) {
     showAlert('提示', '資料仍在載入中，請稍後再試。')

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/ScheduleView.vue -->
+<!-- 檔案路徑: src/views/ScheduleView.vue (修正版) -->
 <template>
   <div class="page-container" :class="{ 'is-locked': isPageLocked }">
     <div v-if="isLoading" class="loading-overlay">
@@ -251,7 +251,7 @@
                         class="patient-name-wrapper"
                         :class="[
                           getPatientCellStyle(`peripheral-${i}-${shiftCode}`),
-                          { 'non-clickable': !auth.canEditClinicalNotesAndOrders }, // ✨【新增】這行 class 綁定
+                          { 'non-clickable': !auth.canEditClinicalNotesAndOrders },
                         ]"
                         @click="handleSimplifiedCellClick(`peripheral-${i}-${shiftCode}`)"
                         title="點擊查看詳細資料"
@@ -854,7 +854,6 @@
       @save="handleSaveOrder"
     />
 
-    <!-- ✅ [核心修改] 確保 CRRT Modal 的綁定正確 -->
     <CRRTOrderModal
       :is-visible="isCRRTOrderModalVisible"
       :patient-data="editingPatientForCRRT"
@@ -926,11 +925,13 @@ import { useTaskStore } from '@/stores/taskStore.js'
 import { useArchiveStore } from '@/stores/archiveStore.js'
 import { storeToRefs } from 'pinia'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
+import { useMedicationStore } from '@/stores/medicationStore.js'
 
 // Store & Hook Instantiation
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const archiveStore = useArchiveStore()
+const medicationStore = useMedicationStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -1042,6 +1043,8 @@ const editingPatientForOrder = ref(null)
 const isCRRTOrderModalVisible = ref(false)
 const editingPatientForCRRT = ref(null)
 const crrtOrderHistory = ref([])
+// ✨ 【錯誤修正】宣告缺少的 ref ✨
+const noonTakeoffVisibility = ref({ early: false, late: false })
 
 const dailyPhysicians = ref({ early: null, noon: null, late: null })
 const dailyConsultPhysicians = ref({ morning: null, afternoon: null, night: null })
@@ -1250,7 +1253,6 @@ async function handleSaveIcuNote({ patientId, note }) {
     await optimizedUpdatePatient(patientId, updatePayload)
     await patientStore.forceRefreshPatients()
 
-    // 使用正確的函式名稱和呼叫格式
     createGlobalNotification(`${patientName} 的備註已儲存`, 'success')
   } catch (error) {
     console.error('儲存 ICU 備註失敗:', error)
@@ -1265,7 +1267,6 @@ function openOrderModalFromIcuDialog(patient) {
   }
 }
 
-// ✅ [核心] 處理打開 CRRT Modal 的函式
 function openCRRTOrderModalFromIcuDialog(patient) {
   if (patient && patient.id) {
     editingPatientForCRRT.value = JSON.parse(JSON.stringify(patient))
@@ -1273,7 +1274,6 @@ function openCRRTOrderModalFromIcuDialog(patient) {
   }
 }
 
-// ✅ [核心] 處理儲存 CRRT 醫囑的函式
 async function handleSaveCRRTOrder(orderData) {
   if (!editingPatientForCRRT.value?.id) {
     showAlert('儲存失敗', '找不到有效的病人資訊。')
@@ -1298,59 +1298,39 @@ async function handleSaveCRRTOrder(orderData) {
 
 async function showShiftInjections(shiftCode) {
   if (!shiftCode) return
+
   const patientIds = Object.entries(currentRecord.schedule)
     .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
     .map(([, slot]) => slot.patientId)
+
   injectionDialogDate.value = formatDate(currentDate.value)
   isInjectionDialogVisible.value = true
   isInjectionLoading.value = true
   allDailyInjections.value = []
   filterSpecificInjections.value = false
-  if (patientIds.length === 0) {
-    isInjectionLoading.value = false
-    return
-  }
+
   try {
-    const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
-    const CHUNK_SIZE = 30
-    const promises = []
-    for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
-      const chunk = patientIds.slice(i, i + CHUNK_SIZE)
-      const payload = { targetDate: injectionDialogDate.value, patientIds: chunk }
-      promises.push(getDailyInjections(payload))
-    }
-    const results = await Promise.all(promises)
-    let combinedInjections = []
-    for (const result of results) {
-      if (result.data && result.data.success) {
-        combinedInjections = combinedInjections.concat(result.data.injections)
-      } else {
-        throw new Error(result.data?.message || '從後端獲取部分針劑資料失敗')
-      }
-    }
-    combinedInjections.sort((a, b) => {
-      const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
-      const shiftA = a.shift || 'A'
-      const shiftB = b.shift || 'A'
-      if (shiftA !== shiftB) return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
-      const bedA = String(a.bedNum).startsWith('外')
-        ? 1000 + parseInt(String(a.bedNum).substring(1))
-        : parseInt(a.bedNum)
-      const bedB = String(b.bedNum).startsWith('外')
-        ? 1000 + parseInt(String(b.bedNum).substring(1))
-        : parseInt(b.bedNum)
-      return bedA - bedB
-    })
-    allDailyInjections.value = combinedInjections
+    const allPatientIdsForDay = Object.values(currentRecord.schedule)
+      .map((slot) => slot?.patientId)
+      .filter(Boolean)
+
+    const allInjectionsForDay = await medicationStore.fetchDailyInjections(
+      injectionDialogDate.value,
+      allPatientIdsForDay,
+    )
+
+    const shiftPatientIdSet = new Set(patientIds)
+    allDailyInjections.value = allInjectionsForDay.filter((injection) =>
+      shiftPatientIdSet.has(injection.patientId),
+    )
   } catch (error) {
-    console.error(`獲取 ${shiftCode} 班應打針劑失敗:`, error)
-    const errorMessage = error.details?.message || error.message || '獲取應打針劑清單時發生未知錯誤'
-    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${errorMessage}`)
+    showAlert('查詢失敗', `獲取應打針劑清單時發生錯誤: ${error.message}`)
     isInjectionDialogVisible.value = false
   } finally {
-    isInjectionLoading.value = false
+    isInjectionLoading.value = medicationStore.isLoading
   }
 }
+
 function openDetailModalForPatient(patientId) {
   const patientList = sortedScheduleSlots.value
   const targetIndex = patientList.findIndex((p) => p.patientId === patientId)
@@ -2212,7 +2192,9 @@ function exportScheduleToExcel() {
       if (slot && slot.patientId) {
         const patient = patientMap.value.get(slot.patientId)
         const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
-        const cellText = `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n[${statusMap[patient?.status] || '未知'}]\n${getCombinedNote(shiftId)}`
+        const cellText = `${patient?.name || '未知'} (${
+          patient?.medicalRecordNumber || 'N/A'
+        })\n[${statusMap[patient?.status] || '未知'}]\n${getCombinedNote(shiftId)}`
         row.push(cellText)
       } else {
         row.push('')
@@ -2255,31 +2237,13 @@ function exportScheduleToExcel() {
   XLSX.writeFile(workbook, `每日排程表_${formatDate(currentDate.value)}.xlsx`)
 }
 
-// ✅ [核心修正] 重寫 handleSaveAndPrintIcuOrders 函式，使其更穩健
 async function handleSaveAndPrintIcuOrders(payload, printCallback) {
-  // 👇👇👇 加上這些來偵錯
-  console.log('--- 儲存醫囑權限檢查 ---')
-  console.log('當前使用者角色:', auth.claims.value?.role)
-  console.log('是否為過去日期 (isPageLocked):', isPageLocked.value)
-  console.log(
-    '是否有醫囑權限 (canEditClinicalNotesAndOrders):',
-    auth.canEditClinicalNotesAndOrders.value,
-  )
-  console.log(
-    '!auth.canEditClinicalNotesAndOrders.value is:',
-    !auth.canEditClinicalNotesAndOrders.value,
-  )
-  console.log('------------------------')
-
   if (isPageLocked.value || !auth.canEditClinicalNotesAndOrders.value) {
     showAlert('權限不足', '您沒有儲存 ICU 醫囑單的權限，或正在編輯過去的日期。')
     return
   }
   const { notes, crrtEmergency } = payload
-
   const updatePromises = []
-
-  // 處理 HD/PP 病人的備註
   for (const patientId in notes) {
     const note = notes[patientId]
     const patient = patientMap.value.get(patientId)
@@ -2289,8 +2253,6 @@ async function handleSaveAndPrintIcuOrders(payload, printCallback) {
       updatePromises.push(optimizedUpdatePatient(patientId, { dialysisOrders: newDialysisOrders }))
     }
   }
-
-  // 處理 CRRT 病人的緊急撤離選項和備註 (這部分邏輯不變，因為是頂層欄位)
   for (const patientId in crrtEmergency) {
     const { withdraw, note } = crrtEmergency[patientId]
     updatePromises.push(
@@ -2330,8 +2292,11 @@ onMounted(async () => {
   await Promise.all([loadDataForDay(currentDate.value), loadDailyStaffInfo(currentDate.value)])
   isLoading.value = false
 })
+
 watch(currentDate, (newDate, oldDate) => {
   if (oldDate && formatDate(newDate) !== formatDate(oldDate)) {
+    medicationStore.clearCache()
+    noonTakeoffVisibility.value = { early: false, late: false }
     loadDataForDay(newDate)
     loadDailyStaffInfo(newDate)
   }
