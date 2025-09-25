@@ -15,76 +15,66 @@ export const useMedicationStore = defineStore('medication', () => {
   })
 
   async function fetchDailyInjections(targetDate, patientIds) {
-    // --- 📍 日誌點 1: 檢查傳入的參數 ---
-    console.log(
-      `[MedicationStore] 接到請求: 日期=${targetDate}, 病人數=${patientIds.length}`,
-      patientIds,
-    )
+    console.log(`[Store] 接到請求: 日期=${targetDate}, 病人數=${patientIds.length}`)
 
     if (!patientIds || patientIds.length === 0) {
-      console.log('[MedicationStore] 病人ID陣列為空，直接返回。')
       return []
     }
 
-    // --- 📍 日誌點 2: 檢查快取 ---
-    if (dailyInjectionsCache.value[targetDate]) {
-      console.log(`[MedicationStore] ✅ 快取命中！從現有資料中過濾 ${targetDate} 的針劑。`, {
-        allCachedData: dailyInjectionsCache.value[targetDate],
-      })
-      // 從已有的全天快取中篩選出本次請求需要的病人資料
-      const patientIdSet = new Set(patientIds)
-      return dailyInjectionsCache.value[targetDate].filter((inj) => patientIdSet.has(inj.patientId))
-    }
-
-    // --- 📍 日誌點 3: 快取未命中，準備請求後端 ---
-    console.log(`[MedicationStore] ❌ 快取未命中，準備向後端請求 ${targetDate} 的資料。`)
     isLoading.value = true
     error.value = null
 
     try {
-      const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
-
-      const CHUNK_SIZE = 30
-      const promises = []
-      for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
-        const chunk = patientIds.slice(i, i + CHUNK_SIZE)
-        promises.push(getDailyInjections({ targetDate, patientIds: chunk }))
+      // 確保該日期的快取陣列存在
+      if (!dailyInjectionsCache.value[targetDate]) {
+        dailyInjectionsCache.value[targetDate] = []
       }
 
-      const results = await Promise.all(promises)
+      // ✅ 1. 找出哪些病人資料已經在快取裡了
+      const cachedPatientIds = new Set(
+        dailyInjectionsCache.value[targetDate].map((inj) => inj.patientId),
+      )
 
-      let combinedInjections = []
-      for (const result of results) {
-        if (result.data && result.data.success) {
-          combinedInjections = combinedInjections.concat(result.data.injections)
-        } else {
-          console.error('[MedicationStore] 後端回傳部分錯誤:', result.data?.message)
+      // ✅ 2. 計算出這次請求中，哪些是需要向後端查詢的新病人
+      const idsToFetch = patientIds.filter((id) => !cachedPatientIds.has(id))
+
+      // ✅ 3. 如果有需要查詢的新病人，才執行後端請求
+      if (idsToFetch.length > 0) {
+        console.log(
+          `[Store] ❌ 快取不完整，需為 ${idsToFetch.length} 位新病人請求資料。`,
+          idsToFetch,
+        )
+
+        const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
+        const CHUNK_SIZE = 30
+        const promises = []
+        for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
+          const chunk = idsToFetch.slice(i, i + CHUNK_SIZE)
+          promises.push(getDailyInjections({ targetDate, patientIds: chunk }))
         }
+
+        const results = await Promise.all(promises)
+        let newlyFetchedInjections = []
+        for (const result of results) {
+          if (result.data && result.data.success) {
+            newlyFetchedInjections = newlyFetchedInjections.concat(result.data.injections)
+          }
+        }
+
+        // ✅ 4. 將新獲取的資料合併到當日的快取中
+        dailyInjectionsCache.value[targetDate].push(...newlyFetchedInjections)
+        console.log(
+          `[Store] 💾 快取已更新，${targetDate} 現在共有 ${dailyInjectionsCache.value[targetDate].length} 筆資料。`,
+        )
+      } else {
+        console.log(`[Store] ✅ 快取完整！本次請求的所有病人資料都已存在。`)
       }
 
-      // --- 📍 日誌點 4: 顯示從後端拿到的原始資料 ---
-      console.log(
-        `[MedicationStore] ☁️ 從後端成功獲取 ${combinedInjections.length} 筆針劑資料。`,
-        combinedInjections,
-      )
-
-      // ✨ 關鍵邏輯：我們快取的是當天所有請求過的病人的資料總和
-      const existingData = dailyInjectionsCache.value[targetDate] || []
-      const newDataMap = new Map(
-        existingData.map((item) => [`${item.patientId}-${item.orderCode}`, item]),
-      )
-      combinedInjections.forEach((item) => {
-        newDataMap.set(`${item.patientId}-${item.orderCode}`, item)
-      })
-
-      dailyInjectionsCache.value[targetDate] = Array.from(newDataMap.values())
-      console.log(
-        `[MedicationStore] 💾 快取已更新，${targetDate} 現在共有 ${dailyInjectionsCache.value[targetDate].length} 筆資料。`,
-      )
-
-      return combinedInjections
+      // ✅ 5. 最後，從更新後的完整快取中，篩選出本次呼叫所需要的病人資料並回傳
+      const patientIdSet = new Set(patientIds)
+      return dailyInjectionsCache.value[targetDate].filter((inj) => patientIdSet.has(inj.patientId))
     } catch (e) {
-      console.error('[MedicationStore] 獲取每日應打針劑時發生嚴重錯誤:', e)
+      console.error('[Store] 獲取每日應打針劑時發生嚴重錯誤:', e)
       error.value = e
       return []
     } finally {
