@@ -1164,15 +1164,18 @@ const printContent = () => {
   }
 
   /* --- ✨ 解決多頁內容被截斷的核心 ✨ --- */
-
-  /* 1. 重設 Modal 容器的高度與溢出行為 */
-  .modal-content,
-  .modal-body {
-    height: auto !important; /* 移除固定的可視高度 */
-    overflow-y: visible !important; /* 允許內容溢出，這是換頁的關鍵 */
-    display: block !important; /* 取消 flex 佈局，回歸正常文件流 */
+  /* 1. 徹底解除 Flexbox 佈局對高度的限制 */
+  .modal-content {
+    display: block !important; /* 將 flex 佈局改為基本的塊級佈局 */
+    height: auto !important;
     box-shadow: none !important;
     border: none !important;
+  }
+
+  /* 2. 確保 body 也解除限制 (繼承自上一步) */
+  .modal-body {
+    height: auto !important;
+    overflow-y: visible !important; /* 確保內容可以溢出換頁 */
   }
 
   /* 2. 重設 Modal 外層，避免 fixed 定位影響列印 */
