@@ -73,15 +73,22 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+
+                    <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
                     </div>
+
+                    <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
                     </div>
-                    <div>
+
+                    <!-- 3. 時間: 新增 highlight -->
+                    <div class="highlight-field">
                       <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
                     </div>
+
                     <div>
                       <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
                       {{ p.dialysisOrders?.heparinLM || '____' }}
@@ -90,14 +97,15 @@
                       <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
                       {{ p.dialysisOrders?.dialysateFlow || '____' }}
                     </div>
+
+                    <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
                     </div>
-                    <div class="highlight-field">
-                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
-                    </div>
-                  </div>
 
+                    <!-- 5. Mannitol: 移除 highlight -->
+                    <div><strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}</div>
+                  </div>
                   <div class="notes-section">
                     <strong>備註：</strong>
                     <input
@@ -169,15 +177,22 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+
+                    <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
                     </div>
+
+                    <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
                     </div>
-                    <div>
+
+                    <!-- 3. 時間: 新增 highlight -->
+                    <div class="highlight-field">
                       <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
                     </div>
+
                     <div>
                       <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
                       {{ p.dialysisOrders?.heparinLM || '____' }}
@@ -186,12 +201,14 @@
                       <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
                       {{ p.dialysisOrders?.dialysateFlow || '____' }}
                     </div>
+
+                    <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
                     </div>
-                    <div class="highlight-field">
-                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
-                    </div>
+
+                    <!-- 5. Mannitol: 移除 highlight -->
+                    <div><strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}</div>
                   </div>
                   <div class="notes-section">
                     <strong>備註：</strong>
@@ -264,15 +281,22 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+
+                    <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
                     </div>
+
+                    <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
                     </div>
-                    <div>
+
+                    <!-- 3. 時間: 新增 highlight -->
+                    <div class="highlight-field">
                       <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
                     </div>
+
                     <div>
                       <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
                       {{ p.dialysisOrders?.heparinLM || '____' }}
@@ -281,12 +305,14 @@
                       <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
                       {{ p.dialysisOrders?.dialysateFlow || '____' }}
                     </div>
+
+                    <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
                     </div>
-                    <div class="highlight-field">
-                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
-                    </div>
+
+                    <!-- 5. Mannitol: 移除 highlight -->
+                    <div><strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}</div>
                   </div>
                   <div class="notes-section">
                     <strong>備註：</strong>
@@ -776,36 +802,29 @@ const printContent = () => {
   const printSpecificStyles = `
     /*
      * ===================================================================
-     * === 列印專用樣式表 (字體放大版)
+     * === 列印專用樣式表 (最終修正版)
      * ===================================================================
      */
 
-    /* --- 1. 基本重置與頁面設定 --- */
+    /* --- 1. 頁面與基礎設定 --- */
     @page {
       size: A4;
       margin: 15mm 10mm;
     }
 
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      /* ✨ 字體放大：將基礎字體從 10pt 調整為 14pt ✨ */
-      font-size: 14pt !important;
-      line-height: 1.5 !important; /* 增加行高以提升易讀性 */
-      background-color: white !important;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-    }
-
-    .modal-overlay, .modal-content, .modal-body {
+      /* ✨ 核心修正：直接控制 body，解除所有限制 ✨ */
       position: static !important;
       height: auto !important;
       overflow: visible !important;
       display: block !important;
-      width: 100% !important;
-      box-shadow: none !important;
-      background-color: transparent !important;
-      padding: 0 !important;
-      margin: 0 !important;
+
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 12pt !important;
+      line-height: 1.5 !important;
+      background-color: white !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
 
     /* --- 2. 元素顯示/隱藏 --- */
@@ -815,7 +834,6 @@ const printContent = () => {
     .printable-header {
       display: block !important;
       text-align: center;
-      /* ✨ 字體放大：標題也相應放大 ✨ */
       font-size: 1.8rem;
       font-weight: bold;
       margin-bottom: 1.5rem;
@@ -840,22 +858,17 @@ const printContent = () => {
       margin-right: 0 !important;
     }
 
-    /* --- 4. 卡片內容樣式 (核心修正) --- */
+    /* --- 4. 卡片內容樣式 --- */
     .patient-header {
       background-color: #f0f0f0 !important;
     }
-    /* ✨ 字體放大：卡片頭部和內容文字都調整為 12pt ✨ */
-    .patient-header .info-item,
-    .patient-header .info-item.name,
-    .order-details,
-    .notes-input {
+    .patient-header .info-item, .patient-header .info-item.name, .order-details, .notes-input {
       font-size: 12pt !important;
     }
 
-    /* ✨ 核心修正：字體等大，用外框凸顯 ✨ */
     .highlight-field {
       font-weight: bold !important;
-      font-size: 12pt !important; /* 與 .order-details 保持一致 */
+      font-size: 12pt !important;
       color: #000 !important;
       background-color: #f0f0f0 !important;
       border: 1px solid #bbb !important;
@@ -866,32 +879,26 @@ const printContent = () => {
 
     /* --- 5. 區塊與分頁控制 --- */
     .section-title {
+      font-size: 1.5rem !important;
       margin-top: 1.5rem !important;
       border-bottom: 2px solid #333 !important;
       page-break-after: avoid !important;
-      /* ✨ 字體放大：區塊標題也放大 ✨ */
-      font-size: 1.5rem !important;
     }
-    .shift-group {
+    .shift-group, .crrt-patient-card {
       page-break-inside: avoid !important;
     }
     .shift-group h4 {
+      font-size: 1.2rem !important;
       background-color: #f0f0f0 !important;
       border-left: 4px solid #999 !important;
       page-break-after: avoid !important;
-      /* ✨ 字體放大：班別標題也放大 ✨ */
-      font-size: 1.2rem !important;
     }
-    .order-section + .order-section {
+    .order-section + .section {
         break-before: page;
         page-break-before: always;
     }
 
     /* --- 6. CRRT 表格樣式 --- */
-    .crrt-patient-card {
-      page-break-inside: avoid !important;
-    }
-    /* ✨ 字體放大：CRRT 表格內容也放大 ✨ */
     .crrt-table th, .crrt-table td, .crrt-order-item {
       font-size: 11pt !important;
     }
