@@ -587,24 +587,6 @@ function updateLocalNote(patientId, value) {
   localNotes[patientId] = value
 }
 
-watch(
-  () => props.isVisible,
-  (newVal) => {
-    if (newVal) {
-      allPeripheralPatients.value.forEach((p) => {
-        localNotes[p.id] = p.dialysisOrders?.icuNote || ''
-      })
-      cvvhPatients.value.forEach((p) => {
-        crrtEmergencyData[p.id] = {
-          withdraw: p.emergencyWithdraw || null,
-          note: p.emergencyWithdrawNote || '',
-        }
-      })
-    }
-  },
-  { immediate: true },
-)
-
 const handleSaveAndPrint = () => {
   // ✨ 5. 在處理函式中也加上權限檢查，作為雙重保險
   if (!canEdit.value) {
