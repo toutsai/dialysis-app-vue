@@ -1587,12 +1587,6 @@ const printContent = () => {
     margin-right: 0 !important;
   }
 
-  /* 如果只有一個病人，使用全寬 */
-  .patient-order-card:only-child {
-    width: 100% !important;
-    margin-right: 0 !important;
-  }
-
   /* === CRRT 表格分頁控制 === */
   .crrt-container {
     display: block !important;
