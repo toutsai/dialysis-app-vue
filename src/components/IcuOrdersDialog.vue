@@ -1169,7 +1169,7 @@ const printContent = () => {
   .modal-content,
   .modal-body {
     height: auto !important; /* 移除固定的可視高度 */
-    overflow: visible !important; /* 允許內容溢出，這是換頁的關鍵 */
+    overflow-y: visible !important; /* 允許內容溢出，這是換頁的關鍵 */
     display: block !important; /* 取消 flex 佈局，回歸正常文件流 */
     box-shadow: none !important;
     border: none !important;
