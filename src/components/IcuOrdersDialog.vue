@@ -587,24 +587,6 @@ function updateLocalNote(patientId, value) {
   localNotes[patientId] = value
 }
 
-watch(
-  () => props.isVisible,
-  (newVal) => {
-    if (newVal) {
-      allPeripheralPatients.value.forEach((p) => {
-        localNotes[p.id] = p.dialysisOrders?.icuNote || ''
-      })
-      cvvhPatients.value.forEach((p) => {
-        crrtEmergencyData[p.id] = {
-          withdraw: p.emergencyWithdraw || null,
-          note: p.emergencyWithdrawNote || '',
-        }
-      })
-    }
-  },
-  { immediate: true },
-)
-
 const handleSaveAndPrint = () => {
   // ✨ 5. 在處理函式中也加上權限檢查，作為雙重保險
   if (!canEdit.value) {
@@ -747,48 +729,383 @@ const cvvhPatients = computed(() => {
   return Array.from(props.patientMap.values()).filter((p) => p.mode === 'CVVHDF' && !p.isDeleted)
 })
 
-const printContent = () => {
-  const printableArea = document.getElementById('icu-orders-printable-area')
-  if (printableArea) {
-    const inputs = printableArea.querySelectorAll('input[type="text"]')
-    inputs.forEach((input) => {
-      input.setAttribute('value', input.value)
-    })
-
-    const radios = printableArea.querySelectorAll('input[type="radio"]:checked')
-    radios.forEach((radio) => {
-      radio.setAttribute('checked', 'checked')
-    })
-
-    const printWindow = window.open('', '_blank')
-    printWindow.document.write('<html><head><title>列印醫囑單</title>')
-    const styles = Array.from(document.styleSheets)
-      .map((styleSheet) => {
-        try {
-          return Array.from(styleSheet.cssRules)
-            .map((rule) => rule.cssText)
-            .join('')
-        } catch (e) {
-          return ''
+watch(
+  () => props.isVisible,
+  (newVal) => {
+    if (newVal) {
+      allPeripheralPatients.value.forEach((p) => {
+        localNotes[p.id] = p.dialysisOrders?.icuNote || ''
+      })
+      cvvhPatients.value.forEach((p) => {
+        crrtEmergencyData[p.id] = {
+          withdraw: p.emergencyWithdraw || null,
+          note: p.emergencyWithdrawNote || '',
         }
       })
-      .join('')
-    printWindow.document.write('<style>' + styles + '</style>')
-    printWindow.document.write('<style></style>')
-    printWindow.document.write('</head><body>')
-    printWindow.document.write(printableArea.innerHTML)
-    printWindow.document.write('</body></html>')
-    printWindow.document.close()
+    }
+  },
+  { immediate: true },
+)
+
+const printContent = () => {
+  const printableArea = document.getElementById('icu-orders-printable-area')
+  if (!printableArea) return
+
+  // 保存輸入值
+  const inputs = printableArea.querySelectorAll('input[type="text"]')
+  inputs.forEach((input) => {
+    input.setAttribute('value', input.value)
+  })
+
+  const radios = printableArea.querySelectorAll('input[type="radio"]:checked')
+  radios.forEach((radio) => {
+    radio.setAttribute('checked', 'checked')
+  })
+
+  // 獲取當前頁面的所有樣式
+  const styles = Array.from(document.styleSheets)
+    .map((styleSheet) => {
+      try {
+        return Array.from(styleSheet.cssRules)
+          .map((rule) => rule.cssText)
+          .join('\n')
+      } catch (e) {
+        console.log('無法讀取樣式表:', e)
+        return ''
+      }
+    })
+    .join('\n')
+
+  // 創建列印用的 HTML - 保留原始樣式
+  const printHTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>列印醫囑單</title>
+  <style>
+    /* 引入原始樣式 */
+    ${styles}
+
+    /* 列印專用覆蓋樣式 */
+    @media print {
+      /* 基本重置 */
+      *, *::before, *::after {
+        overflow: visible !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+
+      html, body {
+        height: auto !important;
+        overflow: visible !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      /* 頁面設定 */
+      @page {
+        size: A4;
+        margin: 15mm 10mm;
+      }
+
+      /* 移除容器限制 */
+      .modal-overlay,
+      .modal-content,
+      .modal-body {
+        position: static !important;
+        height: auto !important;
+        min-height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        display: block !important;
+        width: 100% !important;
+        max-width: none !important;
+        box-shadow: none !important;
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+
+      /* 隱藏不需要的元素 */
+      .modal-header,
+      .btn-edit-crrt,
+      .btn-edit-crrt-mobile,
+      .btn-close,
+      .btn-print,
+      .header-actions,
+      .crrt-cards-container.mobile-only {
+        display: none !important;
+      }
+
+      /* 顯示列印標題 */
+      .printable-header {
+        display: block !important;
+        text-align: center;
+        font-size: 1.8rem;
+        font-weight: bold;
+        margin-bottom: 2rem;
+        page-break-after: avoid;
+      }
+
+      /* 保留原始卡片樣式 */
+      .patient-order-card {
+        display: inline-block !important;
+        width: 48% !important;
+        margin-right: 2% !important;
+        margin-bottom: 1rem !important;
+        vertical-align: top !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        box-sizing: border-box !important;
+
+        /* 保留原始視覺樣式 */
+        background-color: #fff !important;
+        border: 1px solid #dee2e6 !important;
+        border-radius: 6px !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+      }
+
+      .patient-order-card:nth-child(2n) {
+        margin-right: 0 !important;
+      }
+
+      /* 保留病人頭部樣式 */
+      .patient-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        background-color: #e9ecef !important;
+        padding: 0.75rem 1rem !important;
+        border-bottom: 1px solid #dee2e6 !important;
+        border-radius: 6px 6px 0 0 !important;
+      }
+
+      .patient-header .info-item {
+        font-size: 1rem !important;
+        color: #212529 !important;
+      }
+
+      .patient-header .info-item.name {
+        font-weight: bold !important;
+        color: #212529 !important;
+        text-decoration: none !important;
+        font-size: 1.05rem !important;
+      }
+
+      /* 保留醫囑詳細資料樣式 */
+      .order-details {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 0.6rem 1rem !important;
+        padding: 1rem !important;
+        font-size: 0.95rem !important;
+        line-height: 1.5 !important;
+        color: #212529 !important;
+      }
+
+      .order-details > div {
+        color: #212529 !important;
+      }
+
+      .order-details strong {
+        color: #495057 !important;
+        font-weight: bold !important;
+      }
+
+      /* 保留高亮欄位樣式 */
+      .highlight-field {
+        color: #d32f2f !important;
+        font-weight: bold !important;
+        font-size: 1rem !important;
+        background-color: #fff3cd !important;
+        padding: 0.2rem 0.4rem !important;
+        border-radius: 3px !important;
+        border-left: 3px solid #ffc107 !important;
+      }
+
+      /* 保留備註區域樣式 */
+      .notes-section {
+        padding: 0.75rem 1rem !important;
+        border-top: 1px solid #e9ecef !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 0.5rem !important;
+        background-color: #f8f9fa !important;
+        margin-top: auto !important;
+        border-radius: 0 0 6px 6px !important;
+      }
+
+      .notes-section strong {
+        white-space: nowrap !important;
+        color: #495057 !important;
+      }
+
+      .notes-input {
+        width: 100% !important;
+        border: 1px solid #ced4da !important;
+        padding: 0.25rem 0.5rem !important;
+        border-radius: 4px !important;
+        background-color: white !important;
+        color: #212529 !important;
+        font-size: 0.9rem !important;
+      }
+
+      /* 區塊標題樣式 */
+      .section-title {
+        font-size: 1.3rem !important;
+        margin-top: 2rem !important;
+        margin-bottom: 1rem !important;
+        padding-bottom: 0.5rem !important;
+        border-bottom: 2px solid #007bff !important;
+        color: #212529 !important;
+        page-break-after: avoid !important;
+      }
+
+      .shift-group {
+        margin-bottom: 1.5rem !important;
+        page-break-inside: avoid !important;
+      }
+
+      .shift-group h4 {
+        font-size: 1.1rem !important;
+        margin-bottom: 1rem !important;
+        color: #495057 !important;
+        background-color: #f8f9fa !important;
+        padding: 0.5rem 1rem !important;
+        border-left: 4px solid #007bff !important;
+        page-break-after: avoid !important;
+      }
+
+      /* CRRT 表格樣式 */
+      .crrt-patient-card {
+        background-color: #fff !important;
+        border-radius: 6px !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        overflow: visible !important;
+        page-break-inside: avoid !important;
+        margin-bottom: 1.5rem !important;
+      }
+
+      .crrt-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        background-color: #fff !important;
+      }
+
+      .crrt-table th {
+        background-color: #e9ecef !important;
+        font-weight: bold !important;
+        font-size: 0.95rem !important;
+        color: #212529 !important;
+        padding: 0.75rem !important;
+        border: 1px solid #dee2e6 !important;
+      }
+
+      .crrt-table td {
+        border: 1px solid #dee2e6 !important;
+        padding: 0.75rem !important;
+        color: #212529 !important;
+        font-size: 0.9rem !important;
+      }
+
+      .emergency-row {
+        background-color: #f8f9fa !important;
+        border-top: 2px solid #dee2e6 !important;
+      }
+
+      .emergency-content {
+        display: flex !important;
+        align-items: center !important;
+        gap: 1.5rem !important;
+        padding: 0.75rem 1rem !important;
+      }
+
+      .emergency-label {
+        font-weight: bold !important;
+        color: #495057 !important;
+      }
+
+      /* CRRT 醫囑內容樣式 */
+      .crrt-order-content {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 0.5rem !important;
+      }
+
+      .crrt-order-item {
+        display: flex !important;
+        align-items: center !important;
+        font-size: 0.9rem !important;
+      }
+
+      .order-label {
+        font-weight: bold !important;
+        margin-right: 0.5rem !important;
+        color: #495057 !important;
+      }
+
+      /* 確保沒有病人的文字樣式 */
+      .no-patients-text {
+        color: #6c757d !important;
+        font-style: italic !important;
+        padding: 1rem !important;
+        background-color: #f8f9fa !important;
+        border-radius: 6px !important;
+        text-align: center !important;
+      }
+
+      /* 分頁控制 */
+      .order-section {
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+
+      /* 如果內容太長，允許班別之間分頁 */
+      .shift-group + .shift-group {
+        page-break-before: auto;
+      }
+
+      /* 字體大小微調 */
+      body {
+        font-size: 11pt !important;
+        line-height: 1.4 !important;
+      }
+    }
+
+    @media screen {
+      /* 螢幕顯示時隱藏列印標題 */
+      .printable-header {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="icu-orders-printable-area">
+    ${printableArea.innerHTML}
+  </div>
+</body>
+</html>
+  `
+
+  // 開啟列印視窗
+  const printWindow = window.open('', '_blank', 'width=900,height=700')
+  printWindow.document.write(printHTML)
+  printWindow.document.close()
+
+  // 等待內容載入後列印
+  printWindow.onload = function () {
     setTimeout(() => {
       printWindow.print()
-      printWindow.close()
-    }, 250)
+      // 不要立即關閉，讓使用者可以預覽
+      // printWindow.close()
+    }, 500)
   }
 }
 </script>
 
 <style scoped>
-/* ✨ 新增 disabled/readonly 狀態的樣式 ✨ */
 .btn-print:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
@@ -1141,75 +1458,242 @@ const printContent = () => {
 
 /* 列印樣式 */
 @media print {
-  /* --- 基本設定 --- */
+  /* === 基本重置 === */
+  * {
+    overflow: visible !important; /* 關鍵：允許內容溢出以便分頁 */
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* === 移除所有容器的高度限制 === */
+  .modal-overlay {
+    position: static !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    background: none !important;
+  }
+
+  .modal-content {
+    position: static !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .modal-body {
+    position: static !important;
+    height: auto !important;
+    min-height: auto !important;
+    max-height: none !important;
+    overflow: visible !important; /* 關鍵：必須是 visible */
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  /* === 隱藏不需要列印的元素 === */
   .modal-header,
-  .btn-edit-crrt {
+  .btn-edit-crrt,
+  .btn-edit-crrt-mobile,
+  .btn-close,
+  .btn-print,
+  .header-actions {
     display: none !important;
   }
+
+  /* === 顯示列印標題 === */
   .printable-header {
     display: block !important;
     text-align: center;
     font-size: 1.8rem;
     margin-bottom: 2rem;
     color: black;
+    page-break-after: avoid; /* 標題不要單獨在一頁 */
   }
+
+  /* === 頁面設定 === */
   @page {
     size: A4;
-    margin: 15mm;
-  }
-  body {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    font-size: 12pt !important;
+    margin: 15mm 10mm; /* 上下15mm，左右10mm */
   }
 
-  /* --- ✨ 解決多頁內容被截斷的核心 ✨ --- */
-
-  /* 1. 重設 Modal 容器的高度與溢出行為 */
-  .modal-content,
-  .modal-body {
-    height: auto !important; /* 移除固定的可視高度 */
-    overflow: visible !important; /* 允許內容溢出，這是換頁的關鍵 */
-    display: block !important; /* 取消 flex 佈局，回歸正常文件流 */
-    box-shadow: none !important;
-    border: none !important;
+  /* === 區塊分頁控制 === */
+  .order-section {
+    page-break-inside: avoid; /* 避免區塊內部分頁 */
+    break-inside: avoid;
+    margin-bottom: 1.5rem;
   }
 
-  /* 2. 重設 Modal 外層，避免 fixed 定位影響列印 */
-  .modal-overlay {
-    position: static !important;
-    background: none !important;
+  .section-title {
+    page-break-after: avoid; /* 標題不要和內容分離 */
+    break-after: avoid;
+    margin-bottom: 1rem;
+  }
+
+  /* === 班別群組分頁控制 === */
+  .shift-group {
+    page-break-inside: avoid; /* 盡量保持班別完整 */
+    break-inside: avoid;
+    margin-bottom: 1.5rem;
+  }
+
+  .shift-group h4 {
+    page-break-after: avoid; /* 班別標題不要和內容分離 */
+    break-after: avoid;
+    margin-bottom: 0.5rem;
+  }
+
+  /* === 病人卡片排版（HD/PP） === */
+  .patient-grid {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
     padding: 0 !important;
   }
 
-  /* --- 保留上一輪的分頁排版控制 --- */
+  .patient-order-card {
+    display: inline-block !important;
+    width: 48% !important; /* 兩欄排版 */
+    margin-right: 2% !important;
+    margin-bottom: 1rem !important;
+    vertical-align: top !important;
+    page-break-inside: avoid !important; /* 關鍵：避免卡片被切斷 */
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+    border: 1px solid #dee2e6 !important;
+  }
 
-  .patient-grid {
+  /* 每兩個卡片換行 */
+  .patient-order-card:nth-child(2n) {
+    margin-right: 0 !important;
+  }
+
+  /* 如果只有一個病人，使用全寬 */
+  .patient-order-card:only-child {
+    width: 100% !important;
+    margin-right: 0 !important;
+  }
+
+  /* === CRRT 表格分頁控制 === */
+  .crrt-container {
     display: block !important;
   }
 
-  .patient-order-card {
-    width: 49%;
-    display: inline-block;
-    vertical-align: top;
-    margin-bottom: 1rem;
-    box-sizing: border-box;
-    break-inside: avoid; /* 新版 CSS 屬性 */
-    page-break-inside: avoid; /* 舊版 CSS 屬性，加強相容性 */
-  }
-
-  .patient-order-card:nth-of-type(odd) {
-    margin-right: 2%;
-  }
-
-  .shift-group + .shift-group {
-    break-before: page; /* 新版 */
-    page-break-before: always; /* 舊版 */
-  }
-
   .crrt-patient-card {
-    break-inside: avoid;
-    page-break-inside: avoid;
+    page-break-inside: avoid !important; /* 避免 CRRT 表格被切斷 */
+    break-inside: avoid !important;
+    margin-bottom: 1.5rem !important;
+    width: 100% !important;
+  }
+
+  .crrt-table {
+    width: 100% !important;
+    table-layout: fixed !important; /* 固定表格佈局 */
+  }
+
+  /* === CRRT 行動版隱藏 === */
+  .crrt-cards-container.mobile-only {
+    display: none !important;
+  }
+
+  /* === 強制分頁規則 === */
+  /* 如果需要在特定位置強制分頁，可以使用以下類別 */
+  .page-break-before {
+    page-break-before: always !important;
+    break-before: page !important;
+  }
+
+  .page-break-after {
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  /* === 文字和輸入框優化 === */
+  input[type='text'],
+  .notes-input,
+  .withdraw-note,
+  .emergency-note {
+    border: 1px solid #dee2e6 !important;
+    background-color: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 確保輸入的值顯示 */
+  input[type='text']:before {
+    content: attr(value);
+  }
+
+  /* === 字體大小調整 === */
+  body {
+    font-size: 11pt !important; /* 稍微調小以容納更多內容 */
+  }
+
+  .patient-header .info-item {
+    font-size: 10pt !important;
+  }
+
+  .order-details {
+    font-size: 9.5pt !important;
+  }
+
+  .crrt-order-content {
+    font-size: 9.5pt !important;
+  }
+
+  /* === 顏色調整（確保列印清晰） === */
+  .highlight-field {
+    background-color: #fffacd !important;
+    border: 1px solid #ffd700 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .patient-header {
+    background-color: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* === 邊距和間距微調 === */
+  .order-details {
+    padding: 0.5rem !important;
+    gap: 0.3rem !important;
+  }
+
+  .notes-section {
+    padding: 0.4rem !important;
+  }
+
+  .emergency-content {
+    padding: 0.5rem !important;
+  }
+
+  /* === No orphans/widows === */
+  p,
+  div,
+  section {
+    orphans: 3;
+    widows: 3;
   }
 }
 
