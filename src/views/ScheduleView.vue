@@ -1061,6 +1061,10 @@ const isPageLocked = computed(() => {
   return currentDay < today
 })
 
+const props = defineProps({
+  patients: Array,
+})
+
 const { addLocalNotification } = useRealtimeNotifications()
 
 const sortedBedNumbers = computed(() => {
@@ -2310,6 +2314,7 @@ watch(currentDate, (newDate, oldDate) => {
     loadDailyStaffInfo(newDate)
   }
 })
+
 watch(
   () => auth.currentUser.value,
   (newUser) => {
