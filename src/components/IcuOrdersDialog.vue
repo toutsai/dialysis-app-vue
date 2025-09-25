@@ -73,15 +73,22 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+
+                    <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
                     </div>
+
+                    <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
                     </div>
-                    <div>
+
+                    <!-- 3. 時間: 新增 highlight -->
+                    <div class="highlight-field">
                       <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
                     </div>
+
                     <div>
                       <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
                       {{ p.dialysisOrders?.heparinLM || '____' }}
@@ -90,14 +97,15 @@
                       <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
                       {{ p.dialysisOrders?.dialysateFlow || '____' }}
                     </div>
+
+                    <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
                     </div>
-                    <div class="highlight-field">
-                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
-                    </div>
-                  </div>
 
+                    <!-- 5. Mannitol: 移除 highlight -->
+                    <div><strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}</div>
+                  </div>
                   <div class="notes-section">
                     <strong>備註：</strong>
                     <input
@@ -169,15 +177,22 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+
+                    <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
                     </div>
+
+                    <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
                     </div>
-                    <div>
+
+                    <!-- 3. 時間: 新增 highlight -->
+                    <div class="highlight-field">
                       <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
                     </div>
+
                     <div>
                       <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
                       {{ p.dialysisOrders?.heparinLM || '____' }}
@@ -186,12 +201,14 @@
                       <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
                       {{ p.dialysisOrders?.dialysateFlow || '____' }}
                     </div>
+
+                    <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
                     </div>
-                    <div class="highlight-field">
-                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
-                    </div>
+
+                    <!-- 5. Mannitol: 移除 highlight -->
+                    <div><strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}</div>
                   </div>
                   <div class="notes-section">
                     <strong>備註：</strong>
@@ -264,15 +281,22 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div><strong>頻次:</strong> {{ p.dialysisOrders?.freq || '____' }}</div>
+
+                    <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
                     </div>
+
+                    <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
                     </div>
-                    <div>
+
+                    <!-- 3. 時間: 新增 highlight -->
+                    <div class="highlight-field">
                       <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
                     </div>
+
                     <div>
                       <strong>Heparin:</strong> {{ p.dialysisOrders?.heparinRinse || '____' }} /
                       {{ p.dialysisOrders?.heparinLM || '____' }}
@@ -281,12 +305,14 @@
                       <strong>BF/DF:</strong> {{ p.dialysisOrders?.bloodFlow || '____' }} /
                       {{ p.dialysisOrders?.dialysateFlow || '____' }}
                     </div>
+
+                    <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
                       <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
                     </div>
-                    <div class="highlight-field">
-                      <strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}
-                    </div>
+
+                    <!-- 5. Mannitol: 移除 highlight -->
+                    <div><strong>Mannitol:</strong> {{ p.dialysisOrders?.mannitol || '____' }}</div>
                   </div>
                   <div class="notes-section">
                     <strong>備註：</strong>
@@ -751,18 +777,15 @@ const printContent = () => {
   const printableArea = document.getElementById('icu-orders-printable-area')
   if (!printableArea) return
 
-  // 保存輸入值
-  const inputs = printableArea.querySelectorAll('input[type="text"]')
-  inputs.forEach((input) => {
+  // 1. 保存使用者輸入的最新值
+  printableArea.querySelectorAll('input[type="text"]').forEach((input) => {
     input.setAttribute('value', input.value)
   })
-
-  const radios = printableArea.querySelectorAll('input[type="radio"]:checked')
-  radios.forEach((radio) => {
+  printableArea.querySelectorAll('input[type="radio"]:checked').forEach((radio) => {
     radio.setAttribute('checked', 'checked')
   })
 
-  // 獲取當前頁面的所有樣式
+  // 2. 獲取頁面上的所有樣式規則
   const styles = Array.from(document.styleSheets)
     .map((styleSheet) => {
       try {
@@ -770,338 +793,145 @@ const printContent = () => {
           .map((rule) => rule.cssText)
           .join('\n')
       } catch (e) {
-        console.log('無法讀取樣式表:', e)
         return ''
       }
     })
     .join('\n')
 
-  // 創建列印用的 HTML - 保留原始樣式
-  const printHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>列印醫囑單</title>
-  <style>
-    /* 引入原始樣式 */
-    ${styles}
+  // 3. 定義一個完整的、獨立的列印專用樣式表
+  const printSpecificStyles = `
+    /*
+     * ===================================================================
+     * === 列印專用樣式表 (最終修正版)
+     * ===================================================================
+     */
 
-    /* 列印專用覆蓋樣式 */
-    @media print {
-      /* 基本重置 */
-      *, *::before, *::after {
-        overflow: visible !important;
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
-        color-adjust: exact !important;
-      }
-
-      html, body {
-        height: auto !important;
-        overflow: visible !important;
-        margin: 0 !important;
-        padding: 0 !important;
-      }
-
-      /* 頁面設定 */
-      @page {
-        size: A4;
-        margin: 15mm 10mm;
-      }
-
-      /* 移除容器限制 */
-      .modal-overlay,
-      .modal-content,
-      .modal-body {
-        position: static !important;
-        height: auto !important;
-        min-height: auto !important;
-        max-height: none !important;
-        overflow: visible !important;
-        display: block !important;
-        width: 100% !important;
-        max-width: none !important;
-        box-shadow: none !important;
-        background: white !important;
-        padding: 0 !important;
-        margin: 0 !important;
-      }
-
-      /* 隱藏不需要的元素 */
-      .modal-header,
-      .btn-edit-crrt,
-      .btn-edit-crrt-mobile,
-      .btn-close,
-      .btn-print,
-      .header-actions,
-      .crrt-cards-container.mobile-only {
-        display: none !important;
-      }
-
-      /* 顯示列印標題 */
-      .printable-header {
-        display: block !important;
-        text-align: center;
-        font-size: 1.8rem;
-        font-weight: bold;
-        margin-bottom: 2rem;
-        page-break-after: avoid;
-      }
-
-      /* 保留原始卡片樣式 */
-      .patient-order-card {
-        display: inline-block !important;
-        width: 48% !important;
-        margin-right: 2% !important;
-        margin-bottom: 1rem !important;
-        vertical-align: top !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
-        box-sizing: border-box !important;
-
-        /* 保留原始視覺樣式 */
-        background-color: #fff !important;
-        border: 1px solid #dee2e6 !important;
-        border-radius: 6px !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-      }
-
-      .patient-order-card:nth-child(2n) {
-        margin-right: 0 !important;
-      }
-
-      /* 保留病人頭部樣式 */
-      .patient-header {
-        display: flex !important;
-        justify-content: space-between !important;
-        background-color: #e9ecef !important;
-        padding: 0.75rem 1rem !important;
-        border-bottom: 1px solid #dee2e6 !important;
-        border-radius: 6px 6px 0 0 !important;
-      }
-
-      .patient-header .info-item {
-        font-size: 1rem !important;
-        color: #212529 !important;
-      }
-
-      .patient-header .info-item.name {
-        font-weight: bold !important;
-        color: #212529 !important;
-        text-decoration: none !important;
-        font-size: 1.05rem !important;
-      }
-
-      /* 保留醫囑詳細資料樣式 */
-      .order-details {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        gap: 0.6rem 1rem !important;
-        padding: 1rem !important;
-        font-size: 0.95rem !important;
-        line-height: 1.5 !important;
-        color: #212529 !important;
-      }
-
-      .order-details > div {
-        color: #212529 !important;
-      }
-
-      .order-details strong {
-        color: #495057 !important;
-        font-weight: bold !important;
-      }
-
-      /* 保留高亮欄位樣式 */
-      .highlight-field {
-        color: #d32f2f !important;
-        font-weight: bold !important;
-        font-size: 1rem !important;
-        background-color: #fff3cd !important;
-        padding: 0.2rem 0.4rem !important;
-        border-radius: 3px !important;
-        border-left: 3px solid #ffc107 !important;
-      }
-
-      /* 保留備註區域樣式 */
-      .notes-section {
-        padding: 0.75rem 1rem !important;
-        border-top: 1px solid #e9ecef !important;
-        display: flex !important;
-        align-items: center !important;
-        gap: 0.5rem !important;
-        background-color: #f8f9fa !important;
-        margin-top: auto !important;
-        border-radius: 0 0 6px 6px !important;
-      }
-
-      .notes-section strong {
-        white-space: nowrap !important;
-        color: #495057 !important;
-      }
-
-      .notes-input {
-        width: 100% !important;
-        border: 1px solid #ced4da !important;
-        padding: 0.25rem 0.5rem !important;
-        border-radius: 4px !important;
-        background-color: white !important;
-        color: #212529 !important;
-        font-size: 0.9rem !important;
-      }
-
-      /* 區塊標題樣式 */
-      .section-title {
-        font-size: 1.3rem !important;
-        margin-top: 2rem !important;
-        margin-bottom: 1rem !important;
-        padding-bottom: 0.5rem !important;
-        border-bottom: 2px solid #007bff !important;
-        color: #212529 !important;
-        page-break-after: avoid !important;
-      }
-
-      .shift-group {
-        margin-bottom: 1.5rem !important;
-        page-break-inside: avoid !important;
-      }
-
-      .shift-group h4 {
-        font-size: 1.1rem !important;
-        margin-bottom: 1rem !important;
-        color: #495057 !important;
-        background-color: #f8f9fa !important;
-        padding: 0.5rem 1rem !important;
-        border-left: 4px solid #007bff !important;
-        page-break-after: avoid !important;
-      }
-
-      /* CRRT 表格樣式 */
-      .crrt-patient-card {
-        background-color: #fff !important;
-        border-radius: 6px !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-        overflow: visible !important;
-        page-break-inside: avoid !important;
-        margin-bottom: 1.5rem !important;
-      }
-
-      .crrt-table {
-        width: 100% !important;
-        border-collapse: collapse !important;
-        background-color: #fff !important;
-      }
-
-      .crrt-table th {
-        background-color: #e9ecef !important;
-        font-weight: bold !important;
-        font-size: 0.95rem !important;
-        color: #212529 !important;
-        padding: 0.75rem !important;
-        border: 1px solid #dee2e6 !important;
-      }
-
-      .crrt-table td {
-        border: 1px solid #dee2e6 !important;
-        padding: 0.75rem !important;
-        color: #212529 !important;
-        font-size: 0.9rem !important;
-      }
-
-      .emergency-row {
-        background-color: #f8f9fa !important;
-        border-top: 2px solid #dee2e6 !important;
-      }
-
-      .emergency-content {
-        display: flex !important;
-        align-items: center !important;
-        gap: 1.5rem !important;
-        padding: 0.75rem 1rem !important;
-      }
-
-      .emergency-label {
-        font-weight: bold !important;
-        color: #495057 !important;
-      }
-
-      /* CRRT 醫囑內容樣式 */
-      .crrt-order-content {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        gap: 0.5rem !important;
-      }
-
-      .crrt-order-item {
-        display: flex !important;
-        align-items: center !important;
-        font-size: 0.9rem !important;
-      }
-
-      .order-label {
-        font-weight: bold !important;
-        margin-right: 0.5rem !important;
-        color: #495057 !important;
-      }
-
-      /* 確保沒有病人的文字樣式 */
-      .no-patients-text {
-        color: #6c757d !important;
-        font-style: italic !important;
-        padding: 1rem !important;
-        background-color: #f8f9fa !important;
-        border-radius: 6px !important;
-        text-align: center !important;
-      }
-
-      /* 分頁控制 */
-      .order-section {
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }
-
-      /* 如果內容太長，允許班別之間分頁 */
-      .shift-group + .shift-group {
-        page-break-before: auto;
-      }
-
-      /* 字體大小微調 */
-      body {
-        font-size: 11pt !important;
-        line-height: 1.4 !important;
-      }
+    /* --- 1. 頁面與基礎設定 --- */
+    @page {
+      size: A4;
+      margin: 15mm 10mm;
     }
 
-    @media screen {
-      /* 螢幕顯示時隱藏列印標題 */
-      .printable-header {
-        display: none !important;
-      }
+    body {
+      /* ✨ 核心修正：直接控制 body，解除所有限制 ✨ */
+      position: static !important;
+      height: auto !important;
+      overflow: visible !important;
+      display: block !important;
+
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 12pt !important;
+      line-height: 1.5 !important;
+      background-color: white !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
-  </style>
-</head>
-<body>
-  <div id="icu-orders-printable-area">
-    ${printableArea.innerHTML}
-  </div>
-</body>
-</html>
+
+    /* --- 2. 元素顯示/隱藏 --- */
+    .modal-header, .btn-edit-crrt, .btn-edit-crrt-mobile {
+      display: none !important;
+    }
+    .printable-header {
+      display: block !important;
+      text-align: center;
+      font-size: 1.8rem;
+      font-weight: bold;
+      margin-bottom: 1.5rem;
+      page-break-after: avoid;
+    }
+
+    /* --- 3. 病人卡片排版與分頁 --- */
+    .patient-grid {
+      display: block !important;
+    }
+    .patient-order-card {
+      display: inline-block !important;
+      width: 49% !important;
+      margin-right: 2% !important;
+      margin-bottom: 1rem !important;
+      vertical-align: top !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      border: 1px solid #ccc !important;
+    }
+    .patient-order-card:nth-child(2n) {
+      margin-right: 0 !important;
+    }
+
+    /* --- 4. 卡片內容樣式 --- */
+    .patient-header {
+      background-color: #f0f0f0 !important;
+    }
+    .patient-header .info-item, .patient-header .info-item.name, .order-details, .notes-input {
+      font-size: 12pt !important;
+    }
+
+    .highlight-field {
+      font-weight: bold !important;
+      font-size: 12pt !important;
+      color: #000 !important;
+      background-color: #f0f0f0 !important;
+      border: 1px solid #bbb !important;
+      border-radius: 3px !important;
+      padding: 2px 5px !important;
+      margin: -2px -5px !important;
+    }
+
+    /* --- 5. 區塊與分頁控制 --- */
+    .section-title {
+      font-size: 1.5rem !important;
+      margin-top: 1.5rem !important;
+      border-bottom: 2px solid #333 !important;
+      page-break-after: avoid !important;
+    }
+    .shift-group, .crrt-patient-card {
+      page-break-inside: avoid !important;
+    }
+    .shift-group h4 {
+      font-size: 1.2rem !important;
+      background-color: #f0f0f0 !important;
+      border-left: 4px solid #999 !important;
+      page-break-after: avoid !important;
+    }
+    .order-section + .section {
+        break-before: page;
+        page-break-before: always;
+    }
+
+    /* --- 6. CRRT 表格樣式 --- */
+    .crrt-table th, .crrt-table td, .crrt-order-item {
+      font-size: 11pt !important;
+    }
   `
 
-  // 開啟列印視窗
-  const printWindow = window.open('', '_blank', 'width=900,height=700')
-  printWindow.document.write(printHTML)
-  printWindow.document.close()
+  // 4. 組合最終的 HTML
+  const finalHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>列印醫囑單</title>
+      <style>
+        /* 先載入原始樣式 */
+        ${styles}
+        /* 再用列印專用樣式覆蓋 */
+        ${printSpecificStyles}
+      </style>
+    </head>
+    <body>
+      ${printableArea.innerHTML}
+    </body>
+    </html>
+  `
 
-  // 等待內容載入後列印
-  printWindow.onload = function () {
-    setTimeout(() => {
-      printWindow.print()
-      // 不要立即關閉，讓使用者可以預覽
-      // printWindow.close()
-    }, 500)
-  }
+  // 5. 執行列印
+  const printWindow = window.open('', '_blank')
+  printWindow.document.write(finalHtml)
+  printWindow.document.close()
+  setTimeout(() => {
+    printWindow.print()
+    printWindow.close()
+  }, 500)
 }
 </script>
 
@@ -1584,12 +1414,6 @@ const printContent = () => {
 
   /* 每兩個卡片換行 */
   .patient-order-card:nth-child(2n) {
-    margin-right: 0 !important;
-  }
-
-  /* 如果只有一個病人，使用全寬 */
-  .patient-order-card:only-child {
-    width: 100% !important;
     margin-right: 0 !important;
   }
 
