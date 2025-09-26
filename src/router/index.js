@@ -50,12 +50,6 @@ const routes = [
             component: PhysicianScheduleView,
             meta: { title: '查房班表' },
           },
-          {
-            path: 'consultation',
-            name: 'PhysicianConsultationSchedule',
-            component: () => import('../views/PlaceholderView.vue'),
-            meta: { title: '會診班表' },
-          },
         ],
       },
       {
@@ -134,6 +128,16 @@ const routes = [
         name: 'Orders',
         component: () => import('../views/OrdersView.vue'),
         meta: { title: '藥囑管理', requiredAuth: true, roles: ['contributor', 'editor', 'admin'] }, // 根據您的權限需求設定
+      },
+      // ✨ 2. 在這裡新增一個頂層的「護理班表與職責」路由 ✨
+      {
+        path: 'nursing-schedule',
+        name: 'NursingSchedule',
+        component: () => import('../views/NursingScheduleView.vue'), // <-- ✨ 修改為新的檔案路徑 ✨
+        meta: {
+          title: '護理班表與職責',
+          requiresAuth: true,
+        },
       },
     ],
   },

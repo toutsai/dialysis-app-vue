@@ -1,8 +1,8 @@
 <!-- src/views/PlaceholderView.vue -->
 <template>
-  <div class="placeholder-container">
-    <h2>功能開發中...</h2>
-    <p>此頁面 (會診班表) 尚在規劃與建置中，敬請期待！</p>
+  <div>
+    <h1>護理班表與職責</h1>
+    <p>此功能頁面正在開發中...</p>
   </div>
 </template>
 
