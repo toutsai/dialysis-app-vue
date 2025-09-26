@@ -76,17 +76,26 @@
 
                     <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                      </span>
                     </div>
 
                     <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                      </span>
                     </div>
 
                     <!-- 3. 時間: 新增 highlight -->
                     <div class="highlight-field">
-                      <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                      </span>
                     </div>
 
                     <div>
@@ -100,7 +109,10 @@
 
                     <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                      </span>
                     </div>
 
                     <!-- 5. Mannitol: 移除 highlight -->
@@ -150,20 +162,26 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div class="highlight-field">
-                      <strong>血漿交換量:</strong>
-                      {{
-                        p.dialysisOrders?.exchangeVolume
-                          ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
-                          : '____'
-                      }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>血漿交換量:</strong>
+                        {{
+                          p.dialysisOrders?.exchangeVolume
+                            ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
+                            : '____'
+                        }}
+                      </span>
                     </div>
                     <div class="highlight-field">
-                      <strong>血液流速:</strong>
-                      {{
-                        p.dialysisOrders?.bloodFlow
-                          ? p.dialysisOrders.bloodFlow + ' ml/min'
-                          : '____'
-                      }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>血液流速:</strong>
+                        {{
+                          p.dialysisOrders?.bloodFlow
+                            ? p.dialysisOrders.bloodFlow + ' ml/min'
+                            : '____'
+                        }}
+                      </span>
                     </div>
                     <div>
                       <strong>體重/Hct:</strong> {{ p.dialysisOrders?.bw || '____' }}kg /
@@ -180,17 +198,24 @@
 
                     <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                      <span>
+                        <!-- ✨ 新增一個 span 來包裹內容 ✨ -->
+                        <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                      </span>
                     </div>
 
                     <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                      <span>
+                        <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                      </span>
                     </div>
 
                     <!-- 3. 時間: 新增 highlight -->
                     <div class="highlight-field">
-                      <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                      <span>
+                        <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                      </span>
                     </div>
 
                     <div>
@@ -204,7 +229,9 @@
 
                     <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                      <span>
+                        <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                      </span>
                     </div>
 
                     <!-- 5. Mannitol: 移除 highlight -->
@@ -254,20 +281,24 @@
                     </div>
                     <div><strong>透析模式:</strong> {{ p.dialysisOrders?.mode || '____' }}</div>
                     <div class="highlight-field">
-                      <strong>血漿交換量:</strong>
-                      {{
-                        p.dialysisOrders?.exchangeVolume
-                          ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
-                          : '____'
-                      }}
+                      <span>
+                        <strong>血漿交換量:</strong>
+                        {{
+                          p.dialysisOrders?.exchangeVolume
+                            ? p.dialysisOrders.exchangeVolume.toFixed(0) + ' ml'
+                            : '____'
+                        }}
+                      </span>
                     </div>
                     <div class="highlight-field">
-                      <strong>血液流速:</strong>
-                      {{
-                        p.dialysisOrders?.bloodFlow
-                          ? p.dialysisOrders.bloodFlow + ' ml/min'
-                          : '____'
-                      }}
+                      <span>
+                        <strong>血液流速:</strong>
+                        {{
+                          p.dialysisOrders?.bloodFlow
+                            ? p.dialysisOrders.bloodFlow + ' ml/min'
+                            : '____'
+                        }}
+                      </span>
                     </div>
                     <div>
                       <strong>體重/Hct:</strong> {{ p.dialysisOrders?.bw || '____' }}kg /
@@ -284,17 +315,21 @@
 
                     <!-- 1. AK: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }}
+                      <span> <strong>AK:</strong> {{ p.dialysisOrders?.ak || '____' }} </span>
                     </div>
 
                     <!-- 2. 藥水: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                      <span>
+                        <strong>藥水:</strong> {{ p.dialysisOrders?.dialysate || '____' }}
+                      </span>
                     </div>
 
                     <!-- 3. 時間: 新增 highlight -->
                     <div class="highlight-field">
-                      <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                      <span>
+                        <strong>時間(hr):</strong> {{ p.dialysisOrders?.dialysisHours || '____' }}
+                      </span>
                     </div>
 
                     <div>
@@ -308,7 +343,9 @@
 
                     <!-- 4. 脫水量: 保留 highlight -->
                     <div class="highlight-field">
-                      <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                      <span>
+                        <strong>脫水量:</strong> {{ p.dialysisOrders?.dehydration || '____' }}
+                      </span>
                     </div>
 
                     <!-- 5. Mannitol: 移除 highlight -->
@@ -867,14 +904,22 @@ const printContent = () => {
     }
 
     .highlight-field {
+      /* 這個外層 div 現在只負責粗體和字體大小 */
+      font-weight: bold !important;
+      font-size: 12pt !important;
+    }
+
+    .highlight-field span {
+      display: block;
+      width: 100%;
       font-weight: bold !important;
       font-size: 12pt !important;
       color: #000 !important;
-      background-color: #f0f0f0 !important;
-      border: 1px solid #bbb !important;
-      border-radius: 3px !important;
-      padding: 2px 5px !important;
-      margin: -2px -5px !important;
+      background-color: #fffacd !important; /* 改回淡黃色 */
+      border: 1px solid #fadf98 !important;       /* 改為黃色邊框 */
+      border-radius: 4px !important;
+      padding: 4px 6px !important;
+      box-sizing: border-box;
     }
 
     /* --- 5. 區塊與分頁控制 --- */
