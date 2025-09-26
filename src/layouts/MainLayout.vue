@@ -128,6 +128,13 @@
                 </div>
               </RouterLink>
             </li>
+            <li>
+              <RouterLink to="/nursing-schedule" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">護理班表與職責</span>
+                </div>
+              </RouterLink>
+            </li>
             <li v-if="canManagePhysicianSchedule">
               <RouterLink to="/physician-schedule" class="nav-link">
                 <div class="nav-item-content">

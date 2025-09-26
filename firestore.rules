@@ -167,5 +167,13 @@ service cloud.firestore {
       allow update, delete: if request.auth != null 
                             && resource.data.authorId == request.auth.uid;
     }
+    // ✨ 在這裡新增護理職責的規則 ✨
+    match /nursing_duties/{dutyId} {
+      // 讀取權限: 任何已登入的使用者都可以讀取
+      allow read: if isViewer();
+      // 寫入權限: 只有 'editor' 或更高權限的使用者才能寫入
+      // 這對應到您元件中使用的 auth.canEditSchedules
+      allow write: if isAdmin();
+    }
   }
 }
