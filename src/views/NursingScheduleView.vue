@@ -322,13 +322,15 @@ const loadData = async () => {
   await nextTick()
   hasChanges.value = false
 }
+
 const saveData = async () => {
   if (!hasChanges.value || !auth.isAdmin.value) return
   try {
     const now = new Date()
     const formattedDate = `${now.getFullYear() - 1911}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')}`
     const currentUserFullName = auth.currentUser.value?.name || '未知使用者'
-    const payload = {
+
+    const rawPayload = {
       announcement: announcementText.value,
       dayShift: dayShiftData.value,
       nightShift: nightShiftDuties.value,
@@ -336,15 +338,24 @@ const saveData = async () => {
       teamwork: teamworkItems.value,
       lastModified: { date: formattedDate, user: currentUserFullName },
     }
-    console.log('正在儲存:', payload)
+
+    // ✨ 核心修正：將 Proxy 物件轉換為純 JavaScript 物件 ✨
+    const payload = JSON.parse(JSON.stringify(rawPayload))
+
+    console.log('正在儲存 (純物件):', payload) // 新增的日誌，方便您確認
+
+    // 實際應用中會呼叫後端:
+    // await saveDuties(payload);
+
     lastModifiedInfo.value = payload.lastModified
     hasChanges.value = false
     exitEditMode()
     createGlobalNotification('工作職責已成功儲存！', 'success')
   } catch (error) {
-    createGlobalNotification('儲存失敗，請稍後再試', 'error')
+    createGlobalNotification(error.message || '儲存失敗，請稍後再試', 'error')
   }
 }
+
 onMounted(() => {
   loadData()
 })
