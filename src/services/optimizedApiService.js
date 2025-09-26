@@ -1,5 +1,7 @@
 // 檔案路徑: src/services/optimizedApiService.js (✨ 最終功能增強版 ✨)
 import ApiManager from '@/services/api_manager.js'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
 
 // 快取系統... (保持不變)
 const cache = new Map()
@@ -147,6 +149,58 @@ export async function updatePatient(patientId, updateData) {
   const api = ApiManager('patients')
   await api.update(patientId, cleanedData)
   clearCacheByPattern('patients')
+}
+
+// === 護理職責 (Nursing Duties) 相關函式
+const DUTY_DOC_ID = 'main' // 使用一個固定的文件 ID
+
+/**
+ * 從 Firestore 獲取護理工作職責
+ * @returns {Promise<object>}
+ */
+export async function fetchDuties() {
+  const cacheKey = getCacheKey('fetch', 'nursing_duties', DUTY_DOC_ID)
+  const cached = getCache(cacheKey)
+  if (cached) {
+    console.log('✅ [API] 從快取獲取護理職責資料')
+    return cached
+  }
+
+  try {
+    const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
+    const docSnap = await getDoc(docRef)
+
+    if (docSnap.exists()) {
+      const data = docSnap.data()
+      console.log('✅ [API] 從 Firestore 成功獲取護理職責資料')
+      setCache(cacheKey, data) // 存入快取
+      return data
+    } else {
+      console.log('⚠️ [API] 在 Firestore 中找不到護理職責文件，回傳空值。')
+      return null // 回傳 null，讓前端處理預設值
+    }
+  } catch (error) {
+    console.error('❌ [API] 獲取護理職責失敗:', error)
+    throw new Error('無法從資料庫獲取護理職責資料。')
+  }
+}
+
+/**
+ * 將護理工作職責儲存到 Firestore
+ * @param {object} data - 要儲存的完整資料物件
+ * @returns {Promise<void>}
+ */
+export async function saveDuties(data) {
+  try {
+    const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
+    await setDoc(docRef, data, { merge: true })
+    console.log('✅ [API] 護理職責資料已成功儲存到 Firestore')
+    // 清除相關快取
+    clearCacheByPattern('nursing_duties')
+  } catch (error) {
+    console.error('❌ [API] 儲存護理職責失敗:', error)
+    throw new Error('儲存護理職責到資料庫時發生錯誤。')
+  }
 }
 
 // 備忘錄相關函式... (保持不變)
@@ -329,4 +383,6 @@ export default {
   batchUpdatePatients,
   batchUpdateSchedules,
   batchSaveMemos,
+  fetchDuties,
+  saveDuties,
 }

@@ -32,7 +32,7 @@
               class="revision-date"
               :title="`最後修改者: ${lastModifiedInfo.user}`"
             >
-              {{ lastModifiedInfo.date }} 修訂
+              {{ lastModifiedInfo.date }} 修改
             </span>
             <button
               @click="saveData"
@@ -200,8 +200,8 @@
 <script setup>
 import { ref, watch, nextTick, onMounted } from 'vue'
 import { useAuth } from '@/composables/useAuth.js'
-
-// ... (模擬的 useGlobalNotifier 保持不變) ...
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
+import { fetchDuties, saveDuties } from '@/services/optimizedApiService.js'
 
 const { createGlobalNotification } = {
   createGlobalNotification: (msg, type) => {
@@ -254,7 +254,7 @@ const formatText = (text) => {
 
   return html
 }
-// ... (所有其他 script 內容，例如 enterEditMode, loadData, saveData 等，都保持不變) ...
+
 const setInputRef = (el) => {
   if (el) inputRef = el
 }
@@ -284,7 +284,33 @@ const isEditing = (type, rowIndex, field) => {
     editingCell.value?.field === field
   )
 }
+
 const loadData = async () => {
+  try {
+    const data = await fetchDuties()
+
+    if (data) {
+      // 如果後端有資料，就使用它
+      announcementText.value = data.announcement || ''
+      dayShiftData.value = data.dayShift || { codes: '', tasks: '' }
+      nightShiftDuties.value = data.nightShift || []
+      checklistItems.value = data.checklist || []
+      teamworkItems.value = data.teamwork || []
+      lastModifiedInfo.value = data.lastModified || { date: '', user: '無紀錄' }
+    } else {
+      // 如果後端沒有資料 (第一次使用)，載入本地的預設模板
+      loadDefaultTemplate()
+      hasChanges.value = true // 標記為有變更，提示使用者儲存
+    }
+
+    await nextTick()
+    if (data) hasChanges.value = false
+  } catch (error) {
+    createGlobalNotification(error.message, 'error')
+  }
+}
+
+async function loadDefaultTemplate() {
   announcementText.value =
     '一、班別規則：護病比為1:4為原則，採團隊分工方式執行，無法執行時主動告知與協助。\n二、休息時間：實際狀況依各組協調調整，給予30分鐘。務必配合以免影響他人，白班為11:00-11:30；11:30-12:00；13:20-13:50，晚班為18:00-18:30；18:30-19:00；19:00-19:30。\n三、各班組別工作內容'
   dayShiftData.value = {
@@ -339,13 +365,11 @@ const saveData = async () => {
       lastModified: { date: formattedDate, user: currentUserFullName },
     }
 
-    // ✨ 核心修正：將 Proxy 物件轉換為純 JavaScript 物件 ✨
+    // ✨ 關鍵！將 Proxy 轉換為純物件 ✨
     const payload = JSON.parse(JSON.stringify(rawPayload))
 
-    console.log('正在儲存 (純物件):', payload) // 新增的日誌，方便您確認
-
-    // 實際應用中會呼叫後端:
-    // await saveDuties(payload);
+    // 現在呼叫的是我們在 optimizedApiService 中建立的真實函式
+    await saveDuties(payload)
 
     lastModifiedInfo.value = payload.lastModified
     hasChanges.value = false
@@ -373,10 +397,9 @@ onMounted(() => {
   transition: background-color 0.2s;
   white-space: pre-wrap; /* 確保顯示時也能換行 */
 }
-/* ... (其餘所有 CSS 樣式保持不變) ... */
 .nursing-schedule-container {
-  padding: 1.5rem;
-  background-color: #fff;
+  padding: 0.5rem;
+  background-color: #f5efef;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
