@@ -936,13 +936,21 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
     const maxDaysInMonth = new Date(year, parseInt(month, 10), 0).getDate()
     logger.log(`${yearMonth} 共有 ${maxDaysInMonth} 天`)
 
-    // 7. 獲取護理師資料
+    // 7. 獲取護理師資料（修改版 - 包含 username）
     const usersSnapshot = await db.collection('users').where('title', '==', '護理師').get()
     const nurseMap = new Map()
+    const nurseDataMap = new Map() // 新增：儲存完整的護理師資料
+
     usersSnapshot.forEach((doc) => {
       const userData = doc.data()
       nurseMap.set(userData.name, doc.id)
+      // 儲存完整資料，包含 username
+      nurseDataMap.set(doc.id, {
+        name: userData.name,
+        username: userData.username || '',
+      })
     })
+
     logger.log(`資料庫中有 ${nurseMap.size} 位護理師`)
     logger.log(`護理師名單: ${Array.from(nurseMap.keys()).join(', ')}`)
 
@@ -974,6 +982,7 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
     const scheduleByNurse = {}
     const scheduleByWeek = {}
     const processedNurses = new Set() // 記錄已處理的護理師，避免重複
+    const processingOrder = [] // 新增：記錄 Excel 中的原始順序
 
     // 班別定義
     const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815', '7-3', '8-4', '7-5']
@@ -1056,17 +1065,25 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
         }
       }
 
-      // 儲存護理師班表
+      // 從 nurseDataMap 獲取完整資料（包含 username）
+      const nurseData = nurseDataMap.get(matchedId)
+
+      // 儲存護理師班表（修改版 - 包含 username 和原始順序）
       scheduleByNurse[matchedId] = {
         nurseName: matchedFullName,
+        nurseUsername: nurseData?.username || '', // 新增：儲存員工編號
+        orderIndex: processingOrder.length, // 新增：記錄原始順序
         shifts: shifts,
       }
+
+      // 記錄處理順序
+      processingOrder.push(matchedId)
 
       // 標記為已處理
       processedNurses.add(matchedId)
 
       logger.log(
-        `✓ 處理護理師 ${matchedFullName} (ID: ${matchedId})：` +
+        `✓ 處理護理師 ${matchedFullName} (ID: ${matchedId}, 員工編號: ${nurseData?.username || '無'})：` +
           `上班 ${workDays} 天，休息 ${restDays} 天，空白 ${emptyDays} 天`,
       )
 
@@ -1098,6 +1115,7 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
           scheduleByWeek[weekNumber][dayOfWeek][type].push({
             id: matchedId,
             name: matchedFullName,
+            username: nurseData?.username || '', // 新增：也在週班表中包含員工編號
             shift: shift,
           })
         }
@@ -1117,6 +1135,7 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
       maxDaysInMonth,
       scheduleByNurse,
       scheduleByWeek,
+      processingOrder, // 新增：儲存原始順序
       lastUpdatedAt: FieldValue.serverTimestamp(),
       updatedBy: {
         uid: request.auth.uid,
@@ -1127,6 +1146,7 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
     await db.collection('nursing_schedules').doc(yearMonth).set(dataToSave)
 
     const nurseList = Object.values(scheduleByNurse)
+      .sort((a, b) => a.orderIndex - b.orderIndex) // 按原始順序排列
       .map((n) => n.nurseName)
       .join(', ')
 

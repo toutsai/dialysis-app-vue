@@ -101,8 +101,13 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(nurseData, nurseId) in monthlySchedule.scheduleByNurse" :key="nurseId">
-                  <td class="nurse-name">{{ nurseData.nurseName }}</td>
+                <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="nurseId">
+                  <td class="nurse-name">
+                    {{ nurseData.nurseName }}
+                    <span v-if="showUsername && nurseData.nurseUsername" class="nurse-username">
+                      ({{ nurseData.nurseUsername }})
+                    </span>
+                  </td>
                   <td
                     v-for="(dayInfo, index) in monthDays"
                     :key="`${nurseId}-${index}`"
@@ -336,6 +341,7 @@ const isLoadingSchedule = ref(true)
 const uploadStatus = ref('')
 const monthlySchedule = ref(null)
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
+const showUsername = ref(false) // 是否顯示員工編號
 
 // "工作職責" 頁籤的狀態
 const announcementText = ref('')
@@ -372,6 +378,48 @@ const monthDays = computed(() => {
   }
 
   return days
+})
+
+// --- 新增計算屬性：排序後的護理師班表 ---
+const sortedSchedule = computed(() => {
+  if (!monthlySchedule.value?.scheduleByNurse) return {}
+
+  // 取得所有護理師資料並轉為陣列
+  const nurses = Object.entries(monthlySchedule.value.scheduleByNurse)
+
+  // 排序邏輯
+  nurses.sort((a, b) => {
+    const nurseA = a[1]
+    const nurseB = b[1]
+
+    // 優先使用 orderIndex（Excel 原始順序）
+    if (nurseA.orderIndex !== undefined && nurseB.orderIndex !== undefined) {
+      return nurseA.orderIndex - nurseB.orderIndex
+    }
+
+    // 其次使用員工編號排序
+    if (nurseA.nurseUsername && nurseB.nurseUsername) {
+      // 假設員工編號是數字格式
+      const numA = parseInt(nurseA.nurseUsername, 10)
+      const numB = parseInt(nurseB.nurseUsername, 10)
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB
+      }
+      // 否則按字串排序
+      return nurseA.nurseUsername.localeCompare(nurseB.nurseUsername, 'zh-TW')
+    }
+
+    // 最後按姓名排序
+    return nurseA.nurseName.localeCompare(nurseB.nurseName, 'zh-TW')
+  })
+
+  // 轉回物件格式
+  const sortedObj = {}
+  nurses.forEach(([id, data]) => {
+    sortedObj[id] = data
+  })
+
+  return sortedObj
 })
 
 // --- 生命週期 ---
@@ -946,6 +994,13 @@ const saveData = async () => {
   font-weight: 500;
   width: 100px;
   min-width: 100px;
+}
+
+.nurse-username {
+  font-size: 0.7rem;
+  color: #6c757d;
+  font-style: italic;
+  margin-left: 0.25rem;
 }
 
 .schedule-table tbody tr:nth-child(even) td:first-child {
