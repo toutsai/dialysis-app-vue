@@ -14,6 +14,7 @@ const {
   onDocumentDeleted,
 } = require('firebase-functions/v2/firestore')
 const { logger } = require('firebase-functions')
+const functions = require('firebase-functions')
 
 // --- Firebase Admin SDK 初始化 (只需一次) ---
 const admin = require('firebase-admin')
@@ -23,7 +24,6 @@ admin.initializeApp()
 const db = admin.firestore()
 const auth = admin.auth()
 const storage = admin.storage()
-// ✨✨✨ 確保您有這一行，這是最關鍵的 ✨✨✨
 const { FieldValue, FieldPath } = require('firebase-admin/firestore')
 
 // --- 其他第三方函式庫 ---
@@ -876,6 +876,282 @@ exports.ensureFutureSchedules = onCall(
     }
   },
 )
+
+/**
+ * 儲存護理師月班表 - 完整掃描版（避免重複）
+ */
+exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) => {
+  // 1. 安全性檢查
+  if (!request.auth || request.auth.token.role !== 'admin') {
+    throw new HttpsError('permission-denied', '此操作需要管理員權限。')
+  }
+
+  // 2. 驗證傳入的檔案內容
+  if (!request.data.fileContentBase64 || !request.data.fileName) {
+    throw new HttpsError('invalid-argument', '缺少檔案內容或檔名。')
+  }
+
+  logger.log(`由使用者 ${request.auth.uid} 開始處理班表檔案: ${request.data.fileName}`)
+
+  try {
+    const db = admin.firestore()
+
+    // 3. 解析 Excel
+    const fileBuffer = Buffer.from(request.data.fileContentBase64, 'base64')
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' })
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+
+    logger.log(`Excel 解析完成，共 ${jsonData.length} 行資料`)
+
+    // 4. 驗證資料完整性
+    if (!jsonData || jsonData.length < 5) {
+      throw new Error('Excel 檔案內容不足，請確認檔案格式正確')
+    }
+
+    // 5. 解析標題取得年月
+    let title = ''
+    let year, month, yearMonth
+
+    for (let i = 0; i < Math.min(jsonData.length, 5); i++) {
+      const cell = jsonData[i][0]
+      if (cell && typeof cell === 'string') {
+        const match = cell.match(/(\d{3})年(\d{1,2})月/)
+        if (match) {
+          title = cell
+          year = parseInt(match[1], 10) + 1911
+          month = String(match[2]).padStart(2, '0')
+          yearMonth = `${year}-${month}`
+          logger.log(`找到標題: ${title}, 解析年月: ${yearMonth}`)
+          break
+        }
+      }
+    }
+
+    if (!yearMonth) {
+      throw new Error('無法在 Excel 中找到有效的年月標題')
+    }
+
+    // 6. 取得該月份的總天數
+    const maxDaysInMonth = new Date(year, parseInt(month, 10), 0).getDate()
+    logger.log(`${yearMonth} 共有 ${maxDaysInMonth} 天`)
+
+    // 7. 獲取護理師資料
+    const usersSnapshot = await db.collection('users').where('title', '==', '護理師').get()
+    const nurseMap = new Map()
+    usersSnapshot.forEach((doc) => {
+      const userData = doc.data()
+      nurseMap.set(userData.name, doc.id)
+    })
+    logger.log(`資料庫中有 ${nurseMap.size} 位護理師`)
+    logger.log(`護理師名單: ${Array.from(nurseMap.keys()).join(', ')}`)
+
+    // 8. 找護理師資料開始的行
+    let nurseStartRow = -1
+
+    for (let i = 2; i < Math.min(jsonData.length, 20); i++) {
+      const firstCell = String(jsonData[i]?.[0] || '').trim()
+
+      if (!firstCell) continue
+
+      // 檢查是否為護理師名字
+      for (const fullName of nurseMap.keys()) {
+        if (fullName.endsWith(firstCell)) {
+          nurseStartRow = i
+          logger.log(`找到第一位護理師 "${firstCell}" 在第 ${i} 行`)
+          break
+        }
+      }
+
+      if (nurseStartRow !== -1) break
+    }
+
+    if (nurseStartRow === -1) {
+      throw new Error('找不到護理師資料，請確認 Excel 格式')
+    }
+
+    // 9. 解析護理師班表 - 完整掃描所有行
+    const scheduleByNurse = {}
+    const scheduleByWeek = {}
+    const processedNurses = new Set() // 記錄已處理的護理師，避免重複
+
+    // 班別定義
+    const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815', '7-3', '8-4', '7-5']
+    const LATE_SHIFTS = ['3-11', '311']
+    const REST_TYPES = ['休', '例', '例假', '國定', 'off', 'OFF', '例教']
+
+    // 從找到的護理師行開始，掃描到檔案結尾
+    for (let rowIndex = nurseStartRow; rowIndex < jsonData.length; rowIndex++) {
+      const row = jsonData[rowIndex]
+      if (!row || !row[0]) {
+        continue // 跳過空行但繼續掃描
+      }
+
+      const nurseFirstName = String(row[0]).trim()
+
+      // 跳過明確的無關行
+      if (
+        !nurseFirstName ||
+        nurseFirstName.includes('COUNT') ||
+        nurseFirstName.includes('合計') ||
+        nurseFirstName.includes('總計') ||
+        nurseFirstName === '例假' ||
+        nurseFirstName.includes('備註')
+      ) {
+        logger.log(`跳過無關行: "${nurseFirstName}"`)
+        continue
+      }
+
+      // 找對應的護理師
+      let matchedFullName = null
+      let matchedId = null
+      for (const [fullName, id] of nurseMap.entries()) {
+        if (fullName && fullName.endsWith(nurseFirstName)) {
+          matchedFullName = fullName
+          matchedId = id
+          break
+        }
+      }
+
+      if (!matchedFullName) {
+        logger.log(`第 ${rowIndex} 行: 未匹配的名字 "${nurseFirstName}"`)
+        continue // 繼續掃描下一行
+      }
+
+      // 檢查是否已處理過這個護理師
+      if (processedNurses.has(matchedId)) {
+        logger.warn(`第 ${rowIndex} 行: 護理師 "${matchedFullName}" 已經處理過，跳過重複資料`)
+        continue
+      }
+
+      // 初始化整個月的班表陣列
+      const shifts = new Array(maxDaysInMonth).fill('')
+
+      // 直接從第二欄開始按順序抓取
+      let workDays = 0
+      let restDays = 0
+      let emptyDays = 0
+
+      for (let day = 1; day <= maxDaysInMonth; day++) {
+        const columnIndex = day // 第1欄對應1號（第0欄是姓名）
+
+        if (columnIndex < row.length) {
+          const cellValue = row[columnIndex]
+          const shift = String(cellValue || '').trim()
+
+          if (shift) {
+            shifts[day - 1] = shift
+
+            // 統計班別類型
+            if (REST_TYPES.some((r) => shift.includes(r))) {
+              restDays++
+            } else if (shift) {
+              workDays++
+            }
+          } else {
+            emptyDays++
+          }
+        } else {
+          emptyDays++
+        }
+      }
+
+      // 儲存護理師班表
+      scheduleByNurse[matchedId] = {
+        nurseName: matchedFullName,
+        shifts: shifts,
+      }
+
+      // 標記為已處理
+      processedNurses.add(matchedId)
+
+      logger.log(
+        `✓ 處理護理師 ${matchedFullName} (ID: ${matchedId})：` +
+          `上班 ${workDays} 天，休息 ${restDays} 天，空白 ${emptyDays} 天`,
+      )
+
+      // 建立週班表
+      shifts.forEach((shift, index) => {
+        if (!shift) return
+
+        const day = index + 1
+        let type = null
+
+        if (EARLY_SHIFTS.some((s) => shift.includes(s))) {
+          type = 'early'
+        } else if (LATE_SHIFTS.some((s) => shift.includes(s))) {
+          type = 'late'
+        }
+
+        if (type) {
+          const date = new Date(year, parseInt(month, 10) - 1, day)
+          const dayOfWeek = (date.getDay() + 6) % 7
+          const weekNumber = Math.ceil(day / 7)
+
+          if (!scheduleByWeek[weekNumber]) {
+            scheduleByWeek[weekNumber] = {}
+          }
+          if (!scheduleByWeek[weekNumber][dayOfWeek]) {
+            scheduleByWeek[weekNumber][dayOfWeek] = { early: [], late: [] }
+          }
+
+          scheduleByWeek[weekNumber][dayOfWeek][type].push({
+            id: matchedId,
+            name: matchedFullName,
+            shift: shift,
+          })
+        }
+      })
+    }
+
+    const processedCount = processedNurses.size
+
+    if (processedCount === 0) {
+      throw new Error('沒有找到任何可處理的護理師資料')
+    }
+
+    // 10. 寫入 Firestore
+    const dataToSave = {
+      title,
+      yearMonth,
+      maxDaysInMonth,
+      scheduleByNurse,
+      scheduleByWeek,
+      lastUpdatedAt: FieldValue.serverTimestamp(),
+      updatedBy: {
+        uid: request.auth.uid,
+        name: request.auth.token.name || '未知管理員',
+      },
+    }
+
+    await db.collection('nursing_schedules').doc(yearMonth).set(dataToSave)
+
+    const nurseList = Object.values(scheduleByNurse)
+      .map((n) => n.nurseName)
+      .join(', ')
+
+    logger.log(
+      `✅ 班表 ${yearMonth} 已成功儲存\n` +
+        `   處理護理師數: ${processedCount}\n` +
+        `   月份天數: ${maxDaysInMonth}\n` +
+        `   護理師名單: ${nurseList}`,
+    )
+
+    return {
+      success: true,
+      message: `班表 ${yearMonth} 已成功儲存，包含 ${processedCount} 位護理師的完整資料。`,
+      stats: {
+        month: yearMonth,
+        nurseCount: processedCount,
+        daysInMonth: maxDaysInMonth,
+        nurses: nurseList,
+      },
+    }
+  } catch (error) {
+    logger.error('儲存護理班表失敗:', error)
+    throw new HttpsError('internal', error.message || '儲存班表時發生未預期的錯誤。')
+  }
+})
 
 // ===================================================================
 // 串接google drive
