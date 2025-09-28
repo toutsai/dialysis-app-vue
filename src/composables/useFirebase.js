@@ -15,17 +15,18 @@ const firebaseConfig = {
 }
 
 const app = initializeApp(firebaseConfig)
+
+// ✨ 1. 先宣告變數，但不立即賦值
 const auth = getAuth(app)
 const db = getFirestore(app)
-let functions
+const functions = getFunctions(app, 'asia-east1') // 確保指定您的 Cloud Function 區域
 
-// ✨✨✨ 核心修正：使用 VITE_APP_ENV 來做更精確的判斷 ✨✨✨
+// ✨ 2. 核心修改：將模擬器連接的邏輯移到最前面，並在賦值之前執行
 if (import.meta.env.VITE_APP_ENV === 'emulator') {
   // 模式為 'emulator' (npm run dev)，連接到本地模擬器
   console.log('👨‍💻 Running in EMULATOR mode, configuring emulators...')
 
-  functions = getFunctions(app, 'asia-east1')
-
+  // ✨ 在這裡立即連接，確保後續所有對 service 的引用都已經是連接到模擬器的版本
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableAppCheck: true })
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
   connectFunctionsEmulator(functions, '127.0.0.1', 5001)
@@ -38,13 +39,14 @@ if (import.meta.env.VITE_APP_ENV === 'emulator') {
   console.log(
     `🏗️ Running in CLOUD DEVELOPMENT mode, connecting to live project: ${firebaseConfig.projectId}`,
   )
-  functions = getFunctions(app, 'asia-east1')
+  // 在雲端模式下，不需要呼叫 connect...Emulator
 } else {
   // 生產模式 (npm run build)，連接到雲端正式專案
   console.log(
     `🌍 Running in PRODUCTION mode, connecting to live project: ${firebaseConfig.projectId}`,
   )
-  functions = getFunctions(app, 'asia-east1')
+  // 在雲端模式下，不需要呼叫 connect...Emulator
 }
 
+// ✨ 3. 最後才導出已經配置好的服務實例
 export { app, auth, db, functions }
