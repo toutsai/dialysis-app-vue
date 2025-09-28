@@ -1224,6 +1224,7 @@ async function findOrCreateFolder(drive, folderName, parentFolderId) {
     q: query,
     fields: 'files(id, name)',
     supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
   })
 
   // 3. 判斷結果
