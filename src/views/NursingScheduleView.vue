@@ -319,6 +319,8 @@ import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchDuties, saveDuties } from '@/services/optimizedApiService.js'
+import { httpsCallable } from 'firebase/functions' // 加入這行
+import { functions } from '@/composables/useFirebase.js' // 加入這行
 
 const { createGlobalNotification } = {
   createGlobalNotification: (msg, type) => {
