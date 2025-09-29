@@ -318,6 +318,7 @@
         </div>
       </div>
 
+      <!-- ✨ ✨ ✨ 【核心修正】：將此 div 的結尾標籤移到正確的位置 ✨ ✨ ✨ -->
       <!-- 3. 護理當班分組工作職責 -->
       <div v-if="activeTab === 'responsibilities'" class="tab-pane">
         <header class="pane-header">
@@ -524,9 +525,9 @@ const showUsername = ref(false)
 // "當月週班表" 頁籤的狀態
 const isGroupEditMode = ref(false)
 const tempScheduleWithGroups = ref(null)
-const activeWeekTab = ref(1) // 預設顯示第一週
+const activeWeekTab = ref(1)
 
-// ✨ 核心修改：建立動態資料來源給 Composable
+// 動態資料來源，供 Composable 使用
 const scheduleSourceForStats = computed(() => {
   return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
 })
@@ -777,6 +778,7 @@ async function processAndUpload() {
   }
 }
 
+// "工作職責" 頁籤的所有函式
 const formatText = (text) => {
   if (!text) return ''
   let escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -840,6 +842,7 @@ const isEditing = (type, rowIndex, field) => {
   )
 }
 const loadData = async () => {
+  // 模擬從後端載入資料
   announcementText.value =
     '一、班別規則：護病比為1:4為原則，採團隊分工方式執行，無法執行時主動告知與協助。\n二、休息時間：實際狀況依各組協調調整，給予30分鐘。務必配合以免影響他人，白班為11:00-11:30；11:30-12:00；13:20-13:50，晚班為18:00-18:30；18:30-19:00；19:00-19:30。\n三、各班組別工作內容'
   dayShiftData.value = {
@@ -1204,7 +1207,6 @@ const saveData = async () => {
 .empty-cell {
   color: #dee2e6;
 }
-
 /* 週次頁籤導覽列 */
 .weekly-tabs-nav {
   display: flex;
@@ -1234,8 +1236,9 @@ const saveData = async () => {
   border: 2px solid #007bff;
   border-bottom: 2px solid #fff;
 }
-/* 週班表樣式 */
-.weekly-schedule-container {
+/* ===== 週班表樣式 ===== */
+.weekly-schedule-container,
+.view-mode-container {
   margin-top: 1.5rem;
 }
 .week-section {
@@ -1304,43 +1307,46 @@ const saveData = async () => {
   color: white;
   font-size: 0.85em;
 }
-.group-A {
+
+/* ✨ 核心修正：為週班表的組別樣式加上 .group-badge 增加 specificity */
+.group-badge.group-A {
   background-color: #c0392b;
 }
-.group-B {
+.group-badge.group-B {
   background-color: #27ae60;
 }
-.group-C {
+.group-badge.group-C {
   background-color: #2980b9;
 }
-.group-D {
+.group-badge.group-D {
   background-color: #8e44ad;
 }
-.group-E {
+.group-badge.group-E {
   background-color: #f39c12;
 }
-.group-F {
+.group-badge.group-F {
   background-color: #d35400;
 }
-.group-G {
+.group-badge.group-G {
   background-color: #7f8c8d;
 }
-.group-H {
+.group-badge.group-H {
   background-color: #34495e;
 }
-.group-I {
+.group-badge.group-I {
   background-color: #16a085;
 }
-.group-J {
+.group-badge.group-J {
   background-color: #2c3e50;
 }
-.group-K {
+.group-badge.group-K {
   background-color: #95a5a6;
 }
-.group-peripheral {
+.group-badge.group-peripheral {
   background-color: #007bff;
 }
-/* 分組儀表板樣式 */
+
+/* ===== 分組儀表板樣式 ===== */
 .dashboard-section {
   margin-top: 1rem;
   padding: 1rem;
@@ -1385,7 +1391,7 @@ const saveData = async () => {
 .dashboard-table th:first-child {
   z-index: 2;
 }
-/* 編輯模式下拉選單樣式 */
+/* ===== 編輯模式下拉選單樣式 ===== */
 .group-select {
   margin-top: 0.3rem;
   padding: 2px 4px;
@@ -1404,6 +1410,228 @@ const saveData = async () => {
   border: 1px solid #ced4da;
   font-size: 0.85em;
   margin-top: 0.3rem;
+}
+/* ===== 工作職責頁籤樣式 ===== */
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.table-title,
+.info-section h3 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.revision-date {
+  font-size: 0.9rem;
+  color: #6c757d;
+  font-style: italic;
+  cursor: help;
+}
+.save-button {
+  background-color: #1abc9c;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+.save-button:hover:not(:disabled) {
+  background-color: #16a085;
+}
+.save-button:disabled {
+  background-color: #bdc3c7;
+  cursor: not-allowed;
+}
+.info-section {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+.editable-text {
+  display: block;
+  width: 100%;
+  min-height: 24px;
+  cursor: text;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  white-space: pre-wrap;
+}
+.announcement-text {
+  line-height: 1.7;
+}
+.editable-text:hover {
+  background-color: #ecf0f1;
+}
+.duties-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 2rem;
+}
+.duties-table th,
+.duties-table td {
+  border: 1px solid #dee2e6;
+  padding: 0.8rem;
+  text-align: left;
+  vertical-align: top;
+}
+.duties-table th {
+  background-color: #f8f9fa;
+}
+.shift-type-col {
+  width: 10%;
+  text-align: center;
+}
+.shift-code-col {
+  width: 15%;
+}
+.tasks-col {
+  width: 75%;
+}
+.shift-type-cell {
+  font-weight: bold;
+  text-align: center;
+  vertical-align: middle;
+  background-color: #f8f9fa;
+}
+.task-text {
+  white-space: pre-wrap;
+  line-height: 1.7;
+}
+.edit-input,
+.edit-input-inline {
+  width: 100%;
+  padding: 5px;
+  border: 2px solid #1abc9c;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: inherit;
+  box-sizing: border-box;
+}
+.edit-input {
+  resize: vertical;
+  min-height: 100px;
+}
+.announcement-input {
+  min-height: 120px;
+}
+.closing-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+  border-top: 2px solid #dee2e6;
+  padding-top: 1.5rem;
+}
+.closing-column .table-title {
+  border-bottom: 2px solid #dee2e6;
+  padding-bottom: 0.5rem;
+}
+.checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.check-item {
+  display: flex;
+  align-items: center;
+}
+.checkbox {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #adb5bd;
+  border-radius: 4px;
+  margin-right: 0.8rem;
+  flex-shrink: 0;
+}
+.teamwork-list .editable-text {
+  margin: 0 0 0.8rem 0;
+}
+/* ✨ 核心修正：為工作職責的組別樣式加上 .group-tag 增加 specificity */
+:deep(.group-tag) {
+  display: inline-block;
+  color: white;
+  padding: 1px 8px;
+  border-radius: 12px;
+  margin-right: 0.7em;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 0.9em;
+  font-weight: bold;
+  line-height: 1.5;
+}
+:deep(.group-tag.group-A) {
+  background-color: #3498db;
+}
+:deep(.group-tag.group-B) {
+  background-color: #2ecc71;
+}
+:deep(.group-tag.group-C) {
+  background-color: #1abc9c;
+}
+:deep(.group-tag.group-D) {
+  background-color: #9b59b6;
+}
+:deep(.group-tag.group-E) {
+  background-color: #f1c40f;
+}
+:deep(.group-tag.group-F) {
+  background-color: #e67e22;
+}
+:deep(.group-tag.group-G) {
+  background-color: #e74c3c;
+}
+:deep(.group-tag.group-H) {
+  background-color: #d35400;
+}
+:deep(.group-tag.group-I) {
+  background-color: #34495e;
+}
+:deep(.group-tag.group-J) {
+  background-color: #7f8c8d;
+}
+:deep(.group-tag.group-K) {
+  background-color: #2c3e50;
+  color: #f1c40f;
+}
+:deep(.group-tag.group-ICU) {
+  background-color: #c0392b;
+}
+:deep(.group-tag.group-QW1),
+:deep(.group-tag.group-QW2),
+:deep(.group-tag.group-QW3),
+:deep(.group-tag.group-QW4),
+:deep(.group-tag.group-QW5),
+:deep(.group-tag.group-QW6),
+:deep(.group-tag.group-QW7) {
+  background-color: #5d6d7e;
+}
+:deep(.group-tag.is-note) {
+  background-color: #f8f9fa;
+  color: #495057;
+  border: 1px solid #dee2e6;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+:deep(.group-tag.is-leader),
+:deep(.group-tag.is-numeric) {
+  background-color: transparent;
+  color: #2c3e50;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  font-weight: bold;
 }
 /* 響應式處理 */
 @media (max-width: 768px) {
