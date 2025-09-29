@@ -130,10 +130,191 @@
 
       <!-- 2. 當月週班表 -->
       <div v-if="activeTab === 'weekly'" class="tab-pane">
-        <div class="placeholder">
-          <i class="fas fa-calendar-week"></i>
-          <h2>當月週班表</h2>
-          <p>功能開發中...</p>
+        <!-- 控制按鈕 -->
+        <section class="controls-section">
+          <div class="controls-left">
+            <label for="schedule-month-weekly">月份：</label>
+            <input
+              type="month"
+              id="schedule-month-weekly"
+              v-model="selectedMonth"
+              @change="loadMonthlySchedule"
+            />
+          </div>
+          <div class="controls-right">
+            <button v-if="!isGroupEditMode" @click="enterGroupEditMode" class="btn-primary">
+              編輯組別
+            </button>
+            <template v-else>
+              <button @click="saveGroupAssignments" :disabled="isUploading" class="btn-primary">
+                {{ isUploading ? '儲存中...' : '儲存分組' }}
+              </button>
+              <button @click="cancelGroupEditMode" class="btn-secondary">取消編輯</button>
+            </template>
+          </div>
+        </section>
+
+        <!-- 上傳狀態訊息 -->
+        <div
+          v-if="uploadStatus"
+          :class="['status-message', uploadStatus.includes('成功') ? 'success' : 'error']"
+        >
+          {{ uploadStatus }}
+        </div>
+
+        <!-- 週班表顯示區域 -->
+        <div v-if="isLoadingSchedule" class="loading-schedule">
+          <div class="spinner"></div>
+          <span>正在載入班表資料...</span>
+        </div>
+        <div v-else-if="!monthlySchedule" class="no-schedule">
+          <i class="fas fa-calendar-times"></i>
+          <p>本月尚無班表資料，請至「當月總班表」頁籤上傳</p>
+        </div>
+
+        <!-- 統一的頁籤化佈局 (只要有資料就顯示) -->
+        <div v-else>
+          <!-- 週次頁籤導覽列 (常駐) -->
+          <nav class="weekly-tabs-nav">
+            <button :class="{ active: activeWeekTab === 0 }" @click="activeWeekTab = 0">
+              分組統計
+            </button>
+            <button
+              v-for="(week, index) in weeklyData"
+              :key="`tab-${index}`"
+              :class="{ active: activeWeekTab === index + 1 }"
+              @click="activeWeekTab = index + 1"
+            >
+              第 {{ week.weekNumber }} 週
+            </button>
+          </nav>
+
+          <!-- 分組儀表板 (頁籤 0 被選中時顯示) -->
+          <section v-if="activeWeekTab === 0" class="dashboard-section">
+            <h3 class="dashboard-title">護理師分組統計</h3>
+            <div class="dashboard-table-wrapper">
+              <table class="dashboard-table">
+                <thead>
+                  <tr>
+                    <th v-for="header in groupCountsDashboard.header" :key="header">
+                      {{ header }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="nurse in groupCountsDashboard.nurses" :key="nurse.id">
+                    <td>{{ nurse.name }}</td>
+                    <td v-for="group in groupCountsDashboard.header.slice(1)" :key="group">
+                      {{ nurse.counts[group] || 0 }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <!-- 週班表內容 (根據頁籤切換顯示) -->
+          <div class="weekly-schedule-container">
+            <template v-for="(week, weekIndex) in weeklyData" :key="weekIndex">
+              <div v-if="activeWeekTab === weekIndex + 1" class="week-section">
+                <h4 class="week-title">
+                  第 {{ week.weekNumber }} 週 ({{ week.startDate }} - {{ week.endDate }})
+                </h4>
+                <div class="week-table-wrapper">
+                  <table class="week-table">
+                    <thead>
+                      <tr>
+                        <th class="nurse-name-col-weekly">護理師</th>
+                        <th
+                          v-for="day in week.days"
+                          :key="day.date"
+                          :class="{ weekend: day.isWeekend }"
+                        >
+                          {{ day.day }} ({{ day.weekday }})
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="nurseId">
+                        <td class="nurse-name-weekly">{{ nurseData.nurseName }}</td>
+                        <td
+                          v-for="day in week.days"
+                          :key="day.date"
+                          :class="{ weekend: day.isWeekend }"
+                        >
+                          <div v-if="nurseData.shifts[day.dayIndex]" class="weekly-shift-cell">
+                            <span :class="getShiftClass(nurseData.shifts[day.dayIndex])">
+                              {{ nurseData.shifts[day.dayIndex] }}
+                            </span>
+                            <!-- 編輯模式 -->
+                            <template v-if="isGroupEditMode && tempScheduleWithGroups">
+                              <select
+                                v-if="
+                                  canAssignGroup(
+                                    tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
+                                      day.dayIndex
+                                    ],
+                                  )
+                                "
+                                v-model="
+                                  tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                    day.dayIndex
+                                  ]
+                                "
+                                class="group-select"
+                              >
+                                <option value="">-</option>
+                                <option
+                                  v-for="group in getAvailableGroups(
+                                    tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
+                                      day.dayIndex
+                                    ],
+                                    day.date,
+                                  )"
+                                  :key="group"
+                                  :value="group"
+                                >
+                                  {{ group }} 組
+                                </option>
+                              </select>
+                              <span
+                                v-else-if="
+                                  tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                    day.dayIndex
+                                  ]
+                                "
+                                class="group-badge-fixed"
+                              >
+                                {{
+                                  tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                    day.dayIndex
+                                  ]
+                                }}
+                                組
+                              </span>
+                            </template>
+                            <!-- 檢視模式 -->
+                            <template v-else>
+                              <span
+                                v-if="nurseData.groups && nurseData.groups[day.dayIndex]"
+                                :class="[
+                                  'group-badge',
+                                  getGroupClass(nurseData.groups[day.dayIndex]),
+                                ]"
+                              >
+                                {{ nurseData.groups[day.dayIndex] }} 組
+                              </span>
+                            </template>
+                          </div>
+                          <div v-else class="empty-cell">-</div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
 
@@ -147,7 +328,7 @@
               class="revision-date"
               :title="`最後修改者: ${lastModifiedInfo.user}`"
             >
-              {{ lastModifiedInfo.date }} 修訂
+              {{ lastModifiedInfo.date }} 修改
             </span>
             <button
               @click="saveData"
@@ -160,7 +341,6 @@
           </div>
         </header>
 
-        <!-- 大文字框 -->
         <section class="info-section">
           <div @click="enterEditMode('announcement', 0, 'content')">
             <div
@@ -178,7 +358,6 @@
           </div>
         </section>
 
-        <!-- 第一個表格：班別職責 -->
         <section class="duties-section">
           <table class="duties-table">
             <thead>
@@ -189,7 +368,6 @@
               </tr>
             </thead>
             <tbody>
-              <!-- 白班 (合併後) -->
               <tr>
                 <td class="shift-type-cell"><strong>白班</strong></td>
                 <td @click="enterEditMode('dayShift', 0, 'codes')">
@@ -221,7 +399,6 @@
                   ></textarea>
                 </td>
               </tr>
-              <!-- 夜班 -->
               <tr v-for="(duty, index) in nightShiftDuties" :key="`night-${index}`">
                 <td v-if="index === 0" :rowspan="nightShiftDuties.length" class="shift-type-cell">
                   <strong>夜班</strong>
@@ -257,7 +434,6 @@
           </table>
         </section>
 
-        <!-- 第二個表格：關門檢查 & 互助合作 -->
         <div class="closing-section">
           <div class="closing-column">
             <h3 class="table-title">關門前結束檢查</h3>
@@ -317,10 +493,12 @@ import * as XLSX from 'xlsx'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
+import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
+import { fetchDuties, saveDuties } from '@/services/optimizedApiService.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
+import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
 
-// --- 模擬的 useGlobalNotifier ---
 const { createGlobalNotification } = {
   createGlobalNotification: (msg, type) => {
     alert(`[${type.toUpperCase()}] ${msg}`)
@@ -341,7 +519,18 @@ const isLoadingSchedule = ref(true)
 const uploadStatus = ref('')
 const monthlySchedule = ref(null)
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
-const showUsername = ref(false) // 是否顯示員工編號
+const showUsername = ref(false)
+
+// "當月週班表" 頁籤的狀態
+const isGroupEditMode = ref(false)
+const tempScheduleWithGroups = ref(null)
+const activeWeekTab = ref(1) // 預設顯示第一週
+
+// ✨ 核心修改：建立動態資料來源給 Composable
+const scheduleSourceForStats = computed(() => {
+  return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+})
+const { groupCountsDashboard, generateGroupAssignments } = useGroupAssigner(scheduleSourceForStats)
 
 // "工作職責" 頁籤的狀態
 const announcementText = ref('')
@@ -355,17 +544,14 @@ const lastModifiedInfo = ref({ date: '', user: '' })
 const usersApi = ApiManager('users')
 const nursingSchedulesApi = ApiManager('nursing_schedules')
 
-// --- 計算屬性：根據 yearMonth 自動計算該月的日期和星期 ---
+// --- 計算屬性 ---
 const monthDays = computed(() => {
-  if (!monthlySchedule.value?.yearMonth && !selectedMonth.value) return []
-
-  const yearMonth = monthlySchedule.value?.yearMonth || selectedMonth.value
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source?.yearMonth && !selectedMonth.value) return []
+  const yearMonth = source?.yearMonth || selectedMonth.value
   const [year, month] = yearMonth.split('-').map(Number)
-
-  // 取得該月天數
-  const daysInMonth = monthlySchedule.value?.maxDaysInMonth || new Date(year, month, 0).getDate()
+  const daysInMonth = source?.maxDaysInMonth || new Date(year, month, 0).getDate()
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
-
   const days = []
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day)
@@ -376,121 +562,174 @@ const monthDays = computed(() => {
       isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
     })
   }
-
   return days
 })
 
-// --- 新增計算屬性：排序後的護理師班表 ---
 const sortedSchedule = computed(() => {
-  if (!monthlySchedule.value?.scheduleByNurse) return {}
+  const scheduleSource = isGroupEditMode.value
+    ? tempScheduleWithGroups.value?.scheduleByNurse
+    : monthlySchedule.value?.scheduleByNurse
+  if (!scheduleSource) return {}
+  const nurses = Object.entries(scheduleSource)
+  const sourceForOrder = monthlySchedule.value || tempScheduleWithGroups.value
+  if (sourceForOrder?.processingOrder) {
+    const orderMap = new Map(sourceForOrder.processingOrder.map((id, index) => [id, index]))
+    nurses.sort((a, b) => (orderMap.get(a[0]) ?? 999) - (orderMap.get(b[0]) ?? 999))
+  } else if (sourceForOrder?.scheduleByNurse) {
+    nurses.sort((a, b) => a[1].nurseName.localeCompare(b[1].nurseName, 'zh-TW'))
+  }
+  return Object.fromEntries(nurses)
+})
 
-  // 取得所有護理師資料並轉為陣列
-  const nurses = Object.entries(monthlySchedule.value.scheduleByNurse)
-
-  // 排序邏輯
-  nurses.sort((a, b) => {
-    const nurseA = a[1]
-    const nurseB = b[1]
-
-    // 優先使用 orderIndex（Excel 原始順序）
-    if (nurseA.orderIndex !== undefined && nurseB.orderIndex !== undefined) {
-      return nurseA.orderIndex - nurseB.orderIndex
-    }
-
-    // 其次使用員工編號排序
-    if (nurseA.nurseUsername && nurseB.nurseUsername) {
-      // 假設員工編號是數字格式
-      const numA = parseInt(nurseA.nurseUsername, 10)
-      const numB = parseInt(nurseB.nurseUsername, 10)
-      if (!isNaN(numA) && !isNaN(numB)) {
-        return numA - numB
+const weeklyData = computed(() => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !monthDays.value.length) return []
+  const yearMonth = source.yearMonth
+  const [year, month] = yearMonth.split('-').map(Number)
+  const weeks = []
+  let currentWeek = { weekNumber: 1, days: [], startDate: '', endDate: '' }
+  monthDays.value.forEach((dayInfo, dayIndex) => {
+    const dayOfWeek = new Date(year, month - 1, dayInfo.day).getDay()
+    if (dayOfWeek === 1 && currentWeek.days.length > 0) {
+      currentWeek.endDate = `${month}/${currentWeek.days[currentWeek.days.length - 1].day}`
+      weeks.push(currentWeek)
+      currentWeek = {
+        weekNumber: weeks.length + 1,
+        days: [],
+        startDate: `${month}/${dayInfo.day}`,
+        endDate: '',
       }
-      // 否則按字串排序
-      return nurseA.nurseUsername.localeCompare(nurseB.nurseUsername, 'zh-TW')
     }
-
-    // 最後按姓名排序
-    return nurseA.nurseName.localeCompare(nurseB.nurseName, 'zh-TW')
+    if (currentWeek.days.length === 0) {
+      currentWeek.startDate = `${month}/${dayInfo.day}`
+    }
+    currentWeek.days.push({
+      date: `${yearMonth}-${String(dayInfo.day).padStart(2, '0')}`,
+      day: dayInfo.day,
+      weekday: dayInfo.weekday,
+      isWeekend: dayInfo.isWeekend,
+      dayIndex: dayIndex,
+    })
   })
-
-  // 轉回物件格式
-  const sortedObj = {}
-  nurses.forEach(([id, data]) => {
-    sortedObj[id] = data
-  })
-
-  return sortedObj
+  if (currentWeek.days.length > 0) {
+    currentWeek.endDate = `${month}/${currentWeek.days[currentWeek.days.length - 1].day}`
+    weeks.push(currentWeek)
+  }
+  return weeks
 })
 
 // --- 生命週期 ---
 onMounted(() => {
   loadMonthlySchedule()
-  loadData() // 工作職責資料
+  loadData() // 職責頁籤資料
 })
 
 // --- 方法 ---
 
-// 取得班別的樣式類別
+function enterGroupEditMode() {
+  if (!monthlySchedule.value) {
+    alert('請先載入月班表資料！')
+    return
+  }
+  const hasGroups = Object.values(monthlySchedule.value.scheduleByNurse).some(
+    (nurse) => nurse.groups && nurse.groups.some((g) => g),
+  )
+  if (!hasGroups) {
+    tempScheduleWithGroups.value = generateGroupAssignments(monthlySchedule.value)
+  } else {
+    tempScheduleWithGroups.value = JSON.parse(JSON.stringify(monthlySchedule.value))
+  }
+  activeWeekTab.value = 0
+  isGroupEditMode.value = true
+}
+
+function cancelGroupEditMode() {
+  isGroupEditMode.value = false
+  tempScheduleWithGroups.value = null
+  uploadStatus.value = ''
+  activeWeekTab.value = 1
+}
+
+async function saveGroupAssignments() {
+  if (!tempScheduleWithGroups.value) return
+  isUploading.value = true
+  uploadStatus.value = '正在儲存分組結果...'
+  try {
+    const documentId = selectedMonth.value
+    const scheduleDataToSave = tempScheduleWithGroups.value.scheduleByNurse
+    await nursingSchedulesApi.update(documentId, { scheduleByNurse: scheduleDataToSave })
+    uploadStatus.value = '分組成功儲存！'
+    isGroupEditMode.value = false
+    tempScheduleWithGroups.value = null
+    await loadMonthlySchedule()
+    activeWeekTab.value = 1
+  } catch (error) {
+    console.error('儲存護理分組失敗:', error)
+    uploadStatus.value = `儲存失敗：${error.message}`
+  } finally {
+    isUploading.value = false
+  }
+}
+
+const canAssignGroup = (shift) => {
+  const s = (shift || '').trim()
+  if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
+  if (s.includes('74/L') || s.includes('816')) return false
+  const isDayShift = ['74', '75'].some((ds) => s.includes(ds))
+  const isNightShift = ['311', '3-11'].some((ns) => s.includes(ns))
+  return isDayShift || isNightShift
+}
+
+const getAvailableGroups = (shift, date) => {
+  const s = (shift || '').trim()
+  const dayOfWeek = new Date(date).getDay()
+  if (['74', '75'].some((ds) => s.includes(ds))) {
+    return ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
+  }
+  if (['311', '3-11'].some((ns) => s.includes(ns))) {
+    if ([1, 3, 5].includes(dayOfWeek)) {
+      return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+    } else if ([2, 4, 6].includes(dayOfWeek)) {
+      return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+    }
+  }
+  return []
+}
+
+const getGroupClass = (group) => {
+  if (!group) return ''
+  const groupChar = group.charAt(0).toUpperCase()
+  if (group === '外圍') return 'group-peripheral'
+  return `group-${groupChar}`
+}
+
 const getShiftClass = (shift) => {
   if (!shift) return ''
-
   const shiftStr = String(shift).trim()
   const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815']
   const LATE_SHIFTS = ['3-11', '311']
-
-  // 檢查班別類型
-  if (EARLY_SHIFTS.some((s) => shiftStr.includes(s))) {
-    return 'shift-badge shift-早班'
-  }
-  if (LATE_SHIFTS.some((s) => shiftStr.includes(s))) {
-    return 'shift-badge shift-晚班'
-  }
-  if (shiftStr === '休' || shiftStr.includes('休息')) {
-    return 'shift-badge shift-休息'
-  }
-  if (shiftStr === '例' || shiftStr.includes('例假')) {
-    return 'shift-badge shift-例假'
-  }
-  if (shiftStr.includes('國定')) {
-    return 'shift-badge shift-國定'
-  }
-  if (shiftStr === '例假') {
-    return 'shift-badge shift-例假'
-  }
-
-  // 其他班別
+  if (EARLY_SHIFTS.some((s) => shiftStr.includes(s))) return 'shift-badge shift-早班'
+  if (LATE_SHIFTS.some((s) => shiftStr.includes(s))) return 'shift-badge shift-晚班'
+  if (shiftStr === '休' || shiftStr.includes('休息')) return 'shift-badge shift-休息'
+  if (shiftStr === '例' || shiftStr.includes('例假')) return 'shift-badge shift-例假'
+  if (shiftStr.includes('國定')) return 'shift-badge shift-國定'
   return 'shift-badge shift-其他'
 }
 
-// 處理檔案選擇
 function handleFileUpload(event) {
   selectedFile.value = event.target.files[0]
   uploadStatus.value = ''
 }
 
-// 載入月班表
 async function loadMonthlySchedule() {
   isLoadingSchedule.value = true
-  uploadStatus.value = '' // 清除上傳狀態
-
+  uploadStatus.value = ''
+  cancelGroupEditMode()
   try {
     const documentId = selectedMonth.value
-    console.log('🔍 正在載入班表:', documentId)
-
     const schedule = await nursingSchedulesApi.fetchById(documentId)
-
-    if (schedule) {
-      console.log('✅ 載入成功:', {
-        title: schedule.title,
-        yearMonth: schedule.yearMonth,
-        nurseCount: Object.keys(schedule.scheduleByNurse || {}).length,
-        maxDaysInMonth: schedule.maxDaysInMonth,
-      })
-      monthlySchedule.value = schedule
-    } else {
-      console.log('❌ 找不到班表資料')
-      monthlySchedule.value = null
-    }
+    monthlySchedule.value = schedule || null
+    activeWeekTab.value = 1
   } catch (error) {
     console.error('❌ 載入月班表失敗:', error)
     monthlySchedule.value = null
@@ -499,52 +738,36 @@ async function loadMonthlySchedule() {
   }
 }
 
-// 轉換檔案為 Base64
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.readAsDataURL(file)
-    reader.onload = () => {
-      const base64String = reader.result.split(',')[1]
-      resolve(base64String)
-    }
+    reader.onload = () => resolve(reader.result.split(',')[1])
     reader.onerror = (error) => reject(error)
   })
 }
 
-// 上傳班表
 async function processAndUpload() {
   if (!selectedFile.value) {
     uploadStatus.value = '請先選擇一個 Excel 檔案'
     return
   }
-
   isUploading.value = true
   uploadStatus.value = '正在上傳檔案...'
-
   try {
     const fileContentBase64 = await fileToBase64(selectedFile.value)
     const payload = {
       fileName: selectedFile.value.name,
       fileContentBase64: fileContentBase64,
     }
-
-    uploadStatus.value = '伺服器正在解析班表...'
     const saveScheduleFunction = httpsCallable(functions, 'saveNursingSchedule')
     const result = await saveScheduleFunction(payload)
-
-    if (!result.data.success) {
-      throw new Error(result.data.message || '處理失敗')
-    }
-
+    if (!result.data.success) throw new Error(result.data.message || '處理失敗')
     uploadStatus.value = `成功！${result.data.message}`
     selectedFile.value = null
-
-    // 更新選擇的月份並重新載入
     if (result.data.stats?.month) {
       selectedMonth.value = result.data.stats.month
     }
-
     await loadMonthlySchedule()
   } catch (error) {
     console.error('上傳失敗:', error)
@@ -554,69 +777,49 @@ async function processAndUpload() {
   }
 }
 
-// 工作職責相關函式
-// 修改 formatText 函式 - 更智能的組別識別
 const formatText = (text) => {
   if (!text) return ''
-
-  // 先進行 HTML 轉義
   let escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-
-  // 定義所有需要識別的組別
   const groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'ICU']
   const qwGroups = ['QW1', 'QW2', 'QW3', 'QW4', 'QW5', 'QW6', 'QW7']
-
-  // 組合所有組別
   const allGroups = [...groups, ...qwGroups]
-
-  // 為每個組別創建彩色膠囊
   allGroups.forEach((group) => {
-    // 創建正則表達式，匹配組別的各種形式
-    // 例如：A組、A 組、A組：、A組:、單獨的A（在特定上下文中）
     const patterns = [
-      new RegExp(`\\b${group}\\s*組[:：]?`, 'g'), // A組、A組：等
-      new RegExp(`^${group}\\s*[:：]`, 'gm'), // 行首的 A:、A：
-      new RegExp(`(?<=[，,、]\\s*)${group}\\s*組`, 'g'), // 逗號後的A組
+      new RegExp(`\\b${group}\\s*組[:：]?`, 'g'),
+      new RegExp(`^${group}\\s*[:：]`, 'gm'),
+      new RegExp(`(?<=[，,、]\\s*)${group}\\s*組`, 'g'),
     ]
-
     patterns.forEach((pattern) => {
-      escapedText = escapedText.replace(pattern, (match) => {
-        return `<span class="group-tag group-${group}">${match}</span>`
-      })
+      escapedText = escapedText.replace(
+        pattern,
+        (match) => `<span class="group-tag group-${group}">${match}</span>`,
+      )
     })
   })
-
-  // 處理特殊標記（※、組長等）
   escapedText = escapedText.replace(/^(※[^\n]*)/gm, '<span class="group-tag is-note">$1</span>')
-
   escapedText = escapedText.replace(
     /^(組長[:：][^\n]*)/gm,
     '<span class="group-tag is-leader">$1</span>',
   )
-
   escapedText = escapedText.replace(
     /^(互助小組長[:：][^\n]*)/gm,
     '<span class="group-tag is-leader">$1</span>',
   )
-
-  // 處理編號列表（1. 2. 3. 等）
   escapedText = escapedText.replace(/^(\d+\.\s)/gm, '<span class="group-tag is-numeric">$1</span>')
-
   return escapedText
 }
-
 const setInputRef = (el) => {
   if (el) inputRef = el
 }
-
 watch(
   [announcementText, dayShiftData, nightShiftDuties, checklistItems, teamworkItems],
-  () => {
-    hasChanges.value = true
+  (newValue, oldValue) => {
+    if (oldValue.some((v) => v !== undefined && v !== null)) {
+      hasChanges.value = true
+    }
   },
   { deep: true, immediate: false },
 )
-
 const enterEditMode = async (type, rowIndex, field) => {
   if (!auth.isAdmin.value) return
   editingCell.value = { type, rowIndex, field }
@@ -626,11 +829,9 @@ const enterEditMode = async (type, rowIndex, field) => {
     inputRef.select()
   }
 }
-
 const exitEditMode = () => {
   editingCell.value = null
 }
-
 const isEditing = (type, rowIndex, field) => {
   return (
     editingCell.value?.type === type &&
@@ -638,9 +839,7 @@ const isEditing = (type, rowIndex, field) => {
     editingCell.value?.field === field
   )
 }
-
 const loadData = async () => {
-  // 模擬從後端載入資料
   announcementText.value =
     '一、班別規則：護病比為1:4為原則，採團隊分工方式執行，無法執行時主動告知與協助。\n二、休息時間：實際狀況依各組協調調整，給予30分鐘。務必配合以免影響他人，白班為11:00-11:30；11:30-12:00；13:20-13:50，晚班為18:00-18:30；18:30-19:00；19:00-19:30。\n三、各班組別工作內容'
   dayShiftData.value = {
@@ -678,7 +877,6 @@ const loadData = async () => {
   await nextTick()
   hasChanges.value = false
 }
-
 const saveData = async () => {
   if (!hasChanges.value || !auth.isAdmin.value) return
   try {
@@ -688,7 +886,6 @@ const saveData = async () => {
       '0',
     )}.${String(now.getDate()).padStart(2, '0')}`
     const currentUserFullName = auth.currentUser.value?.name || '未知使用者'
-
     const rawPayload = {
       announcement: announcementText.value,
       dayShift: dayShiftData.value,
@@ -698,8 +895,6 @@ const saveData = async () => {
       lastModified: { date: formattedDate, user: currentUserFullName },
     }
     const payload = JSON.parse(JSON.stringify(rawPayload))
-    console.log('正在儲存 (純物件):', payload)
-
     lastModifiedInfo.value = payload.lastModified
     hasChanges.value = false
     exitEditMode()
@@ -718,21 +913,18 @@ const saveData = async () => {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
-
 .page-title {
   font-size: 1.8rem;
   font-weight: bold;
   color: #2c3e50;
   margin-bottom: 1.2rem;
 }
-
 /* ===== 頁籤導覽 ===== */
 .tabs-nav {
   display: flex;
   border-bottom: 2px solid #dee2e6;
   margin-bottom: 1.5rem;
 }
-
 .tabs-nav button {
   padding: 0.8rem 1.5rem;
   font-size: 1rem;
@@ -744,7 +936,6 @@ const saveData = async () => {
   position: relative;
   transition: color 0.2s;
 }
-
 .tabs-nav button::after {
   content: '';
   position: absolute;
@@ -756,15 +947,12 @@ const saveData = async () => {
   transform: scaleX(0);
   transition: transform 0.3s ease;
 }
-
 .tabs-nav button.active {
   color: #1abc9c;
 }
-
 .tabs-nav button.active::after {
   transform: scaleX(1);
 }
-
 /* ===== 合併的控制區域 ===== */
 .controls-section {
   display: flex;
@@ -776,27 +964,23 @@ const saveData = async () => {
   margin-bottom: 1rem;
   gap: 1rem;
 }
-
 .controls-left,
 .controls-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-
 .controls-section label {
   font-weight: 500;
   color: #495057;
   font-size: 0.9rem;
 }
-
 .controls-section input[type='month'] {
   padding: 0.4rem 0.8rem;
   border: 1px solid #dee2e6;
   border-radius: 4px;
   font-size: 0.9rem;
 }
-
 /* 按鈕樣式 */
 .btn-primary,
 .btn-secondary {
@@ -808,43 +992,35 @@ const saveData = async () => {
   cursor: pointer;
   transition: all 0.2s;
 }
-
 .btn-primary {
   background-color: #007bff;
   color: white;
 }
-
 .btn-primary:hover:not(:disabled) {
   background-color: #0056b3;
 }
-
 .btn-primary:disabled {
   background-color: #6c757d;
   cursor: not-allowed;
   opacity: 0.65;
 }
-
 .btn-secondary {
   background-color: #fff;
   color: #495057;
   border: 1px solid #dee2e6;
 }
-
 .btn-secondary:hover {
   background-color: #f8f9fa;
   border-color: #adb5bd;
 }
-
 /* 檔案上傳樣式 */
 .file-upload-label {
   display: inline-block;
   cursor: pointer;
 }
-
 .file-input-hidden {
   display: none;
 }
-
 /* 狀態訊息 */
 .status-message {
   padding: 0.5rem 1rem;
@@ -853,19 +1029,16 @@ const saveData = async () => {
   font-size: 0.9rem;
   animation: slideDown 0.3s ease;
 }
-
 .status-message.success {
   background-color: #d4edda;
   color: #155724;
   border: 1px solid #c3e6cb;
 }
-
 .status-message.error {
   background-color: #f8d7da;
   color: #721c24;
   border: 1px solid #f5c6cb;
 }
-
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -876,7 +1049,6 @@ const saveData = async () => {
     transform: translateY(0);
   }
 }
-
 /* ===== Loading 和 Spinner ===== */
 .loading-schedule,
 .no-schedule {
@@ -887,18 +1059,15 @@ const saveData = async () => {
   padding: 3rem;
   color: #6c757d;
 }
-
 .no-schedule i {
   font-size: 3rem;
   margin-bottom: 1rem;
   opacity: 0.5;
 }
-
 .no-schedule .hint {
   font-size: 0.9rem;
   color: #868e96;
 }
-
 .spinner {
   width: 30px;
   height: 30px;
@@ -908,7 +1077,6 @@ const saveData = async () => {
   animation: spin 1s linear infinite;
   margin: 0 auto 1rem auto;
 }
-
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -917,25 +1085,6 @@ const saveData = async () => {
     transform: rotate(360deg);
   }
 }
-
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 4rem;
-  text-align: center;
-  background-color: #f8f9fa;
-  border-radius: 6px;
-  color: #6c757d;
-}
-
-.placeholder i {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-  opacity: 0.5;
-}
-
 /* ===== 班表表格樣式 ===== */
 .schedule-table-wrapper {
   overflow-x: auto;
@@ -943,7 +1092,6 @@ const saveData = async () => {
   border-radius: 8px;
   background: white;
 }
-
 .schedule-table-wrapper h3 {
   text-align: center;
   padding: 1rem;
@@ -954,14 +1102,12 @@ const saveData = async () => {
   font-weight: 600;
   color: #2c3e50;
 }
-
 .schedule-table {
   width: 100%;
   min-width: 1200px;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
-
 .schedule-table th,
 .schedule-table td {
   border: 1px solid #dee2e6;
@@ -969,7 +1115,6 @@ const saveData = async () => {
   text-align: center;
   vertical-align: middle;
 }
-
 .schedule-table th {
   background-color: #f8f9fa;
   font-weight: 600;
@@ -977,7 +1122,6 @@ const saveData = async () => {
   top: 0;
   z-index: 10;
 }
-
 .nurse-name-col {
   width: 100px;
   position: sticky;
@@ -985,7 +1129,6 @@ const saveData = async () => {
   z-index: 11;
   background-color: #f8f9fa !important;
 }
-
 .nurse-name {
   position: sticky;
   left: 0;
@@ -995,45 +1138,36 @@ const saveData = async () => {
   width: 100px;
   min-width: 100px;
 }
-
 .nurse-username {
   font-size: 0.7rem;
   color: #6c757d;
   font-style: italic;
   margin-left: 0.25rem;
 }
-
 .schedule-table tbody tr:nth-child(even) td:first-child {
   background-color: #f8f9fa;
 }
-
 .date-col {
   width: 60px;
   min-width: 60px;
 }
-
 .date-col.weekend {
   background-color: #fff5f5;
 }
-
 .date-num {
   font-weight: 600;
 }
-
 .weekday {
   font-size: 0.75rem;
   color: #6c757d;
   margin-top: 2px;
 }
-
 .shift-cell {
   padding: 0.2rem;
 }
-
 .shift-cell.weekend {
   background-color: #fffafa;
 }
-
 /* 班別樣式 */
 .shift-badge {
   display: inline-block;
@@ -1043,322 +1177,252 @@ const saveData = async () => {
   font-size: 0.8rem;
   min-width: 35px;
 }
-
 .shift-早班 {
   background-color: #fff3cd;
   color: #856404;
 }
-
 .shift-晚班 {
   background-color: #cce5ff;
   color: #004085;
 }
-
 .shift-休息 {
   background-color: #f8d7da;
   color: #721c24;
 }
-
 .shift-例假 {
   background-color: #e2e3e5;
   color: #383d41;
 }
-
 .shift-國定 {
   background-color: #d4edda;
   color: #155724;
 }
-
 .shift-其他 {
   background-color: #e7e7e7;
   color: #495057;
 }
-
 .empty-cell {
   color: #dee2e6;
 }
 
-/* ===== 工作職責頁籤樣式 ===== */
-.pane-header {
+/* 週次頁籤導覽列 */
+.weekly-tabs-nav {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 2px solid #007bff;
+  margin-bottom: 1.5rem;
+  margin-top: 1rem;
 }
-
-.table-title,
-.info-section h3 {
-  font-size: 1.3rem;
+.weekly-tabs-nav button {
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  margin-bottom: 1rem;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.revision-date {
-  font-size: 0.9rem;
-  color: #6c757d;
-  font-style: italic;
-  cursor: help;
-}
-
-.save-button {
-  background-color: #1abc9c;
-  color: white;
   border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 5px;
+  background-color: transparent;
   cursor: pointer;
-  font-weight: bold;
-  transition: background-color 0.2s;
+  color: #495057;
+  border-radius: 6px 6px 0 0;
+  margin-bottom: -2px;
+  transition: all 0.2s ease-in-out;
 }
-
-.save-button:hover:not(:disabled) {
-  background-color: #16a085;
+.weekly-tabs-nav button:hover {
+  background-color: #e9ecef;
 }
-
-.save-button:disabled {
-  background-color: #bdc3c7;
-  cursor: not-allowed;
+.weekly-tabs-nav button.active {
+  color: #0056b3;
+  background-color: #fff;
+  border: 2px solid #007bff;
+  border-bottom: 2px solid #fff;
 }
-
-.info-section {
+/* 週班表樣式 */
+.weekly-schedule-container {
+  margin-top: 1.5rem;
+}
+.week-section {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #fff;
+  animation: fadeIn 0.5s;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.week-title {
   background-color: #f8f9fa;
-  border: 1px solid #dee2e6;
-  border-radius: 6px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
+  padding: 0.8rem 1.2rem;
+  margin: 0;
+  font-size: 1.2rem;
+  border-bottom: 1px solid #e0e0e0;
 }
-
-.editable-text {
-  display: block;
-  width: 100%;
-  min-height: 24px;
-  cursor: text;
-  padding: 5px;
-  border-radius: 4px;
-  transition: background-color 0.2s;
-  white-space: pre-wrap;
+.week-table-wrapper {
+  overflow-x: auto;
 }
-
-.announcement-text {
-  line-height: 1.7;
-}
-
-.editable-text:hover {
-  background-color: #ecf0f1;
-}
-
-.duties-table {
+.week-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: 2rem;
 }
-
-.duties-table th,
-.duties-table td {
-  border: 1px solid #dee2e6;
-  padding: 0.8rem;
-  text-align: left;
-  vertical-align: top;
-}
-
-.duties-table th {
-  background-color: #f8f9fa;
-}
-
-.shift-type-col {
-  width: 10%;
+.week-table th,
+.week-table td {
+  border: 1px solid #e9ecef;
+  padding: 0.6rem;
   text-align: center;
+  min-width: 120px;
 }
-
-.shift-code-col {
-  width: 15%;
+.week-table th {
+  background-color: #f1f3f5;
+  font-weight: 600;
 }
-
-.tasks-col {
-  width: 75%;
-}
-
-.shift-type-cell {
-  font-weight: bold;
-  text-align: center;
-  vertical-align: middle;
+.nurse-name-col-weekly,
+.nurse-name-weekly {
+  position: sticky;
+  left: 0;
   background-color: #f8f9fa;
+  font-weight: 500;
+  z-index: 1;
+  min-width: 100px;
+  width: 100px;
 }
-
-.task-text {
-  white-space: pre-wrap;
-  line-height: 1.7;
+.week-table .weekend {
+  background-color: #fff5f5;
 }
-
-.edit-input,
-.edit-input-inline {
-  width: 100%;
-  padding: 5px;
-  border: 2px solid #1abc9c;
-  border-radius: 4px;
-  font-family: inherit;
-  font-size: inherit;
-  box-sizing: border-box;
-}
-
-.edit-input {
-  resize: vertical;
-  min-height: 100px;
-}
-
-.announcement-input {
-  min-height: 120px;
-}
-
-.closing-section {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-  border-top: 2px solid #dee2e6;
-  padding-top: 1.5rem;
-}
-
-.closing-column .table-title {
-  border-bottom: 2px solid #dee2e6;
-  padding-bottom: 0.5rem;
-}
-
-.checklist {
+.weekly-shift-cell {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
-}
-
-.check-item {
-  display: flex;
   align-items: center;
+  gap: 0.3rem;
 }
-
-.checkbox {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  border: 2px solid #adb5bd;
-  border-radius: 4px;
-  margin-right: 0.8rem;
-  flex-shrink: 0;
-}
-
-.teamwork-list .editable-text {
-  margin: 0 0 0.8rem 0;
-}
-
-/* ===== 工作職責的組別彩色膠囊樣式 - 使用深度選擇器 ===== */
-/* 組別標籤基礎樣式 */
-:deep(.group-tag) {
-  display: inline-block;
-  color: white;
-  padding: 1px 8px;
-  border-radius: 12px;
-  margin-right: 0.7em;
-  font-family: 'Segoe UI', sans-serif;
-  font-size: 0.9em;
+.group-badge {
   font-weight: bold;
-  line-height: 1.5;
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: white;
+  font-size: 0.85em;
 }
-
-/* 各組別顏色 - 使用深度選擇器 */
-:deep(.group-A) {
-  background-color: #3498db;
-}
-:deep(.group-B) {
-  background-color: #2ecc71;
-}
-:deep(.group-C) {
-  background-color: #1abc9c;
-}
-:deep(.group-D) {
-  background-color: #9b59b6;
-}
-:deep(.group-E) {
-  background-color: #f1c40f;
-}
-:deep(.group-F) {
-  background-color: #e67e22;
-}
-:deep(.group-G) {
-  background-color: #e74c3c;
-}
-:deep(.group-H) {
-  background-color: #d35400;
-}
-:deep(.group-I) {
-  background-color: #34495e;
-}
-:deep(.group-J) {
-  background-color: #7f8c8d;
-}
-:deep(.group-K) {
-  background-color: #2c3e50;
-  color: #f1c40f;
-}
-:deep(.group-ICU) {
+.group-A {
   background-color: #c0392b;
 }
-
-/* QW 組別樣式 */
-:deep(.group-QW1),
-:deep(.group-QW2),
-:deep(.group-QW3),
-:deep(.group-QW4),
-:deep(.group-QW5),
-:deep(.group-QW6),
-:deep(.group-QW7) {
-  background-color: #5d6d7e;
+.group-B {
+  background-color: #27ae60;
 }
-
-/* 特殊標記樣式 */
-:deep(.group-tag.is-note) {
-  background-color: #f8f9fa;
-  color: #495057;
+.group-C {
+  background-color: #2980b9;
+}
+.group-D {
+  background-color: #8e44ad;
+}
+.group-E {
+  background-color: #f39c12;
+}
+.group-F {
+  background-color: #d35400;
+}
+.group-G {
+  background-color: #7f8c8d;
+}
+.group-H {
+  background-color: #34495e;
+}
+.group-I {
+  background-color: #16a085;
+}
+.group-J {
+  background-color: #2c3e50;
+}
+.group-K {
+  background-color: #95a5a6;
+}
+.group-peripheral {
+  background-color: #007bff;
+}
+/* 分組儀表板樣式 */
+.dashboard-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  background-color: #fff;
+  border-radius: 8px;
   border: 1px solid #dee2e6;
-  padding: 2px 6px;
-  border-radius: 4px;
+  animation: fadeIn 0.5s;
 }
-
-:deep(.group-tag.is-leader),
-:deep(.group-tag.is-numeric) {
-  background-color: transparent;
-  color: #2c3e50;
-  padding: 0;
-  margin: 0;
-  border-radius: 0;
+.dashboard-title {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+.dashboard-table-wrapper {
+  overflow-x: auto;
+}
+.dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  min-width: 800px;
+}
+.dashboard-table th,
+.dashboard-table td {
+  border: 1px solid #ced4da;
+  padding: 0.5rem;
+  text-align: center;
+}
+.dashboard-table th {
+  background-color: #e9ecef;
+  position: sticky;
+  top: 0;
+}
+.dashboard-table td:first-child,
+.dashboard-table th:first-child {
   font-weight: bold;
+  background-color: #f1f3f5;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 80px;
 }
-
+.dashboard-table th:first-child {
+  z-index: 2;
+}
+/* 編輯模式下拉選單樣式 */
+.group-select {
+  margin-top: 0.3rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid #adb5bd;
+  font-size: 0.85em;
+  background-color: #fff;
+  cursor: pointer;
+}
+.group-badge-fixed {
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 12px;
+  color: #343a40;
+  background-color: #e9ecef;
+  border: 1px solid #ced4da;
+  font-size: 0.85em;
+  margin-top: 0.3rem;
+}
 /* 響應式處理 */
 @media (max-width: 768px) {
   .controls-section {
     flex-direction: column;
     gap: 1rem;
   }
-
   .controls-left,
   .controls-right {
     width: 100%;
     justify-content: space-between;
   }
-
   .schedule-table {
     font-size: 0.75rem;
   }
-
   .date-col {
     width: 50px;
     min-width: 50px;
   }
-
   .shift-badge {
     font-size: 0.7rem;
     padding: 1px 4px;
