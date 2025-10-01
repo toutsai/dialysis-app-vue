@@ -48,7 +48,7 @@
           <div class="section-header">
             <h2>營運統計</h2>
             <button @click="syncStatsWithSchedule" class="sync-stats-btn">
-              <i class="fas fa-sync-alt"></i> 同步排班人數
+              <i class="fas fa-sync-alt"></i> 更新各班病人人數
             </button>
           </div>
 
