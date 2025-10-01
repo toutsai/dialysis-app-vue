@@ -105,6 +105,11 @@ service cloud.firestore {
       allow write: if isContributor();
     }
     
+    match /lab_alert_analyses/{analysisId} {
+      allow read: if isViewer();
+      allow write: if isContributor();
+    }
+
     match /lab_reports/{reportId} {
       allow read: if isViewer();
       allow write: if isViewer(); 
