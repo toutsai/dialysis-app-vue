@@ -601,6 +601,7 @@
           </div>
         </div>
 
+        <!-- 【✨ 新增修改 ✨】: 夜班收針區塊 -->
         <div
           v-if="lateShiftTakeOffExists"
           class="stats-section late-takeoff-section"
@@ -611,7 +612,19 @@
             :style="{ gridTemplateColumns: `90px repeat(${sortedLateTakeOffTeams.length}, 1fr)` }"
           >
             <div class="grid-header">
-              <div class="row-header section-title-cell">夜班收針</div>
+              <div class="row-header section-title-cell">
+                <div class="takeoff-header-content">
+                  <span>夜班收針</span>
+                  <!-- 【✨ 新增修改 ✨】: 移除按鈕 -->
+                  <button
+                    @click="promptRemoveLateShiftTakeOff"
+                    class="remove-takeoff-btn"
+                    title="移除夜班收針分組"
+                  >
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
               <div
                 v-for="teamName in sortedLateTakeOffTeams"
                 :key="teamName"
@@ -2153,33 +2166,55 @@ function duplicateLateShiftForTakeOff() {
   setTeamChange()
   showAlert('操作成功', '夜班收針分組已建立，您可以開始調整。')
 }
+
+// 【✨ 新增修改 ✨】: 提示移除的方法
 function promptRemoveLateShiftTakeOff() {
   if (isPageLocked.value) return
   confirmDialogMessage.value =
-    '您確定要移除「夜班收針」分組嗎？\n所有收針的分配將會被刪除，此操作無法復原。'
+    '您確定要移除「夜班收針」分組嗎？\n所有相關的收針分配將會被永久刪除，此操作無法復原。'
   onConfirmAction.value = removeLateShiftTakeOff
   isConfirmDialogVisible.value = true
 }
+
+// 【✨ 新增修改 ✨】: 實際執行移除的方法
 function removeLateShiftTakeOff() {
   if (isPageLocked.value) return
+
+  // 1. 移除 schedule 中的 nurseTeamTakeOff 屬性
   for (const shiftId in currentRecord.schedule) {
     const slot = currentRecord.schedule[shiftId]
-    if (!slot) continue
-    const shiftCode = shiftId.split('-')[2]
-    if (shiftCode === SHIFT_CODES.LATE && slot.patientId) {
-      const teamKey = `${slot.patientId}-${shiftCode}`
+    if (slot && typeof slot.nurseTeamTakeOff !== 'undefined') {
+      delete slot.nurseTeamTakeOff
+    }
+  }
+
+  // 2. 移除 teams 中的 nurseTeamTakeOff 屬性
+  if (currentTeamsRecord.value.teams) {
+    for (const teamKey in currentTeamsRecord.value.teams) {
       const teamInfo = currentTeamsRecord.value.teams[teamKey]
       if (teamInfo && typeof teamInfo.nurseTeamTakeOff !== 'undefined') {
         delete teamInfo.nurseTeamTakeOff
-      }
-      if (typeof slot.nurseTeamTakeOff !== 'undefined') {
-        delete slot.nurseTeamTakeOff
+        // 如果這個 teamInfo 物件變空了，就整個刪除
+        if (Object.keys(teamInfo).length === 0) {
+          delete currentTeamsRecord.value.teams[teamKey]
+        }
       }
     }
   }
-  setTeamChange()
-  showAlert('操作成功', '夜班收針分組已移除。')
+
+  // 3. 移除 names 中所有 '夜間收針' 開頭的護理師指派
+  if (currentTeamsRecord.value.names) {
+    for (const teamName in currentTeamsRecord.value.names) {
+      if (teamName.startsWith('夜間收針')) {
+        delete currentTeamsRecord.value.names[teamName]
+      }
+    }
+  }
+
+  setTeamChange() // 標記為有變更
+  showAlert('操作成功', '夜班收針分組已移除。請記得儲存變更。')
 }
+
 const handleIconClick = (patientId, context) => {
   if (context === 'dialog') {
     const patient = patientMap.value.get(patientId)
@@ -2238,6 +2273,34 @@ onUnmounted(() => {})
 </script>
 
 <style scoped>
+/* 【✨ 新增修改 ✨】: 移除按鈕的樣式 */
+.takeoff-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  width: 100%;
+}
+.remove-takeoff-btn {
+  background-color: #ffebee;
+  color: #c62828;
+  border: 1px solid #ef9a9a;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.remove-takeoff-btn:hover {
+  background-color: #ef9a9a;
+  color: white;
+}
+
 /* ================================== */
 /* === 1. 頁面佈局 (核心修改) === */
 /* ================================== */
