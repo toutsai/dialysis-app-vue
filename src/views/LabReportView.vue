@@ -168,6 +168,14 @@
           <button @click="exportToExcel" class="export-btn" :disabled="groupedAlerts.length === 0">
             匯出 Excel
           </button>
+          <!-- ✨ 新增：儲存按鈕 -->
+          <button
+            @click="saveAlertAnalyses"
+            class="save-btn"
+            :disabled="isLoadingAlerts || groupedAlerts.length === 0"
+          >
+            儲存分析
+          </button>
         </div>
 
         <div class="alert-report-display">
@@ -200,14 +208,20 @@
                     <td>{{ item.patient.freq || 'N/A' }}</td>
                     <td>{{ item.patient.defaultShift || 'N/A' }}</td>
                     <td>{{ item.patient.defaultBed || 'N/A' }}</td>
-                    <td class="clickable" @click="showPatientHistory(item.patient)">
+                    <!-- ✨ 修改：點擊姓名和詳情都會觸發新 Modal -->
+                    <td class="clickable" @click="openAlertDetailModal(item, group.key)">
                       {{ item.patient.name }}
                     </td>
-                    <td class="clickable" @click="showPatientHistory(item.patient, group.key)">
+                    <td class="clickable" @click="openAlertDetailModal(item, group.key)">
                       {{ formatAbnormalityReason(item.abnormality) }}
                     </td>
-                    <td><textarea v-model="item.analysisText" rows="2"></textarea></td>
-                    <td><textarea v-model="item.suggestionText" rows="2"></textarea></td>
+                    <!-- ✨ 修改：使用 div 顯示內容，增加可讀性 -->
+                    <td>
+                      <div class="analysis-cell-content">{{ item.analysisText }}</div>
+                    </td>
+                    <td>
+                      <div class="analysis-cell-content">{{ item.suggestionText }}</div>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -326,10 +340,15 @@
         </div>
       </div>
     </main>
-    <PatientLabSummaryModal
-      :is-visible="isHistoryModalVisible"
-      :patient="selectedPatientForHistory"
-      @close="isHistoryModalVisible = false"
+    <!-- ✨ 修改：使用新的 LabAlertDetailModal 並移除舊的 -->
+    <LabAlertDetailModal
+      :is-visible="isAlertDetailModalVisible"
+      :patient="selectedAlertItem?.patient"
+      :abnormality-key="selectedAlertItem?.key"
+      :initial-analysis="selectedAlertItem?.analysisText"
+      :initial-suggestion="selectedAlertItem?.suggestionText"
+      @close="isAlertDetailModalVisible = false"
+      @confirm="handleAlertUpdate"
     />
   </div>
 </template>
@@ -350,12 +369,15 @@ import {
 } from 'firebase/firestore'
 import { db, functions } from '@/composables/useFirebase.js'
 import * as XLSX from 'xlsx'
-import PatientLabSummaryModal from '@/components/PatientLabSummaryModal.vue'
+// ✨ 修改：引入新的 Modal
+import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
 import { useAuth } from '@/composables/useAuth.js'
+// ✨ 新增：從 constants 引入 LAB_ITEM_DISPLAY_NAMES
+import { LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js'
 
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
@@ -419,8 +441,10 @@ const CONSECUTIVE_ABNORMAL_CRITERIA = {
   URR: { max: 65 },
   CaXP: { min: 60 },
 }
-const isHistoryModalVisible = ref(false)
-const selectedPatientForHistory = ref(null)
+
+// ✨ 新增：Modal 相關狀態
+const isAlertDetailModalVisible = ref(false)
+const selectedAlertItem = ref(null)
 
 const SHIFT_MAP = { early: 0, noon: 1, late: 2 }
 const SHIFT_INDEX_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
@@ -464,37 +488,12 @@ const prioritizedLabItems = [
   'Kt/V',
   'URR',
 ]
-const labItemDisplayNames = {
-  BUN: 'BUN',
-  Creatinine: 'Cr',
-  Albumin: 'ALB',
-  P: 'P',
-  Ca: 'Ca',
-  Hb: 'Hb',
-  Hct: 'Hct',
-  Platelet: 'PLT',
-  WBC: 'WBC',
-  Na: 'Na',
-  K: 'K',
-  eGFR: 'eGFR',
-  GlucoseAC: 'Glucose',
-  TotalProtein: 'Total Protein',
-  Iron: 'Fe',
-  TIBC: 'TIBC',
-  Ferritin: 'Ferritin',
-  iPTH: 'iPTH',
-  PostBUN: 'Post-BUN',
-  CaXP: 'Ca x P',
-  'Kt/V': 'Kt/V',
-  URR: 'URR (%)',
-  TSAT: 'TSAT (%)',
-  Triglyceride: 'TG',
-  LDL: 'LDL',
-  ALT: 'ALT',
-}
+const labItemDisplayNames = ref(LAB_ITEM_DISPLAY_NAMES)
 
 const labReportsApi = ApiManager('lab_reports')
 const baseSchedulesApi = ApiManager('base_schedules')
+// ✨ 新增：儲存分析用的 API Manager
+const labAnalysesApi = ApiManager('lab_alert_analyses')
 
 const alertMonthRange = computed(() => {
   const end = new Date(alertCurrentMonth.value)
@@ -513,11 +512,12 @@ const groupedAlerts = computed(() => {
       if (!groups[key]) {
         groups[key] = { key: key, items: [] }
       }
+      // ✨ 修改：確保 item 包含 analysisText 和 suggestionText
       groups[key].items.push({
         patient: item.patient,
         abnormality: abnormality,
-        analysisText: '',
-        suggestionText: '',
+        analysisText: item.analysisTexts?.[key] || '',
+        suggestionText: item.suggestionTexts?.[key] || '',
       })
     })
   })
@@ -615,8 +615,35 @@ async function generateAlertReport() {
         patientDataForReport.shiftIndex = scheduleInfo?.shiftIndex
         patientDataForReport.defaultShift = ['早', '午', '晚'][scheduleInfo?.shiftIndex] || 'N/A'
         patientDataForReport.defaultBed = scheduleInfo?.bedNum || 'N/A'
-        alertList.value.push({ patient: patientDataForReport, abnormalities })
+
+        // ✨ 新增：初始化儲存分析的物件
+        alertList.value.push({
+          patient: patientDataForReport,
+          abnormalities,
+          analysisTexts: {},
+          suggestionTexts: {},
+        })
       }
+    }
+
+    // ✨ 新增：讀取已儲存的分析資料並回填
+    const patientIdsInList = alertList.value.map((item) => item.patient.id)
+    if (patientIdsInList.length > 0) {
+      const monthRangeKey = `${alertMonthRange.value.start}_${alertMonthRange.value.end}`
+      const savedAnalyses = await queryWithInChunks(
+        'lab_alert_analyses',
+        'patientId',
+        patientIdsInList,
+        [where('monthRange', '==', monthRangeKey)],
+      )
+
+      savedAnalyses.forEach((analysis) => {
+        const targetItem = alertList.value.find((item) => item.patient.id === analysis.patientId)
+        if (targetItem) {
+          targetItem.analysisTexts[analysis.abnormalityKey] = analysis.analysis
+          targetItem.suggestionTexts[analysis.abnormalityKey] = analysis.suggestion
+        }
+      })
     }
   } catch (error) {
     console.error('生成警示報告失敗:', error)
@@ -690,9 +717,70 @@ function findAbnormalities(processedData, months) {
   return abnormalities
 }
 
-function showPatientHistory(patient) {
-  selectedPatientForHistory.value = patient
-  isHistoryModalVisible.value = true
+// ✨ 新增：開啟新 Modal 的方法
+function openAlertDetailModal(item, key) {
+  selectedAlertItem.value = { ...item, key }
+  isAlertDetailModalVisible.value = true
+}
+
+// ✨ 新增：處理 Modal 回傳資料的方法
+function handleAlertUpdate({ analysisText, suggestionText }) {
+  if (!selectedAlertItem.value) return
+
+  const { patient, key } = selectedAlertItem.value
+
+  const targetItem = alertList.value.find((item) => item.patient.id === patient.id)
+  if (targetItem) {
+    targetItem.analysisTexts[key] = analysisText
+    targetItem.suggestionTexts[key] = suggestionText
+  }
+}
+
+// ✨ 新增：儲存分析資料的方法
+async function saveAlertAnalyses() {
+  if (!confirm('您確定要儲存目前所有的病因分析與建議處置嗎？此操作將會覆蓋先前的儲存。')) {
+    return
+  }
+
+  isLoadingAlerts.value = true
+  try {
+    const promises = []
+    const monthRangeKey = `${alertMonthRange.value.start}_${alertMonthRange.value.end}`
+
+    alertList.value.forEach((item) => {
+      const patientId = item.patient.id
+      // 遍歷該病患所有不合格的項目
+      item.abnormalities.forEach((abnormality) => {
+        const key = abnormality.key
+        const analysis = item.analysisTexts[key] || ''
+        const suggestion = item.suggestionTexts[key] || ''
+
+        // 只有在有內容時才儲存
+        if (analysis || suggestion) {
+          const docId = `${patientId}_${key}_${monthRangeKey}`
+          const dataToSave = {
+            patientId: patientId,
+            patientName: item.patient.name,
+            abnormalityKey: key,
+            monthRange: monthRangeKey,
+            analysis: analysis,
+            suggestion: suggestion,
+            updatedAt: new Date(),
+          }
+          // 使用 save (set with merge) 來新增或更新
+          promises.push(labAnalysesApi.save(docId, dataToSave))
+        }
+      })
+    })
+
+    await Promise.all(promises)
+    alert('分析儲存成功！')
+  } catch (error) {
+    console.error('儲存分析失敗:', error)
+    alert(`儲存失敗: ${error.message}`)
+  } finally {
+    isLoadingAlerts.value = false
+  }
 }
 
 function exportToExcel() {
@@ -703,7 +791,7 @@ function exportToExcel() {
   const wb = XLSX.utils.book_new()
   const { start, end } = alertMonthRange.value
   groupedAlerts.value.forEach((group) => {
-    const title = `警示報告 (${labItemDisplayNames[group.key] || group.key}) - 區間: ${start} ~ ${end}`
+    const title = `警示報告 (${labItemDisplayNames.value[group.key] || group.key}) - 區間: ${start} ~ ${end}`
     const headers = [
       '頻率',
       '預設班別',
@@ -714,6 +802,7 @@ function exportToExcel() {
       '建議處置',
     ]
     const sortedItems = sortAlertItems(group.items)
+    // ✨ 修改：加入 analysisText 和 suggestionText
     const dataRows = sortedItems.map((item) => [
       item.patient.freq || 'N/A',
       item.patient.defaultShift || 'N/A',
@@ -737,7 +826,7 @@ function exportToExcel() {
       { wch: 40 },
       { wch: 40 },
     ]
-    const sheetName = (labItemDisplayNames[group.key] || group.key).replace(/[%()/]/g, '')
+    const sheetName = (labItemDisplayNames.value[group.key] || group.key).replace(/[%()/]/g, '')
     XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31))
   })
   const fileName = `警示報告_${start}_${end}.xlsx`
@@ -1153,7 +1242,7 @@ function exportGroupReportToExcel() {
     '班別',
     '床號',
     '姓名',
-    ...prioritizedLabItems.map((key) => labItemDisplayNames[key] || key),
+    ...prioritizedLabItems.map((key) => labItemDisplayNames.value[key] || key),
   ]
   const dataRows = reportData.value.map((row) => {
     return [
@@ -1180,6 +1269,26 @@ function exportGroupReportToExcel() {
 </script>
 
 <style scoped>
+/* ✨ 新增：儲存按鈕樣式 */
+.save-btn {
+  background-color: #0d6efd; /* Bootstrap Primary Blue */
+  color: white;
+  border-color: #0d6efd;
+  margin-left: auto; /* 將儲存按鈕推到最右邊 */
+}
+.save-btn:disabled {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+
+/* ✨ 新增：美化分析/處置欄位顯示 */
+.analysis-cell-content {
+  max-width: 300px;
+  white-space: pre-wrap; /* 自動換行 */
+  text-align: left;
+  padding: 4px;
+}
+
 .page-container {
   display: flex;
   flex-direction: column;
@@ -1443,7 +1552,7 @@ tbody tr:nth-child(even) .sticky-col {
   font-weight: 500;
   transition: background-color 0.2s;
 }
-.alert-controls button:not(.export-btn) {
+.alert-controls button:not(.export-btn):not(.save-btn) {
   background-color: #f8f9fa; /* 淺灰色背景 */
   color: #333;
   border-color: #ccc;

@@ -48,7 +48,7 @@
           <div class="section-header">
             <h2>營運統計</h2>
             <button @click="syncStatsWithSchedule" class="sync-stats-btn">
-              <i class="fas fa-sync-alt"></i> 同步排班人數
+              <i class="fas fa-sync-alt"></i> 更新各班病人人數
             </button>
           </div>
 
@@ -196,11 +196,11 @@
                 ></i>
               </button>
             </div>
-            <div class="cell-data total-final">{{ calculatedStaffingTotals.early.toFixed(2) }}</div>
-            <div class="cell-data total-final">{{ calculatedStaffingTotals.noon.toFixed(2) }}</div>
-            <div class="cell-data total-final">{{ calculatedStaffingTotals.late.toFixed(2) }}</div>
+            <div class="cell-data total-final">{{ calculatedStaffingTotals.early.toFixed(3) }}</div>
+            <div class="cell-data total-final">{{ calculatedStaffingTotals.noon.toFixed(3) }}</div>
+            <div class="cell-data total-final">{{ calculatedStaffingTotals.late.toFixed(3) }}</div>
             <div class="cell-total total-final">
-              {{ calculatedStaffingTotals.total.toFixed(2) }}
+              {{ calculatedStaffingTotals.total.toFixed(3) }}
             </div>
 
             <!-- 護理人力計算明細 (條件渲染) -->
@@ -208,7 +208,7 @@
               <!-- 子標題列 -->
               <div class="cell-item nested-header"></div>
               <div class="cell-category nested-header label-count-header">
-                <span>計算項目</span>
+                <span>班別</span>
                 <span>人數</span>
               </div>
               <div class="nested-header">第一班 比例</div>
@@ -229,13 +229,31 @@
                   <input type="number" min="0" v-model.number="item.count" class="count-input" />
                 </div>
                 <div class="cell-input nested-item">
-                  <input type="number" min="0" step="0.01" v-model.number="item.ratio1" />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    v-model.number="item.ratio1"
+                    :disabled="item.isLocked"
+                  />
                 </div>
                 <div class="cell-input nested-item">
-                  <input type="number" min="0" step="0.01" v-model.number="item.ratio2" />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    v-model.number="item.ratio2"
+                    :disabled="item.isLocked"
+                  />
                 </div>
                 <div class="cell-input nested-item">
-                  <input type="number" min="0" step="0.01" v-model.number="item.ratio3" />
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    v-model.number="item.ratio3"
+                    :disabled="item.isLocked"
+                  />
                 </div>
                 <div class="cell-input nested-item action-cell">
                   <button @click="deleteStaffingRow(index)" class="delete-btn mini">移除</button>
@@ -244,13 +262,15 @@
 
               <!-- 調整時數行 -->
               <div class="cell-item nested-item deduction-row"></div>
-              <div class="cell-category nested-item deduction-row">調整時數 (加班+/早退-)</div>
+              <div class="cell-category nested-item deduction-row">
+                調整時數 (加班+/早退-)[會自動幫忙乘0.125]
+              </div>
               <div class="cell-input nested-item deduction-row">
                 <input
                   type="number"
                   step="0.01"
                   v-model.number="dailyLog.stats.staffing.adjustments.shift1"
-                  placeholder="例: +2 或 -1.5"
+                  placeholder="例: +2 或 -1.5小時"
                 />
               </div>
               <div class="cell-input nested-item deduction-row">
@@ -258,7 +278,7 @@
                   type="number"
                   step="0.01"
                   v-model.number="dailyLog.stats.staffing.adjustments.shift2"
-                  placeholder="例: +2 或 -1.5"
+                  placeholder="例: +2 或 -1.5小時"
                 />
               </div>
               <div class="cell-input nested-item deduction-row">
@@ -266,7 +286,7 @@
                   type="number"
                   step="0.01"
                   v-model.number="dailyLog.stats.staffing.adjustments.shift3"
-                  placeholder="例: +2 或 -1.5"
+                  placeholder="例: +2 或 -1.5小時"
                 />
               </div>
               <div class="cell-input nested-item deduction-row"></div>
@@ -826,11 +846,51 @@ const initialLogState = () => ({
     },
     staffing: {
       details: [
-        { id: Date.now() + 1, label: '7-4(洗腎室)', count: 0, ratio1: 1, ratio2: 1, ratio3: 0 },
-        { id: Date.now() + 2, label: '7-5(洗腎室)', count: 0, ratio1: 1, ratio2: 1, ratio3: 0.125 },
-        { id: Date.now() + 3, label: '8-16(ICU)', count: 0, ratio1: 1, ratio2: 1, ratio3: 0.125 },
-        { id: Date.now() + 4, label: '12-8', count: 0, ratio1: 0, ratio2: 1, ratio3: 1 },
-        { id: Date.now() + 5, label: '3-11(夜班)', count: 0, ratio1: 0, ratio2: 0, ratio3: 1 },
+        {
+          id: Date.now() + 1,
+          label: '7-4(洗腎室)',
+          count: 0,
+          ratio1: 1,
+          ratio2: 1,
+          ratio3: 0,
+          isLocked: true,
+        },
+        {
+          id: Date.now() + 2,
+          label: '7-5(洗腎室)',
+          count: 0,
+          ratio1: 1,
+          ratio2: 1,
+          ratio3: 0.25,
+          isLocked: true,
+        },
+        {
+          id: Date.now() + 3,
+          label: '8-16(ICU)',
+          count: 0,
+          ratio1: 1,
+          ratio2: 1,
+          ratio3: 0,
+          isLocked: true,
+        },
+        {
+          id: Date.now() + 4,
+          label: '12-8',
+          count: 0,
+          ratio1: 0,
+          ratio2: 0.375,
+          ratio3: 0.625,
+          isLocked: true,
+        },
+        {
+          id: Date.now() + 5,
+          label: '3-11(夜班)',
+          count: 0,
+          ratio1: 0,
+          ratio2: 0,
+          ratio3: 1,
+          isLocked: true,
+        },
       ],
       adjustments: { shift1: null, shift2: null, shift3: null },
       early: 0,
@@ -910,9 +970,9 @@ const calculatedStaffingTotals = computed(() => {
   // 支援新舊兩種欄位名稱 (adjustments 或 deductions)
   if (staffingData) {
     const adjustments = staffingData.adjustments || staffingData.deductions || {}
-    totals.early += Number(adjustments.shift1) || 0
-    totals.noon += Number(adjustments.shift2) || 0
-    totals.late += Number(adjustments.shift3) || 0
+    totals.early += (Number(adjustments.shift1) || 0) * 0.125
+    totals.noon += (Number(adjustments.shift2) || 0) * 0.125
+    totals.late += (Number(adjustments.shift3) || 0) * 0.125
   }
 
   totals.early = Math.max(0, totals.early)
@@ -947,6 +1007,7 @@ function addStaffingRow() {
     ratio1: 0,
     ratio2: 0,
     ratio3: 0,
+    isLocked: false, // 確保新增的項目是可編輯的
   })
 }
 

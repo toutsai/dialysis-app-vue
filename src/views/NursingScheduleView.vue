@@ -22,7 +22,7 @@
     <!-- 頁籤內容區域 -->
     <main class="tab-content">
       <!-- 1. 當月總班表 -->
-      <div v-if="activeTab === 'master'" class="tab-pane">
+      <div v-if="activeTab === 'master'" class="tab-pane master-tab-layout">
         <!-- 合併的控制區域 -->
         <section class="controls-section">
           <div class="controls-left">
@@ -129,7 +129,7 @@
       </div>
 
       <!-- 2. 當月週班表 -->
-      <div v-if="activeTab === 'weekly'" class="tab-pane">
+      <div v-if="activeTab === 'weekly'" class="tab-pane weekly-tab-layout">
         <!-- 控制按鈕 -->
         <section class="controls-section">
           <div class="controls-left">
@@ -912,21 +912,42 @@ const saveData = async () => {
 /* ===== 基礎容器樣式 ===== */
 .nursing-schedule-container {
   padding: 1rem;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background-color: #f8f9fa; /* 稍微改變底色以突顯卡片 */
+  display: flex; /* 改為 flex 佈局 */
+  flex-direction: column;
+  height: calc(100vh - 100px); /* ✨ 關鍵：計算可用高度，100px 是預估的頁首高度，可微調 */
 }
 .page-title {
   font-size: 1.8rem;
   font-weight: bold;
   color: #2c3e50;
-  margin-bottom: 1.2rem;
+  margin: 0 0 1.2rem 0;
+  flex-shrink: 0; /* 防止標題被壓縮 */
 }
+
+/* ✨ 核心修改：讓頁籤內容填滿剩餘空間 */
+.tab-content {
+  flex-grow: 1;
+  overflow-y: hidden; /* 讓子元素自己處理滾動 */
+  display: flex;
+  flex-direction: column;
+}
+.tab-pane {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.master-tab-layout {
+  gap: 1rem; /* 在控制項和班表間增加間距 */
+}
+
 /* ===== 頁籤導覽 ===== */
 .tabs-nav {
   display: flex;
   border-bottom: 2px solid #dee2e6;
   margin-bottom: 1.5rem;
+  flex-shrink: 0;
 }
 .tabs-nav button {
   padding: 0.8rem 1.5rem;
@@ -962,10 +983,11 @@ const saveData = async () => {
   justify-content: space-between;
   align-items: center;
   padding: 0.8rem 1rem;
-  background-color: #f8f9fa;
+  background-color: #fff;
   border-radius: 6px;
-  margin-bottom: 1rem;
+  border: 1px solid #dee2e6;
   gap: 1rem;
+  flex-shrink: 0;
 }
 .controls-left,
 .controls-right {
@@ -1027,10 +1049,10 @@ const saveData = async () => {
 /* 狀態訊息 */
 .status-message {
   padding: 0.5rem 1rem;
-  margin-bottom: 1rem;
   border-radius: 4px;
   font-size: 0.9rem;
   animation: slideDown 0.3s ease;
+  flex-shrink: 0;
 }
 .status-message.success {
   background-color: #d4edda;
@@ -1061,6 +1083,9 @@ const saveData = async () => {
   justify-content: center;
   padding: 3rem;
   color: #6c757d;
+  background-color: #fff;
+  border-radius: 8px;
+  flex-grow: 1;
 }
 .no-schedule i {
   font-size: 3rem;
@@ -1088,13 +1113,23 @@ const saveData = async () => {
     transform: rotate(360deg);
   }
 }
-/* ===== 班表表格樣式 ===== */
+
+/* ✨ ✨ ✨ 【核心修改】 ✨ ✨ ✨ */
+.schedule-display-section {
+  flex-grow: 1;
+  min-height: 0; /* 確保在 flex 容器中可以縮小 */
+  display: flex;
+}
+
+/* ✨ 原本的 .schedule-table-wrapper 現在負責滾動 */
 .schedule-table-wrapper {
-  overflow-x: auto;
+  overflow: auto; /* ✨ 同時啟用水平和垂直滾動 */
   border: 1px solid #dee2e6;
   border-radius: 8px;
   background: white;
+  flex-grow: 1; /* ✨ 填滿 .schedule-display-section 的空間 */
 }
+
 .schedule-table-wrapper h3 {
   text-align: center;
   padding: 1rem;
@@ -1104,7 +1139,12 @@ const saveData = async () => {
   font-size: 1.2rem;
   font-weight: 600;
   color: #2c3e50;
+  /* ✨ 讓標題在滾動時固定 */
+  position: sticky;
+  top: 0;
+  z-index: 12;
 }
+
 .schedule-table {
   width: 100%;
   min-width: 1200px;
@@ -1118,12 +1158,14 @@ const saveData = async () => {
   text-align: center;
   vertical-align: middle;
 }
+.schedule-table thead {
+  position: sticky;
+  top: 58px; /* ✨ 讓 a thead 接在 h3 下方，58px 是 h3 的高度，可微調 */
+  z-index: 11;
+}
 .schedule-table th {
   background-color: #f8f9fa;
   font-weight: 600;
-  position: sticky;
-  top: 0;
-  z-index: 10;
 }
 .nurse-name-col {
   width: 100px;
@@ -1140,14 +1182,20 @@ const saveData = async () => {
   font-weight: 500;
   width: 100px;
   min-width: 100px;
+  border-right: 1px solid #dee2e6;
 }
+/* ... 其餘樣式保持不變 ... */
 .nurse-username {
   font-size: 0.7rem;
   color: #6c757d;
   font-style: italic;
   margin-left: 0.25rem;
 }
-.schedule-table tbody tr:nth-child(even) td:first-child {
+.schedule-table tbody tr:hover td,
+.schedule-table tbody tr:hover .nurse-name {
+  background-color: #f5f5f5;
+}
+.schedule-table tbody tr:nth-child(even) .nurse-name {
   background-color: #f8f9fa;
 }
 .date-col {
@@ -1155,7 +1203,7 @@ const saveData = async () => {
   min-width: 60px;
 }
 .date-col.weekend {
-  background-color: #fff5f5;
+  background-color: #fff5f5 !important;
 }
 .date-num {
   font-weight: 600;
@@ -1171,7 +1219,6 @@ const saveData = async () => {
 .shift-cell.weekend {
   background-color: #fffafa;
 }
-/* 班別樣式 */
 .shift-badge {
   display: inline-block;
   padding: 2px 6px;
