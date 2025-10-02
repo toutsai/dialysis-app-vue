@@ -173,7 +173,7 @@
         </div>
 
         <!-- 統一的頁籤化佈局 (只要有資料就顯示) -->
-        <div v-else>
+        <div v-else class="weekly-content-wrapper">
           <!-- 週次頁籤導覽列 (常駐) -->
           <nav class="weekly-tabs-nav">
             <button :class="{ active: activeWeekTab === 0 }" @click="activeWeekTab = 0">
@@ -318,9 +318,8 @@
         </div>
       </div>
 
-      <!-- ✨ ✨ ✨ 【核心修正】：將此 div 的結尾標籤移到正確的位置 ✨ ✨ ✨ -->
       <!-- 3. 護理當班分組工作職責 -->
-      <div v-if="activeTab === 'responsibilities'" class="tab-pane">
+      <div v-if="activeTab === 'responsibilities'" class="tab-pane responsibilities-tab-layout">
         <header class="pane-header">
           <h2 class="table-title">洗腎中心當班分組工作職責</h2>
           <div class="header-actions">
@@ -912,23 +911,21 @@ const saveData = async () => {
 /* ===== 基礎容器樣式 ===== */
 .nursing-schedule-container {
   padding: 1rem;
-  background-color: #f8f9fa; /* 稍微改變底色以突顯卡片 */
-  display: flex; /* 改為 flex 佈局 */
+  background-color: #f8f9fa;
+  display: flex;
   flex-direction: column;
-  height: calc(100vh - 100px); /* ✨ 關鍵：計算可用高度，100px 是預估的頁首高度，可微調 */
+  height: calc(100vh - 100px);
 }
 .page-title {
   font-size: 1.8rem;
   font-weight: bold;
   color: #2c3e50;
   margin: 0 0 1.2rem 0;
-  flex-shrink: 0; /* 防止標題被壓縮 */
+  flex-shrink: 0;
 }
-
-/* ✨ 核心修改：讓頁籤內容填滿剩餘空間 */
 .tab-content {
   flex-grow: 1;
-  overflow-y: hidden; /* 讓子元素自己處理滾動 */
+  overflow-y: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -939,7 +936,13 @@ const saveData = async () => {
   min-height: 0;
 }
 .master-tab-layout {
-  gap: 1rem; /* 在控制項和班表間增加間距 */
+  gap: 1rem;
+}
+
+/* ===== 【✨ 核心修復 ✨】: 為其他兩個頁籤的容器加上滾動 ===== */
+.weekly-tab-layout,
+.responsibilities-tab-layout {
+  overflow-y: auto;
 }
 
 /* ===== 頁籤導覽 ===== */
@@ -988,6 +991,7 @@ const saveData = async () => {
   border: 1px solid #dee2e6;
   gap: 1rem;
   flex-shrink: 0;
+  margin-bottom: 1rem; /* ✨ 為下方內容增加間距 */
 }
 .controls-left,
 .controls-right {
@@ -1114,20 +1118,19 @@ const saveData = async () => {
   }
 }
 
-/* ✨ ✨ ✨ 【核心修改】 ✨ ✨ ✨ */
+/* ===== 總班表樣式 ===== */
 .schedule-display-section {
   flex-grow: 1;
-  min-height: 0; /* 確保在 flex 容器中可以縮小 */
+  min-height: 0;
   display: flex;
 }
 
-/* ✨ 原本的 .schedule-table-wrapper 現在負責滾動 */
 .schedule-table-wrapper {
-  overflow: auto; /* ✨ 同時啟用水平和垂直滾動 */
+  overflow: auto;
   border: 1px solid #dee2e6;
   border-radius: 8px;
   background: white;
-  flex-grow: 1; /* ✨ 填滿 .schedule-display-section 的空間 */
+  flex-grow: 1;
 }
 
 .schedule-table-wrapper h3 {
@@ -1139,7 +1142,6 @@ const saveData = async () => {
   font-size: 1.2rem;
   font-weight: 600;
   color: #2c3e50;
-  /* ✨ 讓標題在滾動時固定 */
   position: sticky;
   top: 0;
   z-index: 12;
@@ -1160,7 +1162,7 @@ const saveData = async () => {
 }
 .schedule-table thead {
   position: sticky;
-  top: 58px; /* ✨ 讓 a thead 接在 h3 下方，58px 是 h3 的高度，可微調 */
+  top: 58px;
   z-index: 11;
 }
 .schedule-table th {
@@ -1184,7 +1186,6 @@ const saveData = async () => {
   min-width: 100px;
   border-right: 1px solid #dee2e6;
 }
-/* ... 其餘樣式保持不變 ... */
 .nurse-username {
   font-size: 0.7rem;
   color: #6c757d;
@@ -1284,6 +1285,13 @@ const saveData = async () => {
   border-bottom: 2px solid #fff;
 }
 /* ===== 週班表樣式 ===== */
+.weekly-content-wrapper {
+  /* ✨ 新增一個容器來管理週班表內部佈局 */
+  flex-grow: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .weekly-schedule-container,
 .view-mode-container {
   margin-top: 1.5rem;
@@ -1355,7 +1363,6 @@ const saveData = async () => {
   font-size: 0.85em;
 }
 
-/* ✨ 核心修正：為週班表的組別樣式加上 .group-badge 增加 specificity */
 .group-badge.group-A {
   background-color: #c0392b;
 }
@@ -1606,7 +1613,6 @@ const saveData = async () => {
 .teamwork-list .editable-text {
   margin: 0 0 0.8rem 0;
 }
-/* ✨ 核心修正：為工作職責的組別樣式加上 .group-tag 增加 specificity */
 :deep(.group-tag) {
   display: inline-block;
   color: white;
