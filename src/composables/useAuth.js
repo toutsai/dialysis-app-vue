@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useAuth.js (已加入職稱 title)
+// 檔案路徑: src/composables/useAuth.js (已修正)
 
 import { ref, computed, readonly } from 'vue'
 import { useRouter } from 'vue-router'
@@ -195,6 +195,7 @@ export function useAuth() {
   // --- 計算屬性 ---
   const isLoggedIn = computed(() => !!currentUser.value)
   const isAdmin = computed(() => hasPermission('admin'))
+  const isEditor = computed(() => hasPermission('editor')) // ✅ 修正：這應該是 computed 而不是 ref
   const canEditSchedules = computed(() => hasPermission('editor'))
   const isContributor = computed(() => hasPermission('contributor'))
   const canEditPatients = computed(() => hasPermission('contributor'))
@@ -216,18 +217,18 @@ export function useAuth() {
     return !!currentUser.value
   })
 
-  // ✨ 3. 【修改】讓 canEditClinicalNotesAndOrders 的寫法與其他權限保持一致
-  // 這樣更穩健，並且不再直接依賴外部的 claims 變數
   const canEditClinicalNotesAndOrders = computed(() => {
-    // 改為讀取 currentUser.value.role，確保資料來源一致
     if (!currentUser.value?.role) return false
     return ['admin', 'contributor'].includes(currentUser.value.role)
   })
 
+  // ❌ 移除這兩行重複定義！它們覆蓋了上面正確的定義
+  // const isEditor = ref(false)
+  // const currentUser = ref(null)
+
   return {
     // 狀態
     currentUser: readonly(currentUser),
-    // ✨ 4. 【可選但推薦】也可以把 claims 匯出，方便偵錯
     claims: readonly(claims),
     isLoggedIn: readonly(isLoggedIn),
     authLoading: readonly(authLoading),
@@ -246,12 +247,13 @@ export function useAuth() {
 
     // 權限計算屬性
     isAdmin,
+    isEditor, // ✅ 現在這個正確地指向 computed 屬性
     isContributor,
     canEditSchedules,
     canEditPatients,
     isReadOnly,
-    canManageOrders, // ✨ 新增
-    canViewConsumables, // ✨ 新增
+    canManageOrders,
+    canViewConsumables,
     canEditClinicalNotesAndOrders,
   }
 }
