@@ -92,7 +92,7 @@
                   <th class="nurse-name-col">護理師</th>
                   <th
                     v-for="dayInfo in monthDays"
-                    :key="dayInfo.day"
+                    :key="`day-${dayInfo.day}`"
                     :class="['date-col', { weekend: dayInfo.isWeekend }]"
                   >
                     <div class="date-num">{{ dayInfo.day }}</div>
@@ -100,8 +100,8 @@
                   </th>
                 </tr>
               </thead>
-              <tbody>
-                <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="nurseId">
+              <tbody v-if="sortedSchedule && monthDays && monthDays.length > 0">
+                <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="`nurse-${nurseId}`">
                   <td class="nurse-name">
                     {{ nurseData.nurseName }}
                     <span v-if="showUsername && nurseData.nurseUsername" class="nurse-username">
@@ -110,7 +110,7 @@
                   </td>
                   <td
                     v-for="(dayInfo, index) in monthDays"
-                    :key="`${nurseId}-${index}`"
+                    :key="`${nurseId}-day-${index}`"
                     :class="['shift-cell', { weekend: dayInfo.isWeekend }]"
                   >
                     <span
@@ -142,14 +142,38 @@
             />
           </div>
           <div class="controls-right">
-            <button v-if="!isGroupEditMode" @click="enterGroupEditMode" class="btn-primary">
-              編輯組別
-            </button>
-            <template v-else>
-              <button @click="saveGroupAssignments" :disabled="isUploading" class="btn-primary">
-                {{ isUploading ? '儲存中...' : '儲存分組' }}
+            <!-- 班別編輯按鈕 -->
+            <template v-if="auth && auth.isEditor.value">
+              <button
+                v-if="!isShiftEditMode && !isGroupEditMode"
+                @click="enterShiftEditMode"
+                class="btn-edit"
+              >
+                編輯班別
               </button>
-              <button @click="cancelGroupEditMode" class="btn-secondary">取消編輯</button>
+              <template v-else-if="isShiftEditMode">
+                <button @click="saveShiftChanges" :disabled="isUploading" class="btn-primary">
+                  {{ isUploading ? '儲存中...' : '儲存班別' }}
+                </button>
+                <button @click="cancelShiftEditMode" class="btn-secondary">取消</button>
+              </template>
+            </template>
+
+            <!-- 分組編輯按鈕 -->
+            <template v-if="auth && auth.isEditor.value">
+              <button
+                v-if="!isGroupEditMode && !isShiftEditMode"
+                @click="enterGroupEditMode"
+                class="btn-primary"
+              >
+                編輯組別
+              </button>
+              <template v-else-if="isGroupEditMode">
+                <button @click="saveGroupAssignments" :disabled="isUploading" class="btn-primary">
+                  {{ isUploading ? '儲存中...' : '儲存分組' }}
+                </button>
+                <button @click="cancelGroupEditMode" class="btn-secondary">取消編輯</button>
+              </template>
             </template>
           </div>
         </section>
@@ -196,15 +220,31 @@
               <table class="dashboard-table">
                 <thead>
                   <tr>
-                    <th v-for="header in groupCountsDashboard.header" :key="header">
+                    <th
+                      v-for="header in groupCountsDashboard.header"
+                      :key="header"
+                      :class="{
+                        'day-shift-header': header.startsWith('白'),
+                        'night-shift-header': header.startsWith('晚'),
+                        'standby-75-header': header === '預備75',
+                      }"
+                    >
                       {{ header }}
                     </th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody v-if="groupCountsDashboard">
                   <tr v-for="nurse in groupCountsDashboard.nurses" :key="nurse.id">
                     <td>{{ nurse.name }}</td>
-                    <td v-for="group in groupCountsDashboard.header.slice(1)" :key="group">
+                    <td
+                      v-for="group in groupCountsDashboard.header.slice(1)"
+                      :key="group"
+                      :class="{
+                        'day-shift-data': group.startsWith('白'),
+                        'night-shift-data': group.startsWith('晚'),
+                        'standby-75-data': group === '預備75',
+                      }"
+                    >
                       {{ nurse.counts[group] || 0 }}
                     </td>
                   </tr>
@@ -215,10 +255,11 @@
 
           <!-- 週班表內容 (根據頁籤切換顯示) -->
           <div class="weekly-schedule-container">
-            <template v-for="(week, weekIndex) in weeklyData" :key="weekIndex">
+            <template v-for="(weekData, weekIndex) in weeklyData" :key="`week-${weekIndex}`">
               <div v-if="activeWeekTab === weekIndex + 1" class="week-section">
                 <h4 class="week-title">
-                  第 {{ week.weekNumber }} 週 ({{ week.startDate }} - {{ week.endDate }})
+                  第 {{ weekData.weekNumber }} 週 ({{ weekData.startDate }} -
+                  {{ weekData.endDate }})
                 </h4>
                 <div class="week-table-wrapper">
                   <table class="week-table">
@@ -226,87 +267,155 @@
                       <tr>
                         <th class="nurse-name-col-weekly">護理師</th>
                         <th
-                          v-for="day in week.days"
-                          :key="day.date"
-                          :class="{ weekend: day.isWeekend }"
+                          v-for="(dayInfo, dayIdx) in weekData.days"
+                          :key="`header-${dayIdx}`"
+                          :class="{
+                            weekend: dayInfo.isWeekend,
+                            'other-month-header': !dayInfo.isCurrentMonth,
+                          }"
                         >
-                          {{ day.day }} ({{ day.weekday }})
+                          {{ dayInfo.displayText }} ({{ dayInfo.weekday }})
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
-                      <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="nurseId">
+                    <tbody v-if="sortedSchedule">
+                      <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="`nurse-${nurseId}`">
                         <td class="nurse-name-weekly">{{ nurseData.nurseName }}</td>
                         <td
-                          v-for="day in week.days"
-                          :key="day.date"
-                          :class="{ weekend: day.isWeekend }"
+                          v-for="(dayInfo, dayIdx) in weekData.days"
+                          :key="`cell-${nurseId}-${dayIdx}`"
+                          :class="{
+                            weekend: dayInfo.isWeekend,
+                            'other-month': !dayInfo.isCurrentMonth,
+                          }"
                         >
-                          <div v-if="nurseData.shifts[day.dayIndex]" class="weekly-shift-cell">
-                            <span :class="getShiftClass(nurseData.shifts[day.dayIndex])">
-                              {{ nurseData.shifts[day.dayIndex] }}
-                            </span>
-                            <!-- 編輯模式 -->
-                            <template v-if="isGroupEditMode && tempScheduleWithGroups">
+                          <!-- 只有當月才能編輯 -->
+                          <template v-if="dayInfo.isCurrentMonth">
+                            <!-- 班別編輯模式 -->
+                            <template v-if="isShiftEditMode">
                               <select
-                                v-if="
-                                  canAssignGroup(
-                                    tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
-                                      day.dayIndex
-                                    ],
-                                  )
-                                "
                                 v-model="
-                                  tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
-                                    day.dayIndex
-                                  ]
+                                  monthlySchedule.scheduleByNurse[nurseId].shifts[dayInfo.dayIndex]
                                 "
-                                class="group-select"
+                                class="shift-select"
                               >
-                                <option value="">-</option>
                                 <option
-                                  v-for="group in getAvailableGroups(
-                                    tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
-                                      day.dayIndex
-                                    ],
-                                    day.date,
-                                  )"
-                                  :key="group"
-                                  :value="group"
+                                  v-for="option in shiftOptions"
+                                  :key="option"
+                                  :value="option"
                                 >
-                                  {{ group }} 組
+                                  {{ option }}
                                 </option>
                               </select>
-                              <span
-                                v-else-if="
-                                  tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
-                                    day.dayIndex
-                                  ]
-                                "
-                                class="group-badge-fixed"
-                              >
-                                {{
-                                  tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
-                                    day.dayIndex
-                                  ]
-                                }}
-                                組
-                              </span>
                             </template>
-                            <!-- 檢視模式 -->
+                            <!-- 一般顯示或分組編輯 -->
                             <template v-else>
-                              <span
-                                v-if="nurseData.groups && nurseData.groups[day.dayIndex]"
-                                :class="[
-                                  'group-badge',
-                                  getGroupClass(nurseData.groups[day.dayIndex]),
-                                ]"
+                              <div
+                                v-if="nurseData.shifts && nurseData.shifts[dayInfo.dayIndex]"
+                                class="weekly-shift-cell"
                               >
-                                {{ nurseData.groups[day.dayIndex] }} 組
-                              </span>
+                                <div class="shift-and-standby">
+                                  <span :class="getShiftClass(nurseData.shifts[dayInfo.dayIndex])">
+                                    {{ nurseData.shifts[dayInfo.dayIndex] }}
+                                  </span>
+                                  <!-- 預備75班標記 -->
+                                  <span
+                                    v-if="isStandby75(nurseId, dayInfo.dayIndex)"
+                                    class="standby-75-marker"
+                                    :class="{
+                                      editable:
+                                        isGroupEditMode &&
+                                        canBeStandby75(nurseId, dayInfo.dayIndex),
+                                    }"
+                                    @click="
+                                      isGroupEditMode &&
+                                      canBeStandby75(nurseId, dayInfo.dayIndex) &&
+                                      toggleStandby75(nurseId, dayInfo.dayIndex)
+                                    "
+                                    :title="isGroupEditMode ? '點擊移除預備75班' : '預備第3個75班'"
+                                  >
+                                    ⭐
+                                  </span>
+                                  <!-- 編輯模式下的新增預備75按鈕 -->
+                                  <button
+                                    v-else-if="
+                                      isGroupEditMode && canBeStandby75(nurseId, dayInfo.dayIndex)
+                                    "
+                                    @click="toggleStandby75(nurseId, dayInfo.dayIndex)"
+                                    class="add-standby-btn"
+                                    title="設為預備75班"
+                                  >
+                                    +⭐
+                                  </button>
+                                </div>
+                                <!-- 分組編輯模式 -->
+                                <template v-if="isGroupEditMode && tempScheduleWithGroups">
+                                  <select
+                                    v-if="
+                                      canAssignGroup(
+                                        tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
+                                          dayInfo.dayIndex
+                                        ],
+                                      )
+                                    "
+                                    v-model="
+                                      tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                        dayInfo.dayIndex
+                                      ]
+                                    "
+                                    class="group-select"
+                                  >
+                                    <option value="">-</option>
+                                    <option
+                                      v-for="group in getAvailableGroups(
+                                        tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
+                                          dayInfo.dayIndex
+                                        ],
+                                        dayInfo.date,
+                                      )"
+                                      :key="group"
+                                      :value="group"
+                                    >
+                                      {{ group }} 組
+                                    </option>
+                                  </select>
+                                  <span
+                                    v-else-if="
+                                      tempScheduleWithGroups.scheduleByNurse[nurseId].groups &&
+                                      tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                        dayInfo.dayIndex
+                                      ]
+                                    "
+                                    class="group-badge-fixed"
+                                  >
+                                    {{
+                                      tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                        dayInfo.dayIndex
+                                      ]
+                                    }}
+                                    組
+                                  </span>
+                                </template>
+                                <!-- 檢視模式的分組顯示 -->
+                                <template v-else>
+                                  <span
+                                    v-if="nurseData.groups && nurseData.groups[dayInfo.dayIndex]"
+                                    :class="[
+                                      'group-badge',
+                                      getGroupClass(nurseData.groups[dayInfo.dayIndex]),
+                                    ]"
+                                  >
+                                    {{ nurseData.groups[dayInfo.dayIndex] }} 組
+                                  </span>
+                                </template>
+                              </div>
+                              <div v-else class="empty-cell">-</div>
                             </template>
-                          </div>
-                          <div v-else class="empty-cell">-</div>
+                          </template>
+                          <!-- 非當月顯示 -->
+                          <template v-else>
+                            <div class="other-month-cell">-</div>
+                          </template>
                         </td>
                       </tr>
                     </tbody>
@@ -332,7 +441,7 @@
             </span>
             <button
               @click="saveData"
-              :disabled="!hasChanges || !auth.isAdmin.value"
+              :disabled="!hasChanges || !(auth && auth.isAdmin.value)"
               class="save-button"
               title="儲存所有修改"
             >
@@ -525,6 +634,8 @@ const showUsername = ref(false)
 const isGroupEditMode = ref(false)
 const tempScheduleWithGroups = ref(null)
 const activeWeekTab = ref(1)
+const isShiftEditMode = ref(false)
+const hasUnsavedShiftChanges = ref(false)
 
 // 動態資料來源，供 Composable 使用
 const scheduleSourceForStats = computed(() => {
@@ -543,6 +654,9 @@ const lastModifiedInfo = ref({ date: '', user: '' })
 // --- API 實例 ---
 const usersApi = ApiManager('users')
 const nursingSchedulesApi = ApiManager('nursing_schedules')
+
+// --- 常數 ---
+const shiftOptions = ref(['', '74', '75', '816', '74/L', '311', '休', '例', '國定'])
 
 // --- 計算屬性 ---
 const monthDays = computed(() => {
@@ -566,16 +680,15 @@ const monthDays = computed(() => {
 })
 
 const sortedSchedule = computed(() => {
-  const scheduleSource = isGroupEditMode.value
-    ? tempScheduleWithGroups.value?.scheduleByNurse
-    : monthlySchedule.value?.scheduleByNurse
-  if (!scheduleSource) return {}
-  const nurses = Object.entries(scheduleSource)
-  const sourceForOrder = monthlySchedule.value || tempScheduleWithGroups.value
-  if (sourceForOrder?.processingOrder) {
-    const orderMap = new Map(sourceForOrder.processingOrder.map((id, index) => [id, index]))
+  const scheduleData = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!scheduleData || !scheduleData.scheduleByNurse) {
+    return {}
+  }
+  const nurses = Object.entries(scheduleData.scheduleByNurse)
+  if (scheduleData.processingOrder) {
+    const orderMap = new Map(scheduleData.processingOrder.map((id, index) => [id, index]))
     nurses.sort((a, b) => (orderMap.get(a[0]) ?? 999) - (orderMap.get(b[0]) ?? 999))
-  } else if (sourceForOrder?.scheduleByNurse) {
+  } else {
     nurses.sort((a, b) => a[1].nurseName.localeCompare(b[1].nurseName, 'zh-TW'))
   }
   return Object.fromEntries(nurses)
@@ -583,40 +696,151 @@ const sortedSchedule = computed(() => {
 
 const weeklyData = computed(() => {
   const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
-  if (!source || !monthDays.value.length) return []
+  if (!source || !source.yearMonth) return []
+
   const yearMonth = source.yearMonth
   const [year, month] = yearMonth.split('-').map(Number)
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   const weeks = []
-  let currentWeek = { weekNumber: 1, days: [], startDate: '', endDate: '' }
-  monthDays.value.forEach((dayInfo, dayIndex) => {
-    const dayOfWeek = new Date(year, month - 1, dayInfo.day).getDay()
-    if (dayOfWeek === 1 && currentWeek.days.length > 0) {
-      currentWeek.endDate = `${month}/${currentWeek.days[currentWeek.days.length - 1].day}`
-      weeks.push(currentWeek)
-      currentWeek = {
-        weekNumber: weeks.length + 1,
-        days: [],
-        startDate: `${month}/${dayInfo.day}`,
-        endDate: '',
-      }
+
+  // 找出月份第一天和最後一天
+  const firstDayOfMonth = new Date(year, month - 1, 1)
+  const lastDayOfMonth = new Date(year, month, 0)
+  const firstDayWeekday = firstDayOfMonth.getDay()
+  const lastDate = lastDayOfMonth.getDate()
+  const lastDayWeekday = lastDayOfMonth.getDay()
+
+  // 計算需要從前一個月補充幾天（讓第一週從週一開始）
+  const daysFromPrevMonth = firstDayWeekday === 0 ? 6 : firstDayWeekday - 1
+
+  // 計算需要從下一個月補充幾天（讓最後一週到週日結束）
+  const daysFromNextMonth = lastDayWeekday === 0 ? 0 : 7 - lastDayWeekday
+
+  // 建立完整的日期陣列
+  const allDays = []
+
+  // 加入前一個月的日期
+  if (daysFromPrevMonth > 0) {
+    const prevMonth = month - 1 || 12
+    const prevYear = month - 1 < 1 ? year - 1 : year
+    const prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate()
+
+    for (let i = daysFromPrevMonth; i > 0; i--) {
+      const day = prevMonthLastDay - i + 1
+      const date = new Date(prevYear, prevMonth - 1, day)
+      allDays.push({
+        date: date.toISOString().slice(0, 10),
+        day: day,
+        month: prevMonth,
+        weekday: weekdays[date.getDay()],
+        isWeekend: date.getDay() === 0 || date.getDay() === 6,
+        dayIndex: -1,
+        isCurrentMonth: false,
+        displayText: `${prevMonth}/${day}`,
+      })
     }
-    if (currentWeek.days.length === 0) {
-      currentWeek.startDate = `${month}/${dayInfo.day}`
-    }
-    currentWeek.days.push({
-      date: `${yearMonth}-${String(dayInfo.day).padStart(2, '0')}`,
-      day: dayInfo.day,
-      weekday: dayInfo.weekday,
-      isWeekend: dayInfo.isWeekend,
-      dayIndex: dayIndex,
-    })
-  })
-  if (currentWeek.days.length > 0) {
-    currentWeek.endDate = `${month}/${currentWeek.days[currentWeek.days.length - 1].day}`
-    weeks.push(currentWeek)
   }
+
+  // 加入當月的日期
+  for (let day = 1; day <= lastDate; day++) {
+    const date = new Date(year, month - 1, day)
+    allDays.push({
+      date: `${yearMonth}-${String(day).padStart(2, '0')}`,
+      day: day,
+      month: month,
+      weekday: weekdays[date.getDay()],
+      isWeekend: date.getDay() === 0 || date.getDay() === 6,
+      dayIndex: day - 1,
+      isCurrentMonth: true,
+      displayText: `${day}`, // 當月只顯示日期
+    })
+  }
+
+  // 加入下一個月的日期
+  if (daysFromNextMonth > 0) {
+    const nextMonth = month + 1 > 12 ? 1 : month + 1
+    const nextYear = month + 1 > 12 ? year + 1 : year
+
+    for (let day = 1; day <= daysFromNextMonth; day++) {
+      const date = new Date(nextYear, nextMonth - 1, day)
+      allDays.push({
+        date: date.toISOString().slice(0, 10),
+        day: day,
+        month: nextMonth,
+        weekday: weekdays[date.getDay()],
+        isWeekend: date.getDay() === 0 || date.getDay() === 6,
+        dayIndex: -1,
+        isCurrentMonth: false,
+        displayText: `${nextMonth}/${day}`,
+      })
+    }
+  }
+
+  // 將日期分組成週
+  let weekNumber = 1
+  for (let i = 0; i < allDays.length; i += 7) {
+    const weekDays = allDays.slice(i, i + 7)
+    if (weekDays.length > 0) {
+      const firstDay = weekDays[0]
+      const lastDay = weekDays[weekDays.length - 1]
+
+      weeks.push({
+        weekNumber: weekNumber++,
+        days: weekDays,
+        startDate: `${firstDay.month}/${firstDay.day}`,
+        endDate: `${lastDay.month}/${lastDay.day}`,
+      })
+    }
+  }
+
   return weeks
 })
+
+// 檢查是否為預備75班
+const isStandby75 = (nurseId, dayIndex) => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !source.scheduleByNurse[nurseId]) return false
+  return source.scheduleByNurse[nurseId].standby75Days?.includes(dayIndex)
+}
+
+// 檢查是否可以當預備75班（只有74班可以）
+const canBeStandby75 = (nurseId, dayIndex) => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !source.scheduleByNurse[nurseId]) return false
+  const shift = source.scheduleByNurse[nurseId].shifts?.[dayIndex]
+  return shift === '74' // 只有74班可以當預備75
+}
+
+// 切換預備75班（微調功能）
+const toggleStandby75 = (nurseId, dayIndex) => {
+  if (!isGroupEditMode.value || !tempScheduleWithGroups.value) return
+
+  // 確保資料結構存在
+  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
+    if (!nurse.standby75Days) {
+      nurse.standby75Days = []
+    }
+  })
+
+  const nurseData = tempScheduleWithGroups.value.scheduleByNurse[nurseId]
+
+  // 先檢查該護理師是否已經是當天的預備75班
+  const isCurrentStandby = nurseData.standby75Days.includes(dayIndex)
+
+  // 移除當天所有人的預備75班
+  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
+    const idx = nurse.standby75Days.indexOf(dayIndex)
+    if (idx > -1) {
+      nurse.standby75Days.splice(idx, 1)
+    }
+  })
+
+  // 如果原本不是預備75班，則設定為預備75班
+  if (!isCurrentStandby) {
+    nurseData.standby75Days.push(dayIndex)
+    nurseData.standby75Days.sort((a, b) => a - b) // 保持排序
+  }
+}
 
 // --- 生命週期 ---
 onMounted(() => {
@@ -625,6 +849,62 @@ onMounted(() => {
 })
 
 // --- 方法 ---
+
+function enterShiftEditMode() {
+  if (!monthlySchedule.value) {
+    alert('請先載入月班表資料！')
+    return
+  }
+  isShiftEditMode.value = true
+  hasUnsavedShiftChanges.value = false // 重置狀態
+  uploadStatus.value = ''
+}
+
+function cancelShiftEditMode() {
+  if (hasUnsavedShiftChanges.value) {
+    if (confirm('您有未儲存的班別修改，確定要放棄嗎？')) {
+      isShiftEditMode.value = false
+      hasUnsavedShiftChanges.value = false
+      loadMonthlySchedule() // 重新載入原始資料
+    }
+  } else {
+    isShiftEditMode.value = false
+  }
+}
+
+async function saveShiftChanges() {
+  if (!hasUnsavedShiftChanges.value) {
+    alert('沒有偵測到任何變更。')
+    return
+  }
+  isUploading.value = true
+  uploadStatus.value = '正在儲存班別變更...'
+  try {
+    const documentId = selectedMonth.value
+    const scheduleDataToSave = monthlySchedule.value.scheduleByNurse
+    await nursingSchedulesApi.update(documentId, { scheduleByNurse: scheduleDataToSave })
+    uploadStatus.value = '班別變更成功儲存！'
+    createGlobalNotification('班別已成功更新', 'success')
+    isShiftEditMode.value = false
+    hasUnsavedShiftChanges.value = false
+    await loadMonthlySchedule()
+  } catch (error) {
+    console.error('儲存護理班別失敗:', error)
+    uploadStatus.value = `儲存失敗：${error.message}`
+  } finally {
+    isUploading.value = false
+  }
+}
+
+watch(
+  monthlySchedule,
+  (newValue, oldValue) => {
+    if (isShiftEditMode.value && oldValue) {
+      hasUnsavedShiftChanges.value = true
+    }
+  },
+  { deep: true },
+)
 
 function enterGroupEditMode() {
   if (!monthlySchedule.value) {
@@ -671,13 +951,17 @@ async function saveGroupAssignments() {
   }
 }
 
+// ✅ canAssignGroup 函式修正
 const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
+  // 74/L 和 816 是特殊班別不分組
   if (s.includes('74/L') || s.includes('816')) return false
-  const isDayShift = ['74', '75'].some((ds) => s.includes(ds))
-  const isNightShift = ['311', '3-11'].some((ns) => s.includes(ns))
-  return isDayShift || isNightShift
+
+  // 使用原本的 isDayShift 判斷（包含74、75、84）
+  const dayShift = ['74', '75', '84'].some((ds) => s === ds)
+  const nightShift = ['311', '3-11'].some((ns) => s.includes(ns))
+  return dayShift || nightShift
 }
 
 const getAvailableGroups = (shift, date) => {
@@ -724,7 +1008,9 @@ function handleFileUpload(event) {
 async function loadMonthlySchedule() {
   isLoadingSchedule.value = true
   uploadStatus.value = ''
-  cancelGroupEditMode()
+  cancelGroupEditMode() // 確保退出分組編輯模式
+  isShiftEditMode.value = false // 確保退出班別編輯模式
+  hasUnsavedShiftChanges.value = false
   try {
     const documentId = selectedMonth.value
     const schedule = await nursingSchedulesApi.fetchById(documentId)
@@ -822,7 +1108,7 @@ watch(
   { deep: true, immediate: false },
 )
 const enterEditMode = async (type, rowIndex, field) => {
-  if (!auth.isAdmin.value) return
+  if (!(auth && auth.isAdmin.value)) return
   editingCell.value = { type, rowIndex, field }
   await nextTick()
   if (inputRef) {
@@ -880,7 +1166,7 @@ const loadData = async () => {
   hasChanges.value = false
 }
 const saveData = async () => {
-  if (!hasChanges.value || !auth.isAdmin.value) return
+  if (!hasChanges.value || !(auth && auth.isAdmin.value)) return
   try {
     const now = new Date()
     const formattedDate = `${now.getFullYear() - 1911}.${String(now.getMonth() + 1).padStart(
@@ -925,7 +1211,7 @@ const saveData = async () => {
 }
 .tab-content {
   flex-grow: 1;
-  overflow-y: hidden;
+  overflow-y: hidden; /* 保持 hidden，讓子元素自己處理滾動 */
   display: flex;
   flex-direction: column;
 }
@@ -943,6 +1229,10 @@ const saveData = async () => {
 .weekly-tab-layout,
 .responsibilities-tab-layout {
   overflow-y: auto;
+}
+.weekly-tab-layout {
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== 頁籤導覽 ===== */
@@ -991,7 +1281,7 @@ const saveData = async () => {
   border: 1px solid #dee2e6;
   gap: 1rem;
   flex-shrink: 0;
-  margin-bottom: 1rem; /* ✨ 為下方內容增加間距 */
+  margin-bottom: 1rem;
 }
 .controls-left,
 .controls-right {
@@ -1012,7 +1302,9 @@ const saveData = async () => {
 }
 /* 按鈕樣式 */
 .btn-primary,
-.btn-secondary {
+.btn-secondary,
+.btn-edit {
+  /* ✨ 新增修改 ✨: 編輯按鈕樣式 */
   padding: 0.4rem 1rem;
   border: none;
   border-radius: 4px;
@@ -1042,6 +1334,16 @@ const saveData = async () => {
   background-color: #f8f9fa;
   border-color: #adb5bd;
 }
+/* ✨ 新增修改 ✨: 編輯按鈕樣式 */
+.btn-edit {
+  background-color: #ffc107;
+  color: #212529;
+  border: 1px solid #ffc107;
+}
+.btn-edit:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
 /* 檔案上傳樣式 */
 .file-upload-label {
   display: inline-block;
@@ -1286,7 +1588,6 @@ const saveData = async () => {
 }
 /* ===== 週班表樣式 ===== */
 .weekly-content-wrapper {
-  /* ✨ 新增一個容器來管理週班表內部佈局 */
   flex-grow: 1;
   min-height: 0;
   display: flex;
@@ -1349,11 +1650,14 @@ const saveData = async () => {
 .week-table .weekend {
   background-color: #fff5f5;
 }
+/* 讓週班表格子稍微調整以容納星號 */
 .weekly-shift-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.3rem;
+  min-height: 60px;
+  justify-content: center;
 }
 .group-badge {
   font-weight: bold;
@@ -1445,6 +1749,23 @@ const saveData = async () => {
 .dashboard-table th:first-child {
   z-index: 2;
 }
+.dashboard-table th.day-shift-header {
+  background-color: #fff9e6 !important; /* 淺黃色 - 白班 */
+  color: #856404;
+}
+
+.dashboard-table th.night-shift-header {
+  background-color: #e6f3ff !important; /* 淺藍色 - 晚班 */
+  color: #004085;
+}
+
+.dashboard-table td.day-shift-data {
+  background-color: #fffef9; /* 更淺的黃色 - 白班資料 */
+}
+
+.dashboard-table td.night-shift-data {
+  background-color: #f5f9ff; /* 更淺的藍色 - 晚班資料 */
+}
 /* ===== 編輯模式下拉選單樣式 ===== */
 .group-select {
   margin-top: 0.3rem;
@@ -1455,6 +1776,19 @@ const saveData = async () => {
   background-color: #fff;
   cursor: pointer;
 }
+/* ✨ 新增修改 ✨: 班別編輯下拉選單樣式 */
+.shift-select {
+  width: 100%;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid #007bff;
+  background-color: #e7f1ff;
+  font-size: 0.9em;
+  font-weight: 500;
+  text-align: center;
+  box-sizing: border-box;
+}
+
 .group-badge-fixed {
   font-weight: bold;
   padding: 2px 8px;
@@ -1686,6 +2020,83 @@ const saveData = async () => {
   border-radius: 0;
   font-weight: bold;
 }
+
+/* 非當月的樣式 */
+.week-table th.other-month-header {
+  background-color: #e8e8e8;
+  color: #999;
+  font-style: italic;
+}
+
+.week-table td.other-month {
+  background-color: #f8f8f8;
+  color: #ccc;
+}
+
+.week-table td.other-month.weekend {
+  background-color: #f5f5f5;
+}
+
+.other-month-cell {
+  color: #ddd;
+  text-align: center;
+}
+
+/* 預備75班相關樣式 */
+.shift-and-standby {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.standby-75-marker {
+  color: #ffc107;
+  font-size: 0.9em;
+  cursor: default;
+  vertical-align: super;
+  margin-left: 2px;
+}
+
+.standby-75-marker.editable {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.standby-75-marker.editable:hover {
+  color: #ff9800;
+  transform: scale(1.2);
+}
+
+.add-standby-btn {
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 0.8em;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+  transition: all 0.2s;
+}
+
+.add-standby-btn:hover {
+  color: #ffc107;
+  transform: scale(1.1);
+}
+
+/* 統計表的預備75欄位樣式 */
+.dashboard-table th.standby-75-header {
+  background-color: #fff3cd !important;
+  color: #856404;
+  font-weight: bold;
+  border: 2px solid #ffc107;
+}
+
+.dashboard-table td.standby-75-data {
+  background-color: #fffef5;
+  font-weight: bold;
+  color: #856404;
+}
+
 /* 響應式處理 */
 @media (max-width: 768px) {
   .controls-section {
