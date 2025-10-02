@@ -226,6 +226,7 @@
                       :class="{
                         'day-shift-header': header.startsWith('白'),
                         'night-shift-header': header.startsWith('晚'),
+                        'standby-75-header': header === '預備75',
                       }"
                     >
                       {{ header }}
@@ -241,6 +242,7 @@
                       :class="{
                         'day-shift-data': group.startsWith('白'),
                         'night-shift-data': group.startsWith('晚'),
+                        'standby-75-data': group === '預備75',
                       }"
                     >
                       {{ nurse.counts[group] || 0 }}
@@ -312,9 +314,40 @@
                                 v-if="nurseData.shifts && nurseData.shifts[dayInfo.dayIndex]"
                                 class="weekly-shift-cell"
                               >
-                                <span :class="getShiftClass(nurseData.shifts[dayInfo.dayIndex])">
-                                  {{ nurseData.shifts[dayInfo.dayIndex] }}
-                                </span>
+                                <div class="shift-and-standby">
+                                  <span :class="getShiftClass(nurseData.shifts[dayInfo.dayIndex])">
+                                    {{ nurseData.shifts[dayInfo.dayIndex] }}
+                                  </span>
+                                  <!-- 預備75班標記 -->
+                                  <span
+                                    v-if="isStandby75(nurseId, dayInfo.dayIndex)"
+                                    class="standby-75-marker"
+                                    :class="{
+                                      editable:
+                                        isGroupEditMode &&
+                                        canBeStandby75(nurseId, dayInfo.dayIndex),
+                                    }"
+                                    @click="
+                                      isGroupEditMode &&
+                                      canBeStandby75(nurseId, dayInfo.dayIndex) &&
+                                      toggleStandby75(nurseId, dayInfo.dayIndex)
+                                    "
+                                    :title="isGroupEditMode ? '點擊移除預備75班' : '預備第3個75班'"
+                                  >
+                                    ⭐
+                                  </span>
+                                  <!-- 編輯模式下的新增預備75按鈕 -->
+                                  <button
+                                    v-else-if="
+                                      isGroupEditMode && canBeStandby75(nurseId, dayInfo.dayIndex)
+                                    "
+                                    @click="toggleStandby75(nurseId, dayInfo.dayIndex)"
+                                    class="add-standby-btn"
+                                    title="設為預備75班"
+                                  >
+                                    +⭐
+                                  </button>
+                                </div>
                                 <!-- 分組編輯模式 -->
                                 <template v-if="isGroupEditMode && tempScheduleWithGroups">
                                   <select
@@ -763,6 +796,52 @@ const weeklyData = computed(() => {
   return weeks
 })
 
+// 檢查是否為預備75班
+const isStandby75 = (nurseId, dayIndex) => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !source.scheduleByNurse[nurseId]) return false
+  return source.scheduleByNurse[nurseId].standby75Days?.includes(dayIndex)
+}
+
+// 檢查是否可以當預備75班（只有74班可以）
+const canBeStandby75 = (nurseId, dayIndex) => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !source.scheduleByNurse[nurseId]) return false
+  const shift = source.scheduleByNurse[nurseId].shifts?.[dayIndex]
+  return shift === '74' // 只有74班可以當預備75
+}
+
+// 切換預備75班（微調功能）
+const toggleStandby75 = (nurseId, dayIndex) => {
+  if (!isGroupEditMode.value || !tempScheduleWithGroups.value) return
+
+  // 確保資料結構存在
+  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
+    if (!nurse.standby75Days) {
+      nurse.standby75Days = []
+    }
+  })
+
+  const nurseData = tempScheduleWithGroups.value.scheduleByNurse[nurseId]
+
+  // 先檢查該護理師是否已經是當天的預備75班
+  const isCurrentStandby = nurseData.standby75Days.includes(dayIndex)
+
+  // 移除當天所有人的預備75班
+  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
+    const idx = nurse.standby75Days.indexOf(dayIndex)
+    if (idx > -1) {
+      nurse.standby75Days.splice(idx, 1)
+    }
+  })
+
+  // 如果原本不是預備75班，則設定為預備75班
+  if (!isCurrentStandby) {
+    nurseData.standby75Days.push(dayIndex)
+    nurseData.standby75Days.sort((a, b) => a - b) // 保持排序
+  }
+}
+
 // --- 生命週期 ---
 onMounted(() => {
   loadMonthlySchedule()
@@ -872,13 +951,17 @@ async function saveGroupAssignments() {
   }
 }
 
+// ✅ canAssignGroup 函式修正
 const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
+  // 74/L 和 816 是特殊班別不分組
   if (s.includes('74/L') || s.includes('816')) return false
-  const isDayShift = ['74', '75'].some((ds) => s.includes(ds))
-  const isNightShift = ['311', '3-11'].some((ns) => s.includes(ns))
-  return isDayShift || isNightShift
+
+  // 使用原本的 isDayShift 判斷（包含74、75、84）
+  const dayShift = ['74', '75', '84'].some((ds) => s === ds)
+  const nightShift = ['311', '3-11'].some((ns) => s.includes(ns))
+  return dayShift || nightShift
 }
 
 const getAvailableGroups = (shift, date) => {
@@ -1567,11 +1650,14 @@ const saveData = async () => {
 .week-table .weekend {
   background-color: #fff5f5;
 }
+/* 讓週班表格子稍微調整以容納星號 */
 .weekly-shift-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.3rem;
+  min-height: 60px;
+  justify-content: center;
 }
 .group-badge {
   font-weight: bold;
@@ -1954,6 +2040,61 @@ const saveData = async () => {
 .other-month-cell {
   color: #ddd;
   text-align: center;
+}
+
+/* 預備75班相關樣式 */
+.shift-and-standby {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.standby-75-marker {
+  color: #ffc107;
+  font-size: 0.9em;
+  cursor: default;
+  vertical-align: super;
+  margin-left: 2px;
+}
+
+.standby-75-marker.editable {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.standby-75-marker.editable:hover {
+  color: #ff9800;
+  transform: scale(1.2);
+}
+
+.add-standby-btn {
+  background: none;
+  border: none;
+  color: #ccc;
+  font-size: 0.8em;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 2px;
+  transition: all 0.2s;
+}
+
+.add-standby-btn:hover {
+  color: #ffc107;
+  transform: scale(1.1);
+}
+
+/* 統計表的預備75欄位樣式 */
+.dashboard-table th.standby-75-header {
+  background-color: #fff3cd !important;
+  color: #856404;
+  font-weight: bold;
+  border: 2px solid #ffc107;
+}
+
+.dashboard-table td.standby-75-data {
+  background-color: #fffef5;
+  font-weight: bold;
+  color: #856404;
 }
 
 /* 響應式處理 */
