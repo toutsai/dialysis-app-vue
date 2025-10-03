@@ -372,6 +372,7 @@
                                           dayInfo.dayIndex
                                         ],
                                         dayInfo.date,
+                                        nurseId,
                                       )"
                                       :key="group"
                                       :value="group"
@@ -641,7 +642,8 @@ const hasUnsavedShiftChanges = ref(false)
 const scheduleSourceForStats = computed(() => {
   return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
 })
-const { groupCountsDashboard, generateGroupAssignments } = useGroupAssigner(scheduleSourceForStats)
+const { groupCountsDashboard, generateGroupAssignments, CANNOT_BE_NIGHT_LEADER } =
+  useGroupAssigner(scheduleSourceForStats)
 
 // "工作職責" 頁籤的狀態
 const announcementText = ref('')
@@ -951,33 +953,70 @@ async function saveGroupAssignments() {
   }
 }
 
-// ✅ canAssignGroup 函式修正
+// canAssignGroup 函式
 const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
-  // 74/L 和 816 是特殊班別不分組
-  if (s.includes('74/L') || s.includes('816')) return false
 
-  // 使用原本的 isDayShift 判斷（包含74、75、84）
-  const dayShift = ['74', '75', '84'].some((ds) => s === ds)
-  const nightShift = ['311', '3-11'].some((ns) => s.includes(ns))
-  return dayShift || nightShift
+  // 74班可以手動調整組別（B、C、D、E、G、H、I、K）
+  // 311夜班可以手動調整組別
+  // 74/L、75、816 是固定組別，不能調整
+  return s === '74' || isNightShift(s)
 }
 
-const getAvailableGroups = (shift, date) => {
+// getAvailableGroups 函式 - 修改版，加入護理師名稱檢查
+const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
   const dayOfWeek = new Date(date).getDay()
-  if (['74', '75'].some((ds) => s.includes(ds))) {
-    return ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K']
+
+  // 74班可選組別
+  if (s === '74') {
+    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
   }
+
+  // 74/L 固定 A 組（不應該出現選項）
+  if (s === '74/L') {
+    return ['A']
+  }
+
+  // 75 固定 F 或 J 組（不應該出現選項）
+  if (s === '75') {
+    return ['F', 'J']
+  }
+
+  // 816 固定外圍組（不應該出現選項）
+  if (s === '816') {
+    return ['外圍']
+  }
+
+  // 夜班組別
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
+    let groups = []
     if ([1, 3, 5].includes(dayOfWeek)) {
-      return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
     } else if ([2, 4, 6].includes(dayOfWeek)) {
-      return ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
     }
+
+    // 如果是編輯模式，檢查該護理師是否可以當A組
+    if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
+      const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
+
+      if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
+        // 移除A組選項
+        groups = groups.filter((g) => g !== 'A')
+      }
+    }
+
+    return groups
   }
   return []
+}
+
+// isNightShift 輔助函式
+const isNightShift = (shift) => {
+  const s = (shift || '').trim()
+  return ['311', '3-11'].some((ns) => s.includes(ns))
 }
 
 const getGroupClass = (group) => {
