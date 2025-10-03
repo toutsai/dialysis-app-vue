@@ -168,9 +168,35 @@
               >
                 編輯組別
               </button>
+
+              <!-- 編輯模式中的按鈕群組 -->
               <template v-else-if="isGroupEditMode">
+                <!-- 當在某個週次頁籤時顯示週次操作按鈕 -->
+                <template v-if="activeWeekTab > 0">
+                  <!-- 儲存當週按鈕 -->
+                  <button
+                    @click="saveCurrentWeek"
+                    :disabled="isUploading"
+                    class="btn-success"
+                    title="只儲存本週的分組設定"
+                  >
+                    {{ isUploading ? '儲存中...' : `儲存第${activeWeekTab}週` }}
+                  </button>
+
+                  <!-- 重新分配剩餘週次按鈕 -->
+                  <button
+                    @click="redistributeRemainingWeeks"
+                    class="btn-warning"
+                    :disabled="!hasConfirmedWeeks"
+                    title="基於已確認的週次，重新平均分配剩餘週次"
+                  >
+                    重新分配剩餘週次
+                  </button>
+                </template>
+
+                <!-- 儲存整月按鈕（一直顯示） -->
                 <button @click="saveGroupAssignments" :disabled="isUploading" class="btn-primary">
-                  {{ isUploading ? '儲存中...' : '儲存分組' }}
+                  {{ isUploading ? '儲存中...' : '儲存整月分組' }}
                 </button>
                 <button @click="cancelGroupEditMode" class="btn-secondary">取消編輯</button>
               </template>
@@ -206,10 +232,19 @@
             <button
               v-for="(week, index) in weeklyData"
               :key="`tab-${index}`"
-              :class="{ active: activeWeekTab === index + 1 }"
+              :class="{
+                active: activeWeekTab === index + 1,
+                confirmed: tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`],
+              }"
               @click="activeWeekTab = index + 1"
             >
               第 {{ week.weekNumber }} 週
+              <span
+                v-if="tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`]"
+                class="confirmed-badge"
+              >
+                ✓
+              </span>
             </button>
           </nav>
 
@@ -260,6 +295,12 @@
                 <h4 class="week-title">
                   第 {{ weekData.weekNumber }} 週 ({{ weekData.startDate }} -
                   {{ weekData.endDate }})
+                  <span
+                    v-if="tempScheduleWithGroups?.weekConfirmed?.[`week${weekIndex + 1}`]"
+                    class="week-confirmed-tag"
+                  >
+                    已確認
+                  </span>
                 </h4>
                 <div class="week-table-wrapper">
                   <table class="week-table">
@@ -642,8 +683,12 @@ const hasUnsavedShiftChanges = ref(false)
 const scheduleSourceForStats = computed(() => {
   return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
 })
-const { groupCountsDashboard, generateGroupAssignments, CANNOT_BE_NIGHT_LEADER } =
-  useGroupAssigner(scheduleSourceForStats)
+const {
+  groupCountsDashboard,
+  generateGroupAssignments,
+  redistributeRemainingWeeks: redistributeWeeks,
+  CANNOT_BE_NIGHT_LEADER,
+} = useGroupAssigner(scheduleSourceForStats)
 
 // "工作職責" 頁籤的狀態
 const announcementText = ref('')
@@ -661,6 +706,13 @@ const nursingSchedulesApi = ApiManager('nursing_schedules')
 const shiftOptions = ref(['', '74', '75', '816', '74/L', '311', '休', '例', '國定'])
 
 // --- 計算屬性 ---
+
+// 檢查是否有已確認的週次
+const hasConfirmedWeeks = computed(() => {
+  if (!tempScheduleWithGroups.value?.weekConfirmed) return false
+  return Object.values(tempScheduleWithGroups.value.weekConfirmed).some((confirmed) => confirmed)
+})
+
 const monthDays = computed(() => {
   const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
   if (!source?.yearMonth && !selectedMonth.value) return []
@@ -852,6 +904,119 @@ onMounted(() => {
 
 // --- 方法 ---
 
+// 儲存當前週次
+async function saveCurrentWeek() {
+  if (!tempScheduleWithGroups.value || activeWeekTab.value === 0) return
+
+  isUploading.value = true
+  uploadStatus.value = `正在儲存第${activeWeekTab.value}週分組...`
+
+  try {
+    const weekData = weeklyData.value[activeWeekTab.value - 1]
+    if (!weekData) throw new Error('無法取得週次資料')
+
+    // 取得該週的日期範圍
+    const weekDays = weekData.days.filter((d) => d.isCurrentMonth)
+    const startIndex = weekDays[0]?.dayIndex
+    const endIndex = weekDays[weekDays.length - 1]?.dayIndex
+
+    if (startIndex === undefined || endIndex === undefined) {
+      throw new Error('無法確定週次的日期範圍')
+    }
+
+    // 準備要儲存的部分資料
+    const partialUpdate = {}
+    Object.entries(tempScheduleWithGroups.value.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+      if (!partialUpdate[nurseId]) {
+        partialUpdate[nurseId] = { ...monthlySchedule.value.scheduleByNurse[nurseId] }
+      }
+
+      // 確保資料結構存在
+      if (!partialUpdate[nurseId].groups) {
+        partialUpdate[nurseId].groups = []
+      }
+      if (!partialUpdate[nurseId].standby75Days) {
+        partialUpdate[nurseId].standby75Days = []
+      }
+
+      // 只更新這一週的組別資料
+      for (let i = startIndex; i <= endIndex; i++) {
+        partialUpdate[nurseId].groups[i] = nurseData.groups?.[i] || ''
+
+        // 同時更新預備75班資料
+        // 先移除舊的
+        const idx = partialUpdate[nurseId].standby75Days.indexOf(i)
+        if (idx > -1) {
+          partialUpdate[nurseId].standby75Days.splice(idx, 1)
+        }
+
+        // 如果有新的預備75班，加入
+        if (nurseData.standby75Days?.includes(i)) {
+          partialUpdate[nurseId].standby75Days.push(i)
+        }
+      }
+
+      // 保持排序
+      partialUpdate[nurseId].standby75Days.sort((a, b) => a - b)
+    })
+
+    // 儲存到資料庫（包含週次確認狀態）
+    const documentId = selectedMonth.value
+    const dataToSave = {
+      scheduleByNurse: partialUpdate,
+      weekConfirmed: {
+        ...(monthlySchedule.value.weekConfirmed || {}),
+        [`week${activeWeekTab.value}`]: true,
+      },
+    }
+
+    await nursingSchedulesApi.update(documentId, dataToSave)
+
+    // 標記此週已確認
+    if (!tempScheduleWithGroups.value.weekConfirmed) {
+      tempScheduleWithGroups.value.weekConfirmed = {}
+    }
+    tempScheduleWithGroups.value.weekConfirmed[`week${activeWeekTab.value}`] = true
+
+    uploadStatus.value = `第${activeWeekTab.value}週分組已儲存！`
+    createGlobalNotification(`第${activeWeekTab.value}週分組已成功儲存`, 'success')
+
+    // 更新本地的 monthlySchedule
+    monthlySchedule.value.scheduleByNurse = partialUpdate
+    monthlySchedule.value.weekConfirmed = dataToSave.weekConfirmed
+  } catch (error) {
+    console.error('儲存週次分組失敗:', error)
+    uploadStatus.value = `儲存失敗：${error.message}`
+  } finally {
+    isUploading.value = false
+  }
+}
+
+// 重新分配剩餘週次
+function redistributeRemainingWeeks() {
+  if (!tempScheduleWithGroups.value || !confirm('這將重新分配所有未確認的週次，確定要繼續嗎？')) {
+    return
+  }
+
+  uploadStatus.value = '正在重新分配剩餘週次...'
+
+  try {
+    // 使用 composable 的重新分配函式
+    const newSchedule = redistributeWeeks(tempScheduleWithGroups.value, weeklyData.value)
+
+    if (newSchedule) {
+      tempScheduleWithGroups.value = newSchedule
+      uploadStatus.value = '已重新分配剩餘週次的組別'
+      createGlobalNotification('剩餘週次已重新分配', 'success')
+    } else {
+      uploadStatus.value = '重新分配失敗'
+    }
+  } catch (error) {
+    console.error('重新分配失敗:', error)
+    uploadStatus.value = `重新分配失敗：${error.message}`
+  }
+}
+
 function enterShiftEditMode() {
   if (!monthlySchedule.value) {
     alert('請先載入月班表資料！')
@@ -916,11 +1081,25 @@ function enterGroupEditMode() {
   const hasGroups = Object.values(monthlySchedule.value.scheduleByNurse).some(
     (nurse) => nurse.groups && nurse.groups.some((g) => g),
   )
+
+  // 如果沒有分組資料，產生新的分組
   if (!hasGroups) {
     tempScheduleWithGroups.value = generateGroupAssignments(monthlySchedule.value)
   } else {
     tempScheduleWithGroups.value = JSON.parse(JSON.stringify(monthlySchedule.value))
   }
+
+  // 確保有週次確認狀態
+  if (!tempScheduleWithGroups.value.weekConfirmed) {
+    tempScheduleWithGroups.value.weekConfirmed = monthlySchedule.value.weekConfirmed || {
+      week1: false,
+      week2: false,
+      week3: false,
+      week4: false,
+      week5: false,
+    }
+  }
+
   activeWeekTab.value = 0
   isGroupEditMode.value = true
 }
@@ -938,8 +1117,11 @@ async function saveGroupAssignments() {
   uploadStatus.value = '正在儲存分組結果...'
   try {
     const documentId = selectedMonth.value
-    const scheduleDataToSave = tempScheduleWithGroups.value.scheduleByNurse
-    await nursingSchedulesApi.update(documentId, { scheduleByNurse: scheduleDataToSave })
+    const dataToSave = {
+      scheduleByNurse: tempScheduleWithGroups.value.scheduleByNurse,
+      weekConfirmed: tempScheduleWithGroups.value.weekConfirmed || {},
+    }
+    await nursingSchedulesApi.update(documentId, dataToSave)
     uploadStatus.value = '分組成功儲存！'
     isGroupEditMode.value = false
     tempScheduleWithGroups.value = null
@@ -1342,8 +1524,9 @@ const saveData = async () => {
 /* 按鈕樣式 */
 .btn-primary,
 .btn-secondary,
-.btn-edit {
-  /* ✨ 新增修改 ✨: 編輯按鈕樣式 */
+.btn-edit,
+.btn-success,
+.btn-warning {
   padding: 0.4rem 1rem;
   border: none;
   border-radius: 4px;
@@ -1373,7 +1556,7 @@ const saveData = async () => {
   background-color: #f8f9fa;
   border-color: #adb5bd;
 }
-/* ✨ 新增修改 ✨: 編輯按鈕樣式 */
+/* 編輯按鈕樣式 */
 .btn-edit {
   background-color: #ffc107;
   color: #212529;
@@ -1381,6 +1564,32 @@ const saveData = async () => {
 }
 .btn-edit:hover:not(:disabled) {
   background-color: #e0a800;
+}
+/* 新增按鈕樣式 */
+.btn-success {
+  background-color: #28a745;
+  color: white;
+}
+.btn-success:hover:not(:disabled) {
+  background-color: #218838;
+}
+.btn-success:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.btn-warning {
+  background-color: #ffc107;
+  color: #212529;
+}
+.btn-warning:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+.btn-warning:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 /* 檔案上傳樣式 */
@@ -1625,6 +1834,26 @@ const saveData = async () => {
   border: 2px solid #007bff;
   border-bottom: 2px solid #fff;
 }
+/* 已確認週次的樣式 */
+.weekly-tabs-nav button.confirmed {
+  background-color: #d4edda;
+}
+.confirmed-badge {
+  color: #28a745;
+  font-weight: bold;
+  margin-left: 4px;
+}
+.week-confirmed-tag {
+  display: inline-block;
+  background-color: #28a745;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  margin-left: 10px;
+  font-weight: normal;
+}
+
 /* ===== 週班表樣式 ===== */
 .weekly-content-wrapper {
   flex-grow: 1;
@@ -1815,7 +2044,7 @@ const saveData = async () => {
   background-color: #fff;
   cursor: pointer;
 }
-/* ✨ 新增修改 ✨: 班別編輯下拉選單樣式 */
+/* 班別編輯下拉選單樣式 */
 .shift-select {
   width: 100%;
   padding: 4px;
