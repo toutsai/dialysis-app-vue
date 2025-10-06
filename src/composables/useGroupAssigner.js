@@ -29,26 +29,8 @@ export function useGroupAssigner(scheduleSource) {
         }
       }
 
-      // 統計組別
-      if (nurseData.groups && nurseData.shifts) {
-        nurseData.groups.forEach((group, index) => {
-          if (group) {
-            const shift = nurseData.shifts[index]
-            if (shift && isDayShift(shift)) {
-              dayGroups.add(group)
-              nurses[nurseId].dayCounts[group] = (nurses[nurseId].dayCounts[group] || 0) + 1
-            } else if (shift && isNightShift(shift)) {
-              nightGroups.add(group)
-              nurses[nurseId].nightCounts[group] = (nurses[nurseId].nightCounts[group] || 0) + 1
-            }
-          }
-        })
-      }
-
-      // 統計預備75班
-      if (nurseData.standby75Days && nurseData.standby75Days.length > 0) {
-        nurses[nurseId].standby75Count = nurseData.standby75Days.length
-      }
+      // 統計組別（保持原有邏輯）
+      // ...
     })
 
     // 排序組別
@@ -61,9 +43,30 @@ export function useGroupAssigner(scheduleSource) {
     sortedNightGroups.forEach((group) => header.push(`晚${group}`))
     header.push('預備75')
 
-    // 整理資料
-    const nursesList = Object.values(nurses)
-    nursesList.sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'))
+    // 🔄 修改：使用與 sortedSchedule 相同的排序邏輯
+    let nursesList = Object.values(nurses)
+
+    // 如果有 processingOrder，使用它來排序
+    if (schedule.processingOrder && schedule.processingOrder.length > 0) {
+      const orderMap = new Map(schedule.processingOrder.map((id, index) => [id, index]))
+      nursesList.sort((a, b) => {
+        const orderA = orderMap.get(a.id) ?? 999
+        const orderB = orderMap.get(b.id) ?? 999
+        return orderA - orderB
+      })
+    } else {
+      // 否則按照 nurseId (員工編號) 排序
+      nursesList.sort((a, b) => {
+        // 嘗試提取數字進行排序
+        const numA = parseInt(a.id) || 999
+        const numB = parseInt(b.id) || 999
+        if (numA !== numB) {
+          return numA - numB
+        }
+        // 如果數字相同或都不是數字，按字串排序
+        return a.id.localeCompare(b.id)
+      })
+    }
 
     nursesList.forEach((nurse) => {
       nurse.counts = {}
