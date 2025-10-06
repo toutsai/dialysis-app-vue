@@ -29,8 +29,26 @@ export function useGroupAssigner(scheduleSource) {
         }
       }
 
-      // 統計組別（保持原有邏輯）
-      // ...
+      // 統計組別
+      if (nurseData.groups && nurseData.shifts) {
+        nurseData.groups.forEach((group, index) => {
+          if (group) {
+            const shift = nurseData.shifts[index]
+            if (shift && isDayShift(shift)) {
+              dayGroups.add(group)
+              nurses[nurseId].dayCounts[group] = (nurses[nurseId].dayCounts[group] || 0) + 1
+            } else if (shift && isNightShift(shift)) {
+              nightGroups.add(group)
+              nurses[nurseId].nightCounts[group] = (nurses[nurseId].nightCounts[group] || 0) + 1
+            }
+          }
+        })
+      }
+
+      // 統計預備75班
+      if (nurseData.standby75Days && nurseData.standby75Days.length > 0) {
+        nurses[nurseId].standby75Count = nurseData.standby75Days.length
+      }
     })
 
     // 排序組別
@@ -43,10 +61,30 @@ export function useGroupAssigner(scheduleSource) {
     sortedNightGroups.forEach((group) => header.push(`晚${group}`))
     header.push('預備75')
 
-    // 🔄 修改：使用與 sortedSchedule 相同的排序邏輯
-    let nursesList = Object.values(nurses)
+    // 整理資料 - 保持原始的護理師物件陣列
+    const nursesList = Object.entries(nurses).map(([id, nurseData]) => {
+      const nurse = {
+        id: id,
+        name: nurseData.name,
+        dayCounts: nurseData.dayCounts,
+        nightCounts: nurseData.nightCounts,
+        standby75Count: nurseData.standby75Count,
+        counts: {},
+      }
 
-    // 如果有 processingOrder，使用它來排序
+      // 建立 counts 物件供表格顯示
+      sortedDayGroups.forEach((group) => {
+        nurse.counts[`白${group}`] = nurseData.dayCounts[group] || 0
+      })
+      sortedNightGroups.forEach((group) => {
+        nurse.counts[`晚${group}`] = nurseData.nightCounts[group] || 0
+      })
+      nurse.counts['預備75'] = nurseData.standby75Count || 0
+
+      return nurse
+    })
+
+    // 使用與 sortedSchedule 相同的排序邏輯
     if (schedule.processingOrder && schedule.processingOrder.length > 0) {
       const orderMap = new Map(schedule.processingOrder.map((id, index) => [id, index]))
       nursesList.sort((a, b) => {
@@ -55,7 +93,7 @@ export function useGroupAssigner(scheduleSource) {
         return orderA - orderB
       })
     } else {
-      // 否則按照 nurseId (員工編號) 排序
+      // 按照 nurseId (員工編號) 排序
       nursesList.sort((a, b) => {
         // 嘗試提取數字進行排序
         const numA = parseInt(a.id) || 999
@@ -67,17 +105,6 @@ export function useGroupAssigner(scheduleSource) {
         return a.id.localeCompare(b.id)
       })
     }
-
-    nursesList.forEach((nurse) => {
-      nurse.counts = {}
-      sortedDayGroups.forEach((group) => {
-        nurse.counts[`白${group}`] = nurse.dayCounts[group] || 0
-      })
-      sortedNightGroups.forEach((group) => {
-        nurse.counts[`晚${group}`] = nurse.nightCounts[group] || 0
-      })
-      nurse.counts['預備75'] = nurse.standby75Count
-    })
 
     return { header, nurses: nursesList }
   })
