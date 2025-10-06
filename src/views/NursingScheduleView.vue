@@ -763,18 +763,37 @@ const monthDays = computed(() => {
   return days
 })
 
+// 🔄 修改：統一排序邏輯
 const sortedSchedule = computed(() => {
   const scheduleData = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
   if (!scheduleData || !scheduleData.scheduleByNurse) {
     return {}
   }
   const nurses = Object.entries(scheduleData.scheduleByNurse)
-  if (scheduleData.processingOrder) {
+
+  // 統一使用相同的排序邏輯
+  if (scheduleData.processingOrder && scheduleData.processingOrder.length > 0) {
+    // 如果有 processingOrder，使用它來排序
     const orderMap = new Map(scheduleData.processingOrder.map((id, index) => [id, index]))
-    nurses.sort((a, b) => (orderMap.get(a[0]) ?? 999) - (orderMap.get(b[0]) ?? 999))
+    nurses.sort((a, b) => {
+      const orderA = orderMap.get(a[0]) ?? 999
+      const orderB = orderMap.get(b[0]) ?? 999
+      return orderA - orderB
+    })
   } else {
-    nurses.sort((a, b) => a[1].nurseName.localeCompare(b[1].nurseName, 'zh-TW'))
+    // 否則按照 nurseId (員工編號) 排序
+    nurses.sort((a, b) => {
+      // 嘗試提取數字進行排序
+      const numA = parseInt(a[0]) || 999
+      const numB = parseInt(b[0]) || 999
+      if (numA !== numB) {
+        return numA - numB
+      }
+      // 如果數字相同，按字串排序
+      return a[0].localeCompare(b[0])
+    })
   }
+
   return Object.fromEntries(nurses)
 })
 
