@@ -141,6 +141,31 @@
               @change="loadMonthlySchedule"
             />
           </div>
+
+          <!-- 🆕 新增：過濾按鈕群組 -->
+          <div class="controls-center" v-if="!isShiftEditMode && !isGroupEditMode">
+            <div class="shift-filter-group">
+              <button
+                :class="['filter-btn', { active: shiftFilter === 'all' }]"
+                @click="shiftFilter = 'all'"
+              >
+                全部
+              </button>
+              <button
+                :class="['filter-btn', { active: shiftFilter === 'day' }]"
+                @click="shiftFilter = 'day'"
+              >
+                只看白班
+              </button>
+              <button
+                :class="['filter-btn', { active: shiftFilter === 'night' }]"
+                @click="shiftFilter = 'night'"
+              >
+                只看夜班
+              </button>
+            </div>
+          </div>
+
           <div class="controls-right">
             <!-- 班別編輯按鈕 -->
             <template v-if="auth && auth.isEditor.value">
@@ -319,8 +344,11 @@
                         </th>
                       </tr>
                     </thead>
-                    <tbody v-if="sortedSchedule">
-                      <tr v-for="(nurseData, nurseId) in sortedSchedule" :key="`nurse-${nurseId}`">
+                    <tbody v-if="filteredSortedSchedule">
+                      <tr
+                        v-for="(nurseData, nurseId) in filteredSortedSchedule"
+                        :key="`nurse-${nurseId}`"
+                      >
                         <td class="nurse-name-weekly">{{ nurseData.nurseName }}</td>
                         <td
                           v-for="(dayInfo, dayIdx) in weekData.days"
@@ -328,6 +356,7 @@
                           :class="{
                             weekend: dayInfo.isWeekend,
                             'other-month': !dayInfo.isCurrentMonth,
+                            dimmed: shouldDimCell(nurseData, dayInfo) /* 🆕 新增變灰判斷 */,
                           }"
                         >
                           <!-- 只有當月才能編輯 -->
@@ -678,6 +707,7 @@ const tempScheduleWithGroups = ref(null)
 const activeWeekTab = ref(1)
 const isShiftEditMode = ref(false)
 const hasUnsavedShiftChanges = ref(false)
+const shiftFilter = ref('all') // 'all', 'day', 'night'
 
 // 動態資料來源，供 Composable 使用
 const scheduleSourceForStats = computed(() => {
@@ -896,6 +926,67 @@ const toggleStandby75 = (nurseId, dayIndex) => {
   }
 }
 
+// 🆕 新增：過濾後的護理師資料
+const filteredSortedSchedule = computed(() => {
+  if (shiftFilter.value === 'all' || activeWeekTab.value === 0) {
+    return sortedSchedule.value
+  }
+
+  const filtered = {}
+  Object.entries(sortedSchedule.value).forEach(([nurseId, nurseData]) => {
+    // 檢查這個護理師在當前週是否有符合過濾條件的班次
+    let hasMatchingShift = false
+    const currentWeek = weeklyData.value[activeWeekTab.value - 1]
+
+    if (currentWeek) {
+      currentWeek.days.forEach((day) => {
+        if (day.isCurrentMonth) {
+          const shift = nurseData.shifts?.[day.dayIndex]
+          if (shift) {
+            const s = shift.trim()
+            // 跳過休假
+            if (!s.includes('休') && !s.includes('例') && !s.includes('國定')) {
+              if (shiftFilter.value === 'day' && isDayShift(shift)) {
+                hasMatchingShift = true
+              } else if (shiftFilter.value === 'night' && isNightShift(shift)) {
+                hasMatchingShift = true
+              }
+            }
+          }
+        }
+      })
+    }
+
+    if (hasMatchingShift) {
+      filtered[nurseId] = nurseData
+    }
+  })
+
+  return filtered
+})
+
+// 🆕 新增：判斷格子是否應該變灰
+const shouldDimCell = (nurseData, dayInfo) => {
+  if (!dayInfo.isCurrentMonth || shiftFilter.value === 'all') return false
+
+  const shift = nurseData.shifts?.[dayInfo.dayIndex]
+  if (!shift) return false
+
+  const s = shift.trim()
+  // 休假不變灰
+  if (s.includes('休') || s.includes('例') || s.includes('國定')) return false
+
+  if (shiftFilter.value === 'day' && !isDayShift(shift)) {
+    return true
+  }
+
+  if (shiftFilter.value === 'night' && !isNightShift(shift)) {
+    return true
+  }
+
+  return false
+}
+
 // --- 生命週期 ---
 onMounted(() => {
   loadMonthlySchedule()
@@ -1073,6 +1164,12 @@ watch(
   { deep: true },
 )
 
+watch(activeTab, (newTab) => {
+  if (newTab !== 'weekly') {
+    shiftFilter.value = 'all' // 切換到其他頁籤時重置
+  }
+})
+
 function enterGroupEditMode() {
   if (!monthlySchedule.value) {
     alert('請先載入月班表資料！')
@@ -1199,6 +1296,12 @@ const getAvailableGroups = (shift, date, nurseId) => {
 const isNightShift = (shift) => {
   const s = (shift || '').trim()
   return ['311', '3-11'].some((ns) => s.includes(ns))
+}
+
+// 🆕 新增：判斷是否為白班
+const isDayShift = (shift) => {
+  const s = (shift || '').trim()
+  return ['74', '74/L', '75', '816', '84', '815'].includes(s)
 }
 
 const getGroupClass = (group) => {
@@ -2365,7 +2468,95 @@ const saveData = async () => {
   color: #856404;
 }
 
+/* 🆕 新增：過濾按鈕群組樣式 */
+.controls-center {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
+}
+
+.shift-filter-group {
+  display: inline-flex;
+  gap: 2px;
+  background-color: #e9ecef;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.filter-btn {
+  padding: 0.35rem 1rem;
+  border: none;
+  background-color: transparent;
+  color: #495057;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.filter-btn:hover:not(.active) {
+  background-color: #fff;
+  color: #007bff;
+}
+
+.filter-btn.active {
+  background-color: #007bff;
+  color: white;
+  box-shadow: 0 1px 3px rgba(0, 123, 255, 0.3);
+}
+
+/* 🆕 新增：變灰的格子樣式 */
+.week-table td.dimmed {
+  opacity: 0.25;
+  background-color: #f8f9fa !important;
+  position: relative;
+}
+
+.week-table td.dimmed::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    45deg,
+    transparent 48%,
+    rgba(200, 200, 200, 0.1) 49%,
+    rgba(200, 200, 200, 0.1) 51%,
+    transparent 52%
+  );
+  pointer-events: none;
+}
+
+.week-table td.dimmed .shift-badge,
+.week-table td.dimmed .group-badge,
+.week-table td.dimmed .weekly-shift-cell {
+  filter: grayscale(100%);
+  opacity: 0.5;
+}
+
+.week-table td.dimmed .standby-75-marker {
+  color: #ccc !important;
+}
+
 /* 響應式處理 */
+/* 調整控制區域以適應新的按鈕群組 */
+@media (max-width: 1200px) {
+  .controls-section {
+    flex-wrap: wrap;
+  }
+
+  .controls-center {
+    width: 100%;
+    margin: 0.5rem 0;
+  }
+}
+
 @media (max-width: 768px) {
   .controls-section {
     flex-direction: column;
