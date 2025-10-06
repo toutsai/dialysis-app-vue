@@ -119,16 +119,22 @@ export function useGroupAssigner(scheduleSource) {
       })
     }
 
-    // 用於追蹤75班F/J組的輪流
-    let next75Group = 'F'
+    // 用於追蹤75班F/J組的輪流 (用於決定當天主要使用哪一組)
+    let next75GroupPreference = 'F'
 
-    // 檢查最近的75班是哪一組
+    // 檢查最近的75班使用的組別，以決定起始偏好
     for (let i = dayIndices[0] - 1; i >= 0; i--) {
       let found75 = false
       Object.values(schedule.scheduleByNurse).forEach((nurseData) => {
         if (nurseData.shifts?.[i] === '75' && nurseData.groups?.[i]) {
-          next75Group = nurseData.groups[i] === 'F' ? 'J' : 'F'
-          found75 = true
+          // 找到最近一天有使用F的，下一天優先用J
+          if (nurseData.groups[i] === 'F') {
+            next75GroupPreference = 'J'
+            found75 = true
+          } else if (nurseData.groups[i] === 'J') {
+            next75GroupPreference = 'F'
+            found75 = true
+          }
         }
       })
       if (found75) break
@@ -183,26 +189,77 @@ export function useGroupAssigner(scheduleSource) {
         schedule.scheduleByNurse[nurseId].groups[dayIndex] = '外圍'
       })
 
-      // 75班輪流 F 或 J 組（考慮平衡）
+      // 75班分配 F 或 J 組（確保同一天不重複）
       if (nurses75.length > 0) {
+        const dayGroups75 = { F: [], J: [] }
+
+        // 先根據每個護理師的歷史次數分配
         nurses75.forEach((nurseId) => {
-          // 選擇次數較少的組
           const fCount = groupCounts[nurseId]['75']['F'] || 0
           const jCount = groupCounts[nurseId]['75']['J'] || 0
 
-          let assignedGroup = next75Group
           if (fCount < jCount) {
-            assignedGroup = 'F'
+            dayGroups75.F.push(nurseId)
           } else if (jCount < fCount) {
-            assignedGroup = 'J'
+            dayGroups75.J.push(nurseId)
+          } else {
+            // 次數相同時，根據當天的偏好分配
+            if (next75GroupPreference === 'F' && dayGroups75.F.length <= dayGroups75.J.length) {
+              dayGroups75.F.push(nurseId)
+            } else {
+              dayGroups75.J.push(nurseId)
+            }
+          }
+        })
+
+        // 確保同一天不會重複使用同一組
+        let assignF = dayGroups75.F.length > 0
+        let assignJ = dayGroups75.J.length > 0
+
+        // 如果只有一個護理師，使用偏好組
+        if (nurses75.length === 1) {
+          const nurseId = nurses75[0]
+          const group = next75GroupPreference
+          schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
+          groupCounts[nurseId]['75'][group] = (groupCounts[nurseId]['75'][group] || 0) + 1
+          // 下一天換組
+          next75GroupPreference = group === 'F' ? 'J' : 'F'
+        } else {
+          // 多個護理師時，確保不重複
+          // 如果都在同一組，需要重新分配
+          if (dayGroups75.F.length === 0) {
+            // 全部都在J組，需要移一些到F組
+            const moveCount = Math.ceil(dayGroups75.J.length / 2)
+            for (let i = 0; i < moveCount; i++) {
+              dayGroups75.F.push(dayGroups75.J.pop())
+            }
+          } else if (dayGroups75.J.length === 0) {
+            // 全部都在F組，需要移一些到J組
+            const moveCount = Math.ceil(dayGroups75.F.length / 2)
+            for (let i = 0; i < moveCount; i++) {
+              dayGroups75.J.push(dayGroups75.F.pop())
+            }
           }
 
-          schedule.scheduleByNurse[nurseId].groups[dayIndex] = assignedGroup
-          groupCounts[nurseId]['75'][assignedGroup] =
-            (groupCounts[nurseId]['75'][assignedGroup] || 0) + 1
-        })
-        // 下一個75班換組
-        next75Group = next75Group === 'F' ? 'J' : 'F'
+          // 分配F組
+          dayGroups75.F.forEach((nurseId) => {
+            schedule.scheduleByNurse[nurseId].groups[dayIndex] = 'F'
+            groupCounts[nurseId]['75']['F'] = (groupCounts[nurseId]['75']['F'] || 0) + 1
+          })
+
+          // 分配J組
+          dayGroups75.J.forEach((nurseId) => {
+            schedule.scheduleByNurse[nurseId].groups[dayIndex] = 'J'
+            groupCounts[nurseId]['75']['J'] = (groupCounts[nurseId]['75']['J'] || 0) + 1
+          })
+
+          // 根據今天使用的組別決定下一天的偏好
+          if (dayGroups75.F.length > dayGroups75.J.length) {
+            next75GroupPreference = 'J'
+          } else {
+            next75GroupPreference = 'F'
+          }
+        }
       }
 
       // 74班分配 B、C、D、E、G、H、I、K 組（考慮平衡）
