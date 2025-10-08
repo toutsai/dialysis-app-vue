@@ -674,6 +674,9 @@
 </template>
 
 <script setup>
+// ========================================
+// 1. 引入 (Imports)
+// ========================================
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import ApiManager from '@/services/api_manager.js'
@@ -686,11 +689,17 @@ import { functions } from '@/composables/useFirebase.js'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
 import AdminAuthDialog from '@/components/AdminAuthDialog.vue'
 
+// ========================================
+// 2. Composables 初始化
+// ========================================
 const { createGlobalNotification } = useGlobalNotifier()
-
-// --- 狀態管理 ---
-const activeTab = ref('master')
 const auth = useAuth()
+
+// ========================================
+// 3. 狀態管理 (State)
+// ========================================
+// --- 通用狀態 ---
+const activeTab = ref('master')
 const hasChanges = ref(false)
 const editingCell = ref(null)
 let inputRef = null
@@ -698,7 +707,7 @@ const showAdminAuth = ref(false)
 const adminAuthMessage = ref('')
 const pendingAction = ref(null) // 儲存待執行的動作
 
-// "當月總班表" 頁籤的狀態
+// --- "當月總班表" 頁籤的狀態 ---
 const selectedFile = ref(null)
 const isUploading = ref(false)
 const isLoadingSchedule = ref(true)
@@ -707,7 +716,7 @@ const monthlySchedule = ref(null)
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
 const showUsername = ref(false)
 
-// "當月週班表" 頁籤的狀態
+// --- "當月週班表" 頁籤的狀態 ---
 const isGroupEditMode = ref(false)
 const tempScheduleWithGroups = ref(null)
 const activeWeekTab = ref(1)
@@ -715,18 +724,7 @@ const isShiftEditMode = ref(false)
 const hasUnsavedShiftChanges = ref(false)
 const shiftFilter = ref('all') // 'all', 'day', 'night'
 
-// 動態資料來源，供 Composable 使用
-const scheduleSourceForStats = computed(() => {
-  return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
-})
-const {
-  groupCountsDashboard,
-  generateGroupAssignments,
-  redistributeRemainingWeeks: redistributeWeeks,
-  CANNOT_BE_NIGHT_LEADER,
-} = useGroupAssigner(scheduleSourceForStats)
-
-// "工作職責" 頁籤的狀態
+// --- "工作職責" 頁籤的狀態 ---
 const announcementText = ref('')
 const dayShiftData = ref({ codes: '', tasks: '' })
 const nightShiftDuties = ref([])
@@ -734,14 +732,32 @@ const checklistItems = ref([])
 const teamworkItems = ref([])
 const lastModifiedInfo = ref({ date: '', user: '' })
 
-// --- API 實例 ---
+// ========================================
+// 4. API 實例
+// ========================================
 const usersApi = ApiManager('users')
 const nursingSchedulesApi = ApiManager('nursing_schedules')
 
-// --- 常數 ---
+// ========================================
+// 5. 常數定義
+// ========================================
 const shiftOptions = ref(['', '74', '75', '816', '74/L', '311', '休', '例', '國定'])
 
-// --- 計算屬性 ---
+// ========================================
+// 6. 計算屬性 (Computed Properties)
+// ========================================
+// 動態資料來源，供 Composable 使用
+const scheduleSourceForStats = computed(() => {
+  return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+})
+
+// 使用 Composable
+const {
+  groupCountsDashboard,
+  generateGroupAssignments,
+  redistributeRemainingWeeks: redistributeWeeks,
+  CANNOT_BE_NIGHT_LEADER,
+} = useGroupAssigner(scheduleSourceForStats)
 
 // 檢查是否有已確認的週次
 const hasConfirmedWeeks = computed(() => {
@@ -769,7 +785,7 @@ const monthDays = computed(() => {
   return days
 })
 
-// 🔄 修改：統一排序邏輯
+// 統一排序邏輯
 const sortedSchedule = computed(() => {
   const scheduleData = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
   if (!scheduleData || !scheduleData.scheduleByNurse) {
@@ -905,53 +921,7 @@ const weeklyData = computed(() => {
   return weeks
 })
 
-// 檢查是否為預備75班
-const isStandby75 = (nurseId, dayIndex) => {
-  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
-  if (!source || !source.scheduleByNurse[nurseId]) return false
-  return source.scheduleByNurse[nurseId].standby75Days?.includes(dayIndex)
-}
-
-// 檢查是否可以當預備75班（只有74班可以）
-const canBeStandby75 = (nurseId, dayIndex) => {
-  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
-  if (!source || !source.scheduleByNurse[nurseId]) return false
-  const shift = source.scheduleByNurse[nurseId].shifts?.[dayIndex]
-  return shift === '74' // 只有74班可以當預備75
-}
-
-// 切換預備75班（微調功能）
-const toggleStandby75 = (nurseId, dayIndex) => {
-  if (!isGroupEditMode.value || !tempScheduleWithGroups.value) return
-
-  // 確保資料結構存在
-  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
-    if (!nurse.standby75Days) {
-      nurse.standby75Days = []
-    }
-  })
-
-  const nurseData = tempScheduleWithGroups.value.scheduleByNurse[nurseId]
-
-  // 先檢查該護理師是否已經是當天的預備75班
-  const isCurrentStandby = nurseData.standby75Days.includes(dayIndex)
-
-  // 移除當天所有人的預備75班
-  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
-    const idx = nurse.standby75Days.indexOf(dayIndex)
-    if (idx > -1) {
-      nurse.standby75Days.splice(idx, 1)
-    }
-  })
-
-  // 如果原本不是預備75班，則設定為預備75班
-  if (!isCurrentStandby) {
-    nurseData.standby75Days.push(dayIndex)
-    nurseData.standby75Days.sort((a, b) => a - b) // 保持排序
-  }
-}
-
-// 🔄 修改：過濾後的護理師資料（過濾休假）
+// 過濾後的護理師資料（過濾休假）
 const filteredSortedSchedule = computed(() => {
   if (shiftFilter.value === 'all' || activeWeekTab.value === 0) {
     return sortedSchedule.value
@@ -998,7 +968,38 @@ const filteredSortedSchedule = computed(() => {
   return filtered
 })
 
-// 🔄 修改：判斷格子是否應該變灰
+// ========================================
+// 7. 方法定義 (Methods)
+// ========================================
+// --- 輔助函數 ---
+// 檢查是否為預備75班
+const isStandby75 = (nurseId, dayIndex) => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !source.scheduleByNurse[nurseId]) return false
+  return source.scheduleByNurse[nurseId].standby75Days?.includes(dayIndex)
+}
+
+// 檢查是否可以當預備75班（只有74班可以）
+const canBeStandby75 = (nurseId, dayIndex) => {
+  const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
+  if (!source || !source.scheduleByNurse[nurseId]) return false
+  const shift = source.scheduleByNurse[nurseId].shifts?.[dayIndex]
+  return shift === '74' // 只有74班可以當預備75
+}
+
+// 判斷是否為夜班
+const isNightShift = (shift) => {
+  const s = (shift || '').trim()
+  return ['311', '3-11'].some((ns) => s.includes(ns))
+}
+
+// 判斷是否為白班
+const isDayShift = (shift) => {
+  const s = (shift || '').trim()
+  return ['74', '74/L', '75', '816', '84', '815'].includes(s)
+}
+
+// 判斷格子是否應該變灰
 const shouldDimCell = (nurseData, dayInfo) => {
   if (!dayInfo.isCurrentMonth || shiftFilter.value === 'all') return false
 
@@ -1024,14 +1025,87 @@ const shouldDimCell = (nurseData, dayInfo) => {
   return false
 }
 
-// --- 生命週期 ---
-onMounted(() => {
-  loadMonthlySchedule()
-  loadData() // 職責頁籤資料
-})
+// canAssignGroup 函式
+const canAssignGroup = (shift) => {
+  const s = (shift || '').trim()
+  if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
 
-// --- 方法 ---
+  // 74班可以手動調整組別（B、C、D、E、G、H、I、K）
+  // 311夜班可以手動調整組別
+  // 74/L、75、816 是固定組別，不能調整
+  return s === '74' || isNightShift(s)
+}
 
+// getAvailableGroups 函式 - 修改版，加入護理師名稱檢查
+const getAvailableGroups = (shift, date, nurseId) => {
+  const s = (shift || '').trim()
+  const dayOfWeek = new Date(date).getDay()
+
+  // 74班可選組別
+  if (s === '74') {
+    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+  }
+
+  // 74/L 固定 A 組（不應該出現選項）
+  if (s === '74/L') {
+    return ['A']
+  }
+
+  // 75 固定 F 或 J 組（不應該出現選項）
+  if (s === '75') {
+    return ['F', 'J']
+  }
+
+  // 816 固定外圍組（不應該出現選項）
+  if (s === '816') {
+    return ['外圍']
+  }
+
+  // 夜班組別
+  if (['311', '3-11'].some((ns) => s.includes(ns))) {
+    let groups = []
+    if ([1, 3, 5].includes(dayOfWeek)) {
+      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+    } else if ([2, 4, 6].includes(dayOfWeek)) {
+      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+    }
+
+    // 如果是編輯模式，檢查該護理師是否可以當A組
+    if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
+      const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
+
+      if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
+        // 移除A組選項
+        groups = groups.filter((g) => g !== 'A')
+      }
+    }
+
+    return groups
+  }
+  return []
+}
+
+const getGroupClass = (group) => {
+  if (!group) return ''
+  const groupChar = group.charAt(0).toUpperCase()
+  if (group === '外圍') return 'group-peripheral'
+  return `group-${groupChar}`
+}
+
+const getShiftClass = (shift) => {
+  if (!shift) return ''
+  const shiftStr = String(shift).trim()
+  const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815']
+  const LATE_SHIFTS = ['3-11', '311']
+  if (EARLY_SHIFTS.some((s) => shiftStr.includes(s))) return 'shift-badge shift-早班'
+  if (LATE_SHIFTS.some((s) => shiftStr.includes(s))) return 'shift-badge shift-晚班'
+  if (shiftStr === '休' || shiftStr.includes('休息')) return 'shift-badge shift-休息'
+  if (shiftStr === '例' || shiftStr.includes('例假')) return 'shift-badge shift-例假'
+  if (shiftStr.includes('國定')) return 'shift-badge shift-國定'
+  return 'shift-badge shift-其他'
+}
+
+// --- 管理員驗證相關 ---
 // 處理驗證成功
 async function handleAdminAuthSuccess(adminInfo) {
   showAdminAuth.value = false
@@ -1202,7 +1276,39 @@ async function executeMonthSave(adminInfo) {
   }
 }
 
-// 儲存當前週次（修改為顯示驗證）
+// --- 班別與分組管理 ---
+// 切換預備75班（微調功能）
+const toggleStandby75 = (nurseId, dayIndex) => {
+  if (!isGroupEditMode.value || !tempScheduleWithGroups.value) return
+
+  // 確保資料結構存在
+  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
+    if (!nurse.standby75Days) {
+      nurse.standby75Days = []
+    }
+  })
+
+  const nurseData = tempScheduleWithGroups.value.scheduleByNurse[nurseId]
+
+  // 先檢查該護理師是否已經是當天的預備75班
+  const isCurrentStandby = nurseData.standby75Days.includes(dayIndex)
+
+  // 移除當天所有人的預備75班
+  Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
+    const idx = nurse.standby75Days.indexOf(dayIndex)
+    if (idx > -1) {
+      nurse.standby75Days.splice(idx, 1)
+    }
+  })
+
+  // 如果原本不是預備75班，則設定為預備75班
+  if (!isCurrentStandby) {
+    nurseData.standby75Days.push(dayIndex)
+    nurseData.standby75Days.sort((a, b) => a - b) // 保持排序
+  }
+}
+
+// 儲存當前週次
 async function saveCurrentWeek() {
   if (!tempScheduleWithGroups.value || activeWeekTab.value === 0) return
 
@@ -1212,7 +1318,7 @@ async function saveCurrentWeek() {
   showAdminAuth.value = true
 }
 
-// 儲存班別變更（修改為顯示驗證）
+// 儲存班別變更
 async function saveShiftChanges() {
   if (!hasUnsavedShiftChanges.value) {
     alert('沒有偵測到任何變更。')
@@ -1225,7 +1331,7 @@ async function saveShiftChanges() {
   showAdminAuth.value = true
 }
 
-// 儲存整月分組（修改為顯示驗證）
+// 儲存整月分組
 async function saveGroupAssignments() {
   if (!tempScheduleWithGroups.value) return
 
@@ -1260,7 +1366,7 @@ function redistributeRemainingWeeks() {
   }
 }
 
-// 🔄 修改 enterShiftEditMode 函式
+// 進入班別編輯模式
 function enterShiftEditMode() {
   if (!monthlySchedule.value) {
     alert('請先載入月班表資料！')
@@ -1269,9 +1375,9 @@ function enterShiftEditMode() {
   isShiftEditMode.value = true
   hasUnsavedShiftChanges.value = false
   uploadStatus.value = ''
-  // 🔄 移除這行：shiftFilter.value = 'all'
 }
 
+// 取消班別編輯模式
 function cancelShiftEditMode() {
   if (hasUnsavedShiftChanges.value) {
     if (confirm('您有未儲存的班別修改，確定要放棄嗎？')) {
@@ -1284,23 +1390,7 @@ function cancelShiftEditMode() {
   }
 }
 
-watch(
-  monthlySchedule,
-  (newValue, oldValue) => {
-    if (isShiftEditMode.value && oldValue) {
-      hasUnsavedShiftChanges.value = true
-    }
-  },
-  { deep: true },
-)
-
-watch(activeTab, (newTab) => {
-  if (newTab !== 'weekly') {
-    shiftFilter.value = 'all' // 切換到其他頁籤時重置
-  }
-})
-
-// 🔄 修改 enterGroupEditMode 函式
+// 進入分組編輯模式
 function enterGroupEditMode() {
   if (!monthlySchedule.value) {
     alert('請先載入月班表資料！')
@@ -1328,9 +1418,9 @@ function enterGroupEditMode() {
 
   activeWeekTab.value = 0
   isGroupEditMode.value = true
-  // 🔄 移除這行：shiftFilter.value = 'all'
 }
 
+// 取消分組編輯模式
 function cancelGroupEditMode() {
   isGroupEditMode.value = false
   tempScheduleWithGroups.value = null
@@ -1338,120 +1428,10 @@ function cancelGroupEditMode() {
   activeWeekTab.value = 1
 }
 
-// canAssignGroup 函式
-const canAssignGroup = (shift) => {
-  const s = (shift || '').trim()
-  if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
-
-  // 74班可以手動調整組別（B、C、D、E、G、H、I、K）
-  // 311夜班可以手動調整組別
-  // 74/L、75、816 是固定組別，不能調整
-  return s === '74' || isNightShift(s)
-}
-
-// getAvailableGroups 函式 - 修改版，加入護理師名稱檢查
-const getAvailableGroups = (shift, date, nurseId) => {
-  const s = (shift || '').trim()
-  const dayOfWeek = new Date(date).getDay()
-
-  // 74班可選組別
-  if (s === '74') {
-    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
-  }
-
-  // 74/L 固定 A 組（不應該出現選項）
-  if (s === '74/L') {
-    return ['A']
-  }
-
-  // 75 固定 F 或 J 組（不應該出現選項）
-  if (s === '75') {
-    return ['F', 'J']
-  }
-
-  // 816 固定外圍組（不應該出現選項）
-  if (s === '816') {
-    return ['外圍']
-  }
-
-  // 夜班組別
-  if (['311', '3-11'].some((ns) => s.includes(ns))) {
-    let groups = []
-    if ([1, 3, 5].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
-    } else if ([2, 4, 6].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-    }
-
-    // 如果是編輯模式，檢查該護理師是否可以當A組
-    if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
-      const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
-
-      if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
-        // 移除A組選項
-        groups = groups.filter((g) => g !== 'A')
-      }
-    }
-
-    return groups
-  }
-  return []
-}
-
-// isNightShift 輔助函式
-const isNightShift = (shift) => {
-  const s = (shift || '').trim()
-  return ['311', '3-11'].some((ns) => s.includes(ns))
-}
-
-// 🆕 新增：判斷是否為白班
-const isDayShift = (shift) => {
-  const s = (shift || '').trim()
-  return ['74', '74/L', '75', '816', '84', '815'].includes(s)
-}
-
-const getGroupClass = (group) => {
-  if (!group) return ''
-  const groupChar = group.charAt(0).toUpperCase()
-  if (group === '外圍') return 'group-peripheral'
-  return `group-${groupChar}`
-}
-
-const getShiftClass = (shift) => {
-  if (!shift) return ''
-  const shiftStr = String(shift).trim()
-  const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815']
-  const LATE_SHIFTS = ['3-11', '311']
-  if (EARLY_SHIFTS.some((s) => shiftStr.includes(s))) return 'shift-badge shift-早班'
-  if (LATE_SHIFTS.some((s) => shiftStr.includes(s))) return 'shift-badge shift-晚班'
-  if (shiftStr === '休' || shiftStr.includes('休息')) return 'shift-badge shift-休息'
-  if (shiftStr === '例' || shiftStr.includes('例假')) return 'shift-badge shift-例假'
-  if (shiftStr.includes('國定')) return 'shift-badge shift-國定'
-  return 'shift-badge shift-其他'
-}
-
+// --- 檔案處理 ---
 function handleFileUpload(event) {
   selectedFile.value = event.target.files[0]
   uploadStatus.value = ''
-}
-
-async function loadMonthlySchedule() {
-  isLoadingSchedule.value = true
-  uploadStatus.value = ''
-  cancelGroupEditMode() // 確保退出分組編輯模式
-  isShiftEditMode.value = false // 確保退出班別編輯模式
-  hasUnsavedShiftChanges.value = false
-  try {
-    const documentId = selectedMonth.value
-    const schedule = await nursingSchedulesApi.fetchById(documentId)
-    monthlySchedule.value = schedule || null
-    activeWeekTab.value = 1
-  } catch (error) {
-    console.error('❌ 載入月班表失敗:', error)
-    monthlySchedule.value = null
-  } finally {
-    isLoadingSchedule.value = false
-  }
 }
 
 function fileToBase64(file) {
@@ -1463,6 +1443,7 @@ function fileToBase64(file) {
   })
 }
 
+// 處理並上傳檔案
 async function processAndUpload() {
   if (!selectedFile.value) {
     uploadStatus.value = '請先選擇一個 Excel 檔案'
@@ -1493,7 +1474,27 @@ async function processAndUpload() {
   }
 }
 
-// "工作職責" 頁籤的所有函式
+// 載入月班表
+async function loadMonthlySchedule() {
+  isLoadingSchedule.value = true
+  uploadStatus.value = ''
+  cancelGroupEditMode() // 確保退出分組編輯模式
+  isShiftEditMode.value = false // 確保退出班別編輯模式
+  hasUnsavedShiftChanges.value = false
+  try {
+    const documentId = selectedMonth.value
+    const schedule = await nursingSchedulesApi.fetchById(documentId)
+    monthlySchedule.value = schedule || null
+    activeWeekTab.value = 1
+  } catch (error) {
+    console.error('❌ 載入月班表失敗:', error)
+    monthlySchedule.value = null
+  } finally {
+    isLoadingSchedule.value = false
+  }
+}
+
+// --- "工作職責" 頁籤相關函式 ---
 const formatText = (text) => {
   if (!text) return ''
   let escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -1525,18 +1526,11 @@ const formatText = (text) => {
   escapedText = escapedText.replace(/^(\d+\.\s)/gm, '<span class="group-tag is-numeric">$1</span>')
   return escapedText
 }
+
 const setInputRef = (el) => {
   if (el) inputRef = el
 }
-watch(
-  [announcementText, dayShiftData, nightShiftDuties, checklistItems, teamworkItems],
-  (newValue, oldValue) => {
-    if (oldValue.some((v) => v !== undefined && v !== null)) {
-      hasChanges.value = true
-    }
-  },
-  { deep: true, immediate: false },
-)
+
 const enterEditMode = async (type, rowIndex, field) => {
   if (!(auth && auth.isAdmin.value)) return
   editingCell.value = { type, rowIndex, field }
@@ -1546,9 +1540,11 @@ const enterEditMode = async (type, rowIndex, field) => {
     inputRef.select()
   }
 }
+
 const exitEditMode = () => {
   editingCell.value = null
 }
+
 const isEditing = (type, rowIndex, field) => {
   return (
     editingCell.value?.type === type &&
@@ -1556,6 +1552,7 @@ const isEditing = (type, rowIndex, field) => {
     editingCell.value?.field === field
   )
 }
+
 const loadData = async () => {
   // 模擬從後端載入資料
   announcementText.value =
@@ -1595,6 +1592,7 @@ const loadData = async () => {
   await nextTick()
   hasChanges.value = false
 }
+
 const saveData = async () => {
   if (!hasChanges.value || !(auth && auth.isAdmin.value)) return
   try {
@@ -1621,6 +1619,43 @@ const saveData = async () => {
     createGlobalNotification(error.message || '儲存失敗，請稍後再試', 'error')
   }
 }
+
+// ========================================
+// 8. 監聽器 (Watchers)
+// ========================================
+watch(
+  monthlySchedule,
+  (newValue, oldValue) => {
+    if (isShiftEditMode.value && oldValue) {
+      hasUnsavedShiftChanges.value = true
+    }
+  },
+  { deep: true },
+)
+
+watch(activeTab, (newTab) => {
+  if (newTab !== 'weekly') {
+    shiftFilter.value = 'all' // 切換到其他頁籤時重置
+  }
+})
+
+watch(
+  [announcementText, dayShiftData, nightShiftDuties, checklistItems, teamworkItems],
+  (newValue, oldValue) => {
+    if (oldValue.some((v) => v !== undefined && v !== null)) {
+      hasChanges.value = true
+    }
+  },
+  { deep: true, immediate: false },
+)
+
+// ========================================
+// 9. 生命週期 (Lifecycle Hooks)
+// ========================================
+onMounted(() => {
+  loadMonthlySchedule()
+  loadData() // 職責頁籤資料
+})
 </script>
 
 <style scoped>
