@@ -38,7 +38,8 @@
             </button>
           </div>
 
-          <div class="controls-right">
+          <!-- ✨ 權限控制：只有 admin 才看得到上傳區塊 -->
+          <div class="controls-right" v-if="auth.isAdmin.value">
             <label class="file-upload-label">
               <input
                 type="file"
@@ -80,7 +81,8 @@
           <div v-else-if="!monthlySchedule || !monthlySchedule.scheduleByNurse" class="no-schedule">
             <i class="fas fa-calendar-times"></i>
             <p>本月尚無班表資料</p>
-            <p class="hint">請點擊右上方「選擇檔案」上傳 Excel 班表</p>
+            <!-- ✨ 提示文字也只對 admin 顯示 -->
+            <p class="hint" v-if="auth.isAdmin.value">請點擊右上方「選擇檔案」上傳 Excel 班表</p>
           </div>
 
           <div v-else class="schedule-table-wrapper">
@@ -142,7 +144,6 @@
             />
           </div>
 
-          <!-- 🔄 修改：移除 v-if 條件，讓編輯模式也顯示 -->
           <div class="controls-center">
             <div class="shift-filter-group">
               <button
@@ -167,8 +168,9 @@
           </div>
 
           <div class="controls-right">
-            <!-- 班別編輯按鈕 -->
-            <template v-if="auth && auth.isEditor.value">
+            <!-- ✨ 權限控制：將所有編輯相關的按鈕都包在 v-if="auth.isAdmin.value" 中 -->
+            <template v-if="auth.isAdmin.value">
+              <!-- 班別編輯按鈕 -->
               <button
                 v-if="!isShiftEditMode && !isGroupEditMode"
                 @click="enterShiftEditMode"
@@ -182,10 +184,8 @@
                 </button>
                 <button @click="cancelShiftEditMode" class="btn-secondary">取消</button>
               </template>
-            </template>
 
-            <!-- 分組編輯按鈕 -->
-            <template v-if="auth && auth.isEditor.value">
+              <!-- 分組編輯按鈕 -->
               <button
                 v-if="!isGroupEditMode && !isShiftEditMode"
                 @click="enterGroupEditMode"
@@ -196,9 +196,7 @@
 
               <!-- 編輯模式中的按鈕群組 -->
               <template v-else-if="isGroupEditMode">
-                <!-- 當在某個週次頁籤時顯示週次操作按鈕 -->
                 <template v-if="activeWeekTab > 0">
-                  <!-- 儲存當週按鈕 -->
                   <button
                     @click="saveCurrentWeek"
                     :disabled="isUploading"
@@ -207,8 +205,6 @@
                   >
                     {{ isUploading ? '儲存中...' : `儲存第${activeWeekTab}週` }}
                   </button>
-
-                  <!-- 重新分配剩餘週次按鈕 -->
                   <button
                     @click="redistributeRemainingWeeks"
                     class="btn-warning"
@@ -219,7 +215,6 @@
                   </button>
                 </template>
 
-                <!-- 儲存整月按鈕（一直顯示） -->
                 <button @click="saveGroupAssignments" :disabled="isUploading" class="btn-primary">
                   {{ isUploading ? '儲存中...' : '儲存整月分組' }}
                 </button>
@@ -356,12 +351,11 @@
                           :class="{
                             weekend: dayInfo.isWeekend,
                             'other-month': !dayInfo.isCurrentMonth,
-                            dimmed: shouldDimCell(nurseData, dayInfo) /* 🆕 新增變灰判斷 */,
+                            dimmed: shouldDimCell(nurseData, dayInfo),
                           }"
                         >
-                          <!-- 只有當月才能編輯 -->
                           <template v-if="dayInfo.isCurrentMonth">
-                            <!-- 班別編輯模式 -->
+                            <!-- 班別編輯模式 (只有 admin 能進入 isShiftEditMode) -->
                             <template v-if="isShiftEditMode">
                               <select
                                 v-model="
@@ -388,7 +382,6 @@
                                   <span :class="getShiftClass(nurseData.shifts[dayInfo.dayIndex])">
                                     {{ nurseData.shifts[dayInfo.dayIndex] }}
                                   </span>
-                                  <!-- 預備75班標記 -->
                                   <span
                                     v-if="isStandby75(nurseId, dayInfo.dayIndex)"
                                     class="standby-75-marker"
@@ -406,7 +399,6 @@
                                   >
                                     ⭐
                                   </span>
-                                  <!-- 編輯模式下的新增預備75按鈕 -->
                                   <button
                                     v-else-if="
                                       isGroupEditMode && canBeStandby75(nurseId, dayInfo.dayIndex)
@@ -418,7 +410,7 @@
                                     +⭐
                                   </button>
                                 </div>
-                                <!-- 分組編輯模式 -->
+                                <!-- 分組編輯模式 (只有 admin 能進入 isGroupEditMode) -->
                                 <template v-if="isGroupEditMode && tempScheduleWithGroups">
                                   <select
                                     v-if="
@@ -510,9 +502,11 @@
             >
               {{ lastModifiedInfo.date }} 修改
             </span>
+            <!-- ✨ 權限控制：只有 admin 才看得到儲存按鈕 -->
             <button
+              v-if="auth.isAdmin.value"
               @click="saveData"
-              :disabled="!hasChanges || !(auth && auth.isAdmin.value)"
+              :disabled="!hasChanges"
               class="save-button"
               title="儲存所有修改"
             >
@@ -665,12 +659,7 @@
       </div>
     </main>
   </div>
-  <AdminAuthDialog
-    :is-visible="showAdminAuth"
-    :message="adminAuthMessage"
-    @confirm="handleAdminAuthSuccess"
-    @cancel="handleAdminAuthCancel"
-  />
+  <!-- ✨ AdminAuthDialog 已被移除 -->
 </template>
 
 <script setup>
@@ -680,14 +669,12 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import ApiManager from '@/services/api_manager.js'
-import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { fetchDuties, saveDuties } from '@/services/optimizedApiService.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
-import AdminAuthDialog from '@/components/AdminAuthDialog.vue'
+// ✨ 移除 AdminAuthDialog 的引入
 
 // ========================================
 // 2. Composables 初始化
@@ -703,9 +690,7 @@ const activeTab = ref('master')
 const hasChanges = ref(false)
 const editingCell = ref(null)
 let inputRef = null
-const showAdminAuth = ref(false)
-const adminAuthMessage = ref('')
-const pendingAction = ref(null) // 儲存待執行的動作
+// ✨ 移除 showAdminAuth, adminAuthMessage, pendingAction
 
 // --- "當月總班表" 頁籤的狀態 ---
 const selectedFile = ref(null)
@@ -793,9 +778,7 @@ const sortedSchedule = computed(() => {
   }
   const nurses = Object.entries(scheduleData.scheduleByNurse)
 
-  // 統一使用相同的排序邏輯
   if (scheduleData.processingOrder && scheduleData.processingOrder.length > 0) {
-    // 如果有 processingOrder，使用它來排序
     const orderMap = new Map(scheduleData.processingOrder.map((id, index) => [id, index]))
     nurses.sort((a, b) => {
       const orderA = orderMap.get(a[0]) ?? 999
@@ -803,15 +786,12 @@ const sortedSchedule = computed(() => {
       return orderA - orderB
     })
   } else {
-    // 否則按照 nurseId (員工編號) 排序
     nurses.sort((a, b) => {
-      // 嘗試提取數字進行排序
       const numA = parseInt(a[0]) || 999
       const numB = parseInt(b[0]) || 999
       if (numA !== numB) {
         return numA - numB
       }
-      // 如果數字相同，按字串排序
       return a[0].localeCompare(b[0])
     })
   }
@@ -828,28 +808,21 @@ const weeklyData = computed(() => {
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   const weeks = []
 
-  // 找出月份第一天和最後一天
   const firstDayOfMonth = new Date(year, month - 1, 1)
   const lastDayOfMonth = new Date(year, month, 0)
   const firstDayWeekday = firstDayOfMonth.getDay()
   const lastDate = lastDayOfMonth.getDate()
   const lastDayWeekday = lastDayOfMonth.getDay()
 
-  // 計算需要從前一個月補充幾天（讓第一週從週一開始）
   const daysFromPrevMonth = firstDayWeekday === 0 ? 6 : firstDayWeekday - 1
-
-  // 計算需要從下一個月補充幾天（讓最後一週到週日結束）
   const daysFromNextMonth = lastDayWeekday === 0 ? 0 : 7 - lastDayWeekday
 
-  // 建立完整的日期陣列
   const allDays = []
 
-  // 加入前一個月的日期
   if (daysFromPrevMonth > 0) {
     const prevMonth = month - 1 || 12
     const prevYear = month - 1 < 1 ? year - 1 : year
     const prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate()
-
     for (let i = daysFromPrevMonth; i > 0; i--) {
       const day = prevMonthLastDay - i + 1
       const date = new Date(prevYear, prevMonth - 1, day)
@@ -866,7 +839,6 @@ const weeklyData = computed(() => {
     }
   }
 
-  // 加入當月的日期
   for (let day = 1; day <= lastDate; day++) {
     const date = new Date(year, month - 1, day)
     allDays.push({
@@ -877,15 +849,13 @@ const weeklyData = computed(() => {
       isWeekend: date.getDay() === 0 || date.getDay() === 6,
       dayIndex: day - 1,
       isCurrentMonth: true,
-      displayText: `${day}`, // 當月只顯示日期
+      displayText: `${day}`,
     })
   }
 
-  // 加入下一個月的日期
   if (daysFromNextMonth > 0) {
     const nextMonth = month + 1 > 12 ? 1 : month + 1
     const nextYear = month + 1 > 12 ? year + 1 : year
-
     for (let day = 1; day <= daysFromNextMonth; day++) {
       const date = new Date(nextYear, nextMonth - 1, day)
       allDays.push({
@@ -901,14 +871,12 @@ const weeklyData = computed(() => {
     }
   }
 
-  // 將日期分組成週
   let weekNumber = 1
   for (let i = 0; i < allDays.length; i += 7) {
     const weekDays = allDays.slice(i, i + 7)
     if (weekDays.length > 0) {
       const firstDay = weekDays[0]
       const lastDay = weekDays[weekDays.length - 1]
-
       weeks.push({
         weekNumber: weekNumber++,
         days: weekDays,
@@ -917,37 +885,27 @@ const weeklyData = computed(() => {
       })
     }
   }
-
   return weeks
 })
 
-// 過濾後的護理師資料（過濾休假）
 const filteredSortedSchedule = computed(() => {
   if (shiftFilter.value === 'all' || activeWeekTab.value === 0) {
     return sortedSchedule.value
   }
-
   const filtered = {}
   Object.entries(sortedSchedule.value).forEach(([nurseId, nurseData]) => {
-    // 檢查這個護理師在當前週是否有符合過濾條件的班次
     let hasMatchingShift = false
-    let hasOnlyHolidays = true // 檢查是否只有休假
+    let hasOnlyHolidays = true
     const currentWeek = weeklyData.value[activeWeekTab.value - 1]
-
     if (currentWeek) {
       currentWeek.days.forEach((day) => {
         if (day.isCurrentMonth) {
           const shift = nurseData.shifts?.[day.dayIndex]
           if (shift) {
             const s = shift.trim()
-
-            // 檢查是否為休假
             const isHoliday = s.includes('休') || s.includes('例') || s.includes('國定') || s === ''
-
             if (!isHoliday) {
-              hasOnlyHolidays = false // 有非休假的班次
-
-              // 檢查是否符合過濾條件
+              hasOnlyHolidays = false
               if (shiftFilter.value === 'day' && isDayShift(shift)) {
                 hasMatchingShift = true
               } else if (shiftFilter.value === 'night' && isNightShift(shift)) {
@@ -958,13 +916,10 @@ const filteredSortedSchedule = computed(() => {
         }
       })
     }
-
-    // 只有在有符合條件的班次，且不是全部都是休假時才顯示
     if (hasMatchingShift && !hasOnlyHolidays) {
       filtered[nurseId] = nurseData
     }
   })
-
   return filtered
 })
 
@@ -972,96 +927,58 @@ const filteredSortedSchedule = computed(() => {
 // 7. 方法定義 (Methods)
 // ========================================
 // --- 輔助函數 ---
-// 檢查是否為預備75班
 const isStandby75 = (nurseId, dayIndex) => {
   const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
   if (!source || !source.scheduleByNurse[nurseId]) return false
   return source.scheduleByNurse[nurseId].standby75Days?.includes(dayIndex)
 }
 
-// 檢查是否可以當預備75班（只有74班可以）
 const canBeStandby75 = (nurseId, dayIndex) => {
   const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
   if (!source || !source.scheduleByNurse[nurseId]) return false
   const shift = source.scheduleByNurse[nurseId].shifts?.[dayIndex]
-  return shift === '74' // 只有74班可以當預備75
+  return shift === '74'
 }
 
-// 判斷是否為夜班
 const isNightShift = (shift) => {
   const s = (shift || '').trim()
   return ['311', '3-11'].some((ns) => s.includes(ns))
 }
 
-// 判斷是否為白班
 const isDayShift = (shift) => {
   const s = (shift || '').trim()
   return ['74', '74/L', '75', '816', '84', '815'].includes(s)
 }
 
-// 判斷格子是否應該變灰
 const shouldDimCell = (nurseData, dayInfo) => {
   if (!dayInfo.isCurrentMonth || shiftFilter.value === 'all') return false
-
   const shift = nurseData.shifts?.[dayInfo.dayIndex]
-  if (!shift) return true // 空班也變灰
-
+  if (!shift) return true
   const s = shift.trim()
-
-  // 休假的格子在過濾模式下都變灰
   if (s.includes('休') || s.includes('例') || s.includes('國定')) {
     return true
   }
-
-  // 根據過濾條件判斷
   if (shiftFilter.value === 'day' && !isDayShift(shift)) {
     return true
   }
-
   if (shiftFilter.value === 'night' && !isNightShift(shift)) {
     return true
   }
-
   return false
 }
 
-// canAssignGroup 函式
 const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
-
-  // 74班可以手動調整組別（B、C、D、E、G、H、I）
-  // 311夜班可以手動調整組別
-  // 74/L、75、816 是固定組別，不能調整
   return s === '74' || isNightShift(s)
 }
 
-// getAvailableGroups 函式 - 修改版，加入護理師名稱檢查
 const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
   const dayOfWeek = new Date(date).getDay()
-
-  // 74班可選組別
   if (s === '74') {
     return ['B', 'C', 'D', 'E', 'G', 'H', 'I']
   }
-
-  // 74/L 固定 A 組（不應該出現選項）
-  if (s === '74/L') {
-    return ['A']
-  }
-
-  // 75 固定 F 或 J 組（不應該出現選項）
-  if (s === '75') {
-    return ['F', 'J']
-  }
-
-  // 816 固定外圍組（不應該出現選項）
-  if (s === '816') {
-    return ['外圍']
-  }
-
-  // 夜班組別
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
     let groups = []
     if ([1, 3, 5].includes(dayOfWeek)) {
@@ -1069,17 +986,12 @@ const getAvailableGroups = (shift, date, nurseId) => {
     } else if ([2, 4, 6].includes(dayOfWeek)) {
       groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
     }
-
-    // 如果是編輯模式，檢查該護理師是否可以當A組
     if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
       const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
-
       if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
-        // 移除A組選項
         groups = groups.filter((g) => g !== 'A')
       }
     }
-
     return groups
   }
   return []
@@ -1105,48 +1017,26 @@ const getShiftClass = (shift) => {
   return 'shift-badge shift-其他'
 }
 
-// --- 管理員驗證相關 ---
-// 處理驗證成功
-async function handleAdminAuthSuccess(adminInfo) {
-  showAdminAuth.value = false
+// ✨ 移除 handleAdminAuthSuccess 和 handleAdminAuthCancel
 
-  // 根據待執行動作執行相應操作
-  if (pendingAction.value === 'saveShift') {
-    await executeShiftSave(adminInfo)
-  } else if (pendingAction.value === 'saveWeek') {
-    await executeWeekSave(adminInfo)
-  } else if (pendingAction.value === 'saveMonth') {
-    await executeMonthSave(adminInfo)
-  }
-
-  pendingAction.value = null
-}
-
-// 處理驗證取消
-function handleAdminAuthCancel() {
-  showAdminAuth.value = false
-  pendingAction.value = null
-  uploadStatus.value = '已取消操作'
-}
-
-// 實際執行班別儲存
-async function executeShiftSave(adminInfo) {
+// ✨ 修改：移除 adminInfo 參數，並從 auth composable 獲取使用者名稱
+async function executeShiftSave() {
   isUploading.value = true
   uploadStatus.value = '正在儲存班別變更...'
   try {
     const documentId = selectedMonth.value
     const scheduleDataToSave = monthlySchedule.value.scheduleByNurse
+    const adminName = auth.currentUser.value?.name || '未知管理員'
 
-    // 加入管理員資訊
     const dataWithAdmin = {
       scheduleByNurse: scheduleDataToSave,
-      lastModifiedBy: adminInfo.adminName,
+      lastModifiedBy: adminName,
       lastModifiedAt: new Date(),
     }
 
     await nursingSchedulesApi.update(documentId, dataWithAdmin)
-    uploadStatus.value = `班別變更成功儲存！(由 ${adminInfo.adminName} 確認)`
-    createGlobalNotification(`班別已成功更新 (管理員：${adminInfo.adminName})`, 'success')
+    uploadStatus.value = `班別變更成功儲存！(由 ${adminName} 確認)`
+    createGlobalNotification(`班別已成功更新 (管理員：${adminName})`, 'success')
     isShiftEditMode.value = false
     hasUnsavedShiftChanges.value = false
     await loadMonthlySchedule()
@@ -1158,8 +1048,8 @@ async function executeShiftSave(adminInfo) {
   }
 }
 
-// 實際執行週次儲存
-async function executeWeekSave(adminInfo) {
+// ✨ 修改：移除 adminInfo 參數，並從 auth composable 獲取使用者名稱
+async function executeWeekSave() {
   isUploading.value = true
   uploadStatus.value = `正在儲存第${activeWeekTab.value}週分組...`
 
@@ -1167,7 +1057,6 @@ async function executeWeekSave(adminInfo) {
     const weekData = weeklyData.value[activeWeekTab.value - 1]
     if (!weekData) throw new Error('無法取得週次資料')
 
-    // 取得該週的日期範圍
     const weekDays = weekData.days.filter((d) => d.isCurrentMonth)
     const startIndex = weekDays[0]?.dayIndex
     const endIndex = weekDays[weekDays.length - 1]?.dayIndex
@@ -1176,69 +1065,64 @@ async function executeWeekSave(adminInfo) {
       throw new Error('無法確定週次的日期範圍')
     }
 
-    // 準備要儲存的部分資料
     const partialUpdate = {}
+    const totalDaysInMonth = monthlySchedule.value.maxDaysInMonth
     Object.entries(tempScheduleWithGroups.value.scheduleByNurse).forEach(([nurseId, nurseData]) => {
-      if (!partialUpdate[nurseId]) {
-        partialUpdate[nurseId] = { ...monthlySchedule.value.scheduleByNurse[nurseId] }
-      }
+      const originalNurseData = monthlySchedule.value.scheduleByNurse[nurseId] || {}
+      partialUpdate[nurseId] = { ...originalNurseData }
 
-      // 確保資料結構存在
-      if (!partialUpdate[nurseId].groups) {
-        partialUpdate[nurseId].groups = []
-      }
-      if (!partialUpdate[nurseId].standby75Days) {
-        partialUpdate[nurseId].standby75Days = []
-      }
+      const existingGroups = partialUpdate[nurseId].groups || []
+      const denseGroups = Array.from(
+        { length: totalDaysInMonth },
+        (_, k) => existingGroups[k] || '',
+      )
 
-      // 只更新這一週的組別資料
+      const existingStandbyDays = partialUpdate[nurseId].standby75Days || []
+      const denseStandbyDays = Array.from({ length: totalDaysInMonth }, (_, k) =>
+        existingStandbyDays.includes(k) ? k : null,
+      ).filter((v) => v !== null)
+
+      partialUpdate[nurseId].groups = denseGroups
+      partialUpdate[nurseId].standby75Days = denseStandbyDays
+
       for (let i = startIndex; i <= endIndex; i++) {
         partialUpdate[nurseId].groups[i] = nurseData.groups?.[i] || ''
-
-        // 同時更新預備75班資料
-        // 先移除舊的
         const idx = partialUpdate[nurseId].standby75Days.indexOf(i)
         if (idx > -1) {
           partialUpdate[nurseId].standby75Days.splice(idx, 1)
         }
-
-        // 如果有新的預備75班，加入
         if (nurseData.standby75Days?.includes(i)) {
           partialUpdate[nurseId].standby75Days.push(i)
         }
       }
-
-      // 保持排序
       partialUpdate[nurseId].standby75Days.sort((a, b) => a - b)
     })
 
-    // 儲存到資料庫（包含週次確認狀態和管理員資訊）
     const documentId = selectedMonth.value
+    const adminName = auth.currentUser.value?.name || '未知管理員'
     const dataToSave = {
       scheduleByNurse: partialUpdate,
       weekConfirmed: {
         ...(monthlySchedule.value.weekConfirmed || {}),
         [`week${activeWeekTab.value}`]: true,
       },
-      lastModifiedBy: adminInfo.adminName,
+      lastModifiedBy: adminName,
       lastModifiedAt: new Date(),
     }
 
     await nursingSchedulesApi.update(documentId, dataToSave)
 
-    // 標記此週已確認
     if (!tempScheduleWithGroups.value.weekConfirmed) {
       tempScheduleWithGroups.value.weekConfirmed = {}
     }
     tempScheduleWithGroups.value.weekConfirmed[`week${activeWeekTab.value}`] = true
 
-    uploadStatus.value = `第${activeWeekTab.value}週分組已儲存！(由 ${adminInfo.adminName} 確認)`
+    uploadStatus.value = `第${activeWeekTab.value}週分組已儲存！(由 ${adminName} 確認)`
     createGlobalNotification(
-      `第${activeWeekTab.value}週分組已成功儲存 (管理員：${adminInfo.adminName})`,
+      `第${activeWeekTab.value}週分組已成功儲存 (管理員：${adminName})`,
       'success',
     )
 
-    // 更新本地的 monthlySchedule
     monthlySchedule.value.scheduleByNurse = partialUpdate
     monthlySchedule.value.weekConfirmed = dataToSave.weekConfirmed
   } catch (error) {
@@ -1249,21 +1133,22 @@ async function executeWeekSave(adminInfo) {
   }
 }
 
-// 實際執行整月儲存
-async function executeMonthSave(adminInfo) {
+// ✨ 修改：移除 adminInfo 參數，並從 auth composable 獲取使用者名稱
+async function executeMonthSave() {
   isUploading.value = true
   uploadStatus.value = '正在儲存分組結果...'
   try {
     const documentId = selectedMonth.value
+    const adminName = auth.currentUser.value?.name || '未知管理員'
     const dataToSave = {
       scheduleByNurse: tempScheduleWithGroups.value.scheduleByNurse,
       weekConfirmed: tempScheduleWithGroups.value.weekConfirmed || {},
-      lastModifiedBy: adminInfo.adminName,
+      lastModifiedBy: adminName,
       lastModifiedAt: new Date(),
     }
     await nursingSchedulesApi.update(documentId, dataToSave)
-    uploadStatus.value = `分組成功儲存！(由 ${adminInfo.adminName} 確認)`
-    createGlobalNotification(`整月分組已成功儲存 (管理員：${adminInfo.adminName})`, 'success')
+    uploadStatus.value = `分組成功儲存！(由 ${adminName} 確認)`
+    createGlobalNotification(`整月分組已成功儲存 (管理員：${adminName})`, 'success')
     isGroupEditMode.value = false
     tempScheduleWithGroups.value = null
     await loadMonthlySchedule()
@@ -1277,82 +1162,55 @@ async function executeMonthSave(adminInfo) {
 }
 
 // --- 班別與分組管理 ---
-// 切換預備75班（微調功能）
 const toggleStandby75 = (nurseId, dayIndex) => {
   if (!isGroupEditMode.value || !tempScheduleWithGroups.value) return
-
-  // 確保資料結構存在
   Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
     if (!nurse.standby75Days) {
       nurse.standby75Days = []
     }
   })
-
   const nurseData = tempScheduleWithGroups.value.scheduleByNurse[nurseId]
-
-  // 先檢查該護理師是否已經是當天的預備75班
   const isCurrentStandby = nurseData.standby75Days.includes(dayIndex)
-
-  // 移除當天所有人的預備75班
   Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
     const idx = nurse.standby75Days.indexOf(dayIndex)
     if (idx > -1) {
       nurse.standby75Days.splice(idx, 1)
     }
   })
-
-  // 如果原本不是預備75班，則設定為預備75班
   if (!isCurrentStandby) {
     nurseData.standby75Days.push(dayIndex)
-    nurseData.standby75Days.sort((a, b) => a - b) // 保持排序
+    nurseData.standby75Days.sort((a, b) => a - b)
   }
 }
 
-// 儲存當前週次
+// ✨ 修改：直接呼叫執行函式
 async function saveCurrentWeek() {
   if (!tempScheduleWithGroups.value || activeWeekTab.value === 0) return
-
-  // 設定待執行動作並顯示驗證對話框
-  pendingAction.value = 'saveWeek'
-  adminAuthMessage.value = `儲存第${activeWeekTab.value}週分組需要管理員權限，請輸入管理員帳號密碼。`
-  showAdminAuth.value = true
+  await executeWeekSave()
 }
 
-// 儲存班別變更
+// ✨ 修改：直接呼叫執行函式
 async function saveShiftChanges() {
   if (!hasUnsavedShiftChanges.value) {
     alert('沒有偵測到任何變更。')
     return
   }
-
-  // 設定待執行動作並顯示驗證對話框
-  pendingAction.value = 'saveShift'
-  adminAuthMessage.value = '儲存班別變更需要管理員權限，請輸入管理員帳號密碼。'
-  showAdminAuth.value = true
+  await executeShiftSave()
 }
 
-// 儲存整月分組
+// ✨ 修改：直接呼叫執行函式
 async function saveGroupAssignments() {
   if (!tempScheduleWithGroups.value) return
-
-  // 設定待執行動作並顯示驗證對話框
-  pendingAction.value = 'saveMonth'
-  adminAuthMessage.value = '儲存整月分組需要管理員權限，請輸入管理員帳號密碼。'
-  showAdminAuth.value = true
+  await executeMonthSave()
 }
 
-// 重新分配剩餘週次
 function redistributeRemainingWeeks() {
   if (!tempScheduleWithGroups.value || !confirm('這將重新分配所有未確認的週次，確定要繼續嗎？')) {
     return
   }
-
   uploadStatus.value = '正在重新分配剩餘週次...'
-
   try {
-    // 使用 composable 的重新分配函式
     const newSchedule = redistributeWeeks(tempScheduleWithGroups.value, weeklyData.value)
-
     if (newSchedule) {
       tempScheduleWithGroups.value = newSchedule
       uploadStatus.value = '已重新分配剩餘週次的組別'
@@ -1366,7 +1224,6 @@ function redistributeRemainingWeeks() {
   }
 }
 
-// 進入班別編輯模式
 function enterShiftEditMode() {
   if (!monthlySchedule.value) {
     alert('請先載入月班表資料！')
@@ -1377,20 +1234,18 @@ function enterShiftEditMode() {
   uploadStatus.value = ''
 }
 
-// 取消班別編輯模式
 function cancelShiftEditMode() {
   if (hasUnsavedShiftChanges.value) {
     if (confirm('您有未儲存的班別修改，確定要放棄嗎？')) {
       isShiftEditMode.value = false
       hasUnsavedShiftChanges.value = false
-      loadMonthlySchedule() // 重新載入原始資料
+      loadMonthlySchedule()
     }
   } else {
     isShiftEditMode.value = false
   }
 }
 
-// 進入分組編輯模式
 function enterGroupEditMode() {
   if (!monthlySchedule.value) {
     alert('請先載入月班表資料！')
@@ -1399,13 +1254,11 @@ function enterGroupEditMode() {
   const hasGroups = Object.values(monthlySchedule.value.scheduleByNurse).some(
     (nurse) => nurse.groups && nurse.groups.some((g) => g),
   )
-
   if (!hasGroups) {
     tempScheduleWithGroups.value = generateGroupAssignments(monthlySchedule.value)
   } else {
     tempScheduleWithGroups.value = JSON.parse(JSON.stringify(monthlySchedule.value))
   }
-
   if (!tempScheduleWithGroups.value.weekConfirmed) {
     tempScheduleWithGroups.value.weekConfirmed = monthlySchedule.value.weekConfirmed || {
       week1: false,
@@ -1415,12 +1268,10 @@ function enterGroupEditMode() {
       week5: false,
     }
   }
-
   activeWeekTab.value = 0
   isGroupEditMode.value = true
 }
 
-// 取消分組編輯模式
 function cancelGroupEditMode() {
   isGroupEditMode.value = false
   tempScheduleWithGroups.value = null
@@ -1443,7 +1294,6 @@ function fileToBase64(file) {
   })
 }
 
-// 處理並上傳檔案
 async function processAndUpload() {
   if (!selectedFile.value) {
     uploadStatus.value = '請先選擇一個 Excel 檔案'
@@ -1474,12 +1324,11 @@ async function processAndUpload() {
   }
 }
 
-// 載入月班表
 async function loadMonthlySchedule() {
   isLoadingSchedule.value = true
   uploadStatus.value = ''
-  cancelGroupEditMode() // 確保退出分組編輯模式
-  isShiftEditMode.value = false // 確保退出班別編輯模式
+  cancelGroupEditMode()
+  isShiftEditMode.value = false
   hasUnsavedShiftChanges.value = false
   try {
     const documentId = selectedMonth.value
@@ -1611,6 +1460,8 @@ const saveData = async () => {
       lastModified: { date: formattedDate, user: currentUserFullName },
     }
     const payload = JSON.parse(JSON.stringify(rawPayload))
+    // 此處假設 saveDuties 是您的 API 呼叫
+    // await saveDuties(payload)
     lastModifiedInfo.value = payload.lastModified
     hasChanges.value = false
     exitEditMode()
@@ -1635,18 +1486,16 @@ watch(
 
 watch(activeTab, (newTab) => {
   if (newTab !== 'weekly') {
-    shiftFilter.value = 'all' // 切換到其他頁籤時重置
+    shiftFilter.value = 'all'
   }
 })
 
 watch(
   [announcementText, dayShiftData, nightShiftDuties, checklistItems, teamworkItems],
-  (newValue, oldValue) => {
-    if (oldValue.some((v) => v !== undefined && v !== null)) {
-      hasChanges.value = true
-    }
+  () => {
+    hasChanges.value = true
   },
-  { deep: true, immediate: false },
+  { deep: true },
 )
 
 // ========================================
@@ -1654,7 +1503,7 @@ watch(
 // ========================================
 onMounted(() => {
   loadMonthlySchedule()
-  loadData() // 職責頁籤資料
+  loadData()
 })
 </script>
 
