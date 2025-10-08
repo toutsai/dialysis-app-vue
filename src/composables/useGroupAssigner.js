@@ -292,8 +292,8 @@ export function useGroupAssigner(scheduleSource) {
         }
       }
 
-      // 74班分配 B、C、D、E、G、H、I、K 組（考慮平衡）
-      const available74Groups = ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+      // 74班分配 B、C、D、E、G、H、I 組（考慮平衡）
+      const available74Groups = ['B', 'C', 'D', 'E', 'G', 'H', 'I']
 
       if (nurses74.length > 0) {
         // 計算每個護理師在每個組的次數

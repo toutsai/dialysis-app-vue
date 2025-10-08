@@ -1030,7 +1030,7 @@ const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
 
-  // 74班可以手動調整組別（B、C、D、E、G、H、I、K）
+  // 74班可以手動調整組別（B、C、D、E、G、H、I）
   // 311夜班可以手動調整組別
   // 74/L、75、816 是固定組別，不能調整
   return s === '74' || isNightShift(s)
@@ -1043,7 +1043,7 @@ const getAvailableGroups = (shift, date, nurseId) => {
 
   // 74班可選組別
   if (s === '74') {
-    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+    return ['B', 'C', 'D', 'E', 'G', 'H', 'I']
   }
 
   // 74/L 固定 A 組（不應該出現選項）
