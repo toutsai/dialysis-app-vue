@@ -665,6 +665,12 @@
       </div>
     </main>
   </div>
+  <AdminAuthDialog
+    :is-visible="showAdminAuth"
+    :message="adminAuthMessage"
+    @confirm="handleAdminAuthSuccess"
+    @cancel="handleAdminAuthCancel"
+  />
 </template>
 
 <script setup>
@@ -678,12 +684,9 @@ import { fetchDuties, saveDuties } from '@/services/optimizedApiService.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
+import AdminAuthDialog from '@/components/AdminAuthDialog.vue'
 
-const { createGlobalNotification } = {
-  createGlobalNotification: (msg, type) => {
-    alert(`[${type.toUpperCase()}] ${msg}`)
-  },
-}
+const { createGlobalNotification } = useGlobalNotifier()
 
 // --- 狀態管理 ---
 const activeTab = ref('master')
@@ -691,6 +694,9 @@ const auth = useAuth()
 const hasChanges = ref(false)
 const editingCell = ref(null)
 let inputRef = null
+const showAdminAuth = ref(false)
+const adminAuthMessage = ref('')
+const pendingAction = ref(null) // 儲存待執行的動作
 
 // "當月總班表" 頁籤的狀態
 const selectedFile = ref(null)
@@ -1026,10 +1032,60 @@ onMounted(() => {
 
 // --- 方法 ---
 
-// 儲存當前週次
-async function saveCurrentWeek() {
-  if (!tempScheduleWithGroups.value || activeWeekTab.value === 0) return
+// 處理驗證成功
+async function handleAdminAuthSuccess(adminInfo) {
+  showAdminAuth.value = false
 
+  // 根據待執行動作執行相應操作
+  if (pendingAction.value === 'saveShift') {
+    await executeShiftSave(adminInfo)
+  } else if (pendingAction.value === 'saveWeek') {
+    await executeWeekSave(adminInfo)
+  } else if (pendingAction.value === 'saveMonth') {
+    await executeMonthSave(adminInfo)
+  }
+
+  pendingAction.value = null
+}
+
+// 處理驗證取消
+function handleAdminAuthCancel() {
+  showAdminAuth.value = false
+  pendingAction.value = null
+  uploadStatus.value = '已取消操作'
+}
+
+// 實際執行班別儲存
+async function executeShiftSave(adminInfo) {
+  isUploading.value = true
+  uploadStatus.value = '正在儲存班別變更...'
+  try {
+    const documentId = selectedMonth.value
+    const scheduleDataToSave = monthlySchedule.value.scheduleByNurse
+
+    // 加入管理員資訊
+    const dataWithAdmin = {
+      scheduleByNurse: scheduleDataToSave,
+      lastModifiedBy: adminInfo.adminName,
+      lastModifiedAt: new Date(),
+    }
+
+    await nursingSchedulesApi.update(documentId, dataWithAdmin)
+    uploadStatus.value = `班別變更成功儲存！(由 ${adminInfo.adminName} 確認)`
+    createGlobalNotification(`班別已成功更新 (管理員：${adminInfo.adminName})`, 'success')
+    isShiftEditMode.value = false
+    hasUnsavedShiftChanges.value = false
+    await loadMonthlySchedule()
+  } catch (error) {
+    console.error('儲存護理班別失敗:', error)
+    uploadStatus.value = `儲存失敗：${error.message}`
+  } finally {
+    isUploading.value = false
+  }
+}
+
+// 實際執行週次儲存
+async function executeWeekSave(adminInfo) {
   isUploading.value = true
   uploadStatus.value = `正在儲存第${activeWeekTab.value}週分組...`
 
@@ -1082,7 +1138,7 @@ async function saveCurrentWeek() {
       partialUpdate[nurseId].standby75Days.sort((a, b) => a - b)
     })
 
-    // 儲存到資料庫（包含週次確認狀態）
+    // 儲存到資料庫（包含週次確認狀態和管理員資訊）
     const documentId = selectedMonth.value
     const dataToSave = {
       scheduleByNurse: partialUpdate,
@@ -1090,6 +1146,8 @@ async function saveCurrentWeek() {
         ...(monthlySchedule.value.weekConfirmed || {}),
         [`week${activeWeekTab.value}`]: true,
       },
+      lastModifiedBy: adminInfo.adminName,
+      lastModifiedAt: new Date(),
     }
 
     await nursingSchedulesApi.update(documentId, dataToSave)
@@ -1100,8 +1158,11 @@ async function saveCurrentWeek() {
     }
     tempScheduleWithGroups.value.weekConfirmed[`week${activeWeekTab.value}`] = true
 
-    uploadStatus.value = `第${activeWeekTab.value}週分組已儲存！`
-    createGlobalNotification(`第${activeWeekTab.value}週分組已成功儲存`, 'success')
+    uploadStatus.value = `第${activeWeekTab.value}週分組已儲存！(由 ${adminInfo.adminName} 確認)`
+    createGlobalNotification(
+      `第${activeWeekTab.value}週分組已成功儲存 (管理員：${adminInfo.adminName})`,
+      'success',
+    )
 
     // 更新本地的 monthlySchedule
     monthlySchedule.value.scheduleByNurse = partialUpdate
@@ -1112,6 +1173,66 @@ async function saveCurrentWeek() {
   } finally {
     isUploading.value = false
   }
+}
+
+// 實際執行整月儲存
+async function executeMonthSave(adminInfo) {
+  isUploading.value = true
+  uploadStatus.value = '正在儲存分組結果...'
+  try {
+    const documentId = selectedMonth.value
+    const dataToSave = {
+      scheduleByNurse: tempScheduleWithGroups.value.scheduleByNurse,
+      weekConfirmed: tempScheduleWithGroups.value.weekConfirmed || {},
+      lastModifiedBy: adminInfo.adminName,
+      lastModifiedAt: new Date(),
+    }
+    await nursingSchedulesApi.update(documentId, dataToSave)
+    uploadStatus.value = `分組成功儲存！(由 ${adminInfo.adminName} 確認)`
+    createGlobalNotification(`整月分組已成功儲存 (管理員：${adminInfo.adminName})`, 'success')
+    isGroupEditMode.value = false
+    tempScheduleWithGroups.value = null
+    await loadMonthlySchedule()
+    activeWeekTab.value = 1
+  } catch (error) {
+    console.error('儲存護理分組失敗:', error)
+    uploadStatus.value = `儲存失敗：${error.message}`
+  } finally {
+    isUploading.value = false
+  }
+}
+
+// 儲存當前週次（修改為顯示驗證）
+async function saveCurrentWeek() {
+  if (!tempScheduleWithGroups.value || activeWeekTab.value === 0) return
+
+  // 設定待執行動作並顯示驗證對話框
+  pendingAction.value = 'saveWeek'
+  adminAuthMessage.value = `儲存第${activeWeekTab.value}週分組需要管理員權限，請輸入管理員帳號密碼。`
+  showAdminAuth.value = true
+}
+
+// 儲存班別變更（修改為顯示驗證）
+async function saveShiftChanges() {
+  if (!hasUnsavedShiftChanges.value) {
+    alert('沒有偵測到任何變更。')
+    return
+  }
+
+  // 設定待執行動作並顯示驗證對話框
+  pendingAction.value = 'saveShift'
+  adminAuthMessage.value = '儲存班別變更需要管理員權限，請輸入管理員帳號密碼。'
+  showAdminAuth.value = true
+}
+
+// 儲存整月分組（修改為顯示驗證）
+async function saveGroupAssignments() {
+  if (!tempScheduleWithGroups.value) return
+
+  // 設定待執行動作並顯示驗證對話框
+  pendingAction.value = 'saveMonth'
+  adminAuthMessage.value = '儲存整月分組需要管理員權限，請輸入管理員帳號密碼。'
+  showAdminAuth.value = true
 }
 
 // 重新分配剩餘週次
@@ -1160,30 +1281,6 @@ function cancelShiftEditMode() {
     }
   } else {
     isShiftEditMode.value = false
-  }
-}
-
-async function saveShiftChanges() {
-  if (!hasUnsavedShiftChanges.value) {
-    alert('沒有偵測到任何變更。')
-    return
-  }
-  isUploading.value = true
-  uploadStatus.value = '正在儲存班別變更...'
-  try {
-    const documentId = selectedMonth.value
-    const scheduleDataToSave = monthlySchedule.value.scheduleByNurse
-    await nursingSchedulesApi.update(documentId, { scheduleByNurse: scheduleDataToSave })
-    uploadStatus.value = '班別變更成功儲存！'
-    createGlobalNotification('班別已成功更新', 'success')
-    isShiftEditMode.value = false
-    hasUnsavedShiftChanges.value = false
-    await loadMonthlySchedule()
-  } catch (error) {
-    console.error('儲存護理班別失敗:', error)
-    uploadStatus.value = `儲存失敗：${error.message}`
-  } finally {
-    isUploading.value = false
   }
 }
 
@@ -1239,30 +1336,6 @@ function cancelGroupEditMode() {
   tempScheduleWithGroups.value = null
   uploadStatus.value = ''
   activeWeekTab.value = 1
-}
-
-async function saveGroupAssignments() {
-  if (!tempScheduleWithGroups.value) return
-  isUploading.value = true
-  uploadStatus.value = '正在儲存分組結果...'
-  try {
-    const documentId = selectedMonth.value
-    const dataToSave = {
-      scheduleByNurse: tempScheduleWithGroups.value.scheduleByNurse,
-      weekConfirmed: tempScheduleWithGroups.value.weekConfirmed || {},
-    }
-    await nursingSchedulesApi.update(documentId, dataToSave)
-    uploadStatus.value = '分組成功儲存！'
-    isGroupEditMode.value = false
-    tempScheduleWithGroups.value = null
-    await loadMonthlySchedule()
-    activeWeekTab.value = 1
-  } catch (error) {
-    console.error('儲存護理分組失敗:', error)
-    uploadStatus.value = `儲存失敗：${error.message}`
-  } finally {
-    isUploading.value = false
-  }
 }
 
 // canAssignGroup 函式
