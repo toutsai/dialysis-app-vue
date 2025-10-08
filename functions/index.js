@@ -742,27 +742,38 @@ exports.initializeFutureSchedules = onSchedule(
 // 可呼叫函式 (Callable Functions) - ✨ 全面加入 CORS 設定 ✨
 // ===================================================================
 exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
+  // ✨ 移除了 verifyOnly 參數
   const { username, password } = request.data
+
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
   }
+
   try {
     const usersRef = db.collection('users')
     const snapshot = await usersRef.where('username', '==', username).limit(1).get()
+
     if (snapshot.empty) {
       throw new HttpsError('not-found', '使用者名稱不存在。')
     }
+
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
+
     if (userData.password !== password) {
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
+
+    // ✨ 整個 if (verifyOnly) { ... } 區塊已被移除
+
+    // 只保留產生 token 的核心登入邏輯
     const uid = userDoc.id
     const customToken = await admin.auth().createCustomToken(uid, {
       role: userData.role,
       name: userData.name,
       title: userData.title,
     })
+
     return { token: customToken }
   } catch (error) {
     logger.error('[customLogin] Login function error:', error)

@@ -178,9 +178,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // 針對護理班表集合的規則
     match /nursing_schedules/{scheduleId} {
-      allow read: if request.auth != null && request.auth.token.role in ['admin', 'editor'];
-      allow write: if request.auth != null && request.auth.token.role == 'admin';
+      // 讀取權限：允許 admin 或 editor 角色
+      allow read: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
+      
+      // 寫入/更新/刪除權限：只允許 admin 角色
+      allow write: if request.auth.token.role == 'admin';
     }
   }
 }
