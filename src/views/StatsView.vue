@@ -33,6 +33,14 @@
           >
             <i class="fas fa-copy"></i> 新增夜班收針分組
           </button>
+          <button
+            class="btn-primary"
+            @click="syncNurseNamesFromSchedule"
+            :disabled="isPageLocked"
+            title="從護理班表同步護理師姓名"
+          >
+            <i class="fas fa-sync"></i> 同步護理師
+          </button>
         </div>
         <div class="toolbar-right desktop-only-flex">
           <span class="status-indicator">{{ statusIndicator }}</span>
@@ -1155,6 +1163,7 @@ import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import * as XLSX from 'xlsx'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
+import { useNurseGroupSync } from '@/composables/useNurseGroupSync.js'
 
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
@@ -1163,6 +1172,7 @@ const medicationStore = useMedicationStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
+const { autoFillNurseNames, hasNamesDifference } = useNurseGroupSync()
 
 const schedulesApi = ApiManager('schedules')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
@@ -1196,6 +1206,7 @@ const nurseNameList = [
   '吳幸美',
   '林芳羽',
   '蔡靜怡',
+  '莊明月',
 ]
 const earlyBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
 const lateBaseTeams = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', '外圍', '未分組']
@@ -1563,6 +1574,7 @@ async function fetchLiveSchedule(dateStr) {
   return record
 }
 
+// 修改 loadData 函式，在載入資料後自動填入護理師姓名
 async function loadData(date) {
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
@@ -1591,6 +1603,26 @@ async function loadData(date) {
 
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
+
+    // 🔥 追蹤是否有自動填入新的護理師姓名
+    let hasAutoFilledNames = false
+
+    // 自動填入護理師姓名
+    if (!isPastDate) {
+      // 只在非過去日期時自動填入
+      // 保存舊的 names 以供比較
+      const oldNames = JSON.parse(JSON.stringify(currentTeamsRecord.value.names || {}))
+
+      // 執行自動填入（會先清除再填入）
+      const updatedTeamsRecord = await autoFillNurseNames(dateStr, currentTeamsRecord.value)
+      currentTeamsRecord.value = updatedTeamsRecord
+
+      // 使用新的比較函式檢查是否有變更
+      if (hasNamesDifference(oldNames, updatedTeamsRecord.names)) {
+        setTeamChange() // 標記有變更需要儲存
+        hasAutoFilledNames = true // 設定旗標
+      }
+    }
 
     const patientIdsInSchedule = [
       ...new Set(
@@ -1623,12 +1655,40 @@ async function loadData(date) {
       }
     }
 
-    statusIndicator.value = currentRecord.id ? '資料已載入' : '本日無排程資料'
+    // 🔥 根據是否有自動填入來設定正確的狀態訊息
+    if (hasAutoFilledNames) {
+      statusIndicator.value = '⚠️ 已自動同步護理師姓名，請儲存'
+    } else if (!currentRecord.id) {
+      statusIndicator.value = '本日無排程資料'
+    } else {
+      statusIndicator.value = '資料已載入'
+    }
   } catch (error) {
     console.error('讀取報表資料失敗:', error)
     statusIndicator.value = '讀取失敗'
   } finally {
     isLoading.value = false
+  }
+}
+
+// 新增一個手動同步按鈕的功能（選擇性）
+async function syncNurseNamesFromSchedule() {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '頁面已鎖定')
+    return
+  }
+
+  statusIndicator.value = '同步中...'
+  try {
+    const dateStr = formatDate(currentDate.value)
+    const updatedRecord = await autoFillNurseNames(dateStr, currentTeamsRecord.value)
+    currentTeamsRecord.value = updatedRecord
+    setTeamChange()
+    statusIndicator.value = '護理師姓名已同步，請儲存變更'
+    showAlert('同步成功', '已從護理班表同步護理師姓名，請確認並儲存')
+  } catch (error) {
+    console.error('同步失敗:', error)
+    showAlert('同步失敗', '無法從護理班表取得資料')
   }
 }
 
@@ -2256,20 +2316,30 @@ const openOrderModalFromPopover = (patient) => {
   }
 }
 
-onMounted(() => {
-  Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
-})
-watch(currentUser, (newUser) => {
-  if (!newUser) {
+// 2.5 watch 和 watchEffect (放在這裡)
+watch(hasUnsavedChanges, (newValue) => {
+  if (newValue && !statusIndicator.value.includes('儲存')) {
+    statusIndicator.value = '⚠️ 有未儲存的變更'
+  } else if (!newValue && statusIndicator.value.includes('儲存')) {
+    statusIndicator.value = '資料已載入'
   }
 })
+
 watch(currentDate, (newDate) => {
-  medicationStore.clearCache() // ✨ 清除快取
+  medicationStore.clearCache()
   noonTakeoffVisibility.value = { early: false, late: false }
   loadData(newDate)
   loadDailyStaffInfo(newDate)
 })
-onUnmounted(() => {})
+
+// 2.6 生命週期鉤子
+onMounted(() => {
+  Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
+})
+
+onUnmounted(() => {
+  // cleanup if needed
+})
 </script>
 
 <style scoped>
