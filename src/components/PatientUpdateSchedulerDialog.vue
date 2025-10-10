@@ -22,8 +22,14 @@
           </div>
 
           <!-- 根據 changeType 顯示不同欄位 -->
-          <div v-if="changeType === 'UPDATE_STATUS'" class="form-group">
-            <label for="newStatus">新身分</label>
+          <!-- 讓 UPDATE_STATUS 和 RESTORE_PATIENT 共用同一個 UI 區塊 -->
+          <div
+            v-if="changeType === 'UPDATE_STATUS' || changeType === 'RESTORE_PATIENT'"
+            class="form-group"
+          >
+            <label for="newStatus">
+              {{ changeType === 'RESTORE_PATIENT' ? '復原至' : '新身分' }}
+            </label>
             <select id="newStatus" v-model="formData.payload.status" @change="onStatusChange">
               <option value="opd">門診</option>
               <option value="ipd">住院</option>
@@ -125,9 +131,18 @@ import { useAuth } from '@/composables/useAuth.js'
 // --- Props & Emits ---
 const props = defineProps({
   isVisible: Boolean,
-  patient: Object, // 傳入單一病人物件
-  changeType: String, // 傳入變更類型
-  allPatients: Array, // 傳入所有病人列表以供 BedAssignmentDialog 使用
+  patient: Object,
+  changeType: String,
+  allPatients: Array,
+  // ✨ 新增 props
+  isEditing: {
+    type: Boolean,
+    default: false,
+  },
+  initialData: {
+    type: Object,
+    default: null,
+  },
 })
 const emit = defineEmits(['close', 'submit'])
 
@@ -213,9 +228,7 @@ const DELETE_REASONS = [
 // --- Reactive State ---
 const isSubmitting = ref(false)
 const isBedAssignmentVisible = ref(false)
-// ✨✨✨【核心修正 #2：新增一個 ref 來儲存排班資料】✨✨✨
 const bedAssignmentScheduleData = ref({})
-
 const formData = reactive({
   effectiveDate: '',
   payload: {},
@@ -223,6 +236,8 @@ const formData = reactive({
 
 // --- Computed Properties ---
 const dialogTitle = computed(() => {
+  // ✨ 修改標題
+  const baseTitle = props.isEditing ? '修改預約變更' : '預約變更'
   const typeMap = {
     UPDATE_STATUS: '預約身分變更',
     UPDATE_MODE: '預約透析模式變更',
@@ -230,7 +245,8 @@ const dialogTitle = computed(() => {
     UPDATE_BASE_SCHEDULE_RULE: '預約總表規則變更',
     DELETE_PATIENT: '預約刪除病人',
   }
-  return typeMap[props.changeType] || '預約變更'
+  const typeText = typeMap[props.changeType] ? ` - ${typeMap[props.changeType]}` : ''
+  return baseTitle + typeText
 })
 
 const selectedPatientDisplay = computed(() => {
@@ -253,8 +269,12 @@ const baseRuleDisplay = computed(() => {
 
 const isFormValid = computed(() => {
   if (!formData.effectiveDate) return false
-  const today = new Date().toISOString().split('T')[0]
-  if (formData.effectiveDate <= today) return false // 生效日期必須是明天之後
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const effective = new Date(formData.effectiveDate)
+
+  // 生效日期必須是明天或更晚
+  if (effective <= today) return false
 
   switch (props.changeType) {
     case 'UPDATE_STATUS':
@@ -271,46 +291,60 @@ const isFormValid = computed(() => {
       )
     case 'DELETE_PATIENT':
       return !!formData.payload.deleteReason
+
+    // ✨✨✨【核心修正】✨✨✨
+    // 新增對 RESTORE_PATIENT 的判斷，確保 payload 中有 status
+    case 'RESTORE_PATIENT':
+      return !!formData.payload.status
+
     default:
       return false
   }
 })
 
-// --- Watchers ---
+// 同時，也需要擴充 watch 來為 RESTORE_PATIENT 初始化 payload
 watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal && props.patient && props.changeType) {
-      // 重置表單
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      formData.effectiveDate = tomorrow.toISOString().split('T')[0]
+      if (props.isEditing && props.initialData) {
+        // 編輯模式：用 initialData 填充表單
+        formData.effectiveDate = props.initialData.effectiveDate
+        formData.payload = JSON.parse(JSON.stringify(props.initialData.payload))
+      } else {
+        // 新增模式：重置表單
+        const tomorrow = new Date()
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        formData.effectiveDate = tomorrow.toISOString().split('T')[0]
 
-      // 根據變更類型初始化 payload
-      switch (props.changeType) {
-        case 'UPDATE_STATUS':
-          formData.payload = {
-            status: props.patient.status,
-            wardNumber: props.patient.wardNumber || '',
-          }
-          break
-        case 'UPDATE_MODE':
-          formData.payload = { mode: props.patient.mode || 'HD' }
-          break
-        case 'UPDATE_FREQ':
-          formData.payload = { freq: props.patient.freq || '一三五' }
-          break
-        case 'UPDATE_BASE_SCHEDULE_RULE':
-          formData.payload = {}
-          break
-        case 'DELETE_PATIENT':
-          formData.payload = { deleteReason: '轉外院透析', remarks: '' }
-          break
-        default:
-          formData.payload = {}
+        switch (props.changeType) {
+          case 'UPDATE_STATUS':
+            formData.payload = {
+              status: props.patient.status,
+              wardNumber: props.patient.wardNumber || '',
+            }
+            break
+          case 'UPDATE_MODE':
+            formData.payload = { mode: props.patient.mode || 'HD' }
+            break
+          case 'UPDATE_FREQ':
+            formData.payload = { freq: props.patient.freq || '一三五' }
+            break
+          case 'UPDATE_BASE_SCHEDULE_RULE':
+            formData.payload = {}
+            break
+          case 'DELETE_PATIENT':
+            formData.payload = { deleteReason: '轉外院透析', remarks: '' }
+            break
+          case 'RESTORE_PATIENT':
+            formData.payload = { status: 'opd', wardNumber: '' }
+            break
+          default:
+            formData.payload = {}
+        }
       }
     }
-  },
+  }, // ✨✨✨【核心修正】✨✨✨ -> 在這裡補上遺失的大括號
 )
 
 // --- Methods ---

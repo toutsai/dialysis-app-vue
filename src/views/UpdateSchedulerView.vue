@@ -45,7 +45,6 @@
       </div>
     </main>
 
-    <!-- ✨ 2. 整合兩個 Dialog 元件 -->
     <NewUpdateTypeDialog
       :is-visible="isNewTypeDialogVisible"
       :all-patients="allPatients"
@@ -53,31 +52,71 @@
       @continue="handleNewTypeSelected"
     />
 
+    <!-- ✨ 2. 將 @close 的值改為呼叫新函式 -->
     <PatientUpdateSchedulerDialog
       :is-visible="isSchedulerDialogVisible"
       :patient="patientForScheduler"
       :change-type="changeTypeForScheduler"
       :all-patients="allPatients"
-      @close="isSchedulerDialogVisible = false"
+      :is-editing="isEditingUpdate"
+      :initial-data="isEditingUpdate ? currentUpdateForAction : null"
+      @close="closeSchedulerDialogs"
       @submit="handleScheduledUpdate"
     />
 
+    <!-- ✨ 核心修改：將 ConfirmDialog 改為自訂 Footer -->
     <ConfirmDialog
       :is-visible="isConfirmDialogVisible"
       :title="confirmDialogTitle"
       :message="confirmDialogMessage"
-      :confirm-text="confirmDialogActionText"
-      :cancel-text="'關閉'"
-      :confirm-class="isDeleteAction ? 'btn-danger' : 'btn-primary'"
-      @confirm="executeConfirmAction"
       @cancel="isConfirmDialogVisible = false"
-    />
+    >
+      <!-- 當 ConfirmDialog 看到這個 template, $slots.footer 就會為 true -->
+      <template #footer>
+        <!-- ✨ 1. 在這裡加上 dialog-footer class -->
+        <div class="dialog-footer dialog-footer-custom">
+          <button class="btn btn-secondary" @click="isConfirmDialogVisible = false">關閉</button>
+          <div>
+            <button
+              v-if="currentUpdateForAction && currentUpdateForAction.status === 'pending'"
+              class="btn btn-primary"
+              @click="handleEdit"
+              :disabled="isPageLocked"
+            >
+              修改
+            </button>
+            <button
+              v-if="
+                currentUpdateForAction &&
+                currentUpdateForAction.status === 'pending' &&
+                new Date(currentUpdateForAction.effectiveDate) >=
+                  new Date(new Date().toISOString().split('T')[0])
+              "
+              class="btn btn-danger"
+              @click="handleDelete"
+              :disabled="isPageLocked"
+            >
+              撤銷此預約
+            </button>
+          </div>
+        </div>
+      </template>
+    </ConfirmDialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onUnmounted, onMounted, watch, computed, nextTick } from 'vue'
-import { collection, query, orderBy, onSnapshot, deleteDoc, doc, addDoc } from 'firebase/firestore'
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  deleteDoc,
+  doc,
+  addDoc,
+  setDoc,
+} from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
@@ -106,6 +145,7 @@ const TYPE_MAP = {
   UPDATE_FREQ: '頻率變更',
   UPDATE_BASE_SCHEDULE_RULE: '總表規則變更',
   DELETE_PATIENT: '刪除病人',
+  RESTORE_PATIENT: '復原病人',
 }
 
 const STATUS_MAP = {
@@ -122,18 +162,18 @@ let unsubscribe = null
 const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
-const confirmDialogAction = ref(null)
-const confirmDialogActionText = ref('確認')
-const isDeleteAction = ref(false)
+const currentUpdateForAction = ref(null)
 
-const fullCalendar = ref(null)
-const calendarApi = ref(null)
-const calendarTitle = ref('')
-// ✨ 5. 新增控制兩個 Dialog 的 ref
+// ✨✨✨【核心修正：在這裡補上遺漏的 ref 宣告】✨✨✨
 const isNewTypeDialogVisible = ref(false)
 const isSchedulerDialogVisible = ref(false)
 const patientForScheduler = ref(null)
 const changeTypeForScheduler = ref('')
+const isEditingUpdate = ref(false)
+
+const fullCalendar = ref(null)
+const calendarApi = ref(null)
+const calendarTitle = ref('') // <-- ✨ 補上這一行
 
 // --- Computed Properties ---
 const calendarEvents = computed(() => {
@@ -191,14 +231,22 @@ function formatPayload(update) {
       return `新規則: ${bed} / ${shiftMap[payload.shiftIndex]}班 / ${payload.freq}`
     case 'DELETE_PATIENT':
       return `原因: ${payload.deleteReason}${payload.remarks ? ` (${payload.remarks})` : ''}`
+    case 'RESTORE_PATIENT':
+      const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
+      return `復原至: ${statusMap[payload.status] || payload.status.toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
+
     default:
       return JSON.stringify(payload)
   }
 }
 
+// ✨ 核心修改：重寫 handleEventClick 函式
 function handleEventClick(update) {
+  currentUpdateForAction.value = update // 保存當前操作的整個 update 物件
   const statusInfo = STATUS_MAP[update.status] || { text: '未知' }
-  let message =
+
+  confirmDialogTitle.value = '預約變更詳情'
+  confirmDialogMessage.value =
     `病人: ${update.patientName}\n` +
     `類型: ${TYPE_MAP[update.changeType] || '未知'}\n` +
     `生效日: ${update.effectiveDate}\n` +
@@ -206,26 +254,48 @@ function handleEventClick(update) {
     `詳情: ${formatPayload(update)}\n`
 
   if (update.status === 'error' && update.errorMessage) {
-    message += `\n錯誤訊息: ${update.errorMessage}`
-  }
-
-  confirmDialogTitle.value = '預約變更詳情'
-  confirmDialogMessage.value = message
-
-  const today = new Date().toISOString().split('T')[0]
-  if (update.status === 'pending' && update.effectiveDate >= today && !isPageLocked.value) {
-    confirmDialogActionText.value = '撤銷此預約'
-    isDeleteAction.value = true
-    confirmDialogAction.value = () => executeDelete(update.id)
-  } else {
-    confirmDialogActionText.value = '關閉'
-    isDeleteAction.value = false
-    confirmDialogAction.value = () => {
-      isConfirmDialogVisible.value = false
-    }
+    confirmDialogMessage.value += `\n錯誤訊息: ${update.errorMessage}`
   }
 
   isConfirmDialogVisible.value = true
+}
+
+// ✨ 新增：處理修改按鈕點擊的函式
+function handleEdit() {
+  if (!currentUpdateForAction.value) return
+
+  // 準備傳給 Dialog 的資料
+  patientForScheduler.value = {
+    id: currentUpdateForAction.value.patientId,
+    name: currentUpdateForAction.value.patientName,
+  }
+  changeTypeForScheduler.value = currentUpdateForAction.value.changeType
+  isEditingUpdate.value = true // 標記為編輯模式
+
+  isConfirmDialogVisible.value = false
+  setTimeout(() => {
+    isSchedulerDialogVisible.value = true
+  }, 150)
+}
+
+// ✨ 新增：處理撤銷按鈕點擊的函式
+async function handleDelete() {
+  if (!currentUpdateForAction.value?.id) return
+  const updateIdToDelete = currentUpdateForAction.value.id
+  const updateData = currentUpdateForAction.value // 保存一份資料用於通知
+
+  isConfirmDialogVisible.value = false // 先關閉對話框
+
+  try {
+    await deleteDoc(doc(db, 'scheduled_patient_updates', updateIdToDelete))
+    const typeText = TYPE_MAP[updateData.changeType] || '預約'
+    createGlobalNotification(`成功撤銷 ${updateData.patientName} 的 ${typeText}`, 'success')
+  } catch (error) {
+    console.error('撤銷預約失敗:', error)
+    createGlobalNotification(`撤銷失敗: ${error.message}`, 'error')
+  } finally {
+    currentUpdateForAction.value = null
+  }
 }
 
 function executeConfirmAction() {
@@ -244,6 +314,13 @@ async function executeDelete(updateId) {
     console.error('撤銷預約失敗:', error)
     createGlobalNotification(`撤銷失敗: ${error.message}`, 'error')
   }
+}
+
+// ✨ 1. 新增這個函式，專門用來處理關閉 Dialog 後的清理工作
+function closeSchedulerDialogs() {
+  isSchedulerDialogVisible.value = false
+  isEditingUpdate.value = false
+  // 未來如果還有其他需要重置的狀態，可以一併加在這裡
 }
 
 function initializeListener() {
@@ -291,14 +368,27 @@ function handleNewTypeSelected({ patient, changeType }) {
   }, 150)
 }
 
+// ✨ 修改：handleScheduledUpdate 函式，使其能處理更新操作
 async function handleScheduledUpdate(dataToSubmit) {
+  isSchedulerDialogVisible.value = false
   try {
-    await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
-    createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
-    isSchedulerDialogVisible.value = false
+    if (isEditingUpdate.value && currentUpdateForAction.value?.id) {
+      // 編輯模式：更新現有文件
+      const docRef = doc(db, 'scheduled_patient_updates', currentUpdateForAction.value.id)
+      await setDoc(docRef, dataToSubmit, { merge: true }) // 使用 setDoc + merge 更新
+      createGlobalNotification('預約變更已成功更新', 'success')
+    } else {
+      // 新增模式：建立新文件
+      await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
+      createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
+    }
   } catch (error) {
     console.error('提交預約失敗:', error)
-    createGlobalNotification(`預約失敗: ${error.message}`, 'error')
+    createGlobalNotification(`操作失敗: ${error.message}`, 'error')
+  } finally {
+    // 重置狀態
+    isEditingUpdate.value = false
+    currentUpdateForAction.value = null
   }
 }
 
@@ -566,6 +656,32 @@ button:disabled {
   white-space: pre-wrap;
   text-align: left;
   line-height: 1.6;
+}
+
+:deep(.dialog-footer) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+:deep(.footer-right) {
+  display: flex;
+  gap: 12px;
+}
+
+/* 讓 ConfirmDialog 的 footer 插槽能夠正確排版 */
+:deep(.dialog-footer-custom) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 1rem 1.5rem; /* ✨ 確保有 padding */
+  border-top: 1px solid #e9ecef; /* ✨ 加上分隔線 */
+}
+
+:deep(.dialog-footer-custom > div) {
+  display: flex;
+  gap: 0.75rem; /* 按鈕之間的間距 */
 }
 
 /* ================================== */

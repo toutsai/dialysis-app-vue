@@ -3963,13 +3963,11 @@ exports.applyScheduledPatientUpdates = onSchedule(
         switch (changeType) {
           case 'UPDATE_STATUS':
           case 'UPDATE_MODE':
-            // 這些只更新 patients 集合
             await db.collection('patients').doc(patientId).update(payload)
             logger.info(`    - 成功更新 patients/${patientId} 的屬性。`)
             break
 
           case 'UPDATE_FREQ':
-            // ✨ 這個 case 現在只負責更新病人的預設頻率
             if (!payload.freq) {
               throw new Error("Payload for UPDATE_FREQ is missing 'freq'.")
             }
@@ -3978,7 +3976,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
             break
 
           case 'UPDATE_BASE_SCHEDULE_RULE':
-            // ✨ 這個 case 專門負責更新總表規則
             const { bedNum, shiftIndex, freq } = payload
             if (bedNum === undefined || shiftIndex === undefined || !freq) {
               throw new Error('Payload for UPDATE_BASE_SCHEDULE_RULE is incomplete.')
@@ -3991,7 +3988,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
 
               const schedule = masterDoc.data().schedule || {}
 
-              // 檢查床位衝突
               for (const otherPatientId in schedule) {
                 if (otherPatientId === patientId) continue
                 const otherRule = schedule[otherPatientId]
@@ -4007,10 +4003,8 @@ exports.applyScheduledPatientUpdates = onSchedule(
                 }
               }
 
-              // 同步更新病人資料中的預設頻率
               transaction.update(db.collection('patients').doc(patientId), { freq })
 
-              // 更新總表中的完整規則
               const existingRule = schedule[patientId] || {}
               transaction.update(masterScheduleRef, {
                 [`schedule.${patientId}`]: {
@@ -4018,7 +4012,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
                   bedNum: bedNum,
                   shiftIndex: shiftIndex,
                   freq: freq,
-                  // 可以考慮加入 patientName 以方便後續查找
                   patientName: updateTask.patientName || existingRule.patientName,
                 },
               })
@@ -4027,7 +4020,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
             break
 
           case 'DELETE_PATIENT':
-            // ... (刪除病人的邏輯保持不變) ...
             const patientRef = db.collection('patients').doc(patientId)
             const masterRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
             await db.runTransaction(async (transaction) => {
@@ -4049,14 +4041,34 @@ exports.applyScheduledPatientUpdates = onSchedule(
             logger.info(`    - 成功將 patient/${patientId} 標記為刪除並清理相關規則。`)
             break
 
+          // ✨✨✨【核心新增：處理預約復原】✨✨✨
+          case 'RESTORE_PATIENT':
+            const patientToRestoreRef = db.collection('patients').doc(patientId)
+
+            if (!payload.status) {
+              throw new Error("Payload for RESTORE_PATIENT is missing 'status'.")
+            }
+
+            const restoreData = {
+              isDeleted: false,
+              status: payload.status,
+              wardNumber: payload.wardNumber || null,
+              deleteReason: FieldValue.delete(),
+              deletedAt: FieldValue.delete(),
+              originalStatus: FieldValue.delete(),
+            }
+
+            await patientToRestoreRef.update(restoreData)
+
+            logger.info(`    - 成功將 patient/${patientId} 從刪除名單中復原至 ${payload.status}。`)
+            break
+
           default:
             throw new Error(`未知的變更類型: ${changeType}`)
         }
 
-        // 任務成功後更新狀態
         await doc.ref.update({ status: 'completed' })
       } catch (error) {
-        // 任務失敗後更新狀態
         logger.error(`  - ❌ 處理任務 ${taskId} 失敗:`, error)
         await doc.ref.update({ status: 'error', errorMessage: error.message })
       }
