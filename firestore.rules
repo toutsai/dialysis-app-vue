@@ -186,5 +186,21 @@ service cloud.firestore {
       // 寫入/更新/刪除權限：只允許 admin 角色
       allow write: if request.auth.token.role == 'admin';
     }
+    
+    // ✨✨✨【核心修正：新增此區塊】✨✨✨
+    // 為 "預約變更" 集合設定權限規則
+    match /scheduled_patient_updates/{updateId} {
+      // 讀取權限: 允許 admin 和 editor 角色查看所有預約
+      allow read: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
+
+      // 寫入(新增/更新/刪除)權限:
+      // 1. 允許 admin 或 editor 建立新的預約
+      // 2. 允許建立者本人撤銷 (刪除) 自己建立的預約
+      allow write: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
+      
+      // 如果想做得更精細，可以拆分成 create 和 delete
+      // allow create: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
+      // allow delete: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor' || resource.data.createdBy.uid == request.auth.uid;
+    }
   }
 }

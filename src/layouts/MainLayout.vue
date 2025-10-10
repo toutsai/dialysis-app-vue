@@ -50,6 +50,13 @@
               </div>
             </RouterLink>
           </li>
+          <li v-if="auth.isEditor.value" class="desktop-only-nav-item">
+            <RouterLink to="/update-scheduler" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">預約變更總覽</span>
+              </div>
+            </RouterLink>
+          </li>
           <li>
             <RouterLink to="/patients" class="nav-link">
               <div class="nav-item-content">
@@ -233,6 +240,7 @@ import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 
+const auth = useAuth() // ✨ 2. 在這裡初始化 useAuth，並將它賦值給 auth 變數
 const router = useRouter()
 const route = useRoute()
 const {
