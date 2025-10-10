@@ -339,7 +339,7 @@ watch(isLoading, (newIsLoading) => {
   display: flex;
   flex-direction: column;
   background-color: #f8f9fa;
-  padding: 1rem;
+  padding: 0.5rem;
   height: calc(100vh - 60px); /* 減去 MainLayout 頂部導航列的高度 */
 }
 
