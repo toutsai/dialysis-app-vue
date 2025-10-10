@@ -54,7 +54,6 @@
             <RouterLink to="/update-scheduler" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">預約變更總覽</span>
-                <span class="nav-subtitle">管理未來變更</span>
               </div>
             </RouterLink>
           </li>
