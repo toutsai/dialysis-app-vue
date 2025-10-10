@@ -50,7 +50,8 @@
               </div>
             </RouterLink>
           </li>
-          <li v-if="auth.isEditor.value" class="desktop-only-nav-item">
+          <!-- ✨✨✨【核心修正：修改 v-if 的判斷條件】✨✨✨ -->
+          <li v-if="canViewUpdateScheduler" class="desktop-only-nav-item">
             <RouterLink to="/update-scheduler" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">預約變更總覽</span>
@@ -247,6 +248,7 @@ const {
   currentUser,
   logout,
   isAdmin,
+  isEditor,
   canEditSchedules,
   canManagePhysicianSchedule,
   canManageOrders,
@@ -279,6 +281,22 @@ const notificationCount = computed(() => {
   const myPendingMemosCount = todayRelevantMemosCount(todayMyPatientIds.value)
 
   return myPendingTasksCount + myPendingMemosCount
+})
+
+const canViewUpdateScheduler = computed(() => {
+  // 如果還在載入或使用者未登入，則不顯示
+  if (auth.authLoading.value || !currentUser.value) {
+    return false
+  }
+
+  // 獲取當前登入者的 ID
+  const currentUserId = currentUser.value.uid
+
+  // 定義允許查看此頁面的使用者 ID 白名單
+  const allowedUserIds = ['admin', '54727']
+
+  // 如果當前使用者 ID 在白名單中，則回傳 true
+  return allowedUserIds.includes(currentUserId)
 })
 
 // --- 過渡期 provide/inject (為了讓舊頁面正常運作) ---
