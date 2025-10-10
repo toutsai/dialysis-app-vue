@@ -742,38 +742,27 @@ exports.initializeFutureSchedules = onSchedule(
 // 可呼叫函式 (Callable Functions) - ✨ 全面加入 CORS 設定 ✨
 // ===================================================================
 exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
-  // ✨ 移除了 verifyOnly 參數
   const { username, password } = request.data
-
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
   }
-
   try {
     const usersRef = db.collection('users')
     const snapshot = await usersRef.where('username', '==', username).limit(1).get()
-
     if (snapshot.empty) {
       throw new HttpsError('not-found', '使用者名稱不存在。')
     }
-
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
-
     if (userData.password !== password) {
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
-
-    // ✨ 整個 if (verifyOnly) { ... } 區塊已被移除
-
-    // 只保留產生 token 的核心登入邏輯
     const uid = userDoc.id
     const customToken = await admin.auth().createCustomToken(uid, {
       role: userData.role,
       name: userData.name,
       title: userData.title,
     })
-
     return { token: customToken }
   } catch (error) {
     logger.error('[customLogin] Login function error:', error)
@@ -3924,5 +3913,156 @@ exports.getDailyMedicationDrafts = onCall(
       logger.error(`[getDailyMedicationDrafts] 處理藥囑草稿計算時發生嚴重錯誤:`, error)
       throw new HttpsError('internal', `計算藥囑草稿時發生錯誤: ${error.message}`)
     }
+  },
+)
+
+// ===================================================================
+// ✨【最終修正版 v1.1】 - 明確區分病人屬性變更與總表規則變更
+// ===================================================================
+
+/**
+ * 每日定時執行的 Cloud Function，用於處理所有到期的「預約病人變更」任務。
+ * 觸發時間：每日凌晨 00:10 (台北時間)。
+ */
+exports.applyScheduledPatientUpdates = onSchedule(
+  { schedule: '10 0 * * *', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '1GiB' },
+  async (event) => {
+    const todayStr = new Date()
+      .toLocaleDateString('zh-TW', {
+        timeZone: 'Asia/Taipei',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
+      .replace(/\//g, '-')
+
+    logger.info(`🚀 [Updater] 執行 ${todayStr} 的預約變更任務...`)
+
+    const updatesQuery = db
+      .collection('scheduled_patient_updates')
+      .where('effectiveDate', '==', todayStr)
+      .where('status', '==', 'pending')
+
+    const snapshot = await updatesQuery.get()
+
+    if (snapshot.empty) {
+      logger.info('✅ [Updater] 今天沒有待處理的預約變更。')
+      return null
+    }
+
+    logger.info(`[Updater] 找到 ${snapshot.size} 個待處理的預約。`)
+
+    for (const doc of snapshot.docs) {
+      const updateTask = doc.data()
+      const taskId = doc.id
+      const { patientId, changeType, payload } = updateTask
+
+      logger.info(`  - 正在處理任務 ${taskId} for patient ${patientId} (${changeType})...`)
+
+      try {
+        switch (changeType) {
+          case 'UPDATE_STATUS':
+          case 'UPDATE_MODE':
+            // 這些只更新 patients 集合
+            await db.collection('patients').doc(patientId).update(payload)
+            logger.info(`    - 成功更新 patients/${patientId} 的屬性。`)
+            break
+
+          case 'UPDATE_FREQ':
+            // ✨ 這個 case 現在只負責更新病人的預設頻率
+            if (!payload.freq) {
+              throw new Error("Payload for UPDATE_FREQ is missing 'freq'.")
+            }
+            await db.collection('patients').doc(patientId).update({ freq: payload.freq })
+            logger.info(`    - 成功更新 patients/${patientId} 的預設頻率為 ${payload.freq}。`)
+            break
+
+          case 'UPDATE_BASE_SCHEDULE_RULE':
+            // ✨ 這個 case 專門負責更新總表規則
+            const { bedNum, shiftIndex, freq } = payload
+            if (bedNum === undefined || shiftIndex === undefined || !freq) {
+              throw new Error('Payload for UPDATE_BASE_SCHEDULE_RULE is incomplete.')
+            }
+            const masterScheduleRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
+
+            await db.runTransaction(async (transaction) => {
+              const masterDoc = await transaction.get(masterScheduleRef)
+              if (!masterDoc.exists()) throw new Error('MASTER_SCHEDULE document not found!')
+
+              const schedule = masterDoc.data().schedule || {}
+
+              // 檢查床位衝突
+              for (const otherPatientId in schedule) {
+                if (otherPatientId === patientId) continue
+                const otherRule = schedule[otherPatientId]
+                if (
+                  otherRule.bedNum === bedNum &&
+                  otherRule.shiftIndex === shiftIndex &&
+                  hasFrequencyConflict(freq, otherRule.freq)
+                ) {
+                  const otherPatientName = otherRule.patientName || `ID:${otherPatientId}`
+                  throw new Error(
+                    `床位衝突：目標位置已被 ${otherPatientName} (${otherRule.freq}) 佔用。`,
+                  )
+                }
+              }
+
+              // 同步更新病人資料中的預設頻率
+              transaction.update(db.collection('patients').doc(patientId), { freq })
+
+              // 更新總表中的完整規則
+              const existingRule = schedule[patientId] || {}
+              transaction.update(masterScheduleRef, {
+                [`schedule.${patientId}`]: {
+                  ...existingRule,
+                  bedNum: bedNum,
+                  shiftIndex: shiftIndex,
+                  freq: freq,
+                  // 可以考慮加入 patientName 以方便後續查找
+                  patientName: updateTask.patientName || existingRule.patientName,
+                },
+              })
+            })
+            logger.info(`    - 成功更新 patient/${patientId} 和 base_schedules 的總表規則。`)
+            break
+
+          case 'DELETE_PATIENT':
+            // ... (刪除病人的邏輯保持不變) ...
+            const patientRef = db.collection('patients').doc(patientId)
+            const masterRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
+            await db.runTransaction(async (transaction) => {
+              const patientDoc = await transaction.get(patientRef)
+              if (!patientDoc.exists()) throw new Error(`Patient with ID ${patientId} not found.`)
+              const patientData = patientDoc.data()
+              transaction.update(patientRef, {
+                isDeleted: true,
+                originalStatus: patientData.status,
+                deleteReason: payload.deleteReason || '預約刪除',
+                remarks: payload.remarks || '',
+                deletedAt: FieldValue.serverTimestamp(),
+              })
+              transaction.update(masterRef, {
+                [`schedule.${patientId}`]: FieldValue.delete(),
+              })
+            })
+            await cancelFutureExceptionsForPatient(patientId)
+            logger.info(`    - 成功將 patient/${patientId} 標記為刪除並清理相關規則。`)
+            break
+
+          default:
+            throw new Error(`未知的變更類型: ${changeType}`)
+        }
+
+        // 任務成功後更新狀態
+        await doc.ref.update({ status: 'completed' })
+      } catch (error) {
+        // 任務失敗後更新狀態
+        logger.error(`  - ❌ 處理任務 ${taskId} 失敗:`, error)
+        await doc.ref.update({ status: 'error', errorMessage: error.message })
+      }
+    }
+
+    logger.info('✅ [Updater] 所有預約變更任務處理完畢。')
+    return null
   },
 )
