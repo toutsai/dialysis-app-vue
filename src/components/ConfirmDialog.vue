@@ -1,4 +1,4 @@
-<!-- src/components/ConfirmDialog.vue (增強版) -->
+<!-- src/components/ConfirmDialog.vue (升級版，支援自訂 footer) -->
 <template>
   <dialog :open="isVisible" class="confirm-dialog" @close="onCancel">
     <header class="dialog-header" v-if="title">
@@ -8,8 +8,14 @@
       <pre>{{ message }}</pre>
     </main>
 
-    <footer class="dialog-footer">
-      <!-- ✨ 按鈕文字和樣式現在是動態的 -->
+    <!-- ✨✨✨ 核心升級 ✨✨✨ -->
+    <!-- 1. 使用 <slot> 來檢查父元件是否提供了名為 "footer" 的插槽 -->
+    <!--    - v-if="$slots.footer" 判斷插槽是否存在 -->
+    <!--    - 如果存在，就渲染 <slot name="footer"></slot>，將父元件的內容插入此處 -->
+    <slot v-if="$slots.footer" name="footer"></slot>
+
+    <!-- 2. 如果沒有提供 footer 插槽，就渲染原本的預設 footer -->
+    <footer v-else class="dialog-footer">
       <button :class="cancelClass" @click="onCancel">{{ cancelText }}</button>
       <button :class="confirmClass" @click="onConfirm">{{ confirmText }}</button>
     </footer>
@@ -21,7 +27,6 @@ defineProps({
   isVisible: Boolean,
   title: String,
   message: String,
-  // ✨ 新增 props 來客製化按鈕
   confirmText: {
     type: String,
     default: '確認',
@@ -50,7 +55,7 @@ function onCancel() {
 </script>
 
 <style scoped>
-/* ✨ 新增一個 btn-danger 樣式 */
+/* (您的所有 CSS 樣式都保持不變) */
 .btn-danger {
   background-color: #dc3545;
   border-color: #dc3545;
@@ -63,19 +68,17 @@ function onCancel() {
 .confirm-dialog {
   border: 1px solid #dee2e6;
   border-radius: 12px;
-  padding: 5px;
+  padding: 0; /* ✨ 建議移除 padding，讓子元素控制 */
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   width: 90%;
   max-width: 500px;
   z-index: 1001;
   animation: fadeIn 0.3s ease-out;
-  /* 【新增】以下是置中的關鍵 */
   position: fixed;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
 }
-
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -84,7 +87,6 @@ function onCancel() {
     opacity: 1;
   }
 }
-
 .confirm-dialog::backdrop {
   background-color: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(2px);
@@ -118,8 +120,6 @@ function onCancel() {
   justify-content: flex-end;
   gap: 12px;
 }
-
-/* 統一按鈕樣式 */
 .dialog-footer button {
   padding: 10px 24px;
   font-size: 1rem;

@@ -59,6 +59,17 @@ const routes = [
         meta: { title: '調班管理', requiresAuth: true },
       },
       {
+        path: 'update-scheduler', // 頁面網址
+        name: 'UpdateScheduler', // 路由名稱
+        component: () => import('../views/UpdateSchedulerView.vue'), // 指向新檔案
+        meta: {
+          title: '預約變更總覽',
+          requiresAuth: true,
+          // 根據您的需求，可以限制只有特定角色能看
+          // roles: ['admin', 'editor'],
+        },
+      },
+      {
         path: 'patients',
         name: 'Patients',
         component: () => import('../views/PatientsView.vue'),

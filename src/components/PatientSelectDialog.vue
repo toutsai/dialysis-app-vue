@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/PatientSelectDialog.vue (最終修正版) -->
+<!-- 檔案路徑: src/components/PatientSelectDialog.vue (最終修正版 v2) -->
 <template>
   <Transition name="dialog-fade">
     <div v-if="isVisible" class="dialog-overlay" @click.self="onCancel">
@@ -10,11 +10,12 @@
         <main class="dialog-body">
           <div class="search-controls">
             <input type="text" v-model="searchTerm" placeholder="搜尋姓名/病歷號..." />
-            <select v-model="filterFreq">
+            <!-- ✨ 只有在顯示活躍病人時，才顯示頻率和狀態篩選器 -->
+            <select v-if="patientStatusFilter === 'active'" v-model="filterFreq">
               <option value="">全部頻率</option>
               <option v-for="freq in FREQ_OPTIONS" :key="freq" :value="freq">{{ freq }}</option>
             </select>
-            <div class="status-filters">
+            <div v-if="patientStatusFilter === 'active'" class="status-filters">
               <button
                 v-for="status in STATUS_OPTIONS"
                 :key="status.value"
@@ -40,7 +41,16 @@
                 </div>
                 <div class="patient-tags">
                   <span v-if="patient.freq" class="tag freq-tag">{{ patient.freq }}</span>
-                  <span class="tag status-tag" :class="`status-${patient.status}`">
+                  <!-- ✨ 在刪除模式下，顯示原始狀態和刪除原因 -->
+                  <span
+                    v-if="patientStatusFilter === 'deleted'"
+                    class="tag status-tag status-deleted"
+                  >
+                    {{ statusMap[patient.originalStatus] || '未知' }} ({{
+                      patient.deleteReason || '未註明'
+                    }})
+                  </span>
+                  <span v-else class="tag status-tag" :class="`status-${patient.status}`">
                     {{ statusMap[patient.status] || '未知' }}
                   </span>
                 </div>
@@ -51,7 +61,6 @@
             </div>
           </div>
         </main>
-        <!-- ✨ 核心修正：修改 dialog 的 footer 按鈕 ✨ -->
         <footer class="dialog-footer">
           <button class="btn btn-secondary" @click="onCancel">取消</button>
           <button
@@ -70,7 +79,6 @@
           >
             依頻率填入
           </button>
-          <!-- 如果不需要多選，則顯示原本的單一確認按鈕 -->
           <button
             v-if="!showFillOptions"
             class="btn btn-primary"
@@ -98,10 +106,14 @@ const props = defineProps({
     type: Array,
     required: true,
   },
-  // ✨ 新增 prop，用來控制是否顯示「單次/頻率」按鈕
   showFillOptions: {
     type: Boolean,
     default: false,
+  },
+  // ✨ 1. 新增 prop，用來決定要顯示的病人狀態
+  patientStatusFilter: {
+    type: String,
+    default: 'active', // 'active', 'deleted', 'all'
   },
 })
 
@@ -109,7 +121,7 @@ const emit = defineEmits(['confirm', 'cancel'])
 
 const searchTerm = ref('')
 const filterFreq = ref('')
-const filterStatus = ref('all') // 'all', 'er', 'ipd', 'opd'
+const filterStatus = ref('all')
 const selectedPatientId = ref(null)
 
 const FREQ_OPTIONS = [
@@ -129,23 +141,31 @@ const STATUS_OPTIONS = [
   { value: 'ipd', text: '住院' },
   { value: 'opd', text: '門診' },
 ]
-const statusMap = {
-  er: '急',
-  ipd: '住',
-  opd: '門',
-}
+const statusMap = { er: '急', ipd: '住', opd: '門' }
 
+// ✨ 2. 修改 computed 屬性，讓它根據新的 prop 來篩選病人
 const filteredPatients = computed(() => {
-  let result = props.patients.filter((p) => !p.isDeleted && !p.isDiscontinued) // 過濾已刪除和已中止
+  let result
 
-  if (filterStatus.value !== 'all') {
-    result = result.filter((p) => p.status === filterStatus.value)
+  // 根據 patientStatusFilter 決定初始列表
+  if (props.patientStatusFilter === 'deleted') {
+    result = props.patients.filter((p) => p.isDeleted)
+  } else {
+    // 'active' 或 'all'
+    result = props.patients.filter((p) => !p.isDeleted && !p.isDiscontinued)
   }
 
-  if (filterFreq.value) {
-    result = result.filter((p) => p.freq === filterFreq.value)
+  // 只有在 active 模式下才應用狀態和頻率篩選
+  if (props.patientStatusFilter === 'active') {
+    if (filterStatus.value !== 'all') {
+      result = result.filter((p) => p.status === filterStatus.value)
+    }
+    if (filterFreq.value) {
+      result = result.filter((p) => p.freq === filterFreq.value)
+    }
   }
 
+  // 應用通用搜尋
   if (searchTerm.value) {
     const term = searchTerm.value.toLowerCase()
     result = result.filter(
@@ -155,18 +175,23 @@ const filteredPatients = computed(() => {
     )
   }
 
-  return result.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  // 排序
+  if (props.patientStatusFilter === 'deleted') {
+    // 對已刪除病人按刪除日期倒序排
+    return result.sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt))
+  } else {
+    // 對活躍病人按姓名排序
+    return result.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  }
 })
 
 function selectPatient(patientId) {
   selectedPatientId.value = patientId
 }
 
-// ✨ 核心修正：讓 onConfirm 函式可以接收 fillType
 function onConfirm(fillType = null) {
   if (selectedPatientId.value) {
     const payload = { patientId: selectedPatientId.value }
-    // 如果有傳入 fillType，就加到回傳的物件中
     if (fillType) {
       payload.fillType = fillType
     }
@@ -192,7 +217,7 @@ watch(
 </script>
 
 <style scoped>
-/* ✨ 核心修改的 CSS ✨ */
+/* (樣式區塊保持不變) */
 .dialog-footer {
   padding: 1.5rem;
   border-top: 1px solid #e9ecef;
@@ -224,7 +249,6 @@ watch(
   background-color: #6c757d;
   color: white;
 }
-/* ... 其他 style 保持不變 ... */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -386,6 +410,11 @@ watch(
 }
 .status-tag.status-er {
   background-color: #6f42c1;
+}
+/* ✨ 新增已刪除狀態的 tag 樣式 */
+.status-tag.status-deleted {
+  background-color: #6c757d;
+  color: #fff;
 }
 .empty-state {
   padding: 2rem;
