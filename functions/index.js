@@ -3917,7 +3917,7 @@ exports.getDailyMedicationDrafts = onCall(
 )
 
 // ===================================================================
-// ✨【最終修正版 v1.1】 - 明確區分病人屬性變更與總表規則變更
+// ✨【最終修正版 v1.2】 - 修正 exists 屬性呼叫 & 強化刪除邏輯
 // ===================================================================
 
 /**
@@ -3952,6 +3952,14 @@ exports.applyScheduledPatientUpdates = onSchedule(
 
     logger.info(`[Updater] 找到 ${snapshot.size} 個待處理的預約。`)
 
+    // 定義 hasFrequencyConflict 輔助函式 (確保在此作用域可用)
+    const hasFrequencyConflict = (freq1, freq2) => {
+      if (!freq1 || !freq2) return false
+      const days1 = FREQ_MAP_TO_DAY_INDEX[freq1] || []
+      const days2 = FREQ_MAP_TO_DAY_INDEX[freq2] || []
+      return days1.some((day) => days2.includes(day))
+    }
+
     for (const doc of snapshot.docs) {
       const updateTask = doc.data()
       const taskId = doc.id
@@ -3984,7 +3992,9 @@ exports.applyScheduledPatientUpdates = onSchedule(
 
             await db.runTransaction(async (transaction) => {
               const masterDoc = await transaction.get(masterScheduleRef)
-              if (!masterDoc.exists()) throw new Error('MASTER_SCHEDULE document not found!')
+              // ✨✨✨【核心修正 #1】✨✨✨
+              // 將 .exists() 改為 .exists
+              if (!masterDoc.exists) throw new Error('MASTER_SCHEDULE document not found!')
 
               const schedule = masterDoc.data().schedule || {}
 
@@ -4024,15 +4034,24 @@ exports.applyScheduledPatientUpdates = onSchedule(
             const masterRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
             await db.runTransaction(async (transaction) => {
               const patientDoc = await transaction.get(patientRef)
-              if (!patientDoc.exists()) throw new Error(`Patient with ID ${patientId} not found.`)
+              // ✨✨✨【核心修正 #2】✨✨✨
+              // 將 .exists() 改為 .exists
+              if (!patientDoc.exists) throw new Error(`Patient with ID ${patientId} not found.`)
               const patientData = patientDoc.data()
-              transaction.update(patientRef, {
-                isDeleted: true,
-                originalStatus: patientData.status,
-                deleteReason: payload.deleteReason || '預約刪除',
-                remarks: payload.remarks || '',
-                deletedAt: FieldValue.serverTimestamp(),
-              })
+              // ✨【邏輯強化】使用 set + merge:true 更安全，並同時更新 status
+              transaction.set(
+                patientRef,
+                {
+                  isDeleted: true,
+                  status: 'deleted', // 明確更新狀態
+                  originalStatus: patientData.status,
+                  deleteReason: payload.deleteReason || '預約刪除',
+                  remarks: payload.remarks || '',
+                  deletedAt: FieldValue.serverTimestamp(),
+                },
+                { merge: true },
+              ) // 使用 merge:true 保留其他欄位
+
               transaction.update(masterRef, {
                 [`schedule.${patientId}`]: FieldValue.delete(),
               })
@@ -4041,7 +4060,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
             logger.info(`    - 成功將 patient/${patientId} 標記為刪除並清理相關規則。`)
             break
 
-          // ✨✨✨【核心新增：處理預約復原】✨✨✨
           case 'RESTORE_PATIENT':
             const patientToRestoreRef = db.collection('patients').doc(patientId)
 
