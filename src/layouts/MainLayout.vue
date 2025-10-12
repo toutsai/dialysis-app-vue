@@ -53,7 +53,7 @@
           <li v-if="auth.isEditor.value" class="desktop-only-nav-item">
             <RouterLink to="/update-scheduler" class="nav-link">
               <div class="nav-item-content">
-                <span class="nav-title">預約變更總覽</span>
+                <span class="nav-title">預約變更(測試)</span>
               </div>
             </RouterLink>
           </li>
