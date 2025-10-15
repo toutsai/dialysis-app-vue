@@ -4108,22 +4108,32 @@ exports.syncAndCreateAssignments = onDocumentWritten(
     const afterData = event.data?.after.data()
 
     if (!afterData || !afterData.scheduleByNurse) {
-      logger.info(`[SyncManualGroups-v5.0] 總班表 ${yearMonth} 被刪除或無資料，跳過。`)
+      logger.info(`[SyncManualGroups-v5.1] 總班表 ${yearMonth} 被刪除或無資料，跳過。`)
       return null
     }
 
-    logger.info(`🚀 [SyncManualGroups-v5.0] 偵測到總班表 ${yearMonth} 更新，開始同步手動分組...`)
+    logger.info(`🚀 [SyncManualGroups-v5.1] 偵測到總班表 ${yearMonth} 更新，開始同步手動分組...`)
 
     try {
+      // 先查詢該月份所有現有的分組文件
       const assignmentsQuery = db
         .collection('nurse_assignments')
         .where('date', '>=', `${yearMonth}-01`)
         .where('date', '<=', `${yearMonth}-31`)
 
       const assignmentsSnapshot = await assignmentsQuery.get()
-      const assignmentsMap = new Map(assignmentsSnapshot.docs.map((doc) => [doc.id, doc.data()]))
+      const assignmentsMap = new Map()
+
+      // 重要：保存現有的完整資料（包含 teams）
+      assignmentsSnapshot.docs.forEach((doc) => {
+        assignmentsMap.set(doc.id, {
+          id: doc.id,
+          data: doc.data(),
+        })
+      })
+
       logger.info(
-        `[SyncManualGroups-v5.0] 找到 ${assignmentsMap.size} 份 ${yearMonth} 月已存在的分組文件。`,
+        `[SyncManualGroups-v5.1] 找到 ${assignmentsMap.size} 份 ${yearMonth} 月已存在的分組文件。`,
       )
 
       const [year, month] = yearMonth.split('-').map(Number)
@@ -4138,58 +4148,57 @@ exports.syncAndCreateAssignments = onDocumentWritten(
 
         const newNames = {}
 
-        // ✨✨✨【核心邏輯修正】✨✨✨
-        // 不再自己計算組別，而是直接讀取手動設定的組別
+        // 從護理總班表中讀取護理師分組
         for (const nurseId in afterData.scheduleByNurse) {
           const nurseData = afterData.scheduleByNurse[nurseId]
           const shift = (nurseData.shifts?.[dateIndex] || '').trim()
-          // 讀取儲存在 nursing_schedules 裡的手動分組
           const group = (nurseData.groups?.[dateIndex] || '').trim()
 
           if (shift && !['休', '例', '國定', ''].includes(shift)) {
             let prefix = ''
-            // 根據班別決定組別的前綴是 "早" 還是 "晚"
-            if (['74', '75', '816', '74/L', '84', '815'].includes(shift)) {
+            if (['74', '75', '816', '74/L', '84', '815', '7-3', '8-4', '7-5'].includes(shift)) {
               prefix = '早'
             } else if (['311', '3-11'].includes(shift)) {
               prefix = '晚'
             } else {
-              // 兜底邏輯，未知班別預設為早班
               prefix = '早'
             }
 
-            // 如果有手動設定的組別，就用它來建立 key
             if (group) {
               const teamName = `${prefix}${group}`
               newNames[teamName] = nurseData.nurseName
-            } else {
-              // 如果護理師有上班但沒有被分組，可以在這裡處理，例如放到 "未分組"
-              // 為了保持邏輯單純，我們暫時只同步有被分組的人
-              logger.warn(
-                `[SyncManualGroups-v5.0] 護理師 ${nurseData.nurseName} 在 ${dateStr} 有班別但未分配組別，將不會出現在 names 中。`,
-              )
             }
           }
         }
-        // ✨✨✨ (修正結束) ✨✨✨
 
+        // 處理現有文件或創建新文件
         if (assignmentsMap.has(dateStr)) {
-          const assignmentData = assignmentsMap.get(dateStr)
-          const existingNames = assignmentData.names || {}
+          // 更新現有文件：保留 teams，只更新 names
+          const existingDoc = assignmentsMap.get(dateStr)
+          const existingData = existingDoc.data
+          const existingNames = existingData.names || {}
+          const existingTeams = existingData.teams || {} // 保留原有的病人分組
 
+          // 只有當 names 有變化時才更新
           if (JSON.stringify(newNames) !== JSON.stringify(existingNames)) {
-            batch.update(db.collection('nurse_assignments').doc(dateStr), { names: newNames })
+            batch.update(db.collection('nurse_assignments').doc(dateStr), {
+              names: newNames,
+              // 不更新 teams，保留原有的病人分組資料
+              updatedAt: FieldValue.serverTimestamp(),
+            })
             updatedCount++
-            logger.info(`  └─ [更新] ${dateStr} 的護理師指派已加入批次。`)
+            logger.info(`  └─ [更新] ${dateStr} 的護理師指派已加入批次（保留原有病人分組）。`)
           }
         } else {
+          // 創建新文件
           if (Object.keys(newNames).length > 0) {
             const newDocRef = db.collection('nurse_assignments').doc(dateStr)
             batch.set(newDocRef, {
               date: dateStr,
               names: newNames,
-              teams: {},
+              teams: {}, // 新文件的 teams 初始為空，等待自動分組功能填入
               createdAt: FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
             })
             createdCount++
             logger.info(`  └─ [創建] ${dateStr} 的新分組文件已加入批次。`)
@@ -4200,14 +4209,14 @@ exports.syncAndCreateAssignments = onDocumentWritten(
       if (updatedCount > 0 || createdCount > 0) {
         await batch.commit()
         logger.info(
-          `[SyncManualGroups-v5.0] ✅ 批次提交完成！更新 ${updatedCount} 份，創建 ${createdCount} 份文件。`,
+          `[SyncManualGroups-v5.1] ✅ 批次提交完成！更新 ${updatedCount} 份，創建 ${createdCount} 份文件。`,
         )
       } else {
-        logger.info(`[SyncManualGroups-v5.0] ✅ 檢查完畢，無需更新或創建。`)
+        logger.info(`[SyncManualGroups-v5.1] ✅ 檢查完畢，無需更新或創建。`)
       }
     } catch (error) {
       logger.error(
-        `❌ [SyncManualGroups-v5.0] 同步/創建 ${yearMonth} 的分組文件時發生嚴重錯誤:`,
+        `❌ [SyncManualGroups-v5.1] 同步/創建 ${yearMonth} 的分組文件時發生嚴重錯誤:`,
         error,
       )
     }
