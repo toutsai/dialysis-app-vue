@@ -46,21 +46,21 @@ export async function fetchTeamsByDate(dateStr) {
  */
 export async function saveTeams(data) {
   try {
-    const docRef = doc(collection(db, COLLECTION_NAME))
-    const dataToSave = {
-      ...data,
+    const docRef = doc(db, 'nurse_assignments', data.date)
+
+    // 新建時確保結構完整
+    const saveData = {
+      date: data.date,
+      teams: data.teams || {},
+      names: data.names || {},
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }
 
-    await setDoc(docRef, dataToSave)
-
-    return {
-      id: docRef.id,
-      ...dataToSave,
-    }
+    await setDoc(docRef, saveData)
+    return { id: data.date, ...saveData }
   } catch (error) {
-    console.error('儲存護理分組失敗:', error)
+    console.error('儲存護理師分組失敗:', error)
     throw error
   }
 }
@@ -85,27 +85,6 @@ export async function updateTeams(docId, data) {
     return { success: true }
   } catch (error) {
     console.error('更新護理師分組失敗:', error)
-    throw error
-  }
-}
-
-export async function saveTeams(data) {
-  try {
-    const docRef = doc(db, 'nurse_assignments', data.date)
-
-    // 新建時確保結構完整
-    const saveData = {
-      date: data.date,
-      teams: data.teams || {},
-      names: data.names || {},
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }
-
-    await setDoc(docRef, saveData)
-    return { id: data.date, ...saveData }
-  } catch (error) {
-    console.error('儲存護理師分組失敗:', error)
     throw error
   }
 }
