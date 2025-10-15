@@ -178,13 +178,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // 針對護理班表集合的規則
+    // 針對護理班表集合的規則 (✨ 最終安全版 ✨)
     match /nursing_schedules/{scheduleId} {
-      // 讀取權限：允許 admin 或 editor 角色
-      allow read: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
-      
-      // 寫入/更新/刪除權限：只允許 admin 角色
-      allow write: if request.auth.token.role == 'admin';
+    // 讀取權限：只有 admin 和 editor 才能讀取總班表 (例如在班表管理頁面)
+    allow read: if isEditor(); // isEditor() 包含了 admin
+    
+    // 寫入權限：維持不變，只有 admin 才能上傳或修改
+    allow write: if isAdmin();
     }
     
     // ✨✨✨【核心修正：新增此區塊】✨✨✨
