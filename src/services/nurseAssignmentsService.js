@@ -73,15 +73,39 @@ export async function saveTeams(data) {
  */
 export async function updateTeams(docId, data) {
   try {
-    const docRef = doc(db, COLLECTION_NAME, docId)
-    const dataToUpdate = {
+    const docRef = doc(db, 'nurse_assignments', docId)
+
+    // 確保更新時包含所有必要欄位
+    const updateData = {
       ...data,
       updatedAt: serverTimestamp(),
     }
 
-    await updateDoc(docRef, dataToUpdate)
+    await updateDoc(docRef, updateData)
+    return { success: true }
   } catch (error) {
-    console.error('更新護理分組失敗:', error)
+    console.error('更新護理師分組失敗:', error)
+    throw error
+  }
+}
+
+export async function saveTeams(data) {
+  try {
+    const docRef = doc(db, 'nurse_assignments', data.date)
+
+    // 新建時確保結構完整
+    const saveData = {
+      date: data.date,
+      teams: data.teams || {},
+      names: data.names || {},
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }
+
+    await setDoc(docRef, saveData)
+    return { id: data.date, ...saveData }
+  } catch (error) {
+    console.error('儲存護理師分組失敗:', error)
     throw error
   }
 }
