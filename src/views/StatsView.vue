@@ -33,14 +33,6 @@
           >
             <i class="fas fa-copy"></i> 新增夜班收針分組
           </button>
-          <button
-            class="btn-primary"
-            @click="syncNurseNamesFromSchedule"
-            :disabled="isPageLocked"
-            title="從護理班表同步護理師姓名"
-          >
-            <i class="fas fa-sync"></i> 同步護理師
-          </button>
         </div>
         <div class="toolbar-right desktop-only-flex">
           <span class="status-indicator">{{ statusIndicator }}</span>
@@ -163,24 +155,19 @@
             <div class="grid-body">
               <div class="grid-row">
                 <div class="row-header">姓名</div>
+                <!-- ✨✨✨ 核心修改 #1: 早班姓名改為唯讀 ✨✨✨ -->
                 <div
                   v-for="teamName in sortedEarlyTeams"
                   :key="teamName"
-                  class="grid-cell name-cell"
+                  class="grid-cell name-cell-readonly"
                 >
-                  <select
-                    v-if="!teamName.includes('未分組')"
-                    :value="effectiveStatsData.early[teamName]?.nurseName"
-                    @change="updateNurseName(teamName, $event)"
-                    class="name-select"
-                    :disabled="isPageLocked"
+                  <span
+                    v-if="effectiveStatsData.early[teamName]?.nurseName"
+                    class="nurse-name-display"
                   >
-                    <option value="">-- 未指派 --</option>
-                    <option v-for="name in nurseNameList" :key="name" :value="name">
-                      {{ name }}
-                    </option>
-                  </select>
-                  <div v-else class="unassigned-placeholder"></div>
+                    {{ effectiveStatsData.early[teamName]?.nurseName }}
+                  </span>
+                  <span v-else class="unassigned-name-display"> -- 未指派 -- </span>
                 </div>
               </div>
               <div class="grid-row">
@@ -432,24 +419,19 @@
             <div class="grid-body">
               <div class="grid-row">
                 <div class="row-header">姓名</div>
+                <!-- ✨✨✨ 核心修改 #2: 晚班姓名改為唯讀 ✨✨✨ -->
                 <div
                   v-for="teamName in sortedLateTeams"
                   :key="teamName"
-                  class="grid-cell name-cell"
+                  class="grid-cell name-cell-readonly"
                 >
-                  <select
-                    v-if="!teamName.includes('未分組')"
-                    :value="effectiveStatsData.late[teamName]?.nurseName"
-                    @change="updateNurseName(teamName, $event)"
-                    class="name-select"
-                    :disabled="isPageLocked"
+                  <span
+                    v-if="effectiveStatsData.late[teamName]?.nurseName"
+                    class="nurse-name-display"
                   >
-                    <option value="">-- 未指派 --</option>
-                    <option v-for="name in nurseNameList" :key="name" :value="name">
-                      {{ name }}
-                    </option>
-                  </select>
-                  <div v-else class="unassigned-placeholder"></div>
+                    {{ effectiveStatsData.late[teamName]?.nurseName }}
+                  </span>
+                  <span v-else class="unassigned-name-display"> -- 未指派 -- </span>
                 </div>
               </div>
               <div class="grid-row">
@@ -647,24 +629,19 @@
             <div class="grid-body">
               <div class="grid-row">
                 <div class="row-header">姓名</div>
+                <!-- ✨✨✨ 核心修改 #3: 夜班收針姓名改為唯讀 ✨✨✨ -->
                 <div
                   v-for="teamName in sortedLateTakeOffTeams"
                   :key="teamName"
-                  class="grid-cell name-cell"
+                  class="grid-cell name-cell-readonly"
                 >
-                  <select
-                    v-if="!teamName.includes('未分組')"
-                    :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
-                    @change="updateNurseName(teamName, $event)"
-                    class="name-select"
-                    :disabled="isPageLocked"
+                  <span
+                    v-if="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
+                    class="nurse-name-display"
                   >
-                    <option value="">-- 未指派 --</option>
-                    <option v-for="name in nurseNameList" :key="name" :value="name">
-                      {{ name }}
-                    </option>
-                  </select>
-                  <div v-else class="unassigned-placeholder"></div>
+                    {{ effectiveStatsData.lateTakeOff[teamName]?.nurseName }}
+                  </span>
+                  <span v-else class="unassigned-name-display"> -- 未指派 -- </span>
                 </div>
               </div>
               <div class="grid-row">
@@ -781,15 +758,10 @@
               <h3>
                 {{ teamName.includes('未分組') ? '未分組' : teamName.replace('早', '') + '組' }}
               </h3>
-              <select
-                v-if="!teamName.includes('未分組')"
-                :value="effectiveStatsData.early[teamName]?.nurseName"
-                class="name-select"
-                disabled
-              >
-                <option value="">-- 未指派 --</option>
-                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
-              </select>
+              <!-- ✨✨✨ 核心修改 #4: 行動版早班姓名改為唯讀 ✨✨✨ -->
+              <span class="nurse-name-display-mobile">
+                {{ effectiveStatsData.early[teamName]?.nurseName || '-- 未指派 --' }}
+              </span>
             </div>
             <div class="mobile-patient-lists">
               <div
@@ -912,15 +884,10 @@
               <h3>
                 {{ teamName.includes('未分組') ? '未分組' : teamName.replace('晚', '') + '組' }}
               </h3>
-              <select
-                v-if="!teamName.includes('未分組')"
-                :value="effectiveStatsData.late[teamName]?.nurseName"
-                class="name-select"
-                disabled
-              >
-                <option value="">-- 未指派 --</option>
-                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
-              </select>
+              <!-- ✨✨✨ 核心修改 #5: 行動版晚班姓名改為唯讀 ✨✨✨ -->
+              <span class="nurse-name-display-mobile">
+                {{ effectiveStatsData.late[teamName]?.nurseName || '-- 未指派 --' }}
+              </span>
             </div>
             <div class="mobile-patient-lists">
               <div
@@ -1010,19 +977,12 @@
           >
             <div class="mobile-team-header">
               <h3>
-                {{
-                  teamName.includes('未分組') ? '未分組' : teamName.replace('夜間收針', '') + '組'
-                }}
+                {{ teamName.includes('未分組') ? '未分組' : teamName.replace('晚', '') + '組' }}
               </h3>
-              <select
-                v-if="!teamName.includes('未分組')"
-                :value="effectiveStatsData.lateTakeOff[teamName]?.nurseName"
-                class="name-select"
-                disabled
-              >
-                <option value="">-- 未指派 --</option>
-                <option v-for="name in nurseNameList" :key="name" :value="name">{{ name }}</option>
-              </select>
+              <!-- ✨✨✨ 核心修改 #5: 行動版晚班姓名改為唯讀 ✨✨✨ -->
+              <span class="nurse-name-display-mobile">
+                {{ effectiveStatsData.late[teamName]?.nurseName || '-- 未指派 --' }}
+              </span>
             </div>
             <div class="mobile-patient-lists">
               <div
@@ -1163,8 +1123,8 @@ import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import * as XLSX from 'xlsx'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
-import { useNurseGroupSync } from '@/composables/useNurseGroupSync.js'
 
+// --- Store 和 Composables 初始化 ---
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const archiveStore = useArchiveStore()
@@ -1172,8 +1132,8 @@ const medicationStore = useMedicationStore()
 const { patientMap } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
-const { autoFillNurseNames, hasNamesDifference } = useNurseGroupSync()
 
+// --- API 實例 ---
 const schedulesApi = ApiManager('schedules')
 const ordersHistoryApi = ApiManager('dialysis_orders_history')
 const usersApi = ApiManager('users')
@@ -1233,6 +1193,7 @@ const dutyAssignments = {
   },
 }
 
+// --- 輔助函式 (保持不變) ---
 async function getEffectiveOrdersForDate(patientId, targetDate) {
   if (!patientId || !targetDate) return {}
   const dateStr = targetDate.toISOString().slice(0, 10)
@@ -1251,6 +1212,7 @@ async function getEffectiveOrdersForDate(patientId, targetDate) {
   }
 }
 
+// --- Vue Refs and Reactives (大部分保持不變) ---
 const isFireDutyDropdownVisible = ref(false)
 const currentDate = ref(new Date())
 const statusIndicator = ref('')
@@ -1285,6 +1247,7 @@ const editingPatientForOrder = ref(null)
 
 provide('viewingDate', currentDate)
 
+// --- Computed Properties (大部分保持不變) ---
 const hasUnsavedChanges = computed(
   () => hasUnsavedScheduleChanges.value || hasUnsavedTeamChanges.value,
 )
@@ -1488,6 +1451,7 @@ const effectiveStatsData = computed(() => {
   return { early: earlyShiftStats, late: lateShiftStats, lateTakeOff: lateTakeOffStats }
 })
 
+// --- 方法 (Methods) ---
 const formatDate = (date) => {
   if (!date) return ''
   const d = new Date(date)
@@ -1574,8 +1538,11 @@ async function fetchLiveSchedule(dateStr) {
   return record
 }
 
-// 修改 loadData 函式，在載入資料後自動填入護理師姓名
+// ===================================================================
+// ✨✨✨【`loadData` 函式的最終簡化版】✨✨✨
+// ===================================================================
 async function loadData(date) {
+  // 1. 重置狀態
   hasUnsavedScheduleChanges.value = false
   hasUnsavedTeamChanges.value = false
   statusIndicator.value = '讀取中...'
@@ -1587,43 +1554,26 @@ async function loadData(date) {
   targetDate.setHours(0, 0, 0, 0)
 
   try {
+    // 2. 根據是否為過去日期，決定是否需要獲取最新的病人列表
     const isPastDate = targetDate < today
     if (!isPastDate) {
+      // 只有在查詢今天或未來時，才需要最新的病人資料
       await patientStore.fetchPatientsIfNeeded()
     }
 
-    let scheduleRecord
-    if (isPastDate) {
-      scheduleRecord = await fetchArchivedSchedule(dateStr)
-    } else {
-      scheduleRecord = await fetchLiveSchedule(dateStr)
-    }
+    // 3. 根據日期，從 "歸檔" 或 "即時" 集合中獲取排班資料
+    const scheduleRecord = isPastDate
+      ? await fetchArchivedSchedule(dateStr)
+      : await fetchLiveSchedule(dateStr)
 
-    const [teamsData] = await Promise.all([fetchTeamsByDate(dateStr)])
+    // ✨ 核心簡化：直接獲取每日分組文件，不再執行任何前端同步邏輯
+    const teamsData = await fetchTeamsByDate(dateStr)
 
+    // 4. 將獲取到的資料賦值給本地狀態
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
 
-    // 🔥 追蹤是否有自動填入新的護理師姓名
-    let hasAutoFilledNames = false
-
-    // 自動填入護理師姓名
-    if (!isPastDate) {
-      // 只在非過去日期時自動填入
-      // 保存舊的 names 以供比較
-      const oldNames = JSON.parse(JSON.stringify(currentTeamsRecord.value.names || {}))
-
-      // 執行自動填入（會先清除再填入）
-      const updatedTeamsRecord = await autoFillNurseNames(dateStr, currentTeamsRecord.value)
-      currentTeamsRecord.value = updatedTeamsRecord
-
-      // 使用新的比較函式檢查是否有變更
-      if (hasNamesDifference(oldNames, updatedTeamsRecord.names)) {
-        setTeamChange() // 標記有變更需要儲存
-        hasAutoFilledNames = true // 設定旗標
-      }
-    }
-
+    // 5. 為當天排班上的病人，獲取其有效的透析醫囑
     const patientIdsInSchedule = [
       ...new Set(
         Object.values(currentRecord.schedule)
@@ -1631,6 +1581,7 @@ async function loadData(date) {
           .filter(Boolean),
       ),
     ]
+
     if (patientIdsInSchedule.length > 0) {
       const ordersPromises = patientIdsInSchedule.map(async (patientId) => {
         const orders = await getEffectiveOrdersForDate(patientId, date)
@@ -1642,6 +1593,7 @@ async function loadData(date) {
       await Promise.all(ordersPromises)
     }
 
+    // 6. 將分組資訊 (teams) 合併到排班資料 (schedule) 中，以便 UI 顯示
     if (currentRecord.schedule) {
       for (const shiftId in currentRecord.schedule) {
         const slot = currentRecord.schedule[shiftId]
@@ -1655,40 +1607,13 @@ async function loadData(date) {
       }
     }
 
-    // 🔥 根據是否有自動填入來設定正確的狀態訊息
-    if (hasAutoFilledNames) {
-      statusIndicator.value = '⚠️ 已自動同步護理師姓名，請儲存'
-    } else if (!currentRecord.id) {
-      statusIndicator.value = '本日無排程資料'
-    } else {
-      statusIndicator.value = '資料已載入'
-    }
+    // 7. 設置最終的狀態指示文字
+    statusIndicator.value = currentRecord.id ? '資料已載入' : '本日無排班資料'
   } catch (error) {
     console.error('讀取報表資料失敗:', error)
     statusIndicator.value = '讀取失敗'
   } finally {
     isLoading.value = false
-  }
-}
-
-// 新增一個手動同步按鈕的功能（選擇性）
-async function syncNurseNamesFromSchedule() {
-  if (isPageLocked.value) {
-    showAlert('操作失敗', '頁面已鎖定')
-    return
-  }
-
-  statusIndicator.value = '同步中...'
-  try {
-    const dateStr = formatDate(currentDate.value)
-    const updatedRecord = await autoFillNurseNames(dateStr, currentTeamsRecord.value)
-    currentTeamsRecord.value = updatedRecord
-    setTeamChange()
-    statusIndicator.value = '護理師姓名已同步，請儲存變更'
-    showAlert('同步成功', '已從護理班表同步護理師姓名，請確認並儲存')
-  } catch (error) {
-    console.error('同步失敗:', error)
-    showAlert('同步失敗', '無法從護理班表取得資料')
   }
 }
 
@@ -1918,17 +1843,7 @@ function showPrepPopover(event, teamData, shiftType) {
 function onPrepPopoverClose() {
   isPrepPopoverVisible.value = false
 }
-function updateNurseName(teamId, event) {
-  if (isPageLocked.value) {
-    event.target.value = currentTeamsRecord.value.names?.[teamId] || ''
-    return
-  }
-  if (!currentTeamsRecord.value.names) {
-    currentTeamsRecord.value.names = {}
-  }
-  currentTeamsRecord.value.names[teamId] = event.target.value
-  setTeamChange()
-}
+
 function changeDate(days) {
   const performChange = () => {
     const newDate = new Date(currentDate.value)
@@ -2332,7 +2247,7 @@ watch(currentDate, (newDate) => {
   loadDailyStaffInfo(newDate)
 })
 
-// 2.6 生命週期鉤子
+// --- Lifecycle Hooks (保持不變) ---
 onMounted(() => {
   Promise.all([loadData(currentDate.value), loadDailyStaffInfo(currentDate.value)])
 })
@@ -2343,6 +2258,36 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ✨✨✨ 核心修改 #8: 新增唯讀姓名的樣式 ✨✨✨ */
+.name-cell-readonly {
+  background-color: #fffde7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  font-size: 1em;
+  padding: 8px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.nurse-name-display {
+  color: #333;
+}
+
+.unassigned-name-display {
+  color: #999;
+  font-style: italic;
+}
+
+.nurse-name-display-mobile {
+  font-weight: 500;
+  padding: 6px 10px;
+  background-color: #f1f3f5;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  font-size: 1em;
+}
 /* 【✨ 新增修改 ✨】: 移除按鈕的樣式 */
 .takeoff-header-content {
   display: flex;
