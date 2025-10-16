@@ -3889,7 +3889,7 @@ exports.getDailyInjections = onCall(
 exports.archiveDailySchedule = onSchedule(
   { schedule: 'every day 00:05', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '512MiB' },
   async (event) => {
-    // 1. 直接獲取「台北時區」當下的日期字串 (YYYY-MM-DD)
+    // 1. 獲取台北時區的昨天日期
     const taipeiDateString = new Date()
       .toLocaleDateString('zh-TW', {
         timeZone: 'Asia/Taipei',
@@ -3899,110 +3899,171 @@ exports.archiveDailySchedule = onSchedule(
       })
       .replace(/\//g, '-')
 
-    // 2. 基於這個台北日期字串，建立一個 Date 物件來計算昨天
     const todayInTaipei = new Date(taipeiDateString)
     const yesterdayInTaipei = new Date(todayInTaipei)
     yesterdayInTaipei.setDate(todayInTaipei.getDate() - 1)
-
-    // 3. 將計算出的「昨天的日期」格式化為我們需要的 YYYY-MM-DD 格式
     const dateStr = formatDateForQuery(yesterdayInTaipei)
 
     logger.info(
-      `[Archiver V2.3] 🚀 歸檔任務啟動，當前台北日期: ${taipeiDateString}，目標歸檔日期: ${dateStr}`,
+      `[Archiver V3] 🚀 歸檔任務啟動，當前台北日期: ${taipeiDateString}，目標歸檔日期: ${dateStr}`,
     )
 
     const sourceScheduleRef = db.collection('schedules').doc(dateStr)
     const targetArchiveRef = db.collection('expired_schedules').doc(dateStr)
 
     try {
-      const scheduleDoc = await sourceScheduleRef.get()
-      if (!scheduleDoc.exists) {
-        logger.warn(`[Archiver V2.3] ⚠️ 日期 ${dateStr} 的排班文件不存在，無需歸檔。`)
-        return null
-      }
+      // 使用 transaction 確保原子操作
+      await db.runTransaction(async (transaction) => {
+        // 讀取原始排程
+        const scheduleDoc = await transaction.get(sourceScheduleRef)
 
-      const originalData = scheduleDoc.data()
-      const originalSchedule = originalData.schedule || {}
-      const patientIds = [
-        ...new Set(
-          Object.values(originalSchedule)
-            .map((slot) => slot.patientId)
-            .filter(Boolean),
-        ),
-      ]
+        if (!scheduleDoc.exists) {
+          logger.warn(`[Archiver V3] ⚠️ 日期 ${dateStr} 的排班文件不存在，無需歸檔。`)
+          return null
+        }
 
-      if (patientIds.length === 0) {
-        logger.info(`[Archiver V2.3] 📄 日期 ${dateStr} 的排班中沒有病人，直接歸檔空排班。`)
-        await targetArchiveRef.set({ ...originalData, archivedAt: FieldValue.serverTimestamp() })
-        await sourceScheduleRef.delete()
-        logger.info(`[Archiver V2.3] ✅ 成功歸檔並刪除空的原始排班 ${dateStr}。`)
-        return null
-      }
+        // 檢查是否已經有歸檔文件（避免重複歸檔）
+        const existingArchive = await transaction.get(targetArchiveRef)
+        if (existingArchive.exists) {
+          logger.warn(`[Archiver V3] ⚠️ 日期 ${dateStr} 已經有歸檔文件，將刪除原始文件。`)
+          transaction.delete(sourceScheduleRef)
+          return null
+        }
 
-      logger.info(`[Archiver V2.3] 🔍 找到 ${patientIds.length} 位病人，開始分批查詢其狀態快照...`)
+        const originalData = scheduleDoc.data()
+        const originalSchedule = originalData.schedule || {}
 
-      const patientDataMap = new Map()
-      const CHUNK_SIZE = 30
+        // 收集所有病人ID
+        const patientIds = [
+          ...new Set(
+            Object.values(originalSchedule)
+              .map((slot) => slot.patientId)
+              .filter(Boolean),
+          ),
+        ]
 
-      for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
-        const chunk = patientIds.slice(i, i + CHUNK_SIZE)
-        const patientQuery = db.collection('patients').where(FieldPath.documentId(), 'in', chunk)
-        const patientDocs = await patientQuery.get()
+        logger.info(`[Archiver V3] 🔍 找到 ${patientIds.length} 位病人，開始處理歸檔資料...`)
 
-        patientDocs.forEach((doc) => {
-          patientDataMap.set(doc.id, doc.data())
-        })
-      }
-      logger.info(
-        `[Archiver V2.3] ✅ 所有批次查詢完成，成功獲取 ${patientDataMap.size} 位病人的資料。`,
-      )
+        // 如果沒有病人，直接歸檔
+        if (patientIds.length === 0) {
+          logger.info(`[Archiver V3] 📄 日期 ${dateStr} 的排班中沒有病人，直接歸檔空排班。`)
 
-      const archivedSchedule = { ...originalSchedule }
-      let missingPatientCount = 0
-      for (const shiftId in archivedSchedule) {
-        const slot = archivedSchedule[shiftId]
-        if (slot?.patientId) {
-          const patientData = patientDataMap.get(slot.patientId)
-          if (patientData) {
-            slot.archivedPatientInfo = {
-              status: patientData.status || 'unknown', // 如果 status 不存在，給個預設值
-              mode: patientData.mode || null, // 如果 mode 不存在，存入 null
-              wardNumber: patientData.wardNumber || null, // 這行原本就是安全的
-            }
-          } else {
-            missingPatientCount++
-            slot.archivedPatientInfo = {
-              status: 'deleted',
-              mode: 'N/A',
-              wardNumber: null,
-              name: slot.patientName || '未知 (已刪除)',
+          transaction.set(targetArchiveRef, {
+            ...originalData,
+            archivedAt: FieldValue.serverTimestamp(),
+            archiveMethod: 'empty_schedule',
+          })
+          transaction.delete(sourceScheduleRef)
+          return null
+        }
+
+        // 建立歸檔資料
+        const archivedSchedule = { ...originalSchedule }
+        const patientDataMap = new Map()
+
+        // 批次查詢病人資料（Transaction 外部查詢，因為 Transaction 內有限制）
+        // 注意：這會在 transaction 外執行，但因為病人資料相對穩定，風險較低
+        const CHUNK_SIZE = 30
+        for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
+          const chunk = patientIds.slice(i, i + CHUNK_SIZE)
+          const patientQuery = db.collection('patients').where(FieldPath.documentId(), 'in', chunk)
+          const patientDocs = await patientQuery.get()
+
+          patientDocs.forEach((doc) => {
+            patientDataMap.set(doc.id, doc.data())
+          })
+        }
+
+        // 為每個排程項目添加病人快照
+        let missingPatientCount = 0
+        for (const shiftId in archivedSchedule) {
+          const slot = archivedSchedule[shiftId]
+          if (slot?.patientId) {
+            const patientData = patientDataMap.get(slot.patientId)
+            if (patientData) {
+              slot.archivedPatientInfo = {
+                status: patientData.status || 'unknown',
+                mode: patientData.mode || null,
+                wardNumber: patientData.wardNumber || null,
+                medicalRecordNumber: patientData.medicalRecordNumber || null,
+                freq: patientData.freq || null,
+              }
+            } else {
+              missingPatientCount++
+              slot.archivedPatientInfo = {
+                status: 'deleted',
+                mode: 'N/A',
+                wardNumber: null,
+                medicalRecordNumber: null,
+                name: slot.patientName || '未知 (已刪除)',
+                note: 'Patient data not found during archival',
+              }
             }
           }
         }
+
+        if (missingPatientCount > 0) {
+          logger.warn(
+            `[Archiver V3] ⚠️ 有 ${missingPatientCount} 位病人的資料在 patients 集合中找不到。`,
+          )
+        }
+
+        // 準備歸檔資料
+        const dataToArchive = {
+          ...originalData,
+          schedule: archivedSchedule,
+          archivedAt: FieldValue.serverTimestamp(),
+          archiveMethod: 'daily_scheduled',
+          patientCount: patientIds.length,
+          missingPatientCount: missingPatientCount,
+        }
+
+        // 在 transaction 中執行歸檔和刪除
+        transaction.set(targetArchiveRef, dataToArchive)
+        transaction.delete(sourceScheduleRef)
+
+        logger.info(`[Archiver V3] ✅ Transaction 準備完成，即將提交歸檔 ${dateStr}`)
+      })
+
+      // Transaction 成功完成
+      logger.info(`[Archiver V3] ✅ 成功歸檔並刪除原始排班 ${dateStr}`)
+
+      // 驗證操作結果
+      const verifySource = await sourceScheduleRef.get()
+      const verifyTarget = await targetArchiveRef.get()
+
+      if (verifySource.exists) {
+        logger.error(`[Archiver V3] ❌ 驗證失敗：原始文件 ${dateStr} 仍然存在！`)
+        // 嘗試強制刪除
+        await sourceScheduleRef.delete()
+        logger.info(`[Archiver V3] 🔧 已執行強制刪除`)
       }
 
-      if (missingPatientCount > 0) {
-        logger.warn(
-          `[Archiver V2.3] ⚠️ 有 ${missingPatientCount} 位病人的資料在 patients 集合中找不到，可能已被刪除。`,
-        )
+      if (!verifyTarget.exists) {
+        logger.error(`[Archiver V3] ❌ 驗證失敗：歸檔文件 ${dateStr} 不存在！`)
       }
-
-      const dataToArchive = {
-        ...originalData,
-        schedule: archivedSchedule,
-        archivedAt: FieldValue.serverTimestamp(),
-      }
-
-      const batch = db.batch()
-      batch.set(targetArchiveRef, dataToArchive)
-      batch.delete(sourceScheduleRef)
-      await batch.commit()
-
-      logger.info(`[Archiver V2.3] ✅ 成功歸檔並刪除原始排班 ${dateStr}。`)
     } catch (error) {
-      logger.error(`[Archiver V2.3] ❌ 歸檔日期 ${dateStr} 的排班時發生嚴重錯誤:`, error)
+      logger.error(`[Archiver V3] ❌ 歸檔日期 ${dateStr} 的排班時發生嚴重錯誤:`, error)
+
+      // 錯誤恢復：如果歸檔已建立但原始文件還在，嘗試刪除原始文件
+      try {
+        const [sourceExists, targetExists] = await Promise.all([
+          sourceScheduleRef.get(),
+          targetArchiveRef.get(),
+        ])
+
+        if (targetExists.exists && sourceExists.exists) {
+          logger.info(`[Archiver V3] 🔧 檢測到部分完成的歸檔，嘗試清理原始文件...`)
+          await sourceScheduleRef.delete()
+          logger.info(`[Archiver V3] ✅ 清理完成`)
+        }
+      } catch (cleanupError) {
+        logger.error(`[Archiver V3] ❌ 清理失敗:`, cleanupError)
+      }
+
       throw error
     }
+
     return null
   },
 )
