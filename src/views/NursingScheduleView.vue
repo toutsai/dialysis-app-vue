@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/NursingScheduleView.vue (完整重構版) -->
+<!-- 檔案路徑: src/views/NursingScheduleView.vue (完整重構版 + 日期保護) -->
 <template>
   <div class="nursing-schedule-container">
     <h1 class="page-title">護理班表與職責</h1>
@@ -352,6 +352,7 @@
                             weekend: dayInfo.isWeekend,
                             'other-month': !dayInfo.isCurrentMonth,
                             dimmed: shouldDimCell(nurseData, dayInfo),
+                            'is-past': dayInfo.isCurrentMonth && isDateInPast(dayInfo.date),
                           }"
                         >
                           <template v-if="dayInfo.isCurrentMonth">
@@ -362,6 +363,8 @@
                                   monthlySchedule.scheduleByNurse[nurseId].shifts[dayInfo.dayIndex]
                                 "
                                 class="shift-select"
+                                :disabled="isDateInPast(dayInfo.date)"
+                                :class="{ 'is-readonly': isDateInPast(dayInfo.date) }"
                               >
                                 <option
                                   v-for="option in shiftOptions"
@@ -388,20 +391,28 @@
                                     :class="{
                                       editable:
                                         isGroupEditMode &&
-                                        canBeStandby75(nurseId, dayInfo.dayIndex),
+                                        canBeStandby75(nurseId, dayInfo.dayIndex) &&
+                                        !isDateInPast(dayInfo.date),
                                     }"
                                     @click="
                                       isGroupEditMode &&
                                       canBeStandby75(nurseId, dayInfo.dayIndex) &&
+                                      !isDateInPast(dayInfo.date) &&
                                       toggleStandby75(nurseId, dayInfo.dayIndex)
                                     "
-                                    :title="isGroupEditMode ? '點擊移除預備75班' : '預備第3個75班'"
+                                    :title="
+                                      isGroupEditMode && !isDateInPast(dayInfo.date)
+                                        ? '點擊移除預備75班'
+                                        : '預備第3個75班'
+                                    "
                                   >
                                     ⭐
                                   </span>
                                   <button
                                     v-else-if="
-                                      isGroupEditMode && canBeStandby75(nurseId, dayInfo.dayIndex)
+                                      isGroupEditMode &&
+                                      canBeStandby75(nurseId, dayInfo.dayIndex) &&
+                                      !isDateInPast(dayInfo.date)
                                     "
                                     @click="toggleStandby75(nurseId, dayInfo.dayIndex)"
                                     class="add-standby-btn"
@@ -412,13 +423,14 @@
                                 </div>
                                 <!-- 分組編輯模式 (只有 admin 能進入 isGroupEditMode) -->
                                 <template v-if="isGroupEditMode && tempScheduleWithGroups">
+                                  <!-- 未來日期：可編輯 -->
                                   <select
                                     v-if="
                                       canAssignGroup(
                                         tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
                                           dayInfo.dayIndex
                                         ],
-                                      )
+                                      ) && !isDateInPast(dayInfo.date)
                                     "
                                     v-model="
                                       tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
@@ -442,12 +454,39 @@
                                       {{ group }} 組
                                     </option>
                                   </select>
+                                  <!-- 過去日期：唯讀顯示 -->
+                                  <span
+                                    v-else-if="
+                                      canAssignGroup(
+                                        tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
+                                          dayInfo.dayIndex
+                                        ],
+                                      ) &&
+                                      isDateInPast(dayInfo.date) &&
+                                      tempScheduleWithGroups.scheduleByNurse[nurseId].groups?.[
+                                        dayInfo.dayIndex
+                                      ]
+                                    "
+                                    class="group-badge-readonly"
+                                  >
+                                    {{
+                                      tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
+                                        dayInfo.dayIndex
+                                      ]
+                                    }}
+                                    組
+                                  </span>
                                   <span
                                     v-else-if="
                                       tempScheduleWithGroups.scheduleByNurse[nurseId].groups &&
                                       tempScheduleWithGroups.scheduleByNurse[nurseId].groups[
                                         dayInfo.dayIndex
-                                      ]
+                                      ] &&
+                                      !canAssignGroup(
+                                        tempScheduleWithGroups.scheduleByNurse[nurseId].shifts[
+                                          dayInfo.dayIndex
+                                        ],
+                                      )
                                     "
                                     class="group-badge-fixed"
                                   >
@@ -659,7 +698,6 @@
       </div>
     </main>
   </div>
-  <!-- ✨ AdminAuthDialog 已被移除 -->
 </template>
 
 <script setup>
@@ -674,7 +712,6 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase.js'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
-// ✨ 移除 AdminAuthDialog 的引入
 
 // ========================================
 // 2. Composables 初始化
@@ -690,7 +727,6 @@ const activeTab = ref('master')
 const hasChanges = ref(false)
 const editingCell = ref(null)
 let inputRef = null
-// ✨ 移除 showAdminAuth, adminAuthMessage, pendingAction
 
 // --- "當月總班表" 頁籤的狀態 ---
 const selectedFile = ref(null)
@@ -926,6 +962,15 @@ const filteredSortedSchedule = computed(() => {
 // ========================================
 // 7. 方法定義 (Methods)
 // ========================================
+// --- 日期判斷函式 ---
+const isDateInPast = (dateStr) => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const checkDate = new Date(dateStr)
+  checkDate.setHours(0, 0, 0, 0)
+  return checkDate < today
+}
+
 // --- 輔助函數 ---
 const isStandby75 = (nurseId, dayIndex) => {
   const source = isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
@@ -1017,9 +1062,6 @@ const getShiftClass = (shift) => {
   return 'shift-badge shift-其他'
 }
 
-// ✨ 移除 handleAdminAuthSuccess 和 handleAdminAuthCancel
-
-// ✨ 修改：移除 adminInfo 參數，並從 auth composable 獲取使用者名稱
 async function executeShiftSave() {
   isUploading.value = true
   uploadStatus.value = '正在儲存班別變更...'
@@ -1048,7 +1090,6 @@ async function executeShiftSave() {
   }
 }
 
-// ✨ 修改：移除 adminInfo 參數，並從 auth composable 獲取使用者名稱
 async function executeWeekSave() {
   isUploading.value = true
   uploadStatus.value = `正在儲存第${activeWeekTab.value}週分組...`
@@ -1133,7 +1174,6 @@ async function executeWeekSave() {
   }
 }
 
-// ✨ 修改：移除 adminInfo 參數，並從 auth composable 獲取使用者名稱
 async function executeMonthSave() {
   isUploading.value = true
   uploadStatus.value = '正在儲存分組結果...'
@@ -1164,6 +1204,15 @@ async function executeMonthSave() {
 // --- 班別與分組管理 ---
 const toggleStandby75 = (nurseId, dayIndex) => {
   if (!isGroupEditMode.value || !tempScheduleWithGroups.value) return
+
+  // 檢查日期是否已過去
+  const weekData = weeklyData.value[activeWeekTab.value - 1]
+  const dayInfo = weekData?.days.find((d) => d.dayIndex === dayIndex)
+  if (dayInfo && isDateInPast(dayInfo.date)) {
+    alert('無法修改過去日期的預備班設定')
+    return
+  }
+
   Object.values(tempScheduleWithGroups.value.scheduleByNurse).forEach((nurse) => {
     if (!nurse.standby75Days) {
       nurse.standby75Days = []
@@ -1183,13 +1232,21 @@ const toggleStandby75 = (nurseId, dayIndex) => {
   }
 }
 
-// ✨ 修改：直接呼叫執行函式
 async function saveCurrentWeek() {
   if (!tempScheduleWithGroups.value || activeWeekTab.value === 0) return
+
+  // 檢查是否整週都是過去
+  const weekData = weeklyData.value[activeWeekTab.value - 1]
+  const hasAnyFutureDay = weekData.days.some((d) => d.isCurrentMonth && !isDateInPast(d.date))
+
+  if (!hasAnyFutureDay) {
+    alert('此週已完全過去，無法修改')
+    return
+  }
+
   await executeWeekSave()
 }
 
-// ✨ 修改：直接呼叫執行函式
 async function saveShiftChanges() {
   if (!hasUnsavedShiftChanges.value) {
     alert('沒有偵測到任何變更。')
@@ -1198,7 +1255,6 @@ async function saveShiftChanges() {
   await executeShiftSave()
 }
 
-// ✨ 修改：直接呼叫執行函式
 async function saveGroupAssignments() {
   if (!tempScheduleWithGroups.value) return
   await executeMonthSave()
@@ -1525,7 +1581,7 @@ onMounted(() => {
 }
 .tab-content {
   flex-grow: 1;
-  overflow-y: hidden; /* 保持 hidden，讓子元素自己處理滾動 */
+  overflow-y: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -1597,19 +1653,19 @@ onMounted(() => {
   gap: 1rem;
   flex-shrink: 0;
   margin-bottom: 1rem;
-  flex-wrap: wrap; /* 允許換行 */
+  flex-wrap: wrap;
 }
 .controls-left {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0; /* 防止壓縮 */
+  flex-shrink: 0;
 }
 
 .controls-center {
   display: flex;
   align-items: center;
-  flex: 0 0 auto; /* 固定寬度 */
+  flex: 0 0 auto;
   margin: 0 0.5rem;
 }
 
@@ -1617,7 +1673,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap; /* 按鈕多時允許換行 */
+  flex-wrap: wrap;
   justify-content: flex-end;
   flex: 1;
 }
@@ -2129,21 +2185,21 @@ onMounted(() => {
   z-index: 2;
 }
 .dashboard-table th.day-shift-header {
-  background-color: #fff9e6 !important; /* 淺黃色 - 白班 */
+  background-color: #fff9e6 !important;
   color: #856404;
 }
 
 .dashboard-table th.night-shift-header {
-  background-color: #e6f3ff !important; /* 淺藍色 - 晚班 */
+  background-color: #e6f3ff !important;
   color: #004085;
 }
 
 .dashboard-table td.day-shift-data {
-  background-color: #fffef9; /* 更淺的黃色 - 白班資料 */
+  background-color: #fffef9;
 }
 
 .dashboard-table td.night-shift-data {
-  background-color: #f5f9ff; /* 更淺的藍色 - 晚班資料 */
+  background-color: #f5f9ff;
 }
 /* ===== 編輯模式下拉選單樣式 ===== */
 .group-select {
@@ -2178,6 +2234,42 @@ onMounted(() => {
   font-size: 0.85em;
   margin-top: 0.3rem;
 }
+
+/* 過去日期的樣式 */
+.shift-select.is-readonly,
+.group-select:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
+  border-color: #dee2e6;
+  opacity: 0.7;
+}
+
+.group-badge-readonly {
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background-color: #e9ecef;
+  color: #6c757d;
+  font-size: 0.85em;
+  opacity: 0.7;
+}
+
+/* 過去的日期格子加上視覺提示 */
+.week-table td.is-past {
+  background-color: #f8f9fa;
+  opacity: 0.9;
+}
+
+.week-table td.is-past .weekly-shift-cell {
+  opacity: 0.8;
+}
+
+.week-table td.is-past .standby-75-marker.editable {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* ===== 工作職責頁籤樣式 ===== */
 .pane-header {
   display: flex;
@@ -2557,18 +2649,18 @@ onMounted(() => {
 }
 
 .week-table td.dimmed .standby-75-marker {
-  display: none; /* 隱藏預備75班標記 */
+  display: none;
 }
 
 .week-table td.dimmed .add-standby-btn {
-  display: none; /* 隱藏新增預備75按鈕 */
+  display: none;
 }
 
 /* 編輯模式下，變灰格子的下拉選單也要調整 */
 .week-table td.dimmed .group-select,
 .week-table td.dimmed .shift-select {
   opacity: 0.3;
-  pointer-events: none; /* 禁止操作 */
+  pointer-events: none;
 }
 
 /* 響應式處理 */

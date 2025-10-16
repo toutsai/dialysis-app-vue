@@ -4419,8 +4419,9 @@ exports.applyScheduledPatientUpdates = onSchedule(
 )
 
 // ===================================================================
-// ✨【全新函式 v5.0 - 讀取手動分組版】
+// ✨【全新函式 v5.3 - 含歷史保護版】
 // 當護理總班表更新時，讀取手動設定的組別，並同步到每日分組文件。
+// 只同步今天(含)以後的日期，保護歷史記錄
 // ===================================================================
 exports.syncAndCreateAssignments = onDocumentWritten(
   'nursing_schedules/{yearMonth}',
@@ -4429,24 +4430,41 @@ exports.syncAndCreateAssignments = onDocumentWritten(
     const afterData = event.data?.after.data()
 
     if (!afterData || !afterData.scheduleByNurse) {
-      logger.info(`[SyncManualGroups-v5.2] 總班表 ${yearMonth} 被刪除或無資料，跳過。`)
+      logger.info(`[SyncManualGroups-v5.3] 總班表 ${yearMonth} 被刪除或無資料，跳過。`)
       return null
     }
 
-    logger.info(`🚀 [SyncManualGroups-v5.2] 偵測到總班表 ${yearMonth} 更新，開始同步手動分組...`)
+    logger.info(`🚀 [SyncManualGroups-v5.3] 偵測到總班表 ${yearMonth} 更新，開始同步手動分組...`)
 
     try {
+      // ✨ 新增：取得今天的日期（台北時區）
+      const todayStr = new Date()
+        .toLocaleDateString('zh-TW', {
+          timeZone: 'Asia/Taipei',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
+        .replace(/\//g, '-')
+
       const [year, month] = yearMonth.split('-').map(Number)
       const daysInMonth = new Date(year, month, 0).getDate()
       const batch = db.batch()
       let updatedCount = 0
       let createdCount = 0
-      let mergedCount = 0
+      let skippedCount = 0
 
       // 對每一天進行處理
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`
         const dateIndex = day - 1
+
+        // ✨ 新增：跳過過去的日期
+        if (dateStr < todayStr) {
+          skippedCount++
+          logger.info(`  └─ [跳過] ${dateStr} 為歷史資料，不進行修改`)
+          continue
+        }
 
         // 產生新的 names
         const newNames = {}
@@ -4472,7 +4490,7 @@ exports.syncAndCreateAssignments = onDocumentWritten(
           }
         }
 
-        // 重要：直接使用日期作為文件 ID
+        // 使用日期作為文件 ID
         const docRef = db.collection('nurse_assignments').doc(dateStr)
         const existingDoc = await docRef.get()
 
@@ -4488,12 +4506,13 @@ exports.syncAndCreateAssignments = onDocumentWritten(
               names: newNames,
               // 保留原有的 teams
               updatedAt: FieldValue.serverTimestamp(),
+              syncSource: 'nursing_schedule', // ✨ 標記更新來源
             })
             updatedCount++
-            logger.info(`  └─ [更新] ${dateStr} 的護理師指派已更新（保留病人分組）。`)
+            logger.info(`  └─ [更新] ${dateStr} 的護理師指派已更新（保留病人分組）`)
           }
         } else {
-          // 文件不存在：創建新文件
+          // 文件不存在：創建新文件（只處理未來日期）
           if (Object.keys(newNames).length > 0) {
             batch.set(docRef, {
               date: dateStr,
@@ -4501,17 +4520,18 @@ exports.syncAndCreateAssignments = onDocumentWritten(
               teams: {},
               createdAt: FieldValue.serverTimestamp(),
               updatedAt: FieldValue.serverTimestamp(),
+              syncSource: 'nursing_schedule', // ✨ 標記創建來源
             })
             createdCount++
-            logger.info(`  └─ [創建] ${dateStr} 的新分組文件已創建。`)
+            logger.info(`  └─ [創建] ${dateStr} 的新分組文件已創建`)
           }
         }
       }
 
-      // 清理重複的文件（如果有的話）
+      // ✨ 新增：清理重複文件（只處理今天以後的）
       const cleanupQuery = db
         .collection('nurse_assignments')
-        .where('date', '>=', `${yearMonth}-01`)
+        .where('date', '>=', todayStr)
         .where('date', '<=', `${yearMonth}-31`)
 
       const allDocs = await cleanupQuery.get()
@@ -4521,7 +4541,8 @@ exports.syncAndCreateAssignments = onDocumentWritten(
       allDocs.docs.forEach((doc) => {
         const docData = doc.data()
         const date = docData.date
-        if (date) {
+        if (date && date >= todayStr) {
+          // ✨ 再次確認日期
           if (!dateDocMap.has(date)) {
             dateDocMap.set(date, [])
           }
@@ -4530,6 +4551,7 @@ exports.syncAndCreateAssignments = onDocumentWritten(
       })
 
       // 合併並刪除重複文件
+      let mergedCount = 0
       for (const [date, docs] of dateDocMap.entries()) {
         if (docs.length > 1) {
           logger.warn(`  └─ 發現 ${date} 有 ${docs.length} 個重複文件，進行合併...`)
@@ -4558,6 +4580,7 @@ exports.syncAndCreateAssignments = onDocumentWritten(
             names: mergedNames,
             updatedAt: FieldValue.serverTimestamp(),
             createdAt: FieldValue.serverTimestamp(),
+            syncSource: 'nursing_schedule_cleanup', // ✨ 標記合併來源
           })
 
           // 刪除所有非標準 ID 的文件
@@ -4574,17 +4597,19 @@ exports.syncAndCreateAssignments = onDocumentWritten(
       if (updatedCount > 0 || createdCount > 0 || mergedCount > 0) {
         await batch.commit()
         logger.info(
-          `[SyncManualGroups-v5.2] ✅ 批次提交完成！` +
-            `更新 ${updatedCount} 份，創建 ${createdCount} 份，合併 ${mergedCount} 組重複文件。`,
+          `✅ [SyncManualGroups-v5.3] 批次提交完成！\n` +
+            `  - 更新: ${updatedCount} 份\n` +
+            `  - 創建: ${createdCount} 份\n` +
+            `  - 合併: ${mergedCount} 組重複\n` +
+            `  - 跳過: ${skippedCount} 份歷史資料`,
         )
       } else {
-        logger.info(`[SyncManualGroups-v5.2] ✅ 檢查完畢，無需更新或創建。`)
+        logger.info(
+          `✅ [SyncManualGroups-v5.3] 檢查完畢，無需更新。` + `（跳過 ${skippedCount} 份歷史資料）`,
+        )
       }
     } catch (error) {
-      logger.error(
-        `❌ [SyncManualGroups-v5.2] 同步/創建 ${yearMonth} 的分組文件時發生嚴重錯誤:`,
-        error,
-      )
+      logger.error(`❌ [SyncManualGroups-v5.3] 同步/創建 ${yearMonth} 的分組文件時發生錯誤:`, error)
     }
     return null
   },
