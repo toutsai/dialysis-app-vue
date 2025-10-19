@@ -59,13 +59,21 @@ const allowedOrigins = [
 // ===================================================================
 // 輔助函式 (Helper Functions)
 // ===================================================================
-// Helper function to format date
+// ✨ 新增：統一的台北時區日期處理
+function getTaipeiToday(date = new Date()) {
+  return date
+    .toLocaleDateString('zh-TW', {
+      timeZone: 'Asia/Taipei',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    .replace(/\//g, '-')
+}
+
+// 修正原有的 formatDateForQuery
 function formatDateForQuery(date) {
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return getTaipeiToday(date)
 }
 
 const getScheduleKey = (bedNum, shiftCode) => {
@@ -131,14 +139,17 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
     return
   }
   logger.info(`[Metadata Cleanup] Starting for patient ${patientId}...`, options)
-  const todayStr = formatDateForQuery(new Date())
+
+  // ✨ 使用統一的時區函式
+  const todayStr = getTaipeiToday()
   const batch = db.batch()
   let updatesCount = 0
+
   try {
     if (clearTeams) {
       const assignmentsSnapshot = await db
         .collection('nurse_assignments')
-        .where('date', '>=', todayStr)
+        .where('date', '>', todayStr) // ✨ 改為 > 保護今天的資料
         .get()
       assignmentsSnapshot.forEach((doc) => {
         const teamsData = doc.data().teams || {}
@@ -156,8 +167,12 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
         }
       })
     }
+
     if (clearManualNote) {
-      const schedulesSnapshot = await db.collection('schedules').where('date', '>=', todayStr).get()
+      const schedulesSnapshot = await db
+        .collection('schedules')
+        .where('date', '>', todayStr) // ✨ 改為 > 保護今天的資料
+        .get()
       schedulesSnapshot.forEach((doc) => {
         const scheduleData = doc.data().schedule || {}
         const updates = {}
@@ -174,6 +189,7 @@ async function cleanupFuturePatientMetadata(patientId, options = {}) {
         }
       })
     }
+
     if (updatesCount > 0) {
       await batch.commit()
       logger.info(`[Metadata Cleanup] Successfully committed cleanup for patient ${patientId}.`)
@@ -195,8 +211,8 @@ async function cancelFutureExceptionsForPatient(patientId) {
 
   logger.info(`[Exception Cleanup] Cancelling exceptions for deleted patient ${patientId}`)
 
-  // 只保留日期檢查（避免取消過去的記錄）
-  const today = new Date().toISOString().split('T')[0]
+  // ✨ 使用統一的時區函式
+  const today = getTaipeiToday()
   const batch = db.batch()
   let cancelledCount = 0
 
@@ -213,7 +229,8 @@ async function cancelFutureExceptionsForPatient(patientId) {
       // 簡單的日期檢查（用最晚的日期）
       const latestDate = ex.endDate || ex.to?.goalDate || ex.date || ex.startDate
 
-      if (!latestDate || latestDate >= today) {
+      if (!latestDate || latestDate > today) {
+        // ✨ 保護今天的資料
         batch.update(doc.ref, {
           status: 'cancelled',
           cancelReason: '病人已刪除',
@@ -294,7 +311,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   else if (
     beforeData &&
     afterData &&
-    beforeData.isDeleted === false &&
+    beforeData.isDeleted !== true && // 改為不等於 true（包含 undefined 和 false）
     afterData.isDeleted === true
   ) {
     logger.info(`[History] 刪除病人 ${afterData.name} (ID: ${patientId})`)
@@ -4243,10 +4260,10 @@ exports.getDailyMedicationDrafts = onCall(
 
 /**
  * 每日定時執行的 Cloud Function，用於處理所有到期的「預約病人變更」任務。
- * 觸發時間：每日凌晨 00:10 (台北時間)。
+ * 觸發時間：每日凌晨 01:00 (台北時間)。
  */
 exports.applyScheduledPatientUpdates = onSchedule(
-  { schedule: '10 0 * * *', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '1GiB' },
+  { schedule: '0 1 * * *', timeZone: 'Asia/Taipei', timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
     const todayStr = new Date()
       .toLocaleDateString('zh-TW', {
@@ -4353,32 +4370,132 @@ exports.applyScheduledPatientUpdates = onSchedule(
           case 'DELETE_PATIENT':
             const patientRef = db.collection('patients').doc(patientId)
             const masterRef = db.collection('base_schedules').doc('MASTER_SCHEDULE')
+
             await db.runTransaction(async (transaction) => {
               const patientDoc = await transaction.get(patientRef)
-              // ✨✨✨【核心修正 #2】✨✨✨
-              // 將 .exists() 改為 .exists
               if (!patientDoc.exists) throw new Error(`Patient with ID ${patientId} not found.`)
               const patientData = patientDoc.data()
-              // ✨【邏輯強化】使用 set + merge:true 更安全，並同時更新 status
+
+              // 標記病人為刪除
               transaction.set(
                 patientRef,
                 {
                   isDeleted: true,
-                  status: 'deleted', // 明確更新狀態
+                  status: 'deleted',
                   originalStatus: patientData.status,
                   deleteReason: payload.deleteReason || '預約刪除',
                   remarks: payload.remarks || '',
                   deletedAt: FieldValue.serverTimestamp(),
                 },
                 { merge: true },
-              ) // 使用 merge:true 保留其他欄位
+              )
 
+              // 從總表刪除
               transaction.update(masterRef, {
                 [`schedule.${patientId}`]: FieldValue.delete(),
               })
             })
+
+            // ✨ 新增：直接清理今天和未來的排程
+            logger.info(`    - 開始清理 ${patientId} 的排程...`)
+            const todayStr = new Date()
+              .toLocaleDateString('zh-TW', {
+                timeZone: 'Asia/Taipei',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+              })
+              .replace(/\//g, '-')
+
+            const cleanupBatch = db.batch()
+            let cleanupCount = 0
+            const BATCH_SIZE = 450
+
+            // 清理今天和未來60天的排程
+            for (let i = 0; i <= 60; i++) {
+              const targetDate = new Date()
+              targetDate.setDate(targetDate.getDate() + i)
+              const dateStr = formatDateForQuery(targetDate)
+
+              if (dateStr >= todayStr) {
+                const scheduleRef = db.collection('schedules').doc(dateStr)
+                const scheduleDoc = await scheduleRef.get()
+
+                if (scheduleDoc.exists) {
+                  const schedule = scheduleDoc.data().schedule || {}
+                  const updates = {}
+
+                  for (const key in schedule) {
+                    if (schedule[key].patientId === patientId) {
+                      updates[`schedule.${key}`] = FieldValue.delete()
+                      cleanupCount++
+                      logger.info(`      └─ 移除 ${dateStr} 的 ${key}`)
+                    }
+                  }
+
+                  if (Object.keys(updates).length > 0) {
+                    cleanupBatch.update(scheduleRef, {
+                      ...updates,
+                      lastModified: FieldValue.serverTimestamp(),
+                      modifiedBy: 'scheduled_update',
+                    })
+
+                    // 如果批次太大，先提交
+                    if (cleanupCount >= BATCH_SIZE) {
+                      await cleanupBatch.commit()
+                      logger.info(`      └─ 批次提交：已清理 ${cleanupCount} 個項目`)
+                      cleanupCount = 0
+                      cleanupBatch = db.batch()
+                    }
+                  }
+                }
+              }
+            }
+
+            if (cleanupCount > 0) {
+              await cleanupBatch.commit()
+              logger.info(`    - 共清理了 ${cleanupCount} 個排程項目`)
+            }
+
+            // ✨ 新增：清理護理師分組
+            logger.info(`    - 開始清理 ${patientId} 的護理師分組...`)
+            const todayStr = getTaipeiToday() // ✨ 使用統一函式
+
+            const assignmentsBatch = db.batch()
+            let assignmentCount = 0
+
+            const assignmentsSnapshot = await db
+              .collection('nurse_assignments')
+              .where('date', '>', todayStr) // ✨ 改為 > 保護今天的資料
+              .get()
+
+            assignmentsSnapshot.forEach((doc) => {
+              const teamsData = doc.data().teams || {}
+              const updates = {}
+              let needsUpdate = false
+
+              for (const teamKey in teamsData) {
+                if (teamKey.startsWith(patientId + '-')) {
+                  updates[`teams.${teamKey}`] = FieldValue.delete()
+                  needsUpdate = true
+                  assignmentCount++
+                }
+              }
+
+              if (needsUpdate) {
+                assignmentsBatch.update(doc.ref, updates)
+              }
+            })
+
+            if (assignmentCount > 0) {
+              await assignmentsBatch.commit()
+              logger.info(`    - 共清理了 ${assignmentCount} 個護理分組`)
+            }
+
+            // 取消未來的調班申請
             await cancelFutureExceptionsForPatient(patientId)
-            logger.info(`    - 成功將 patient/${patientId} 標記為刪除並清理相關規則。`)
+
+            logger.info(`    - 成功將 patient/${patientId} 標記為刪除並完成所有清理工作`)
             break
 
           case 'RESTORE_PATIENT':
