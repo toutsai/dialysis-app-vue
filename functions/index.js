@@ -29,7 +29,6 @@ const { FieldValue, FieldPath } = require('firebase-admin/firestore')
 const { google } = require('googleapis')
 const stream = require('stream')
 const path = require('path')
-const XLSX = require('xlsx')
 
 // --- ✨ 引入統一的日期處理工具 ✨ ---
 const { formatDateToYYYYMMDD, getTaipeiTodayString, TIME_ZONE } = require('./utils/dateUtils')
