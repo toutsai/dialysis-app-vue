@@ -31,7 +31,12 @@ const stream = require('stream')
 const path = require('path')
 
 // --- ✨ 引入統一的日期處理工具 ✨ ---
-const { formatDateToYYYYMMDD, getTaipeiTodayString, TIME_ZONE } = require('./utils/dateUtils')
+const {
+  formatDateToYYYYMMDD,
+  getTaipeiTodayString,
+  getTaipeiNow, // <--- ✨✨✨ 請確保已將 getTaipeiNow 加入此處 ✨✨✨
+  TIME_ZONE,
+} = require('./utils/dateUtils')
 
 // ===================================================================
 // 全域設定 (Global Configurations)
