@@ -2282,7 +2282,10 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         let operationCount = 0
         let removedCount = 0
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const dateStr = formatDateForQuery(new Date(d))
+          // ✨✨✨【核心修正】✨✨✨
+          // 使用 dateUtils 中正確的函式來格式化日期
+          const dateStr = formatDateToYYYYMMDD(new Date(d))
+
           processedDates.push(dateStr)
           const scheduleRef = db.collection('schedules').doc(dateStr)
           const scheduleDoc = await scheduleRef.get()
