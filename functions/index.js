@@ -1520,23 +1520,22 @@ exports.scheduledDataBackup = onSchedule(
       const drive = google.drive({ version: 'v3', auth })
 
       // --- 1. 準備日期和資料夾路徑 ---
-      const nowInTaipei = getTaipeiNow()
-      const today = getTaipeiNow() // ✨ 使用統一函式
-      const [year, month, day] = [
-        nowInTaipei.getFullYear(),
-        nowInTaipei.getMonth(),
-        nowInTaipei.getDate(),
-      ]
+      // ✨ 只需要呼叫一次 getTaipeiNow() 作為所有日期計算的基準
+      const today = getTaipeiNow()
 
+      // 產生明天日期的 Date 物件
       const tomorrow = new Date(today)
       tomorrow.setDate(today.getDate() + 1)
 
+      // 格式化今天和明天的日期字串
       const todayStr = getTaipeiTodayString()
-      const tomorrowStr = formatDateToYYYYMMDD(tomorrow) // ✨ 直接格式化明天日期物件
+      const tomorrowStr = formatDateToYYYYMMDD(tomorrow)
 
-      const year = today.getFullYear()
-      const month = (today.getMonth() + 1).toString().padStart(2, '0')
-      const targetPath = ['資料備份', `${year} 年`, `${month} 月`]
+      // 取得年份和月份字串 (用於資料夾路徑)
+      // 直接從 today 物件取得，並確保月份是 1-12 且有補零
+      const yearForPath = today.getFullYear()
+      const monthForPath = (today.getMonth() + 1).toString().padStart(2, '0')
+      const targetPath = ['資料備份', `${yearForPath} 年`, `${monthForPath} 月`]
 
       // --- 2. 刪除前一天為今天建立的預備檔 ---
       const oldPreBackupScheduleName = `${todayStr}_Schedule_PREBACKUP.xlsx`
