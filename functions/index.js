@@ -334,7 +334,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     let cleanupCount = 0
     const BATCH_SIZE = 450
     for (let i = 0; i <= 60; i++) {
-      const targetDate = new Date()
+      const targetDate = new Date(today)
       targetDate.setDate(targetDate.getDate() + i)
       const dateStr = formatDateToYYYYMMDD(targetDate)
       if (dateStr >= todayStr) {
@@ -500,9 +500,9 @@ exports.initializeFutureSchedules = onSchedule(
   async (event) => {
     logger.info('[Scheduler] Initializing future 60-day schedules...')
     const schedulesRef = db.collection('schedules')
-    const today = new Date()
+    const today = getTaipeiNow() // ✨ 使用統一函式
     const datesToCheck = Array.from({ length: 60 }, (_, i) => {
-      const targetDate = new Date()
+      const targetDate = new Date(today) // ✨ 從正確的起點複製
       targetDate.setDate(today.getDate() + i)
       return formatDateToYYYYMMDD(targetDate) // ✨ 使用統一函式
     })
@@ -631,11 +631,11 @@ exports.ensureFutureSchedules = onCall(
     )
 
     const schedulesRef = db.collection('schedules')
-    const today = new Date()
+    const today = getTaipeiNow() // ✨ 使用統一函式
     const datesToCheck = []
 
     for (let i = 0; i < 60; i++) {
-      const targetDate = new Date()
+      const targetDate = new Date(today) // ✨ 從正確的起點複製
       targetDate.setDate(today.getDate() + i)
       datesToCheck.push(formatDateToYYYYMMDD(targetDate)) // ✨ 使用統一函式
     }
@@ -1520,12 +1520,13 @@ exports.scheduledDataBackup = onSchedule(
       const drive = google.drive({ version: 'v3', auth })
 
       // --- 1. 準備日期和資料夾路徑 ---
-      const nowInTaipei = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }))
-      const today = new Date(
+      const nowInTaipei = getTaipeiNow()
+      const today = getTaipeiNow() // ✨ 使用統一函式
+      const [year, month, day] = [
         nowInTaipei.getFullYear(),
         nowInTaipei.getMonth(),
         nowInTaipei.getDate(),
-      )
+      ]
 
       const tomorrow = new Date(today)
       tomorrow.setDate(today.getDate() + 1)
@@ -1791,17 +1792,16 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       const conflictedExceptions = []
 
       // 處理未來60天
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const BATCH_SIZE = 400
-      let batch = db.batch()
-      let batchCount = 0
+      const today = getTaipeiNow() // 使用 getTaipeiNow() 取得台北時區的 Date 物件
+      today.setHours(0, 0, 0, 0) // 將時間設為台北時區的凌晨
 
       for (let i = 1; i <= 60; i++) {
-        const targetDate = new Date()
+        // 從一個正確的台北時區 Date 物件開始計算
+        const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
-        const dateStr = formatDateToYYYYMMDD(targetDate) // ✨ 使用統一函式
-        const dayOfWeek = targetDate.getDay()
+
+        const dateStr = formatDateToYYYYMMDD(targetDate)
+        const dayOfWeek = targetDate.getDay() // getDay() 在任何時區下對於同一個 Date 物件的結果是一致的
         const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
 
         // 使用 transaction 確保原子性操作
@@ -4305,7 +4305,7 @@ exports.applyScheduledPatientUpdates = onSchedule(
 
             // 清理今天和未來60天的排程
             for (let i = 0; i <= 60; i++) {
-              const targetDate = new Date()
+              const targetDate = new Date(today)
               targetDate.setDate(targetDate.getDate() + i)
               const dateStr = formatDateToYYYYMMDD(targetDate) // ✨ 使用統一函式
 
