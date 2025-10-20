@@ -34,7 +34,8 @@ const path = require('path')
 const {
   formatDateToYYYYMMDD,
   getTaipeiTodayString,
-  getTaipeiNow, // <--- ✨✨✨ 請確保已將 getTaipeiNow 加入此處 ✨✨✨
+  getTaipeiNow,
+  getTaipeiDayIndex, // <--- ✨ 引入新函式
   TIME_ZONE,
 } = require('./utils/dateUtils')
 
@@ -91,8 +92,11 @@ const SHIFTS = ['early', 'noon', 'late']
 
 function generateDailyScheduleFromRules(masterRules, targetDate) {
   const dailySchedule = {}
-  const dayOfWeek = targetDate.getDay()
-  const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
+  // ✨✨✨【核心修正】✨✨✨
+  // 使用我們自訂的、時區感知的 getTaipeiDayIndex 函式
+  // 它直接回傳 0=週一, 1=週二, ..., 6=週日，與您的 systemDayIndex 邏輯完全一致
+  const systemDayIndex = getTaipeiDayIndex(targetDate)
+
   for (const patientId in masterRules) {
     const rule = masterRules[patientId]
     if (!rule || !rule.freq) continue
