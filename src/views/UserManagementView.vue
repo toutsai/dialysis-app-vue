@@ -28,6 +28,7 @@ const isMigrationLoading = ref(false)
 const isExpireLoading = ref(false)
 const isUploadingToDrive = ref(false)
 const selectedFileForDrive = ref(null)
+const isResyncLoading = ref(false) // ✨ 新增: 強制同步按鈕的載入狀態
 
 // --- Dialog State ---
 const alertInfo = ref({ isVisible: false, title: '', message: '' })
@@ -37,11 +38,14 @@ const confirmInfo = ref({
   message: '',
   onConfirm: () => {},
   onCancel: () => {},
+  // ✨ 新增: 自訂按鈕文字
+  confirmText: '確認',
+  cancelText: '取消',
 })
 
 // --- 權限控制 ---
 const { isAdmin } = useAuth()
-const { createGlobalNotifier } = useGlobalNotifier()
+const { createGlobalNotification: createGlobalNotifier } = useGlobalNotifier()
 
 // --- Helper Functions ---
 function formatDate(timestamp) {
@@ -115,7 +119,9 @@ function showAlert(title, message) {
 function handleAlertConfirm() {
   alertInfo.value.isVisible = false
 }
-function showConfirm(title, message, confirmAction) {
+
+// ✨ 修改 showConfirm 以支援自訂按鈕文字
+function showConfirm(title, message, confirmAction, options = {}) {
   confirmInfo.value = {
     isVisible: true,
     title,
@@ -127,6 +133,8 @@ function showConfirm(title, message, confirmAction) {
     onCancel: () => {
       confirmInfo.value.isVisible = false
     },
+    confirmText: options.confirmText || '確認',
+    cancelText: options.cancelText || '取消',
   }
 }
 
@@ -233,6 +241,61 @@ async function copyEmail(email) {
 
 // --- Admin Tools Functions ---
 
+// ✨ --- 新增: 觸發強制同步排程的完整函式 --- ✨
+async function triggerForceResync() {
+  const callCloudFunction = async (isDryRun) => {
+    isResyncLoading.value = true
+    const logPrefix = isDryRun ? '模擬運行' : '正式執行'
+    createGlobalNotifier(
+      'info',
+      `${logPrefix}：已發送強制同步請求，此過程可能需要數分鐘，請稍候...`,
+    )
+
+    try {
+      const forceResync = httpsCallable(functions, 'forceResyncAllSchedules')
+      const result = await forceResync({ dryRun: isDryRun })
+      showAlert(`同步請求成功 (${logPrefix})`, result.data.message)
+    } catch (error) {
+      console.error('強制同步失敗:', error)
+      showAlert('同步請求失敗', `發生錯誤: ${error.message}`)
+    } finally {
+      isResyncLoading.value = false
+    }
+  }
+
+  showConfirm(
+    '⚠️ 高風險操作：強制同步排程',
+    '此操作將完全覆蓋未來60天的排程，用於修復資料錯亂。<strong>此操作不可逆，請謹慎使用！</strong><br><br>您要如何執行？',
+    () => {
+      // 這個確認按鈕會觸發第二次選擇
+      showConfirm(
+        '最終確認：選擇執行模式',
+        '<strong>模擬運行 (Dry Run)</strong> 不會寫入資料庫，只會在後端日誌顯示操作過程，推薦先執行此項檢查。<br><br><strong>正式執行</strong>將會實際修改資料庫。',
+        () => callCloudFunction(false), // "正式執行" 按鈕的行為
+        {
+          confirmText: '🔴 正式執行',
+          cancelText: '🟡 模擬運行 (Dry Run)',
+        },
+      )
+    },
+    {
+      confirmText: '我了解風險，繼續',
+      cancelText: '取消',
+    },
+  )
+
+  // 覆寫第二次彈窗的 "取消" (模擬運行) 按鈕行為
+  confirmInfo.value.onCancel = () => {
+    // 檢查是否是第二次彈窗
+    if (confirmInfo.value.confirmText === '🔴 正式執行') {
+      confirmInfo.value.isVisible = false
+      callCloudFunction(true) // 執行 Dry Run
+    } else {
+      confirmInfo.value.isVisible = false // 第一次彈窗的正常取消
+    }
+  }
+}
+
 async function triggerMigration() {
   const today = new Date()
   const yesterday = new Date(today)
@@ -280,7 +343,6 @@ async function triggerManualExpire() {
       const manuallyExpireTasks = httpsCallable(functions, 'manuallyExpireTasks')
       const result = await manuallyExpireTasks()
       showAlert('操作成功', result.data.message)
-      console.log(result.data)
     } catch (error) {
       console.error('手動更新失敗:', error)
       showAlert('操作失敗', `發生錯誤: ${error.message}`)
@@ -311,30 +373,22 @@ async function triggerUploadToDrive() {
     showAlert('提示', '請先選擇一個要上傳的檔案！')
     return
   }
-
   isUploadingToDrive.value = true
   try {
     const fileContentBase64 = await fileToBase64(selectedFileForDrive.value)
-
     const payload = {
       fileName: selectedFileForDrive.value.name,
       fileContentBase64: fileContentBase64,
       mimeType: selectedFileForDrive.value.type,
+      targetPath: ['測試上傳'],
     }
-
-    const uploadFileToDrive = httpsCallable(functions, 'uploadFileToDrive')
-    const result = await uploadFileToDrive(payload)
-
-    console.log('上傳成功:', result.data)
+    const uploadFile = httpsCallable(functions, 'uploadFile') // ✨ 修正: 確保函式名稱為 'uploadFile'
+    const result = await uploadFile(payload)
     showAlert(
       '上傳成功',
       `${result.data.message}\n檔案名稱: ${result.data.file.name}\n檔案ID: ${result.data.file.id}`,
     )
-
     selectedFileForDrive.value = null
-    // This is a common way to clear the file input, but it requires a ref on the input element
-    // e.g., <input type="file" ref="fileInput" ... />
-    // if (fileInput.value) { fileInput.value.value = ''; }
   } catch (error) {
     console.error('上傳失敗:', error)
     showAlert('上傳失敗', `發生錯誤: ${error.message}`)
@@ -402,28 +456,40 @@ onMounted(() => {
           </div>
         </div>
         <div class="header-actions">
-          <!-- 遷移歷史排班按鈕 -->
+          <!-- ✨ 新增: 強制同步排程按鈕 ✨ -->
           <button
             v-if="isAdmin"
             class="btn btn-danger"
+            @click="triggerForceResync"
+            :disabled="isResyncLoading"
+            title="強制使用總床位表重新生成未來60天的排程，用於修復資料錯亂。"
+          >
+            <i v-if="isResyncLoading" class="fas fa-spinner fa-spin"></i>
+            {{ isResyncLoading ? '同步中...' : '🚨 強制同步排程' }}
+          </button>
+
+          <!-- 遷移歷史排班按鈕 -->
+          <button
+            v-if="isAdmin"
+            class="btn btn-warning"
             @click="triggerMigration"
             :disabled="isMigrationLoading"
             title="這是一個一次性的資料庫維護操作"
           >
             <i v-if="isMigrationLoading" class="fas fa-spinner fa-spin"></i>
-            {{ isMigrationLoading ? '遷移中...' : '⚠️ 遷移歷史排班' }}
+            {{ isMigrationLoading ? '遷移中...' : '遷移歷史排班' }}
           </button>
 
           <!-- 手動更新過期留言按鈕 -->
           <button
             v-if="isAdmin"
-            class="btn btn-warning"
+            class="btn btn-info"
             @click="triggerManualExpire"
             :disabled="isExpireLoading"
             title="手動將已過期的留言標記為 'expired' 狀態"
           >
             <i v-if="isExpireLoading" class="fas fa-spinner fa-spin"></i>
-            {{ isExpireLoading ? '更新中...' : '手動更新過期留言' }}
+            {{ isExpireLoading ? '更新中...' : '更新過期留言' }}
           </button>
 
           <!-- Google Drive 上傳測試區塊 -->
@@ -595,7 +661,7 @@ onMounted(() => {
       :is-editing="isEditing"
       :user="userToEdit"
       :is-submitting="isSubmitting"
-      @close="isModalVisible = false"
+      @close="isModalVisible.value = false"
       @save="handleSaveUser"
     />
     <AlertDialog
@@ -608,6 +674,8 @@ onMounted(() => {
       :is-visible="confirmInfo.isVisible"
       :title="confirmInfo.title"
       :message="confirmInfo.message"
+      :confirm-text="confirmInfo.confirmText"
+      :cancel-text="confirmInfo.cancelText"
       @confirm="confirmInfo.onConfirm"
       @cancel="confirmInfo.onCancel"
     />
