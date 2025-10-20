@@ -4618,3 +4618,128 @@ exports.syncAndCreateAssignments = onDocumentWritten(
     return null
   },
 )
+
+/**
+ * ✨【手動觸發】強制重新同步未來60天的排程 ✨
+ * - 步驟 1: 根據總表完全覆蓋未來60天的基礎排程。
+ * - 步驟 2: 查找所有未來有效的調班申請。
+ * - 步驟 3: 透過更新調班文件的狀態，來重新觸發調班處理邏輯，讓系統自動重新套用它們。
+ * 僅限管理員使用。
+ */
+exports.forceResyncAllSchedules = onCall(
+  { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
+  async (request) => {
+    // 權限檢查
+    if (request.auth?.token?.role !== 'admin') {
+      throw new HttpsError('permission-denied', '此操作需要管理員權限。')
+    }
+
+    const { dryRun = false } = request.data // 新增 dryRun 模式，用於測試
+    const logPrefix = dryRun ? '[ForceResync-DryRun]' : '[ForceResync]'
+    logger.info(`🚀 ${logPrefix} 手動強制重新同步所有未來排程...`)
+
+    try {
+      // --- 步驟 1: 根據總表，完全重建未來 60 天的基礎排程 ---
+      logger.info(`${logPrefix} 步驟 1/3: 正在重建基礎排程...`)
+      const masterDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
+      if (!masterDoc.exists) {
+        throw new HttpsError('not-found', '找不到 MASTER_SCHEDULE 文件。')
+      }
+      const masterRules = masterDoc.data().schedule || {}
+      const today = getTaipeiNow()
+
+      const scheduleRebuildBatch = db.batch()
+      let rebuiltCount = 0
+
+      for (let i = 0; i < 60; i++) {
+        const targetDate = new Date(today)
+        targetDate.setDate(today.getDate() + i)
+        const dateStr = formatDateToYYYYMMDD(targetDate)
+
+        const newDailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+
+        const scheduleRef = db.collection('schedules').doc(dateStr)
+        scheduleRebuildBatch.set(scheduleRef, {
+          date: dateStr,
+          schedule: newDailySchedule,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          syncMethod: 'force_resync_base', // 標記為強制重建
+        })
+        rebuiltCount++
+      }
+
+      if (!dryRun) {
+        await scheduleRebuildBatch.commit()
+      }
+      logger.info(`${logPrefix} ✅ 成功重建 ${rebuiltCount} 天的基礎排程。`)
+
+      // --- 步驟 2: 查找所有未來需要重新套用的調班申請 ---
+      logger.info(`${logPrefix} 步驟 2/3: 正在查找未來的有效調班...`)
+      const todayStr = getTaipeiTodayString()
+      const exceptionsToReapply = []
+
+      const exceptionsQuery = db
+        .collection('schedule_exceptions')
+        .where('status', 'in', ['applied', 'conflict_requires_resolution'])
+        // 根據不同類型查詢日期，確保撈到所有未來的調班
+        // Firestore 不支持 OR 查詢，所以我們需要分開查詢或簡化邏輯
+        // 簡化：撈取所有 'applied' 的，然後在程式中過濾日期
+        .where('status', '==', 'applied')
+
+      const snapshot = await exceptionsQuery.get()
+
+      snapshot.forEach((doc) => {
+        const ex = doc.data()
+        const latestDate = ex.endDate || ex.to?.goalDate || ex.date || ex.startDate
+        if (latestDate && latestDate >= todayStr) {
+          exceptionsToReapply.push({ id: doc.id, data: ex })
+        }
+      })
+
+      if (exceptionsToReapply.length === 0) {
+        logger.info(`${logPrefix} ✅ 找不到需要重新套用的未來調班。同步完成！`)
+        return {
+          success: true,
+          message: `成功重建 ${rebuiltCount} 天的排程，沒有需要重新套用的調班。`,
+        }
+      }
+      logger.info(`${logPrefix} 🔍 找到 ${exceptionsToReapply.length} 個需要重新套用的調班。`)
+
+      // --- 步驟 3: 批次更新調班狀態以重新觸發處理 ---
+      logger.info(`${logPrefix} 步驟 3/3: 正在觸發調班重新處理...`)
+      const reapplyBatch = db.batch()
+
+      exceptionsToReapply.forEach((ex) => {
+        const docRef = db.collection('schedule_exceptions').doc(ex.id)
+        reapplyBatch.update(docRef, {
+          status: 'pending', // 將狀態重置為 pending
+          reapplyTriggeredAt: FieldValue.serverTimestamp(), // 添加一個標記欄位
+          // 清除舊的處理結果，以便重新執行
+          appliedAt: FieldValue.delete(),
+          processedDates: FieldValue.delete(),
+          conflicts: FieldValue.delete(),
+          conflictCount: FieldValue.delete(),
+          errorMessage: FieldValue.delete(),
+        })
+      })
+
+      if (!dryRun) {
+        await reapplyBatch.commit()
+      }
+
+      const successMessage = `成功重建 ${rebuiltCount} 天的基礎排程，並已觸發 ${exceptionsToReapply.length} 個調班的重新套用程序。系統將在背景自動完成後續處理。`
+      logger.info(`${logPrefix} ✅ ${successMessage}`)
+
+      return {
+        success: true,
+        message: successMessage,
+        rebuiltSchedules: rebuiltCount,
+        retriggeredExceptions: exceptionsToReapply.length,
+      }
+    } catch (error) {
+      logger.error(`❌ ${logPrefix} 強制同步失敗:`, error)
+      throw new HttpsError('internal', `強制同步過程中發生錯誤: ${error.message}`)
+    }
+  },
+)
