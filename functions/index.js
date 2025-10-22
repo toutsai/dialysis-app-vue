@@ -34,9 +34,17 @@ const path = require('path')
 const {
   formatDateToYYYYMMDD,
   getTaipeiTodayString,
-  getTaipeiNow, // <--- ✨✨✨ 請確保已將 getTaipeiNow 加入此處 ✨✨✨
+  getTaipeiNow,
+  getTaipeiDayIndex, // <--- ✨ 引入新函式
   TIME_ZONE,
 } = require('./utils/dateUtils')
+
+// --- ✨ 引入排程邏輯引擎 ✨ ---
+const {
+  recalculateDailySchedule,
+  generateDailyScheduleFromRules,
+  getScheduleKey, // ✨✨✨【核心修正】確保 getScheduleKey 也被引入 ✨✨✨
+} = require('./services/scheduleEngineService')
 
 // ===================================================================
 // 全域設定 (Global Configurations)
@@ -66,61 +74,6 @@ const allowedOrigins = [
 // ===================================================================
 // 輔助函式 (Helper Functions)
 // ===================================================================
-
-const getScheduleKey = (bedNum, shiftCode) => {
-  const prefix = String(bedNum).startsWith('peripheral') ? '' : 'bed-'
-  return `${prefix}${bedNum}-${shiftCode}`
-}
-const FREQ_MAP_TO_DAY_INDEX = {
-  一三五: [0, 2, 4],
-  二四六: [1, 3, 5],
-  一四: [0, 3],
-  二五: [1, 4],
-  三六: [2, 5],
-  一五: [0, 4],
-  二六: [1, 5],
-  每日: [0, 1, 2, 3, 4, 5],
-  每周一: [0],
-  每周二: [1],
-  每周三: [2],
-  每周四: [3],
-  每周五: [4],
-  每周六: [5],
-}
-const SHIFTS = ['early', 'noon', 'late']
-
-function generateDailyScheduleFromRules(masterRules, targetDate) {
-  const dailySchedule = {}
-  const dayOfWeek = targetDate.getDay()
-  const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-  for (const patientId in masterRules) {
-    const rule = masterRules[patientId]
-    if (!rule || !rule.freq) continue
-    const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
-    if (freqDays.includes(systemDayIndex)) {
-      const { bedNum, shiftIndex } = rule
-      const shiftCode = SHIFTS[shiftIndex]
-      if (bedNum === undefined || shiftCode === undefined) {
-        logger.warn(
-          `[generateDaily] Rule for patient ${patientId} is missing bedNum or shiftIndex, skipping.`,
-        )
-        continue
-      }
-      const dailyShiftId = String(bedNum).startsWith('peripheral')
-        ? `${bedNum}-${shiftCode}`
-        : `bed-${bedNum}-${shiftCode}`
-      dailySchedule[dailyShiftId] = {
-        patientId: patientId,
-        patientName: rule.patientName || '',
-        shiftId: shiftCode,
-        autoNote: rule.autoNote || '',
-        manualNote: rule.manualNote || '',
-        baseRuleId: patientId,
-      }
-    }
-  }
-  return dailySchedule
-}
 
 async function cleanupFuturePatientMetadata(patientId, options = {}) {
   const { clearTeams = false, clearManualNote = false } = options
@@ -624,6 +577,9 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
   }
 })
 
+/**
+ * 管理員從前端點擊按鈕觸發(目前無用)
+ */
 exports.ensureFutureSchedules = onCall(
   { cors: allowedOrigins, timeoutSeconds: 300, memory: '512MiB' },
   async (request) => {
@@ -1723,7 +1679,7 @@ exports.scheduledDataBackup = onSchedule(
 )
 
 // ===================================================================
-// 🔥 智慧同步總表 - 完整版（不需要 reapplyAllExceptionsInternal）
+// 🔥🔥🔥【v5.0 修正版】 - syncMasterScheduleToFuture (精準重建模式) 🔥🔥🔥
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -1732,7 +1688,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [SmartSync-v4] 智慧同步流程啟動')
+    logger.info('🚀 [SmartSync-v5.0] 精準重建流程啟動...')
 
     if (!event.data.after.exists) {
       logger.info('✅ MASTER_SCHEDULE 文件已被刪除，無需執行同步。')
@@ -1743,256 +1699,96 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       const beforeRules = event.data.before?.data()?.schedule || {}
       const afterRules = event.data.after.data().schedule || {}
 
-      // 分析變更
-      const changes = {
-        added: [],
-        modified: [],
-        deleted: [],
-      }
+      // --- 步驟 1: 找出所有受影響的病人和相關的星期索引 ---
+      const affectedPatientIds = new Set()
+      const affectedDayIndexes = new Set() // 0=週一, 1=週二, ...
 
-      // 找出新增和修改的規則
-      for (const patientId in afterRules) {
-        if (!beforeRules[patientId]) {
-          changes.added.push({
-            id: patientId,
-            rule: afterRules[patientId],
-          })
-        } else if (
-          JSON.stringify(beforeRules[patientId]) !== JSON.stringify(afterRules[patientId])
-        ) {
-          changes.modified.push({
-            id: patientId,
-            before: beforeRules[patientId],
-            after: afterRules[patientId],
-          })
+      // 找出所有 ID 有變更的病人
+      const allPatientIds = new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])
+      allPatientIds.forEach((id) => {
+        if (JSON.stringify(beforeRules[id]) !== JSON.stringify(afterRules[id])) {
+          affectedPatientIds.add(id)
         }
-      }
+      })
 
-      // 找出刪除的規則
-      for (const patientId in beforeRules) {
-        if (!afterRules[patientId]) {
-          changes.deleted.push({
-            id: patientId,
-            rule: beforeRules[patientId],
-          })
-        }
-      }
-
-      logger.info(
-        `[SmartSync-v4] 變更分析：新增 ${changes.added.length}，修改 ${changes.modified.length}，刪除 ${changes.deleted.length}`,
-      )
-
-      // 如果沒有變更，直接返回
-      if (
-        changes.added.length === 0 &&
-        changes.modified.length === 0 &&
-        changes.deleted.length === 0
-      ) {
-        logger.info('[SmartSync-v4] 無變更，跳過同步')
+      if (affectedPatientIds.size === 0) {
+        logger.info('[SmartSync-v5.0] 無規則變更，跳過同步。')
         return null
       }
 
-      // 收集所有遇到的衝突調班
-      const conflictedExceptions = []
+      // 根據受影響的病人，找出所有相關的「星期」
+      affectedPatientIds.forEach((id) => {
+        const ruleBefore = beforeRules[id]
+        const ruleAfter = afterRules[id]
+        if (ruleBefore && ruleBefore.freq) {
+          ;(FREQ_MAP_TO_DAY_INDEX[ruleBefore.freq] || []).forEach((day) =>
+            affectedDayIndexes.add(day),
+          )
+        }
+        if (ruleAfter && ruleAfter.freq) {
+          ;(FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).forEach((day) =>
+            affectedDayIndexes.add(day),
+          )
+        }
+      })
 
-      // 處理未來60天
-      const today = getTaipeiNow() // 使用 getTaipeiNow() 取得台北時區的 Date 物件
-      today.setHours(0, 0, 0, 0) // 將時間設為台北時區的凌晨
+      logger.info(
+        `[SmartSync-v5.0] 偵測到 ${affectedPatientIds.size} 位病人規則變更，將重新計算所有未來的 [${Array.from(affectedDayIndexes).join(', ')}] (0=週一) 的排程。`,
+      )
 
-      for (let i = 1; i <= 60; i++) {
-        // 從一個正確的台北時區 Date 物件開始計算
+      // --- 步驟 2: 找出未來 60 天中，所有需要被重建的具體日期 ---
+      const datesToRebuild = new Set()
+      const today = getTaipeiNow()
+      for (let i = 0; i < 60; i++) {
         const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
+        const dayIndex = getTaipeiDayIndex(targetDate)
 
-        const dateStr = formatDateToYYYYMMDD(targetDate)
-        const dayOfWeek = targetDate.getDay() // getDay() 在任何時區下對於同一個 Date 物件的結果是一致的
-        const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-
-        // 使用 transaction 確保原子性操作
-        await db.runTransaction(async (transaction) => {
-          const scheduleRef = db.collection('schedules').doc(dateStr)
-          const scheduleDoc = await transaction.get(scheduleRef)
-          const currentSchedule = scheduleDoc.exists ? scheduleDoc.data().schedule || {} : {}
-          let finalSchedule = { ...currentSchedule }
-          let hasChanges = false
-
-          // 處理刪除的規則
-          for (const deleted of changes.deleted) {
-            const freqDays = FREQ_MAP_TO_DAY_INDEX[deleted.rule.freq] || []
-            if (freqDays.includes(systemDayIndex)) {
-              const key = getScheduleKey(deleted.rule.bedNum, SHIFTS[deleted.rule.shiftIndex])
-
-              // 只刪除非調班產生的排程
-              if (
-                finalSchedule[key] &&
-                finalSchedule[key].patientId === deleted.id &&
-                !finalSchedule[key].exceptionId
-              ) {
-                delete finalSchedule[key]
-                hasChanges = true
-                logger.info(`  └─ 刪除 ${dateStr} 的 ${key} (病人: ${deleted.rule.patientName})`)
-              }
-            }
-          }
-
-          // 處理修改的規則
-          for (const modified of changes.modified) {
-            const beforeRule = modified.before
-            const afterRule = modified.after
-
-            // 先清理舊位置（如果位置有變）
-            const beforeFreqDays = FREQ_MAP_TO_DAY_INDEX[beforeRule.freq] || []
-            if (beforeFreqDays.includes(systemDayIndex)) {
-              const oldKey = getScheduleKey(beforeRule.bedNum, SHIFTS[beforeRule.shiftIndex])
-
-              if (
-                finalSchedule[oldKey] &&
-                finalSchedule[oldKey].patientId === modified.id &&
-                !finalSchedule[oldKey].exceptionId
-              ) {
-                delete finalSchedule[oldKey]
-                hasChanges = true
-              }
-            }
-
-            // 新增到新位置
-            const afterFreqDays = FREQ_MAP_TO_DAY_INDEX[afterRule.freq] || []
-            if (afterFreqDays.includes(systemDayIndex)) {
-              const newKey = getScheduleKey(afterRule.bedNum, SHIFTS[afterRule.shiftIndex])
-
-              // 檢查新位置是否被調班佔用
-              if (finalSchedule[newKey] && finalSchedule[newKey].exceptionId) {
-                // 收集衝突資訊
-                conflictedExceptions.push({
-                  exceptionId: finalSchedule[newKey].exceptionId,
-                  date: dateStr,
-                  position: newKey,
-                  conflictWith: {
-                    patientId: modified.id,
-                    patientName: afterRule.patientName,
-                  },
-                })
-                logger.warn(`  └─ ⚠️ 衝突：${dateStr} ${newKey} 調班將被新規則取代`)
-              }
-
-              // 無論是否有調班，都套用新規則（總表優先）
-              finalSchedule[newKey] = {
-                patientId: modified.id,
-                patientName: afterRule.patientName || '',
-                shiftId: SHIFTS[afterRule.shiftIndex],
-                autoNote: afterRule.autoNote || '',
-                manualNote: afterRule.manualNote || '',
-                baseRuleId: modified.id,
-              }
-              hasChanges = true
-              logger.info(`  └─ 更新 ${dateStr} 的 ${newKey} (病人: ${afterRule.patientName})`)
-            }
-          }
-
-          // 處理新增的規則
-          for (const added of changes.added) {
-            const rule = added.rule
-            const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
-
-            if (freqDays.includes(systemDayIndex)) {
-              const key = getScheduleKey(rule.bedNum, SHIFTS[rule.shiftIndex])
-
-              // 檢查位置是否被調班佔用
-              if (finalSchedule[key] && finalSchedule[key].exceptionId) {
-                // 收集衝突資訊
-                conflictedExceptions.push({
-                  exceptionId: finalSchedule[key].exceptionId,
-                  date: dateStr,
-                  position: key,
-                  conflictWith: {
-                    patientId: added.id,
-                    patientName: rule.patientName,
-                  },
-                })
-                logger.warn(`  └─ ⚠️ 衝突：${dateStr} ${key} 調班將被新規則取代`)
-              }
-
-              // 無論是否有調班，都套用新規則（總表優先）
-              finalSchedule[key] = {
-                patientId: added.id,
-                patientName: rule.patientName || '',
-                shiftId: SHIFTS[rule.shiftIndex],
-                autoNote: rule.autoNote || '',
-                manualNote: rule.manualNote || '',
-                baseRuleId: added.id,
-              }
-              hasChanges = true
-              logger.info(`  └─ 新增 ${dateStr} 的 ${key} (病人: ${rule.patientName})`)
-            }
-          }
-
-          // 如果有變更，更新文件
-          if (hasChanges) {
-            if (scheduleDoc.exists) {
-              transaction.update(scheduleRef, {
-                schedule: finalSchedule,
-                lastSyncAt: FieldValue.serverTimestamp(),
-                syncMethod: 'smart_merge',
-              })
-            } else {
-              transaction.set(scheduleRef, {
-                date: dateStr,
-                schedule: finalSchedule,
-                createdAt: FieldValue.serverTimestamp(),
-                syncMethod: 'smart_create',
-              })
-            }
-          }
-        })
-      }
-
-      // 批次更新衝突調班的狀態
-      if (conflictedExceptions.length > 0) {
-        // 去重：同一個調班可能在多天有衝突
-        const uniqueExceptionIds = [...new Set(conflictedExceptions.map((c) => c.exceptionId))]
-        logger.info(`🚨 [SmartSync-v4] 發現 ${uniqueExceptionIds.length} 個調班與新規則衝突`)
-
-        const exceptionBatch = db.batch()
-
-        for (const exceptionId of uniqueExceptionIds) {
-          // 找出這個調班的所有衝突
-          const conflicts = conflictedExceptions.filter((c) => c.exceptionId === exceptionId)
-          const firstConflict = conflicts[0]
-
-          // 建立衝突訊息
-          let conflictMessage = `床位已被 ${firstConflict.conflictWith.patientName} 的新排班規則佔用，請選擇其他床位`
-
-          if (conflicts.length > 1) {
-            conflictMessage += `（影響 ${conflicts.length} 天）`
-          }
-
-          exceptionBatch.update(db.collection('schedule_exceptions').doc(exceptionId), {
-            status: 'conflict_requires_resolution',
-            errorMessage: conflictMessage,
-            conflictDetectedAt: FieldValue.serverTimestamp(),
-            conflictDetails: conflicts.map((c) => ({
-              date: c.date,
-              position: c.position,
-              conflictWith: c.conflictWith.patientName,
-            })),
-          })
-
-          logger.info(`  └─ 標記調班 ${exceptionId} 為衝突待解決`)
+        if (affectedDayIndexes.has(dayIndex)) {
+          datesToRebuild.add(formatDateToYYYYMMDD(targetDate))
         }
-
-        await exceptionBatch.commit()
-        logger.info(`✅ [SmartSync-v4] 已更新 ${uniqueExceptionIds.length} 個調班狀態為衝突待解決`)
       }
 
-      logger.info(`✅ [SmartSync-v4] 智慧同步完成，處理了 ${conflictedExceptions.length} 個衝突`)
+      if (datesToRebuild.size === 0) {
+        logger.info('[SmartSync-v5.0] 未來60天內沒有需要重建的日期。')
+        return null
+      }
 
-      // ✅ 不需要呼叫 reapplyAllExceptionsInternal
-      // ✅ 不需要重新套用調班，因為我們已經智慧處理了
+      // --- 步驟 3: 對每一個需要重建的日期，呼叫核心引擎 ---
+      logger.info(`[SmartSync-v5.0] 準備對 ${datesToRebuild.size} 個未來日期進行徹底重建...`)
+      const allExceptionsSnapshot = await db
+        .collection('schedule_exceptions')
+        .where('status', '==', 'applied')
+        .get()
+      const allAppliedExceptions = new Map()
+      allExceptionsSnapshot.forEach((doc) => {
+        allAppliedExceptions.set(doc.id, { id: doc.id, ...doc.data() })
+      })
+
+      const batch = db.batch()
+      for (const dateStr of datesToRebuild) {
+        // 注意：這裡我們傳入的是「更新後」的總表規則
+        const newSchedule = recalculateDailySchedule(dateStr, afterRules, allAppliedExceptions)
+
+        const scheduleRef = db.collection('schedules').doc(dateStr)
+        batch.set(
+          scheduleRef,
+          {
+            date: dateStr,
+            schedule: newSchedule,
+            lastModified: FieldValue.serverTimestamp(),
+            modifiedBy: 'smart_sync_v5.0',
+          },
+          { merge: true },
+        )
+      }
+
+      await batch.commit()
+      logger.info(`✅ [SmartSync-v5.0] 成功重建 ${datesToRebuild.size} 天的排程。`)
     } catch (error) {
-      logger.error('❌ [SmartSync-v4] 智慧同步失敗:', error)
-      throw error
+      logger.error('❌ [SmartSync-v5.0] 智慧同步失敗:', error)
+      throw error // 重新拋出錯誤，以便 Cloud Functions 知道執行失敗
     }
-
     return null
   },
 )
@@ -2278,7 +2074,10 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         let operationCount = 0
         let removedCount = 0
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          const dateStr = formatDateForQuery(new Date(d))
+          // ✨✨✨【核心修正】✨✨✨
+          // 使用 dateUtils 中正確的函式來格式化日期
+          const dateStr = formatDateToYYYYMMDD(new Date(d))
+
           processedDates.push(dateStr)
           const scheduleRef = db.collection('schedules').doc(dateStr)
           const scheduleDoc = await scheduleRef.get()
@@ -2533,295 +2332,162 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 // ===================================================================
 // 處理調班刪除 - 精準恢復版本
 // ===================================================================
+// ✨✨✨【最終重構版 v4.2】 - onExceptionDeleted (精準依賴分析) ✨✨✨
+// 只有在床位真正產生衝突時，才標記其他調班為失效。
+
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [SmartReverter] 調班恢復處理器啟動: ${exceptionId}`)
+    logger.info(`🚀 [SmartReverter-v4.2] 調班撤銷(精準分析)處理器啟動: ${exceptionId}`)
 
     if (!deletedException || !deletedException.type) {
-      logger.error(`❌ [SmartReverter] 失敗：被刪除的調班資料不完整`)
+      logger.error(`❌ [SmartReverter-v4.2] 失敗：被刪除的調班資料不完整`)
       return
     }
 
     try {
-      // 檢查病人是否已被刪除
-      const patientId = deletedException.patientId || deletedException.patient1?.patientId
-      if (patientId) {
-        const patientDoc = await db.collection('patients').doc(patientId).get()
-        if (patientDoc.exists && patientDoc.data().isDeleted) {
-          logger.warn(`[SmartReverter] 病人 ${patientId} 已被刪除，跳過恢復`)
-          return
-        }
-
-        // 刪除相關的系統留言
-        const targetDate =
-          deletedException.date ||
-          deletedException.startDate ||
-          deletedException.from?.sourceDate ||
-          deletedException.to?.goalDate
-        if (targetDate) {
-          const typeMap = {
-            MOVE: '臨時調班',
-            SUSPEND: '區間暫停',
-            ADD_SESSION: '臨時加洗',
-            SWAP: '同日互調',
-          }
-          const keyword = typeMap[deletedException.type]
-            ? `【${typeMap[deletedException.type]}】`
-            : null
-
-          if (keyword) {
-            const messagesQuery = db
-              .collection('tasks')
-              .where('patientId', '==', patientId)
-              .where('targetDate', '==', targetDate)
-              .where('category', '==', 'message')
-
-            const messagesSnapshot = await messagesQuery.get()
-            const messageBatch = db.batch()
-            let deletedMessagesCount = 0
-
-            messagesSnapshot.forEach((doc) => {
-              if (doc.data().content?.startsWith(keyword)) {
-                messageBatch.delete(doc.ref)
-                deletedMessagesCount++
-              }
-            })
-
-            if (deletedMessagesCount > 0) {
-              await messageBatch.commit()
-              logger.info(`[SmartReverter] 刪除 ${deletedMessagesCount} 則相關留言`)
-            }
-          }
-        }
-      }
-
-      // 取得總表規則用於恢復
-      const masterDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
-      const masterRules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
-
-      // 收集需要恢復的位置和衝突的調班
-      const positionsToRestore = []
-      const conflictedExceptions = [] // ✨ 新增：收集衝突的調班
-
-      switch (deletedException.type) {
-        case 'MOVE':
-          // 恢復來源位置
-          positionsToRestore.push({
-            date: deletedException.from.sourceDate,
-            key: getScheduleKey(deletedException.from.bedNum, deletedException.from.shiftCode),
-            action: 'restore',
-            patientId: deletedException.patientId,
-            patientName: deletedException.patientName,
-          })
-          // 清除目標位置
-          positionsToRestore.push({
-            date: deletedException.to.goalDate,
-            key: getScheduleKey(deletedException.to.bedNum, deletedException.to.shiftCode),
-            action: 'clear',
-            checkExceptionId: exceptionId,
-          })
-          break
-
-        case 'ADD_SESSION':
-          // 清除加洗位置
-          positionsToRestore.push({
-            date: deletedException.to.goalDate,
-            key: getScheduleKey(deletedException.to.bedNum, deletedException.to.shiftCode),
-            action: 'clear',
-            checkExceptionId: exceptionId,
-          })
-          break
-
-        case 'SUSPEND':
-          // 恢復暫停期間的所有排程
-          const start = new Date(deletedException.startDate + 'T00:00:00Z')
-          const end = new Date(deletedException.endDate + 'T00:00:00Z')
-
-          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const dateStr = formatDateToYYYYMMDD(new Date(d)) // ✨ 使用統一函式
-            const dayOfWeek = d.getDay()
-            const systemDayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1
-
-            const patientRule = masterRules[deletedException.patientId]
-            if (patientRule) {
-              const freqDays = FREQ_MAP_TO_DAY_INDEX[patientRule.freq] || []
-              if (freqDays.includes(systemDayIndex)) {
-                positionsToRestore.push({
-                  date: dateStr,
-                  key: getScheduleKey(patientRule.bedNum, SHIFTS[patientRule.shiftIndex]),
-                  action: 'restore',
-                  patientData: {
-                    patientId: deletedException.patientId,
-                    patientName: patientRule.patientName,
-                    shiftId: SHIFTS[patientRule.shiftIndex],
-                    autoNote: patientRule.autoNote || '',
-                    manualNote: patientRule.manualNote || '',
-                    baseRuleId: deletedException.patientId,
-                  },
-                })
-              }
-            }
-          }
-          break
-
-        case 'SWAP':
-          // 恢復兩個交換的位置
-          const key1 = getScheduleKey(
-            deletedException.patient1.fromBedNum,
-            deletedException.patient1.fromShiftCode,
-          )
-          const key2 = getScheduleKey(
-            deletedException.patient2.fromBedNum,
-            deletedException.patient2.fromShiftCode,
-          )
-
-          positionsToRestore.push(
-            {
-              date: deletedException.date,
-              key: key1,
-              action: 'restore',
-              swapBack: true,
-              originalPatientId: deletedException.patient1.patientId,
-              originalPatientName: deletedException.patient1.patientName,
-            },
-            {
-              date: deletedException.date,
-              key: key2,
-              action: 'restore',
-              swapBack: true,
-              originalPatientId: deletedException.patient2.patientId,
-              originalPatientName: deletedException.patient2.patientName,
-            },
-          )
-          break
-      }
-
-      // 執行恢復
       const batch = db.batch()
 
-      for (const position of positionsToRestore) {
-        const scheduleRef = db.collection('schedules').doc(position.date)
-        const scheduleDoc = await scheduleRef.get()
+      // --- 步驟 1: 獲取所有需要的 "真理" ---
+      const [masterDoc, allAppliedExceptionsSnapshot] = await Promise.all([
+        db.collection('base_schedules').doc('MASTER_SCHEDULE').get(),
+        db
+          .collection('schedule_exceptions')
+          .where('status', 'in', ['applied', 'conflict_requires_resolution'])
+          .get(),
+      ])
 
-        if (scheduleDoc.exists) {
-          const currentSchedule = scheduleDoc.data().schedule || {}
+      const masterRules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
+      const allAppliedExceptions = new Map()
+      allAppliedExceptionsSnapshot.forEach((doc) => {
+        if (doc.id !== exceptionId) {
+          // 排除掉剛被刪除的
+          allAppliedExceptions.set(doc.id, { id: doc.id, ...doc.data() })
+        }
+      })
 
-          if (position.action === 'restore') {
-            // 計算該位置原本應該是什麼
-            const targetDate = new Date(position.date + 'T00:00:00Z')
-            const baseSchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+      // --- 步驟 2: 找出受影響的日期 ---
+      const datesToResync = new Set()
+      const exDates =
+        deletedException.processedDates ||
+        [
+          deletedException.date,
+          deletedException.startDate,
+          deletedException.from?.sourceDate,
+          deletedException.to?.goalDate,
+        ].filter(Boolean)
+      exDates.forEach((d) => datesToResync.add(d))
 
-            // ✨ 新增：檢查原位置是否已被其他病人佔用
-            if (
-              currentSchedule[position.key] &&
-              currentSchedule[position.key].patientId !==
-                (position.patientId || position.originalPatientId)
-            ) {
-              const occupant = currentSchedule[position.key]
+      const dateStrings = Array.from(datesToResync)
+      if (dateStrings.length === 0) {
+        logger.info('[SmartReverter-v4.2] 該撤銷操作無需同步任何日期。')
+        return
+      }
 
-              // 如果是調班產生的，標記為衝突
-              if (occupant.exceptionId) {
-                conflictedExceptions.push({
-                  exceptionId: occupant.exceptionId,
-                  date: position.date,
-                  position: position.key,
-                  conflictReason: `原病人 ${position.patientName || position.originalPatientName} 的調班已撤銷，此床位需重新安排`,
-                })
-                logger.warn(
-                  `  └─ ⚠️ 衝突：${position.date} ${position.key} 被調班 ${occupant.patientName} 佔用`,
-                )
+      logger.info(
+        `[SmartReverter-v4.2] 將對 ${dateStrings.length} 個日期 [${dateStrings.join(', ')}] 進行分析與重建...`,
+      )
+
+      // --- 步驟 3: 對每個受影響的日期，進行衝突分析與重建 ---
+      for (const dateStr of dateStrings) {
+        const scheduleRef = db.collection('schedules').doc(dateStr)
+        const currentScheduleDoc = await scheduleRef.get()
+        const currentSchedule = currentScheduleDoc.exists
+          ? currentScheduleDoc.data().schedule || {}
+          : {}
+
+        // 3a: 模擬！計算「如果撤銷了這個調班」之後，排程應該長什麼樣子
+        const simulatedSchedule = recalculateDailySchedule(
+          dateStr,
+          masterRules,
+          allAppliedExceptions,
+        )
+
+        // 3b: 精準找出因撤銷而「真正」產生床位衝突的其他調班
+        for (const [otherId, otherEx] of allAppliedExceptions.entries()) {
+          // 只檢查與當前日期相關的調班
+          const otherExDates =
+            otherEx.processedDates ||
+            [otherEx.date, otherEx.startDate, otherEx.to?.goalDate].filter(Boolean)
+          if (!otherExDates.includes(dateStr)) continue
+
+          // 判斷衝突的核心：一個調班的「來源」必須真實存在，「目標」必須為空或可覆蓋。
+          let hasConflict = false
+          let conflictReason = ''
+
+          switch (otherEx.type) {
+            case 'MOVE':
+              const sourceKeyMove = getScheduleKey(otherEx.from.bedNum, otherEx.from.shiftCode)
+              const targetKeyMove = getScheduleKey(otherEx.to.bedNum, otherEx.to.shiftCode)
+              // 衝突條件1: 它想移動的來源病人，在模擬後已經不在那了
+              if (simulatedSchedule[sourceKeyMove]?.patientId !== otherEx.patientId) {
+                hasConflict = true
+                conflictReason = `它的來源位置 (${otherEx.from.bedNum}床) 的病人已不是 ${otherEx.patientName}。`
               }
-            }
+              // 衝突條件2: 它想移入的目標床位，在模擬後被其他人佔據了
+              else if (
+                simulatedSchedule[targetKeyMove] &&
+                simulatedSchedule[targetKeyMove].patientId !== otherEx.patientId
+              ) {
+                hasConflict = true
+                conflictReason = `它的目標位置 (${otherEx.to.bedNum}床) 在前序調班撤銷後，已被 ${simulatedSchedule[targetKeyMove].patientName} 佔據。`
+              }
+              break
 
-            // 恢復原本應該在這個位置的病人
-            if (position.patientData) {
-              // SUSPEND 的恢復，使用提供的資料
-              batch.update(scheduleRef, {
-                [`schedule.${position.key}`]: position.patientData,
-              })
-              logger.info(
-                `  └─ 恢復 ${position.date} ${position.key} (${position.patientData.patientName})`,
+            case 'SWAP':
+              const key1 = getScheduleKey(
+                otherEx.patient1.fromBedNum,
+                otherEx.patient1.fromShiftCode,
               )
-            } else if (position.swapBack) {
-              // SWAP 的恢復
-              const originalData = baseSchedule[position.key]
-              if (originalData && originalData.patientId === position.originalPatientId) {
-                batch.update(scheduleRef, {
-                  [`schedule.${position.key}`]: originalData,
-                })
-                logger.info(
-                  `  └─ 恢復 ${position.date} ${position.key} (${position.originalPatientName})`,
-                )
+              const key2 = getScheduleKey(
+                otherEx.patient2.fromBedNum,
+                otherEx.patient2.fromShiftCode,
+              )
+              // 衝突條件: 任何一方的原始位置上的病人已經不對了
+              if (simulatedSchedule[key1]?.patientId !== otherEx.patient1.patientId) {
+                hasConflict = true
+                conflictReason = `交換的前提已改變：${otherEx.patient1.patientName} 已不在原位置。`
+              } else if (simulatedSchedule[key2]?.patientId !== otherEx.patient2.patientId) {
+                hasConflict = true
+                conflictReason = `交換的前提已改變：${otherEx.patient2.patientName} 已不在原位置。`
               }
-            } else if (baseSchedule[position.key]) {
-              // 一般恢復（MOVE 的來源位置）
-              batch.update(scheduleRef, {
-                [`schedule.${position.key}`]: baseSchedule[position.key],
-              })
-              logger.info(`  └─ 恢復 ${position.date} ${position.key}`)
-            } else {
-              // 該位置原本就是空的
-              batch.update(scheduleRef, {
-                [`schedule.${position.key}`]: FieldValue.delete(),
-              })
-              logger.info(`  └─ 清空 ${position.date} ${position.key}`)
-            }
-          } else if (position.action === 'clear') {
-            // 清除調班產生的位置
-            if (currentSchedule[position.key]?.exceptionId === position.checkExceptionId) {
-              // 檢查該位置原本是否有其他病人
-              const targetDate = new Date(position.date + 'T00:00:00Z')
-              const baseSchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+              break
+          }
 
-              if (baseSchedule[position.key]) {
-                // 恢復原本的病人
-                batch.update(scheduleRef, {
-                  [`schedule.${position.key}`]: baseSchedule[position.key],
-                })
-                logger.info(`  └─ 清除並恢復 ${position.date} ${position.key}`)
-              } else {
-                // 原本就是空的
-                batch.update(scheduleRef, {
-                  [`schedule.${position.key}`]: FieldValue.delete(),
-                })
-                logger.info(`  └─ 清除 ${position.date} ${position.key}`)
-              }
-            }
+          if (hasConflict) {
+            logger.warn(
+              `[SmartReverter-v4.2] 偵測到衝突！調班 ${otherId} 因 ${exceptionId} 的撤銷而失效。原因: ${conflictReason}`,
+            )
+            batch.update(db.collection('schedule_exceptions').doc(otherId), {
+              status: 'conflict_requires_resolution',
+              errorMessage: `一個前置調班被撤銷導致此申請失效。原因：${conflictReason} 請重新編輯此申請。`,
+              conflictDetectedAt: FieldValue.serverTimestamp(),
+            })
+            // 從 allAppliedExceptions 中移除這個已失效的調班，以便進行最終重建
+            allAppliedExceptions.delete(otherId)
           }
         }
+
+        // 3c: 使用移除了衝突調班後的「最終有效調班列表」來進行最後的重建
+        const finalSchedule = recalculateDailySchedule(dateStr, masterRules, allAppliedExceptions)
+
+        // 3d: 用最終結果覆蓋當天的排程
+        batch.set(
+          scheduleRef,
+          {
+            date: dateStr,
+            schedule: finalSchedule,
+          },
+          { merge: true },
+        )
       }
 
       await batch.commit()
-      logger.info(`✅ [SmartReverter] 成功處理 ${positionsToRestore.length} 個位置`)
-
-      // ✨ 新增：批次更新衝突調班的狀態
-      if (conflictedExceptions.length > 0) {
-        const uniqueExceptionIds = [...new Set(conflictedExceptions.map((c) => c.exceptionId))]
-        logger.info(`🚨 [SmartReverter] 發現 ${uniqueExceptionIds.length} 個調班需要重新安排`)
-
-        const exceptionBatch = db.batch()
-
-        for (const exceptionId of uniqueExceptionIds) {
-          const conflicts = conflictedExceptions.filter((c) => c.exceptionId === exceptionId)
-          const firstConflict = conflicts[0]
-
-          exceptionBatch.update(db.collection('schedule_exceptions').doc(exceptionId), {
-            status: 'conflict_requires_resolution',
-            errorMessage: firstConflict.conflictReason,
-            conflictDetectedAt: FieldValue.serverTimestamp(),
-          })
-
-          logger.info(`  └─ 標記調班 ${exceptionId} 為衝突待解決`)
-        }
-
-        await exceptionBatch.commit()
-        logger.info(`✅ [SmartReverter] 已更新 ${uniqueExceptionIds.length} 個調班狀態`)
-      }
+      logger.info(`✅ [SmartReverter-v4.2] 成功完成撤銷與精準重建操作。`)
     } catch (error) {
-      logger.error(`❌ [SmartReverter] 恢復調班 ${exceptionId} 時發生錯誤:`, error)
+      logger.error(`❌ [SmartReverter-v4.2] 恢復調班 ${exceptionId} 時發生嚴重錯誤:`, error)
     }
   },
 )
@@ -4616,5 +4282,130 @@ exports.syncAndCreateAssignments = onDocumentWritten(
       logger.error(`❌ [SyncManualGroups-v5.3] 同步/創建 ${yearMonth} 的分組文件時發生錯誤:`, error)
     }
     return null
+  },
+)
+
+/**
+ * ✨【手動觸發】強制重新同步未來60天的排程 ✨
+ * - 步驟 1: 根據總表完全覆蓋未來60天的基礎排程。
+ * - 步驟 2: 查找所有未來有效的調班申請。
+ * - 步驟 3: 透過更新調班文件的狀態，來重新觸發調班處理邏輯，讓系統自動重新套用它們。
+ * 僅限管理員使用。
+ */
+exports.forceResyncAllSchedules = onCall(
+  { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
+  async (request) => {
+    // 權限檢查
+    if (request.auth?.token?.role !== 'admin') {
+      throw new HttpsError('permission-denied', '此操作需要管理員權限。')
+    }
+
+    const { dryRun = false } = request.data // 新增 dryRun 模式，用於測試
+    const logPrefix = dryRun ? '[ForceResync-DryRun]' : '[ForceResync]'
+    logger.info(`🚀 ${logPrefix} 手動強制重新同步所有未來排程...`)
+
+    try {
+      // --- 步驟 1: 根據總表，完全重建未來 60 天的基礎排程 ---
+      logger.info(`${logPrefix} 步驟 1/3: 正在重建基礎排程...`)
+      const masterDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
+      if (!masterDoc.exists) {
+        throw new HttpsError('not-found', '找不到 MASTER_SCHEDULE 文件。')
+      }
+      const masterRules = masterDoc.data().schedule || {}
+      const today = getTaipeiNow()
+
+      const scheduleRebuildBatch = db.batch()
+      let rebuiltCount = 0
+
+      for (let i = 0; i < 60; i++) {
+        const targetDate = new Date(today)
+        targetDate.setDate(today.getDate() + i)
+        const dateStr = formatDateToYYYYMMDD(targetDate)
+
+        const newDailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+
+        const scheduleRef = db.collection('schedules').doc(dateStr)
+        scheduleRebuildBatch.set(scheduleRef, {
+          date: dateStr,
+          schedule: newDailySchedule,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+          syncMethod: 'force_resync_base', // 標記為強制重建
+        })
+        rebuiltCount++
+      }
+
+      if (!dryRun) {
+        await scheduleRebuildBatch.commit()
+      }
+      logger.info(`${logPrefix} ✅ 成功重建 ${rebuiltCount} 天的基礎排程。`)
+
+      // --- 步驟 2: 查找所有未來需要重新套用的調班申請 ---
+      logger.info(`${logPrefix} 步驟 2/3: 正在查找未來的有效調班...`)
+      const todayStr = getTaipeiTodayString()
+      const exceptionsToReapply = []
+
+      const exceptionsQuery = db
+        .collection('schedule_exceptions')
+        .where('status', 'in', ['applied', 'conflict_requires_resolution'])
+        // 根據不同類型查詢日期，確保撈到所有未來的調班
+        // Firestore 不支持 OR 查詢，所以我們需要分開查詢或簡化邏輯
+        // 簡化：撈取所有 'applied' 的，然後在程式中過濾日期
+        .where('status', '==', 'applied')
+
+      const snapshot = await exceptionsQuery.get()
+
+      snapshot.forEach((doc) => {
+        const ex = doc.data()
+        const latestDate = ex.endDate || ex.to?.goalDate || ex.date || ex.startDate
+        if (latestDate && latestDate >= todayStr) {
+          exceptionsToReapply.push({ id: doc.id, data: ex })
+        }
+      })
+
+      if (exceptionsToReapply.length === 0) {
+        logger.info(`${logPrefix} ✅ 找不到需要重新套用的未來調班。同步完成！`)
+        return {
+          success: true,
+          message: `成功重建 ${rebuiltCount} 天的排程，沒有需要重新套用的調班。`,
+        }
+      }
+      logger.info(`${logPrefix} 🔍 找到 ${exceptionsToReapply.length} 個需要重新套用的調班。`)
+
+      // --- 步驟 3: 批次更新調班狀態以重新觸發處理 ---
+      logger.info(`${logPrefix} 步驟 3/3: 正在觸發調班重新處理...`)
+      const reapplyBatch = db.batch()
+
+      exceptionsToReapply.forEach((ex) => {
+        const docRef = db.collection('schedule_exceptions').doc(ex.id)
+        reapplyBatch.update(docRef, {
+          status: 'pending', // 將狀態重置為 pending
+          reapplyTriggeredAt: FieldValue.serverTimestamp(), // 添加一個標記欄位
+          // 清除舊的處理結果，以便重新執行
+          appliedAt: FieldValue.delete(),
+          processedDates: FieldValue.delete(),
+          conflicts: FieldValue.delete(),
+          conflictCount: FieldValue.delete(),
+          errorMessage: FieldValue.delete(),
+        })
+      })
+
+      if (!dryRun) {
+        await reapplyBatch.commit()
+      }
+
+      const successMessage = `成功重建 ${rebuiltCount} 天的基礎排程，並已觸發 ${exceptionsToReapply.length} 個調班的重新套用程序。系統將在背景自動完成後續處理。`
+      logger.info(`${logPrefix} ✅ ${successMessage}`)
+
+      return {
+        success: true,
+        message: successMessage,
+        rebuiltSchedules: rebuiltCount,
+        retriggeredExceptions: exceptionsToReapply.length,
+      }
+    } catch (error) {
+      logger.error(`❌ ${logPrefix} 強制同步失敗:`, error)
+      throw new HttpsError('internal', `強制同步過程中發生錯誤: ${error.message}`)
+    }
   },
 )

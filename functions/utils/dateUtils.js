@@ -43,11 +43,36 @@ function getTaipeiYesterdayString() {
   return formatDateToYYYYMMDD(today)
 }
 
+/**
+ * ✨【全新函式】✨
+ * 取得指定 Date 物件在「台北時區」下的星期索引。
+ * 輸出：0=週一, 1=週二, ..., 6=週日
+ * @param {Date} date - 要計算的日期物件
+ * @returns {number}
+ */
+function getTaipeiDayIndex(date) {
+  // 使用 toLocaleString 搭配 'en-US' 和 weekday:'short' 可以穩定地取得星期的英文縮寫 (e.g., "Mon", "Sun")
+  const dayString = date.toLocaleString('en-US', { timeZone: TIME_ZONE, weekday: 'short' })
+
+  const dayMap = {
+    Mon: 0,
+    Tue: 1,
+    Wed: 2,
+    Thu: 3,
+    Fri: 4,
+    Sat: 5,
+    Sun: 6,
+  }
+
+  return dayMap[dayString]
+}
+
 // 導出所有函式，讓其他檔案可以引用
 module.exports = {
   getTaipeiNow,
   formatDateToYYYYMMDD,
   getTaipeiTodayString,
   getTaipeiYesterdayString,
+  getTaipeiDayIndex, // <--- ✨ 確保導出新函式
   TIME_ZONE,
 }
