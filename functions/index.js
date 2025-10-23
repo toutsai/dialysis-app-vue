@@ -43,7 +43,9 @@ const {
 const {
   recalculateDailySchedule,
   generateDailyScheduleFromRules,
-  getScheduleKey, // ✨✨✨【核心修正】確保 getScheduleKey 也被引入 ✨✨✨
+  getScheduleKey,
+  FREQ_MAP_TO_DAY_INDEX,
+  SHIFTS, // ✨ 一併加入，以防萬一
 } = require('./services/scheduleEngineService')
 
 // ===================================================================
@@ -208,42 +210,268 @@ async function cancelFutureExceptionsForPatient(patientId) {
 }
 
 /**
- * ✨【全新的核心輔助函式】✨
+ * ✨【全新輔助函式 v7.0】✨
+ * 根據調班申請的內容，分析出在指定日期會影響到的來源與目標 keys
+ * @param {object} exceptionData - 調班申請的完整資料
+ * @param {string} dateStr - 正在處理的目標日期 'YYYY-MM-DD'
+ * @returns {{sourceKeys: string[], targetKeys: string[]}} - 回傳包含來源和目標 key 陣列的物件
+ */
+function getAffectedKeys(exceptionData, dateStr) {
+  const sourceKeys = new Set()
+  const targetKeys = new Set()
+
+  switch (exceptionData.type) {
+    case 'MOVE':
+      // 來源位置只在 sourceDate 當天受影響
+      if (exceptionData.from?.sourceDate === dateStr) {
+        sourceKeys.add(getScheduleKey(exceptionData.from.bedNum, exceptionData.from.shiftCode))
+      }
+      // 目標位置只在 goalDate 當天受影響
+      if (exceptionData.to?.goalDate === dateStr) {
+        targetKeys.add(getScheduleKey(exceptionData.to.bedNum, exceptionData.to.shiftCode))
+      }
+      break
+
+    case 'ADD_SESSION':
+      // 只有目標位置受影響
+      if (exceptionData.to?.goalDate === dateStr) {
+        targetKeys.add(getScheduleKey(exceptionData.to.bedNum, exceptionData.to.shiftCode))
+      }
+      break
+
+    case 'SWAP':
+      // 兩個位置既是來源也是目標
+      if (exceptionData.date === dateStr) {
+        const key1 = getScheduleKey(
+          exceptionData.patient1.fromBedNum,
+          exceptionData.patient1.fromShiftCode,
+        )
+        const key2 = getScheduleKey(
+          exceptionData.patient2.fromBedNum,
+          exceptionData.patient2.fromShiftCode,
+        )
+        sourceKeys.add(key1)
+        sourceKeys.add(key2)
+        targetKeys.add(key1)
+        targetKeys.add(key2)
+      }
+      break
+
+    case 'SUSPEND':
+      // SUSPEND 沒有固定的 source/target key，它的影響是基於病人的。
+      // 它的衝突檢測比較特殊，會在 applySingleException 中隱含處理（即移除病人）。
+      // 所以這裡我們回傳空陣列。
+      break
+  }
+
+  return {
+    sourceKeys: Array.from(sourceKeys),
+    targetKeys: Array.from(targetKeys),
+  }
+}
+
+/**
+ * ✨【全新輔助函式 v7.0】✨
+ * 將單一一個已通過衝突檢測的調班申請，應用到一個 schedule 物件上。
+ * 注意：此函式會直接修改傳入的 schedule 物件。
+ * @param {object} schedule - 正在建構中的 schedule 物件 (會被直接修改)
+ * @param {object} ex - 要套用的單一調班申請資料
+ * @param {string} dateStr - 正在處理的目標日期 'YYYY-MM-DD'
+ */
+function applySingleException(schedule, ex, dateStr) {
+  try {
+    switch (ex.type) {
+      case 'MOVE':
+        // 移除來源 (如果來源是今天)
+        if (ex.from?.sourceDate === dateStr) {
+          const sourceKey = getScheduleKey(ex.from.bedNum, ex.from.shiftCode)
+          // 雙重保險：再次確認要刪除的位置上確實是目標病人
+          if (schedule[sourceKey]?.patientId === ex.patientId) {
+            delete schedule[sourceKey]
+          }
+        }
+        // 加入目標 (如果目標是今天)
+        if (ex.to?.goalDate === dateStr) {
+          const targetKey = getScheduleKey(ex.to.bedNum, ex.to.shiftCode)
+          schedule[targetKey] = {
+            patientId: ex.patientId,
+            patientName: ex.patientName,
+            exceptionId: ex.id,
+            manualNote: '(換班)',
+          }
+        }
+        break
+
+      case 'ADD_SESSION':
+        if (ex.to?.goalDate === dateStr) {
+          const targetKey = getScheduleKey(ex.to.bedNum, ex.to.shiftCode)
+          schedule[targetKey] = {
+            patientId: ex.patientId,
+            patientName: ex.patientName,
+            exceptionId: ex.id,
+            manualNote: '(臨時加洗)',
+          }
+        }
+        break
+
+      case 'SWAP':
+        if (ex.date === dateStr) {
+          const key1 = getScheduleKey(ex.patient1.fromBedNum, ex.patient1.fromShiftCode)
+          const key2 = getScheduleKey(ex.patient2.fromBedNum, ex.patient2.fromShiftCode)
+
+          // 為了安全，從當前 schedule 中獲取最新的 slot data
+          const slot1Data = schedule[key1]
+            ? { ...schedule[key1] }
+            : { patientId: ex.patient1.patientId, patientName: ex.patient1.patientName }
+          const slot2Data = schedule[key2]
+            ? { ...schedule[key2] }
+            : { patientId: ex.patient2.patientId, patientName: ex.patient2.patientName }
+
+          // 執行交換
+          schedule[key1] = {
+            ...slot2Data,
+            exceptionId: ex.id,
+            manualNote: `(與${ex.patient1.patientName}互調)`,
+          }
+          schedule[key2] = {
+            ...slot1Data,
+            exceptionId: ex.id,
+            manualNote: `(與${ex.patient2.patientName}互調)`,
+          }
+        }
+        break
+
+      case 'SUSPEND':
+        const start = new Date(ex.startDate + 'T00:00:00Z')
+        const end = new Date(ex.endDate + 'T00:00:00Z')
+        const targetDate = new Date(dateStr + 'T00:00:00Z')
+        if (targetDate >= start && targetDate <= end) {
+          // 從排程中移除這位病人的所有班次
+          Object.keys(schedule).forEach((key) => {
+            if (schedule[key].patientId === ex.patientId) {
+              delete schedule[key]
+            }
+          })
+        }
+        break
+    }
+  } catch (error) {
+    // 記錄錯誤，但不在這裡拋出，以避免中斷整個重建過程
+    logger.error(`[applySingleException] 在模擬套用調班 ${ex.id} 時發生錯誤:`, error)
+  }
+}
+
+/**
+ // 🔥🔥🔥【v7.0 最終版】 - rebuildSingleDaySchedule (內建完整衝突檢測) 🔥🔥🔥
  * 負責對指定的某一天，進行徹底、正確的排程重建。
  * @param {string} dateStr - 要重建的日期 'YYYY-MM-DD'
  * @param {object} masterRules - 【可選】最新的總表規則。如果未提供，會從資料庫重新獲取。
  * @param {Map<string, object>} allAppliedExceptions - 【可選】所有已套用的調班。如果未提供，會從資料庫重新獲取。
  * @returns {Promise<object>} - 返回重建後的新 schedule 物件
  */
-async function rebuildSingleDaySchedule(dateStr, masterRules = null, allAppliedExceptions = null) {
-  logger.info(`🔄 [RebuildEngine] Starting rebuild for date: ${dateStr}`)
+async function rebuildSingleDaySchedule(dateStr) {
+  logger.info(`🔄 [RebuildEngine-v7.0] Starting full rebuild for date: ${dateStr}`)
 
-  let rules = masterRules
-  let exceptions = allAppliedExceptions
+  try {
+    // --- 步驟 1: 獲取所有 "真理" ---
+    const [masterDoc, allExceptionsSnapshot] = await Promise.all([
+      db.collection('base_schedules').doc('MASTER_SCHEDULE').get(),
+      db
+        .collection('schedule_exceptions')
+        .where('status', 'in', ['applied', 'conflict_requires_resolution'])
+        .get(),
+    ])
 
-  // 如果未提供 masterRules，則從資料庫獲取
-  if (!rules) {
-    const masterDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
-    rules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
-  }
+    const masterRules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
 
-  // 如果未提供 allAppliedExceptions，則從資料庫獲取
-  if (!exceptions) {
-    const snapshot = await db
-      .collection('schedule_exceptions')
-      .where('status', '==', 'applied')
-      .get()
-    exceptions = new Map()
-    snapshot.forEach((doc) => {
-      exceptions.set(doc.id, { id: doc.id, ...doc.data() })
+    // 將所有當天相關的、可能有效的調班收集起來，並按創建時間排序
+    const todaysExceptions = []
+    allExceptionsSnapshot.forEach((doc) => {
+      const ex = { id: doc.id, ...doc.data() }
+      const exDates =
+        ex.processedDates ||
+        [ex.date, ex.startDate, ex.to?.goalDate, ex.from?.sourceDate].filter(Boolean)
+      if (exDates.includes(dateStr)) {
+        todaysExceptions.push(ex)
+      }
     })
+    todaysExceptions.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0))
+
+    // --- 步驟 2: 模擬演算，同時檢測衝突 ---
+    // a. 從乾淨的基礎排程開始
+    let simulatedSchedule = generateDailyScheduleFromRules(
+      masterRules,
+      new Date(dateStr + 'T00:00:00Z'),
+    )
+    const exceptionsToInvalidate = new Map() // 用來存放被判定為衝突的調班
+
+    // b. 按順序模擬套用每一個調班
+    for (const ex of todaysExceptions) {
+      // 檢查此調班本身是否依賴於一個已經失效的調班
+      if (exceptionsToInvalidate.has(ex.dependency)) {
+        // 假設我們未來會加入 dependency 欄位
+        // ... 處理邏輯 ...
+      }
+
+      // ✨✨✨【全新的、統一的衝突檢測邏輯】✨✨✨
+      let conflictReason = ''
+      const affectedKeys = getAffectedKeys(ex, dateStr)
+
+      for (const key of affectedKeys.targetKeys) {
+        // 假設 getAffectedKeys 回傳 { sourceKeys, targetKeys }
+        if (simulatedSchedule[key] && simulatedSchedule[key].patientId !== ex.patientId) {
+          // 目標床位已經被佔據！
+          conflictReason = `它的目標位置 (${key}) 已被 ${simulatedSchedule[key].patientName} 佔據。`
+          exceptionsToInvalidate.set(ex.id, conflictReason)
+          break // 跳出內層迴圈
+        }
+      }
+      if (conflictReason) continue // 此調班已衝突，跳過模擬，繼續下一個
+
+      for (const key of affectedKeys.sourceKeys) {
+        if (simulatedSchedule[key]?.patientId !== ex.patientId) {
+          // 來源病人不對！
+          conflictReason = `它的來源位置 (${key}) 的病人已不是 ${ex.patientName}。`
+          exceptionsToInvalidate.set(ex.id, conflictReason)
+          break
+        }
+      }
+      if (conflictReason) continue
+
+      // c. 如果沒有衝突，則在模擬排程上「真正」套用它
+      // (這段邏輯就是 recalculateDailySchedule 的核心)
+      applySingleException(simulatedSchedule, ex, dateStr)
+    }
+
+    // --- 步驟 3: 處理偵測到的衝突 ---
+    if (exceptionsToInvalidate.size > 0) {
+      const conflictBatch = db.batch()
+      for (const [exId, reason] of exceptionsToInvalidate.entries()) {
+        logger.warn(`[RebuildEngine-v7.0] 偵測到衝突！調班 ${exId} 已失效。原因: ${reason}`)
+        const docRef = db.collection('schedule_exceptions').doc(exId)
+        conflictBatch.update(docRef, {
+          status: 'conflict_requires_resolution',
+          errorMessage: `系統偵測到衝突，已重置此申請。原因：${reason} 請重新編輯。`,
+        })
+      }
+      await conflictBatch.commit()
+    }
+
+    // --- 步驟 4: 最終寫入 ---
+    // simulatedSchedule 此時就是最正確的、移除了所有衝突調班效果的最終排程
+    const scheduleRef = db.collection('schedules').doc(dateStr)
+    await scheduleRef.set(
+      {
+        date: dateStr,
+        schedule: simulatedSchedule,
+      },
+      { merge: true },
+    )
+
+    logger.info(`✅ [RebuildEngine-v7.0] 成功重建排程 for date: ${dateStr}`)
+  } catch (error) {
+    logger.error(`❌ [RebuildEngine-v7.0] 重建排程 ${dateStr} 失敗:`, error)
   }
-
-  // ✨ 核心：呼叫我們已經建立好的、位於外部服務的演算引擎
-  const newSchedule = recalculateDailySchedule(dateStr, rules, exceptions)
-
-  logger.info(`[RebuildEngine] Rebuild calculation complete for ${dateStr}.`)
-  return newSchedule
 }
 
 // ===================================================================
@@ -1738,11 +1966,14 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       const beforeRules = event.data.before?.data()?.schedule || {}
       const afterRules = event.data.after.data().schedule || {}
 
-      // --- 步驟 1: 找出所有受影響的「星期」---
-      const affectedPatientIds = new Set([
-        ...Object.keys(beforeRules),
-        ...Object.keys(afterRules),
-      ]).forEach((id) => {
+      // --- 步驟 1: 找出所有受影響的病人和相關的星期索引 ---
+      const affectedPatientIds = new Set() // ✨ 1. 先建立一個空的 Set
+
+      // 找出所有可能變更的病人 ID
+      const allPatientIds = new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])
+
+      // ✨ 2. 遍歷所有 ID，將有變更的加入 Set
+      allPatientIds.forEach((id) => {
         if (JSON.stringify(beforeRules[id]) !== JSON.stringify(afterRules[id])) {
           affectedPatientIds.add(id)
         }
@@ -2366,163 +2597,71 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 )
 
 // ===================================================================
-// ✨✨✨【最終重構版 v4.2】 - onExceptionDeleted (精準依賴分析) ✨✨✨
+// 🔥🔥🔥【最終架構 v6.0 實現】 - onExceptionDeleted (觸發單日重建) 🔥🔥🔥
 // ===================================================================
-// 只有在床位真正產生衝突時，才標記其他調班為失效。
-
+// 職責單一：只找出受影響的日期，然後呼叫統一的重建引擎。
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [SmartReverter-v4.2] 調班撤銷(精準分析)處理器啟動: ${exceptionId}`)
+    logger.info(`🚀 [RebuildOnDelete-v6.0] 偵測到調班撤銷: ${exceptionId}，觸發排程重建...`)
 
     if (!deletedException || !deletedException.type) {
-      logger.error(`❌ [SmartReverter-v4.2] 失敗：被刪除的調班資料不完整`)
+      logger.error(`❌ [RebuildOnDelete-v6.0] 失敗：被刪除的調班資料不完整`)
       return
     }
 
     try {
-      const batch = db.batch()
-
-      // --- 步驟 1: 獲取所有需要的 "真理" ---
-      const [masterDoc, allAppliedExceptionsSnapshot] = await Promise.all([
-        db.collection('base_schedules').doc('MASTER_SCHEDULE').get(),
-        db
-          .collection('schedule_exceptions')
-          .where('status', 'in', ['applied', 'conflict_requires_resolution'])
-          .get(),
-      ])
-
-      const masterRules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
-      const allAppliedExceptions = new Map()
-      allAppliedExceptionsSnapshot.forEach((doc) => {
-        if (doc.id !== exceptionId) {
-          // 排除掉剛被刪除的
-          allAppliedExceptions.set(doc.id, { id: doc.id, ...doc.data() })
-        }
-      })
-
-      // --- 步驟 2: 找出受影響的日期 ---
-      const datesToResync = new Set()
+      // --- 步驟 1: 找出所有受影響的日期 ---
+      // 這個邏輯保持不變，因為它很可靠
+      const datesToRebuild = new Set()
       const exDates =
         deletedException.processedDates ||
         [
           deletedException.date,
           deletedException.startDate,
+          deletedException.endDate, // SUSPEND 需要結束日期
           deletedException.from?.sourceDate,
           deletedException.to?.goalDate,
         ].filter(Boolean)
-      exDates.forEach((d) => datesToResync.add(d))
 
-      const dateStrings = Array.from(datesToResync)
+      // 如果是區間類型，需要將區間內的每一天都加入
+      if (
+        deletedException.type === 'SUSPEND' &&
+        deletedException.startDate &&
+        deletedException.endDate
+      ) {
+        const start = new Date(deletedException.startDate + 'T00:00:00Z')
+        const end = new Date(deletedException.endDate + 'T00:00:00Z')
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          datesToRebuild.add(formatDateToYYYYMMDD(new Date(d)))
+        }
+      } else {
+        exDates.forEach((d) => datesToRebuild.add(d))
+      }
+
+      const dateStrings = Array.from(datesToRebuild)
       if (dateStrings.length === 0) {
-        logger.info('[SmartReverter-v4.2] 該撤銷操作無需同步任何日期。')
+        logger.info('[RebuildOnDelete-v6.0] 該撤銷操作無需重建任何日期。')
         return
       }
 
       logger.info(
-        `[SmartReverter-v4.2] 將對 ${dateStrings.length} 個日期 [${dateStrings.join(', ')}] 進行分析與重建...`,
+        `[RebuildOnDelete-v6.0] 將對 ${dateStrings.length} 個日期 [${dateStrings.join(', ')}] 執行徹底重建...`,
       )
 
-      // --- 步驟 3: 對每個受影響的日期，進行衝突分析與重建 ---
-      for (const dateStr of dateStrings) {
-        const scheduleRef = db.collection('schedules').doc(dateStr)
-        const currentScheduleDoc = await scheduleRef.get()
-        const currentSchedule = currentScheduleDoc.exists
-          ? currentScheduleDoc.data().schedule || {}
-          : {}
+      // --- 步驟 2: 對每一個受影響的日期，呼叫統一的重建引擎 ---
+      // 我們可以並行處理這些日期的重建，以提高效率
+      const rebuildPromises = dateStrings.map(
+        (dateStr) => rebuildSingleDaySchedule(dateStr), // 直接呼叫我們的「專案經理」
+      )
 
-        // 3a: 模擬！計算「如果撤銷了這個調班」之後，排程應該長什麼樣子
-        const simulatedSchedule = recalculateDailySchedule(
-          dateStr,
-          masterRules,
-          allAppliedExceptions,
-        )
+      await Promise.all(rebuildPromises)
 
-        // 3b: 精準找出因撤銷而「真正」產生床位衝突的其他調班
-        for (const [otherId, otherEx] of allAppliedExceptions.entries()) {
-          // 只檢查與當前日期相關的調班
-          const otherExDates =
-            otherEx.processedDates ||
-            [otherEx.date, otherEx.startDate, otherEx.to?.goalDate].filter(Boolean)
-          if (!otherExDates.includes(dateStr)) continue
-
-          // 判斷衝突的核心：一個調班的「來源」必須真實存在，「目標」必須為空或可覆蓋。
-          let hasConflict = false
-          let conflictReason = ''
-
-          switch (otherEx.type) {
-            case 'MOVE':
-              const sourceKeyMove = getScheduleKey(otherEx.from.bedNum, otherEx.from.shiftCode)
-              const targetKeyMove = getScheduleKey(otherEx.to.bedNum, otherEx.to.shiftCode)
-              // 衝突條件1: 它想移動的來源病人，在模擬後已經不在那了
-              if (simulatedSchedule[sourceKeyMove]?.patientId !== otherEx.patientId) {
-                hasConflict = true
-                conflictReason = `它的來源位置 (${otherEx.from.bedNum}床) 的病人已不是 ${otherEx.patientName}。`
-              }
-              // 衝突條件2: 它想移入的目標床位，在模擬後被其他人佔據了
-              else if (
-                simulatedSchedule[targetKeyMove] &&
-                simulatedSchedule[targetKeyMove].patientId !== otherEx.patientId
-              ) {
-                hasConflict = true
-                conflictReason = `它的目標位置 (${otherEx.to.bedNum}床) 在前序調班撤銷後，已被 ${simulatedSchedule[targetKeyMove].patientName} 佔據。`
-              }
-              break
-
-            case 'SWAP':
-              const key1 = getScheduleKey(
-                otherEx.patient1.fromBedNum,
-                otherEx.patient1.fromShiftCode,
-              )
-              const key2 = getScheduleKey(
-                otherEx.patient2.fromBedNum,
-                otherEx.patient2.fromShiftCode,
-              )
-              // 衝突條件: 任何一方的原始位置上的病人已經不對了
-              if (simulatedSchedule[key1]?.patientId !== otherEx.patient1.patientId) {
-                hasConflict = true
-                conflictReason = `交換的前提已改變：${otherEx.patient1.patientName} 已不在原位置。`
-              } else if (simulatedSchedule[key2]?.patientId !== otherEx.patient2.patientId) {
-                hasConflict = true
-                conflictReason = `交換的前提已改變：${otherEx.patient2.patientName} 已不在原位置。`
-              }
-              break
-          }
-
-          if (hasConflict) {
-            logger.warn(
-              `[SmartReverter-v4.2] 偵測到衝突！調班 ${otherId} 因 ${exceptionId} 的撤銷而失效。原因: ${conflictReason}`,
-            )
-            batch.update(db.collection('schedule_exceptions').doc(otherId), {
-              status: 'conflict_requires_resolution',
-              errorMessage: `一個前置調班被撤銷導致此申請失效。原因：${conflictReason} 請重新編輯此申請。`,
-              conflictDetectedAt: FieldValue.serverTimestamp(),
-            })
-            // 從 allAppliedExceptions 中移除這個已失效的調班，以便進行最終重建
-            allAppliedExceptions.delete(otherId)
-          }
-        }
-
-        // 3c: 使用移除了衝突調班後的「最終有效調班列表」來進行最後的重建
-        const finalSchedule = recalculateDailySchedule(dateStr, masterRules, allAppliedExceptions)
-
-        // 3d: 用最終結果覆蓋當天的排程
-        batch.set(
-          scheduleRef,
-          {
-            date: dateStr,
-            schedule: finalSchedule,
-          },
-          { merge: true },
-        )
-      }
-
-      await batch.commit()
-      logger.info(`✅ [SmartReverter-v4.2] 成功完成撤銷與精準重建操作。`)
+      logger.info(`✅ [RebuildOnDelete-v6.0] 成功完成 ${dateStrings.length} 個日期的重建任務。`)
     } catch (error) {
-      logger.error(`❌ [SmartReverter-v4.2] 恢復調班 ${exceptionId} 時發生嚴重錯誤:`, error)
+      logger.error(`❌ [RebuildOnDelete-v6.0] 處理調班 ${exceptionId} 的撤銷時發生嚴重錯誤:`, error)
     }
   },
 )
