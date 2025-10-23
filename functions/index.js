@@ -207,6 +207,45 @@ async function cancelFutureExceptionsForPatient(patientId) {
   }
 }
 
+/**
+ * ✨【全新的核心輔助函式】✨
+ * 負責對指定的某一天，進行徹底、正確的排程重建。
+ * @param {string} dateStr - 要重建的日期 'YYYY-MM-DD'
+ * @param {object} masterRules - 【可選】最新的總表規則。如果未提供，會從資料庫重新獲取。
+ * @param {Map<string, object>} allAppliedExceptions - 【可選】所有已套用的調班。如果未提供，會從資料庫重新獲取。
+ * @returns {Promise<object>} - 返回重建後的新 schedule 物件
+ */
+async function rebuildSingleDaySchedule(dateStr, masterRules = null, allAppliedExceptions = null) {
+  logger.info(`🔄 [RebuildEngine] Starting rebuild for date: ${dateStr}`)
+
+  let rules = masterRules
+  let exceptions = allAppliedExceptions
+
+  // 如果未提供 masterRules，則從資料庫獲取
+  if (!rules) {
+    const masterDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
+    rules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
+  }
+
+  // 如果未提供 allAppliedExceptions，則從資料庫獲取
+  if (!exceptions) {
+    const snapshot = await db
+      .collection('schedule_exceptions')
+      .where('status', '==', 'applied')
+      .get()
+    exceptions = new Map()
+    snapshot.forEach((doc) => {
+      exceptions.set(doc.id, { id: doc.id, ...doc.data() })
+    })
+  }
+
+  // ✨ 核心：呼叫我們已經建立好的、位於外部服務的演算引擎
+  const newSchedule = recalculateDailySchedule(dateStr, rules, exceptions)
+
+  logger.info(`[RebuildEngine] Rebuild calculation complete for ${dateStr}.`)
+  return newSchedule
+}
+
 // ===================================================================
 // Firestore 文件觸發器 - 病人資料變更處理（完整版）
 // ===================================================================
@@ -1679,7 +1718,7 @@ exports.scheduledDataBackup = onSchedule(
 )
 
 // ===================================================================
-// 🔥🔥🔥【v5.0 修正版】 - syncMasterScheduleToFuture (精準重建模式) 🔥🔥🔥
+// 🔥🔥🔥【v6.0 最終版】 - syncMasterScheduleToFuture (呼叫單日重建引擎) 🔥🔥🔥
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -1688,7 +1727,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [SmartSync-v5.0] 精準重建流程啟動...')
+    logger.info('🚀 [SmartSync-v6.0] 精準重建流程啟動...')
 
     if (!event.data.after.exists) {
       logger.info('✅ MASTER_SCHEDULE 文件已被刪除，無需執行同步。')
@@ -1699,63 +1738,54 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       const beforeRules = event.data.before?.data()?.schedule || {}
       const afterRules = event.data.after.data().schedule || {}
 
-      // --- 步驟 1: 找出所有受影響的病人和相關的星期索引 ---
-      const affectedPatientIds = new Set()
-      const affectedDayIndexes = new Set() // 0=週一, 1=週二, ...
-
-      // 找出所有 ID 有變更的病人
-      const allPatientIds = new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])
-      allPatientIds.forEach((id) => {
+      // --- 步驟 1: 找出所有受影響的「星期」---
+      const affectedPatientIds = new Set([
+        ...Object.keys(beforeRules),
+        ...Object.keys(afterRules),
+      ]).forEach((id) => {
         if (JSON.stringify(beforeRules[id]) !== JSON.stringify(afterRules[id])) {
           affectedPatientIds.add(id)
         }
       })
 
       if (affectedPatientIds.size === 0) {
-        logger.info('[SmartSync-v5.0] 無規則變更，跳過同步。')
+        logger.info('[SmartSync-v6.0] 無規則變更，跳過同步。')
         return null
       }
 
-      // 根據受影響的病人，找出所有相關的「星期」
+      const affectedDayIndexes = new Set()
       affectedPatientIds.forEach((id) => {
         const ruleBefore = beforeRules[id]
         const ruleAfter = afterRules[id]
-        if (ruleBefore && ruleBefore.freq) {
-          ;(FREQ_MAP_TO_DAY_INDEX[ruleBefore.freq] || []).forEach((day) =>
+        if (ruleBefore?.freq)
+          (FREQ_MAP_TO_DAY_INDEX[ruleBefore.freq] || []).forEach((day) =>
             affectedDayIndexes.add(day),
           )
-        }
-        if (ruleAfter && ruleAfter.freq) {
-          ;(FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).forEach((day) =>
+        if (ruleAfter?.freq)
+          (FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).forEach((day) =>
             affectedDayIndexes.add(day),
           )
-        }
       })
 
-      logger.info(
-        `[SmartSync-v5.0] 偵測到 ${affectedPatientIds.size} 位病人規則變更，將重新計算所有未來的 [${Array.from(affectedDayIndexes).join(', ')}] (0=週一) 的排程。`,
-      )
-
-      // --- 步驟 2: 找出未來 60 天中，所有需要被重建的具體日期 ---
+      // --- 步驟 2: 找出未來 60 天中所有需要重建的「日期」---
       const datesToRebuild = new Set()
       const today = getTaipeiNow()
       for (let i = 0; i < 60; i++) {
         const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
-        const dayIndex = getTaipeiDayIndex(targetDate)
-
-        if (affectedDayIndexes.has(dayIndex)) {
+        if (affectedDayIndexes.has(getTaipeiDayIndex(targetDate))) {
           datesToRebuild.add(formatDateToYYYYMMDD(targetDate))
         }
       }
 
       if (datesToRebuild.size === 0) {
-        logger.info('[SmartSync-v5.0] 未來60天內沒有需要重建的日期。')
+        logger.info('[SmartSync-v6.0] 未來60天內沒有需要重建的日期。')
         return null
       }
 
-      // --- 步驟 3: 對每一個需要重建的日期，呼叫核心引擎 ---
-      logger.info(`[SmartSync-v5.0] 準備對 ${datesToRebuild.size} 個未來日期進行徹底重建...`)
+      logger.info(`[SmartSync-v6.0] 準備對 ${datesToRebuild.size} 個未來日期進行重建...`)
+
+      // --- 步驟 3: (優化) 一次性獲取所有未來可能用到的調班資料 ---
       const allExceptionsSnapshot = await db
         .collection('schedule_exceptions')
         .where('status', '==', 'applied')
@@ -1765,10 +1795,16 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
         allAppliedExceptions.set(doc.id, { id: doc.id, ...doc.data() })
       })
 
+      // --- 步驟 4: 對每個日期呼叫重建引擎，並批次更新 ---
       const batch = db.batch()
       for (const dateStr of datesToRebuild) {
-        // 注意：這裡我們傳入的是「更新後」的總表規則
-        const newSchedule = recalculateDailySchedule(dateStr, afterRules, allAppliedExceptions)
+        // ✨ 為每一天都呼叫獨立的重建函式 ✨
+        // 我們把最新的總表規則和所有調班資料傳進去，避免重複讀取資料庫
+        const newSchedule = await rebuildSingleDaySchedule(
+          dateStr,
+          afterRules,
+          allAppliedExceptions,
+        )
 
         const scheduleRef = db.collection('schedules').doc(dateStr)
         batch.set(
@@ -1777,17 +1813,17 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
             date: dateStr,
             schedule: newSchedule,
             lastModified: FieldValue.serverTimestamp(),
-            modifiedBy: 'smart_sync_v5.0',
+            modifiedBy: 'smart_sync_v6.0',
           },
           { merge: true },
         )
       }
 
       await batch.commit()
-      logger.info(`✅ [SmartSync-v5.0] 成功重建 ${datesToRebuild.size} 天的排程。`)
+      logger.info(`✅ [SmartSync-v6.0] 成功重建 ${datesToRebuild.size} 天的排程。`)
     } catch (error) {
-      logger.error('❌ [SmartSync-v5.0] 智慧同步失敗:', error)
-      throw error // 重新拋出錯誤，以便 Cloud Functions 知道執行失敗
+      logger.error('❌ [SmartSync-v6.0] 智慧同步失敗:', error)
+      throw error
     }
     return null
   },
@@ -2330,9 +2366,8 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 )
 
 // ===================================================================
-// 處理調班刪除 - 精準恢復版本
-// ===================================================================
 // ✨✨✨【最終重構版 v4.2】 - onExceptionDeleted (精準依賴分析) ✨✨✨
+// ===================================================================
 // 只有在床位真正產生衝突時，才標記其他調班為失效。
 
 exports.onExceptionDeleted = onDocumentDeleted(
