@@ -185,6 +185,21 @@ function recalculateDailySchedule(dateStr, masterRules, allAppliedExceptions) {
     }
   }
 
+  // ✨✨✨【核心修正：加入資料清理步驟】✨✨✨
+  // 遍歷最終排程中的每一個位置，確保沒有 undefined 的值
+  for (const key in finalSchedule) {
+    const slot = finalSchedule[key]
+    if (slot && typeof slot === 'object') {
+      // 遍歷該位置物件的所有屬性
+      for (const prop in slot) {
+        if (slot[prop] === undefined) {
+          // 如果任何屬性的值是 undefined，將其轉換為 null，這是 Firestore 接受的空值
+          slot[prop] = null
+        }
+      }
+    }
+  }
+
   return finalSchedule
 }
 

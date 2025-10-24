@@ -70,10 +70,15 @@ service cloud.firestore {
       allow read, write: if isViewer();
     }
     
+    // 🔥🔥🔥【核心修正點】🔥🔥🔥
     match /schedule_exceptions/{exceptionId} {
       allow read: if isViewer();
       allow create, delete: if isEditor();
-      allow update: if false; 
+
+      // ✨ 將 "allow update: if false;" 修改為:
+      // 允許 admin 或 editor 更新文件。
+      // 這對於撤銷 (更新 status) 和重新編輯衝突的調班是必要的。
+      allow update: if isEditor(); 
     }
     
     match /exception_tasks/{taskId} {
