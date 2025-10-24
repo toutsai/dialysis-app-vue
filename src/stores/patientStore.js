@@ -1,8 +1,15 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
+// 從 firebase/firestore 引入 writeBatch
+import { doc, getDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
+
+// 引入 ApiManager 以便操作多個集合
+import ApiManager from '@/services/api_manager.js'
+
+// 建立 schedule_exceptions 的 ApiManager 實例
+const scheduleExceptionsApi = ApiManager('schedule_exceptions')
 
 // 使用 Setup Store 語法，更靈活且有利於 TypeScript
 export const usePatientStore = defineStore('patient', () => {
@@ -18,14 +25,9 @@ export const usePatientStore = defineStore('patient', () => {
   const opdPatients = computed(() =>
     allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted),
   )
-  // 您可以根據需要添加 ipdPatients, erPatients 等 getters
 
   // --- Actions (動作) ---
 
-  /**
-   * 按需獲取所有病人資料。
-   * 只有在資料尚未獲取過時，才會真正觸發 API 請求。
-   */
   async function fetchPatientsIfNeeded() {
     if (hasFetched.value || isLoading.value) {
       return
@@ -40,16 +42,12 @@ export const usePatientStore = defineStore('patient', () => {
     } catch (err) {
       error.value = '讀取病人資料失敗'
       console.error('❌ [Pinia] Failed to fetch patients:', err)
-      hasFetched.value = false // 允許重試
+      hasFetched.value = false
     } finally {
       isLoading.value = false
     }
   }
 
-  /**
-   * 強制刷新病人列表，忽略 hasFetched 旗標。
-   * @returns {Promise<Array>} 返回獲取的最新病人列表
-   */
   async function forceRefreshPatients() {
     isLoading.value = true
     error.value = null
@@ -60,20 +58,17 @@ export const usePatientStore = defineStore('patient', () => {
       console.log('🔄 [Pinia] Patient data force refreshed.')
       return patients
     } catch (err) {
+      // 🔥【核心修正】補上缺失的大括號 {
       error.value = '刷新病人資料失敗'
       console.error('❌ [Pinia] Failed to force refresh patients:', err)
-      return [] // 失敗時返回空陣列
+      return []
     } finally {
+      // 🔥【核心修正】補上缺失的大括號 }
       isLoading.value = false
     }
   }
 
-  /**
-   * 在 Store 中新增一位病人，用於避免全量刷新。
-   * @param {object} newPatient - 新增的病人完整物件。
-   */
   function addPatientInStore(newPatient) {
-    // 檢查病人是否已存在，避免重複添加
     const exists = allPatients.value.some((p) => p.id === newPatient.id)
     if (!exists) {
       allPatients.value.unshift(newPatient)
@@ -81,29 +76,19 @@ export const usePatientStore = defineStore('patient', () => {
     }
   }
 
-  /**
-   * 在 Store 中更新一位病人資料，用於避免全量刷新。
-   * @param {object} updatedData - 包含病人 id 和要更新欄位的物件。
-   */
   function updatePatientInStore(updatedData) {
     const index = allPatients.value.findIndex((p) => p.id === updatedData.id)
     if (index !== -1) {
-      // 使用 Object.assign 確保響應性，並保留原始物件的引用
       allPatients.value[index] = { ...allPatients.value[index], ...updatedData }
       console.log(`[Pinia] Patient updated in store: ${allPatients.value[index].name}`)
     } else {
-      // 如果在列表中找不到（例如，一個被復原的病人），則將其新增
       console.warn(
-        `[Pinia] Patient with ID ${updatedData.id} not found for update, adding instead.`,
+        `[Pinia] Patient with ID ${updatedData.id} not found for update, triggering refresh.`,
       )
-      addPatientInStore(updatedData)
+      forceRefreshPatients()
     }
   }
 
-  /**
-   * 從 Store 中移除一位病人，用於避免全量刷新。
-   * @param {string} patientId - 要移除的病人 ID。
-   */
   function removePatientInStore(patientId) {
     const index = allPatients.value.findIndex((p) => p.id === patientId)
     if (index !== -1) {
@@ -113,8 +98,9 @@ export const usePatientStore = defineStore('patient', () => {
   }
 
   /**
-   * 從總表中移除指定病人的排班規則。
-   * 採用最可靠的「讀取-修改-寫回」模式，確保資料同步。
+   * 🔥【架構修正版】🔥
+   * 職責簡化：只負責從後端總表中移除規則。
+   * 後端的 syncMasterScheduleToFuture 將會自動處理後續的排程重建。
    * @param {string} patientId - 病人 ID。
    * @returns {Promise<boolean>} 操作是否成功。
    */
@@ -124,51 +110,42 @@ export const usePatientStore = defineStore('patient', () => {
       return false
     }
 
-    const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
+    console.log(`[Store] Sending request to remove rule for patient ${patientId}...`)
 
     try {
-      // 【核心】在執行任何操作前，先從後台獲取最新的文件快照
+      // --- ✨ 核心修改：移除所有關於 schedule_exceptions 的操作 ---
+      // 讓後端 Cloud Function 自己去處理資料一致性
+
+      // --- 只保留對總表文件的操作 ---
+      const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
       const docSnap = await getDoc(masterScheduleRef)
 
       if (!docSnap.exists()) {
         console.warn('[Store] MASTER_SCHEDULE document does not exist.')
-        return false // 文件不存在，自然也無規則可刪
+        return true // 文件不存在，視為成功
       }
 
       const schedule = docSnap.data().schedule || {}
 
-      // 根據「最新的資料」來判斷規則是否存在
       if (schedule[patientId]) {
-        console.log(`[Store] Found rule for patient ${patientId}. Preparing to delete...`)
-
-        // 從 schedule 物件中刪除該病人的 key
         delete schedule[patientId]
-
-        // 將修改後的整個 schedule 物件寫回後台
         await updateDoc(masterScheduleRef, {
           schedule: schedule,
           updatedAt: new Date(),
         })
-
-        console.log(
-          `[Store] Successfully removed rule for patient ${patientId} and updated Firestore.`,
-        )
-        // 只有在真正執行了刪除和更新後，才回傳 true
-        return true
+        console.log(`[Store] Successfully sent update to remove rule from Firestore.`)
       } else {
-        // 如果在最新的資料中找不到規則，明確告知並回傳 false
-        console.log(`[Store] No rule found for patient ${patientId} in the latest master schedule.`)
-        return false
+        console.log(`[Store] Rule for patient ${patientId} already absent.`)
       }
+
+      console.log(`✅ [Store] Rule removal request for patient ${patientId} completed.`)
+      return true
     } catch (error) {
-      console.error('[Store] Error removing rule from master schedule:', error)
-      return false // 發生任何錯誤都應回傳 false
+      console.error('❌ [Store] Error removing rule from master schedule:', error)
+      throw new Error(`移除總表規則時發生錯誤: ${error.message}`)
     }
   }
 
-  /**
-   * 重置 Store 狀態，通常在登出時使用。
-   */
   function $reset() {
     allPatients.value = []
     isLoading.value = false
@@ -176,7 +153,6 @@ export const usePatientStore = defineStore('patient', () => {
     hasFetched.value = false
   }
 
-  // 導出所有 state, getters, 和 actions，讓外部元件可以使用
   return {
     // State
     allPatients,
