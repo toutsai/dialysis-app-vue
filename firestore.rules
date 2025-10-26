@@ -26,7 +26,6 @@ service cloud.firestore {
       return isAuthenticated() && (role == 'admin' || role == 'editor' || role == 'contributor');
     }
 
-    // isViewer 現在只代表 "任何已登入的使用者"
     function isViewer() {
       return isAuthenticated();
     }
@@ -63,9 +62,10 @@ service cloud.firestore {
       allow read, write: if isViewer();
     }
     
+    // ✨ 修正 #1：補上 'allow' 關鍵字
     match /schedule_exceptions/{exceptionId} {
       allow read: if isViewer();
-      create, delete: if isEditor();
+      allow create, delete: if isEditor();
       allow update: if isEditor(); 
     }
     
@@ -113,21 +113,11 @@ service cloud.firestore {
       allow write: if isEditor();
     }
 
-    // ✨ ======================================================= ✨
-    // ✨           每日日誌 (daily_logs) 的安全規則 (修正版)      ✨
-    // ✨ ======================================================= ✨
     match /daily_logs/{logId} {
-      // 查詢多筆文件 (list) 的權限 (適用於「統計報表」頁面)
-      // 允許 admin 和 editor 查詢整個集合的資料。
-      allow list: if isEditor(); // isEditor() 已經包含了 admin
-
-      // 讀取單一文件 (get) 的權限 (適用於「工作日誌」頁面)
-      // 維持您原有的邏輯，任何登入的使用者都可以讀取，但 ID 格式必須正確。
-      allow get: if isViewer() && logId.matches('^\\d{4}-\\\d{2}-\\\d{2}$');
-
-      // 寫入 (create, update, delete) 的權限
-      // 維持您原有的邏輯，只允許 editor 或 admin 寫入，並強制 ID 格式。
-      allow write: if isEditor() && logId.matches('^\\d{4}-\\\d{2}-\\\d{2}$');
+      allow list: if isEditor();
+      // ✨ 修正 #2：移除多餘的反斜線
+      allow get: if isViewer() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+      allow write: if isEditor() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
 
     match /tasks/{taskId} {
