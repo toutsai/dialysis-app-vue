@@ -465,7 +465,7 @@ async function mergeExceptionsIntoSchedules(datesToMerge, masterRules) {
 }
 
 // ===================================================================
-// Firestore 文件觸發器 - 病人資料變更處理（完整版）
+// Firestore 文件觸發器 - 病人資料變更處理（完整修正版）
 // ===================================================================
 /**
  * 處理病人資料變更
@@ -545,13 +545,20 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
 
     // 清理未來排程
     const todayStr = getTaipeiTodayString() // ✨ 使用統一函式
+
+    // 🔥🔥🔥【核心修正】🔥🔥🔥
+    // 在這裡宣告 today 變數，作為日期計算的基準
+    const today = getTaipeiNow()
+
     const cleanupBatch = db.batch()
     let cleanupCount = 0
     const BATCH_SIZE = 450
     for (let i = 0; i <= 60; i++) {
+      // 現在 targetDate 可以正確地從 today 物件開始計算
       const targetDate = new Date(today)
       targetDate.setDate(targetDate.getDate() + i)
       const dateStr = formatDateToYYYYMMDD(targetDate)
+
       if (dateStr >= todayStr) {
         const scheduleRef = db.collection('schedules').doc(dateStr)
         const scheduleDoc = await scheduleRef.get()
