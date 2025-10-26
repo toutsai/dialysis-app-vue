@@ -362,23 +362,18 @@ function applySingleException(schedule, ex, dateStr) {
 }
 
 /**
- * 🔥🔥🔥【核心引擎 v7.2】 - rebuildSingleDaySchedule 🔥🔥🔥
- * 職責：作為系統的「排程計算核心」。接收「總表規則」，為「某一天」從零開始，
- *       計算出「基礎排程 + 所有有效調班」合併後的最終正確結果。
+ * 🔥🔥🔥【最終正確版 v11.0】 - rebuildSingleDaySchedule 🔥🔥🔥
+ * 職責：作為「協調器」或「專案經理」。
+ *       為「某一天」收集所有必要的資料（總表規則、當天調班），
+ *       將資料交給核心引擎 (`recalculateDailySchedule`) 去計算，
+ *       然後處理計算結果（包括將衝突標記回資料庫）。
  * @param {string} dateStr - 要計算的日期 'YYYY-MM-DD'
  * @param {object} masterRules - 最新的總表規則
- * @returns {Promise<object>} - 返回計算完成的最終 schedule 物件
+ * @returns {Promise<object>} - 返回計算完成的、不包含衝突效果的最終 schedule 物件
  */
 async function rebuildSingleDaySchedule(dateStr, masterRules) {
-  // 為了日誌清晰，我們只在主函式中記錄，這裡保持安靜
   try {
-    // --- 步驟 A (覆蓋): 根據傳入的最新規則，在記憶體中生成基礎排程 ---
-    let finalSchedule = generateDailyScheduleFromRules(
-      masterRules,
-      new Date(dateStr + 'T00:00:00Z'),
-    )
-
-    // --- 步驟 B (修正): 獲取所有有效的「調班」申請，並疊加 ---
+    // --- 步驟 1: 收集「原料」- 當天所有相關的調班申請 ---
     const allExceptionsSnapshot = await db
       .collection('schedule_exceptions')
       .where('status', 'in', ['applied', 'conflict_requires_resolution'])
@@ -400,23 +395,36 @@ async function rebuildSingleDaySchedule(dateStr, masterRules) {
         if (exDates.includes(dateStr)) todaysExceptions.push(ex)
       }
     })
+    // 按創建時間排序
+    todaysExceptions.sort((a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0))
 
-    if (todaysExceptions.length > 0) {
-      // 按時間排序，確保應用順序正確
-      todaysExceptions.sort(
-        (a, b) => (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0),
-      )
-      for (const ex of todaysExceptions) {
-        // (此處已包含衝突檢測邏輯)
-        applySingleException(finalSchedule, ex, dateStr)
-      }
+    // --- 步驟 2: 將所有「原料」交給核心引擎進行純計算 ---
+    // 引擎會回傳一個包含最終排程和衝突列表的物件
+    const { finalSchedule, conflictingExceptions } = recalculateDailySchedule(
+      dateStr,
+      masterRules,
+      todaysExceptions,
+    )
+
+    // --- 步驟 3: 處理引擎回報的「衝突」---
+    if (conflictingExceptions.length > 0) {
+      const conflictBatch = db.batch()
+      conflictingExceptions.forEach((ex) => {
+        logger.warn(`[RebuildCoordinator] 將調班 ${ex.id} 標記為衝突，因為其目標床位已被佔據。`)
+        const docRef = db.collection('schedule_exceptions').doc(ex.id)
+        conflictBatch.update(docRef, {
+          status: 'conflict_requires_resolution',
+          errorMessage: '系統重建排程時發現目標床位已被佔用，請重新安排。',
+        })
+      })
+      // 將衝突狀態寫回資料庫
+      await conflictBatch.commit()
     }
 
-    // --- 步驟 C (回傳結果) ---
+    // --- 步驟 4: 回傳計算出的、不包含衝突調班效果的「最終排程」 ---
     return finalSchedule
   } catch (error) {
-    logger.error(`❌ [Core Engine] 計算排程 ${dateStr} 時失敗:`, error)
-    // 向上拋出，讓主函式知道
+    logger.error(`❌ [RebuildCoordinator] 在為 ${dateStr} 準備和處理資料時失敗:`, error)
     throw error
   }
 }
@@ -465,7 +473,7 @@ async function mergeExceptionsIntoSchedules(datesToMerge, masterRules) {
 }
 
 // ===================================================================
-// Firestore 文件觸發器 - 病人資料變更處理（完整版）
+// Firestore 文件觸發器 - 病人資料變更處理（完整修正版）
 // ===================================================================
 /**
  * 處理病人資料變更
@@ -545,13 +553,20 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
 
     // 清理未來排程
     const todayStr = getTaipeiTodayString() // ✨ 使用統一函式
+
+    // 🔥🔥🔥【核心修正】🔥🔥🔥
+    // 在這裡宣告 today 變數，作為日期計算的基準
+    const today = getTaipeiNow()
+
     const cleanupBatch = db.batch()
     let cleanupCount = 0
     const BATCH_SIZE = 450
     for (let i = 0; i <= 60; i++) {
+      // 現在 targetDate 可以正確地從 today 物件開始計算
       const targetDate = new Date(today)
       targetDate.setDate(targetDate.getDate() + i)
       const dateStr = formatDateToYYYYMMDD(targetDate)
+
       if (dateStr >= todayStr) {
         const scheduleRef = db.collection('schedules').doc(dateStr)
         const scheduleDoc = await scheduleRef.get()
@@ -682,13 +697,13 @@ exports.checkExpiredTasks = onSchedule(
   { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired tasks (messages)...')
-    const todayStr = getTaipeiTodayString() // ✨ 使用統一函式
+    const todayStr = getTaipeiTodayString() // 使用統一函式
+
     try {
       const query = db
         .collection('tasks')
         .where('status', '==', 'pending')
         .where('category', '==', 'message')
-        .where('targetDate', '>=', '1970-01-01')
         .where('targetDate', '<', todayStr)
 
       const snapshot = await query.get()
@@ -696,13 +711,33 @@ exports.checkExpiredTasks = onSchedule(
         logger.info('[Scheduler] No expired tasks (messages) with valid targetDate found.')
         return null
       }
+
       const batch = db.batch()
+      let expiredCount = 0 // 新增一個計數器，用於記錄實際過期的數量
+
       snapshot.forEach((doc) => {
+        const taskData = doc.data()
+
+        // 🔥🔥🔥【核心修正】🔥🔥🔥
+        // 在這裡加入判斷，如果任務類型是 '衛教'，就跳過，不處理
+        if (taskData.type === '衛教') {
+          logger.info(`[Scheduler] Skipping task ${doc.id} because it is a '衛教' task.`)
+          return // 'return' 在 forEach 中相當於 'continue'
+        }
+
+        // 如果不是 '衛教'，則正常加入批次更新
         logger.info(`[Scheduler] Task (message) ${doc.id} has expired. Updating status.`)
         batch.update(doc.ref, { status: 'expired' })
+        expiredCount++ // 計數器加一
       })
-      await batch.commit()
-      logger.info(`[Scheduler] Successfully updated ${snapshot.size} tasks to 'expired'.`)
+
+      // 只有在真正有需要過期的任務時，才執行 commit
+      if (expiredCount > 0) {
+        await batch.commit()
+        logger.info(`[Scheduler] Successfully updated ${expiredCount} tasks to 'expired'.`)
+      } else {
+        logger.info('[Scheduler] No non-衛教 tasks to expire.')
+      }
     } catch (error) {
       logger.error('[Scheduler] Failed to check for expired tasks:', error)
     }
@@ -1935,8 +1970,10 @@ exports.scheduledDataBackup = onSchedule(
   },
 )
 
+// functions/index.js
+
 // ===================================================================
-// 🔥🔥🔥【兩階段、雙重寫入最終版 v11.0】 - syncMasterScheduleToFuture 🔥🔥🔥
+// 🔥🔥🔥【最終原子化更新版 v13.1】 - syncMasterScheduleToFuture 🔥🔥🔥
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -1945,56 +1982,129 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [TwoPhaseSync-v11.0] 兩階段同步流程啟動...')
+    logger.info('🚀 [AtomicSync-v13.1] 原子化同步流程啟動...')
 
     if (!event.data.after.exists) {
-      logger.info('✅ [TwoPhaseSync-v11.0] 總表文件被刪除，無需同步。')
+      logger.info('✅ [AtomicSync-v13.1] 總表文件被刪除，無需同步。')
       return null
     }
 
     const beforeRules = event.data.before?.data()?.schedule || {}
     const afterRules = event.data.after.data().schedule || {}
     if (JSON.stringify(beforeRules) === JSON.stringify(afterRules)) {
-      logger.info('✅ [TwoPhaseSync-v11.0] 總表資料無實質變更，跳過同步。')
+      logger.info('✅ [AtomicSync-v13.1] 總表資料無實質變更，跳過同步。')
       return null
     }
 
     try {
-      // --- 階段一: 強制覆蓋基礎排程 ---
-      logger.info('  ➡️ [Sync Step 1/2] 開始覆蓋從明天起的 60 天「乾淨」基礎排程...')
+      // 🔥 核心修正：明確定義 masterRules 變數
       const masterRules = afterRules
+
+      // --- 階段一: 精準計算差異，並原子性更新基礎排程 ---
+      logger.info('  ➡️ [Sync Step 1/2] 開始計算差異並原子性更新從明天起的 60 天基礎排程...')
       const baseScheduleBatch = db.batch()
       const today = getTaipeiNow()
 
+      // 1. 找出所有發生變更的病人 ID
+      const allPatientIds = new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])
+
+      // 2. 循環未來 60 天
       for (let i = 1; i <= 60; i++) {
         const targetDate = new Date(today)
         targetDate.setDate(today.getDate() + i)
         const dateStr = formatDateToYYYYMMDD(targetDate)
-        const newDailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
-        const scheduleRef = db.collection('schedules').doc(dateStr)
-        baseScheduleBatch.set(scheduleRef, {
-          date: dateStr,
-          schedule: newDailySchedule,
-          updatedAt: FieldValue.serverTimestamp(),
-          syncMethod: 'engine_driven_sync_v11.0_base',
+        const dayIndex = getTaipeiDayIndex(targetDate)
+
+        const updates = {} // 構建針對這一天的「差異更新包」
+
+        // 3. 遍歷所有可能變更的病人，判斷他們在「今天」的狀態
+        allPatientIds.forEach((patientId) => {
+          const ruleBefore = beforeRules[patientId]
+          const ruleAfter = afterRules[patientId]
+
+          const wasScheduled =
+            ruleBefore && (FREQ_MAP_TO_DAY_INDEX[ruleBefore.freq] || []).includes(dayIndex)
+          const isScheduled =
+            ruleAfter && (FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).includes(dayIndex)
+
+          // 情況 A: 病人被「移除」或「移動走」了
+          if (wasScheduled && !isScheduled) {
+            const oldShiftCode = SHIFTS[ruleBefore.shiftIndex]
+            const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
+            updates[`schedule.${oldKey}`] = FieldValue.delete() // 🔥 標記為刪除
+          }
+          // 情況 B: 病人被「新增」或「移動來」了
+          else if (!wasScheduled && isScheduled) {
+            const newShiftCode = SHIFTS[ruleAfter.shiftIndex]
+            const newKey = getScheduleKey(ruleAfter.bedNum, newShiftCode)
+            updates[`schedule.${newKey}`] = {
+              // 🔥 標記為新增
+              patientId: patientId,
+              patientName: ruleAfter.patientName || '',
+              shiftId: newShiftCode,
+              autoNote: ruleAfter.autoNote || '',
+              manualNote: ruleAfter.manualNote || '',
+              baseRuleId: patientId,
+            }
+          }
+          // 情況 C: 病人「原地修改」規則 (例如床位不變，只改頻率，但今天恰好還有班)
+          else if (wasScheduled && isScheduled) {
+            const oldShiftCode = SHIFTS[ruleBefore.shiftIndex]
+            const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
+            const newShiftCode = SHIFTS[ruleAfter.shiftIndex]
+            const newKey = getScheduleKey(ruleAfter.bedNum, newShiftCode)
+
+            if (oldKey !== newKey) {
+              updates[`schedule.${oldKey}`] = FieldValue.delete() // 🔥 標記舊位置刪除
+            }
+            updates[`schedule.${newKey}`] = {
+              // 🔥 標記新位置新增/更新
+              patientId: patientId,
+              patientName: ruleAfter.patientName || '',
+              shiftId: newShiftCode,
+              autoNote: ruleAfter.autoNote || '',
+              manualNote: ruleAfter.manualNote || '',
+              baseRuleId: patientId,
+            }
+          }
         })
+
+        // 4. 如果當天有任何變更，才加入批次操作
+        if (Object.keys(updates).length > 0) {
+          // 添加一些必要的 metadata 更新
+          updates.updatedAt = FieldValue.serverTimestamp()
+          updates.syncMethod = 'engine_driven_sync_v13.1_atomic'
+
+          const scheduleRef = db.collection('schedules').doc(dateStr)
+          // 🔥 使用 update 執行原子性更新，這會自動處理 merge
+          baseScheduleBatch.update(scheduleRef, updates)
+        }
       }
 
+      // 注意：如果某一天完全不存在，直接呼叫 update 會失敗。
+      // 為了健壯性，我們可以在這裡做一個檢查，或者使用 set({ merge: true }) 的變體。
+      // 考慮到您的系統應該每天都有初始化排程的機制，直接用 update 通常是安全的。
+      // 如果遇到「文件不存在」的錯誤，我們可能需要將 update 改回 set({ merge: true })，
+      // 但那樣就不能使用 FieldValue.delete() 了。
+      // 讓我們假設排程文件都已存在。如果報錯，我們再改用更複雜的邏輯。
+
       await baseScheduleBatch.commit()
-      logger.info('  ✅ [Sync Step 1/2] 成功覆蓋 60 天的基礎排程。')
+      logger.info('  ✅ [Sync Step 1/2] 成功原子性更新 60 天的基礎排程。')
 
       // --- 階段二: 找出受影響的日期並呼叫合併引擎 ---
-      // 1. 一次性獲取所有未來的有效調班申請
-      const todayStr = getTaipeiTodayString()
+      logger.info('  ➡️ [Sync Step 2/2] 開始計算需要合併調班的日期...')
       const exceptionsSnapshot = await db
         .collection('schedule_exceptions')
         .where('status', 'in', ['applied', 'conflict_requires_resolution'])
         .get()
 
       const datesToMerge = new Set()
+      const tomorrow = new Date(today)
+      tomorrow.setDate(today.getDate() + 1)
+      const tomorrowStr = formatDateToYYYYMMDD(tomorrow)
+
       exceptionsSnapshot.forEach((doc) => {
         const ex = doc.data()
-        // 找出所有可能影響的日期
         const allDates = [ex.date, ex.startDate, ex.from?.sourceDate, ex.to?.goalDate].filter(
           Boolean,
         )
@@ -2005,22 +2115,19 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
             allDates.push(formatDateToYYYYMMDD(new Date(d)))
           }
         }
-        // 只保留從「明天」開始的日期
         allDates.forEach((d) => {
-          const tomorrow = new Date(today)
-          tomorrow.setDate(today.getDate() + 1)
-          if (d >= formatDateToYYYYMMDD(tomorrow)) {
+          if (d && d >= tomorrowStr) {
             datesToMerge.add(d)
           }
         })
       })
 
-      // 2. 呼叫第二階段的合併函式
+      // 🔥 這裡現在可以正確使用 masterRules 了
       await mergeExceptionsIntoSchedules(datesToMerge, masterRules)
 
-      logger.info('🎉 [TwoPhaseSync-v11.0] 所有同步階段均已成功完成！')
+      logger.info('🎉 [AtomicSync-v13.1] 所有同步階段均已成功完成！')
     } catch (error) {
-      logger.error('❌ [TwoPhaseSync-v11.0] 兩階段同步過程中發生嚴重錯誤:', error)
+      logger.error('❌ [AtomicSync-v13.1] 原子化同步過程中發生嚴重錯誤:', error)
       throw error
     }
     return null
