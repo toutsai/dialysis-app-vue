@@ -697,13 +697,13 @@ exports.checkExpiredTasks = onSchedule(
   { schedule: 'every day 02:00', timeZone: 'Asia/Taipei', timeoutSeconds: 300 },
   async (event) => {
     logger.info('[Scheduler] Running daily check for expired tasks (messages)...')
-    const todayStr = getTaipeiTodayString() // ✨ 使用統一函式
+    const todayStr = getTaipeiTodayString() // 使用統一函式
+
     try {
       const query = db
         .collection('tasks')
         .where('status', '==', 'pending')
         .where('category', '==', 'message')
-        .where('targetDate', '>=', '1970-01-01')
         .where('targetDate', '<', todayStr)
 
       const snapshot = await query.get()
@@ -711,13 +711,33 @@ exports.checkExpiredTasks = onSchedule(
         logger.info('[Scheduler] No expired tasks (messages) with valid targetDate found.')
         return null
       }
+
       const batch = db.batch()
+      let expiredCount = 0 // 新增一個計數器，用於記錄實際過期的數量
+
       snapshot.forEach((doc) => {
+        const taskData = doc.data()
+
+        // 🔥🔥🔥【核心修正】🔥🔥🔥
+        // 在這裡加入判斷，如果任務類型是 '衛教'，就跳過，不處理
+        if (taskData.type === '衛教') {
+          logger.info(`[Scheduler] Skipping task ${doc.id} because it is a '衛教' task.`)
+          return // 'return' 在 forEach 中相當於 'continue'
+        }
+
+        // 如果不是 '衛教'，則正常加入批次更新
         logger.info(`[Scheduler] Task (message) ${doc.id} has expired. Updating status.`)
         batch.update(doc.ref, { status: 'expired' })
+        expiredCount++ // 計數器加一
       })
-      await batch.commit()
-      logger.info(`[Scheduler] Successfully updated ${snapshot.size} tasks to 'expired'.`)
+
+      // 只有在真正有需要過期的任務時，才執行 commit
+      if (expiredCount > 0) {
+        await batch.commit()
+        logger.info(`[Scheduler] Successfully updated ${expiredCount} tasks to 'expired'.`)
+      } else {
+        logger.info('[Scheduler] No non-衛教 tasks to expire.')
+      }
     } catch (error) {
       logger.error('[Scheduler] Failed to check for expired tasks:', error)
     }
