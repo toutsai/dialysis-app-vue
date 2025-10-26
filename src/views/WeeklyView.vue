@@ -604,17 +604,19 @@ function getDailyShiftIdFromWeekly(weeklySlotId) {
     dailyShiftId: bed.startsWith('peripheral') ? `${bed}-${shiftCode}` : `bed-${bed}-${shiftCode}`,
   }
 }
+// 🔥🔥🔥【核心修正】🔥🔥🔥
+// 我們將只修改 handleSlotUpdate 這個函式
 function handleSlotUpdate(weeklySlotId, slotData) {
   if (isPageLocked.value) return
   const targetInfo = getDailyShiftIdFromWeekly(weeklySlotId)
   if (!targetInfo) return
+
   const { dateStr, dailyShiftId } = targetInfo
   if (isDateInPast(weekDates.value.findIndex((d) => d.queryDate === dateStr))) {
-    alertDialogTitle.value = '操作禁止'
-    alertDialogMessage.value = '無法修改已過去的排程。'
-    isAlertDialogVisible.value = true
+    showAlert('操作禁止', '無法修改已過去的排程。')
     return
   }
+
   const newWeekRecords = new Map(weekScheduleRecords.value)
   const oldRecord = newWeekRecords.get(dateStr) || {
     id: null,
@@ -623,18 +625,28 @@ function handleSlotUpdate(weeklySlotId, slotData) {
     names: {},
   }
   const newDailySchedule = { ...oldRecord.schedule }
+
   if (slotData && slotData.patientId) {
     const patient = patientMap.value.get(slotData.patientId)
     const shiftCode = dailyShiftId.split('-').pop()
-    newDailySchedule[dailyShiftId] = {
-      ...createEmptySlotData(dailyShiftId),
-      ...slotData,
-      shiftId: shiftCode,
-      autoNote: patient ? generateAutoNote(patient) : '',
-    }
+
+    // ✨ 健壯性修正：確保合併順序和內容的正確性
+    // 1. 從一個乾淨的、包含所有必要欄位的物件開始
+    const newSlot = createEmptySlotData(dailyShiftId)
+
+    // 2. 合併傳入的資料 (通常是 patientId 和 manualNote)
+    Object.assign(newSlot, slotData)
+
+    // 3. 覆蓋或確保核心欄位是正確的，防止被意外覆蓋
+    newSlot.shiftId = shiftCode // <--- 最重要的！確保 shiftId 永遠是正確的字串
+    newSlot.autoNote = patient ? generateAutoNote(patient) : ''
+
+    newDailySchedule[dailyShiftId] = newSlot
   } else {
+    // 刪除操作保持不變
     delete newDailySchedule[dailyShiftId]
   }
+
   newWeekRecords.set(dateStr, { ...oldRecord, schedule: newDailySchedule })
   weekScheduleRecords.value = newWeekRecords
   setChange()
