@@ -1,7 +1,6 @@
-<!-- 檔案路徑: src/views/ExceptionManagerView.vue (Pinia 遷移版 - 修正版) -->
+<!-- 檔案路徑: src/views/ExceptionManagerView.vue (最終修正版) -->
 <template>
   <div class="page-container">
-    <!-- ✅ 改為 div，避免與 MainLayout 的 <header class="main-header"> 混淆 -->
     <div class="page-header-section">
       <div class="header-toolbar">
         <div class="toolbar-left">
@@ -20,17 +19,14 @@
       </p>
     </div>
 
-    <!-- 主要內容區域 -->
     <main class="page-main-content">
       <div class="exceptions-list-container">
-        <!-- ✨ --- 【新增/取代】自訂日曆導航列 --- ✨ -->
         <div class="custom-calendar-header">
           <div class="date-navigator">
             <button @click="handlePrev">&lt;</button>
-            <!-- ✨ 【修改】讓標題可以點擊 -->
-            <span class="calendar-title-text is-clickable" @click="openMonthPicker">
-              {{ calendarTitle }}
-            </span>
+            <span class="calendar-title-text is-clickable" @click="openMonthPicker">{{
+              calendarTitle
+            }}</span>
             <button @click="handleNext">&gt;</button>
           </div>
           <div class="view-actions">
@@ -40,15 +36,9 @@
           </div>
         </div>
 
-        <!-- 狀態一：正在載入資料 -->
         <div v-if="isLoading" class="loading-state">正在載入調班申請資料...</div>
-
-        <!-- 狀態二：載入完成後，顯示日曆或無資料提示 -->
         <div v-else class="calendar-wrapper">
-          <!-- ✨ --- 【修改】加上 ref="fullCalendar" 來獲取元件實例 --- ✨ -->
           <FullCalendar ref="fullCalendar" :options="calendarOptions" />
-
-          <!-- 如果沒有任何調班資料，在日曆下方顯示提示訊息 -->
           <div v-if="!isLoading && exceptions.length === 0" class="empty-state">
             <i class="fas fa-check-circle"></i>
             <p>目前沒有任何待處理或已生效的調班。</p>
@@ -57,12 +47,10 @@
       </div>
     </main>
 
-    <!-- 手機版新增按鈕 (FAB) 保持不變 -->
     <button class="fab mobile-only" @click="openCreateDialog" :disabled="isPageLocked">
       <i class="fas fa-plus"></i>
     </button>
 
-    <!-- 所有彈出視窗 (Dialogs) 元件都保持不變 -->
     <ExceptionCreateDialog
       :is-visible="isCreateDialogVisible"
       :all-patients="allPatients"
@@ -70,25 +58,48 @@
       :initial-data="exceptionToReEdit"
       @close="closeCreateDialog"
       @submit="handleCreateException"
+      @delete="handleDeleteFromChild"
     />
-    <!-- ✨ --- 【修改】我們現在只用這一個 ConfirmDialog --- ✨ -->
+
     <ConfirmDialog
-      :is-visible="isConfirmDeleteVisible"
-      :title="confirmDialogTitle"
-      :message="confirmDialogMessage"
-      confirm-text="撤銷"
-      cancel-text="關閉"
-      confirm-class="btn-danger"
-      @confirm="executeDeleteException"
-      @cancel="isConfirmDeleteVisible = false"
-    />
+      :is-visible="isActionDialogVisible"
+      :title="actionDialogTitle"
+      :message="actionDialogMessage"
+      @cancel="isActionDialogVisible = false"
+    >
+      <template #footer>
+        <div class="dialog-footer-custom">
+          <button class="btn btn-secondary" @click="isActionDialogVisible = false">關閉</button>
+          <div class="footer-actions">
+            <!-- 🔥🔥🔥【核心修正】🔥🔥🔥 -->
+            <!-- 將 v-if 條件從只檢查 pending 改為呼叫 isCancellable 函式 -->
+            <button
+              v-if="currentActionData && isCancellable(currentActionData)"
+              class="btn btn-primary"
+              @click="handleEdit"
+              :disabled="isPageLocked"
+            >
+              修改
+            </button>
+            <button
+              v-if="currentActionData && isCancellable(currentActionData)"
+              class="btn btn-danger"
+              @click="handleDelete"
+              :disabled="isPageLocked"
+            >
+              撤銷此申請
+            </button>
+          </div>
+        </div>
+      </template>
+    </ConfirmDialog>
+
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
-    <!-- ✨ 【新增】將 MonthYearPicker 元件加到頁面中 -->
     <MonthYearPicker
       :is-visible="isMonthPickerVisible"
       :initial-date="currentCalendarDate"
@@ -109,33 +120,30 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
+  setDoc,
+  addDoc,
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import FullCalendar from '@fullcalendar/vue3'
 import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
-import listPlugin from '@fullcalendar/list' // 確保 listPlugin 被引入
+import listPlugin from '@fullcalendar/list'
 import zhTwLocale from '@fullcalendar/core/locales/zh-tw'
 import MonthYearPicker from '@/components/MonthYearPicker.vue'
 import { useBreakpoints } from '@/composables/useBreakpoints.js'
-
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
+import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 
-// --- Store & Hook Instantiation ---
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
-
-// ✨✨✨ START: [核心修正] 宣告 isMobile ✨✨✨
 const { isMobile } = useBreakpoints()
-// ✨✨✨ END: [核心修正] ✨✨✨
 
 const exceptionsApi = ApiManager('schedule_exceptions')
 const tasksApi = ApiManager('tasks')
@@ -145,30 +153,25 @@ const { createGlobalNotification } = useGlobalNotifier()
 const { addLocalNotification } = useRealtimeNotifications()
 const { currentUser, canEditSchedules } = useAuth()
 
-// --- Reactive State ---
 const isPageLocked = computed(() => !canEditSchedules.value)
 const exceptions = ref([])
 const isLoading = ref(true)
 const isCreateDialogVisible = ref(false)
-const isConfirmDeleteVisible = ref(false)
-const exceptionToDeleteId = ref(null)
-const confirmDialogTitle = ref('')
-const confirmDialogMessage = ref('')
 const exceptionToReEdit = ref(null)
-const isConflictAlertVisible = ref(false) // 雖然現在沒用到，但暫時保留以防萬一
-const conflictAlertMessage = ref('')
-// ✨✨✨ START: [核心修正] 在這裡補上遺漏的 ref 宣告 ✨✨✨
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
-// ✨✨✨ END: [核心修正] ✨✨✨
 let unsubscribe = null
 const fullCalendar = ref(null)
 const calendarApi = ref(null)
 const calendarTitle = ref('')
 const isMonthPickerVisible = ref(false)
 
-// --- Constants & Maps ---
+const isActionDialogVisible = ref(false)
+const actionDialogTitle = ref('')
+const actionDialogMessage = ref('')
+const currentActionData = ref(null)
+
 const statusMap = {
   pending: '待處理',
   processing: '處理中',
@@ -176,6 +179,7 @@ const statusMap = {
   error: '錯誤',
   expired: '已過期',
   conflict_requires_resolution: '衝突待解決',
+  cancelled: '已撤銷',
 }
 const typeMap = {
   MOVE: '臨時調班',
@@ -186,7 +190,6 @@ const typeMap = {
 }
 const shiftMap = { early: '早班', noon: '午班', late: '晚班' }
 
-// --- Computed Properties ---
 const calendarEvents = computed(() => {
   if (!exceptions.value) return []
   return exceptions.value.flatMap((ex) => {
@@ -196,6 +199,7 @@ const calendarEvents = computed(() => {
       applied: { color: '#198754', prefix: '[✓]' },
       error: { color: '#dc3545', prefix: '[!] ' },
       conflict_requires_resolution: { color: '#fd7e14', prefix: '[衝突]' },
+      cancelled: { color: '#6c757d', prefix: '[撤銷]' },
     }
     const baseColorMap = {
       MOVE: '#17a2b8',
@@ -205,7 +209,10 @@ const calendarEvents = computed(() => {
       SWAP: '#fd7e14',
     }
     const style = statusStyles[ex.status] || { color: '#6c757d', prefix: '[?]' }
-    const finalColor = ex.status === 'applied' ? baseColorMap[ex.type] || '#6c757d' : style.color
+    let finalColor = style.color
+    if (ex.status === 'applied') {
+      finalColor = baseColorMap[ex.type] || '#6c757d'
+    }
     let baseTitle = ''
     if (ex.type === 'SWAP') {
       baseTitle = `${ex.patient1?.patientName || ''} <=> ${ex.patient2?.patientName || ''}`
@@ -269,67 +276,67 @@ const calendarEvents = computed(() => {
   })
 })
 
-function handleConflictClick(exceptionData) {
-  const reEditData = {
-    id: exceptionData.id,
-    patientId: exceptionData.patientId,
-    patientName: exceptionData.patientName,
-    type: exceptionData.type,
-    reason: exceptionData.reason,
-    startDate: exceptionData.startDate,
-    endDate: exceptionData.endDate,
-    date: exceptionData.date,
-    from: exceptionData.from,
-    to: exceptionData.to,
-    patient1: exceptionData.patient1,
-    patient2: exceptionData.patient2,
+const calendarOptions = computed(() => ({
+  plugins: [dayGridPlugin, interactionPlugin, listPlugin],
+  initialView: isMobile.value ? 'dayGridWeek' : 'dayGridMonth',
+  locale: zhTwLocale,
+  headerToolbar: false,
+  dayMaxEvents: true,
+  events: calendarEvents.value,
+  eventDisplay: isMobile.value ? 'list-item' : 'block',
+  datesSet: (arg) => {
+    calendarTitle.value = arg.view.title
+  },
+  eventClick: (info) => {
+    const exData = info.event.extendedProps
+    currentActionData.value = exData
+
+    let patientDisplayName = exData.patientName
+    if (exData.type === 'SWAP') {
+      patientDisplayName = `${exData.patient1?.patientName} & ${exData.patient2?.patientName}`
+    }
+
+    actionDialogTitle.value = '調班詳細資訊'
+    actionDialogMessage.value =
+      `病患: ${patientDisplayName}\n` +
+      `類型: ${typeMap[exData.type] || '未知'}\n` +
+      `狀態: ${statusMap[exData.status] || '未知'}\n` +
+      `區間: ${exData.startDate} ~ ${exData.endDate || exData.startDate}\n` +
+      `詳細: ${exData.formattedDetails}\n` +
+      `申請時間: ${formatTimestamp(exData.createdAt)}`
+
+    if (exData.status === 'error' && exData.errorMessage) {
+      actionDialogMessage.value += `\n\n錯誤訊息: ${exData.errorMessage}`
+    }
+
+    isActionDialogVisible.value = true
+  },
+}))
+
+const currentCalendarDate = computed(() =>
+  calendarApi.value ? calendarApi.value.getDate() : new Date(),
+)
+
+function isCancellable(exceptionData) {
+  if (
+    !exceptionData ||
+    exceptionData.status === 'cancelled' ||
+    exceptionData.status === 'expired' ||
+    exceptionData.status === 'error'
+  ) {
+    return false
   }
-  exceptionToReEdit.value = reEditData
-  isCreateDialogVisible.value = true
+  const todayStr = new Date().toISOString().split('T')[0]
+  let latestDateStr = exceptionData.endDate || exceptionData.startDate || exceptionData.date
+  if (exceptionData.type === 'MOVE') {
+    latestDateStr =
+      exceptionData.to?.goalDate > exceptionData.from?.sourceDate
+        ? exceptionData.to?.goalDate
+        : exceptionData.from?.sourceDate
+  }
+  return !latestDateStr || latestDateStr >= todayStr
 }
 
-const calendarOptions = computed(() => {
-  const isMobileView = isMobile.value
-  return {
-    plugins: [dayGridPlugin, interactionPlugin, listPlugin],
-    initialView: isMobileView ? 'dayGridWeek' : 'dayGridMonth',
-    locale: zhTwLocale,
-    headerToolbar: false,
-    dayMaxEvents: true,
-    events: calendarEvents.value,
-    eventDisplay: isMobileView ? 'list-item' : 'block',
-    datesSet: (arg) => {
-      calendarTitle.value = arg.view.title
-    },
-    eventClick: (info) => {
-      const ex = info.event.extendedProps
-      if (ex.status === 'conflict_requires_resolution') {
-        handleConflictClick(ex)
-      } else {
-        exceptionToDeleteId.value = ex.id
-        let patientDisplayName = ex.patientName
-        if (ex.type === 'SWAP') {
-          patientDisplayName = `${ex.patient1?.patientName} & ${ex.patient2?.patientName}`
-        }
-        confirmDialogTitle.value = '調班詳細資訊'
-        confirmDialogMessage.value =
-          `病患: ${patientDisplayName}\n` +
-          `類型: ${typeMap[ex.type] || '未知'}\n` +
-          `狀態: ${statusMap[ex.status] || '未知'}\n` +
-          `區間: ${ex.startDate} ~ ${ex.endDate || ex.startDate}\n` +
-          `詳細: ${ex.formattedDetails}\n` +
-          `申請時間: ${formatTimestamp(ex.createdAt)}`
-        isConfirmDeleteVisible.value = true
-      }
-    },
-  }
-})
-
-const currentCalendarDate = computed(() => {
-  return calendarApi.value ? calendarApi.value.getDate() : new Date()
-})
-
-// --- Functions ---
 async function scrollToCurrentWeek() {
   await nextTick()
   if (!fullCalendar.value) return
@@ -408,7 +415,52 @@ function closeCreateDialog() {
   }, 300)
 }
 
-// ✨ [核心修改] 更新 handleCreateException 函式 ✨
+function handleEdit() {
+  if (!currentActionData.value) return
+
+  // 任何可撤銷的事件（pending, applied, conflict）都可以被編輯
+  if (
+    isCancellable(currentActionData.value) ||
+    currentActionData.value.status === 'conflict_requires_resolution'
+  ) {
+    exceptionToReEdit.value = { ...currentActionData.value }
+    isActionDialogVisible.value = false
+    setTimeout(() => {
+      isCreateDialogVisible.value = true
+    }, 150)
+  }
+}
+
+async function handleDelete() {
+  if (!currentActionData.value?.id) return
+  const exceptionId = currentActionData.value.id
+  const exceptionData = currentActionData.value
+  isActionDialogVisible.value = false
+
+  try {
+    await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
+    let message = ''
+    if (exceptionData.type === 'SWAP') {
+      message = `成功撤銷調班申請: ${exceptionData.patient1.patientName}與${exceptionData.patient2.patientName}`
+    } else {
+      const typeText = typeMap[exceptionData.type] || '調班'
+      message = `成功撤銷調班申請: ${exceptionData.patientName} (${typeText})`
+    }
+    createGlobalNotification(message, 'success')
+  } catch (error) {
+    console.error('撤銷失敗:', error)
+    alertDialogTitle.value = '撤銷失敗'
+    alertDialogMessage.value = `執行撤銷操作時發生錯誤: ${error.message}`
+    isAlertDialogVisible.value = true
+  } finally {
+    currentActionData.value = null
+  }
+}
+
+function handleDeleteFromChild(id) {
+  createGlobalNotification('成功撤銷衝突的調班申請', 'success')
+}
+
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
@@ -434,24 +486,22 @@ async function handleCreateException(formData) {
     }
     await exceptionsApi.save(dataToSave)
     closeCreateDialog()
-    const actionText = isUpdating ? '更新' : '新增'
+    const actionText = isUpdating ? '重新提交' : '新增'
     let message = ''
     if (formData.type === 'SWAP') {
-      message = `${actionText}申請: ${formData.patient1.patientName} 與 ${formData.patient2.patientName} (同日互調)`
+      message = `${actionText}申請: ${formData.patient1.patientName} 與 ${formData.patient2.patientName}`
     } else {
       const typeText = typeMap[formData.type] || '調班'
       message = `${actionText}申請: ${formData.patientName} (${typeText})`
     }
-    createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
+    createGlobalNotification(message, 'success')
 
     let messageContent = ''
     const reasonText = `\n原因: ${formData.reason}`
     switch (formData.type) {
       case 'MOVE':
-        const fromBedDisplay = formatBedAndShift(formData.from)
-        const toBedDisplay = formatBedAndShift(formData.to)
         messageContent =
-          `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${fromBedDisplay})\n新排班: ${formData.to.goalDate} (${toBedDisplay})` +
+          `【${isUpdating ? '更新-臨時調班' : '臨時調班'}】\n原排班: ${formData.from.sourceDate} (${formatBedAndShift(formData.from)})\n新排班: ${formData.to.goalDate} (${formatBedAndShift(formData.to)})` +
           reasonText
         break
       case 'SUSPEND':
@@ -459,15 +509,13 @@ async function handleCreateException(formData) {
           `【區間暫停】\n從 ${formData.startDate} 至 ${formData.endDate}` + reasonText
         break
       case 'ADD_SESSION':
-        const addBedDisplay = formatBedAndShift(formData.to)
         messageContent =
-          `【臨時加洗】\n日期: ${formData.to.goalDate} (${addBedDisplay})` + reasonText
+          `【臨時加洗】\n日期: ${formData.to.goalDate} (${formatBedAndShift(formData.to)})` +
+          reasonText
         break
       case 'SWAP':
-        const swapFrom1 = formatBedAndShift(formData.patient1)
-        const swapFrom2 = formatBedAndShift(formData.patient2)
         messageContent =
-          `【同日互調】\n日期: ${formData.date}\n${formData.patient1.patientName} (${swapFrom1}) <=> ${formData.patient2.patientName} (${swapFrom2})` +
+          `【同日互調】\n日期: ${formData.date}\n${formData.patient1.patientName} (${formatBedAndShift(formData.patient1)}) <=> ${formData.patient2.patientName} (${formatBedAndShift(formData.patient2)})` +
           reasonText
         break
     }
@@ -487,11 +535,9 @@ async function handleCreateException(formData) {
           title: currentUser.value.title,
         },
         createdAt: serverTimestamp(),
-        // ✨ 在這裡為自動產生的留言也加上 expireAt 欄位 ✨
-        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 天後過期
+        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         assignee: null,
       })
-
       if (formData.type === 'SWAP') {
         const task1 = createMessageTask({
           id: formData.patient1.patientId,
@@ -508,77 +554,9 @@ async function handleCreateException(formData) {
       }
     }
   } catch (error) {
-    console.error('提交調班申請或建立留言失敗:', error)
-    addLocalNotification(`操作失敗: ${error.message || '無法儲存調班申請，請檢查後再試。'}`)
+    console.error('提交調班申請失敗:', error)
+    addLocalNotification(`操作失敗: ${error.message || '無法儲存調班申請'}`)
   }
-}
-
-async function executeDeleteException() {
-  if (!exceptionToDeleteId.value) return
-
-  const exceptionData = exceptions.value.find((ex) => ex.id === exceptionToDeleteId.value)
-  if (!exceptionData) {
-    // 如果找不到資料，直接關閉對話框
-    isConfirmDeleteVisible.value = false
-    exceptionToDeleteId.value = null
-    return
-  }
-
-  // ✨✨✨ START: [核心修正] 在前端進行日期預先檢查 ✨✨✨
-  const todayStr = new Date().toISOString().split('T')[0]
-
-  // 找出該申請最晚影響的日期
-  let latestDateStr = exceptionData.endDate || exceptionData.startDate || exceptionData.date
-  if (exceptionData.type === 'MOVE') {
-    latestDateStr =
-      exceptionData.to?.goalDate > exceptionData.from?.sourceDate
-        ? exceptionData.to?.goalDate
-        : exceptionData.from?.sourceDate
-  }
-
-  // 如果最晚影響日期都在過去，則阻止刪除並提示使用者
-  if (latestDateStr && latestDateStr < todayStr) {
-    isConfirmDeleteVisible.value = false
-
-    // 現在這幾行程式碼可以正確地控制那個唯一的 AlertDialog 了
-    alertDialogTitle.value = '撤銷失敗'
-    alertDialogMessage.value = '此調班申請已完全成為過去事件，無法進行撤銷操作。'
-    isAlertDialogVisible.value = true
-
-    exceptionToDeleteId.value = null
-    return
-  }
-
-  // 如果檢查通過 (至少有一天在今天或未來)，才執行真正的刪除
-  try {
-    await deleteDoc(doc(db, 'schedule_exceptions', exceptionToDeleteId.value))
-
-    let message = ''
-    if (exceptionData.type === 'SWAP') {
-      message = `成功撤銷調班申請: ${exceptionData.patient1.patientName}與${exceptionData.patient2.patientName} (同日互調)`
-    } else {
-      const typeText = typeMap[exceptionData.type] || '調班'
-      message = `成功撤銷調班申請: ${exceptionData.patientName} (${typeText})`
-    }
-    createGlobalNotification(message, 'exception', { routePath: '/exception-manager' })
-  } catch (error) {
-    console.error('撤銷失敗:', error)
-    // 可以在這裡也加入一個 AlertDialog 提示
-    alertDialogTitle.value = '撤銷失敗'
-    alertDialogMessage.value = `執行撤銷操作時發生錯誤: ${error.message}`
-    isAlertDialogVisible.value = true
-  } finally {
-    isConfirmDeleteVisible.value = false
-    exceptionToDeleteId.value = null
-  }
-}
-
-function isActionDisabled(exception) {
-  if (exception.status === 'error') return false
-  const endDateStr = exception.endDate
-  if (!endDateStr) return false
-  const today = new Date().toISOString().split('T')[0]
-  return endDateStr < today
 }
 
 async function initializePageData() {
@@ -607,7 +585,6 @@ async function initializePageData() {
   }
 }
 
-// --- Watchers & Lifecycle Hooks ---
 watch(isLoading, (newIsLoading) => {
   if (!newIsLoading) {
     nextTick(() => {
@@ -682,10 +659,6 @@ onUnmounted(() => {
 
 <style scoped>
 @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
-
-/* ================================== */
-/*         通用及桌面版樣式            */
-/* ================================== */
 .page-container {
   box-sizing: border-box;
   display: flex;
@@ -693,8 +666,6 @@ onUnmounted(() => {
   background-color: #f8f9fa;
   padding: 0.5rem;
 }
-
-/* ✅ 由 header 改名為 page-header-section，避免與 MainLayout 的 .main-header 衝突 */
 .page-header-section {
   border-bottom: 2px solid #dee2e6;
   margin-bottom: 1.5rem;
@@ -744,9 +715,12 @@ onUnmounted(() => {
 .btn-danger:hover {
   background-color: #c82333;
 }
-.btn-sm {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.875rem;
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+.btn-secondary:hover {
+  background-color: #5a6268;
 }
 button:disabled {
   opacity: 0.65;
@@ -762,12 +736,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
 }
-.section-title {
-  font-size: 1.5rem;
-  margin-bottom: 1.5rem;
-  color: #495057;
-}
-
 .loading-state,
 .empty-state {
   text-align: center;
@@ -784,13 +752,6 @@ button:disabled {
   align-items: center;
   gap: 1.5rem;
 }
-.error-message {
-  color: #dc3545;
-  font-weight: bold;
-  display: block;
-  margin-top: 4px;
-}
-
 .custom-calendar-header {
   display: flex;
   justify-content: space-between;
@@ -800,33 +761,28 @@ button:disabled {
   gap: 1rem;
   flex-shrink: 0;
 }
-
 .exceptions-list-container {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
 }
-
 .date-navigator {
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
-
 .calendar-title-text {
   font-weight: 600;
   font-size: 1.75rem;
   color: #343a40;
   white-space: nowrap;
 }
-
 .view-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
-
 .custom-calendar-header button {
   padding: 0.5rem 1rem;
   border: 1px solid #ced4da;
@@ -836,12 +792,10 @@ button:disabled {
   font-weight: 500;
   transition: all 0.2s;
 }
-
 .custom-calendar-header button:hover {
   border-color: #868e96;
   background-color: #e9ecef;
 }
-
 .calendar-wrapper {
   flex-grow: 1;
   overflow-y: auto;
@@ -851,11 +805,9 @@ button:disabled {
   cursor: pointer;
   transition: color 0.2s;
 }
-
 .calendar-title-text.is-clickable:hover {
   color: #007bff;
 }
-
 :deep(.fc) {
   font-family: inherit;
 }
@@ -876,7 +828,6 @@ button:disabled {
 :deep(.fc-day-today) {
   background-color: #eaf6ff !important;
 }
-
 .fab.mobile-only {
   display: none;
 }
@@ -884,13 +835,23 @@ button:disabled {
   display: inline-flex;
 }
 
-/* ============================= */
-/* 行動版（<= 992px）重點修正    */
-/* ============================= */
+:deep(.dialog-footer-custom) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 1rem 1.5rem;
+  border-top: 1px solid #e9ecef;
+}
+:deep(.footer-actions) {
+  display: flex;
+  gap: 0.75rem;
+}
+
 @media (max-width: 992px) {
   .page-container {
-    padding: 1rem 0 0 0; /* 重置左右 padding，避免內縮 */
-    padding-top: 60px; /* ✅ 預留 MainLayout 頂部列高度，避免被擠掉或覆蓋 */
+    padding: 1rem 0 0 0;
+    padding-top: 60px;
   }
   .fab.mobile-only {
     display: flex;
@@ -915,12 +876,7 @@ button:disabled {
     padding: 1rem;
     border-radius: 0;
     box-shadow: none;
-    /* 確保主內容區域可以正確滾動 */
     overflow-y: auto;
-  }
-  .section-title {
-    font-size: 1.3rem;
-    margin-bottom: 1rem;
   }
   .fab {
     position: fixed;
@@ -939,7 +895,6 @@ button:disabled {
     z-index: 10;
   }
 }
-
 @media (max-width: 480px) {
   .page-title {
     font-size: 24px;

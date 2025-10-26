@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (✨ 最終修正版 ✨) -->
+<!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (功能增強版) -->
 <template>
   <div v-if="isVisible" class="dialog-overlay" @click.self="close">
     <div class="dialog-content">
@@ -68,11 +68,11 @@
             </div>
           </fieldset>
 
-          <!-- 所有調班類型的設定都放入這個步驟 -->
+          <!-- 步驟 3: 設定調班資訊 -->
           <fieldset class="step-group" v-if="formData.type">
             <legend>步驟 3: 設定調班資訊</legend>
 
-            <!-- 區塊：臨時調班 (MOVE) -->
+            <!-- MOVE -->
             <div v-if="formData.type === 'MOVE'" class="details-section">
               <div class="form-group-grid">
                 <div class="form-group">
@@ -93,12 +93,7 @@
               <div class="form-group-grid" v-if="formData.from.bedNum">
                 <div class="form-group">
                   <label for="targetDate">目標日期</label>
-                  <input
-                    type="date"
-                    id="targetDate"
-                    v-model="formData.to.goalDate"
-                    :disabled="isEditingMode"
-                  />
+                  <input type="date" id="targetDate" v-model="formData.to.goalDate" />
                 </div>
                 <div class="form-group">
                   <label>目標床位</label>
@@ -113,12 +108,12 @@
               </div>
             </div>
 
-            <!-- 區塊：區間暫停 (SUSPEND) -->
+            <!-- SUSPEND -->
             <div v-if="formData.type === 'SUSPEND'" class="details-section">
               <div class="form-group-grid">
                 <div class="form-group">
-                  <label for="startDate">開始日期 (包含)</label
-                  ><input
+                  <label for="startDate">開始日期 (包含)</label>
+                  <input
                     type="date"
                     id="startDate"
                     v-model="formData.startDate"
@@ -126,8 +121,8 @@
                   />
                 </div>
                 <div class="form-group">
-                  <label for="endDate">結束日期 (包含)</label
-                  ><input
+                  <label for="endDate">結束日期 (包含)</label>
+                  <input
                     type="date"
                     id="endDate"
                     v-model="formData.endDate"
@@ -137,12 +132,12 @@
               </div>
             </div>
 
-            <!-- 區塊：臨時加洗 (ADD_SESSION) -->
+            <!-- ADD_SESSION -->
             <div v-if="formData.type === 'ADD_SESSION'" class="details-section">
               <div class="form-group-grid">
                 <div class="form-group">
-                  <label for="addSessionDate">加洗日期</label
-                  ><input type="date" id="addSessionDate" v-model="formData.to.goalDate" />
+                  <label for="addSessionDate">加洗日期</label>
+                  <input type="date" id="addSessionDate" v-model="formData.to.goalDate" />
                 </div>
                 <div class="form-group">
                   <label>目標床位</label>
@@ -157,7 +152,7 @@
               </div>
             </div>
 
-            <!-- [全新優化] 區塊：同日互調 (SWAP) -->
+            <!-- SWAP -->
             <div v-if="formData.type === 'SWAP'" class="details-section">
               <div class="form-group">
                 <label for="swapDate">互調日期</label>
@@ -182,13 +177,7 @@
                     :disabled="!formData.patient1 || isFetchingSwapSchedule"
                   >
                     <option disabled value="">
-                      {{
-                        patientA_SwapDisplay.includes('查詢中')
-                          ? '...'
-                          : formData.patient1
-                            ? '請選擇...'
-                            : '請先確認病人A排班'
-                      }}
+                      {{ formData.patient1 ? '請選擇...' : '請先確認病人A排班' }}
                     </option>
                     <option
                       v-for="slot in availableSlotsForPatientB"
@@ -206,27 +195,41 @@
           <!-- 步驟 4: 原因說明 -->
           <fieldset class="step-group">
             <legend>步驟 4: 原因說明</legend>
-            <!-- ✨ 修正點 2：將 textarea 包在 .form-group div 中以套用樣式 -->
             <div class="form-group">
-              <textarea
-                v-model="formData.reason"
-                rows="2"
-                placeholder="請簡要說明原因"
-                :disabled="isEditingMode"
-              ></textarea>
+              <textarea v-model="formData.reason" rows="2" placeholder="請簡要說明原因"></textarea>
             </div>
           </fieldset>
         </div>
       </main>
+      <!-- 🔥🔥🔥【核心修改 #1】🔥🔥🔥 -->
       <footer class="dialog-footer">
-        <button class="btn btn-secondary" @click="close">取消</button>
-        <button
-          class="btn btn-primary"
-          @click="submitForm"
-          :disabled="!isFormValid || isSubmitting"
-        >
-          {{ isSubmitting ? '提交中...' : isEditingMode ? '重新提交申請' : '提交申請' }}
-        </button>
+        <!-- 如果是編輯模式 (解決衝突)，顯示三個按鈕 -->
+        <div v-if="isEditingMode" class="footer-editing-mode">
+          <button class="btn btn-danger" @click="handleDelete" :disabled="isSubmitting">
+            撤銷此申請
+          </button>
+          <div>
+            <button class="btn btn-secondary" @click="close">取消修改</button>
+            <button
+              class="btn btn-primary"
+              @click="submitForm"
+              :disabled="!isFormValid || isSubmitting"
+            >
+              {{ isSubmitting ? '提交中...' : '重新提交申請' }}
+            </button>
+          </div>
+        </div>
+        <!-- 否則，顯示正常的兩個按鈕 -->
+        <div v-else class="footer-normal-mode">
+          <button class="btn btn-secondary" @click="close">取消</button>
+          <button
+            class="btn btn-primary"
+            @click="submitForm"
+            :disabled="!isFormValid || isSubmitting"
+          >
+            {{ isSubmitting ? '提交中...' : '提交申請' }}
+          </button>
+        </div>
       </footer>
     </div>
   </div>
@@ -262,6 +265,9 @@ import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
+// 🔥【核心修改 #2】引入 deleteDoc 和 doc
+import { deleteDoc, doc } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
 
 // Props & Emits
 const props = defineProps({
@@ -270,9 +276,10 @@ const props = defineProps({
   isPageLocked: Boolean,
   initialData: { type: Object, default: null },
 })
-const emit = defineEmits(['close', 'submit'])
+// 🔥【核心修改 #3】新增 'delete' 事件
+const emit = defineEmits(['close', 'submit', 'delete'])
 
-// API and Constants
+// ... (其他 API 和 Constants 保持不變) ...
 const schedulesApi = ApiManager('schedules')
 const shifts = ORDERED_SHIFT_CODES
 const bedLayout = [
@@ -339,37 +346,33 @@ const freqMap = {
   每周六: [5],
 }
 
-// Dialog State
+// ... (所有 Dialog State 和 Form State 保持不變) ...
 const isPatientDialogVisible = ref(false)
 const isBedAssignmentVisible = ref(false)
 const bedAssignmentProps = ref(null)
 const isSubmitting = ref(false)
 const isFetchingSource = ref(false)
 const sourceScheduleMessage = ref('')
-
-// SWAP State
 const dailyScheduleForSwap = ref(null)
 const isFetchingSwapSchedule = ref(false)
 const patientB_SwapSelection = ref('')
-
-// Form State
 const defaultFormData = () => ({
   id: null,
   patientId: '',
   patientName: '',
   type: null,
-  date: '', // for SWAP
+  date: '',
   startDate: '',
   endDate: '',
   reason: '',
   from: { sourceDate: '', bedNum: null, shiftCode: null },
   to: { goalDate: '', bedNum: null, shiftCode: null },
-  patient1: null, // for SWAP
-  patient2: null, // for SWAP
+  patient1: null,
+  patient2: null,
 })
 const formData = reactive(defaultFormData())
 
-// Computed Properties
+// ... (所有 Computed Properties 保持不變) ...
 const dialogTitle = computed(() => {
   if (isEditingMode.value) return '解決排程衝突'
   const typeMap = {
@@ -426,7 +429,6 @@ const patientA_SwapDisplay = computed(() => {
   if (!formData.date) return '請先選擇日期...'
   if (isFetchingSwapSchedule.value) return '查詢排班中...'
   if (!formData.patient1) return `當日無 ${formData.patientName} 的排班`
-
   const { fromBedNum, fromShiftCode } = formData.patient1
   const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
   const shiftText = shiftDisplayMap[fromShiftCode] || fromShiftCode
@@ -435,21 +437,16 @@ const patientA_SwapDisplay = computed(() => {
     : `${fromBedNum}床`
   return `${formData.patientName} (${bedText} / ${shiftText}班)`
 })
-
-// ✨✨✨ 核心修改點在這裡 ✨✨✨
 const availableSlotsForPatientB = computed(() => {
   if (!dailyScheduleForSwap.value || !formData.patient1) return []
-
   const shiftDisplayMap = { early: '早', noon: '午', late: '晚' }
   const shiftOrderMap = { early: 1, noon: 2, late: 3 }
-
   const getSortableBedNumber = (bedNum) => {
     if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {
       return 1000 + parseInt(bedNum.split('-')[1], 10)
     }
     return parseInt(bedNum, 10)
   }
-
   const slots = Object.entries(dailyScheduleForSwap.value)
     .filter(([key, slot]) => slot && slot.patientId && slot.patientId !== formData.patientId)
     .map(([key, slot]) => {
@@ -462,7 +459,6 @@ const availableSlotsForPatientB = computed(() => {
       const bedText = String(bedNum).startsWith('peripheral')
         ? `外圍 ${bedNum.split('-')[1]}`
         : `${bedNum}床`
-
       return {
         key: key,
         displayText: `${patientName} (${bedText} / ${shiftText}班)`,
@@ -474,23 +470,17 @@ const availableSlotsForPatientB = computed(() => {
         },
       }
     })
-
-  // 在回傳前進行排序
   return slots.sort((a, b) => {
-    // 1. 按班別排序
     const shiftOrderA = shiftOrderMap[a.data.fromShiftCode] || 99
     const shiftOrderB = shiftOrderMap[b.data.fromShiftCode] || 99
     if (shiftOrderA !== shiftOrderB) {
       return shiftOrderA - shiftOrderB
     }
-
-    // 2. 如果班別相同，按床號排序
     const bedA = getSortableBedNumber(a.data.fromBedNum)
     const bedB = getSortableBedNumber(b.data.fromBedNum)
     return bedA - bedB
   })
 })
-
 const isDetailsComplete = computed(() => {
   if (!formData.type) return false
   switch (formData.type) {
@@ -506,17 +496,28 @@ const isDetailsComplete = computed(() => {
       return false
   }
 })
-const isFormValid = computed(() => isDetailsComplete.value && !!formData.reason.trim())
+const isFormValid = computed(
+  () => isDetailsComplete.value && (isEditingMode.value || !!formData.reason.trim()),
+) // 編輯模式下原因非必填
 
-// Watchers
+// ... (所有 Watchers 保持不變) ...
 watch(
   () => props.isVisible,
   (isVisible) => {
     if (isVisible) {
       if (props.initialData) {
         Object.assign(formData, {
-          ...props.initialData,
-          to: { ...props.initialData.to, bedNum: null, shiftCode: null },
+          ...defaultFormData(),
+          ...JSON.parse(JSON.stringify(props.initialData)),
+          reason: '',
+          to: {
+            goalDate:
+              props.initialData.to?.goalDate ||
+              props.initialData.from?.sourceDate ||
+              new Date().toISOString().split('T')[0],
+            bedNum: null,
+            shiftCode: null,
+          },
         })
       } else {
         Object.assign(formData, defaultFormData())
@@ -543,7 +544,7 @@ watch(patientB_SwapSelection, (selectionKey) => {
   formData.patient2 = selectedSlot ? selectedSlot.data : null
 })
 
-// Methods
+// ... (close, handlePatientSelected, fetchSourceSchedule, fetchScheduleForSwap, openBedAssignmentForTarget, handleTargetBedAssigned, submitForm 這些 Methods 保持不變) ...
 function close() {
   emit('close')
 }
@@ -555,7 +556,6 @@ function handlePatientSelected({ patientId }) {
   }
   isPatientDialogVisible.value = false
 }
-
 async function fetchSourceSchedule() {
   if (!formData.from.sourceDate || !formData.patientId) return
   isFetchingSource.value = true
@@ -584,7 +584,6 @@ async function fetchSourceSchedule() {
     isFetchingSource.value = false
   }
 }
-
 async function fetchScheduleForSwap() {
   if (!formData.date || !formData.patientId) {
     dailyScheduleForSwap.value = null
@@ -621,7 +620,6 @@ async function fetchScheduleForSwap() {
     isFetchingSwapSchedule.value = false
   }
 }
-
 async function openBedAssignmentForTarget() {
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
   if (!patient) return
@@ -646,12 +644,9 @@ function handleTargetBedAssigned({ bedNum, shiftCode }) {
   formData.to.shiftCode = shiftCode
   isBedAssignmentVisible.value = false
 }
-
 function submitForm() {
   if (!isFormValid.value) return
   const dataToSubmit = JSON.parse(JSON.stringify(formData))
-
-  // 標準化日期欄位，確保父元件和後端能正確讀取
   switch (dataToSubmit.type) {
     case 'MOVE':
       dataToSubmit.startDate = dataToSubmit.from.sourceDate
@@ -663,22 +658,53 @@ function submitForm() {
       dataToSubmit.from = null
       break
     case 'SWAP':
-      // 確保 startDate 和 endDate 都有值，同時保留 date 欄位給父元件使用
       dataToSubmit.startDate = dataToSubmit.date
       dataToSubmit.endDate = dataToSubmit.date
       dataToSubmit.from = null
       dataToSubmit.to = null
       break
   }
-
   emit('submit', dataToSubmit)
+}
+
+// 🔥【核心修改 #4】新增 handleDelete 函式
+async function handleDelete() {
+  if (!isEditingMode.value || !props.initialData?.id) return
+  isSubmitting.value = true
+  try {
+    await deleteDoc(doc(db, 'schedule_exceptions', props.initialData.id))
+    emit('delete', props.initialData.id) // 發送 delete 事件給父元件
+  } catch (error) {
+    console.error('撤銷申請失敗:', error)
+    // 可以在此處加入錯誤提示
+  } finally {
+    isSubmitting.value = false
+    close()
+  }
 }
 </script>
 
 <style scoped>
-/* ================================== */
-/*         通用及桌面版樣式 (美化版)    */
-/* ================================== */
+/* 🔥【核心修改 #5】新增 footer 樣式 */
+.footer-editing-mode,
+.footer-normal-mode {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.footer-editing-mode > div {
+  display: flex;
+  gap: 1rem;
+}
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+.btn-danger:hover {
+  background-color: #c82333;
+}
+/* ... 其他樣式保持不變 ... */
 .dialog-overlay {
   position: fixed;
   top: 0;
@@ -723,7 +749,6 @@ function submitForm() {
   cursor: pointer;
   color: #888;
 }
-
 .dialog-body {
   padding: 1.5rem;
   display: flex;
@@ -770,8 +795,6 @@ function submitForm() {
   cursor: not-allowed;
   transform: none;
 }
-
-/* UI 優化：步驟分組 */
 .step-group {
   border: 1px solid #dee2e6;
   border-radius: 8px;
@@ -786,7 +809,6 @@ function submitForm() {
   margin-left: 1rem;
   font-size: 1rem;
 }
-
 .form-group {
   display: flex;
   flex-direction: column;
@@ -820,7 +842,6 @@ function submitForm() {
 .form-group textarea {
   resize: vertical;
 }
-
 .radio-group {
   display: flex;
   flex-wrap: wrap;
@@ -863,7 +884,6 @@ function submitForm() {
 .radio-group input[type='radio']:checked {
   border-color: #007bff;
 }
-
 .details-section {
   display: flex;
   flex-direction: column;
@@ -876,7 +896,7 @@ function submitForm() {
   align-items: flex-end;
 }
 .info-box {
-  min-height: calc(1.5rem + 0.75rem * 2 + 2px); /* match input height */
+  min-height: calc(1.5rem + 0.75rem * 2 + 2px);
   padding: 0.75rem;
   border-radius: 6px;
   border: 1px solid #ced4da;
@@ -942,12 +962,10 @@ function submitForm() {
   color: #721c24;
   border: 1px solid #f5c6cb;
 }
-
 .subsequent-steps.disabled {
   opacity: 0.5;
   pointer-events: none;
 }
-
 @media (max-width: 768px) {
   .form-group-grid {
     grid-template-columns: 1fr;
