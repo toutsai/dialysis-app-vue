@@ -4096,8 +4096,10 @@ exports.getDailyMedicationDrafts = onCall(
   },
 )
 
+// functions/index.js
+
 // ===================================================================
-// ✨【最終修正版 v1.2】 - 修正 exists 屬性呼叫 & 強化刪除邏輯
+// ✨【最終修正版 v1.3】 - 補上遺漏的 today 變數宣告
 // ===================================================================
 
 /**
@@ -4107,8 +4109,10 @@ exports.getDailyMedicationDrafts = onCall(
 exports.applyScheduledPatientUpdates = onSchedule(
   { schedule: '0 1 * * *', timeZone: TIME_ZONE, timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
-    // ✨ 使用統一函式，並只宣告一次
+    // ✨✨✨【核心修正】✨✨✨
+    // 在函式開頭就宣告好所有需要的日期變數
     const todayStr = getTaipeiTodayString()
+    const today = getTaipeiNow() // <--- 補上這一行！
 
     logger.info(`🚀 [Updater] 執行 ${todayStr} 的預約變更任務...`)
 
@@ -4126,7 +4130,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
 
     logger.info(`[Updater] 找到 ${snapshot.size} 個待處理的預約。`)
 
-    // 定義 hasFrequencyConflict 輔助函式 (確保在此作用域可用)
     const hasFrequencyConflict = (freq1, freq2) => {
       if (!freq1 || !freq2) return false
       const days1 = FREQ_MAP_TO_DAY_INDEX[freq1] || []
@@ -4166,8 +4169,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
 
             await db.runTransaction(async (transaction) => {
               const masterDoc = await transaction.get(masterScheduleRef)
-              // ✨✨✨【核心修正 #1】✨✨✨
-              // 將 .exists() 改為 .exists
               if (!masterDoc.exists) throw new Error('MASTER_SCHEDULE document not found!')
 
               const schedule = masterDoc.data().schedule || {}
@@ -4212,7 +4213,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
               if (!patientDoc.exists) throw new Error(`Patient with ID ${patientId} not found.`)
               const patientData = patientDoc.data()
 
-              // 標記病人為刪除
               transaction.set(
                 patientRef,
                 {
@@ -4226,24 +4226,21 @@ exports.applyScheduledPatientUpdates = onSchedule(
                 { merge: true },
               )
 
-              // 從總表刪除
               transaction.update(masterRef, {
                 [`schedule.${patientId}`]: FieldValue.delete(),
               })
             })
 
-            // ✨ 新增：直接清理今天和未來的排程
             logger.info(`    - 開始清理 ${patientId} 的排程...`)
-
             const cleanupBatch = db.batch()
             let cleanupCount = 0
             const BATCH_SIZE = 450
 
-            // 清理今天和未來60天的排程
+            // 現在 `today` 變數已定義，這段迴圈可以正常執行了
             for (let i = 0; i <= 60; i++) {
               const targetDate = new Date(today)
               targetDate.setDate(targetDate.getDate() + i)
-              const dateStr = formatDateToYYYYMMDD(targetDate) // ✨ 使用統一函式
+              const dateStr = formatDateToYYYYMMDD(targetDate)
 
               if (dateStr >= todayStr) {
                 const scheduleRef = db.collection('schedules').doc(dateStr)
@@ -4252,7 +4249,6 @@ exports.applyScheduledPatientUpdates = onSchedule(
                 if (scheduleDoc.exists) {
                   const schedule = scheduleDoc.data().schedule || {}
                   const updates = {}
-
                   for (const key in schedule) {
                     if (schedule[key].patientId === patientId) {
                       updates[`schedule.${key}`] = FieldValue.delete()
@@ -4260,15 +4256,12 @@ exports.applyScheduledPatientUpdates = onSchedule(
                       logger.info(`      └─ 移除 ${dateStr} 的 ${key}`)
                     }
                   }
-
                   if (Object.keys(updates).length > 0) {
                     cleanupBatch.update(scheduleRef, {
                       ...updates,
                       lastModified: FieldValue.serverTimestamp(),
                       modifiedBy: 'scheduled_update',
                     })
-
-                    // 如果批次太大，先提交
                     if (cleanupCount >= BATCH_SIZE) {
                       await cleanupBatch.commit()
                       logger.info(`      └─ 批次提交：已清理 ${cleanupCount} 個項目`)
@@ -4279,27 +4272,22 @@ exports.applyScheduledPatientUpdates = onSchedule(
                 }
               }
             }
-
             if (cleanupCount > 0) {
               await cleanupBatch.commit()
               logger.info(`    - 共清理了 ${cleanupCount} 個排程項目`)
             }
 
-            // ✨ 新增：清理護理師分組
             logger.info(`    - 開始清理 ${patientId} 的護理師分組...`)
-
             const assignmentsBatch = db.batch()
             let assignmentCount = 0
             const assignmentsSnapshot = await db
               .collection('nurse_assignments')
-              .where('date', '>', todayStr) // ✨ 直接使用函式頂部的 todayStr
+              .where('date', '>', todayStr)
               .get()
-
             assignmentsSnapshot.forEach((doc) => {
               const teamsData = doc.data().teams || {}
               const updates = {}
               let needsUpdate = false
-
               for (const teamKey in teamsData) {
                 if (teamKey.startsWith(patientId + '-')) {
                   updates[`teams.${teamKey}`] = FieldValue.delete()
@@ -4307,30 +4295,24 @@ exports.applyScheduledPatientUpdates = onSchedule(
                   assignmentCount++
                 }
               }
-
               if (needsUpdate) {
                 assignmentsBatch.update(doc.ref, updates)
               }
             })
-
             if (assignmentCount > 0) {
               await assignmentsBatch.commit()
               logger.info(`    - 共清理了 ${assignmentCount} 個護理分組`)
             }
 
-            // 取消未來的調班申請
             await cancelFutureExceptionsForPatient(patientId)
-
             logger.info(`    - 成功將 patient/${patientId} 標記為刪除並完成所有清理工作`)
             break
 
           case 'RESTORE_PATIENT':
             const patientToRestoreRef = db.collection('patients').doc(patientId)
-
             if (!payload.status) {
               throw new Error("Payload for RESTORE_PATIENT is missing 'status'.")
             }
-
             const restoreData = {
               isDeleted: false,
               status: payload.status,
@@ -4339,9 +4321,7 @@ exports.applyScheduledPatientUpdates = onSchedule(
               deletedAt: FieldValue.delete(),
               originalStatus: FieldValue.delete(),
             }
-
             await patientToRestoreRef.update(restoreData)
-
             logger.info(`    - 成功將 patient/${patientId} 從刪除名單中復原至 ${payload.status}。`)
             break
 
