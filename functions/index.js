@@ -943,9 +943,11 @@ exports.ensureFutureSchedules = onCall(
   },
 )
 
-/**
- * 儲存護理師月班表 - 完整掃描版（避免重複）
- */
+// functions/index.js
+
+// ===================================================================
+// ✨【最終健壯版 v2.3】 - 掃描多個儲存格來尋找標題
+// ===================================================================
 exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) => {
   // 1. 安全性檢查
   if (!request.auth || request.auth.token.role !== 'admin') {
@@ -970,65 +972,81 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
 
     logger.log(`Excel 解析完成，共 ${jsonData.length} 行資料`)
 
-    // 4. 驗證資料完整性
-    if (!jsonData || jsonData.length < 5) {
+    if (!jsonData || jsonData.length < 1) {
       throw new Error('Excel 檔案內容不足，請確認檔案格式正確')
     }
 
-    // 5. 解析標題取得年月
+    // ✨✨✨【核心修正：使用巢狀迴圈掃描多個儲存格】✨✨✨
     let title = ''
     let year, month, yearMonth
+    let titleFound = false // 新增一個旗標來跳出外層迴圈
 
-    for (let i = 0; i < Math.min(jsonData.length, 5); i++) {
-      const cell = jsonData[i][0]
-      if (cell && typeof cell === 'string') {
-        const match = cell.match(/(\d{3})年(\d{1,2})月/)
-        if (match) {
-          title = cell
-          year = parseInt(match[1], 10) + 1911
-          month = String(match[2]).padStart(2, '0')
-          yearMonth = `${year}-${month}`
-          logger.log(`找到標題: ${title}, 解析年月: ${yearMonth}`)
-          break
+    // 外層迴圈：掃描前 10 行
+    for (let rowIndex = 0; rowIndex < Math.min(jsonData.length, 10); rowIndex++) {
+      const row = jsonData[rowIndex]
+      if (!row) continue // 如果是空行，跳過
+
+      // 內層迴圈：掃描該行的前 10 個儲存格 (A欄 到 J欄)
+      for (let cellIndex = 0; cellIndex < Math.min(row.length, 10); cellIndex++) {
+        const cell = row[cellIndex]
+
+        if (cell && typeof cell === 'string') {
+          const match = cell.match(/(\d{3,4})\s*年\s*(\d{1,2})\s*月(份)?/)
+          if (match) {
+            title = cell.trim()
+            let rawYear = parseInt(match[1], 10)
+            year = rawYear < 1911 ? rawYear + 1911 : rawYear
+            month = String(match[2]).padStart(2, '0')
+            yearMonth = `${year}-${month}`
+
+            logger.log(
+              `在儲存格 [${rowIndex + 1}, ${cellIndex + 1}] 的 "${title}" 中找到匹配項, 解析年月為: ${yearMonth}`,
+            )
+
+            titleFound = true // 設置旗標
+            break // 跳出內層迴圈
+          }
         }
+      }
+      if (titleFound) {
+        break // 如果已找到，也跳出外層迴圈
       }
     }
 
     if (!yearMonth) {
-      throw new Error('無法在 Excel 中找到有效的年月標題')
+      const firstTenRowsPreview = jsonData
+        .slice(0, 10)
+        .map((row, index) => `  行 ${index + 1}: ${(row || []).slice(0, 5).join(', ')}`)
+        .join('\n')
+      logger.error('無法解析年月標題。Excel 前 10 行內容預覽:\n' + firstTenRowsPreview)
+      throw new Error(
+        '無法在 Excel 檔案的前 10 行中找到有效的年月標題 (格式應包含 "XXX年YY月" 或 "XXX年YY月份")。請檢查檔案。',
+      )
     }
+    // ✨✨✨ (修正結束) ✨✨✨
 
-    // 6. 取得該月份的總天數
     const maxDaysInMonth = new Date(year, parseInt(month, 10), 0).getDate()
     logger.log(`${yearMonth} 共有 ${maxDaysInMonth} 天`)
 
-    // 7. 獲取護理師資料（修改版 - 包含 username）
+    // ... 後續的程式碼完全不變 ...
     const usersSnapshot = await db.collection('users').where('title', '==', '護理師').get()
     const nurseMap = new Map()
-    const nurseDataMap = new Map() // 新增：儲存完整的護理師資料
+    const nurseDataMap = new Map()
 
     usersSnapshot.forEach((doc) => {
       const userData = doc.data()
       nurseMap.set(userData.name, doc.id)
-      // 儲存完整資料，包含 username
       nurseDataMap.set(doc.id, {
         name: userData.name,
         username: userData.username || '',
       })
     })
-
     logger.log(`資料庫中有 ${nurseMap.size} 位護理師`)
-    logger.log(`護理師名單: ${Array.from(nurseMap.keys()).join(', ')}`)
 
-    // 8. 找護理師資料開始的行
     let nurseStartRow = -1
-
     for (let i = 2; i < Math.min(jsonData.length, 20); i++) {
       const firstCell = String(jsonData[i]?.[0] || '').trim()
-
       if (!firstCell) continue
-
-      // 檢查是否為護理師名字
       for (const fullName of nurseMap.keys()) {
         if (fullName.endsWith(firstCell)) {
           nurseStartRow = i
@@ -1036,50 +1054,35 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
           break
         }
       }
-
       if (nurseStartRow !== -1) break
     }
-
     if (nurseStartRow === -1) {
       throw new Error('找不到護理師資料，請確認 Excel 格式')
     }
 
-    // 9. 解析護理師班表 - 完整掃描所有行
     const scheduleByNurse = {}
     const scheduleByWeek = {}
-    const processedNurses = new Set() // 記錄已處理的護理師，避免重複
-    const processingOrder = [] // 新增：記錄 Excel 中的原始順序
-
-    // 班別定義
+    const processedNurses = new Set()
+    const processingOrder = []
     const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815', '7-3', '8-4', '7-5']
     const LATE_SHIFTS = ['3-11', '311']
     const REST_TYPES = ['休', '例', '例假', '國定', 'off', 'OFF', '例教']
 
-    // 從找到的護理師行開始，掃描到檔案結尾
     for (let rowIndex = nurseStartRow; rowIndex < jsonData.length; rowIndex++) {
       const row = jsonData[rowIndex]
-      if (!row || !row[0]) {
-        continue // 跳過空行但繼續掃描
-      }
+      if (!row || !row[0]) continue
 
       const nurseFirstName = String(row[0]).trim()
-
-      // 跳過明確的無關行
       if (
         !nurseFirstName ||
-        nurseFirstName.includes('COUNT') ||
-        nurseFirstName.includes('合計') ||
-        nurseFirstName.includes('總計') ||
-        nurseFirstName === '例假' ||
-        nurseFirstName.includes('備註')
+        ['COUNT', '合計', '總計', '例假', '備註'].some((kw) => nurseFirstName.includes(kw))
       ) {
         logger.log(`跳過無關行: "${nurseFirstName}"`)
         continue
       }
 
-      // 找對應的護理師
-      let matchedFullName = null
-      let matchedId = null
+      let matchedFullName = null,
+        matchedId = null
       for (const [fullName, id] of nurseMap.entries()) {
         if (fullName && fullName.endsWith(nurseFirstName)) {
           matchedFullName = fullName
@@ -1087,148 +1090,86 @@ exports.saveNursingSchedule = onCall({ cors: allowedOrigins }, async (request) =
           break
         }
       }
-
       if (!matchedFullName) {
         logger.log(`第 ${rowIndex} 行: 未匹配的名字 "${nurseFirstName}"`)
-        continue // 繼續掃描下一行
+        continue
       }
-
-      // 檢查是否已處理過這個護理師
       if (processedNurses.has(matchedId)) {
         logger.warn(`第 ${rowIndex} 行: 護理師 "${matchedFullName}" 已經處理過，跳過重複資料`)
         continue
       }
 
-      // 初始化整個月的班表陣列
       const shifts = new Array(maxDaysInMonth).fill('')
-
-      // 直接從第二欄開始按順序抓取
-      let workDays = 0
-      let restDays = 0
-      let emptyDays = 0
-
       for (let day = 1; day <= maxDaysInMonth; day++) {
-        const columnIndex = day // 第1欄對應1號（第0欄是姓名）
-
+        const columnIndex = day
         if (columnIndex < row.length) {
-          const cellValue = row[columnIndex]
-          const shift = String(cellValue || '').trim()
-
-          if (shift) {
-            shifts[day - 1] = shift
-
-            // 統計班別類型
-            if (REST_TYPES.some((r) => shift.includes(r))) {
-              restDays++
-            } else if (shift) {
-              workDays++
-            }
-          } else {
-            emptyDays++
-          }
-        } else {
-          emptyDays++
+          const shift = String(row[columnIndex] || '').trim()
+          if (shift) shifts[day - 1] = shift
         }
       }
 
-      // 從 nurseDataMap 獲取完整資料（包含 username）
       const nurseData = nurseDataMap.get(matchedId)
-
-      // 儲存護理師班表（修改版 - 包含 username 和原始順序）
       scheduleByNurse[matchedId] = {
         nurseName: matchedFullName,
-        nurseUsername: nurseData?.username || '', // 新增：儲存員工編號
-        orderIndex: processingOrder.length, // 新增：記錄原始順序
+        nurseUsername: nurseData?.username || '',
+        orderIndex: processingOrder.length,
         shifts: shifts,
       }
-
-      // 記錄處理順序
       processingOrder.push(matchedId)
-
-      // 標記為已處理
       processedNurses.add(matchedId)
 
-      logger.log(
-        `✓ 處理護理師 ${matchedFullName} (ID: ${matchedId}, 員工編號: ${nurseData?.username || '無'})：` +
-          `上班 ${workDays} 天，休息 ${restDays} 天，空白 ${emptyDays} 天`,
-      )
-
-      // 建立週班表
       shifts.forEach((shift, index) => {
         if (!shift) return
-
         const day = index + 1
         let type = null
-
-        if (EARLY_SHIFTS.some((s) => shift.includes(s))) {
-          type = 'early'
-        } else if (LATE_SHIFTS.some((s) => shift.includes(s))) {
-          type = 'late'
-        }
+        if (EARLY_SHIFTS.some((s) => shift.includes(s))) type = 'early'
+        else if (LATE_SHIFTS.some((s) => shift.includes(s))) type = 'late'
 
         if (type) {
           const date = new Date(year, parseInt(month, 10) - 1, day)
           const dayOfWeek = (date.getDay() + 6) % 7
           const weekNumber = Math.ceil(day / 7)
-
-          if (!scheduleByWeek[weekNumber]) {
-            scheduleByWeek[weekNumber] = {}
-          }
-          if (!scheduleByWeek[weekNumber][dayOfWeek]) {
+          if (!scheduleByWeek[weekNumber]) scheduleByWeek[weekNumber] = {}
+          if (!scheduleByWeek[weekNumber][dayOfWeek])
             scheduleByWeek[weekNumber][dayOfWeek] = { early: [], late: [] }
-          }
-
           scheduleByWeek[weekNumber][dayOfWeek][type].push({
             id: matchedId,
             name: matchedFullName,
-            username: nurseData?.username || '', // 新增：也在週班表中包含員工編號
+            username: nurseData?.username || '',
             shift: shift,
           })
         }
       })
     }
 
-    const processedCount = processedNurses.size
-
-    if (processedCount === 0) {
+    if (processedNurses.size === 0) {
       throw new Error('沒有找到任何可處理的護理師資料')
     }
 
-    // 10. 寫入 Firestore
     const dataToSave = {
       title,
       yearMonth,
       maxDaysInMonth,
       scheduleByNurse,
       scheduleByWeek,
-      processingOrder, // 新增：儲存原始順序
+      processingOrder,
       lastUpdatedAt: FieldValue.serverTimestamp(),
-      updatedBy: {
-        uid: request.auth.uid,
-        name: request.auth.token.name || '未知管理員',
-      },
+      updatedBy: { uid: request.auth.uid, name: request.auth.token.name || '未知管理員' },
     }
-
     await db.collection('nursing_schedules').doc(yearMonth).set(dataToSave)
 
     const nurseList = Object.values(scheduleByNurse)
-      .sort((a, b) => a.orderIndex - b.orderIndex) // 按原始順序排列
+      .sort((a, b) => a.orderIndex - b.orderIndex)
       .map((n) => n.nurseName)
       .join(', ')
-
-    logger.log(
-      `✅ 班表 ${yearMonth} 已成功儲存\n` +
-        `   處理護理師數: ${processedCount}\n` +
-        `   月份天數: ${maxDaysInMonth}\n` +
-        `   護理師名單: ${nurseList}`,
-    )
+    logger.log(`✅ 班表 ${yearMonth} 已成功儲存`)
 
     return {
       success: true,
-      message: `班表 ${yearMonth} 已成功儲存，包含 ${processedCount} 位護理師的完整資料。`,
+      message: `班表 ${yearMonth} 已成功儲存，包含 ${processedNurses.size} 位護理師的完整資料。`,
       stats: {
         month: yearMonth,
-        nurseCount: processedCount,
+        nurseCount: processedNurses.size,
         daysInMonth: maxDaysInMonth,
         nurses: nurseList,
       },
