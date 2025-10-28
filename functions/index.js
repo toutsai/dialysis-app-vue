@@ -1970,10 +1970,9 @@ exports.scheduledDataBackup = onSchedule(
   },
 )
 
-// functions/index.js
-
 // ===================================================================
-// 🔥🔥🔥【最終原子化更新版 v13.1】 - syncMasterScheduleToFuture 🔥🔥🔥
+// 🔥🔥🔥【最終健壯版 v13.3】 - syncMasterScheduleToFuture 🔥🔥🔥
+// 修正了更新物件中包含 undefined 值的致命錯誤
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -1982,116 +1981,142 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [AtomicSync-v13.1] 原子化同步流程啟動...')
+    logger.info('🚀 [AtomicSync-v13.3] 原子化同步流程啟動...')
 
     if (!event.data.after.exists) {
-      logger.info('✅ [AtomicSync-v13.1] 總表文件被刪除，無需同步。')
+      logger.info('✅ [AtomicSync-v13.3] 總表文件被刪除，無需同步。')
       return null
     }
 
     const beforeRules = event.data.before?.data()?.schedule || {}
     const afterRules = event.data.after.data().schedule || {}
     if (JSON.stringify(beforeRules) === JSON.stringify(afterRules)) {
-      logger.info('✅ [AtomicSync-v13.1] 總表資料無實質變更，跳過同步。')
+      logger.info('✅ [AtomicSync-v13.3] 總表資料無實質變更，跳過同步。')
       return null
     }
 
     try {
-      // 🔥 核心修正：明確定義 masterRules 變數
       const masterRules = afterRules
 
-      // --- 階段一: 精準計算差異，並原子性更新基礎排程 ---
-      logger.info('  ➡️ [Sync Step 1/2] 開始計算差異並原子性更新從明天起的 60 天基礎排程...')
-      const baseScheduleBatch = db.batch()
-      const today = getTaipeiNow()
+      // --- 階段一: 精準計算差異，並原子性更新/創建基礎排程 ---
+      logger.info('  ➡️ [Sync Step 1/2] 開始計算差異並同步從明天起的 60 天基礎排程...')
 
-      // 1. 找出所有發生變更的病人 ID
+      const today = getTaipeiNow()
       const allPatientIds = new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])
 
-      // 2. 循環未來 60 天
-      for (let i = 1; i <= 60; i++) {
+      const futureDates = Array.from({ length: 60 }, (_, i) => {
         const targetDate = new Date(today)
-        targetDate.setDate(today.getDate() + i)
-        const dateStr = formatDateToYYYYMMDD(targetDate)
+        targetDate.setDate(today.getDate() + i + 1)
+        return formatDateToYYYYMMDD(targetDate)
+      })
+
+      const existingSchedules = new Map()
+      for (let i = 0; i < futureDates.length; i += 30) {
+        const chunk = futureDates.slice(i, i + 30)
+        if (chunk.length > 0) {
+          // 確保 chunk 不是空的
+          const snapshot = await db
+            .collection('schedules')
+            .where(FieldPath.documentId(), 'in', chunk)
+            .get()
+          snapshot.forEach((doc) => existingSchedules.set(doc.id, doc.data().schedule || {}))
+        }
+      }
+      logger.info(
+        `  [Sync Step 1/2] 已檢查未來 60 天排程，找到 ${existingSchedules.size} 份現有文件。`,
+      )
+
+      const syncBatch = db.batch()
+
+      for (const dateStr of futureDates) {
+        const targetDate = new Date(dateStr + 'T00:00:00Z')
         const dayIndex = getTaipeiDayIndex(targetDate)
 
-        const updates = {} // 構建針對這一天的「差異更新包」
+        if (!existingSchedules.has(dateStr)) {
+          logger.warn(`  [Sync Step 1/2] 警告：未來排程 ${dateStr} 不存在，將即時創建。`)
+          const newDailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+          const scheduleRef = db.collection('schedules').doc(dateStr)
+          syncBatch.set(scheduleRef, {
+            date: dateStr,
+            schedule: newDailySchedule,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+            syncMethod: 'engine_driven_sync_v13.3_recreate',
+          })
+          continue
+        }
 
-        // 3. 遍歷所有可能變更的病人，判斷他們在「今天」的狀態
+        const updates = {}
         allPatientIds.forEach((patientId) => {
           const ruleBefore = beforeRules[patientId]
           const ruleAfter = afterRules[patientId]
-
           const wasScheduled =
             ruleBefore && (FREQ_MAP_TO_DAY_INDEX[ruleBefore.freq] || []).includes(dayIndex)
           const isScheduled =
             ruleAfter && (FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).includes(dayIndex)
 
-          // 情況 A: 病人被「移除」或「移動走」了
+          // ✨✨✨【核心修正：建立一個輔助函式來產生完整的 slot 物件】✨✨✨
+          const createSlotObject = (rule) => {
+            if (!rule) return null
+            const shiftCode = SHIFTS[rule.shiftIndex]
+            if (!shiftCode) return null // 如果 shiftIndex 無效，直接返回 null
+            return {
+              patientId: patientId,
+              patientName: rule.patientName || '',
+              shiftId: shiftCode,
+              autoNote: rule.autoNote || '',
+              manualNote: rule.manualNote || '',
+              baseRuleId: patientId,
+            }
+          }
+
           if (wasScheduled && !isScheduled) {
             const oldShiftCode = SHIFTS[ruleBefore.shiftIndex]
-            const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
-            updates[`schedule.${oldKey}`] = FieldValue.delete() // 🔥 標記為刪除
-          }
-          // 情況 B: 病人被「新增」或「移動來」了
-          else if (!wasScheduled && isScheduled) {
-            const newShiftCode = SHIFTS[ruleAfter.shiftIndex]
-            const newKey = getScheduleKey(ruleAfter.bedNum, newShiftCode)
-            updates[`schedule.${newKey}`] = {
-              // 🔥 標記為新增
-              patientId: patientId,
-              patientName: ruleAfter.patientName || '',
-              shiftId: newShiftCode,
-              autoNote: ruleAfter.autoNote || '',
-              manualNote: ruleAfter.manualNote || '',
-              baseRuleId: patientId,
+            // 增加防呆，確保 oldKey 不會是 undefined
+            if (ruleBefore.bedNum !== undefined && oldShiftCode) {
+              const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
+              updates[`schedule.${oldKey}`] = FieldValue.delete()
             }
-          }
-          // 情況 C: 病人「原地修改」規則 (例如床位不變，只改頻率，但今天恰好還有班)
-          else if (wasScheduled && isScheduled) {
+          } else if (!wasScheduled && isScheduled) {
+            const newSlot = createSlotObject(ruleAfter)
+            // 增加防呆，確保 newSlot 和 newKey 都是有效的
+            if (newSlot && ruleAfter.bedNum !== undefined) {
+              const newKey = getScheduleKey(ruleAfter.bedNum, newSlot.shiftId)
+              updates[`schedule.${newKey}`] = newSlot
+            }
+          } else if (wasScheduled && isScheduled) {
             const oldShiftCode = SHIFTS[ruleBefore.shiftIndex]
-            const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
-            const newShiftCode = SHIFTS[ruleAfter.shiftIndex]
-            const newKey = getScheduleKey(ruleAfter.bedNum, newShiftCode)
+            const newSlot = createSlotObject(ruleAfter)
 
-            if (oldKey !== newKey) {
-              updates[`schedule.${oldKey}`] = FieldValue.delete() // 🔥 標記舊位置刪除
-            }
-            updates[`schedule.${newKey}`] = {
-              // 🔥 標記新位置新增/更新
-              patientId: patientId,
-              patientName: ruleAfter.patientName || '',
-              shiftId: newShiftCode,
-              autoNote: ruleAfter.autoNote || '',
-              manualNote: ruleAfter.manualNote || '',
-              baseRuleId: patientId,
+            // 增加防呆，確保所有變數都有效
+            if (
+              newSlot &&
+              ruleBefore.bedNum !== undefined &&
+              oldShiftCode &&
+              ruleAfter.bedNum !== undefined
+            ) {
+              const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
+              const newKey = getScheduleKey(ruleAfter.bedNum, newSlot.shiftId)
+              if (oldKey !== newKey) {
+                updates[`schedule.${oldKey}`] = FieldValue.delete()
+              }
+              updates[`schedule.${newKey}`] = newSlot
             }
           }
         })
 
-        // 4. 如果當天有任何變更，才加入批次操作
         if (Object.keys(updates).length > 0) {
-          // 添加一些必要的 metadata 更新
           updates.updatedAt = FieldValue.serverTimestamp()
-          updates.syncMethod = 'engine_driven_sync_v13.1_atomic'
-
+          updates.syncMethod = 'engine_driven_sync_v13.3_atomic'
           const scheduleRef = db.collection('schedules').doc(dateStr)
-          // 🔥 使用 update 執行原子性更新，這會自動處理 merge
-          baseScheduleBatch.update(scheduleRef, updates)
+          syncBatch.update(scheduleRef, updates)
         }
       }
 
-      // 注意：如果某一天完全不存在，直接呼叫 update 會失敗。
-      // 為了健壯性，我們可以在這裡做一個檢查，或者使用 set({ merge: true }) 的變體。
-      // 考慮到您的系統應該每天都有初始化排程的機制，直接用 update 通常是安全的。
-      // 如果遇到「文件不存在」的錯誤，我們可能需要將 update 改回 set({ merge: true })，
-      // 但那樣就不能使用 FieldValue.delete() 了。
-      // 讓我們假設排程文件都已存在。如果報錯，我們再改用更複雜的邏輯。
+      await syncBatch.commit()
+      logger.info('  ✅ [Sync Step 1/2] 成功同步 60 天的基礎排程。')
 
-      await baseScheduleBatch.commit()
-      logger.info('  ✅ [Sync Step 1/2] 成功原子性更新 60 天的基礎排程。')
-
-      // --- 階段二: 找出受影響的日期並呼叫合併引擎 ---
+      // --- 階段二: 找出受影響的日期並呼叫合併引擎 (邏輯不變) ---
       logger.info('  ➡️ [Sync Step 2/2] 開始計算需要合併調班的日期...')
       const exceptionsSnapshot = await db
         .collection('schedule_exceptions')
@@ -2122,13 +2147,12 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
         })
       })
 
-      // 🔥 這裡現在可以正確使用 masterRules 了
       await mergeExceptionsIntoSchedules(datesToMerge, masterRules)
 
-      logger.info('🎉 [AtomicSync-v13.1] 所有同步階段均已成功完成！')
+      logger.info('🎉 [AtomicSync-v13.3] 所有同步階段均已成功完成！')
     } catch (error) {
-      logger.error('❌ [AtomicSync-v13.1] 原子化同步過程中發生嚴重錯誤:', error)
-      throw error
+      logger.error('❌ [AtomicSync-v13.3] 原子化同步過程中發生嚴重錯誤:', error)
+      throw error // 重新拋出錯誤，以便 Cloud Functions 知道執行失敗
     }
     return null
   },
