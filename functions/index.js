@@ -1982,14 +1982,17 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
         if (!existingSchedules.has(dateStr)) {
           logger.warn(`  [Sync Step 1/2] 警告：未來排程 ${dateStr} 不存在，將即時創建。`)
-          const newDailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+          // ✨✨✨【核心修正】✨✨✨
+          // 直接將 dateStr 傳遞過去，而不是 targetDate 物件
+          const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
+
           const scheduleRef = db.collection('schedules').doc(dateStr)
           syncBatch.set(scheduleRef, {
             date: dateStr,
             schedule: newDailySchedule,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
-            syncMethod: 'engine_driven_sync_v13.3_recreate',
+            syncMethod: 'engine_driven_sync_v13.4_recreate', // 版本號可以更新一下
           })
           continue
         }
