@@ -317,7 +317,14 @@ const currentCalendarDate = computed(() =>
   calendarApi.value ? calendarApi.value.getDate() : new Date(),
 )
 
+// ✨✨✨【核心修正：強化 isCancellable 函式】✨✨✨
+/**
+ * 判斷一個調班申請是否還可以被使用者撤銷或修改。
+ * @param {object} exceptionData - 調班申請的資料。
+ * @returns {boolean} - 如果可以撤銷/修改，則返回 true。
+ */
 function isCancellable(exceptionData) {
+  // 1. 基本狀態檢查：已撤銷、已過期或處理錯誤的申請，不能再操作。
   if (
     !exceptionData ||
     exceptionData.status === 'cancelled' ||
@@ -326,15 +333,33 @@ function isCancellable(exceptionData) {
   ) {
     return false
   }
-  const todayStr = new Date().toISOString().split('T')[0]
+
+  // 2. 建立一個代表「今天凌晨 0 點」的日期物件，用於比較。
+  //    這樣做可以完全避免時區問題。
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // 3. 找出此調班申請「最晚會影響到的日期」。
   let latestDateStr = exceptionData.endDate || exceptionData.startDate || exceptionData.date
-  if (exceptionData.type === 'MOVE') {
+  if (exceptionData.type === 'MOVE' && exceptionData.to && exceptionData.from) {
+    // 對於跨日調班，取較晚的那個日期
     latestDateStr =
-      exceptionData.to?.goalDate > exceptionData.from?.sourceDate
-        ? exceptionData.to?.goalDate
-        : exceptionData.from?.sourceDate
+      exceptionData.to.goalDate > exceptionData.from.sourceDate
+        ? exceptionData.to.goalDate
+        : exceptionData.from.sourceDate
   }
-  return !latestDateStr || latestDateStr >= todayStr
+
+  // 如果找不到任何有效日期，為安全起見，不允許撤銷。
+  if (!latestDateStr) {
+    return false
+  }
+
+  // 4. 將最晚影響日期轉換為 Date 物件。
+  //    加上 'T00:00:00' 是為了確保日期物件不含時間，避免比對出錯。
+  const latestDate = new Date(latestDateStr + 'T00:00:00')
+
+  // 5. 最終判斷：只有當最晚影響日期是「今天」或「未來」時，才允許撤銷/修改。
+  return latestDate >= today
 }
 
 async function scrollToCurrentWeek() {
