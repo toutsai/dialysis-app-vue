@@ -658,6 +658,11 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   // === 一般資料更新（不記錄歷史） ===
   if (!historyWritten) {
     if (beforeData && afterData) {
+      // ✨✨✨【核心修改：將這段程式碼刪除或註解掉】✨✨✨
+      // 理由：根據新的工作流程，修改病人資料頁的 `freq` 不應再自動觸發
+      //       總表的更新。所有排班規則的變更，都應由排班人員在
+      //       「總床位表」頁面手動完成，以確保經過衝突檢查。
+      /*
       if (beforeData.freq !== afterData.freq && afterData.freq) {
         tasks.push(
           db
@@ -668,6 +673,8 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
             }),
         )
       }
+      */
+      // ✨✨✨ (修改結束) ✨✨✨
     }
   }
 
