@@ -139,8 +139,24 @@ function applySingleException(schedule, ex, dateStr) {
 // 核心商業邏輯函式
 // ===================================================================
 
-function generateDailyScheduleFromRules(masterRules, targetDate) {
+/**
+ * ✨✨✨【健壯版 v1.1】✨✨✨
+ * 根據總表規則，為指定的「日期字串」產生當日的基礎排程。
+ * @param {object} masterRules - 總表規則物件。
+ * @param {string} dateStr - 目標日期字串 (格式 'YYYY-MM-DD')。
+ * @returns {object} - 當日的基礎排程物件。
+ */
+function generateDailyScheduleFromRules(masterRules, dateStr) {
   const dailySchedule = {}
+
+  // 1. 根據傳入的日期字串，建立一個標準化的 UTC Date 物件
+  const targetDate = new Date(dateStr + 'T00:00:00Z')
+  if (isNaN(targetDate.getTime())) {
+    logger.error(`[Engine] generateDailyScheduleFromRules 收到無效的日期字串: ${dateStr}`)
+    return {} // 返回空物件以避免後續錯誤
+  }
+
+  // 2. 將此標準化物件傳遞給 getTaipeiDayIndex，以獲得正確的星期索引
   const systemDayIndex = getTaipeiDayIndex(targetDate)
 
   for (const patientId in masterRules) {
@@ -167,7 +183,7 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
   return dailySchedule
 }
 
-// 🔥【最終簡化版 v3.0】 - recalculateDailySchedule
+// 🔥【最終簡化版 v3.1】 - recalculateDailySchedule
 /**
  * 職責：純計算，並返回最終排程和檢測到的衝突列表
  * @param {string} dateStr - 目標日期
@@ -176,14 +192,15 @@ function generateDailyScheduleFromRules(masterRules, targetDate) {
  * @returns {{finalSchedule: object, conflictingExceptions: Array<object>}} - 返回包含最終排程和衝突列表的物件
  */
 function recalculateDailySchedule(dateStr, masterRules, todaysExceptions) {
-  let finalSchedule = generateDailyScheduleFromRules(masterRules, new Date(dateStr + 'T00:00:00Z'))
+  // ✨✨✨【核心修正】✨✨✨
+  // 將 dateStr (日期字串) 直接傳遞給 generateDailyScheduleFromRules
+  let finalSchedule = generateDailyScheduleFromRules(masterRules, dateStr)
   const conflictingExceptions = []
 
   for (const ex of todaysExceptions) {
     const hasConflict = applySingleException(finalSchedule, ex, dateStr)
 
     if (hasConflict) {
-      // 如果有衝突，不應用此調班，並將其加入衝突列表
       conflictingExceptions.push(ex)
     }
   }
