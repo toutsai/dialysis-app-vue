@@ -17,13 +17,35 @@
           </div>
 
           <button @click="goToToday">回到今日</button>
-          <button
-            class="btn-primary"
-            @click="isCreateTaskModalVisible = true"
-            :disabled="!hasPermission('viewer')"
-          >
-            <i class="fas fa-plus"></i> 新增交辦/留言
-          </button>
+          <!-- ✨ 新增：按鈕群組 -->
+          <div class="action-buttons-group">
+            <!-- 現有的交辦按鈕 -->
+            <button
+              class="btn-primary"
+              @click="isCreateTaskModalVisible = true"
+              :disabled="!hasPermission('viewer')"
+            >
+              <i class="fas fa-plus"></i> 新增交辦
+            </button>
+
+            <!-- ✨ 新增：調班申請按鈕 -->
+            <button
+              class="btn-info"
+              @click="isExceptionDialogVisible = true"
+              :disabled="isPageLocked"
+            >
+              <i class="fas fa-exchange-alt"></i> 調班申請
+            </button>
+
+            <!-- ✨ 新增：預約變更按鈕 -->
+            <button
+              class="btn-warning"
+              @click="isNewUpdateTypeDialogVisible = true"
+              :disabled="isPageLocked"
+            >
+              <i class="fas fa-calendar-plus"></i> 預約變更
+            </button>
+          </div>
           <button
             v-if="!lateShiftTakeOffExists"
             @click="promptDuplicateLateShift"
@@ -1092,11 +1114,41 @@
     >
       <i class="fas fa-plus"></i>
     </button>
+    <!-- ✨ 新增：調班申請 Dialog -->
+    <ExceptionCreateDialog
+      :is-visible="isExceptionDialogVisible"
+      :all-patients="allPatients"
+      :is-page-locked="isPageLocked"
+      :initial-data="exceptionToEdit"
+      @close="isExceptionDialogVisible = false"
+      @submit="handleCreateException"
+    />
+
+    <!-- ✨ 新增：預約變更類型選擇 Dialog -->
+    <NewUpdateTypeDialog
+      :is-visible="isNewUpdateTypeDialogVisible"
+      :all-patients="allPatients"
+      @close="isNewUpdateTypeDialogVisible = false"
+      @continue="handleNewUpdateTypeSelected"
+    />
+
+    <!-- ✨ 新增：預約變更詳細設定 Dialog -->
+    <PatientUpdateSchedulerDialog
+      :is-visible="isSchedulerDialogVisible"
+      :patient="patientForScheduler"
+      :change-type="changeTypeForScheduler"
+      :all-patients="allPatients"
+      :is-editing="false"
+      @close="isSchedulerDialogVisible = false"
+      @submit="handleScheduledUpdate"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed, reactive, watch, onUnmounted, provide } from 'vue'
+import { serverTimestamp, addDoc, collection } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager.js'
 import { where, orderBy, limit } from 'firebase/firestore'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
@@ -1123,13 +1175,17 @@ import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import * as XLSX from 'xlsx'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
+// ✨ 新增：引入調班和預約變更相關元件
+import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
+import NewUpdateTypeDialog from '@/components/NewUpdateTypeDialog.vue'
+import PatientUpdateSchedulerDialog from '@/components/PatientUpdateSchedulerDialog.vue'
 
 // --- Store 和 Composables 初始化 ---
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
 const archiveStore = useArchiveStore()
 const medicationStore = useMedicationStore()
-const { patientMap } = storeToRefs(patientStore)
+const { patientMap, allPatients } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
 
@@ -1246,6 +1302,16 @@ const isOrderModalVisible = ref(false)
 const editingPatientForOrder = ref(null)
 
 provide('viewingDate', currentDate)
+
+// ✨ 新增：調班申請相關 refs
+const isExceptionDialogVisible = ref(false)
+const exceptionToEdit = ref(null)
+
+// ✨ 新增：預約變更相關 refs
+const isNewUpdateTypeDialogVisible = ref(false)
+const isSchedulerDialogVisible = ref(false)
+const patientForScheduler = ref(null)
+const changeTypeForScheduler = ref('')
 
 // --- Computed Properties (大部分保持不變) ---
 const hasUnsavedChanges = computed(
@@ -1676,6 +1742,7 @@ async function saveChangesToCloud() {
     showAlert('儲存失敗', `儲存失敗: ${error.message}`)
   }
 }
+
 function getDutyTagClass(dutyName) {
   if (dutyName.includes('指揮官')) return 'role-field-commander'
   if (dutyName.includes('安全')) return 'role-safety'
@@ -2228,6 +2295,61 @@ const openOrderModalFromPopover = (patient) => {
   if (patient && patient.id) {
     editingPatientForOrder.value = patient
     isOrderModalVisible.value = true
+  }
+}
+
+// ✨ 新增：處理調班申請
+async function handleCreateException(formData) {
+  try {
+    // 複製 ExceptionManagerView 的邏輯
+    const exceptionsApi = ApiManager('schedule_exceptions')
+    const dataToSave = {
+      patientId: formData.patientId,
+      patientName: formData.patientName,
+      type: formData.type,
+      reason: formData.reason,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      from: formData.from,
+      to: formData.to,
+      status: 'pending',
+      createdAt: serverTimestamp(),
+    }
+
+    if (formData.type === 'SWAP') {
+      dataToSave.date = formData.date
+      dataToSave.patient1 = formData.patient1
+      dataToSave.patient2 = formData.patient2
+    }
+
+    await exceptionsApi.save(dataToSave)
+    isExceptionDialogVisible.value = false
+    createGlobalNotification(`成功新增調班申請: ${formData.patientName}`, 'success')
+  } catch (error) {
+    console.error('提交調班申請失敗:', error)
+    showAlert('提交失敗', `無法儲存調班申請: ${error.message}`)
+  }
+}
+
+// ✨ 新增：處理預約變更選擇
+function handleNewUpdateTypeSelected({ patient, changeType }) {
+  patientForScheduler.value = patient
+  changeTypeForScheduler.value = changeType
+  isNewUpdateTypeDialogVisible.value = false
+  setTimeout(() => {
+    isSchedulerDialogVisible.value = true
+  }, 150)
+}
+
+// ✨ 新增：處理預約變更提交
+async function handleScheduledUpdate(dataToSubmit) {
+  isSchedulerDialogVisible.value = false
+  try {
+    await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
+    createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
+  } catch (error) {
+    console.error('提交預約失敗:', error)
+    showAlert('提交失敗', `無法儲存預約變更: ${error.message}`)
   }
 }
 
@@ -3089,6 +3211,31 @@ button:disabled {
   align-self: center;
 }
 
+/* 新增按鈕群組樣式 */
+.action-buttons-group {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.btn-info {
+  background-color: #17a2b8;
+  color: white;
+  border-color: #17a2b8;
+}
+.btn-info:hover:not(:disabled) {
+  background-color: #138496;
+}
+
+.btn-warning {
+  background-color: #ffc107;
+  color: #212529;
+  border-color: #ffc107;
+}
+.btn-warning:hover:not(:disabled) {
+  background-color: #e0a800;
+}
+
 /* ================================== */
 /* === 6. 響應式設計 === */
 /* ================================== */
@@ -3157,6 +3304,15 @@ button:disabled {
   .toolbar-left > button {
     width: 100%;
     box-sizing: border-box;
+    justify-content: center;
+  }
+  .action-buttons-group {
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .action-buttons-group button {
+    width: 100%;
     justify-content: center;
   }
 
