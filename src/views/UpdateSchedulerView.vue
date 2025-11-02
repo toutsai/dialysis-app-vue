@@ -5,7 +5,7 @@
       <div class="header-toolbar">
         <!-- ✨ 將 toolbar-left 應用到一個新的 div 上 -->
         <div class="toolbar-left">
-          <h1 class="page-title">預約變更總覽(測試)</h1>
+          <h1 class="page-title">預約變更總覽</h1>
           <!-- ✨ 將按鈕移動到這裡 -->
           <button class="btn btn-primary" @click="openNewUpdateDialog" :disabled="isPageLocked">
             <i class="fas fa-plus-circle"></i> 新增預約變更
