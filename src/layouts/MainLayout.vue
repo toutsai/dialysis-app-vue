@@ -48,12 +48,21 @@
                 <span class="nav-title">調班換床</span>
                 <span class="nav-subtitle"></span>
               </div>
+              <!-- ✨✨✨【核心修改 A】✨✨✨ -->
+              <!-- 當 conflictCount > 0 時，顯示這個警示圖示 -->
+              <span
+                v-if="conflictCount > 0"
+                class="alert-badge"
+                :title="`有 ${conflictCount} 個衝突待解決`"
+              >
+                <i class="fas fa-exclamation-triangle"></i>
+              </span>
             </RouterLink>
           </li>
           <li v-if="auth.isEditor.value" class="desktop-only-nav-item">
             <RouterLink to="/update-scheduler" class="nav-link">
               <div class="nav-item-content">
-                <span class="nav-title">預約變更(測試)</span>
+                <span class="nav-title">預約變更</span>
               </div>
             </RouterLink>
           </li>
@@ -65,24 +74,12 @@
               </div>
             </RouterLink>
           </li>
-          <!-- ✨ [核心修改] 移除 "交班備忘錄" 連結 -->
-          <!--
-          <li>
-            <RouterLink to="/memo" class="nav-link">
-              <div class="nav-item-content">
-                <span class="nav-title">交班備忘錄</span>
-                <span class="nav-subtitle"></span>
-              </div>
-            </RouterLink>
-          </li>
-          -->
           <li>
             <RouterLink to="/collaboration" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">訊息中心</span>
                 <span class="nav-subtitle"></span>
               </div>
-              <!-- ✨ notificationCount 的綁定已在 script 中更新 -->
               <span v-if="notificationCount > 0" class="notification-badge">
                 {{ notificationCount }}
               </span>
@@ -230,17 +227,18 @@ import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import { httpsCallable } from 'firebase/functions'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+// ✨✨✨【核心修改 B】✨✨✨
+// 從 firebase/firestore 引入所有需要的函式
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
-import { db, functions } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase.js'
 import ApiManager from '@/services/api_manager'
 
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 
-const auth = useAuth() // ✨ 2. 在這裡初始化 useAuth，並將它賦值給 auth 變數
+const auth = useAuth()
 const router = useRouter()
 const route = useRoute()
 const {
@@ -261,27 +259,24 @@ const isManagementSectionCollapsed = ref(true)
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const taskStore = useTaskStore()
-// ✨ 1. 只解構出需要的 state，getter 則直接從 store 實例取用
 const { myTasks } = storeToRefs(taskStore)
-const { todayRelevantMemosCount } = taskStore // Getter 不是 ref，直接從 store 實例取
+const { todayRelevantMemosCount } = taskStore
 
 const todayMyPatientIds = ref([])
 const assignmentsApi = ApiManager('nurse_assignments')
 
-// ✨ 2. 大幅簡化 notificationCount 的計算邏輯
+// ✨✨✨【核心修改 C】✨✨✨
+const conflictCount = ref(0)
+let conflictUnsubscribe = null // 用於儲存取消監聽的函式
+
 const notificationCount = computed(() => {
   if (!currentUser.value) return 0
-
-  // 計算我的待辦事項數量 (這部分不變)
   const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
-
-  // 直接呼叫 store 中已經處理好所有邏輯的 getter，並傳入今天的病人 ID 陣列
   const myPendingMemosCount = todayRelevantMemosCount(todayMyPatientIds.value)
-
   return myPendingTasksCount + myPendingMemosCount
 })
 
-// --- 過渡期 provide/inject (為了讓舊頁面正常運作) ---
+// --- 過渡期 provide/inject ---
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
@@ -303,9 +298,7 @@ function showPatientMemos(patientId) {
   if (!patientId) return
   const patient = patientMap.value.get(patientId)
   const memoPatientName = activeMemos.value.find((m) => m.patientId === patientId)?.patientName
-  if (!patient && !memoPatientName) {
-    return
-  }
+  if (!patient && !memoPatientName) return
   memosForDialog.value = activeMemos.value.filter(
     (memo) => memo.patientId === patientId && memo.status === 'pending',
   )
@@ -342,19 +335,15 @@ async function fetchTodayAssignedPatients() {
     todayMyPatientIds.value = []
     return
   }
-
   const today = new Date().toISOString().slice(0, 10)
-
   try {
     const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
     if (assignmentsSnapshot.length === 0) {
       todayMyPatientIds.value = []
       return
     }
-
     const { names, teams } = assignmentsSnapshot[0]
     const myAssignedIds = new Set()
-
     if (names && teams) {
       for (const teamName in names) {
         if (names[teamName] === currentUser.value.name) {
@@ -394,6 +383,49 @@ function stopSharedDataListeners() {
   }
 }
 
+// ✨✨✨【核心修正：強化衝突監聽器】✨✨✨
+function startConflictListener() {
+  if (conflictUnsubscribe) return
+
+  const exceptionsRef = collection(db, 'schedule_exceptions')
+
+  // 建立一個代表「今天凌晨」的 Date 物件
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // 建立一個新的查詢，它需要同時滿足兩個條件：
+  const q = query(
+    exceptionsRef,
+    // 條件一：狀態必須是「衝突待解決」
+    where('status', '==', 'conflict_requires_resolution'),
+    // 🔥 條件二：文件的「過期日 (expireAt)」必須是今天或未來 🔥
+    where('expireAt', '>=', today),
+  )
+
+  conflictUnsubscribe = onSnapshot(
+    q,
+    (snapshot) => {
+      conflictCount.value = snapshot.size
+      if (snapshot.size > 0) {
+        console.log(`[MainLayout] 偵測到 ${snapshot.size} 個【未過期】的待處理衝突。`)
+      }
+    },
+    (error) => {
+      console.error('❌ [MainLayout] 監聽調班衝突時發生錯誤:', error)
+      // 如果查詢失敗（例如缺少索引），也將計數歸零
+      conflictCount.value = 0
+    },
+  )
+}
+
+function stopConflictListener() {
+  if (conflictUnsubscribe) {
+    conflictUnsubscribe()
+    conflictUnsubscribe = null
+    conflictCount.value = 0
+  }
+}
+
 watch(
   () => currentUser.value,
   async (newUser) => {
@@ -401,6 +433,7 @@ watch(
       console.log('✅ [MainLayout] User logged in, starting services.')
       startSharedDataListeners()
       startListening()
+      startConflictListener() // ✨ 在使用者登入時，啟動衝突監聽
       await fetchTodayAssignedPatients()
       taskStore.startRealtimeUpdates(newUser.uid)
     } else {
@@ -409,6 +442,7 @@ watch(
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
+      stopConflictListener() // ✨ 在使用者登出時，停止衝突監聽
       patientStore.$reset()
       taskStore.cleanupListeners()
       todayMyPatientIds.value = []
@@ -416,17 +450,6 @@ watch(
   },
   { immediate: true },
 )
-
-// ✨ 3. 由於 notificationCount 現在是 computed，不再需要 watch 來更新它
-/*
-watch(
-  () => taskStore.todayTaskCount(todayMyPatientIds.value),
-  (newCount) => {
-    notificationCount.value = newCount
-  },
-  { deep: true },
-)
-*/
 
 watch(
   () => route.path,
@@ -440,12 +463,12 @@ watch(
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
+  stopConflictListener() // ✨ 在元件卸載時，也確保停止監聽
   taskStore.cleanupListeners()
 })
 </script>
 
 <style scoped>
-/* 您的所有 <style> 內容都保持不變，直接複製即可 */
 /* ================================== */
 /*         通用及桌面版樣式         */
 /* ================================== */
@@ -786,6 +809,31 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
 }
+/* ✨✨✨【核心修改 E】✨✨✨ */
+.alert-badge {
+  background-color: transparent;
+  color: #ffc107;
+  font-size: 1.1rem;
+  width: auto;
+  height: auto;
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  transform: translateY(-50%);
+  animation: blink-warning 1.8s infinite ease-in-out;
+  text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+@keyframes blink-warning {
+  0%,
+  100% {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: translateY(-50%) scale(1.1);
+  }
+}
 @media (max-width: 992px) {
   .desktop-only-nav-item {
     display: none;
@@ -807,7 +855,7 @@ onUnmounted(() => {
     width: 100%;
   }
   .main-header {
-    position: sticky; /* ✅ 或 fixed 亦可視需求 */
+    position: sticky;
     top: 0;
     z-index: 999;
     background-color: #fff;
