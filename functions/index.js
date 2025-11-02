@@ -552,19 +552,17 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     )
 
     // 清理未來排程
-    const todayStr = getTaipeiTodayString() // ✨ 使用統一函式
+    const todayStr = getTaipeiTodayString()
 
-    // 🔥🔥🔥【核心修正】🔥🔥🔥
-    // 在這裡宣告 today 變數，作為日期計算的基準
-    const today = getTaipeiNow()
-
+    // 🔥 修正：移除 getTaipeiNow()，改用字串為基礎的日期計算
     const cleanupBatch = db.batch()
     let cleanupCount = 0
     const BATCH_SIZE = 450
+
     for (let i = 0; i <= 60; i++) {
-      // 現在 targetDate 可以正確地從 today 物件開始計算
-      const targetDate = new Date(today)
-      targetDate.setDate(targetDate.getDate() + i)
+      // 🔥 修正：使用 UTC 日期計算
+      const targetDate = new Date(todayStr + 'T00:00:00Z')
+      targetDate.setUTCDate(targetDate.getUTCDate() + i)
       const dateStr = formatDateToYYYYMMDD(targetDate)
 
       if (dateStr >= todayStr) {
@@ -757,12 +755,15 @@ exports.initializeFutureSchedules = onSchedule(
   async (event) => {
     logger.info('[Scheduler] Initializing future 60-day schedules...')
     const schedulesRef = db.collection('schedules')
-    const today = getTaipeiNow() // ✨ 使用統一函式
+
+    // 🔥 修正：使用字串為基礎的日期計算
+    const todayStr = getTaipeiTodayString()
     const datesToCheck = Array.from({ length: 60 }, (_, i) => {
-      const targetDate = new Date(today) // ✨ 從正確的起點複製
-      targetDate.setDate(today.getDate() + i)
-      return formatDateToYYYYMMDD(targetDate) // ✨ 使用統一函式
+      const targetDate = new Date(todayStr + 'T00:00:00Z')
+      targetDate.setUTCDate(targetDate.getUTCDate() + i) // 使用 UTC 方法
+      return formatDateToYYYYMMDD(targetDate)
     })
+
     try {
       const masterScheduleDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       const masterRules = masterScheduleDoc.exists ? masterScheduleDoc.data().schedule || {} : {}
@@ -781,13 +782,8 @@ exports.initializeFutureSchedules = onSchedule(
       logger.info(`[Scheduler] Found ${datesToCreate.length} missing daily schedules. Creating...`)
       const batch = db.batch()
       datesToCreate.forEach((dateStr) => {
-        const dateParts = dateStr.split('-')
-        const targetDate = new Date(
-          parseInt(dateParts[0]),
-          parseInt(dateParts[1]) - 1,
-          parseInt(dateParts[2]),
-        )
-        const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+        // 🔥 修正：直接傳遞日期字串，而不是建立 Date 物件
+        const dailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
         const newDocRef = schedulesRef.doc(dateStr)
         batch.set(newDocRef, {
           date: dateStr,
@@ -1721,21 +1717,19 @@ exports.scheduledDataBackup = onSchedule(
       const drive = google.drive({ version: 'v3', auth })
 
       // --- 1. 準備日期和資料夾路徑 ---
-      // ✨ 只需要呼叫一次 getTaipeiNow() 作為所有日期計算的基準
-      const today = getTaipeiNow()
-
-      // 產生明天日期的 Date 物件
-      const tomorrow = new Date(today)
-      tomorrow.setDate(today.getDate() + 1)
-
-      // 格式化今天和明天的日期字串
+      // 🔥 修正：使用字串為基礎的日期計算
       const todayStr = getTaipeiTodayString()
-      const tomorrowStr = formatDateToYYYYMMDD(tomorrow)
+
+      // 產生明天日期
+      const tomorrowDate = new Date(todayStr + 'T00:00:00Z')
+      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+      const tomorrowStr = formatDateToYYYYMMDD(tomorrowDate)
 
       // 取得年份和月份字串 (用於資料夾路徑)
-      // 直接從 today 物件取得，並確保月份是 1-12 且有補零
-      const yearForPath = today.getFullYear()
-      const monthForPath = (today.getMonth() + 1).toString().padStart(2, '0')
+      // 🔥 修正：從 todayStr 解析年月，而不是從 Date 物件取得
+      const [yearStr, monthStr] = todayStr.split('-')
+      const yearForPath = parseInt(yearStr)
+      const monthForPath = monthStr // 已經有補零了
       const targetPath = ['資料備份', `${yearForPath} 年`, `${monthForPath} 月`]
 
       // --- 2. 刪除前一天為今天建立的預備檔 ---
@@ -1920,7 +1914,6 @@ exports.scheduledDataBackup = onSchedule(
 
 // ===================================================================
 // 🔥🔥🔥【最終健壯版 v13.3】 - syncMasterScheduleToFuture 🔥🔥🔥
-// 修正了更新物件中包含 undefined 值的致命錯誤
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -1929,17 +1922,17 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [AtomicSync-v13.3] 原子化同步流程啟動...')
+    logger.info('🚀 [AtomicSync-v13.4] 原子化同步流程啟動...')
 
     if (!event.data.after.exists) {
-      logger.info('✅ [AtomicSync-v13.3] 總表文件被刪除，無需同步。')
+      logger.info('✅ [AtomicSync-v13.4] 總表文件被刪除，無需同步。')
       return null
     }
 
     const beforeRules = event.data.before?.data()?.schedule || {}
     const afterRules = event.data.after.data().schedule || {}
     if (JSON.stringify(beforeRules) === JSON.stringify(afterRules)) {
-      logger.info('✅ [AtomicSync-v13.3] 總表資料無實質變更，跳過同步。')
+      logger.info('✅ [AtomicSync-v13.4] 總表資料無實質變更，跳過同步。')
       return null
     }
 
@@ -1949,20 +1942,25 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       // --- 階段一: 精準計算差異，並原子性更新/創建基礎排程 ---
       logger.info('  ➡️ [Sync Step 1/2] 開始計算差異並同步從明天起的 60 天基礎排程...')
 
-      const today = getTaipeiNow()
       const allPatientIds = new Set([...Object.keys(beforeRules), ...Object.keys(afterRules)])
 
+      // 🔥 修正：使用字串為基礎的日期計算，避免時區問題
+      const todayStr = getTaipeiTodayString()
       const futureDates = Array.from({ length: 60 }, (_, i) => {
-        const targetDate = new Date(today)
-        targetDate.setDate(today.getDate() + i + 1)
-        return formatDateToYYYYMMDD(targetDate)
+        const futureDate = new Date(todayStr + 'T00:00:00Z')
+        futureDate.setUTCDate(futureDate.getUTCDate() + i + 1) // i+1 確保從明天開始
+        return formatDateToYYYYMMDD(futureDate)
       })
+
+      // 加入除錯 log
+      logger.info(
+        `  [Sync Step 1/2] Today: ${todayStr}, First future date: ${futureDates[0]}, Last: ${futureDates[59]}`,
+      )
 
       const existingSchedules = new Map()
       for (let i = 0; i < futureDates.length; i += 30) {
         const chunk = futureDates.slice(i, i + 30)
         if (chunk.length > 0) {
-          // 確保 chunk 不是空的
           const snapshot = await db
             .collection('schedules')
             .where(FieldPath.documentId(), 'in', chunk)
@@ -1982,8 +1980,6 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
         if (!existingSchedules.has(dateStr)) {
           logger.warn(`  [Sync Step 1/2] 警告：未來排程 ${dateStr} 不存在，將即時創建。`)
-          // ✨✨✨【核心修正】✨✨✨
-          // 直接將 dateStr 傳遞過去，而不是 targetDate 物件
           const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
 
           const scheduleRef = db.collection('schedules').doc(dateStr)
@@ -1992,7 +1988,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
             schedule: newDailySchedule,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
-            syncMethod: 'engine_driven_sync_v13.4_recreate', // 版本號可以更新一下
+            syncMethod: 'engine_driven_sync_v13.4_recreate',
           })
           continue
         }
@@ -2006,11 +2002,10 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
           const isScheduled =
             ruleAfter && (FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).includes(dayIndex)
 
-          // ✨✨✨【核心修正：建立一個輔助函式來產生完整的 slot 物件】✨✨✨
           const createSlotObject = (rule) => {
             if (!rule) return null
             const shiftCode = SHIFTS[rule.shiftIndex]
-            if (!shiftCode) return null // 如果 shiftIndex 無效，直接返回 null
+            if (!shiftCode) return null
             return {
               patientId: patientId,
               patientName: rule.patientName || '',
@@ -2023,14 +2018,12 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
           if (wasScheduled && !isScheduled) {
             const oldShiftCode = SHIFTS[ruleBefore.shiftIndex]
-            // 增加防呆，確保 oldKey 不會是 undefined
             if (ruleBefore.bedNum !== undefined && oldShiftCode) {
               const oldKey = getScheduleKey(ruleBefore.bedNum, oldShiftCode)
               updates[`schedule.${oldKey}`] = FieldValue.delete()
             }
           } else if (!wasScheduled && isScheduled) {
             const newSlot = createSlotObject(ruleAfter)
-            // 增加防呆，確保 newSlot 和 newKey 都是有效的
             if (newSlot && ruleAfter.bedNum !== undefined) {
               const newKey = getScheduleKey(ruleAfter.bedNum, newSlot.shiftId)
               updates[`schedule.${newKey}`] = newSlot
@@ -2039,7 +2032,6 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
             const oldShiftCode = SHIFTS[ruleBefore.shiftIndex]
             const newSlot = createSlotObject(ruleAfter)
 
-            // 增加防呆，確保所有變數都有效
             if (
               newSlot &&
               ruleBefore.bedNum !== undefined &&
@@ -2058,7 +2050,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
         if (Object.keys(updates).length > 0) {
           updates.updatedAt = FieldValue.serverTimestamp()
-          updates.syncMethod = 'engine_driven_sync_v13.3_atomic'
+          updates.syncMethod = 'engine_driven_sync_v13.4_atomic'
           const scheduleRef = db.collection('schedules').doc(dateStr)
           syncBatch.update(scheduleRef, updates)
         }
@@ -2067,7 +2059,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
       await syncBatch.commit()
       logger.info('  ✅ [Sync Step 1/2] 成功同步 60 天的基礎排程。')
 
-      // --- 階段二: 找出受影響的日期並呼叫合併引擎 (邏輯不變) ---
+      // --- 階段二: 找出受影響的日期並呼叫合併引擎 ---
       logger.info('  ➡️ [Sync Step 2/2] 開始計算需要合併調班的日期...')
       const exceptionsSnapshot = await db
         .collection('schedule_exceptions')
@@ -2075,9 +2067,11 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
         .get()
 
       const datesToMerge = new Set()
-      const tomorrow = new Date(today)
-      tomorrow.setDate(today.getDate() + 1)
-      const tomorrowStr = formatDateToYYYYMMDD(tomorrow)
+
+      // 🔥 修正：使用一致的方式計算 tomorrow
+      const tomorrowDate = new Date(todayStr + 'T00:00:00Z')
+      tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+      const tomorrowStr = formatDateToYYYYMMDD(tomorrowDate)
 
       exceptionsSnapshot.forEach((doc) => {
         const ex = doc.data()
@@ -2087,7 +2081,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
         if (ex.type === 'SUSPEND' && ex.startDate && ex.endDate) {
           const start = new Date(ex.startDate + 'T00:00:00Z')
           const end = new Date(ex.endDate + 'T00:00:00Z')
-          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
             allDates.push(formatDateToYYYYMMDD(new Date(d)))
           }
         }
@@ -2100,10 +2094,10 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
       await mergeExceptionsIntoSchedules(datesToMerge, masterRules)
 
-      logger.info('🎉 [AtomicSync-v13.3] 所有同步階段均已成功完成！')
+      logger.info('🎉 [AtomicSync-v13.4] 所有同步階段均已成功完成！')
     } catch (error) {
-      logger.error('❌ [AtomicSync-v13.3] 原子化同步過程中發生嚴重錯誤:', error)
-      throw error // 重新拋出錯誤，以便 Cloud Functions 知道執行失敗
+      logger.error('❌ [AtomicSync-v13.4] 原子化同步過程中發生嚴重錯誤:', error)
+      throw error
     }
     return null
   },
@@ -4071,8 +4065,6 @@ exports.getDailyMedicationDrafts = onCall(
   },
 )
 
-// functions/index.js
-
 // ===================================================================
 // ✨【最終修正版 v1.3】 - 補上遺漏的 today 變數宣告
 // ===================================================================
@@ -4084,10 +4076,8 @@ exports.getDailyMedicationDrafts = onCall(
 exports.applyScheduledPatientUpdates = onSchedule(
   { schedule: '0 1 * * *', timeZone: TIME_ZONE, timeoutSeconds: 540, memory: '1GiB' },
   async (event) => {
-    // ✨✨✨【核心修正】✨✨✨
-    // 在函式開頭就宣告好所有需要的日期變數
+    // 使用統一的日期字串作為基準
     const todayStr = getTaipeiTodayString()
-    const today = getTaipeiNow() // <--- 補上這一行！
 
     logger.info(`🚀 [Updater] 執行 ${todayStr} 的預約變更任務...`)
 
@@ -4211,10 +4201,10 @@ exports.applyScheduledPatientUpdates = onSchedule(
             let cleanupCount = 0
             const BATCH_SIZE = 450
 
-            // 現在 `today` 變數已定義，這段迴圈可以正常執行了
+            // 🔥 修正：使用 UTC 日期計算，從今天開始的 60 天
             for (let i = 0; i <= 60; i++) {
-              const targetDate = new Date(today)
-              targetDate.setDate(targetDate.getDate() + i)
+              const targetDate = new Date(todayStr + 'T00:00:00Z')
+              targetDate.setUTCDate(targetDate.getUTCDate() + i)
               const dateStr = formatDateToYYYYMMDD(targetDate)
 
               if (dateStr >= todayStr) {
@@ -4533,17 +4523,21 @@ exports.forceResyncAllSchedules = onCall(
         throw new HttpsError('not-found', '找不到 MASTER_SCHEDULE 文件。')
       }
       const masterRules = masterDoc.data().schedule || {}
-      const today = getTaipeiNow()
+
+      // 🔥 修正：使用字串為基礎的日期計算
+      const todayStr = getTaipeiTodayString()
 
       const scheduleRebuildBatch = db.batch()
       let rebuiltCount = 0
 
       for (let i = 0; i < 60; i++) {
-        const targetDate = new Date(today)
-        targetDate.setDate(today.getDate() + i)
+        // 🔥 修正：使用 UTC 日期計算
+        const targetDate = new Date(todayStr + 'T00:00:00Z')
+        targetDate.setUTCDate(targetDate.getUTCDate() + i)
         const dateStr = formatDateToYYYYMMDD(targetDate)
 
-        const newDailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+        // 🔥 修正：傳遞日期字串而非 Date 物件
+        const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
 
         const scheduleRef = db.collection('schedules').doc(dateStr)
         scheduleRebuildBatch.set(scheduleRef, {
@@ -4563,7 +4557,7 @@ exports.forceResyncAllSchedules = onCall(
 
       // --- 步驟 2: 查找所有未來需要重新套用的調班申請 ---
       logger.info(`${logPrefix} 步驟 2/3: 正在查找未來的有效調班...`)
-      const todayStr = getTaipeiTodayString()
+      // todayStr 已經在上面宣告了，不需要重複宣告
       const exceptionsToReapply = []
 
       const exceptionsQuery = db

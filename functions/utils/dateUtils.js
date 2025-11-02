@@ -38,9 +38,10 @@ function getTaipeiTodayString() {
  * @returns {string}
  */
 function getTaipeiYesterdayString() {
-  const today = getTaipeiNow()
-  today.setDate(today.getDate() - 1)
-  return formatDateToYYYYMMDD(today)
+  const todayStr = getTaipeiTodayString()
+  const yesterday = new Date(todayStr + 'T00:00:00Z')
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
+  return formatDateToYYYYMMDD(yesterday)
 }
 
 /**
