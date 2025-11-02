@@ -383,36 +383,46 @@ function stopSharedDataListeners() {
   }
 }
 
-// ✨✨✨【核心修改 D】✨✨✨
-// 建立一個專門監聽衝突的函式
+// ✨✨✨【核心修正：強化衝突監聽器】✨✨✨
 function startConflictListener() {
-  if (conflictUnsubscribe) return // 避免重複監聽
+  if (conflictUnsubscribe) return
 
   const exceptionsRef = collection(db, 'schedule_exceptions')
-  // 建立一個查詢，只尋找狀態為 'conflict_requires_resolution' 的文件
-  const q = query(exceptionsRef, where('status', '==', 'conflict_requires_resolution'))
+
+  // 建立一個代表「今天凌晨」的 Date 物件
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // 建立一個新的查詢，它需要同時滿足兩個條件：
+  const q = query(
+    exceptionsRef,
+    // 條件一：狀態必須是「衝突待解決」
+    where('status', '==', 'conflict_requires_resolution'),
+    // 🔥 條件二：文件的「過期日 (expireAt)」必須是今天或未來 🔥
+    where('expireAt', '>=', today),
+  )
 
   conflictUnsubscribe = onSnapshot(
     q,
     (snapshot) => {
-      // snapshot.size 就是符合條件的文件數量
       conflictCount.value = snapshot.size
       if (snapshot.size > 0) {
-        console.log(`[MainLayout] 偵測到 ${snapshot.size} 個待處理的調班衝突。`)
+        console.log(`[MainLayout] 偵測到 ${snapshot.size} 個【未過期】的待處理衝突。`)
       }
     },
     (error) => {
       console.error('❌ [MainLayout] 監聽調班衝突時發生錯誤:', error)
+      // 如果查詢失敗（例如缺少索引），也將計數歸零
+      conflictCount.value = 0
     },
   )
 }
 
-// 建立一個停止監聽的函式
 function stopConflictListener() {
   if (conflictUnsubscribe) {
     conflictUnsubscribe()
     conflictUnsubscribe = null
-    conflictCount.value = 0 // 登出後清空計數
+    conflictCount.value = 0
   }
 }
 
