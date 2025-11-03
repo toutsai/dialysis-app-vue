@@ -145,8 +145,11 @@ const displayedPatients = computed(() => {
   }
 
   return [...patientsToDisplay].sort((a, b) => {
-    let valA, valB
     const sortColumn = currentSort.value.column
+    let valA = a[sortColumn]
+    let valB = b[sortColumn]
+
+    // ✅ [修正] 針對 patientStatus 的特殊排序邏輯保持不變
     if (sortColumn === 'patientStatus') {
       const statusA = a.patientStatus || {}
       const statusB = b.patientStatus || {}
@@ -158,16 +161,26 @@ const displayedPatients = computed(() => {
         (statusB.isFirstDialysis?.active ? '1' : '0') +
         (statusB.isPaused?.active ? '1' : '0') +
         (statusB.hasBloodDraw?.active ? '1' : '0')
-    } else {
-      valA = a[sortColumn]
-      valB = b[sortColumn]
     }
+
+    // ✅ [修正] 核心修正：判斷是否為日期，並使用正確的比較方式
     const dateA = normalizeDateObject(valA)
     const dateB = normalizeDateObject(valB)
-    valA = dateA || valA || ''
-    valB = dateB || valB || ''
-    const compare = String(valA).localeCompare(String(valB), 'zh-Hant')
-    return currentSort.value.order === 'asc' ? compare : -compare
+
+    let compareResult
+
+    if (dateA && dateB) {
+      // 如果兩者都是有效的日期，則使用時間戳進行數值比較
+      compareResult = dateA.getTime() - dateB.getTime()
+    } else {
+      // 否則，退回到字串比較，適用於姓名、病歷號等欄位
+      const strA = valA || ''
+      const strB = valB || ''
+      compareResult = String(strA).localeCompare(String(strB), 'zh-Hant')
+    }
+
+    // ✅ [修正] 根據排序方向返回結果
+    return currentSort.value.order === 'asc' ? compareResult : -compareResult
   })
 })
 
