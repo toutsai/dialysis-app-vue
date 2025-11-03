@@ -616,12 +616,16 @@ async function handleRestoreSelected(targetStatus) {
   const targetStatusText = statusMap[targetStatus] || '列表'
 
   try {
+    // ✅ [新增] 根據還原目的地，決定病人的預設身份
+    const newPatientCategory = targetStatus === 'opd' ? 'opd_regular' : 'non_regular'
+
     await optimizedUpdatePatient(patientId, {
       isDeleted: false,
       status: targetStatus,
       deleteReason: null,
       deletedAt: null,
       originalStatus: null,
+      patientCategory: newPatientCategory, // ✅ [新增] 將新的身份加入更新資料中
     })
     // 復原後不需要從總表移除規則，若需要排班，使用者應手動加入
     await refreshAllData()
