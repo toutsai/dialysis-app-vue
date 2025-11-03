@@ -722,7 +722,11 @@
               <div class="holiday-add-form">
                 <select v-model="holidayForm.name" class="holiday-input">
                   <option disabled value="">選擇或自訂假日</option>
-                  <option v-for="holiday in holidays2025" :key="holiday.date" :value="holiday.name">
+                  <option
+                    v-for="holiday in currentYearHolidays"
+                    :key="holiday.date"
+                    :value="holiday.name"
+                  >
                     {{ holiday.name }} ({{ holiday.date }})
                   </option>
                   <option value="custom">-- 自訂假日 --</option></select
@@ -993,7 +997,7 @@
                     <select v-model="holidayForm.name" class="holiday-input">
                       <option disabled value="">選擇或自訂假日</option>
                       <option
-                        v-for="holiday in holidays2025"
+                        v-for="holiday in currentYearHolidays"
                         :key="holiday.date"
                         :value="holiday.name"
                       >
@@ -1115,6 +1119,7 @@ const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
 const cancelAction = ref(null)
 
+// --- 假日資料定義 ---
 const holidays2025 = [
   { name: '中華民國開國紀念日', date: '2025-01-01' },
   { name: '農曆除夕', date: '2025-01-28' },
@@ -1128,6 +1133,23 @@ const holidays2025 = [
   { name: '中秋節', date: '2025-10-06' },
   { name: '國慶日', date: '2025-10-10' },
 ]
+
+const holidays2026 = [
+  { name: '中華民國開國紀念日', date: '2026-01-01' },
+  { name: '農曆除夕', date: '2026-02-16' },
+  { name: '農曆春節', date: '2026-02-17' },
+  { name: '農曆春節', date: '2026-02-18' },
+  { name: '農曆春節', date: '2026-02-19' },
+  { name: '農曆春節', date: '2026-02-20' },
+  { name: '農曆春節', date: '2026-02-21' },
+  { name: '和平紀念日', date: '2026-02-28' },
+  { name: '兒童節', date: '2026-04-04' },
+  { name: '民族掃墓節(清明節)', date: '2026-04-05' },
+  { name: '端午節', date: '2026-06-19' },
+  { name: '中秋節', date: '2026-09-25' },
+  { name: '國慶日', date: '2026-10-10' },
+]
+
 const physicianColorClasses = [
   'physician-color-1',
   'physician-color-2',
@@ -1274,6 +1296,17 @@ const physicianClassMap = computed(() => {
     map.set(doc.id, physicianColorClasses[index % physicianColorClasses.length])
   })
   return map
+})
+
+const currentYearHolidays = computed(() => {
+  switch (selectedYear.value) {
+    case 2025:
+      return holidays2025
+    case 2026:
+      return holidays2026
+    default:
+      return []
+  }
 })
 
 // --- Methods (方法) ---
@@ -1940,7 +1973,7 @@ watch(
   () => holidayForm.value.name,
   (newName) => {
     if (newName && newName !== 'custom') {
-      const found = holidays2025.find((h) => h.name === newName)
+      const found = currentYearHolidays.value.find((h) => h.name === newName)
       if (found) {
         holidayForm.value.date = found.date
       }
