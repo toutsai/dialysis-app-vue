@@ -30,7 +30,6 @@ const patientHistoryApi = ApiManager('patient_history')
 
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'updatedAt', order: 'desc' })
-// 移除了 deletedSort
 const erListFilter = ref('')
 const ipdListFilter = ref('')
 const opdListFilter = ref('')
@@ -146,8 +145,11 @@ const displayedPatients = computed(() => {
   }
 
   return [...patientsToDisplay].sort((a, b) => {
-    let valA, valB
     const sortColumn = currentSort.value.column
+    let valA = a[sortColumn]
+    let valB = b[sortColumn]
+
+    // ✅ [修正] 針對 patientStatus 的特殊排序邏輯保持不變
     if (sortColumn === 'patientStatus') {
       const statusA = a.patientStatus || {}
       const statusB = b.patientStatus || {}
@@ -159,20 +161,28 @@ const displayedPatients = computed(() => {
         (statusB.isFirstDialysis?.active ? '1' : '0') +
         (statusB.isPaused?.active ? '1' : '0') +
         (statusB.hasBloodDraw?.active ? '1' : '0')
-    } else {
-      valA = a[sortColumn]
-      valB = b[sortColumn]
     }
+
+    // ✅ [修正] 核心修正：判斷是否為日期，並使用正確的比較方式
     const dateA = normalizeDateObject(valA)
     const dateB = normalizeDateObject(valB)
-    valA = dateA || valA || ''
-    valB = dateB || valB || ''
-    const compare = String(valA).localeCompare(String(valB), 'zh-Hant')
-    return currentSort.value.order === 'asc' ? compare : -compare
+
+    let compareResult
+
+    if (dateA && dateB) {
+      // 如果兩者都是有效的日期，則使用時間戳進行數值比較
+      compareResult = dateA.getTime() - dateB.getTime()
+    } else {
+      // 否則，退回到字串比較，適用於姓名、病歷號等欄位
+      const strA = valA || ''
+      const strB = valB || ''
+      compareResult = String(strA).localeCompare(String(strB), 'zh-Hant')
+    }
+
+    // ✅ [修正] 根據排序方向返回結果
+    return currentSort.value.order === 'asc' ? compareResult : -compareResult
   })
 })
-
-// 移除了 displayedDeletedHistory
 
 const sortedFreqStats = computed(() => {
   if (!patientStats.value.freq) return []
@@ -226,7 +236,7 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
   })
   const statsResult = {
     source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
-    mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0 },
+    mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0, Lipid: 0 },
     disease: { HBV: 0, HCV: 0, HIV: 0, RPR: 0, COVID: 0, 隔離: 0 },
     freq: {},
     opdChanges: {
@@ -619,12 +629,16 @@ async function handleRestoreSelected(targetStatus) {
   const targetStatusText = statusMap[targetStatus] || '列表'
 
   try {
+    // ✅ [新增] 根據還原目的地，決定病人的預設身份
+    const newPatientCategory = targetStatus === 'opd' ? 'opd_regular' : 'non_regular'
+
     await optimizedUpdatePatient(patientId, {
       isDeleted: false,
       status: targetStatus,
       deleteReason: null,
       deletedAt: null,
       originalStatus: null,
+      patientCategory: newPatientCategory, // ✅ [新增] 將新的身份加入更新資料中
     })
     // 復原後不需要從總表移除規則，若需要排班，使用者應手動加入
     await refreshAllData()

@@ -1,91 +1,4 @@
 <!-- 檔案路徑: src/components/PatientFormModal.vue (✨ UI 緊湊版 ✨) -->
-<script setup>
-// ... script 區塊完全不變 ...
-import { ref, watch, computed } from 'vue'
-const props = defineProps({
-  isModalVisible: { type: Boolean, required: true },
-  patientData: { type: Object, default: () => ({}) },
-  patientType: { type: String, required: true },
-})
-const emit = defineEmits(['close', 'save'])
-const form = ref({})
-const PHYSICIANS = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政']
-const FREQ_OPTIONS = [
-  '一三五',
-  '二四六',
-  '一四',
-  '二五',
-  '三六',
-  '一五', // <-- 新增
-  '二六', // <-- 新增
-  '每日',
-  '每周一',
-  '每周二',
-  '每周三',
-  '每周四',
-  '每周五',
-  '每周六',
-  '臨時',
-]
-const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP']
-const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
-const DISEASES = ['HIV', 'RPR', 'BC肝?', 'HBV', 'HCV', 'C肝治癒', 'COVID', '隔離']
-const isEditing = computed(() => !!(form.value && form.value.id))
-const patientTypeText = computed(() => {
-  const map = { ipd: '住院', opd: '門診', er: '急診' }
-  return map[props.patientType] || ''
-})
-watch(
-  () => props.isModalVisible,
-  (isVisible) => {
-    if (isVisible) {
-      document.body.classList.add('modal-open')
-      const data = JSON.parse(JSON.stringify(props.patientData))
-      if (!data.id) {
-        data.status = props.patientType
-      }
-      data.diseases = data.diseases || []
-      data.patientStatus = data.patientStatus || {
-        isFirstDialysis: { active: false, date: null },
-        isPaused: { active: false, date: null },
-        hasBloodDraw: { active: false, date: null },
-      }
-      data.hospitalInfo = data.hospitalInfo || { source: '', transferOut: '' }
-      form.value = data
-    } else {
-      document.body.classList.remove('modal-open')
-    }
-  },
-)
-function toggleDisease(disease) {
-  const index = (form.value.diseases || []).indexOf(disease)
-  if (index > -1) {
-    form.value.diseases.splice(index, 1)
-  } else {
-    form.value.diseases.push(disease)
-  }
-}
-function toggleStatus(key) {
-  if (form.value.patientStatus && form.value.patientStatus[key]) {
-    const status = form.value.patientStatus[key]
-    status.active = !status.active
-    if (!status.active) {
-      status.date = null
-    }
-  }
-}
-function closeModal() {
-  emit('close')
-}
-function handleSave() {
-  if (!form.value.name || !form.value.medicalRecordNumber) {
-    alert('姓名和病歷號為必填項！')
-    return
-  }
-  emit('save', form.value)
-}
-</script>
-
 <template>
   <Transition name="modal-fade">
     <div v-if="isModalVisible" class="modal-overlay" @click.self="closeModal">
@@ -139,6 +52,19 @@ function handleSave() {
                   <option value="ipd">住院</option>
                   <option value="opd">門診</option>
                 </select>
+              </div>
+              <div class="form-field">
+                <label>病人身份</label>
+                <div class="radio-group">
+                  <label>
+                    <input type="radio" v-model="form.patientCategory" value="opd_regular" />
+                    <span>常規門診病人</span>
+                  </label>
+                  <label>
+                    <input type="radio" v-model="form.patientCategory" value="non_regular" />
+                    <span>非固定病人</span>
+                  </label>
+                </div>
               </div>
             </div>
           </div>
@@ -306,8 +232,111 @@ function handleSave() {
   </Transition>
 </template>
 
+<script setup>
+import { ref, watch, computed } from 'vue'
+const props = defineProps({
+  isModalVisible: { type: Boolean, required: true },
+  patientData: { type: Object, default: () => ({}) },
+  patientType: { type: String, required: true },
+})
+const emit = defineEmits(['close', 'save'])
+const form = ref({})
+const PHYSICIANS = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政']
+const FREQ_OPTIONS = [
+  '一三五',
+  '二四六',
+  '一四',
+  '二五',
+  '三六',
+  '一五', // <-- 新增
+  '二六', // <-- 新增
+  '每日',
+  '每周一',
+  '每周二',
+  '每周三',
+  '每周四',
+  '每周五',
+  '每周六',
+  '臨時',
+]
+const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP', 'Lipid']
+const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
+const DISEASES = ['HIV', 'RPR', 'BC肝?', 'HBV', 'HCV', 'C肝治癒', 'COVID', '隔離']
+const isEditing = computed(() => !!(form.value && form.value.id))
+const patientTypeText = computed(() => {
+  const map = { ipd: '住院', opd: '門診', er: '急診' }
+  return map[props.patientType] || ''
+})
+
+function toggleDisease(disease) {
+  const index = (form.value.diseases || []).indexOf(disease)
+  if (index > -1) {
+    form.value.diseases.splice(index, 1)
+  } else {
+    form.value.diseases.push(disease)
+  }
+}
+function toggleStatus(key) {
+  if (form.value.patientStatus && form.value.patientStatus[key]) {
+    const status = form.value.patientStatus[key]
+    status.active = !status.active
+    if (!status.active) {
+      status.date = null
+    }
+  }
+}
+function closeModal() {
+  emit('close')
+}
+function handleSave() {
+  if (!form.value.name || !form.value.medicalRecordNumber) {
+    alert('姓名和病歷號為必填項！')
+    return
+  }
+  emit('save', form.value)
+}
+
+watch(
+  () => props.isModalVisible,
+  (isVisible) => {
+    if (isVisible) {
+      document.body.classList.add('modal-open')
+      const data = JSON.parse(JSON.stringify(props.patientData))
+
+      if (!data.id) {
+        // 只在「新增」病人時觸發
+        data.status = props.patientType
+        // ✅ [修正] 根據 patientType 設定不同的預設病人身份
+        if (props.patientType === 'opd') {
+          data.patientCategory = 'opd_regular' // 從門診新增，預設為「常規」
+        } else {
+          data.patientCategory = 'non_regular' // 從住院或急診新增，預設為「非固定」
+        }
+      }
+
+      // 當「編輯」既有病人時，如果該病人沒有 patientCategory 欄位，給予一個預設值
+      if (!data.patientCategory) {
+        data.patientCategory = 'opd_regular'
+      }
+
+      // ✅ [修正] 將遺失的初始化程式碼加回來
+      data.diseases = data.diseases || []
+      data.patientStatus = data.patientStatus || {
+        isFirstDialysis: { active: false, date: null },
+        isPaused: { active: false, date: null },
+        hasBloodDraw: { active: false, date: null },
+      }
+      data.hospitalInfo = data.hospitalInfo || { source: '', transferOut: '' }
+
+      form.value = data
+    } else {
+      document.body.classList.remove('modal-open')
+    }
+  },
+)
+</script>
+
 <style scoped>
-/* ... 其他樣式不變 ... */
 :global(body.modal-open) {
   overflow: hidden;
 }
@@ -603,6 +632,23 @@ function handleSave() {
 }
 .remarks-opd {
   grid-column: 1 / -1; /* 備註佔滿整行 */
+}
+
+.radio-group {
+  display: flex;
+  gap: 1.5rem;
+  padding: 8px 0;
+}
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: normal; /* 覆蓋 form-field label 的粗體 */
+  cursor: pointer;
+}
+.radio-group input[type='radio'] {
+  width: auto;
+  accent-color: var(--primary-color, #007bff);
 }
 
 /* 在螢幕寬度小於 700px 時，變回單欄，避免擁擠 */
