@@ -30,7 +30,6 @@ const patientHistoryApi = ApiManager('patient_history')
 
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'updatedAt', order: 'desc' })
-// 移除了 deletedSort
 const erListFilter = ref('')
 const ipdListFilter = ref('')
 const opdListFilter = ref('')
@@ -172,8 +171,6 @@ const displayedPatients = computed(() => {
   })
 })
 
-// 移除了 displayedDeletedHistory
-
 const sortedFreqStats = computed(() => {
   if (!patientStats.value.freq) return []
   const FREQ_SORT_ORDER = {
@@ -226,7 +223,7 @@ const calculateStats = (allPatientsWithDeleted, patientHistory) => {
   })
   const statsResult = {
     source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
-    mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0 },
+    mode: { HD: 0, SLED: 0, CVVHDF: 0, PP: 0, DFPP: 0, Lipid: 0 },
     disease: { HBV: 0, HCV: 0, HIV: 0, RPR: 0, COVID: 0, 隔離: 0 },
     freq: {},
     opdChanges: {

@@ -1,6 +1,5 @@
 <!-- 檔案路徑: src/components/PatientFormModal.vue (✨ UI 緊湊版 ✨) -->
 <script setup>
-// ... script 區塊完全不變 ...
 import { ref, watch, computed } from 'vue'
 const props = defineProps({
   isModalVisible: { type: Boolean, required: true },
@@ -27,7 +26,7 @@ const FREQ_OPTIONS = [
   '每周六',
   '臨時',
 ]
-const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP']
+const MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP', 'Lipid']
 const VASC_ACCESSES = ['Double lumen', 'PERM', '左手AVF', '右手AVF', '左手AVG', '右手AVG']
 const DISEASES = ['HIV', 'RPR', 'BC肝?', 'HBV', 'HCV', 'C肝治癒', 'COVID', '隔離']
 const isEditing = computed(() => !!(form.value && form.value.id))
