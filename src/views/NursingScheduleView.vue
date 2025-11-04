@@ -168,6 +168,16 @@
           </div>
 
           <div class="controls-right">
+            <!-- ✅ [修正] 將匯出按鈕移到權限判斷的外面，並且獨立存在 -->
+            <button
+              @click="exportWeeklyScheduleToExcel"
+              :disabled="!monthlySchedule || activeWeekTab === 0"
+              class="btn-success"
+              title="將目前顯示的這一週班表匯出為 Excel 檔案"
+            >
+              <i class="fas fa-file-excel"></i> 匯出本週 Excel
+            </button>
+
             <!-- ✨ 權限控制：將所有編輯相關的按鈕都包在 v-if="auth.isAdmin.value" 中 -->
             <template v-if="auth.isAdmin.value">
               <!-- 班別編輯按鈕 -->
@@ -326,6 +336,8 @@
                   <table class="week-table">
                     <thead>
                       <tr>
+                        <!-- ✅ [新增] 員工編號的表頭 -->
+                        <th class="employee-id-col-weekly">員工編號</th>
                         <th class="nurse-name-col-weekly">護理師</th>
                         <th
                           v-for="(dayInfo, dayIdx) in weekData.days"
@@ -344,6 +356,8 @@
                         v-for="(nurseData, nurseId) in filteredSortedSchedule"
                         :key="`nurse-${nurseId}`"
                       >
+                        <!-- ✅ [新增] 員工編號的資料格 -->
+                        <td class="employee-id-weekly">{{ nurseData.nurseUsername || '-' }}</td>
                         <td class="nurse-name-weekly">{{ nurseData.nurseName }}</td>
                         <td
                           v-for="(dayInfo, dayIdx) in weekData.days"
@@ -1060,6 +1074,83 @@ const getShiftClass = (shift) => {
   if (shiftStr === '例' || shiftStr.includes('例假')) return 'shift-badge shift-例假'
   if (shiftStr.includes('國定')) return 'shift-badge shift-國定'
   return 'shift-badge shift-其他'
+}
+
+// ✅ [修正] 完整的、包含員工編號的週班表匯出函式
+function exportWeeklyScheduleToExcel() {
+  // 1. 防呆：檢查是否有資料可以匯出
+  if (!monthlySchedule.value) {
+    alert('沒有班表資料可供匯出。')
+    return
+  }
+  if (activeWeekTab.value === 0) {
+    alert('請先選擇一個週次，再進行匯出。')
+    return
+  }
+
+  // 2. 獲取當前選擇的週次資料和護理師列表
+  const currentWeekIndex = activeWeekTab.value - 1
+  const currentWeek = weeklyData.value[currentWeekIndex]
+  const nursesToExport = filteredSortedSchedule.value
+
+  if (!currentWeek || !nursesToExport) {
+    alert('無法獲取週次資料，請稍後再試。')
+    return
+  }
+
+  // 3. 建立 Excel 的標頭 (Header)
+  const headers = [
+    '員工編號', // ✅ [修正] 新增 '員工編號' 到表頭
+    '護理師',
+    ...currentWeek.days.map((day) => `${day.displayText} (${day.weekday})`),
+  ]
+  const data = [headers]
+
+  // 4. 建立每一位護理師的資料列 (Row)
+  Object.entries(nursesToExport).forEach(([nurseId, nurseData]) => {
+    const row = [
+      nurseData.nurseUsername || '-', // ✅ [修正] 在每一行的最前面加入員工編號
+      nurseData.nurseName,
+    ]
+
+    currentWeek.days.forEach((dayInfo) => {
+      if (!dayInfo.isCurrentMonth) {
+        row.push('-')
+        return
+      }
+
+      const dayIndex = dayInfo.dayIndex
+      const shift = nurseData.shifts?.[dayIndex] || ''
+      const group = nurseData.groups?.[dayIndex] || ''
+      const isStandby = isStandby75(nurseId, dayIndex)
+
+      let cellText = shift
+
+      if (group) {
+        cellText += ` ${group}組`
+      }
+      if (isStandby) {
+        cellText += ' ⭐'
+      }
+
+      row.push(cellText.trim() || '-')
+    })
+
+    data.push(row)
+  })
+
+  // 5. 使用 xlsx 函式庫生成並下載 Excel 檔案
+  try {
+    const worksheet = XLSX.utils.aoa_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, `第${currentWeek.weekNumber}週班表`)
+
+    const filename = `護理週班表_${selectedMonth.value}_第${currentWeek.weekNumber}週.xlsx`
+    XLSX.writeFile(workbook, filename)
+  } catch (error) {
+    console.error('匯出 Excel 失敗:', error)
+    alert('匯出 Excel 時發生錯誤，請查看主控台訊息。')
+  }
 }
 
 async function executeShiftSave() {
@@ -2072,16 +2163,30 @@ onMounted(() => {
   background-color: #f1f3f5;
   font-weight: 600;
 }
+
+.employee-id-col-weekly,
+.employee-id-weekly {
+  position: sticky;
+  left: 0; /* ✅ [修正] 補上星號，變成正確的 CSS 註解 */
+  background-color: #f8f9fa;
+  font-weight: 500;
+  z-index: 1;
+  min-width: 80px;
+  width: 80px;
+  border-right: 1px solid #dee2e6;
+}
+
 .nurse-name-col-weekly,
 .nurse-name-weekly {
   position: sticky;
-  left: 0;
+  left: 80px; /* ✅ [修正] 改成正確的 CSS 註解語法 */
   background-color: #f8f9fa;
   font-weight: 500;
   z-index: 1;
   min-width: 100px;
   width: 100px;
 }
+
 .week-table .weekend {
   background-color: #fff5f5;
 }
