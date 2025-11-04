@@ -1022,7 +1022,7 @@ const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
   const dayOfWeek = new Date(date).getDay()
   if (s === '74') {
-    return ['B', 'C', 'D', 'E', 'G', 'H', 'I']
+    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
   }
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
     let groups = []
