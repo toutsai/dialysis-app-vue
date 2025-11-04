@@ -1076,19 +1076,15 @@ const getShiftClass = (shift) => {
   return 'shift-badge shift-其他'
 }
 
-// ✅ [修正] 完整的、包含員工編號的週班表匯出函式
+// ✅ [最終修正] 包含標題列和儲存格合併的完整匯出函式
 function exportWeeklyScheduleToExcel() {
-  // 1. 防呆：檢查是否有資料可以匯出
-  if (!monthlySchedule.value) {
-    alert('沒有班表資料可供匯出。')
-    return
-  }
-  if (activeWeekTab.value === 0) {
-    alert('請先選擇一個週次，再進行匯出。')
+  // 1. 防呆檢查 (不變)
+  if (!monthlySchedule.value || activeWeekTab.value === 0) {
+    alert(!monthlySchedule.value ? '沒有班表資料可供匯出。' : '請先選擇一個週次，再進行匯出。')
     return
   }
 
-  // 2. 獲取當前選擇的週次資料和護理師列表
+  // 2. 獲取當前週次資料 (不變)
   const currentWeekIndex = activeWeekTab.value - 1
   const currentWeek = weeklyData.value[currentWeekIndex]
   const nursesToExport = filteredSortedSchedule.value
@@ -1098,50 +1094,63 @@ function exportWeeklyScheduleToExcel() {
     return
   }
 
-  // 3. 建立 Excel 的標頭 (Header)
+  // 3. 建立 Excel 的資料主體
+  // 表頭
   const headers = [
-    '員工編號', // ✅ [修正] 新增 '員工編號' 到表頭
+    '員工編號',
     '護理師',
     ...currentWeek.days.map((day) => `${day.displayText} (${day.weekday})`),
   ]
-  const data = [headers]
 
-  // 4. 建立每一位護理師的資料列 (Row)
-  Object.entries(nursesToExport).forEach(([nurseId, nurseData]) => {
-    const row = [
-      nurseData.nurseUsername || '-', // ✅ [修正] 在每一行的最前面加入員工編號
-      nurseData.nurseName,
-    ]
-
+  // 資料列
+  const dataRows = Object.entries(nursesToExport).map(([nurseId, nurseData]) => {
+    const row = [nurseData.nurseUsername || '-', nurseData.nurseName]
     currentWeek.days.forEach((dayInfo) => {
       if (!dayInfo.isCurrentMonth) {
         row.push('-')
         return
       }
-
       const dayIndex = dayInfo.dayIndex
       const shift = nurseData.shifts?.[dayIndex] || ''
       const group = nurseData.groups?.[dayIndex] || ''
       const isStandby = isStandby75(nurseId, dayIndex)
 
       let cellText = shift
-
-      if (group) {
-        cellText += ` ${group}組`
-      }
-      if (isStandby) {
-        cellText += ' ⭐'
-      }
+      if (group) cellText += ` ${group}組`
+      if (isStandby) cellText += ' ⭐'
 
       row.push(cellText.trim() || '-')
     })
-
-    data.push(row)
+    return row
   })
 
-  // 5. 使用 xlsx 函式庫生成並下載 Excel 檔案
+  // ✅ [修正] 4. 建立標題列並組合最終的 Excel 資料
+  // 動態生成標題文字
+  const excelTitle = `${selectedMonth.value} 第${currentWeek.weekNumber}週 (${currentWeek.startDate} - ${currentWeek.endDate}) 護理班表`
+
+  const titleRow = [excelTitle] // 標題列
+  const emptyRow = [] // 空白列，用於間隔
+
+  // 將標題、空白列、表頭、資料列組合在一起
+  const dataForSheet = [titleRow, emptyRow, headers, ...dataRows]
+
+  // ✅ [修正] 5. 使用 xlsx 函式庫生成 Excel，並加入儲存格合併
   try {
-    const worksheet = XLSX.utils.aoa_to_sheet(data)
+    const worksheet = XLSX.utils.aoa_to_sheet(dataForSheet)
+
+    // 設定標題列的儲存格合併範圍
+    const merge = {
+      s: { r: 0, c: 0 }, // s = start, r = row, c = column (從 A1 開始)
+      e: { r: 0, c: headers.length - 1 }, // e = end (到第一行的最後一欄結束)
+    }
+    if (!worksheet['!merges']) worksheet['!merges'] = []
+    worksheet['!merges'].push(merge)
+
+    // (可選) 讓標題置中
+    if (worksheet['A1']) {
+      worksheet['A1'].s = { alignment: { horizontal: 'center', vertical: 'center' } }
+    }
+
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, `第${currentWeek.weekNumber}週班表`)
 
