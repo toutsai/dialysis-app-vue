@@ -346,6 +346,7 @@
                       <option value="刪除排程">刪除排程</option>
                       <option value="更改模式">更改模式</option>
                       <option value="更改頻率">更改頻率</option>
+                      <option value="轉常規門診">轉常規門診</option>
                       <option value="其他">其他</option>
                     </select>
                     <span v-else :class="['movement-type-badge', `type-${item.type || '手動'}`]">
@@ -2487,6 +2488,9 @@ h1 {
 }
 .movement-type-badge.type-刪除排程 {
   background-color: #e83e8c;
+}
+.movement-type-badge.type-轉常規門診 {
+  background-color: #df3bb6;
 }
 .movement-type-badge.type-其他 {
   background-color: #adb5bd;
