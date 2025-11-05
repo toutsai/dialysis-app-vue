@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/DailyLogView.vue (✨ 營運統計拆分版 ✨) -->
+<!-- 檔案路徑: src/views/DailyLogView.vue (✨ 最終整合版 ✨) -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -312,12 +312,15 @@
         <section class="log-section">
           <div class="section-header">
             <h2>病人動態表</h2>
-            <button @click="addRow('patientMovements')" class="add-row-btn-header">新增動態</button>
+            <button @click="addRow('patientMovements')" class="add-row-btn-header">
+              新增手動動態
+            </button>
           </div>
           <div v-if="dailyLog.patientMovements.length > 0" class="dynamic-table-container">
             <table class="dynamic-table">
               <thead>
                 <tr>
+                  <th class="col-type">類型</th>
                   <th class="col-name">姓名</th>
                   <th class="col-mrn">病歷號</th>
                   <th class="col-bed">床號</th>
@@ -330,13 +333,33 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(item, index) in dailyLog.patientMovements" :key="item.id">
+                <tr
+                  v-for="(item, index) in dailyLog.patientMovements"
+                  :key="item.id"
+                  :class="{ 'is-edited-row': isRowInEditMode(item) }"
+                >
+                  <td class="col-type">
+                    <select v-if="isRowInEditMode(item)" v-model="item.type" class="type-select">
+                      <option value="手動">手動</option>
+                      <option value="首透">首透</option>
+                      <option value="暫停透析">暫停透析</option>
+                      <option value="刪除排程">刪除排程</option>
+                      <option value="更改模式">更改模式</option>
+                      <option value="更改頻率">更改頻率</option>
+                      <option value="其他">其他</option>
+                    </select>
+                    <span v-else :class="['movement-type-badge', `type-${item.type || '手動'}`]">
+                      {{ item.type || '手動' }}
+                    </span>
+                  </td>
                   <td class="col-name">
                     <div class="autocomplete-wrapper">
+                      <!-- ✅ [核心修正] 將遺失的事件監聽器加回來 -->
                       <input
                         type="text"
                         :ref="(el) => (inputRefs[`movements-${index}`] = el)"
                         v-model="item.name"
+                        :disabled="!isRowInEditMode(item)"
                         @input="handlePatientSearch(index, 'movements')"
                         @focus="showAutocomplete($event, index, 'movements')"
                         @blur="hideAutocomplete"
@@ -344,30 +367,70 @@
                       />
                     </div>
                   </td>
-                  <td class="col-mrn"><input type="text" v-model="item.medicalRecordNumber" /></td>
+                  <td class="col-mrn">
+                    <input
+                      type="text"
+                      v-model="item.medicalRecordNumber"
+                      :disabled="!isRowInEditMode(item)"
+                    />
+                  </td>
                   <td class="col-bed">
                     <div
                       class="bed-change-cell"
                       :class="{
-                        'is-clickable': ['ipd', 'er'].includes(
-                          patientMap.get(item.patientId)?.status,
-                        ),
+                        'is-clickable':
+                          isRowInEditMode(item) &&
+                          ['ipd', 'er'].includes(patientMap.get(item.patientId)?.status),
                       }"
-                      @click="promptWardNumber(index)"
-                      title="點擊編輯住院床號"
+                      @click="isRowInEditMode(item) && promptWardNumber(index)"
                     >
-                      {{ patientMap.get(item.patientId)?.wardNumber || '點擊設定' }}
+                      {{
+                        patientMap.get(item.patientId)?.wardNumber ||
+                        (isRowInEditMode(item) ? '點擊設定' : '-')
+                      }}
                     </div>
                   </td>
-                  <td class="col-date"><input type="date" v-model="item.admissionDate" /></td>
-                  <td class="col-date"><input type="date" v-model="item.dischargeDate" /></td>
-                  <td class="col-physician"><input type="text" v-model="item.physician" /></td>
-                  <td class="col-reason-wide"><input type="text" v-model="item.reason" /></td>
-                  <td class="col-remarks-wide"><input type="text" v-model="item.remarks" /></td>
+                  <td class="col-date">
+                    <input
+                      type="date"
+                      v-model="item.admissionDate"
+                      :disabled="!isRowInEditMode(item)"
+                    />
+                  </td>
+                  <td class="col-date">
+                    <input
+                      type="date"
+                      v-model="item.dischargeDate"
+                      :disabled="!isRowInEditMode(item)"
+                    />
+                  </td>
+                  <td class="col-physician">
+                    <input
+                      type="text"
+                      v-model="item.physician"
+                      :disabled="!isRowInEditMode(item)"
+                    />
+                  </td>
+                  <td class="col-reason-wide">
+                    <input type="text" v-model="item.reason" :disabled="!isRowInEditMode(item)" />
+                  </td>
+                  <td class="col-remarks-wide">
+                    <input type="text" v-model="item.remarks" :disabled="!isRowInEditMode(item)" />
+                  </td>
                   <td class="col-actions">
-                    <button @click="deleteRow(index, 'patientMovements')" class="delete-btn">
-                      移除
+                    <button
+                      v-if="!isRowInEditMode(item)"
+                      @click="unlockMovement(item)"
+                      class="edit-btn"
+                    >
+                      編輯
                     </button>
+                    <div v-else class="action-buttons-group">
+                      <button @click="saveMovement(item)" class="save-btn">儲存</button>
+                      <button @click="deleteRow(index, 'patientMovements')" class="delete-btn">
+                        移除
+                      </button>
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -673,6 +736,9 @@
             <div v-for="item in dailyLog.patientMovements" :key="item.id" class="log-entry-card">
               <div class="entry-header">
                 <strong>{{ item.name }}</strong> ({{ item.medicalRecordNumber }})
+                <span v-if="item.type" :class="['movement-type-badge', `type-${item.type}`]">
+                  {{ item.type }}
+                </span>
               </div>
               <div class="entry-body">
                 <div><strong>會診醫師:</strong> {{ item.physician || 'N/A' }}</div>
@@ -701,7 +767,7 @@
           <p v-else class="no-data-text">本日無血管通路處置記錄</p>
         </div>
 
-        <!-- 行動版：其他事項 -->
+        <!-- 其他事項 -->
         <div class="mobile-section-card">
           <h2 class="mobile-section-title">其他事項</h2>
           <p v-if="dailyLog.otherNotes" class="handover-notes-display">
@@ -822,8 +888,8 @@ const alertDialogMessage = ref('')
 const currentSchedule = ref({})
 const isHandoverDialogVisible = ref(false)
 const handoverNotes = ref('')
-
 const isStaffingDetailsVisible = ref(false)
+const newMovementId = ref(null)
 
 const initialLogState = () => ({
   id: null,
@@ -966,8 +1032,6 @@ const calculatedStaffingTotals = computed(() => {
     })
   }
 
-  // 調整時數：正數增加（加班），負數減少（早退）
-  // 支援新舊兩種欄位名稱 (adjustments 或 deductions)
   if (staffingData) {
     const adjustments = staffingData.adjustments || staffingData.deductions || {}
     totals.early += (Number(adjustments.shift1) || 0) * 0.125
@@ -1007,7 +1071,7 @@ function addStaffingRow() {
     ratio1: 0,
     ratio2: 0,
     ratio3: 0,
-    isLocked: false, // 確保新增的項目是可編輯的
+    isLocked: false,
   })
 }
 
@@ -1063,14 +1127,11 @@ async function saveLog(options = {}) {
   try {
     const dataToSave = JSON.parse(JSON.stringify(dailyLog))
 
-    // 確保使用新的 adjustments 欄位名稱
     if (dataToSave.stats?.staffing) {
-      // 如果有舊的 deductions，轉換為 adjustments
       if (dataToSave.stats.staffing.deductions) {
         dataToSave.stats.staffing.adjustments = dataToSave.stats.staffing.deductions
         delete dataToSave.stats.staffing.deductions
       }
-      // 確保 adjustments 存在
       if (!dataToSave.stats.staffing.adjustments) {
         dataToSave.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
       }
@@ -1099,13 +1160,12 @@ async function saveLog(options = {}) {
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
-  // 重置 dailyLog 狀態，並設定正確的日期
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
-  handoverNotes.value = '' // 清空給彈窗的 prop
+  handoverNotes.value = ''
+  newMovementId.value = null // 切換日期時清除新行標記
 
   try {
-    // 步驟 1: 平行獲取所有需要的資料
     await patientStore.fetchPatientsIfNeeded()
 
     const today = new Date(dateStr)
@@ -1125,28 +1185,15 @@ async function loadDailyLog(dateStr) {
         schedulesApi.fetchAll([where('date', '==', dateStr)]),
       ])
 
-    // 步驟 2: 處理日誌資料 (核心邏輯區塊)
     if (logResult) {
-      // --- 情況 A: 如果今天有日誌 ---
-      console.log(`[DailyLog] Found log for ${dateStr}.`)
-
       const mergedLog = { ...initialLogState(), ...logResult }
 
-      // ✨ 核心修正 1: 處理舊資料兼容性 ✨
-      // 檢查是否為舊格式 (有 handoverNotes 但沒有 otherNotes)，如果是，則進行一次性資料遷移
       if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
-        console.warn(
-          `[DailyLog] Old log format detected for ${dateStr}. Migrating 'handoverNotes' to 'otherNotes'.`,
-        )
-        // 將舊的 handoverNotes (實際上是其他事項) 賦值給 otherNotes
         mergedLog.otherNotes = mergedLog.handoverNotes
-        // 清空 handoverNotes，因為舊日誌沒有組長交班功能
         mergedLog.handoverNotes = ''
       }
 
-      // (舊的護理人力 staffing 兼容邏輯保持不變)
       if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
-        console.warn('偵測到舊版護理人力資料格式，正在進行轉換...')
         const oldStaffingData = logResult.stats.staffing || {}
         const newStaffingStructure = initialLogState().stats.staffing
         const oldTotal =
@@ -1169,14 +1216,10 @@ async function loadDailyLog(dateStr) {
         logResult.stats.staffing = newStaffingStructure
       }
 
-      // 處理 deductions 到 adjustments 的轉換（向後相容）
       if (logResult.stats?.staffing) {
-        // 如果有舊的 deductions 欄位但沒有 adjustments
         if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
-          console.warn('偵測到舊版 deductions 欄位，正在轉換為 adjustments...')
           logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions
         }
-        // 確保 adjustments 欄位存在
         if (!logResult.stats.staffing.adjustments) {
           logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
         }
@@ -1185,33 +1228,19 @@ async function loadDailyLog(dateStr) {
       Object.assign(dailyLog, mergedLog)
       handoverNotes.value = dailyLog.handoverNotes || ''
     } else {
-      // --- 情況 B: 如果今天是空的，需要繼承舊的交班事項 ---
-      console.log(`[DailyLog] No log for ${dateStr}. Checking previous days for handover notes.`)
-
       let inheritedHandoverNotes = ''
       if (yesterdayLogResult?.handoverNotes) {
         inheritedHandoverNotes = yesterdayLogResult.handoverNotes
-        console.log(`[DailyLog] Inherited handover notes from yesterday (${yesterdayStr}).`)
       } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
         inheritedHandoverNotes = dayBeforeYesterdayLogResult.handoverNotes
-        console.log(
-          `[DailyLog] Inherited handover notes from the day before (${dayBeforeYesterdayStr}).`,
-        )
       }
-
-      // ✨ 核心修正 2: 確保只繼承 handoverNotes，不污染 otherNotes
-      // 將繼承的交班事項賦值給彈窗和要儲存的欄位
       handoverNotes.value = inheritedHandoverNotes
       dailyLog.handoverNotes = inheritedHandoverNotes
-
-      // ✨ 關鍵防火牆：明確地將「其他事項」欄位設為空，等待使用者輸入當天的內容
       dailyLog.otherNotes = ''
     }
 
-    // 步驟 3: 處理排班資料 (這部分邏輯不變)
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
-      // 如果日誌是空的，才需要從排班表計算初始統計
       if (!logResult) {
         calculateStatsFromSchedule(scheduleData[0])
       }
@@ -1222,7 +1251,7 @@ async function loadDailyLog(dateStr) {
   } finally {
     isLoading.value = false
     await nextTick()
-    handleTextareaInput() // 確保 textarea 高度正確
+    handleTextareaInput()
   }
 }
 
@@ -1304,10 +1333,15 @@ function triggerDateInput() {
   document.querySelector('.hidden-date-input').showPicker()
 }
 function addRow(targetArrayKey) {
+  if (newMovementId.value) {
+    showAlert('提示', '請先儲存目前新增的動態，再新增下一筆。')
+    return
+  }
   const newId = Date.now()
   if (targetArrayKey === 'patientMovements') {
     dailyLog.patientMovements.push({
       id: newId,
+      type: '手動',
       name: '',
       medicalRecordNumber: '',
       bedChange: '',
@@ -1317,6 +1351,7 @@ function addRow(targetArrayKey) {
       reason: '',
       remarks: '',
     })
+    newMovementId.value = newId
   } else if (targetArrayKey === 'vascularAccessLog') {
     dailyLog.vascularAccessLog.push({
       id: newId,
@@ -1329,9 +1364,55 @@ function addRow(targetArrayKey) {
   }
 }
 function deleteRow(index, targetArrayKey) {
+  const item = dailyLog[targetArrayKey][index]
   showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
+    if (item.id === newMovementId.value) {
+      newMovementId.value = null
+    }
     dailyLog[targetArrayKey].splice(index, 1)
   })
+}
+async function saveMovement(item) {
+  if (!item.name) {
+    showAlert('資料不完整', '請至少填寫病人姓名。')
+    return
+  }
+
+  if (item.isEdited && item.originalType) {
+    item.originalAutoId = item.id
+    item.id = `edited_${item.id}`
+    item.type = '手動'
+  }
+
+  if (item.id === newMovementId.value) {
+    newMovementId.value = null
+  }
+  item.isEdited = false
+
+  await saveJustMovements()
+}
+async function saveJustMovements() {
+  isLoading.value = true
+  try {
+    const docId = selectedDate.value
+    const dataToUpdate = {
+      patientMovements: JSON.parse(JSON.stringify(dailyLog.patientMovements)),
+    }
+
+    if (dailyLog.id) {
+      await dailyLogsApi.update(docId, dataToUpdate)
+    } else {
+      await dailyLogsApi.save(docId, dataToUpdate)
+      dailyLog.id = docId
+    }
+    hasUnsavedChanges.value = false
+    showAlert('操作成功', '病人動態已更新！')
+  } catch (error) {
+    console.error('儲存病人動態失敗:', error)
+    showAlert('儲存失敗', '更新病人動態時發生錯誤。')
+  } finally {
+    isLoading.value = false
+  }
 }
 function handlePatientSearch(index, type) {
   const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
@@ -1594,6 +1675,21 @@ function onNotesUpdated(newNotes) {
   hasUnsavedChanges.value = true
   isHandoverDialogVisible.value = false
 }
+
+function isRowInEditMode(item) {
+  if (item.id === newMovementId.value) {
+    return true
+  }
+  if (item.isEdited) {
+    return true
+  }
+  return false
+}
+
+function unlockMovement(item) {
+  item.isEdited = true
+}
+
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 })
@@ -1870,7 +1966,7 @@ h1 {
   font-size: 1.1rem;
 }
 
-/* ✨ 新增/修改開始 ✨: 護理人力整合表格樣式 */
+/* 護理人力整合表格樣式 */
 .toggle-details-btn {
   background: none;
   border: 1px solid #ced4da;
@@ -1887,7 +1983,6 @@ h1 {
 .toggle-details-btn:hover {
   background-color: #e9ecef;
 }
-
 .nested-header {
   background-color: #f8f9fa;
   font-size: 0.9rem;
@@ -1898,7 +1993,6 @@ h1 {
 .cell-item.nested-header {
   background-color: #f0f2f5;
 }
-
 .label-count-header {
   display: flex;
   justify-content: space-between;
@@ -1912,7 +2006,6 @@ h1 {
   width: 60px;
   text-align: center;
 }
-
 .nested-item {
   background-color: #fff;
   padding: 0.4rem;
@@ -1923,7 +2016,6 @@ h1 {
 .cell-category.nested-item {
   justify-content: flex-start;
 }
-
 .label-count-cell {
   display: flex;
   gap: 0.5rem;
@@ -1936,7 +2028,6 @@ h1 {
   width: 60px;
   flex-shrink: 0;
 }
-
 .nested-item input {
   width: 100%;
   padding: 0.4rem;
@@ -1945,7 +2036,6 @@ h1 {
   text-align: center;
   font-size: 1rem;
 }
-
 .action-cell {
   display: flex;
   align-items: center;
@@ -1956,7 +2046,6 @@ h1 {
   font-size: 0.8rem;
   flex-shrink: 0;
 }
-
 .deduction-row {
   background-color: #fffbe3 !important;
   font-weight: 500;
@@ -1966,15 +2055,16 @@ h1 {
 .deduction-row.cell-category {
   justify-content: center;
 }
-
 .add-row-cell {
   grid-column: 2 / -1;
   justify-content: flex-end !important;
   padding: 0.5rem !important;
   background-color: #f0f2f5;
 }
-/* ✨ 新增/修改結束 ✨ */
 
+/* ================================== */
+/* ✅ [核心優化區塊] 病人動態表 & 通路表 */
+/* ================================== */
 .dynamic-table-container {
   width: 100%;
   overflow-x: auto;
@@ -1982,14 +2072,16 @@ h1 {
 .dynamic-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1200px;
+  table-layout: fixed; /* 讓寬度設定更可控 */
 }
 .dynamic-table th,
 .dynamic-table td {
   border: 1px solid #dee2e6;
-  padding: 0.5rem;
+  padding: 0.5rem 0.75rem; /* 微調 padding */
   text-align: left;
   vertical-align: middle;
+  font-size: 0.95rem; /* 微調字體大小 */
+  white-space: nowrap; /* ✅ 關鍵：防止內容換行 */
 }
 .dynamic-table th {
   background-color: #f8f9fa;
@@ -2003,88 +2095,86 @@ h1 {
   border: 1px solid transparent;
   border-radius: 4px;
   transition: border-color 0.2s;
+  font-size: inherit; /* ✅ 讓 input 字體與 td 一致 */
 }
 .dynamic-table input:focus {
   outline: none;
   border-color: #80bdff;
 }
+/* 讓可變寬度欄位內容可以換行 */
+.dynamic-table .col-reason-wide,
+.dynamic-table .col-remarks-wide {
+  white-space: normal;
+}
+/* 讓 input 在可變寬度欄位中也能正常顯示 */
+.dynamic-table .col-reason-wide input,
+.dynamic-table .col-remarks-wide input {
+  white-space: normal;
+}
+/* 欄位寬度設定 */
+.dynamic-table .col-type {
+  width: 90px;
+}
 .dynamic-table .col-name {
-  width: 12%;
-  min-width: 120px;
+  width: 100px;
 }
 .dynamic-table .col-mrn {
-  width: 9%;
-  min-width: 90px;
+  width: 100px;
 }
 .dynamic-table .col-bed {
-  width: 8%;
-  min-width: 80px;
+  width: 90px;
 }
 .dynamic-table .col-date {
-  width: 11%;
-  min-width: 130px;
+  width: 160px;
 }
 .dynamic-table .col-physician {
-  width: 10%;
-  min-width: 100px;
-}
-.dynamic-table .col-reason-wide {
-  width: auto;
-}
-.dynamic-table .col-remarks-wide {
-  width: auto;
-}
-.dynamic-table .col-interventions-wide {
-  width: 40%;
-  min-width: 380px;
-}
-.dynamic-table .col-location {
-  width: 15%;
-  min-width: 120px;
+  width: 90px;
 }
 .dynamic-table .col-actions {
-  width: 80px;
-  min-width: 80px;
-  text-align: center;
+  width: 150px; /* ✅ 增加寬度以容納兩個按鈕 */
+}
+.dynamic-table .col-interventions-wide {
+  width: 380px;
+}
+.dynamic-table .col-location {
+  width: 120px;
+}
+/* `col-reason-wide` 和 `col-remarks-wide` 不設寬度，讓它們自動分配 */
+
+.delete-btn,
+.save-btn,
+.edit-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  white-space: nowrap; /* 確保按鈕文字不換行 */
 }
 .delete-btn {
   background-color: #dc3545;
   color: white;
-  border: 1px solid #dc3545;
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
 }
 .delete-btn:hover {
   background-color: #c82333;
 }
-.action-text-btn {
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  border-radius: 6px;
-  border: 1px solid;
-  cursor: pointer;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-.action-text-btn.edit-btn {
-  background-color: #6c757d;
-  color: white;
-  border-color: #6c757d;
-}
-.action-text-btn.edit-btn:hover {
-  background-color: #5a6268;
-}
-.action-text-btn.unsign-btn {
+.edit-btn {
   background-color: #ffc107;
   color: #212529;
-  border-color: #ffc107;
 }
-.action-text-btn.unsign-btn:hover {
-  background-color: #e0a800;
+.save-btn {
+  background-color: #007bff;
+  color: white;
 }
+.save-btn:hover {
+  background-color: #0056b3;
+}
+.action-buttons-group {
+  display: flex;
+  gap: 0.5rem; /* 按鈕之間的間距 */
+  justify-content: center;
+}
+
 .bed-change-cell {
   width: 100%;
   height: 100%;
@@ -2284,7 +2374,6 @@ h1 {
     transform: rotate(360deg);
   }
 }
-
 .notes-display-for-pdf {
   display: none;
   white-space: pre-wrap;
@@ -2292,7 +2381,7 @@ h1 {
   font-size: 1.1rem;
   line-height: 1.6;
   padding: 1rem;
-  border: 1px solid #ced4da;
+  border: 1px solid #dee2e6;
   border-radius: 6px;
   min-height: 50px;
   word-break: break-word;
@@ -2354,6 +2443,78 @@ h1 {
   flex-direction: column;
   gap: 2rem;
 }
+
+/* 病人動態相關 CSS */
+.movement-type-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  color: white;
+  white-space: nowrap;
+}
+.movement-type-badge.type-新增 {
+  background-color: #28a745;
+}
+.movement-type-badge.type-刪除 {
+  background-color: #dc3545;
+}
+.movement-type-badge.type-轉移 {
+  background-color: #17a2b8;
+}
+.movement-type-badge.type-復原 {
+  background-color: #ffc107;
+  color: #212529;
+}
+.movement-type-badge.type-編輯 {
+  background-color: #6c757d;
+}
+.movement-type-badge.type-更改頻率 {
+  background-color: #15990e8b;
+}
+.movement-type-badge.type-更改模式 {
+  background-color: #1090f2;
+}
+.movement-type-badge.type-手動 {
+  background-color: #6c757d;
+}
+.movement-type-badge.type-首透 {
+  background-color: #fd7e14;
+}
+.movement-type-badge.type-暫停透析 {
+  background-color: #6610f2;
+}
+.movement-type-badge.type-刪除排程 {
+  background-color: #e83e8c;
+}
+.movement-type-badge.type-其他 {
+  background-color: #adb5bd;
+}
+
+.dynamic-table input:read-only,
+.dynamic-table input:disabled {
+  background-color: #f8f9fa;
+  cursor: default;
+  border-color: transparent;
+  color: #495057;
+}
+
+.dynamic-table tr.is-edited-row {
+  background-color: #fffbe3;
+}
+
+/* 下拉選單的樣式 */
+.type-select {
+  width: 100%;
+  padding: 0.4rem;
+  border: 1px solid #007bff;
+  border-radius: 4px;
+  background-color: #e7f1ff;
+  font-weight: 500;
+}
+
+/* 行動版 */
 @media (max-width: 992px) {
   .desktop-only {
     display: none !important;
@@ -2468,6 +2629,9 @@ h1 {
   background-color: #f8f9fa;
   font-size: 1rem;
   font-weight: 500;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .entry-body {
@@ -2519,3 +2683,4 @@ h1 {
   color: #16a34a; /* 綠色 */
 }
 </style>
+style>
