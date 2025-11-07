@@ -2708,31 +2708,36 @@ exports.handleNewExceptionRequest = onDocumentCreated(
 )
 
 // ===================================================================
-// 🔥🔥🔥【最終修正版 v6.1】 - onExceptionDeleted (傳遞 masterRules) 🔥🔥🔥
+// 🔥🔥🔥【最終修正版 v6.3】 - onExceptionDeleted (使用統一日期函式) 🔥🔥🔥
 // 職責：當調班被撤銷時，先獲取最新的總表規則，然後呼叫核心引擎來
-//       為所有受影響的日期進行徹底的、正確的重建。
+//       為所有【未來或當天】受影響的日期進行徹底的、正確的重建。
 // ===================================================================
 exports.onExceptionDeleted = onDocumentDeleted(
   'schedule_exceptions/{exceptionId}',
   async (event) => {
     const deletedException = event.data.data()
     const exceptionId = event.params.exceptionId
-    logger.info(`🚀 [RebuildOnDelete-v6.1] 偵測到調班撤銷: ${exceptionId}，觸發排程重建...`)
+
+    // --- 🔥 核心修正: 直接從 dateUtils 獲取台北時區今天的日期字串 ---
+    const todayStr = getTaipeiTodayString()
+
+    logger.info(
+      `🚀 [RebuildOnDelete-v6.3] 偵測到調班撤銷: ${exceptionId}，觸發排程重建... (基準日: ${todayStr})`,
+    )
 
     if (!deletedException || !deletedException.type) {
-      logger.error(`❌ [RebuildOnDelete-v6.1] 失敗：被刪除的調班資料不完整`)
+      logger.error(`❌ [RebuildOnDelete-v6.3] 失敗：被刪除的調班資料不完整`)
       return
     }
 
     try {
-      // --- 🔥 步驟 1 (核心修正): 在執行任何計算前，先獲取最新的總表規則 ---
+      // --- 步驟 2: 獲取總表規則 ---
       const masterDoc = await db.collection('base_schedules').doc('MASTER_SCHEDULE').get()
       const masterRules = masterDoc.exists ? masterDoc.data().schedule || {} : {}
-      logger.info(`[RebuildOnDelete-v6.1] 已成功獲取最新的總表規則。`)
+      logger.info(`[RebuildOnDelete-v6.3] 已成功獲取最新的總表規則。`)
 
-      // --- 步驟 2: 找出所有受影響的日期 (邏輯不變) ---
+      // --- 步驟 3: 找出所有受影響的日期 ---
       const datesToRebuild = new Set()
-      // ... (找出 datesToRebuild 的邏輯保持不變)
       if (
         deletedException.type === 'SUSPEND' &&
         deletedException.startDate &&
@@ -2741,6 +2746,7 @@ exports.onExceptionDeleted = onDocumentDeleted(
         const start = new Date(deletedException.startDate + 'T00:00:00Z')
         const end = new Date(deletedException.endDate + 'T00:00:00Z')
         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          // <-- 確認這裡也使用統一的格式化函式
           datesToRebuild.add(formatDateToYYYYMMDD(new Date(d)))
         }
       } else {
@@ -2753,44 +2759,55 @@ exports.onExceptionDeleted = onDocumentDeleted(
         exDates.forEach((d) => datesToRebuild.add(d))
       }
 
-      const dateStrings = Array.from(datesToRebuild)
-      if (dateStrings.length === 0) {
-        logger.info('[RebuildOnDelete-v6.1] 該撤銷操作無需重建任何日期。')
+      const allDateStrings = Array.from(datesToRebuild)
+      if (allDateStrings.length === 0) {
+        logger.info('[RebuildOnDelete-v6.3] 該撤銷操作無需重建任何日期。')
+        return
+      }
+      logger.info(`[RebuildOnDelete-v6.3] 原始受影響日期: [${allDateStrings.join(', ')}]`)
+
+      // --- 步驟 4: 過濾掉過去的日期，只處理未來或當天的排程 ---
+      const futureDateStrings = allDateStrings.filter((dateStr) => {
+        return dateStr >= todayStr
+      })
+
+      if (futureDateStrings.length === 0) {
+        logger.info('[RebuildOnDelete-v6.3] 所有受影響的日期皆為過去，無需執行重建。')
         return
       }
 
       logger.info(
-        `[RebuildOnDelete-v6.1] 將對 ${dateStrings.length} 個日期 [${dateStrings.join(', ')}] 執行徹底重建...`,
+        `[RebuildOnDelete-v6.3] 過濾後，將對 ${futureDateStrings.length} 個未來或當天日期 [${futureDateStrings.join(', ')}] 執行徹底重建...`,
       )
 
-      // --- 🔥 步驟 3 (核心修正): 對每個日期呼叫重建引擎，並傳入 masterRules ---
-      const rebuildPromises = dateStrings.map(
-        (dateStr) => rebuildSingleDaySchedule(dateStr, masterRules), // <-- 將 masterRules 傳遞進去
+      // --- 步驟 5: 呼叫重建引擎 ---
+      const rebuildPromises = futureDateStrings.map((dateStr) =>
+        rebuildSingleDaySchedule(dateStr, masterRules),
       )
-
-      // 等待所有重建計算完成
       const rebuiltSchedules = await Promise.all(rebuildPromises)
 
-      // --- 步驟 4: 將計算結果批次寫入資料庫 ---
+      // --- 步驟 6: 批次寫入資料庫 ---
       const batch = db.batch()
       rebuiltSchedules.forEach((schedule, index) => {
-        const dateStr = dateStrings[index]
+        const dateStr = futureDateStrings[index]
         if (schedule) {
           const scheduleRef = db.collection('schedules').doc(dateStr)
           batch.set(scheduleRef, {
             date: dateStr,
             schedule: schedule,
             updatedAt: FieldValue.serverTimestamp(),
-            syncMethod: 'rebuild_on_delete_v6.1',
+            syncMethod: 'rebuild_on_delete_v6.3', // <-- 版本號更新
           })
         }
       })
 
       await batch.commit()
 
-      logger.info(`✅ [RebuildOnDelete-v6.1] 成功完成 ${dateStrings.length} 個日期的重建任務。`)
+      logger.info(
+        `✅ [RebuildOnDelete-v6.3] 成功完成 ${futureDateStrings.length} 個日期的重建任務。`,
+      )
     } catch (error) {
-      logger.error(`❌ [RebuildOnDelete-v6.1] 處理調班 ${exceptionId} 的撤銷時發生嚴重錯誤:`, error)
+      logger.error(`❌ [RebuildOnDelete-v6.3] 處理調班 ${exceptionId} 的撤銷時發生嚴重錯誤:`, error)
     }
   },
 )
