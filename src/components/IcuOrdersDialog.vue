@@ -3,7 +3,13 @@
   <div v-if="isVisible" class="modal-overlay" @click.self="$emit('close')">
     <div class="modal-content">
       <header class="modal-header">
-        <h2>{{ targetDate }} 外圍病房透析醫囑單</h2>
+        <!-- ✨ 核心修改 1: 新增日期導覽按鈕 ✨ -->
+        <div class="date-navigator">
+          <button @click="navigateDate(-1)" class="nav-btn">&lt; 上一天</button>
+          <h2>{{ targetDate }} 外圍病房透析醫囑單</h2>
+          <button @click="navigateDate(1)" class="nav-btn">下一天 &gt;</button>
+        </div>
+
         <div class="header-actions">
           <button v-if="canEdit" @click="handleSaveAndPrint" class="btn-print">
             <i class="fas fa-print"></i> 儲存並列印
@@ -420,6 +426,13 @@
                         <div class="crrt-order-item">
                           <span class="order-label">模式:</span><span>{{ getCRRTMode(p) }}</span>
                         </div>
+                        <!-- ✨✨✨ 1. 新增血液流速顯示 ✨✨✨ -->
+                        <div class="crrt-order-item">
+                          <span class="order-label">血液流速:</span>
+                          <span>{{
+                            p.crrtOrders?.bloodFlow ? `${p.crrtOrders.bloodFlow} ml/min` : '____'
+                          }}</span>
+                        </div>
                         <div class="crrt-order-item">
                           <span class="order-label">PBP:</span
                           ><span>{{ p.crrtOrders?.pbp || '____' }}</span>
@@ -529,6 +542,13 @@
                   <div class="param-item">
                     <span class="param-label">模式:</span>
                     <span class="param-value">{{ getCRRTMode(p) }}</span>
+                  </div>
+                  <!-- ✨✨✨ 2. 新增血液流速顯示 (行動版) ✨✨✨ -->
+                  <div class="param-item">
+                    <span class="param-label">血液流速:</span>
+                    <span class="param-value">{{
+                      p.crrtOrders?.bloodFlow ? `${p.crrtOrders.bloodFlow} ml/min` : '____'
+                    }}</span>
                   </div>
                   <div class="param-item">
                     <span class="param-label">PBP:</span>
@@ -641,7 +661,20 @@ const canEdit = computed(() => {
   return props.isEditable && auth.canEditClinicalNotesAndOrders.value
 })
 
-const emit = defineEmits(['close', 'open-order-modal', 'open-crrt-order-modal', 'save-and-print'])
+// ✨ 核心修改 2: 增加 'change-date' 到 emits 中 ✨
+const emit = defineEmits([
+  'close',
+  'open-order-modal',
+  'open-crrt-order-modal',
+  'save-and-print',
+  'change-date',
+])
+
+// ✨ 核心修改 3: 新增一個方法來觸發事件 ✨
+function navigateDate(days) {
+  // 向父元件發出請求，要求變更日期
+  emit('change-date', days)
+}
 
 const localNotes = reactive({})
 const crrtEmergencyData = reactive({})
@@ -839,7 +872,7 @@ const printContent = () => {
   const printSpecificStyles = `
     /*
      * ===================================================================
-     * === 列印專用樣式表 (最終修正版)
+     * === 列印專用樣式表 (已整合血液流速)
      * ===================================================================
      */
 
@@ -850,14 +883,12 @@ const printContent = () => {
     }
 
     body {
-      /* ✨ 核心修正：直接控制 body，解除所有限制 ✨ */
       position: static !important;
       height: auto !important;
       overflow: visible !important;
       display: block !important;
-
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      font-size: 12pt !important;
+      font-size: 11pt !important; /* 稍微縮小字體以容納更多內容 */
       line-height: 1.5 !important;
       background-color: white !important;
       -webkit-print-color-adjust: exact !important;
@@ -900,23 +931,22 @@ const printContent = () => {
       background-color: #f0f0f0 !important;
     }
     .patient-header .info-item, .patient-header .info-item.name, .order-details, .notes-input {
-      font-size: 12pt !important;
+      font-size: 11pt !important;
     }
 
     .highlight-field {
-      /* 這個外層 div 現在只負責粗體和字體大小 */
       font-weight: bold !important;
-      font-size: 12pt !important;
+      font-size: 11pt !important;
     }
 
     .highlight-field span {
       display: block;
       width: 100%;
       font-weight: bold !important;
-      font-size: 12pt !important;
+      font-size: 11pt !important;
       color: #000 !important;
-      background-color: #fffacd !important; /* 改回淡黃色 */
-      border: 1px solid #fadf98 !important;       /* 改為黃色邊框 */
+      background-color: #fffacd !important;
+      border: 1px solid #fadf98 !important;
       border-radius: 4px !important;
       padding: 4px 6px !important;
       box-sizing: border-box;
@@ -945,7 +975,14 @@ const printContent = () => {
 
     /* --- 6. CRRT 表格樣式 --- */
     .crrt-table th, .crrt-table td, .crrt-order-item {
-      font-size: 11pt !important;
+      font-size: 10pt !important; /* CRRT 內容字體再小一點以容納三欄 */
+    }
+
+    /* ✨ 核心修改：CRRT 醫囑改為三欄式佈局，容納新增的血液流速 ✨ */
+    .crrt-order-content {
+      display: grid !important;
+      grid-template-columns: repeat(3, 1fr) !important;
+      gap: 0.4rem 0.8rem !important;
     }
   `
 
@@ -1094,7 +1131,7 @@ const printContent = () => {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
-  page-break-inside: avoid; /* 核心屬性：避免元素內部被分頁 */
+  page-break-inside: avoid;
 }
 
 .card-body {
@@ -1177,14 +1214,6 @@ const printContent = () => {
   text-decoration: underline;
   font-size: 1.1rem;
 }
-.order-details {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.6rem 1rem;
-  padding: 1rem;
-  font-size: 1.05rem;
-  line-height: 1.5;
-}
 .no-patients-text {
   color: #6c757d;
   font-style: italic;
@@ -1216,7 +1245,7 @@ const printContent = () => {
   border-radius: 6px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   overflow: hidden;
-  page-break-inside: avoid; /* 核心屬性：避免元素內部被分頁 */
+  page-break-inside: avoid;
 }
 .crrt-orders-cell {
   text-align: left !important;
@@ -1260,11 +1289,14 @@ const printContent = () => {
 .timestamp-info {
   font-style: italic;
 }
+
+/* ✨ 核心修改：CRRT 醫囑內容改為三欄式，以適應新增的血液流速欄位 ✨ */
 .crrt-order-content {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
 }
+
 .crrt-order-item {
   display: flex;
   align-items: center;
@@ -1325,8 +1357,6 @@ const printContent = () => {
 .printable-header {
   display: none;
 }
-
-/* CRRT 行動版卡片隱藏（桌面版） */
 .crrt-cards-container.mobile-only {
   display: none;
 }
