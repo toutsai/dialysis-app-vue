@@ -1856,7 +1856,8 @@ function generateGridScheduleExcel(scheduleDoc, patientMap, dateStr) {
   }
 
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, `排程 ${dateStr}`)
+  // ✨✨✨【核心修正】將 ws 改為 worksheet ✨✨✨
+  XLSX.utils.book_append_sheet(wb, worksheet, `排程 ${dateStr}`)
   return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
 }
 
@@ -1984,41 +1985,32 @@ function generateGridMasterScheduleExcel(masterScheduleDoc, patientMap, dateStr)
   }
 
   const wb = XLSX.utils.book_new()
+  // ✨✨✨【核心修正】將 ws 改為 worksheet ✨✨✨
   XLSX.utils.book_append_sheet(wb, worksheet, '總床位表')
   return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
 }
 
 exports.scheduledDataBackup = onSchedule(
   {
-    schedule: '30 23 * * *', // 每日 23:30
+    schedule: '50 23 * * *',
     timeZone: 'Asia/Taipei',
     timeoutSeconds: 540,
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('[Backup] Starting scheduled Excel data backup to Google Drive...')
+    logger.info('[Backup-v2.4] Starting scheduled GRID Excel data backup to Google Drive...')
 
     try {
       const auth = await getGoogleAuthClient()
       const drive = google.drive({ version: 'v3', auth })
 
-      // --- 1. 準備日期和資料夾路徑 ---
-      // 🔥 修正：使用字串為基礎的日期計算
       const todayStr = getTaipeiTodayString()
-
-      // 產生明天日期
       const tomorrowDate = new Date(todayStr + 'T00:00:00Z')
       tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
       const tomorrowStr = formatDateToYYYYMMDD(tomorrowDate)
-
-      // 取得年份和月份字串 (用於資料夾路徑)
-      // 🔥 修正：從 todayStr 解析年月，而不是從 Date 物件取得
       const [yearStr, monthStr] = todayStr.split('-')
-      const yearForPath = parseInt(yearStr)
-      const monthForPath = monthStr // 已經有補零了
-      const targetPath = ['資料備份', `${yearForPath} 年`, `${monthForPath} 月`]
+      const targetPath = ['資料備份', `${yearStr} 年`, `${monthStr} 月`]
 
-      // --- 2. 刪除前一天為今天建立的預備檔 ---
       const oldPreBackupScheduleName = `${todayStr}_Schedule_PREBACKUP.xlsx`
       const oldPreBackupAssignmentsName = `${todayStr}_Assignments_PREBACKUP.xlsx`
 
@@ -2029,7 +2021,6 @@ exports.scheduledDataBackup = onSchedule(
       await findAndDeleteFile(drive, oldPreBackupScheduleName, parentFolderId)
       await findAndDeleteFile(drive, oldPreBackupAssignmentsName, parentFolderId)
 
-      // --- 3. 獲取所有需要的資料 ---
       const [
         patientsSnapshot,
         todayScheduleDoc,
@@ -2075,7 +2066,7 @@ exports.scheduledDataBackup = onSchedule(
         )
       }
 
-      // -- ✨ 備份「護理分組」(使用新函式) ✨ ---
+      // --- 備份「護理分組」(邏輯不變) ---
       const processAndUploadAssignments = async (
         assignmentsDoc,
         scheduleDoc,
@@ -2085,7 +2076,6 @@ exports.scheduledDataBackup = onSchedule(
         if (!assignmentsDoc.exists || !scheduleDoc.exists) return
         const assignmentsData = assignmentsDoc.data()
         const scheduleData = scheduleDoc.data().schedule || {}
-
         const processedData = generateAssignmentsData(
           scheduleData,
           assignmentsData.teams || {},
@@ -2096,7 +2086,6 @@ exports.scheduledDataBackup = onSchedule(
           processedData,
           assignmentsData.names || {},
         )
-
         if (excelBuffer) {
           const fileName = isPreBackup
             ? `${dateStr}_Assignments_PREBACKUP.xlsx`
@@ -2104,7 +2093,6 @@ exports.scheduledDataBackup = onSchedule(
           await uploadBufferToDrive(drive, excelBuffer, fileName, mimeType, targetPath)
         }
       }
-
       await processAndUploadAssignments(todayAssignmentsDoc, todayScheduleDoc, todayStr, false)
       await processAndUploadAssignments(
         tomorrowAssignmentsDoc,
@@ -2131,9 +2119,9 @@ exports.scheduledDataBackup = onSchedule(
         }
       }
 
-      logger.info('[Backup-v2.3] Scheduled GRID Excel data backup completed successfully.')
+      logger.info('[Backup-v2.4] Scheduled GRID Excel data backup completed successfully.')
     } catch (error) {
-      logger.error('[Backup-v2.3] Scheduled GRID Excel data backup failed:', error)
+      logger.error('[Backup-v2.4] Scheduled GRID Excel data backup failed:', error)
     }
   },
 )
