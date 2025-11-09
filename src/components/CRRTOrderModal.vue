@@ -75,6 +75,19 @@
                 placeholder="輸入體重"
               />
             </div>
+            <!-- ✨✨✨ 1. 新增血液流速 (Blood Flow) 輸入欄位 ✨✨✨ -->
+            <div class="form-group">
+              <label for="bloodFlow">血液流速 (ml/min)：</label>
+              <input
+                id="bloodFlow"
+                type="number"
+                v-model.number="formData.bloodFlow"
+                class="form-control"
+                min="0"
+                step="10"
+                placeholder="Blood Flow"
+              />
+            </div>
             <div class="form-group">
               <label for="pbp">PBP (ml/hr)：</label
               ><input
@@ -239,6 +252,7 @@ const auth = useAuth()
 const createDefaultFormData = () => ({
   mode: '',
   weight: null,
+  bloodFlow: null,
   pbp: null,
   dialysateFlowRate: null,
   replacementFlowRate: null,
@@ -429,7 +443,7 @@ h3 {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.25rem;
 }
 .form-group {
