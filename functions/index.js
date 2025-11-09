@@ -1014,8 +1014,6 @@ exports.ensureFutureSchedules = onCall(
   },
 )
 
-// functions/index.js
-
 // ===================================================================
 // ✨【最終健壯版 v2.3】 - 掃描多個儲存格來尋找標題
 // ===================================================================
@@ -1483,7 +1481,7 @@ exports.getDriveFiles = onCall({ cors: allowedOrigins }, async (request) => {
 })
 
 // ===================================================================
-// 自動備份輔助函式 (如果您的檔案中已有，請勿重複添加)
+// 自動備份輔助函式 v2.2 (使用 dateUtils)
 // ===================================================================
 const XLSX = require('xlsx') // 確保在檔案頂部引入
 
@@ -1768,8 +1766,228 @@ function generateAssignmentsExcelBuffer(statsData, names) {
 }
 
 // ===================================================================
-// ✨ 每日自動資料備份 (Excel) ✨
+// ✨ 每日自動資料備份 (Excel) v2.3 - 最終整合版
 // ===================================================================
+/**
+ * 輔助函式：產生網格化「每日排程」的 Excel Buffer。
+ * (邏輯移植自 ScheduleView.vue)
+ * @param {FirebaseFirestore.DocumentSnapshot} scheduleDoc - Firestore 的 schedules 文件
+ * @param {Map<string, object>} patientMap - 病人資料 Map
+ * @param {string} dateStr - 日期字串 YYYY-MM-DD
+ * @returns {Buffer | null} Excel 檔案的 Buffer 或 null
+ */
+function generateGridScheduleExcel(scheduleDoc, patientMap, dateStr) {
+  if (!scheduleDoc.exists) return null
+  const scheduleData = scheduleDoc.data().schedule || {}
+
+  // 常數定義
+  const ORDERED_SHIFT_CODES = ['early', 'noon', 'late']
+  const SHIFT_DISPLAY_MAP = { early: '早班', noon: '午班', late: '晚班' }
+  const STATUS_MAP = { opd: '門診', ipd: '住院', er: '急診' }
+  const allBedNumbers = [
+    32, 31, 33, 35, 36, 39, 38, 37, 51, 52, 53, 57, 56, 55, 58, 59, 61, 65, 63, 62, 29, 28, 27, 23,
+    25, 26, 22, 21, 19, 16, 17, 18, 15, 13, 12, 8, 9, 11, 7, 6, 5, 1, 2, 3,
+  ].sort((a, b) => a - b)
+  const peripheralBedCount = 6
+
+  const getCombinedNote = (slotData) => {
+    if (!slotData) return ''
+    const autoTags = (slotData.autoNote || '').split(' ').filter(Boolean)
+    const manualTags = (slotData.manualNote || '').split(' ').filter(Boolean)
+    return [...new Set([...autoTags, ...manualTags])]
+      .filter((tag) => !['住', '急'].includes(tag))
+      .join(' ')
+  }
+
+  const data = [['部立台北醫院 每日排程表'], ['日期:', dateStr], []]
+  const headers = ['床號', SHIFT_DISPLAY_MAP.early, SHIFT_DISPLAY_MAP.noon, SHIFT_DISPLAY_MAP.late]
+  data.push(headers)
+
+  const allBedsToExport = [
+    ...allBedNumbers,
+    ...Array.from({ length: peripheralBedCount }, (_, i) => `外圍 ${i + 1}`),
+  ]
+
+  allBedsToExport.forEach((bedKey) => {
+    const row = [bedKey]
+    ORDERED_SHIFT_CODES.forEach((shiftCode) => {
+      const bedNum = String(bedKey).replace('外圍 ', '')
+      const shiftId = String(bedKey).startsWith('外圍')
+        ? `peripheral-${bedNum}-${shiftCode}`
+        : `bed-${bedNum}-${shiftCode}`
+      const slot = scheduleData[shiftId]
+      if (slot?.patientId && patientMap.has(slot.patientId)) {
+        const patient = patientMap.get(slot.patientId)
+        const cellText = `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n[${STATUS_MAP[patient?.status] || '未知'}]\n${getCombinedNote(slot)}`
+        row.push(cellText)
+      } else {
+        row.push('')
+      }
+    })
+    data.push(row)
+  })
+
+  const worksheet = XLSX.utils.aoa_to_sheet(data)
+  // 設定樣式 (與前台一致)
+  worksheet['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+    { s: { r: 1, c: 1 }, e: { r: 1, c: 3 } },
+  ]
+  worksheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 30 }, { wch: 30 }]
+  if (!worksheet['!rows']) worksheet['!rows'] = []
+  worksheet['!rows'][0] = { hpt: 25 }
+  worksheet['!rows'][1] = { hpt: 20 }
+  worksheet['!rows'][2] = { hpt: 10 }
+  worksheet['!rows'][3] = { hpt: 20 }
+
+  for (let i = 4; i < data.length; i++) {
+    worksheet['!rows'][i] = { hpt: 55 }
+    for (let j = 0; j < 4; j++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: i, c: j })
+      if (worksheet[cellAddress]) {
+        if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
+        worksheet[cellAddress].s.alignment = {
+          vertical: 'center',
+          horizontal: 'center',
+          wrapText: true,
+        }
+      }
+    }
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, `排程 ${dateStr}`)
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+}
+
+/**
+ * 輔助函式：產生網格化「床位總表」的 Excel Buffer。
+ * (邏輯改造自 BaseScheduleView.vue)
+ * @param {FirebaseFirestore.DocumentSnapshot} masterScheduleDoc - base_schedules 的 MASTER_SCHEDULE 文件
+ * @param {Map<string, object>} patientMap - 病人資料 Map
+ * @param {string} dateStr - 匯出日期字串
+ * @returns {Buffer | null}
+ */
+function generateGridMasterScheduleExcel(masterScheduleDoc, patientMap, dateStr) {
+  if (!masterScheduleDoc.exists) return null
+  const masterScheduleData = masterScheduleDoc.data().schedule || {}
+
+  // 常數定義
+  const ORDERED_SHIFT_CODES = ['early', 'noon', 'late']
+  const SHIFT_DISPLAY_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
+  const STATUS_MAP = { opd: '門診', ipd: '住院', er: '急診' }
+  const baseBedLayout = [
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    11,
+    12,
+    13,
+    15,
+    16,
+    17,
+    18,
+    19,
+    21,
+    22,
+    23,
+    25,
+    26,
+    27,
+    28,
+    29,
+    31,
+    32,
+    33,
+    35,
+    36,
+    37,
+    38,
+    39,
+    51,
+    52,
+    53,
+    55,
+    56,
+    57,
+    58,
+    59,
+    61,
+    62,
+    63,
+    65,
+    ...Array.from({ length: 6 }, (_, i) => `peripheral-${i + 1}`),
+  ].sort((a, b) => {
+    const numA = typeof a === 'number' ? a : Infinity
+    const numB = typeof b === 'number' ? b : Infinity
+    if (numA !== Infinity || numB !== Infinity) return numA - numB
+    return String(a).localeCompare(String(b))
+  })
+
+  const gridMap = new Map()
+  for (const patientId in masterScheduleData) {
+    const rule = masterScheduleData[patientId]
+    if (rule.bedNum !== undefined && rule.shiftIndex !== undefined) {
+      gridMap.set(`${rule.bedNum}-${rule.shiftIndex}`, { ...rule, patientId })
+    }
+  }
+
+  const data = [['部立台北醫院 透析排程總表 (固定規則)'], [`匯出日期: ${dateStr}`], []]
+  const headers = ['床位', SHIFT_DISPLAY_MAP[0], SHIFT_DISPLAY_MAP[1], SHIFT_DISPLAY_MAP[2]]
+  data.push(headers)
+
+  baseBedLayout.forEach((bedKey) => {
+    const row = [String(bedKey).startsWith('p') ? `外圍 ${String(bedKey).slice(-1)}` : bedKey]
+    ;[0, 1, 2].forEach((shiftIndex) => {
+      const rule = gridMap.get(`${bedKey}-${shiftIndex}`)
+      if (rule && patientMap.has(rule.patientId)) {
+        const patient = patientMap.get(rule.patientId)
+        const cellText = `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n[${STATUS_MAP[patient?.status] || '未知'}] - ${rule.freq}`
+        row.push(cellText)
+      } else {
+        row.push('')
+      }
+    })
+    data.push(row)
+  })
+
+  const worksheet = XLSX.utils.aoa_to_sheet(data)
+  worksheet['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
+    { s: { r: 1, c: 1 }, e: { r: 1, c: 3 } },
+  ]
+  worksheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 30 }, { wch: 30 }]
+  if (!worksheet['!rows']) worksheet['!rows'] = []
+  worksheet['!rows'][0] = { hpt: 25 }
+  worksheet['!rows'][1] = { hpt: 20 }
+  worksheet['!rows'][2] = { hpt: 10 }
+  worksheet['!rows'][3] = { hpt: 20 }
+
+  for (let i = 4; i < data.length; i++) {
+    worksheet['!rows'][i] = { hpt: 40 }
+    for (let j = 0; j < 4; j++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: i, c: j })
+      if (worksheet[cellAddress]) {
+        if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
+        worksheet[cellAddress].s.alignment = {
+          vertical: 'center',
+          horizontal: 'center',
+          wrapText: true,
+        }
+      }
+    }
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, worksheet, '總床位表')
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
+}
+
 exports.scheduledDataBackup = onSchedule(
   {
     schedule: '30 23 * * *', // 每日 23:30
@@ -1831,46 +2049,8 @@ exports.scheduledDataBackup = onSchedule(
       const patientMap = new Map(patientsSnapshot.docs.map((doc) => [doc.id, doc.data()]))
       const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
-      // --- 4. 備份「每日排程」 ---
-      const generateScheduleExcel = (scheduleDoc, dateStr) => {
-        if (!scheduleDoc.exists) return null
-        const scheduleData = scheduleDoc.data().schedule || {}
-        const aoa = [['床號', '班別', '姓名', '病歷號', '狀態', '手動備註', '自動備註']]
-        for (const shiftId in scheduleData) {
-          const slot = scheduleData[shiftId]
-          const patient = patientMap.get(slot.patientId)
-          if (patient) {
-            const parts = shiftId.split('-')
-            const type = parts[0]
-            const bedNum = parts[1]
-            const shift = parts[2]
-            aoa.push([
-              type === 'peripheral' ? `外圍${bedNum}` : bedNum,
-              shift,
-              patient.name,
-              patient.medicalRecordNumber,
-              patient.status,
-              slot.manualNote || '',
-              slot.autoNote || '',
-            ])
-          }
-        }
-        const ws = XLSX.utils.aoa_to_sheet(aoa)
-        ws['!cols'] = [
-          { wch: 10 },
-          { wch: 10 },
-          { wch: 12 },
-          { wch: 12 },
-          { wch: 10 },
-          { wch: 20 },
-          { wch: 20 },
-        ]
-        const wb = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(wb, ws, `排程 ${dateStr}`)
-        return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
-      }
-
-      const todayScheduleBuffer = generateScheduleExcel(todayScheduleDoc, todayStr)
+      // --- 備份「每日排程」 (使用新函式) ---
+      const todayScheduleBuffer = generateGridScheduleExcel(todayScheduleDoc, patientMap, todayStr)
       if (todayScheduleBuffer) {
         await uploadBufferToDrive(
           drive,
@@ -1880,7 +2060,11 @@ exports.scheduledDataBackup = onSchedule(
           targetPath,
         )
       }
-      const tomorrowScheduleBuffer = generateScheduleExcel(tomorrowScheduleDoc, tomorrowStr)
+      const tomorrowScheduleBuffer = generateGridScheduleExcel(
+        tomorrowScheduleDoc,
+        patientMap,
+        tomorrowStr,
+      )
       if (tomorrowScheduleBuffer) {
         await uploadBufferToDrive(
           drive,
@@ -1891,7 +2075,7 @@ exports.scheduledDataBackup = onSchedule(
         )
       }
 
-      // --- 5. ✨ 備份「護理分組」(使用新函式) ✨ ---
+      // -- ✨ 備份「護理分組」(使用新函式) ✨ ---
       const processAndUploadAssignments = async (
         assignmentsDoc,
         scheduleDoc,
@@ -1929,53 +2113,27 @@ exports.scheduledDataBackup = onSchedule(
         true,
       )
 
-      // --- 6. 備份「床位總表」 ---
+      // --- 備份「床位總表」 (使用新函式) ---
       if (masterScheduleDoc.exists) {
-        const masterScheduleData = masterScheduleDoc.data().schedule || {}
-        const aoa = [['姓名', '病歷號', '狀態', '頻率', '床號', '班別', '手動備註', '自動備註']]
-        const shiftMap = { 0: '早班', 1: '午班', 2: '晚班' }
-        for (const patientId in masterScheduleData) {
-          const rule = masterScheduleData[patientId]
-          const patient = patientMap.get(patientId)
-          if (patient) {
-            aoa.push([
-              patient.name,
-              patient.medicalRecordNumber,
-              patient.status,
-              rule.freq,
-              rule.bedNum,
-              shiftMap[rule.shiftIndex] || '未知',
-              rule.manualNote || '',
-              rule.autoNote || '',
-            ])
-          }
-        }
-        const ws = XLSX.utils.aoa_to_sheet(aoa)
-        ws['!cols'] = [
-          { wch: 12 },
-          { wch: 12 },
-          { wch: 10 },
-          { wch: 12 },
-          { wch: 10 },
-          { wch: 10 },
-          { wch: 25 },
-          { wch: 25 },
-        ]
-        const wb = XLSX.utils.book_new()
-        XLSX.utils.book_append_sheet(wb, ws, '總床位表')
-        const masterScheduleBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
-        await uploadBufferToDrive(
-          drive,
-          masterScheduleBuffer,
-          `${todayStr}_MasterSchedule.xlsx`,
-          mimeType,
-          targetPath,
+        const masterScheduleBuffer = generateGridMasterScheduleExcel(
+          masterScheduleDoc,
+          patientMap,
+          todayStr,
         )
+        if (masterScheduleBuffer) {
+          await uploadBufferToDrive(
+            drive,
+            masterScheduleBuffer,
+            `${todayStr}_MasterSchedule.xlsx`,
+            mimeType,
+            targetPath,
+          )
+        }
       }
 
-      logger.info('[Backup] Scheduled Excel data backup to Google Drive completed successfully.')
+      logger.info('[Backup-v2.3] Scheduled GRID Excel data backup completed successfully.')
     } catch (error) {
-      logger.error('[Backup] Scheduled Excel data backup failed:', error)
+      logger.error('[Backup-v2.3] Scheduled GRID Excel data backup failed:', error)
     }
   },
 )
