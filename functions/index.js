@@ -1862,9 +1862,8 @@ function generateGridScheduleExcel(scheduleDoc, patientMap, dateStr) {
 }
 
 /**
- * 輔助函式：產生網格化「床位總表」的 Excel Buffer。
- * (邏輯改造自 BaseScheduleView.vue)
- * @param {FirebaseFirestore.DocumentSnapshot} masterScheduleDoc - base_schedules 的 MASTER_SCHEDULE 文件
+ * ✨✨✨【核心修正 v2.5】重寫床位總表備份函式，模擬 ScheduleTable.vue 佈局 ✨✨✨
+ * @param {FirebaseFirestore.DocumentSnapshot} masterScheduleDoc - base_schedules 文件
  * @param {Map<string, object>} patientMap - 病人資料 Map
  * @param {string} dateStr - 匯出日期字串
  * @returns {Buffer | null}
@@ -1873,10 +1872,26 @@ function generateGridMasterScheduleExcel(masterScheduleDoc, patientMap, dateStr)
   if (!masterScheduleDoc.exists) return null
   const masterScheduleData = masterScheduleDoc.data().schedule || {}
 
-  // 常數定義
-  const ORDERED_SHIFT_CODES = ['early', 'noon', 'late']
-  const SHIFT_DISPLAY_MAP = { 0: '早班', 1: '午班', 2: '晚班' }
-  const STATUS_MAP = { opd: '門診', ipd: '住院', er: '急診' }
+  // 1. 從前台移植必要的常數
+  const SHIFTS = ['early', 'noon', 'late'] // 班別代碼
+  const SHIFT_DISPLAY_MAP = { early: '早班', noon: '午班', late: '晚班' }
+  const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+  const FREQ_MAP_TO_DAY_INDEX = {
+    一三五: [0, 2, 4],
+    二四六: [1, 3, 5],
+    一四: [0, 3],
+    二五: [1, 4],
+    三六: [2, 5],
+    一五: [0, 4],
+    二六: [1, 5],
+    每日: [0, 1, 2, 3, 4, 5],
+    每周一: [0],
+    每周二: [1],
+    每周三: [2],
+    每周四: [3],
+    每周五: [4],
+    每周六: [5],
+  }
   const baseBedLayout = [
     1,
     2,
@@ -1930,48 +1945,80 @@ function generateGridMasterScheduleExcel(masterScheduleDoc, patientMap, dateStr)
     return String(a).localeCompare(String(b))
   })
 
-  const gridMap = new Map()
+  // 2. 建立一個 `slotId -> patient` 的地圖，類似前台的 `weekScheduleMap`
+  const weeklyScheduleMap = {}
   for (const patientId in masterScheduleData) {
-    const rule = masterScheduleData[patientId]
-    if (rule.bedNum !== undefined && rule.shiftIndex !== undefined) {
-      gridMap.set(`${rule.bedNum}-${rule.shiftIndex}`, { ...rule, patientId })
+    if (patientMap.has(patientId)) {
+      const rule = masterScheduleData[patientId]
+      if (rule?.freq) {
+        const dayIndices = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
+        dayIndices.forEach((dayIndex) => {
+          const slotId = `${rule.bedNum}-${rule.shiftIndex}-${dayIndex}`
+          weeklyScheduleMap[slotId] = { patientId, ...rule }
+        })
+      }
     }
   }
 
+  // 3. 建立 Excel 資料陣列 (aoa)
   const data = [['部立台北醫院 透析排程總表 (固定規則)'], [`匯出日期: ${dateStr}`], []]
-  const headers = ['床位', SHIFT_DISPLAY_MAP[0], SHIFT_DISPLAY_MAP[1], SHIFT_DISPLAY_MAP[2]]
+  const headers = ['床位', '班次', ...WEEKDAYS]
   data.push(headers)
 
-  baseBedLayout.forEach((bedKey) => {
-    const row = [String(bedKey).startsWith('p') ? `外圍 ${String(bedKey).slice(-1)}` : bedKey]
-    ;[0, 1, 2].forEach((shiftIndex) => {
-      const rule = gridMap.get(`${bedKey}-${shiftIndex}`)
-      if (rule && patientMap.has(rule.patientId)) {
-        const patient = patientMap.get(rule.patientId)
-        const cellText = `${patient?.name || '未知'} (${patient?.medicalRecordNumber || 'N/A'})\n[${STATUS_MAP[patient?.status] || '未知'}] - ${rule.freq}`
-        row.push(cellText)
-      } else {
-        row.push('')
-      }
+  const merges = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: headers.length - 1 } },
+  ]
+  let currentRowIndex = 4 // 資料從第5行開始 (index 4)
+
+  baseBedLayout.forEach((bedNum) => {
+    const bedDisplayName = String(bedNum).startsWith('p')
+      ? `外圍 ${String(bedNum).slice(-1)}`
+      : `${bedNum}号床`
+
+    // 設定床位儲存格的合併範圍
+    merges.push({
+      s: { r: currentRowIndex, c: 0 },
+      e: { r: currentRowIndex + SHIFTS.length - 1, c: 0 },
     })
-    data.push(row)
+
+    SHIFTS.forEach((shiftCode, shiftIndex) => {
+      const row = []
+      if (shiftIndex === 0) {
+        row.push(bedDisplayName) // 第一個班次才加入床位號
+      } else {
+        row.push('') // 其他班次留空，因為已經合併
+      }
+      row.push(SHIFT_DISPLAY_MAP[shiftCode]) // 加入班次名稱
+
+      WEEKDAYS.forEach((_, dayIndex) => {
+        const slotId = `${bedNum}-${shiftIndex}-${dayIndex}`
+        const slotData = weeklyScheduleMap[slotId]
+        if (slotData && patientMap.has(slotData.patientId)) {
+          const patient = patientMap.get(slotData.patientId)
+          const cellText = `${patient.name}\n(${patient.medicalRecordNumber})`
+          row.push(cellText)
+        } else {
+          row.push('')
+        }
+      })
+      data.push(row)
+    })
+    currentRowIndex += SHIFTS.length
   })
 
   const worksheet = XLSX.utils.aoa_to_sheet(data)
-  worksheet['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 3 } },
-    { s: { r: 1, c: 1 }, e: { r: 1, c: 3 } },
-  ]
-  worksheet['!cols'] = [{ wch: 10 }, { wch: 30 }, { wch: 30 }, { wch: 30 }]
+  worksheet['!merges'] = merges
+  worksheet['!cols'] = [{ wch: 10 }, { wch: 8 }, ...Array(WEEKDAYS.length).fill({ wch: 20 })]
+
+  // 設定樣式
   if (!worksheet['!rows']) worksheet['!rows'] = []
   worksheet['!rows'][0] = { hpt: 25 }
   worksheet['!rows'][1] = { hpt: 20 }
-  worksheet['!rows'][2] = { hpt: 10 }
   worksheet['!rows'][3] = { hpt: 20 }
-
   for (let i = 4; i < data.length; i++) {
     worksheet['!rows'][i] = { hpt: 40 }
-    for (let j = 0; j < 4; j++) {
+    for (let j = 0; j < headers.length; j++) {
       const cellAddress = XLSX.utils.encode_cell({ r: i, c: j })
       if (worksheet[cellAddress]) {
         if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {}
@@ -1985,14 +2032,13 @@ function generateGridMasterScheduleExcel(masterScheduleDoc, patientMap, dateStr)
   }
 
   const wb = XLSX.utils.book_new()
-  // ✨✨✨【核心修正】將 ws 改為 worksheet ✨✨✨
   XLSX.utils.book_append_sheet(wb, worksheet, '總床位表')
   return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' })
 }
 
 exports.scheduledDataBackup = onSchedule(
   {
-    schedule: '50 23 * * *',
+    schedule: '30 23 * * *',
     timeZone: 'Asia/Taipei',
     timeoutSeconds: 540,
     memory: '1GiB',
@@ -2101,7 +2147,7 @@ exports.scheduledDataBackup = onSchedule(
         true,
       )
 
-      // --- 備份「床位總表」 (使用新函式) ---
+      // --- 備份「床位總表」 (使用全新重寫的函式) ---
       if (masterScheduleDoc.exists) {
         const masterScheduleBuffer = generateGridMasterScheduleExcel(
           masterScheduleDoc,
@@ -2119,9 +2165,9 @@ exports.scheduledDataBackup = onSchedule(
         }
       }
 
-      logger.info('[Backup-v2.4] Scheduled GRID Excel data backup completed successfully.')
+      logger.info('[Backup-v2.5] Scheduled GRID Excel data backup completed successfully.')
     } catch (error) {
-      logger.error('[Backup-v2.4] Scheduled GRID Excel data backup failed:', error)
+      logger.error('[Backup-v2.5] Scheduled GRID Excel data backup failed:', error)
     }
   },
 )
