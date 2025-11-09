@@ -845,6 +845,7 @@
       @open-order-modal="openOrderModalFromIcuDialog"
       @open-crrt-order-modal="openCRRTOrderModalFromIcuDialog"
       @save-and-print="handleSaveAndPrintIcuOrders"
+      @change-date="changeDate"
     />
 
     <DialysisOrderModal
