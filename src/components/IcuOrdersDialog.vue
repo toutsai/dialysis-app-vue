@@ -1072,11 +1072,41 @@ const printContent = () => {
   margin: 0;
   font-size: 1.5rem;
 }
-.header-actions {
+
+.date-navigator {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.5rem; /* 增加間距 */
+  flex-grow: 1; /* 讓它佔據中間空間 */
+  justify-content: center; /* 居中對齊 */
 }
+
+.date-navigator h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  white-space: nowrap; /* 防止標題換行 */
+}
+
+.nav-btn {
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.nav-btn:hover {
+  background-color: #e2e6ea;
+  border-color: #dae0e5;
+}
+
+/* 確保 header-actions 靠右 */
+.header-actions {
+  justify-self: flex-end; /* 如果 header 是 grid/flex，這可以幫助靠右 */
+}
+
 .btn-print {
   background-color: #17a2b8;
   color: white;
