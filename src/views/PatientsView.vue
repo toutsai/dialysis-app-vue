@@ -3,7 +3,7 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import {
   savePatient as optimizedSavePatient,
-  updatePatient as optimizedUpdatePatient, // ✅ [修正] 新增對 updatePatient 的引入並設定別名
+  updatePatient as optimizedUpdatePatient,
   createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
@@ -22,7 +22,7 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { db } from '@/composables/useFirebase.js'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 
-// ✨ 1. 為了建立 Task，我們需要 ApiManager 的實例
+// ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務
 const tasksApi = ApiManager('tasks')
 
 const patientStore = usePatientStore()
@@ -102,6 +102,8 @@ const DELETE_REASONS = [
   { value: '腎臟移植', text: '腎臟移植' },
   { value: '轉安寧', text: '轉安寧' },
   { value: '腎功能恢復不須透析', text: '腎功能恢復不須透析' },
+  { value: '出院', text: '出院' },
+  { value: '結束治療', text: '結束治療' },
 ]
 const RESTORE_OPTIONS = [
   { value: 'opd', text: '復原至 門診' },
@@ -116,7 +118,6 @@ function normalizeDateObject(dateInput) {
   return isNaN(date.getTime()) ? null : date
 }
 
-// 修改 displayedPatients 來重新處理 'deleted' 頁籤
 const displayedPatients = computed(() => {
   let patientsToDisplay
   let searchTerm = ''
@@ -132,7 +133,6 @@ const displayedPatients = computed(() => {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
     searchTerm = opdListFilter.value.toLowerCase()
   } else if (activeTab.value === 'deleted') {
-    // 恢復舊版邏輯: 直接過濾 isDeleted 為 true 的病人
     patientsToDisplay = allPatients.value.filter((p) => p.isDeleted)
     searchTerm = deletedSearchTerm.value.toLowerCase()
   } else {
@@ -152,7 +152,6 @@ const displayedPatients = computed(() => {
     let valA = a[sortColumn]
     let valB = b[sortColumn]
 
-    // ✅ [修正] 針對 patientStatus 的特殊排序邏輯保持不變
     if (sortColumn === 'patientStatus') {
       const statusA = a.patientStatus || {}
       const statusB = b.patientStatus || {}
@@ -166,23 +165,19 @@ const displayedPatients = computed(() => {
         (statusB.hasBloodDraw?.active ? '1' : '0')
     }
 
-    // ✅ [修正] 核心修正：判斷是否為日期，並使用正確的比較方式
     const dateA = normalizeDateObject(valA)
     const dateB = normalizeDateObject(valB)
 
     let compareResult
 
     if (dateA && dateB) {
-      // 如果兩者都是有效的日期，則使用時間戳進行數值比較
       compareResult = dateA.getTime() - dateB.getTime()
     } else {
-      // 否則，退回到字串比較，適用於姓名、病歷號等欄位
       const strA = valA || ''
       const strB = valB || ''
       compareResult = String(strA).localeCompare(String(strB), 'zh-Hant')
     }
 
-    // ✅ [修正] 根據排序方向返回結果
     return currentSort.value.order === 'asc' ? compareResult : -compareResult
   })
 })
@@ -332,8 +327,6 @@ async function refreshAllData() {
   calculateStats(allPatientsWithDeleted, patientHistoryForStats)
 }
 
-// 移除了 fetchDeletedPatientHistory 和相關的 watch
-
 const togglePopover = (popoverName) => {
   activePopover.value = activePopover.value === popoverName ? null : popoverName
 }
@@ -378,7 +371,6 @@ async function handleGlobalSearch(query) {
       showConfirm(
         '找到已刪除病人',
         `病人 "${foundPatient.name}" (${foundPatient.medicalRecordNumber}) 已被刪除 (原為${originalStatusText}，原因: ${foundPatient.deleteReason || '未知'})。\n\n是否要復原並移至「${targetStatusText}」清單？`,
-        // 恢復舊版邏輯：呼叫 restorePatient 彈出選擇框
         () => restorePatient(foundPatient.id),
       )
     } else if (foundPatient.status !== activeTab.value) {
@@ -404,12 +396,58 @@ async function handleGlobalSearch(query) {
   }
 }
 
-// ✨✨✨ 核心修改點：handleSavePatient 函式 ✨✨✨
+// ✨ 2. 新增一個可重用的輔助函式，專門用來建立自動化任務
+async function createAutomatedTask(patientData, taskType, creatorInfo) {
+  if (!patientData || !taskType || !creatorInfo) return
+
+  let taskPayload
+
+  if (taskType === '衛教') {
+    const firstDialysisDate = patientData.patientStatus?.isFirstDialysis?.date
+    taskPayload = {
+      patientId: patientData.id,
+      patientName: patientData.name,
+      creator: creatorInfo,
+      content: `首透衛教 (首透日期: ${firstDialysisDate || '未指定'})`,
+      type: '衛教',
+      category: 'message',
+      status: 'pending',
+      createdAt: new Date(),
+      targetDate: null, // 衛教不關聯日期
+    }
+    console.log(`自動建立衛教任務 for ${patientData.name}`)
+  } else if (taskType === '抽血') {
+    const bloodDrawDate = patientData.patientStatus?.hasBloodDraw?.date
+    if (bloodDrawDate) {
+      taskPayload = {
+        patientId: patientData.id,
+        patientName: patientData.name,
+        creator: creatorInfo,
+        content: '抽血',
+        type: '抽血',
+        category: 'message',
+        status: 'pending',
+        createdAt: new Date(),
+        targetDate: bloodDrawDate, // 抽血關聯日期
+      }
+      console.log(`自動建立抽血任務 for ${patientData.name} on ${bloodDrawDate}`)
+    }
+  }
+
+  if (taskPayload) {
+    return tasksApi.save(taskPayload)
+  }
+  return Promise.resolve() // 如果沒有任務要建立，回傳一個 resolved promise
+}
+
+// ✨ 3. 重構 handleSavePatient 函式以整合新邏輯
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
     return
   }
+
+  const creatorInfo = { uid: auth.currentUser.value.uid, name: auth.currentUser.value.name }
 
   // --- 編輯現有病人的邏輯 ---
   if (patientData.id) {
@@ -419,7 +457,6 @@ async function handleSavePatient(patientData) {
       return
     }
 
-    // ✨ 2. 取得新舊狀態以供比較
     const wasPaused = originalPatient.patientStatus?.isPaused?.active || false
     const isNowPaused = patientData.patientStatus?.isPaused?.active || false
     const wasFirstDialysis = originalPatient.patientStatus?.isFirstDialysis?.active || false
@@ -427,11 +464,11 @@ async function handleSavePatient(patientData) {
     const wasBloodDraw = originalPatient.patientStatus?.hasBloodDraw?.active || false
     const isNowBloodDraw = patientData.patientStatus?.hasBloodDraw?.active || false
 
-    // --- (A) 處理「暫停/中止透析」的特殊情況 (保持不變) ---
+    // (A) 處理「暫停/中止透析」
     if (!wasPaused && isNowPaused) {
       showConfirm(
         '確認暫停/中止透析',
-        `您確定要將「${patientData.name}」標記為暫停/中止透析嗎？\n\n此操作將會從「總床位表」中移除該病人的固定排班規則。`,
+        `您確定要將「${patientData.name}」標記為暫停/中止透析嗎？\n\n此操作將會從「總床位表」中移除该病人的固定排班规则。`,
         async () => {
           try {
             closeModal()
@@ -443,10 +480,7 @@ async function handleSavePatient(patientData) {
               removeRuleFromMasterSchedule(patientData.id),
             ])
             await refreshAllData()
-
-            // ✨✨✨【已加入通知】✨✨✨
             window.dispatchEvent(new CustomEvent('patient-data-updated'))
-
             createGlobalNotification(`暫停/中止透析：${patientData.name}`, 'patient')
             showAlert(
               '操作成功',
@@ -457,59 +491,24 @@ async function handleSavePatient(patientData) {
           }
         },
       )
-      return // 結束函式，等待使用者確認
+      return
     }
 
-    // --- (B) 處理「一般編輯」 ---
+    // (B) 處理「一般編輯」
     try {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
       dataToUpdate.updatedAt = new Date().toISOString()
 
-      // ✨ 3. 將更新病人和建立自動化任務包在一個 Promise.all 中
       const updatePromises = [optimizedUpdatePatient(patientData.id, dataToUpdate)]
 
-      // ✨ 4. 檢查狀態變更並建立任務
-      // (4a) 檢查「首透」狀態是否從 false 變為 true
       if (!wasFirstDialysis && isNowFirstDialysis) {
-        console.log(`偵測到「${patientData.name}」狀態變為首透，自動建立衛教留言。`)
-        const firstDialysisDate = patientData.patientStatus.isFirstDialysis.date
-        const taskPayload = {
-          patientId: patientData.id,
-          patientName: patientData.name,
-          creator: { uid: auth.currentUser.value.uid, name: auth.currentUser.value.name },
-          content: `首透衛教 (於 ${firstDialysisDate || '指定日期'})`,
-          type: '衛教', // 特殊類型
-          category: 'message',
-          status: 'pending',
-          createdAt: new Date(),
-          targetDate: null,
-        }
-        updatePromises.push(tasksApi.save(taskPayload))
+        updatePromises.push(createAutomatedTask(patientData, '衛教', creatorInfo))
       }
-
-      // (4b) 檢查「已抽血」狀態是否從 false 變為 true
       if (!wasBloodDraw && isNowBloodDraw) {
-        const bloodDrawDate = patientData.patientStatus.hasBloodDraw.date
-        if (bloodDrawDate) {
-          // 只有在有關聯日期時才建立
-          console.log(`偵測到「${patientData.name}」狀態變為已抽血，自動建立抽血提醒。`)
-          const taskPayload = {
-            patientId: patientData.id,
-            patientName: patientData.name,
-            creator: { uid: auth.currentUser.value.uid, name: auth.currentUser.value.name },
-            content: '抽血',
-            type: '抽血', // 特殊類型
-            category: 'message',
-            status: 'pending',
-            createdAt: new Date(),
-            targetDate: bloodDrawDate, // 關聯抽血日期
-          }
-          updatePromises.push(tasksApi.save(taskPayload))
-        }
+        updatePromises.push(createAutomatedTask(patientData, '抽血', creatorInfo))
       }
 
-      // ✨ 5. 一次性執行所有資料庫操作
       await Promise.all(updatePromises)
 
       await refreshAllData()
@@ -522,11 +521,12 @@ async function handleSavePatient(patientData) {
     return
   }
 
-  // --- (C) 新增病人的邏輯 (保持不變) ---
+  // --- 新增病人的邏輯 ---
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
   }
+
   const existingPatient = allPatients.value.find(
     (p) => p.medicalRecordNumber === patientData.medicalRecordNumber,
   )
@@ -542,24 +542,38 @@ async function handleSavePatient(patientData) {
     )
     newPatientDataForConflict.value = patientData
     existingPatientForConflict.value = existingPatient
-  } else {
-    // 新增病人不需要發送通知，因為 BaseScheduleView 不認識這個新病人
-    try {
-      const dataToCreate = {
-        ...patientData,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isDeleted: false,
-        status: modalType.value,
-      }
-      await optimizedSavePatient(dataToCreate)
-      await refreshAllData()
-      const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
-      createGlobalNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
-      closeModal()
-    } catch (err) {
-      showAlert('操作失敗', '新增病人失敗！')
+    return
+  }
+
+  try {
+    const dataToCreate = {
+      ...patientData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isDeleted: false,
+      status: modalType.value,
     }
+
+    const savedPatient = await optimizedSavePatient(dataToCreate)
+
+    const automatedTaskPromises = []
+    if (savedPatient.patientStatus?.isFirstDialysis?.active) {
+      automatedTaskPromises.push(createAutomatedTask(savedPatient, '衛教', creatorInfo))
+    }
+    if (savedPatient.patientStatus?.hasBloodDraw?.active) {
+      automatedTaskPromises.push(createAutomatedTask(savedPatient, '抽血', creatorInfo))
+    }
+
+    if (automatedTaskPromises.length > 0) {
+      await Promise.all(automatedTaskPromises)
+    }
+
+    await refreshAllData()
+    const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
+    createGlobalNotification(`新增病人：${dataToCreate.name} (${statusText})`, 'patient')
+    closeModal()
+  } catch (err) {
+    showAlert('操作失敗', `新增病人失敗！${err.message}`)
   }
 }
 
@@ -581,7 +595,6 @@ async function handleConflictSelected() {
     await optimizedUpdatePatient(existingPatient.id, dataToUpdate)
     await refreshAllData()
 
-    // ✨✨✨【已加入通知】✨✨✨
     window.dispatchEvent(new CustomEvent('patient-data-updated'))
 
     const statusText = { ipd: '住院', opd: '門診', er: '急診' }[modalType.value] || '列表'
@@ -665,7 +678,6 @@ async function handleDeleteReasonSelected(reason) {
   }
 }
 
-// 恢復舊版的 handleRestoreSelected 邏輯
 async function handleRestoreSelected(targetStatus) {
   isRestoreDialogVisible.value = false
   const patientId = patientToRestoreId.value
@@ -681,7 +693,6 @@ async function handleRestoreSelected(targetStatus) {
   const targetStatusText = statusMap[targetStatus] || '列表'
 
   try {
-    // ✅ [新增] 根據還原目的地，決定病人的預設身份
     const newPatientCategory = targetStatus === 'opd' ? 'opd_regular' : 'non_regular'
 
     await optimizedUpdatePatient(patientId, {
@@ -690,9 +701,8 @@ async function handleRestoreSelected(targetStatus) {
       deleteReason: null,
       deletedAt: null,
       originalStatus: null,
-      patientCategory: newPatientCategory, // ✅ [新增] 將新的身份加入更新資料中
+      patientCategory: newPatientCategory,
     })
-    // 復原後不需要從總表移除規則，若需要排班，使用者應手動加入
     await refreshAllData()
     createGlobalNotification(`復原病人：${patient.name} 至 ${targetStatusText}`, 'patient')
     showAlert(
@@ -721,10 +731,7 @@ async function handleSaveOrder(orderData) {
   const patientName = editingPatientForOrder.value.name
 
   try {
-    // ✨ [核心修正] 直接呼叫我們的一站式服務函式 ✨
     await createDialysisOrderAndUpdatePatient(patientId, patientName, orderData)
-
-    // 操作成功後續處理
     await refreshAllData()
     isOrderModalVisible.value = false
     createGlobalNotification(`更新醫囑：${patientName}`, 'patient')
@@ -801,7 +808,6 @@ function handleSort(key) {
     currentSort.value.order = 'asc'
   }
 }
-// 移除了 handleDeletedSort
 function closeModal() {
   isModalVisible.value = false
   editingPatient.value = null
@@ -813,7 +819,7 @@ function formatDate(dateInput) {
   return date.toISOString().split('T')[0]
 }
 function getRowClass(p) {
-  if (p.patientStatus?.isPaused?.active) return 'status-discontinued' // 沿用暫停樣式
+  if (p.patientStatus?.isPaused?.active) return 'status-discontinued'
   if (p.isDeleted) return 'status-deleted'
   const biweeklyFreq = ['一四', '二五', '三六', '一五', '二六']
   if (biweeklyFreq.includes(p.freq)) return 'status-biweekly'
@@ -837,7 +843,6 @@ function openOrderModal(patient) {
   isOrderModalVisible.value = true
 }
 
-// 恢復舊版的 exportDeletedPatients 邏輯
 function exportDeletedPatients() {
   const deletedPatients = allPatients.value.filter((p) => p.isDeleted)
   if (deletedPatients.length === 0) {
