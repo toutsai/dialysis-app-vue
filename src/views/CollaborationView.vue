@@ -205,7 +205,7 @@
                     {{ formatTimestamp(msg.createdAt) }}</small
                   >
                 </div>
-                <div v-if="msg.status === 'pending'" class="item-actions">
+                <div v-if="msg.status === 'pending' && msg.type !== '衛教'" class="item-actions">
                   <button
                     class="btn-action btn-complete"
                     @click="updateTaskStatus(msg.id, 'completed', msg.isLegacy)"
@@ -218,6 +218,16 @@
                   >
                     <i class="fas fa-check"></i> 已讀
                   </button>
+                </div>
+
+                <!-- ✨ 新增：如果 type 是 '衛教'，顯示一個不同的提示或不顯示任何按鈕 -->
+                <div
+                  v-else-if="msg.status === 'pending' && msg.type === '衛教'"
+                  class="item-actions"
+                >
+                  <span class="education-task-tag">
+                    <i class="fas fa-chalkboard-teacher"></i> 衛教事項
+                  </span>
                 </div>
                 <div v-else-if="msg.status === 'expired'" class="item-actions">
                   <button
@@ -1697,7 +1707,17 @@ watch(
   background-color: #f8f9fa;
   border-bottom-color: #007bff;
 }
-
+.education-task-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background-color: #f0fdf4; /* 淡綠色 */
+  color: #15803d; /* 深綠色 */
+  font-weight: 500;
+}
 /* ================================== */
 /*       ✨ 桌面版樣式 ✨             */
 /* ================================== */
