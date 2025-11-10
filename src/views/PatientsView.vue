@@ -22,6 +22,9 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { db } from '@/composables/useFirebase.js'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 
+// ✨ 1. 為了建立 Task，我們需要 ApiManager 的實例
+const tasksApi = ApiManager('tasks')
+
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const { forceRefreshPatients, removeRuleFromMasterSchedule } = patientStore
@@ -401,6 +404,7 @@ async function handleGlobalSearch(query) {
   }
 }
 
+// ✨✨✨ 核心修改點：handleSavePatient 函式 ✨✨✨
 async function handleSavePatient(patientData) {
   if (isPageLocked.value) {
     showAlert('操作失敗', '操作被鎖定：權限不足。')
@@ -415,14 +419,19 @@ async function handleSavePatient(patientData) {
       return
     }
 
+    // ✨ 2. 取得新舊狀態以供比較
     const wasPaused = originalPatient.patientStatus?.isPaused?.active || false
     const isNowPaused = patientData.patientStatus?.isPaused?.active || false
+    const wasFirstDialysis = originalPatient.patientStatus?.isFirstDialysis?.active || false
+    const isNowFirstDialysis = patientData.patientStatus?.isFirstDialysis?.active || false
+    const wasBloodDraw = originalPatient.patientStatus?.hasBloodDraw?.active || false
+    const isNowBloodDraw = patientData.patientStatus?.hasBloodDraw?.active || false
 
-    // 處理「暫停/中止透析」的特殊情況
+    // --- (A) 處理「暫停/中止透析」的特殊情況 (保持不變) ---
     if (!wasPaused && isNowPaused) {
       showConfirm(
         '確認暫停/中止透析',
-        `您確定要將「${patientData.name}」標記為暫停/中止透析嗎？\n\n此操作將會從「總床位表」中移除该病人的固定排班规则。`,
+        `您確定要將「${patientData.name}」標記為暫停/中止透析嗎？\n\n此操作將會從「總床位表」中移除該病人的固定排班規則。`,
         async () => {
           try {
             closeModal()
@@ -451,26 +460,69 @@ async function handleSavePatient(patientData) {
       return // 結束函式，等待使用者確認
     }
 
-    // 處理「一般編輯」
+    // --- (B) 處理「一般編輯」 ---
     try {
       const dataToUpdate = { ...patientData }
       delete dataToUpdate.id
       dataToUpdate.updatedAt = new Date().toISOString()
-      await optimizedUpdatePatient(patientData.id, dataToUpdate)
+
+      // ✨ 3. 將更新病人和建立自動化任務包在一個 Promise.all 中
+      const updatePromises = [optimizedUpdatePatient(patientData.id, dataToUpdate)]
+
+      // ✨ 4. 檢查狀態變更並建立任務
+      // (4a) 檢查「首透」狀態是否從 false 變為 true
+      if (!wasFirstDialysis && isNowFirstDialysis) {
+        console.log(`偵測到「${patientData.name}」狀態變為首透，自動建立衛教留言。`)
+        const firstDialysisDate = patientData.patientStatus.isFirstDialysis.date
+        const taskPayload = {
+          patientId: patientData.id,
+          patientName: patientData.name,
+          creator: { uid: auth.currentUser.value.uid, name: auth.currentUser.value.name },
+          content: `首透衛教 (於 ${firstDialysisDate || '指定日期'})`,
+          type: '衛教', // 特殊類型
+          category: 'message',
+          status: 'pending',
+          createdAt: new Date(),
+          targetDate: null,
+        }
+        updatePromises.push(tasksApi.save(taskPayload))
+      }
+
+      // (4b) 檢查「已抽血」狀態是否從 false 變為 true
+      if (!wasBloodDraw && isNowBloodDraw) {
+        const bloodDrawDate = patientData.patientStatus.hasBloodDraw.date
+        if (bloodDrawDate) {
+          // 只有在有關聯日期時才建立
+          console.log(`偵測到「${patientData.name}」狀態變為已抽血，自動建立抽血提醒。`)
+          const taskPayload = {
+            patientId: patientData.id,
+            patientName: patientData.name,
+            creator: { uid: auth.currentUser.value.uid, name: auth.currentUser.value.name },
+            content: '抽血',
+            type: '抽血', // 特殊類型
+            category: 'message',
+            status: 'pending',
+            createdAt: new Date(),
+            targetDate: bloodDrawDate, // 關聯抽血日期
+          }
+          updatePromises.push(tasksApi.save(taskPayload))
+        }
+      }
+
+      // ✨ 5. 一次性執行所有資料庫操作
+      await Promise.all(updatePromises)
+
       await refreshAllData()
-
-      // ✨✨✨【已加入通知】✨✨✨
       window.dispatchEvent(new CustomEvent('patient-data-updated'))
-
       createGlobalNotification(`編輯病人：${patientData.name}`, 'patient')
       closeModal()
     } catch (err) {
       showAlert('操作失敗', '更新病人資料失敗！')
     }
-    return // 結束函式
+    return
   }
 
-  // --- 新增病人的邏輯 ---
+  // --- (C) 新增病人的邏輯 (保持不變) ---
   if (!patientData.medicalRecordNumber?.trim()) {
     showAlert('資料不完整', '請務必填寫病歷號。')
     return
