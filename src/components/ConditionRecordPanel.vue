@@ -56,17 +56,16 @@ import { ref, watch, toRefs } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { where, orderBy } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth.js'
+import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 
 const props = defineProps({
-  // ✨ 移除 isVisible prop，因為 Panel 不再控制自己的可見性
-  patient: Object, // 仍然需要 patient 物件來獲取資料
-  currentDate: Date, // 仍然需要 current Date
+  patient: Object,
+  currentDate: Date,
 })
 
-// ✨ 移除 'close' emit，因為 Panel 不再需要通知父層關閉
 const emit = defineEmits(['save', 'update', 'delete'])
 
-const { patient } = toRefs(props) // 由於 isVisible 已移除，這裡也一併移除
+const { patient } = toRefs(props)
 
 const newRecordContent = ref('')
 const history = ref([])
@@ -84,11 +83,9 @@ async function fetchHistory() {
     history.value = []
     return
   }
-
   isLoading.value = true
   error.value = null
-  history.value = [] // 清空現有歷史，準備載入新病人的資料
-
+  history.value = []
   try {
     const queryConstraints = [
       where('patientId', '==', patient.value.id),
@@ -97,7 +94,7 @@ async function fetchHistory() {
     history.value = await conditionRecordsApi.fetchAll(queryConstraints)
   } catch (err) {
     console.error('讀取歷史病情紀錄失敗:', err)
-    error.value = '讀取歷史紀錄失敗。請確認 Firebase 索引是否已建立。'
+    error.value = '讀取歷史紀錄失敗。'
   } finally {
     isLoading.value = false
   }
@@ -122,28 +119,36 @@ async function handleSave() {
 
   try {
     if (editingRecordId.value) {
+      // 更新操作通常不需要修改 expireAt，所以這裡保持不變
       emit('update', {
         id: editingRecordId.value,
         content: newRecordContent.value.trim(),
       })
     } else {
+      // ✨✨✨ 核心修改點在這裡 ✨✨✨
+
+      // 1. 建立 createdAt 的 Date 物件
+      const createdAtDate = new Date()
+
+      // 2. 計算 6 個月後的日期
+      const expireAtDate = new Date(createdAtDate)
+      expireAtDate.setMonth(expireAtDate.getMonth() + 6)
+
       const recordData = {
         content: newRecordContent.value.trim(),
         authorId: auth.currentUser.value.uid,
         authorName: auth.currentUser.value.name,
-        // ✨ 新增：將 patientId 和 patientName 也傳遞給父組件，以符合之前 ScheduleView 的處理方式
         patientId: patient.value.id,
         patientName: patient.value.name,
-        recordDate: props.currentDate
-          ? props.currentDate.toISOString().slice(0, 10)
-          : new Date().toISOString().slice(0, 10),
-        createdAt: new Date(), // 將 createdAt 也傳遞過去，以便父組件儲存
+        recordDate: formatDateToYYYYMMDD(props.currentDate || new Date()),
+        createdAt: createdAtDate, // 使用我們剛剛建立的 Date 物件
+
+        // 3. 將 expireAt 也加入要儲存的資料中
+        expireAt: expireAtDate,
       }
       emit('save', recordData)
     }
-    // 操作成功後，重置表單狀態
     cancelEditing()
-    // 重新載入歷史紀錄以顯示變更 (父組件會處理實際的保存/更新，我們這裡只是刷新顯示)
     await fetchHistory()
   } catch (err) {
     console.error('從 Panel 觸發儲存/更新失敗:', err)
@@ -165,34 +170,26 @@ function cancelEditing() {
 
 async function handleDelete(recordId) {
   emit('delete', recordId)
-  // 為了即時反饋，可以先從 UI 移除，即使父組件的確認操作還未完成
   history.value = history.value.filter((r) => r.id !== recordId)
 }
 
-// ✨ 移除 close() 函式，因為它不再需要通知父層關閉
-
-// ✨ 修改 watch 邏輯：現在監聽 patient.id 的變化來載入資料
 watch(
   () => patient.value?.id,
   (newPatientId) => {
     if (newPatientId) {
-      // 當 patient.id 有值時（表示有病人被選中），清空編輯狀態並載入歷史
       cancelEditing()
       error.value = null
       fetchHistory()
     } else {
-      // 如果 patient.id 為空（例如清除了選中的病人），則清空歷史紀錄
       history.value = []
     }
   },
   { immediate: true },
-) // immediate: true 確保在組件首次載入時，如果 patient 已經有值，也能立即載入數據
+)
 </script>
 
 <style scoped>
-/* 將 .modal-body 的樣式套用到新的根容器 .condition-record-panel-content */
 .condition-record-panel-content {
-  /* 這邊是原 .modal-body 的 padding */
   padding: 0; /* 讓父元件的 padding 控制 */
   overflow-y: auto;
   display: flex;
@@ -201,10 +198,6 @@ watch(
   height: 100%; /* 確保 Panel 填滿父容器高度 */
 }
 
-/* 移除所有 modal 相關的樣式 */
-/* .modal-overlay, .modal-content, .modal-header, .modal-title, .close-button 都刪除 */
-
-/* 其他所有內部的樣式保持不變 */
 .record-form {
   display: flex;
   flex-direction: column;
