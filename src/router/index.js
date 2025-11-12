@@ -1,10 +1,10 @@
-// 檔案路徑: src/router/index.js
+// 檔案路徑: src/router/index.js (修改後版本)
 
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '@/composables/useAuth.js'
 import MainLayout from '@/layouts/MainLayout.vue'
 
-// ✨ 1. 在頂部引入醫師排班相關的元件
+// ✨ 1. 在頂部引入醫師排班相關的元件 (此處保持不變)
 import PhysicianScheduleView from '../views/PhysicianScheduleView.vue'
 
 const routes = [
@@ -26,6 +26,7 @@ const routes = [
         component: () => import('../views/ScheduleView.vue'),
         meta: { title: '每日排程表' },
       },
+      // ... (您其他的路由設定保持不變)
       {
         path: 'weekly',
         name: 'Weekly',
@@ -59,14 +60,12 @@ const routes = [
         meta: { title: '調班管理', requiresAuth: true },
       },
       {
-        path: 'update-scheduler', // 頁面網址
-        name: 'UpdateScheduler', // 路由名稱
-        component: () => import('../views/UpdateSchedulerView.vue'), // 指向新檔案
+        path: 'update-scheduler',
+        name: 'UpdateScheduler',
+        component: () => import('../views/UpdateSchedulerView.vue'),
         meta: {
           title: '預約變更總覽',
           requiresAuth: true,
-          // 根據您的需求，可以限制只有特定角色能看
-          // roles: ['admin', 'editor'],
         },
       },
       {
@@ -99,22 +98,17 @@ const routes = [
         component: () => import('../views/UserManagementView.vue'),
         meta: { title: '使用者管理', requiresAdmin: true },
       },
-      // ==========================================================
-      // ✨✨✨ 核心修正 ✨✨✨
-      // 移除 roles 屬性，這樣路由守衛就不會進行角色檢查，
-      // 只會檢查 requiresAuth，確保用戶已登入即可。
-      // ==========================================================
       {
         path: 'lab-reports',
         name: 'LabReports',
         component: () => import('../views/LabReportView.vue'),
-        meta: { title: '檢驗報告管理', requiresAuth: true }, // <-- 移除 roles: ['admin', 'editor']
+        meta: { title: '檢驗報告管理', requiresAuth: true },
       },
       {
-        path: 'consumables', // 頁面網址
-        name: 'Consumables', // 路由名稱
-        component: () => import('../views/ConsumablesView.vue'), // 指向您剛才建立的檔案
-        meta: { title: '每月耗材總表', requiresAuth: true }, // 設定頁面標題和權限
+        path: 'consumables',
+        name: 'Consumables',
+        component: () => import('../views/ConsumablesView.vue'),
+        meta: { title: '每月耗材總表', requiresAuth: true },
       },
       {
         path: 'account-settings',
@@ -138,13 +132,25 @@ const routes = [
         path: '/orders',
         name: 'Orders',
         component: () => import('../views/OrdersView.vue'),
-        meta: { title: '藥囑管理', requiredAuth: true, roles: ['contributor', 'editor', 'admin'] }, // 根據您的權限需求設定
+        meta: { title: '藥囑管理', requiredAuth: true, roles: ['contributor', 'editor', 'admin'] },
       },
-      // ✨ 2. 在這裡新增一個頂層的「護理班表與職責」路由 ✨
+      // ==========================================================
+      // ✨✨✨【第一步修改處】✨✨✨
+      // 在此處新增「我的今日病人」的路由設定
+      // ==========================================================
+      {
+        path: 'my-patients', // 1. 設定頁面網址
+        name: 'MyPatients', // 2. 設定路由的獨特名稱
+        component: () => import('../views/MyPatientsView.vue'), // 3. 指向我們剛建立的 MyPatientsView.vue 檔案
+        meta: {
+          title: '我的今日病人', // 4. 設定頁面標題
+          requiresAuth: true, // 5. 確保使用者需要登入才能訪問
+        },
+      },
       {
         path: 'nursing-schedule',
         name: 'NursingSchedule',
-        component: () => import('../views/NursingScheduleView.vue'), // <-- ✨ 修改為新的檔案路徑 ✨
+        component: () => import('../views/NursingScheduleView.vue'),
         meta: {
           title: '護理班表與職責',
           requiresAuth: true,
