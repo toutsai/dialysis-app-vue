@@ -1,4 +1,4 @@
-// 檔案路徑: src/stores/medicationStore.js (帶有詳細日誌的除錯版本)
+// 檔案路徑: src/stores/medicationStore.js (v2 - 修正快取累加問題)
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -25,20 +25,15 @@ export const useMedicationStore = defineStore('medication', () => {
     error.value = null
 
     try {
-      // 確保該日期的快取陣列存在
       if (!dailyInjectionsCache.value[targetDate]) {
         dailyInjectionsCache.value[targetDate] = []
       }
 
-      // ✅ 1. 找出哪些病人資料已經在快取裡了
       const cachedPatientIds = new Set(
         dailyInjectionsCache.value[targetDate].map((inj) => inj.patientId),
       )
-
-      // ✅ 2. 計算出這次請求中，哪些是需要向後端查詢的新病人
       const idsToFetch = patientIds.filter((id) => !cachedPatientIds.has(id))
 
-      // ✅ 3. 如果有需要查詢的新病人，才執行後端請求
       if (idsToFetch.length > 0) {
         console.log(
           `[Store] ❌ 快取不完整，需為 ${idsToFetch.length} 位新病人請求資料。`,
@@ -61,16 +56,30 @@ export const useMedicationStore = defineStore('medication', () => {
           }
         }
 
-        // ✅ 4. 將新獲取的資料合併到當日的快取中
-        dailyInjectionsCache.value[targetDate].push(...newlyFetchedInjections)
+        // ✨✨✨【核心修正】✨✨✨
+        // 將新抓到的資料轉換成以 'patientId-orderCode' 為 key 的 Map，自動去重
+        const newInjectionsMap = new Map(
+          newlyFetchedInjections.map((inj) => [`${inj.patientId}-${inj.orderCode}`, inj]),
+        )
+
+        // 過濾掉快取中已存在的、且這次新資料中也有的項目
+        const updatedCache = dailyInjectionsCache.value[targetDate].filter(
+          (inj) => !newInjectionsMap.has(`${inj.patientId}-${inj.orderCode}`),
+        )
+
+        // 將新資料加入，完成去重合併
+        updatedCache.push(...newInjectionsMap.values())
+
+        // 用全新的、去重後的陣列來「覆蓋」舊的快取
+        dailyInjectionsCache.value[targetDate] = updatedCache
+
         console.log(
-          `[Store] 💾 快取已更新，${targetDate} 現在共有 ${dailyInjectionsCache.value[targetDate].length} 筆資料。`,
+          `[Store] 💾 快取已更新 (去重合併)，${targetDate} 現在共有 ${dailyInjectionsCache.value[targetDate].length} 筆資料。`,
         )
       } else {
         console.log(`[Store] ✅ 快取完整！本次請求的所有病人資料都已存在。`)
       }
 
-      // ✅ 5. 最後，從更新後的完整快取中，篩選出本次呼叫所需要的病人資料並回傳
       const patientIdSet = new Set(patientIds)
       return dailyInjectionsCache.value[targetDate].filter((inj) => patientIdSet.has(inj.patientId))
     } catch (e) {

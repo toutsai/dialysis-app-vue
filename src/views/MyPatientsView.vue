@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/MyPatientsView.vue (v4 - 班別分區美化版 - 完整無省略) -->
+<!-- 檔案路徑: src/views/MyPatientsView.vue (v5 - 前端轉換藥名) -->
 <template>
   <div class="my-patients-container">
     <div class="page-header">
@@ -58,11 +58,9 @@
                   <td>{{ patient.preparation.vascAccess }}</td>
                   <td>
                     <ul v-if="patient.injections.length > 0" class="info-list">
-                      <li
-                        v-for="(med, index) in patient.injections"
-                        :key="`${patient.id}-med-${index}`"
-                      >
-                        {{ med }}
+                      <!-- ✨ 核心修正：在這裡呼叫 formatInjection 函式 -->
+                      <li v-for="injection in patient.injections" :key="injection.orderCode">
+                        {{ formatInjection(injection) }}
                       </li>
                     </ul>
                     <span v-else class="no-data">–</span>
@@ -143,6 +141,26 @@ import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 // 接收從 composable 來的分組後物件
+// ✨ 核心修正 1：將對照表和轉換函式定義在前端
+const INJECTION_MEDS_MASTER = [
+  { code: 'INES2', tradeName: 'NESP', unit: 'mcg' },
+  { code: 'IREC1', tradeName: 'Recormon', unit: 'KIU' },
+  { code: 'IFER2', tradeName: 'Fe-back', unit: 'mg' },
+  { code: 'ICAC', tradeName: 'Cacare', unit: 'amp' },
+  { code: 'IPAR1', tradeName: 'Parsabiv', unit: 'mg' },
+]
+const injectionTradeNameMap = new Map(INJECTION_MEDS_MASTER.map((med) => [med.code, med.tradeName]))
+
+function formatInjection(injection) {
+  const displayName =
+    injectionTradeNameMap.get(injection.orderCode) || injection.orderName || '未知藥品'
+  const parts = [
+    displayName,
+    `${injection.dose || ''} ${injection.unit || ''}`.trim(),
+    injection.note || '',
+  ]
+  return parts.filter((part) => part).join(' / ')
+}
 const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList()
 const { currentUser, hasPermission } = useAuth()
 const patientStore = usePatientStore()
