@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useMyPatientList.js (v13 - 最終修正 targetDate 邏輯)
+// 檔案路徑: src/composables/useMyPatientList.js (v15 - 最終穩定版)
 
 import { ref, watch, computed } from 'vue'
 import { useAuth } from '@/composables/useAuth.js'
@@ -18,52 +18,57 @@ export function useMyPatientList() {
   const patientStore = usePatientStore()
   const medicationStore = useMedicationStore()
   const isLoading = ref(true)
-  const patientList = ref([])
+  const patientListByShift = ref({})
   const patientMap = computed(() => new Map(patientStore.allPatients.map((p) => [p.id, p])))
 
   const processAndBuildList = async () => {
-    if (!currentUser.value) {
-      patientList.value = []
-      isLoading.value = false
+    if (!currentUser.value || patientStore.isLoading) {
+      if (!currentUser.value) {
+        patientListByShift.value = {}
+        isLoading.value = false
+      }
       return
     }
     isLoading.value = true
     try {
       const today = formatDateToYYYYMMDD(new Date())
       const currentUserName = currentUser.value.name
+
+      // ... (抓取 assignments, schedules 的邏輯保持不變) ...
       const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
       const myAssignedIds = new Set()
+      const myAssignments = new Map()
       if (assignmentsSnapshot.length > 0) {
         const { names, teams } = assignmentsSnapshot[0]
         if (names && teams) {
           const myTeamCodes = Object.keys(names).filter(
-            (teamCode) => names[teamCode]?.trim() === currentUserName?.trim(),
+            (teamCode) => names[teamCode]?.trim() === currentUserName,
           )
           if (myTeamCodes.length > 0) {
             for (const teamKey in teams) {
               const [pId] = teamKey.split('-')
               const teamAssignment = teams[teamKey]
-              if (
-                myTeamCodes.some((code) =>
-                  [
-                    teamAssignment.nurseTeam,
-                    teamAssignment.nurseTeamIn,
-                    teamAssignment.nurseTeamOut,
-                    teamAssignment.nurseTeamTakeOff,
-                  ].includes(code),
-                )
-              ) {
+              const roles = []
+              if (myTeamCodes.includes(teamAssignment.nurseTeam)) roles.push('main')
+              if (myTeamCodes.includes(teamAssignment.nurseTeamIn)) roles.push('noonOn')
+              if (myTeamCodes.includes(teamAssignment.nurseTeamOut)) roles.push('noonOff')
+              if (myTeamCodes.includes(teamAssignment.nurseTeamTakeOff)) roles.push('lateOff')
+              if (roles.length > 0) {
                 myAssignedIds.add(pId)
+                if (!myAssignments.has(pId)) myAssignments.set(pId, new Set())
+                roles.forEach((role) => myAssignments.get(pId).add(role))
               }
             }
           }
         }
       }
+
       if (myAssignedIds.size === 0) {
-        patientList.value = []
+        patientListByShift.value = {}
         isLoading.value = false
         return
       }
+
       const schedulesSnapshot = await schedulesApi.fetchAll([where('date', '==', today)])
       const myFinalListWithBedInfo = []
       if (schedulesSnapshot.length > 0 && schedulesSnapshot[0].schedule) {
@@ -75,97 +80,98 @@ export function useMyPatientList() {
           }
         }
       }
+
       const allMyPatientIds = Array.from(myAssignedIds)
       if (allMyPatientIds.length > 0) {
         await medicationStore.fetchDailyInjections(today, allMyPatientIds)
       }
+
+      const groupedResults = { early: [], noonOn: [], noonOff: [], late: [] }
       const allInjections = medicationStore.getInjectionsForDate(today) || []
       const injectionsMap = allInjections.reduce((map, injection) => {
-        if (!map.has(injection.patientId)) {
-          map.set(injection.patientId, [])
-        }
+        if (!map.has(injection.patientId)) map.set(injection.patientId, [])
         map.get(injection.patientId).push(injection)
         return map
       }, new Map())
-      const detailedPromises = myFinalListWithBedInfo.map(async (slot) => {
+
+      myFinalListWithBedInfo.forEach((slot) => {
         const patientFromStore = patientMap.value.get(slot.patientId)
-        if (!patientFromStore) return null
-        const dailyBedNum = getBedNumberFromKey(slot.shiftKey)
-        const finalBedNum = !isNaN(dailyBedNum) ? dailyBedNum : patientFromStore.bed || 'N/A'
+        if (!patientFromStore) return
         const shiftCode = slot.shiftKey.split('-').pop()
-        const preparationInfo = {
-          ak: patientFromStore.dialysisOrders?.ak || '–',
-          dialysateCa: patientFromStore.dialysisOrders?.dialysateCa || '–',
-          heparin: `${patientFromStore.dialysisOrders?.heparinInitial ?? '–'}/${patientFromStore.dialysisOrders?.heparinMaintenance ?? '–'}`,
-          bloodFlow: patientFromStore.dialysisOrders?.bloodFlow ?? '–',
-          vascAccess: `${patientFromStore.dialysisOrders?.vascAccess || '–'} (${patientFromStore.dialysisOrders?.arterialNeedle || 'N/A'}/${patientFromStore.dialysisOrders?.venousNeedle || 'N/A'})`,
-        }
-        const injectionsForPatient = injectionsMap.get(slot.patientId) || []
+        const patientRoles = myAssignments.get(slot.patientId) || new Set()
 
-        // ✨✨✨【最終核心修正】✨✨✨
-        // 邏輯更正為：顯示所有沒有 targetDate，或者 targetDate 是今天或未來的待辦事項
-        const memos = (taskStore.feedMessages || []).filter(
-          (msg) =>
-            msg.patientId === slot.patientId &&
-            msg.status === 'pending' &&
-            (!msg.targetDate || msg.targetDate >= today), // <-- 確認條件為 >=
-        )
+        const createPatientObject = (roleOverride = null) => {
+          const dailyBedNum = getBedNumberFromKey(slot.shiftKey)
+          const finalBedNum = !isNaN(dailyBedNum) ? dailyBedNum : patientFromStore.bed || 'N/A'
+          const preparationInfo = {
+            ak: patientFromStore.dialysisOrders?.ak || '–',
+            dialysateCa: patientFromStore.dialysisOrders?.dialysateCa || '–',
+            heparin: `${patientFromStore.dialysisOrders?.heparinInitial ?? '–'}/${patientFromStore.dialysisOrders?.heparinMaintenance ?? '–'}`,
+            bloodFlow: patientFromStore.dialysisOrders?.bloodFlow ?? '–',
+            vascAccess: `${patientFromStore.dialysisOrders?.vascAccess || '–'} (${patientFromStore.dialysisOrders?.arterialNeedle || 'N/A'}/${patientFromStore.dialysisOrders?.venousNeedle || 'N/A'})`,
+          }
+          const injectionsForPatient = injectionsMap.get(slot.patientId) || []
+          const memos = (taskStore.feedMessages || []).filter(
+            (msg) =>
+              msg.patientId === slot.patientId &&
+              msg.status === 'pending' &&
+              (!msg.targetDate || msg.targetDate >= today),
+          )
 
-        return {
-          id: slot.patientId,
-          shift: translateShift(shiftCode),
-          shiftCode: shiftCode,
-          mrn: patientFromStore.medicalRecordNumber || patientFromStore.mrn,
-          bedNum: finalBedNum,
-          name: patientFromStore.name,
-          preparation: preparationInfo,
-          injections: injectionsForPatient.map((injection) => {
-            const parts = [
-              injection.orderName || '未知藥品',
-              `${injection.dose || ''} ${injection.unit || ''}`.trim(),
-              injection.note || '',
-            ]
-            return parts.filter((part) => part).join(' / ')
-          }),
-          memos: memos,
+          return {
+            id: `${slot.patientId}-${roleOverride || shiftCode}`,
+            patientId: slot.patientId,
+            shift: translateShift(roleOverride || shiftCode),
+            shiftCode: roleOverride || shiftCode,
+            bedNum: finalBedNum,
+            name: patientFromStore.name,
+            preparation: preparationInfo,
+            // ✨ 核心修正 1：直接回傳原始的針劑物件陣列
+            injections: injectionsForPatient,
+            memos: memos,
+          }
         }
+
+        if (patientRoles.has('main') && shiftCode === 'early')
+          groupedResults.early.push(createPatientObject())
+        if (patientRoles.has('main') && shiftCode === 'late')
+          groupedResults.late.push(createPatientObject())
+        if (patientRoles.has('noonOn') && shiftCode === 'noon')
+          groupedResults.noonOn.push(createPatientObject('noonOn'))
+        if (patientRoles.has('noonOff') && shiftCode === 'noon')
+          groupedResults.noonOff.push(createPatientObject('noonOff'))
       })
-      const results = (await Promise.all(detailedPromises)).filter((p) => p !== null)
-      results.sort((a, b) => {
-        const shiftOrder = { early: 1, noon: 2, late: 3 }
-        const orderA = shiftOrder[a.shiftCode] || 99
-        const orderB = shiftOrder[b.shiftCode] || 99
-        if (orderA !== orderB) return orderA - orderB
-        if (a.bedNum === 'N/A') return 1
-        if (b.bedNum === 'N/A') return -1
-        return a.bedNum - b.bedNum
-      })
-      patientList.value = results
+
+      for (const shift in groupedResults) {
+        groupedResults[shift].sort((a, b) => {
+          if (a.bedNum === 'N/A') return 1
+          if (b.bedNum === 'N/A') return -1
+          return a.bedNum - b.bedNum
+        })
+      }
+      patientListByShift.value = groupedResults
     } catch (error) {
       console.error('[useMyPatientList] 錯誤:', error)
-      patientList.value = []
+      patientListByShift.value = {}
     } finally {
       isLoading.value = false
     }
   }
 
+  // ✨ 核心修正 2：移除對 medicationStore.dailyInjectionsCache 的監聽
   watch(
-    () => [
-      currentUser.value?.uid,
-      patientStore.allPatients,
-      taskStore.feedMessages,
-      medicationStore.dailyInjectionsCache,
-    ],
+    () => [currentUser.value?.uid, patientStore.allPatients, taskStore.feedMessages],
     ([uid]) => {
-      if (uid && !patientStore.isLoading) {
+      if (uid && !patientStore.isLoading && !taskStore.isLoading) {
         processAndBuildList()
       } else if (!uid) {
         isLoading.value = false
-        patientList.value = []
+        patientListByShift.value = {}
       }
     },
     { immediate: true, deep: true },
   )
+
   const getBedNumberFromKey = (shiftId) => {
     if (!shiftId) return NaN
     const parts = shiftId.split('-')
@@ -175,10 +181,18 @@ export function useMyPatientList() {
     }
     return parseInt(parts[1], 10)
   }
+
   const translateShift = (shiftKey) => {
-    const map = { early: '早班', noon: '午班', late: '晚班' }
+    const map = {
+      early: '早班 (主責)',
+      noon: '午班 (主責)',
+      late: '晚班 (主責)',
+      noonOn: '午班 (上針)',
+      noonOff: '午班 (收針)',
+    }
     return map[shiftKey] || shiftKey
   }
+
   const refreshData = () => {
     if (!isLoading.value) {
       medicationStore.clearCache()
@@ -186,9 +200,5 @@ export function useMyPatientList() {
     }
   }
 
-  return {
-    isLoading,
-    patientList,
-    fetchMyPatientData: refreshData,
-  }
+  return { isLoading, patientListByShift, fetchMyPatientData: refreshData }
 }
