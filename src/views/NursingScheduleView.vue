@@ -1043,7 +1043,7 @@ const getAvailableGroups = (shift, date, nurseId) => {
     if ([1, 3, 5].includes(dayOfWeek)) {
       groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
     } else if ([2, 4, 6].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
     }
     if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
       const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName

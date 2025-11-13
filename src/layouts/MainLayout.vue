@@ -26,6 +26,16 @@
               </div>
             </RouterLink>
           </li>
+          <!-- ✨✨✨【第一步修改處】✨✨✨ -->
+          <!-- 在此處新增「我的今日病人」的導覽連結 -->
+          <li>
+            <RouterLink :to="{ name: 'MyPatients' }" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">我的今日病人(建立中)</span>
+              </div>
+            </RouterLink>
+          </li>
+          <!-- ✨✨✨【修改結束】✨✨✨ -->
           <li class="desktop-only-nav-item">
             <RouterLink to="/weekly" class="nav-link">
               <div class="nav-item-content">
@@ -48,8 +58,6 @@
                 <span class="nav-title">調班換床</span>
                 <span class="nav-subtitle"></span>
               </div>
-              <!-- ✨✨✨【核心修改 A】✨✨✨ -->
-              <!-- 當 conflictCount > 0 時，顯示這個警示圖示 -->
               <span
                 v-if="conflictCount > 0"
                 class="alert-badge"
