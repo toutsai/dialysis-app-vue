@@ -103,12 +103,18 @@ export function useMyPatientList() {
         const createPatientObject = (roleOverride = null) => {
           const dailyBedNum = getBedNumberFromKey(slot.shiftKey)
           const finalBedNum = !isNaN(dailyBedNum) ? dailyBedNum : patientFromStore.bed || 'N/A'
+          const pOrders = patientFromStore.dialysisOrders || {}
+          let vascAccessString = pOrders.vascAccess || '–'
+          if (pOrders.arterialNeedle && pOrders.venousNeedle) {
+            vascAccessString += ` (${pOrders.arterialNeedle}/${pOrders.venousNeedle})`
+          }
+
           const preparationInfo = {
-            ak: patientFromStore.dialysisOrders?.ak || '–',
-            dialysateCa: patientFromStore.dialysisOrders?.dialysateCa || '–',
-            heparin: `${patientFromStore.dialysisOrders?.heparinInitial ?? '–'}/${patientFromStore.dialysisOrders?.heparinMaintenance ?? '–'}`,
-            bloodFlow: patientFromStore.dialysisOrders?.bloodFlow ?? '–',
-            vascAccess: `${patientFromStore.dialysisOrders?.vascAccess || '–'} (${patientFromStore.dialysisOrders?.arterialNeedle || 'N/A'}/${patientFromStore.dialysisOrders?.venousNeedle || 'N/A'})`,
+            ak: pOrders.ak || '–',
+            dialysateCa: pOrders.dialysateCa || '–',
+            heparin: `${pOrders.heparinInitial ?? '–'}/${pOrders.heparinMaintenance ?? '–'}`,
+            bloodFlow: pOrders.bloodFlow ?? '–',
+            vascAccess: vascAccessString, // 👈 使用新的組合字串
           }
           const injectionsForPatient = injectionsMap.get(slot.patientId) || []
           const memos = (taskStore.feedMessages || []).filter(
