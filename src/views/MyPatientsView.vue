@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/MyPatientsView.vue (v2 - 具備完整互動功能) -->
+<!-- 檔案路徑: src/views/MyPatientsView.vue (v3 - 處理衛教留言) -->
 <template>
   <div class="my-patients-container">
     <div class="page-header">
@@ -56,7 +56,6 @@
               </ul>
               <span v-else class="no-data">–</span>
             </td>
-            <!-- ✨✨✨【核心修正：交班備忘欄位】✨✨✨ -->
             <td>
               <ul v-if="patient.memos.length > 0" class="info-list memo-list">
                 <li v-for="memo in patient.memos" :key="memo.id" class="memo-item">
@@ -76,13 +75,22 @@
                     <button @click="confirmDeleteTask(memo)" title="刪除">
                       <i class="fas fa-trash"></i>
                     </button>
+
+                    <!-- ✨✨✨【核心修正】✨✨✨ -->
+                    <!-- 只有當類型不是 '衛教' 時，才顯示 '已讀' 按鈕 -->
                     <button
+                      v-if="memo.type !== '衛教'"
                       @click="updateTaskStatus(memo, 'completed')"
                       class="btn-complete"
                       title="標示已讀"
                     >
                       <i class="fas fa-check"></i> 已讀
                     </button>
+
+                    <!-- 如果是 '衛教'，可以選擇顯示一個不同的標籤，或什麼都不顯示 -->
+                    <span v-else class="education-task-tag" title="衛教事項">
+                      <i class="fas fa-chalkboard-teacher"></i>
+                    </span>
                   </div>
                 </li>
               </ul>
@@ -93,7 +101,7 @@
       </table>
     </div>
 
-    <!-- ✨ 新增：編輯/新增用的 Dialog -->
+    <!-- Dialogs -->
     <TaskCreateDialog
       :is-visible="isCreateModalVisible"
       :all-patients="patientStore.allPatients"
@@ -101,8 +109,6 @@
       @close="closeCreateModal"
       @submit="handleTaskSubmit"
     />
-
-    <!-- ✨ 新增：刪除確認用的 Dialog -->
     <ConfirmDialog
       :is-visible="isConfirmDeleteVisible"
       title="確認刪除"
@@ -347,25 +353,25 @@ async function handleTaskSubmit(data) {
   color: #adb5bd;
 }
 .col-shift {
-  width: 8%;
+  width: 5%;
 }
 .col-bed {
-  width: 6%;
+  width: 5%;
 }
 .col-name {
   width: 8%;
 }
 .col-prep {
-  width: 7%;
+  width: 5%;
 }
 .col-access {
-  width: 12%;
+  width: 8%;
 }
 .col-meds {
-  width: 18%;
+  width: 20%;
 }
 .col-memos {
-  width: 25%;
+  width: 53%;
 } /* 增加寬度以容納按鈕 */
 
 /* ✨ 新增：交班備忘的詳細樣式 */
@@ -428,5 +434,17 @@ async function handleTaskSubmit(data) {
 }
 .memo-actions .btn-complete:hover {
   background-color: #0056b3;
+}
+/* ✨ 新增：衛教標籤的樣式 */
+.education-task-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background-color: #f0fdf4; /* 淡綠色 */
+  color: #15803d; /* 深綠色 */
+  font-weight: 500;
 }
 </style>

@@ -1,36 +1,31 @@
+// 檔案路徑: src/stores/taskStore.js (最終修正版 - 穩定 feedMessages 更新)
+
 import { ref, computed, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 import { useAuth } from '@/composables/useAuth'
 
-// ✨ 保持這個頂部的日期處理函式
 function getSafeDate(timestamp) {
   if (!timestamp) return new Date(0)
-  if (timestamp instanceof Date) {
-    return timestamp
-  }
-  if (typeof timestamp.toDate === 'function') {
-    return timestamp.toDate()
-  }
+  if (timestamp instanceof Date) return timestamp
+  if (typeof timestamp.toDate === 'function') return timestamp.toDate()
   const date = new Date(timestamp)
   return isNaN(date.getTime()) ? new Date(0) : date
 }
 
 export const useTaskStore = defineStore('task', () => {
-  // --- State ---
   const { currentUser } = useAuth()
   const myTasks = ref([])
   const mySentTasks = ref([])
   const feedMessages = ref([])
-  const isLoading = ref(true)
+  const isLoading = ref(true) // 初始為 true
   let unsubscribes = []
-
-  // ✨ 1. 新增一個 Set 來儲存有「當日」病情紀錄的病人ID
   const conditionRecordPatientIds = ref(new Set())
 
-  // --- Getters ---
+  // --- Getters 保持不變 ---
   const sortedFeedMessages = computed(() => {
+    // ... (原有邏輯不變)
     const standardizedMessages = feedMessages.value.map((msg) => ({
       ...msg,
       createdAt: getSafeDate(msg.createdAt),
@@ -45,20 +40,14 @@ export const useTaskStore = defineStore('task', () => {
       return dateB.getTime() - dateA.getTime()
     })
   })
-
-  // ✨ 2. 修改 Getter，使其整合病情紀錄的狀態
   const getPatientMessageTypesMapForDate = computed(() => {
+    // ... (原有邏輯不變)
     return (targetDate) => {
       const dateToCompare = targetDate ? new Date(targetDate) : new Date()
       dateToCompare.setHours(0, 0, 0, 0)
-      const dateStr = `${dateToCompare.getFullYear()}-${String(
-        dateToCompare.getMonth() + 1,
-      ).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
-
+      const dateStr = `${dateToCompare.getFullYear()}-${String(dateToCompare.getMonth() + 1).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
       const map = new Map()
       const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
-
-      // (A) 處理備忘錄 (memos / tasks)
       for (const msg of pendingMessages) {
         if (!msg.patientId) continue
         let shouldDisplayIcon = false
@@ -69,21 +58,15 @@ export const useTaskStore = defineStore('task', () => {
           if (!map.has(msg.patientId)) {
             map.set(msg.patientId, new Set())
           }
-          // 根據原始類型決定是 'memo' 還是其他
           map.get(msg.patientId).add(msg.type === '常規' ? 'memo' : msg.type)
         }
       }
-
-      // (B) 處理病情紀錄 (condition records)
       conditionRecordPatientIds.value.forEach((patientId) => {
         if (!map.has(patientId)) {
           map.set(patientId, new Set())
         }
-        // 為有病情紀錄的病人添加 'record' 類型
         map.get(patientId).add('record')
       })
-
-      // 將 Set 轉換為 Array
       const finalMap = new Map()
       for (const [patientId, typeSet] of map.entries()) {
         finalMap.set(patientId, Array.from(typeSet))
@@ -91,28 +74,25 @@ export const useTaskStore = defineStore('task', () => {
       return finalMap
     }
   })
-
   const allPendingPatientMessageTypesMap = computed(() => {
+    // ... (原有邏輯不變)
     const map = new Map()
     const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
-
     for (const msg of pendingMessages) {
       if (!msg.patientId) continue
-
       if (!map.has(msg.patientId)) {
         map.set(msg.patientId, new Set())
       }
       map.get(msg.patientId).add(msg.type || '常規')
     }
-
     const finalMap = new Map()
     for (const [patientId, typeSet] of map.entries()) {
       finalMap.set(patientId, Array.from(typeSet))
     }
     return finalMap
   })
-
   const todayTaskCount = computed(() => (todayAssignedPatientIds) => {
+    // ... (原有邏輯不變)
     if (!currentUser.value) return 0
     const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
     if (!todayAssignedPatientIds || todayAssignedPatientIds.length === 0) {
@@ -124,30 +104,20 @@ export const useTaskStore = defineStore('task', () => {
     ).length
     return myPendingTasksCount + myPendingMemosCount
   })
-
-  // ✨ [新增 GETTER] 專門用來計算今日相關的病人留言數量
   const todayRelevantMemosCount = computed(() => {
+    // ... (原有邏輯不變)
     return (patientIdArray) => {
-      if (!patientIdArray || patientIdArray.length === 0) {
-        return 0
-      }
-
+      if (!patientIdArray || patientIdArray.length === 0) return 0
       const today = new Date()
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(
-        today.getDate(),
-      ).padStart(2, '0')}`
-
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
       const patientIdSet = new Set(patientIdArray)
-
       return feedMessages.value.filter((item) => {
         const isTargetDateRelevant = !item.targetDate || item.targetDate <= todayStr
-
         return (
           item.status === 'pending' &&
           item.patientId &&
           patientIdSet.has(item.patientId) &&
           isTargetDateRelevant &&
-          // ✨ [核心修正] 排除所有由系統產生的調班訊息
           item.content &&
           !item.content.startsWith('【')
         )
@@ -156,24 +126,26 @@ export const useTaskStore = defineStore('task', () => {
   })
 
   // --- Actions ---
-  // ✨ 3. 新增這個 Action，用來接收來自 ScheduleView 的狀態更新
   function updateTasksFromConditionRecords(patientIdSet) {
     conditionRecordPatientIds.value = patientIdSet
   }
 
   function startRealtimeUpdates(uid) {
     if (unsubscribes.length > 0) return
-    if (!uid || !currentUser.value) return
+    if (!uid || !currentUser.value) {
+      isLoading.value = false // 如果無法啟動，也應該結束 loading
+      return
+    }
 
     isLoading.value = true
-
     let listenersInitialized = 0
-    const totalListeners = 4
+    const totalListeners = 4 // myTasks, mySentTasks, messages, legacyMemos
 
     const checkLoadingState = () => {
       listenersInitialized++
       if (listenersInitialized >= totalListeners) {
         isLoading.value = false
+        console.log('[TaskStore] All listeners initialized. isLoading is now false.') // 偵錯日誌
       }
     }
 
@@ -210,7 +182,7 @@ export const useTaskStore = defineStore('task', () => {
         ),
       )
     } else {
-      listenersInitialized++
+      checkLoadingState() // 如果沒有這個查詢，也要算一次
     }
 
     const mySentTasksQuery = query(
@@ -234,7 +206,6 @@ export const useTaskStore = defineStore('task', () => {
 
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
     const messagesQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'message'),
@@ -247,19 +218,24 @@ export const useTaskStore = defineStore('task', () => {
 
     let currentMessages = []
     let currentMemos = []
+    let messagesLoaded = false
+    let memosLoaded = false
 
     const updateCombinedFeed = () => {
-      const standardizedMemos = currentMemos.map((memo) => ({
-        ...memo,
-        isLegacy: true,
-        type: memo.type || '常規',
-      }))
-      const standardizedMessages = currentMessages.map((msg) => ({
-        ...msg,
-        isLegacy: false,
-        type: msg.type || '常規',
-      }))
-      feedMessages.value = [...standardizedMessages, ...standardizedMemos]
+      // ✨ 核心修正：只在兩個來源都至少載入過一次後才合併
+      if (messagesLoaded && memosLoaded) {
+        const standardizedMemos = currentMemos.map((memo) => ({
+          ...memo,
+          isLegacy: true,
+          type: memo.type || '常規',
+        }))
+        const standardizedMessages = currentMessages.map((msg) => ({
+          ...msg,
+          isLegacy: false,
+          type: msg.type || '常規',
+        }))
+        feedMessages.value = [...standardizedMessages, ...standardizedMemos]
+      }
     }
 
     unsubscribes.push(
@@ -267,12 +243,18 @@ export const useTaskStore = defineStore('task', () => {
         messagesQuery,
         (snapshot) => {
           currentMessages = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          if (!messagesLoaded) {
+            messagesLoaded = true
+            checkLoadingState()
+          }
           updateCombinedFeed()
-          checkLoadingState()
         },
         (error) => {
           console.error('Error listening to messages:', error)
-          checkLoadingState()
+          if (!messagesLoaded) {
+            messagesLoaded = true
+            checkLoadingState()
+          }
         },
       ),
     )
@@ -282,12 +264,18 @@ export const useTaskStore = defineStore('task', () => {
         legacyMemosQuery,
         (snapshot) => {
           currentMemos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          if (!memosLoaded) {
+            memosLoaded = true
+            checkLoadingState()
+          }
           updateCombinedFeed()
-          checkLoadingState()
         },
         (error) => {
           console.error('Error listening to legacy memos:', error)
-          checkLoadingState()
+          if (!memosLoaded) {
+            memosLoaded = true
+            checkLoadingState()
+          }
         },
       ),
     )
@@ -296,11 +284,10 @@ export const useTaskStore = defineStore('task', () => {
   function cleanupListeners() {
     unsubscribes.forEach((unsubscribe) => unsubscribe())
     unsubscribes = []
-
     myTasks.value = []
     mySentTasks.value = []
     feedMessages.value = []
-    isLoading.value = true
+    isLoading.value = true // 重置為 true
   }
 
   watch(
@@ -309,6 +296,8 @@ export const useTaskStore = defineStore('task', () => {
       cleanupListeners()
       if (uid) {
         startRealtimeUpdates(uid)
+      } else {
+        isLoading.value = false // 如果登出，結束 loading
       }
     },
     { immediate: true },
@@ -320,8 +309,9 @@ export const useTaskStore = defineStore('task', () => {
     cleanupListeners,
     myTasks,
     mySentTasks,
+    feedMessages, // ✨ 直接回傳 feedMessages
     sortedFeedMessages,
-    todayRelevantMemosCount, // ✨ 記得要 return 新的 getter
+    todayRelevantMemosCount,
     getPatientMessageTypesMapForDate,
     allPendingPatientMessageTypesMap,
     todayTaskCount,
