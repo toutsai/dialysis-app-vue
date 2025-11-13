@@ -1,4 +1,4 @@
-// 檔案路徑: src/composables/useMyPatientList.js (最終修正版 v10 - 修正藥物載入時機)
+// 檔案路徑: src/composables/useMyPatientList.js (v13 - 最終修正 targetDate 邏輯)
 
 import { ref, watch, computed } from 'vue'
 import { useAuth } from '@/composables/useAuth.js'
@@ -17,29 +17,9 @@ export function useMyPatientList() {
   const taskStore = useTaskStore()
   const patientStore = usePatientStore()
   const medicationStore = useMedicationStore()
-
   const isLoading = ref(true)
   const patientList = ref([])
-
   const patientMap = computed(() => new Map(patientStore.allPatients.map((p) => [p.id, p])))
-
-  // ✨ 核心修正 1：強化 ensureStoresAreReady，現在它會等待所有三個 store
-  const ensureStoresAreReady = () => {
-    return new Promise((resolve) => {
-      let unwatch
-      unwatch = watch(
-        () => [patientStore.isLoading, taskStore.isLoading, medicationStore.isLoading],
-        ([pLoading, tLoading, mLoading]) => {
-          // 當三個 store 都不在載入中時，代表資料已備妥
-          if (!pLoading && !tLoading && !mLoading) {
-            if (unwatch) unwatch()
-            resolve()
-          }
-        },
-        { immediate: true },
-      )
-    })
-  }
 
   const processAndBuildList = async () => {
     if (!currentUser.value) {
@@ -49,12 +29,8 @@ export function useMyPatientList() {
     }
     isLoading.value = true
     try {
-      // ✨ 核心修正 2：在所有操作的最開始，就等待所有 store 準備就緒
-      await ensureStoresAreReady()
-
       const today = formatDateToYYYYMMDD(new Date())
       const currentUserName = currentUser.value.name
-
       const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
       const myAssignedIds = new Set()
       if (assignmentsSnapshot.length > 0) {
@@ -85,9 +61,9 @@ export function useMyPatientList() {
       }
       if (myAssignedIds.size === 0) {
         patientList.value = []
+        isLoading.value = false
         return
       }
-
       const schedulesSnapshot = await schedulesApi.fetchAll([where('date', '==', today)])
       const myFinalListWithBedInfo = []
       if (schedulesSnapshot.length > 0 && schedulesSnapshot[0].schedule) {
@@ -99,13 +75,11 @@ export function useMyPatientList() {
           }
         }
       }
-
       const allMyPatientIds = Array.from(myAssignedIds)
-      let allInjections = []
       if (allMyPatientIds.length > 0) {
-        allInjections = await medicationStore.fetchDailyInjections(today, allMyPatientIds)
+        await medicationStore.fetchDailyInjections(today, allMyPatientIds)
       }
-
+      const allInjections = medicationStore.getInjectionsForDate(today) || []
       const injectionsMap = allInjections.reduce((map, injection) => {
         if (!map.has(injection.patientId)) {
           map.set(injection.patientId, [])
@@ -113,7 +87,6 @@ export function useMyPatientList() {
         map.get(injection.patientId).push(injection)
         return map
       }, new Map())
-
       const detailedPromises = myFinalListWithBedInfo.map(async (slot) => {
         const patientFromStore = patientMap.value.get(slot.patientId)
         if (!patientFromStore) return null
@@ -123,21 +96,19 @@ export function useMyPatientList() {
         const preparationInfo = {
           ak: patientFromStore.dialysisOrders?.ak || '–',
           dialysateCa: patientFromStore.dialysisOrders?.dialysateCa || '–',
-          heparin: `${patientFromStore.dialysisOrders?.heparinInitial ?? '–'}/${
-            patientFromStore.dialysisOrders?.heparinMaintenance ?? '–'
-          }`,
+          heparin: `${patientFromStore.dialysisOrders?.heparinInitial ?? '–'}/${patientFromStore.dialysisOrders?.heparinMaintenance ?? '–'}`,
           bloodFlow: patientFromStore.dialysisOrders?.bloodFlow ?? '–',
-          vascAccess: `${patientFromStore.dialysisOrders?.vascAccess || '–'} (${
-            patientFromStore.dialysisOrders?.arterialNeedle || 'N/A'
-          }/${patientFromStore.dialysisOrders?.venousNeedle || 'N/A'})`,
+          vascAccess: `${patientFromStore.dialysisOrders?.vascAccess || '–'} (${patientFromStore.dialysisOrders?.arterialNeedle || 'N/A'}/${patientFromStore.dialysisOrders?.venousNeedle || 'N/A'})`,
         }
-
         const injectionsForPatient = injectionsMap.get(slot.patientId) || []
+
+        // ✨✨✨【最終核心修正】✨✨✨
+        // 邏輯更正為：顯示所有沒有 targetDate，或者 targetDate 是今天或未來的待辦事項
         const memos = (taskStore.feedMessages || []).filter(
           (msg) =>
             msg.patientId === slot.patientId &&
             msg.status === 'pending' &&
-            (!msg.targetDate || msg.targetDate >= today),
+            (!msg.targetDate || msg.targetDate >= today), // <-- 確認條件為 >=
         )
 
         return {
@@ -159,7 +130,6 @@ export function useMyPatientList() {
           memos: memos,
         }
       })
-
       const results = (await Promise.all(detailedPromises)).filter((p) => p !== null)
       results.sort((a, b) => {
         const shiftOrder = { early: 1, noon: 2, late: 3 }
@@ -179,20 +149,23 @@ export function useMyPatientList() {
     }
   }
 
-  // ✨ 核心修正 3：簡化 watch，只在 user 登入時觸發一次 processAndBuildList
   watch(
-    () => currentUser.value?.uid,
-    (uid) => {
-      if (uid) {
+    () => [
+      currentUser.value?.uid,
+      patientStore.allPatients,
+      taskStore.feedMessages,
+      medicationStore.dailyInjectionsCache,
+    ],
+    ([uid]) => {
+      if (uid && !patientStore.isLoading) {
         processAndBuildList()
-      } else {
+      } else if (!uid) {
         isLoading.value = false
         patientList.value = []
       }
     },
-    { immediate: true },
+    { immediate: true, deep: true },
   )
-
   const getBedNumberFromKey = (shiftId) => {
     if (!shiftId) return NaN
     const parts = shiftId.split('-')
@@ -202,14 +175,13 @@ export function useMyPatientList() {
     }
     return parseInt(parts[1], 10)
   }
-
   const translateShift = (shiftKey) => {
     const map = { early: '早班', noon: '午班', late: '晚班' }
     return map[shiftKey] || shiftKey
   }
-
   const refreshData = () => {
     if (!isLoading.value) {
+      medicationStore.clearCache()
       processAndBuildList()
     }
   }
