@@ -1,33 +1,39 @@
-<!-- 檔案路徑: src/views/MyPatientsView.vue (v5 - 前端轉換藥名) -->
+<!-- 檔案路徑: src/views/MyPatientsView.vue (v6 - 新增 "新增交辦" 功能 - 完整無省略版) -->
 <template>
   <div class="my-patients-container">
     <div class="page-header">
       <div>
         <h1 class="page-title">我的今日病人</h1>
-        <!-- ✨ 新增：個人化副標題 -->
         <p v-if="currentUser" class="page-subtitle">
           {{ currentUser.name }} / {{ todayDateString }}
         </p>
       </div>
-      <button @click="fetchMyPatientData" :disabled="isLoading" class="btn-refresh">
-        <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
-        {{ isLoading ? '載入中...' : '重新整理' }}
-      </button>
+      <div class="header-actions">
+        <!-- ✨ 核心修正：在 class 中加入 "btn" -->
+        <button
+          @click="openCreateModal(null)"
+          class="btn btn-primary"
+          :disabled="!hasPermission('viewer')"
+        >
+          <i class="fas fa-plus"></i> 新增交辦/留言
+        </button>
+        <button @click="fetchMyPatientData" :disabled="isLoading" class="btn-refresh">
+          <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
+          {{ isLoading ? '載入中...' : '重新整理' }}
+        </button>
+      </div>
     </div>
 
-    <!-- 載入中狀態 -->
     <div v-if="isLoading && !hasAnyPatients" class="status-panel">
       <div class="spinner"></div>
       <p>正在為您準備今日的病人照護列表...</p>
     </div>
 
-    <!-- 沒有病人的狀態 -->
     <div v-else-if="!hasAnyPatients" class="status-panel">
       <i class="fas fa-check-circle icon-success"></i>
       <p>您今天沒有被分配到照護病人，或班表尚未更新。</p>
     </div>
 
-    <!-- ✨ 核心修正：使用 v-for 遍歷分組後的 patientListByShift 物件 -->
     <div v-else class="tables-container">
       <template v-for="(shiftPatients, shiftCode) in patientListByShift" :key="shiftCode">
         <div v-if="shiftPatients.length > 0" class="shift-table-section">
@@ -58,7 +64,6 @@
                   <td>{{ patient.preparation.vascAccess }}</td>
                   <td>
                     <ul v-if="patient.injections.length > 0" class="info-list">
-                      <!-- ✨ 核心修正：在這裡呼叫 formatInjection 函式 -->
                       <li v-for="injection in patient.injections" :key="injection.orderCode">
                         {{ formatInjection(injection) }}
                       </li>
@@ -108,7 +113,6 @@
       </template>
     </div>
 
-    <!-- Dialogs -->
     <TaskCreateDialog
       :is-visible="isCreateModalVisible"
       :all-patients="patientStore.allPatients"
@@ -139,9 +143,16 @@ import { doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+// ✨ 核心修正：引入我們剛剛建立的共用函式
+import { handleTaskCreated } from '@/utils/taskHandlers.js'
 
-// 接收從 composable 來的分組後物件
-// ✨ 核心修正 1：將對照表和轉換函式定義在前端
+// --- 初始化 Composables 和 Stores ---
+const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList()
+const { currentUser, hasPermission } = useAuth()
+const patientStore = usePatientStore()
+const { createGlobalNotification } = useGlobalNotifier()
+
+// --- 藥品對照表和轉換函式 ---
 const INJECTION_MEDS_MASTER = [
   { code: 'INES2', tradeName: 'NESP', unit: 'mcg' },
   { code: 'IREC1', tradeName: 'Recormon', unit: 'KIU' },
@@ -161,18 +172,14 @@ function formatInjection(injection) {
   ]
   return parts.filter((part) => part).join(' / ')
 }
-const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList()
-const { currentUser, hasPermission } = useAuth()
-const patientStore = usePatientStore()
-const { createGlobalNotification } = useGlobalNotifier()
 
-// 管理 Dialog 狀態的 refs
+// --- Dialog 狀態管理 ---
 const isCreateModalVisible = ref(false)
 const editingItem = ref(null)
 const isConfirmDeleteVisible = ref(false)
 const itemToDelete = ref(null)
 
-// 計算屬性
+// --- Computed Properties ---
 const todayDateString = computed(() =>
   new Date().toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' }),
 )
@@ -181,7 +188,7 @@ const hasAnyPatients = computed(() => {
   return Object.values(patientListByShift.value).some((list) => list.length > 0)
 })
 
-// 輔助函式
+// --- 輔助函式 ---
 const getShiftTitle = (shiftCode) => {
   const map = {
     early: '早班 (主責)',
@@ -204,7 +211,52 @@ function getMessageTypeIcon(type) {
   }
 }
 
-// 處理任務狀態更新的函式
+// --- 事件處理函式 ---
+
+// 開啟「新增/編輯」Dialog
+function openCreateModal(itemToEdit = null) {
+  if (!hasPermission('viewer')) {
+    createGlobalNotification('您的權限不足，無法執行此操作。', 'error')
+    return
+  }
+  editingItem.value = itemToEdit
+  isCreateModalVisible.value = true
+}
+
+// 關閉「新增/編輯」Dialog
+function closeCreateModal() {
+  isCreateModalVisible.value = false
+  editingItem.value = null
+}
+
+// 處理 Dialog 送出的事件 (可能是新增或編輯)
+async function handleTaskSubmit(data) {
+  if (data.id) {
+    // 編輯模式
+    const collectionName = data.isLegacy ? 'memos' : 'tasks'
+    const taskRef = doc(db, collectionName, data.id)
+    const { id, isLegacy, ...updateData } = data
+    try {
+      await updateDoc(taskRef, updateData)
+      createGlobalNotification('備忘已更新', 'success')
+    } catch (error) {
+      console.error('更新項目失敗:', error)
+      createGlobalNotification('更新失敗，請稍後再試', 'error')
+    }
+  } else {
+    // 新增模式
+    try {
+      await handleTaskCreated(data, currentUser.value)
+      createGlobalNotification('交辦/留言已成功新增！', 'success')
+    } catch (error) {
+      console.error('新增項目失敗:', error)
+      createGlobalNotification(`新增失敗: ${error.message}`, 'error')
+    }
+  }
+  closeCreateModal()
+}
+
+// 更新任務狀態 (例如：已讀)
 async function updateTaskStatus(task, newStatus) {
   if (!currentUser.value) return
   try {
@@ -225,12 +277,13 @@ async function updateTaskStatus(task, newStatus) {
   }
 }
 
-// 處理刪除的函式
+// 開啟「刪除確認」Dialog
 function confirmDeleteTask(item) {
   itemToDelete.value = item
   isConfirmDeleteVisible.value = true
 }
 
+// 執行刪除
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
   const collectionName = itemToDelete.value.isLegacy ? 'memos' : 'tasks'
@@ -246,38 +299,15 @@ async function executeDeleteTask() {
   itemToDelete.value = null
 }
 
-// 處理編輯/新增 Dialog 的函式
+// 為了方便，我們把 openEditModal 也定義一下
 function openEditModal(itemToEdit) {
-  if (!hasPermission('viewer')) return
-  editingItem.value = itemToEdit
-  isCreateModalVisible.value = true
-}
-
-function closeCreateModal() {
-  isCreateModalVisible.value = false
-  editingItem.value = null
-}
-
-async function handleTaskSubmit(data) {
-  if (data.id) {
-    const collectionName = data.isLegacy ? 'memos' : 'tasks'
-    const taskRef = doc(db, collectionName, data.id)
-    const { id, isLegacy, ...updateData } = data
-    try {
-      await updateDoc(taskRef, updateData)
-      createGlobalNotification('備忘已更新', 'success')
-    } catch (error) {
-      console.error('更新項目失敗:', error)
-      createGlobalNotification('更新失敗，請稍後再試', 'error')
-    }
-  }
-  closeCreateModal()
+  openCreateModal(itemToEdit)
 }
 </script>
 
 <style scoped>
 .my-patients-container {
-  padding: 1.5rem;
+  padding: 10px;
   background-color: #f8f9fa;
   height: 100%;
   display: flex;
@@ -293,7 +323,7 @@ async function handleTaskSubmit(data) {
 }
 
 .page-title {
-  font-size: 1.8rem;
+  font-size: 32rpm;
   font-weight: bold;
   color: #2c3e50;
   margin: 0;
@@ -305,9 +335,36 @@ async function handleTaskSubmit(data) {
   margin: 0.25rem 0 0 0;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* 👇 在此處新增 .btn 的樣式 */
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  background-color: #007bff;
+  color: white;
+  border: none;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
 .btn-refresh {
   padding: 0.5rem 1rem;
-  background-color: #007bff;
+  background-color: #6c757d;
   color: white;
   border: none;
   border-radius: 5px;
@@ -320,11 +377,11 @@ async function handleTaskSubmit(data) {
 }
 
 .btn-refresh:hover:not(:disabled) {
-  background-color: #0056b3;
+  background-color: #5a6268;
 }
 
 .btn-refresh:disabled {
-  background-color: #6c757d;
+  background-color: #adb5bd;
   cursor: not-allowed;
 }
 
@@ -385,7 +442,7 @@ async function handleTaskSubmit(data) {
   border-bottom: 2px solid #007bff;
   position: sticky;
   top: 0;
-  background-color: #f8f9fa; /* Add background to prevent content overlap on scroll */
+  background-color: #f8f9fa;
   z-index: 10;
 }
 
@@ -440,30 +497,28 @@ async function handleTaskSubmit(data) {
   color: #adb5bd;
 }
 
-/* 欄位寬度 */
 .col-shift {
-  width: 8%;
+  width: 5%;
 }
 .col-bed {
-  width: 6%;
+  width: 5%;
 }
 .col-name {
   width: 8%;
 }
 .col-prep {
-  width: 7%;
+  width: 5%;
 }
 .col-access {
-  width: 12%;
+  width: 8%;
 }
 .col-meds {
-  width: 18%;
+  width: 15%;
 }
 .col-memos {
-  width: 30%;
+  width: 54%;
 }
 
-/* 交班備忘樣式 */
 .memo-list {
   gap: 8px;
 }
@@ -525,7 +580,6 @@ async function handleTaskSubmit(data) {
   background-color: #0056b3;
 }
 
-/* 衛教標籤樣式 */
 .education-task-tag {
   display: inline-flex;
   align-items: center;
