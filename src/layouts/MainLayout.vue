@@ -31,7 +31,7 @@
           <li>
             <RouterLink :to="{ name: 'MyPatients' }" class="nav-link">
               <div class="nav-item-content">
-                <span class="nav-title">我的今日病人(建立中)</span>
+                <span class="nav-title">我的今日病人</span>
               </div>
             </RouterLink>
           </li>
