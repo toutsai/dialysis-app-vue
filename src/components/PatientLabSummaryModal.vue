@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/PatientLabSummaryModal.vue (引用 Panel 的新版本) -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="handleClose">
     <div class="modal-container">
       <div class="modal-header">
         <h2>{{ patient?.name }} - 檢驗報告摘要</h2>

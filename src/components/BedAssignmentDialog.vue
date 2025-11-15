@@ -1,11 +1,11 @@
 <!-- 檔案路徑: src/components/BedAssignmentDialog.vue (智慧排序修正版) -->
 <template>
   <div>
-    <div v-if="isVisible" class="dialog-overlay" @click.self="isComponentMounted && emit('close')">
+    <div v-if="isVisible" class="dialog-overlay" v-overlay-close="closeDialog">
       <div class="dialog-content" :class="{ 'no-patient-list': hidePatientList }">
         <div class="dialog-header">
           <h2>{{ dialogTitle }}</h2>
-          <button @click="isComponentMounted && emit('close')" class="close-btn">×</button>
+          <button @click="closeDialog" class="close-btn">×</button>
         </div>
         <div class="dialog-body">
           <div class="assignment-grid">
@@ -216,6 +216,10 @@ const selectedPatientId = ref(null)
 const alertInfo = ref({ isVisible: false, title: '', message: '' })
 const localAssignedPatientIds = ref(new Set())
 const isComponentMounted = ref(false)
+const closeDialog = () => {
+  if (!isComponentMounted.value) return
+  emit('close')
+}
 const pendingAssignments = ref([])
 const newFreqSelection = ref('')
 

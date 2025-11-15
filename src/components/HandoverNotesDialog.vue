@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/HandoverNotesDialog.vue (可獨立儲存版) -->
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="closeDialog">
+  <div v-if="isVisible" class="dialog-overlay" v-overlay-close="closeDialog">
     <div class="dialog-content">
       <header class="dialog-header">
         <h3>組長交班事項 ({{ targetDate }})</h3>

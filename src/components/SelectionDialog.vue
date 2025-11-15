@@ -44,7 +44,7 @@ function handleCancel() {
   <!-- 【新增】: 使用 <Transition> 包裹，實現平滑的淡入淡出效果 -->
   <Transition name="dialog-fade">
     <!-- 【修改】: dialog 元素現在由一個 overlay 包裹，以實現更好的居中和背景模糊效果 -->
-    <div v-if="isVisible" class="selection-dialog-overlay" @click.self="handleCancel">
+    <div v-if="isVisible" class="selection-dialog-overlay" v-overlay-close="handleCancel">
       <div class="selection-dialog-content">
         <h3>{{ title }}</h3>
         <div class="button-group">

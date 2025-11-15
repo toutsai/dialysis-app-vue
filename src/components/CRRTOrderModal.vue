@@ -1,10 +1,10 @@
 <!-- 檔案路徑: src/components/CRRTOrderModal.vue (最終使用者姓名修正版) -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="$emit('close')">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="closeModal">
     <div class="modal-container">
       <header class="modal-header">
         <h2>CRRT 醫囑開立</h2>
-        <button @click="$emit('close')" class="btn-close">×</button>
+        <button @click="closeModal" class="btn-close">×</button>
       </header>
 
       <div class="modal-body">
@@ -221,7 +221,7 @@
       </div>
 
       <footer class="modal-footer">
-        <button @click="$emit('close')" class="btn btn-secondary">取消</button>
+        <button @click="closeModal" class="btn btn-secondary">取消</button>
         <button @click="handleSave" class="btn btn-primary" :disabled="!isFormValid">
           儲存醫囑
         </button>
@@ -246,6 +246,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'save'])
+const closeModal = () => emit('close')
 
 const auth = useAuth()
 
