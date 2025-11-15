@@ -395,7 +395,7 @@ async function handleOrderSave(updatedOrders) {
 }
 
 .page-title {
-  font-size: 3.2rem; /* 修正單位 rpm -> rem */
+  font-size: 32px;
   font-weight: bold;
   color: #2c3e50;
   margin: 0;

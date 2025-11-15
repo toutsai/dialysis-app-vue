@@ -1,7 +1,12 @@
 <!-- 檔案路徑: src/views/NursingScheduleView.vue (完整重構版 + 日期保護) -->
 <template>
   <div class="nursing-schedule-container">
-    <h1 class="page-title">護理班表與職責</h1>
+    <header class="page-header">
+      <div class="header-main-content">
+        <h1 class="page-title">護理班表與職責</h1>
+        <p class="page-description">原始Excel班表請刪除第2、3、5列後，再執行上傳功能。</p>
+      </div>
+    </header>
 
     <!-- 頁籤導覽列 -->
     <nav class="tabs-nav">
@@ -1666,18 +1671,22 @@ onMounted(() => {
 <style scoped>
 /* ===== 基礎容器樣式 ===== */
 .nursing-schedule-container {
-  padding: 1rem;
+  padding: 10px;
   background-color: #f8f9fa;
   display: flex;
   flex-direction: column;
   height: calc(100vh - 100px);
 }
 .page-title {
-  font-size: 1.8rem;
+  font-size: 32px;
   font-weight: bold;
   color: #2c3e50;
   margin: 0 0 1.2rem 0;
   flex-shrink: 0;
+}
+.page-description {
+  font-size: 1rem;
+  color: #6c757d;
 }
 .tab-content {
   flex-grow: 1;
