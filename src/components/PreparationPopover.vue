@@ -67,18 +67,18 @@ watch(
       nextTick(() => {
         calculatePosition()
         window.addEventListener('resize', calculatePosition)
-        document.addEventListener('mousedown', handleClickOutside, true)
+        document.addEventListener('click', handleClickOutside, true)
       })
     } else {
       window.removeEventListener('resize', calculatePosition)
-      document.removeEventListener('mousedown', handleClickOutside, true)
+      document.removeEventListener('click', handleClickOutside, true)
     }
   },
 )
 
 onUnmounted(() => {
   window.removeEventListener('resize', calculatePosition)
-  document.removeEventListener('mousedown', handleClickOutside, true)
+  document.removeEventListener('click', handleClickOutside, true)
 })
 
 const hasPatients = computed(() => props.patients && props.patients.length > 0)
