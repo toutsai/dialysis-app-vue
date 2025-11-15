@@ -1,5 +1,3 @@
-// 檔案路徑: src/composables/useMyPatientList.js (v15 - 最終穩定版)
-
 import { ref, watch, computed } from 'vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { useTaskStore } from '@/stores/taskStore.js'
@@ -34,8 +32,15 @@ export function useMyPatientList() {
       const today = formatDateToYYYYMMDD(new Date())
       const currentUserName = currentUser.value.name
 
-      // ... (抓取 assignments, schedules 的邏輯保持不變) ...
-      const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
+      // ✨ 優化 1: 使用 Promise.all 並行獲取分組和排班資料，取代串行 await
+      console.time('Parallel Fetch (Assignments & Schedules)')
+      const [assignmentsSnapshot, schedulesSnapshot] = await Promise.all([
+        assignmentsApi.fetchAll([where('date', '==', today)]),
+        schedulesApi.fetchAll([where('date', '==', today)]),
+      ])
+      console.timeEnd('Parallel Fetch (Assignments & Schedules)')
+
+      // --- 處理分組資料 (邏輯不變) ---
       const myAssignedIds = new Set()
       const myAssignments = new Map()
       if (assignmentsSnapshot.length > 0) {
@@ -69,7 +74,7 @@ export function useMyPatientList() {
         return
       }
 
-      const schedulesSnapshot = await schedulesApi.fetchAll([where('date', '==', today)])
+      // --- 處理排班資料 (邏輯不變) ---
       const myFinalListWithBedInfo = []
       if (schedulesSnapshot.length > 0 && schedulesSnapshot[0].schedule) {
         const scheduleData = schedulesSnapshot[0].schedule
@@ -81,6 +86,7 @@ export function useMyPatientList() {
         }
       }
 
+      // --- 獲取針劑資料 (邏輯不變，它依賴前面的結果，所以不能並行) ---
       const allMyPatientIds = Array.from(myAssignedIds)
       if (allMyPatientIds.length > 0) {
         await medicationStore.fetchDailyInjections(today, allMyPatientIds)
@@ -88,15 +94,32 @@ export function useMyPatientList() {
 
       const groupedResults = { early: [], noonOn: [], noonOff: [], late: [] }
       const allInjections = medicationStore.getInjectionsForDate(today) || []
+
+      // --- 預處理針劑資料 (邏輯不變，此模式很好) ---
       const injectionsMap = allInjections.reduce((map, injection) => {
         if (!map.has(injection.patientId)) map.set(injection.patientId, [])
         map.get(injection.patientId).push(injection)
         return map
       }, new Map())
 
+      // ✨ 優化 2: 預處理備忘錄資料，建立 memosMap，避免在迴圈中重複 filter
+      const pendingMemos = (taskStore.feedMessages || []).filter(
+        (msg) => msg.status === 'pending' && (!msg.targetDate || msg.targetDate >= today),
+      )
+      const memosMap = pendingMemos.reduce((map, memo) => {
+        if (memo.patientId) {
+          // 只處理有關聯病人的備忘
+          if (!map.has(memo.patientId)) map.set(memo.patientId, [])
+          map.get(memo.patientId).push(memo)
+        }
+        return map
+      }, new Map())
+
+      // --- 組合最終資料 ---
       myFinalListWithBedInfo.forEach((slot) => {
         const patientFromStore = patientMap.value.get(slot.patientId)
         if (!patientFromStore) return
+
         const shiftCode = slot.shiftKey.split('-').pop()
         const patientRoles = myAssignments.get(slot.patientId) || new Set()
 
@@ -114,15 +137,13 @@ export function useMyPatientList() {
             dialysateCa: pOrders.dialysateCa || '–',
             heparin: `${pOrders.heparinInitial ?? '–'}/${pOrders.heparinMaintenance ?? '–'}`,
             bloodFlow: pOrders.bloodFlow ?? '–',
-            vascAccess: vascAccessString, // 👈 使用新的組合字串
+            vascAccess: vascAccessString,
           }
+
           const injectionsForPatient = injectionsMap.get(slot.patientId) || []
-          const memos = (taskStore.feedMessages || []).filter(
-            (msg) =>
-              msg.patientId === slot.patientId &&
-              msg.status === 'pending' &&
-              (!msg.targetDate || msg.targetDate >= today),
-          )
+
+          // ✨ 優化 2 的應用: 直接從 memosMap 高效獲取資料
+          const memos = memosMap.get(slot.patientId) || []
 
           return {
             id: `${slot.patientId}-${roleOverride || shiftCode}`,
@@ -132,7 +153,6 @@ export function useMyPatientList() {
             bedNum: finalBedNum,
             name: patientFromStore.name,
             preparation: preparationInfo,
-            // ✨ 核心修正 1：直接回傳原始的針劑物件陣列
             injections: injectionsForPatient,
             memos: memos,
           }
@@ -148,6 +168,7 @@ export function useMyPatientList() {
           groupedResults.noonOff.push(createPatientObject('noonOff'))
       })
 
+      // --- 排序 (邏輯不變) ---
       for (const shift in groupedResults) {
         groupedResults[shift].sort((a, b) => {
           if (a.bedNum === 'N/A') return 1
@@ -164,7 +185,7 @@ export function useMyPatientList() {
     }
   }
 
-  // ✨ 核心修正 2：移除對 medicationStore.dailyInjectionsCache 的監聽
+  // --- Watcher (邏輯不變) ---
   watch(
     () => [currentUser.value?.uid, patientStore.allPatients, taskStore.feedMessages],
     ([uid]) => {
@@ -178,6 +199,7 @@ export function useMyPatientList() {
     { immediate: true, deep: true },
   )
 
+  // --- 輔助函式 (邏輯不變) ---
   const getBedNumberFromKey = (shiftId) => {
     if (!shiftId) return NaN
     const parts = shiftId.split('-')
