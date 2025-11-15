@@ -240,16 +240,31 @@ const currentTargetMonth = computed(() => {
 })
 
 const labReportMonths = computed(() => {
-  if (!rawLabReports.value.length && !rawMedOrders.value.length) return []
+  if (!rawLabReports.value.length && !rawMedOrders.value.length && !rawMedDrafts.value.length) return []
+
   const monthSet = new Set()
 
   monthSet.add(currentTargetMonth.value)
   // ✨ 確保 "2025-08" 一定在時間軸中，以便顯示舊資料 ✨
   monthSet.add('2025-08')
 
+  const addMonthIfValid = (month) => {
+    if (!month) return
+    if (month <= currentTargetMonth.value) {
+      monthSet.add(month)
+    }
+  }
+
   rawLabReports.value.forEach((r) => {
-    const month = r.reportDate.slice(0, 7)
-    if (month <= currentTargetMonth.value) monthSet.add(month)
+    addMonthIfValid(r.reportDate.slice(0, 7))
+  })
+
+  rawMedOrders.value.forEach((order) => {
+    addMonthIfValid(order.uploadMonth || order.changeDate?.slice(0, 7))
+  })
+
+  rawMedDrafts.value.forEach((draft) => {
+    addMonthIfValid(draft.targetMonth)
   })
 
   return Array.from(monthSet).sort().reverse().slice(0, 12)

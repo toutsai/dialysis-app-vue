@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/TaskCreateDialog.vue (✨ 支援編輯模式的最終版 ✨) -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="close">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="close">
     <div class="modal-container">
       <header class="modal-header">
         <h2>{{ isEditMode ? '修改交辦 / 留言' : '新增交辦 / 留言' }}</h2>

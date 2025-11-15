@@ -1,10 +1,10 @@
 <!-- 檔案路徑: src/components/DailyDraftListDialog.vue (完整替換) -->
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="$emit('close')">
+  <div v-if="isVisible" class="dialog-overlay" v-overlay-close="closeDialog">
     <div class="dialog-container large">
       <div class="dialog-header">
         <h3>{{ targetDate }} - {{ shiftDisplayName }} 藥囑草稿查核表</h3>
-        <button @click="$emit('close')" class="close-btn">×</button>
+        <button @click="closeDialog" class="close-btn">×</button>
       </div>
       <div class="dialog-controls">
         <button
@@ -91,7 +91,8 @@ const props = defineProps({
   targetDate: String,
 })
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+const closeDialog = () => emit('close')
 
 const medicationGroups = CORRELATION_GROUPS
 const allMeds = ALL_MEDS_MASTER

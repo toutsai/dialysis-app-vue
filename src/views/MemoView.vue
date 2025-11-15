@@ -184,7 +184,7 @@
     <button class="fab mobile-only" @click="openFormModal">+</button>
 
     <!-- 手機版專用的新增表單 Modal -->
-    <div v-if="isFormModalVisible" class="form-modal-overlay" @click.self="closeFormModal">
+    <div v-if="isFormModalVisible" class="form-modal-overlay" v-overlay-close="closeFormModal">
       <div class="memo-card form-card">
         <h2 class="card-title">
           <span v-if="filterPatientId">{{ selectedPatient?.name }} 的備忘</span>
