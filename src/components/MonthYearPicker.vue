@@ -1,6 +1,6 @@
 <!-- src/components/MonthYearPicker.vue -->
 <template>
-  <div v-if="isVisible" class="picker-backdrop" @click.self="closeDialog">
+  <div v-if="isVisible" class="picker-backdrop" v-overlay-close="closeDialog">
     <div class="picker-dialog">
       <header class="picker-header">
         <button class="nav-btn" @click="changeYear(-1)">&lt;</button>

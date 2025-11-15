@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div v-if="isVisible" class="dialog-overlay" @click.self="handleClose">
+    <div v-if="isVisible" class="dialog-overlay" v-overlay-close="handleClose">
       <div class="dialog-content">
         <div class="dialog-header">
           <h2>{{ patientData?.name }} - 透析醫囑</h2>

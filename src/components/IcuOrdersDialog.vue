@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/IcuOrdersDialog.vue (動態卡片最終版) -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="$emit('close')">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="closeDialog">
     <div class="modal-content">
       <header class="modal-header">
         <!-- ✨ 核心修改 1: 新增日期導覽按鈕 ✨ -->
@@ -14,7 +14,7 @@
           <button v-if="canEdit" @click="handleSaveAndPrint" class="btn-print">
             <i class="fas fa-print"></i> 儲存並列印
           </button>
-          <button @click="$emit('close')" class="btn-close">×</button>
+          <button @click="closeDialog" class="btn-close">×</button>
         </div>
       </header>
 
@@ -669,6 +669,7 @@ const emit = defineEmits([
   'save-and-print',
   'change-date',
 ])
+const closeDialog = () => emit('close')
 
 // ✨ 核心修改 3: 新增一個方法來觸發事件 ✨
 function navigateDate(days) {

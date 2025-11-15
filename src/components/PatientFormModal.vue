@@ -1,7 +1,7 @@
 <!-- 檔案路徑: src/components/PatientFormModal.vue (✨ UI 緊湊版 ✨) -->
 <template>
   <Transition name="modal-fade">
-    <div v-if="isModalVisible" class="modal-overlay" @click.self="closeModal">
+    <div v-if="isModalVisible" class="modal-overlay" v-overlay-close="closeModal">
       <div class="modal-content">
         <div class="modal-header">
           <h2>{{ isEditing ? '編輯' : '新增' }} {{ patientTypeText }}病人</h2>

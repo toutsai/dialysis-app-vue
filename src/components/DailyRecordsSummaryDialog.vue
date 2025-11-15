@@ -1,10 +1,10 @@
 <!-- src/components/DailyRecordsSummaryDialog.vue (全新邏輯版) -->
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="$emit('close')">
+  <div v-if="isVisible" class="dialog-overlay" v-overlay-close="closeDialog">
     <div class="dialog-content">
       <div class="dialog-header">
         <h3>{{ dialogTitle }}</h3>
-        <button @click="$emit('close')" class="close-btn" title="關閉">×</button>
+        <button @click="closeDialog" class="close-btn" title="關閉">×</button>
       </div>
       <div class="dialog-body">
         <div v-if="isLoading" class="panel-loading">
@@ -66,7 +66,8 @@ const props = defineProps({
   },
 })
 
-defineEmits(['close'])
+const emit = defineEmits(['close'])
+const closeDialog = () => emit('close')
 
 const conditionRecordsApi = ApiManager('condition_records')
 const isLoading = ref(false)
