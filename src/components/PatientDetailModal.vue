@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="handleClose">
     <div class="modal-container large">
       <!-- ✨ 1. 新增 Wrapper 來定位遮罩 -->
       <div class="modal-body-wrapper">

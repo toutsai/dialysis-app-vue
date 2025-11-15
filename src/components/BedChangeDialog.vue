@@ -15,6 +15,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['confirm', 'cancel'])
+const cancelDialog = () => emit('cancel')
 
 const selectedNewBedId = ref(null)
 
@@ -122,11 +123,11 @@ function getBedDisplay(bed) {
 </script>
 
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="$emit('cancel')">
+  <div v-if="isVisible" class="dialog-overlay" v-overlay-close="cancelDialog">
     <div class="dialog-content">
       <div class="dialog-header">
         <h3>{{ dialogTitle }}</h3>
-        <button @click="$emit('cancel')" class="close-btn">×</button>
+        <button @click="cancelDialog" class="close-btn">×</button>
       </div>
 
       <div class="dialog-body">
@@ -167,7 +168,7 @@ function getBedDisplay(bed) {
       </div>
 
       <div class="dialog-actions">
-        <button @click="$emit('cancel')" class="btn-cancel">取消</button>
+        <button @click="cancelDialog" class="btn-cancel">取消</button>
         <button @click="confirmChange" :disabled="!selectedNewBedId" class="btn-confirm">
           確定更換
         </button>

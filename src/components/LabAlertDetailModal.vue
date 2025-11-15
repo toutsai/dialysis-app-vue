@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/LabAlertDetailModal.vue (全新元件) -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="handleClose">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="handleClose">
     <div class="modal-container large">
       <div class="modal-header">
         <div class="header-title">

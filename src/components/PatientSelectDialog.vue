@@ -1,7 +1,7 @@
 <!-- 檔案路徑: src/components/PatientSelectDialog.vue (最終修正版 v2) -->
 <template>
   <Transition name="dialog-fade">
-    <div v-if="isVisible" class="dialog-overlay" @click.self="onCancel">
+    <div v-if="isVisible" class="dialog-overlay" v-overlay-close="onCancel">
       <div class="dialog-content">
         <header class="dialog-header">
           <h2>{{ title }}</h2>

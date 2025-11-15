@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="close">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="close">
     <div class="modal-content">
       <div class="modal-header">
         <h3>「{{ patientName }}」的動向歷史</h3>
