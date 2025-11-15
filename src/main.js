@@ -6,6 +6,7 @@ import App from './App.vue'
 import router from './router'
 import { auth } from '@/composables/useFirebase.js'
 import { onAuthStateChanged } from 'firebase/auth'
+import overlayCloseDirective from '@/directives/overlayClose.js'
 
 let app
 
@@ -17,6 +18,7 @@ onAuthStateChanged(auth, (user) => {
     // 必須在 app.use(router) 之前，
     // 以確保路由守衛或路由組件可以存取 Store。
     app.use(createPinia())
+    app.directive('overlay-close', overlayCloseDirective)
 
     app.use(router)
     app.mount('#app')

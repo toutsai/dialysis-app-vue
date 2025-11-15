@@ -9,6 +9,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'save'])
+const closeModal = () => emit('close')
 
 const defaultFormState = {
   id: '',
@@ -126,11 +127,11 @@ function handleSubmit() {
 </script>
 
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="emit('close')">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="closeModal">
     <div class="modal-content">
       <header class="modal-header">
         <h2>{{ isEditing ? '編輯使用者' : '新增使用者' }}</h2>
-        <button class="close-btn" @click="emit('close')">×</button>
+        <button class="close-btn" @click="closeModal">×</button>
       </header>
       <main class="modal-body">
         <form @submit.prevent="handleSubmit" class="user-form">
@@ -243,7 +244,7 @@ function handleSubmit() {
       </main>
       <footer class="modal-footer">
         <button class="btn btn-save" @click="handleSubmit">儲存</button>
-        <button class="btn btn-cancel" @click="emit('close')">取消</button>
+        <button class="btn btn-cancel" @click="closeModal">取消</button>
       </footer>
     </div>
   </div>
