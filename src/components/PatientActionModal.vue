@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/PatientActionModal.vue -->
 <template>
-  <div v-if="isVisible" class="modal-overlay" @click.self="closeModal">
+  <div v-if="isVisible" class="modal-overlay" v-overlay-close="closeModal">
     <div class="modal-content">
       <header class="modal-header">
         <h3>操作選單：{{ patient?.name }}</h3>

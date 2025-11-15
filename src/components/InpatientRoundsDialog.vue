@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/InpatientRoundsDialog.vue -->
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="closeDialog">
+  <div v-if="isVisible" class="dialog-overlay" v-overlay-close="closeDialog">
     <div class="dialog-content">
       <div class="dialog-header">
         <h3>住院病人趴趴走總覽</h3>

@@ -1,6 +1,6 @@
 <!-- 檔案路徑: src/components/ExceptionCreateDialog.vue (功能增強版) -->
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="close">
+  <div v-if="isVisible" class="dialog-overlay" v-overlay-close="close">
     <div class="dialog-content">
       <header class="dialog-header">
         <h2>{{ dialogTitle }}</h2>
