@@ -1,5 +1,5 @@
 <template>
-  <div v-if="isVisible" class="dialog-overlay" @click.self="close">
+  <div v-if="isVisible" class="dialog-overlay">
     <div class="dialog-container">
       <header class="dialog-header">
         <h2>設定全域跑馬燈公告</h2>
