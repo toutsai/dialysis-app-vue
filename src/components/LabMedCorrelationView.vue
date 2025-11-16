@@ -240,7 +240,8 @@ const currentTargetMonth = computed(() => {
 })
 
 const labReportMonths = computed(() => {
-  if (!rawLabReports.value.length && !rawMedOrders.value.length && !rawMedDrafts.value.length) return []
+  if (!rawLabReports.value.length && !rawMedOrders.value.length && !rawMedDrafts.value.length)
+    return []
 
   const monthSet = new Set()
 
@@ -289,81 +290,49 @@ const processedLabs = computed(() => {
 const processedOrders = computed(() => {
   const data = {}
 
-  // 1. 先按照藥物分組，並按時間排序
-  const ordersByMedication = new Map()
+  // 為了處理同一個月內可能有多筆上傳紀錄的邊界情況（例如更正），
+  // 我們先將原始醫囑按時間排序，確保取到的是最新的。
+  const sortedOrders = [...rawMedOrders.value].sort((a, b) => {
+    const dateA = a.uploadTimestamp?.toDate
+      ? a.uploadTimestamp.toDate()
+      : new Date(a.uploadTimestamp || 0)
+    const dateB = b.uploadTimestamp?.toDate
+      ? b.uploadTimestamp.toDate()
+      : new Date(b.uploadTimestamp || 0)
+    return dateA - dateB
+  })
 
-  rawMedOrders.value.forEach((order) => {
-    if (!ordersByMedication.has(order.orderCode)) {
-      ordersByMedication.set(order.orderCode, [])
+  // 1. 直接處理排序後的歷史醫囑
+  sortedOrders.forEach((order) => {
+    // fetchData 函數中已經為我們加上了 uploadMonth 欄位，直接使用即可
+    const monthKey = order.uploadMonth
+    if (!monthKey || !order.orderCode) {
+      return // 跳過沒有月份或藥物代碼的無效紀錄
     }
-    ordersByMedication.get(order.orderCode).push(order)
+
+    if (!data[order.orderCode]) {
+      data[order.orderCode] = {}
+    }
+
+    // 根據藥物代碼找到對應的單位資訊
+    const medInfo = allMedsMaster.value.find((m) => m.code === order.orderCode)
+    const unit = medInfo ? medInfo.unit : '' // 如果找不到則單位為空
+
+    // 因為已經排序，所以後面的紀錄會自然覆蓋同一個月的舊紀錄，確保資料是最新
+    data[order.orderCode][monthKey] = {
+      dose: order.dose,
+      unit: unit, // 從藥物主檔補上單位
+      frequency: order.frequency || order.note,
+      isDraft: false,
+    }
   })
 
-  // 2. 對每種藥物，按時間排序其所有變更記錄
-  ordersByMedication.forEach((orders, orderCode) => {
-    orders.sort((a, b) => {
-      const dateA = new Date(a.changeDate || a.uploadTimestamp)
-      const dateB = new Date(b.changeDate || b.uploadTimestamp)
-      return dateA - dateB
-    })
-  })
-
-  // 3. 處理每個月份的藥物狀態
-  labReportMonths.value.forEach((monthKey) => {
-    const monthDate = new Date(monthKey + '-01')
-
-    ordersByMedication.forEach((orders, orderCode) => {
-      // 找出這個月份應該顯示的藥物狀態
-      // 使用最接近但不晚於該月份的藥囑記錄
-      let activeOrder = null
-
-      for (const order of orders) {
-        const orderDate = order.uploadTimestamp?.toDate
-          ? order.uploadTimestamp.toDate()
-          : new Date(order.uploadTimestamp)
-
-        // 計算這個藥囑所屬的月份
-        const orderYear = orderDate.getFullYear()
-        const orderMonth = (orderDate.getMonth() + 1).toString().padStart(2, '0')
-        const orderMonthKey = `${orderYear}-${orderMonth}`
-
-        // 如果藥囑月份不晚於當前查看的月份，則更新 activeOrder
-        if (orderMonthKey <= monthKey) {
-          // 檢查是否為停用（dose 為 0 或空）
-          if (order.dose === '0' || order.dose === '' || order.dose === null) {
-            activeOrder = null // 藥物已停用
-          } else {
-            activeOrder = order // 更新為最新的有效藥囑
-          }
-        }
-      }
-
-      // 如果有有效的藥囑，將其加入到該月份
-      if (activeOrder) {
-        if (!data[orderCode]) data[orderCode] = {}
-        data[orderCode][monthKey] = {
-          dose: activeOrder.dose,
-          unit: activeOrder.unit,
-          frequency: activeOrder.frequency || activeOrder.note,
-          isDraft: false,
-          // 標記是否為該月份的新變更
-          isChanged: (() => {
-            const orderDate = activeOrder.uploadTimestamp?.toDate
-              ? activeOrder.uploadTimestamp.toDate()
-              : new Date(activeOrder.uploadTimestamp)
-            const orderYear = orderDate.getFullYear()
-            const orderMonth = (orderDate.getMonth() + 1).toString().padStart(2, '0')
-            return `${orderYear}-${orderMonth}` === monthKey
-          })(),
-        }
-      }
-    })
-  })
-
-  // 4. 處理草稿（覆蓋實際資料）
+  // 2. 處理草稿 (邏輯不變，依然是覆蓋在最上層)
   rawMedDrafts.value.forEach((draft) => {
     const monthKey = draft.targetMonth
-    if (!data[draft.orderCode]) data[draft.orderCode] = {}
+    if (!data[draft.orderCode]) {
+      data[draft.orderCode] = {}
+    }
     data[draft.orderCode][monthKey] = {
       dose: draft.dose,
       unit: draft.unit,
