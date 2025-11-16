@@ -425,12 +425,30 @@ async function loadSelectableUsers() {
       const users = []
       userSnapshot.forEach((doc) => {
         const data = doc.data()
-        // 只加入護理相關職稱
-        if (['護理師', '護理師組長'].includes(data.title)) {
-          users.push({ uid: doc.id, name: data.name })
+        // 確保只加入護理相關職稱且有員編(username)的使用者
+        if (['護理師', '護理師組長'].includes(data.title) && data.username) {
+          users.push({
+            uid: doc.id,
+            name: data.name,
+            username: data.username, // 將員編(username)也加入物件中
+          })
         }
       })
-      selectableUsers.value = users.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+
+      // ✨ 核心修改：使用 username 進行排序 ✨
+      selectableUsers.value = users.sort((a, b) => {
+        // 嘗試將 username 轉為數字進行比較
+        const idA = parseInt(a.username, 10)
+        const idB = parseInt(b.username, 10)
+
+        // 如果兩者都能成功轉為數字，則按數字大小排序
+        if (!isNaN(idA) && !isNaN(idB)) {
+          return idA - idB
+        }
+
+        // 如果無法都轉為數字（例如員編包含英文字母），則退回到字串比較
+        return String(a.username).localeCompare(String(b.username), undefined, { numeric: true })
+      })
     } catch (error) {
       console.error('無法載入使用者列表:', error)
     }
