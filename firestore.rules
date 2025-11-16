@@ -27,10 +27,13 @@ service cloud.firestore {
     }
 
     function isViewer() {
+      // 您的 isViewer() 其實就等於 isAuthenticated()，這裡保持您的定義
       return isAuthenticated();
     }
     
     // --- 集合規則 ---
+    
+    // ... 您所有其他的集合規則保持不變 ...
     
     match /users/{userId} {
       allow list, get: if isViewer();
@@ -62,7 +65,6 @@ service cloud.firestore {
       allow read, write: if isViewer();
     }
     
-    // ✨ 修正 #1：補上 'allow' 關鍵字
     match /schedule_exceptions/{exceptionId} {
       allow read: if isViewer();
       allow create, delete: if isEditor();
@@ -113,11 +115,29 @@ service cloud.firestore {
       allow write: if isEditor();
     }
 
+    // 【1. 新增】組長交班 handover_logs 的規則
+    // 只有 admin 與 editor 可以閱讀和編輯
+    match /handover_logs/{logId} {
+      allow read, write: if isEditor();
+    }
+
+    // 【2. 修改】工作日誌 daily_logs 的規則
     match /daily_logs/{logId} {
+      // 允許 isEditor 的人列出集合 (保持不變)
       allow list: if isEditor();
-      // ✨ 修正 #2：移除多餘的反斜線
+      
+      // ✨ 關鍵修改 1：允許所有登入者 (isViewer) 讀取單一文件
       allow get: if isViewer() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+      
+      // ✨ 關鍵修改 2：只有 admin 與 editor (isEditor) 可以編輯/寫入
       allow write: if isEditor() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
+    }
+
+    match /site_config/{configId} {
+      // 允許所有登入者讀取 (例如跑馬燈元件)
+      allow read: if isViewer();
+      // 只允許 admin 或 editor 寫入 (例如從工作日誌頁面更新)
+      allow write: if isEditor();
     }
 
     match /tasks/{taskId} {

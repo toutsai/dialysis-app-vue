@@ -26,8 +26,6 @@
               </div>
             </RouterLink>
           </li>
-          <!-- ✨✨✨【第一步修改處】✨✨✨ -->
-          <!-- 在此處新增「我的今日病人」的導覽連結 -->
           <li>
             <RouterLink :to="{ name: 'MyPatients' }" class="nav-link">
               <div class="nav-item-content">
@@ -35,7 +33,6 @@
               </div>
             </RouterLink>
           </li>
-          <!-- ✨✨✨【修改結束】✨✨✨ -->
           <li class="desktop-only-nav-item">
             <RouterLink to="/weekly" class="nav-link">
               <div class="nav-item-content">
@@ -157,14 +154,14 @@
             <li>
               <RouterLink to="/lab-reports" class="nav-link">
                 <div class="nav-item-content">
-                  <span class="nav-title">檢驗報告管理</span>
+                  <span class="nav-title">檢驗報告</span>
                 </div>
               </RouterLink>
             </li>
             <li v-if="canViewConsumables">
               <RouterLink to="/consumables" class="nav-link">
                 <div class="nav-item-content">
-                  <span class="nav-title">每月耗材總表</span>
+                  <span class="nav-title">每月耗材</span>
                 </div>
               </RouterLink>
             </li>
