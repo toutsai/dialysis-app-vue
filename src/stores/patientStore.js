@@ -18,6 +18,11 @@ export const usePatientStore = defineStore('patient', () => {
   const isLoading = ref(false)
   const error = ref(null)
   const hasFetched = ref(false)
+  const patientsVersion = ref(0)
+
+  const bumpPatientsVersion = () => {
+    patientsVersion.value += 1
+  }
 
   // --- Getters (計算屬性) ---
   const patientMap = computed(() => new Map(allPatients.value.map((p) => [p.id, p])))
@@ -38,6 +43,7 @@ export const usePatientStore = defineStore('patient', () => {
       const patients = await optimizedFetchAllPatients()
       allPatients.value = patients
       hasFetched.value = true
+      bumpPatientsVersion()
       console.log('✅ [Pinia] Patient data fetched and stored successfully.')
     } catch (err) {
       error.value = '讀取病人資料失敗'
@@ -55,6 +61,7 @@ export const usePatientStore = defineStore('patient', () => {
       const patients = await optimizedFetchAllPatients()
       allPatients.value = patients
       hasFetched.value = true
+      bumpPatientsVersion()
       console.log('🔄 [Pinia] Patient data force refreshed.')
       return patients
     } catch (err) {
@@ -72,6 +79,7 @@ export const usePatientStore = defineStore('patient', () => {
     const exists = allPatients.value.some((p) => p.id === newPatient.id)
     if (!exists) {
       allPatients.value.unshift(newPatient)
+      bumpPatientsVersion()
       console.log(`[Pinia] Patient added in store: ${newPatient.name}`)
     }
   }
@@ -80,6 +88,7 @@ export const usePatientStore = defineStore('patient', () => {
     const index = allPatients.value.findIndex((p) => p.id === updatedData.id)
     if (index !== -1) {
       allPatients.value[index] = { ...allPatients.value[index], ...updatedData }
+      bumpPatientsVersion()
       console.log(`[Pinia] Patient updated in store: ${allPatients.value[index].name}`)
     } else {
       console.warn(
@@ -94,6 +103,7 @@ export const usePatientStore = defineStore('patient', () => {
     if (index !== -1) {
       allPatients.value.splice(index, 1)
       console.log(`[Pinia] Patient removed from store: ${patientId}`)
+      bumpPatientsVersion()
     }
   }
 
@@ -151,6 +161,7 @@ export const usePatientStore = defineStore('patient', () => {
     isLoading.value = false
     error.value = null
     hasFetched.value = false
+    bumpPatientsVersion()
   }
 
   return {
@@ -159,6 +170,7 @@ export const usePatientStore = defineStore('patient', () => {
     isLoading,
     error,
     hasFetched,
+    patientsVersion,
 
     // Getters
     patientMap,
