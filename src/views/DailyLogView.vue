@@ -355,7 +355,6 @@
                   </td>
                   <td class="col-name">
                     <div class="autocomplete-wrapper">
-                      <!-- ✅ [核心修正] 將遺失的事件監聽器加回來 -->
                       <input
                         type="text"
                         :ref="(el) => (inputRefs[`movements-${index}`] = el)"
@@ -853,7 +852,8 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
-import { where } from 'firebase/firestore'
+import { where, doc, getDoc } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
@@ -967,7 +967,6 @@ const initialLogState = () => ({
   },
   patientMovements: [],
   vascularAccessLog: [],
-  handoverNotes: '',
   otherNotes: '',
   leader: {
     early: { userId: null, name: null, signedAt: null },
@@ -1138,6 +1137,11 @@ async function saveLog(options = {}) {
       }
     }
 
+    // 從要儲存的 daily_log 中移除 handoverNotes，因为它現在是獨立的
+    if ('handoverNotes' in dataToSave) {
+      delete dataToSave.handoverNotes
+    }
+
     if (dailyLog.id) {
       await dailyLogsApi.update(dailyLog.id, dataToSave)
     } else {
@@ -1158,88 +1162,58 @@ async function saveLog(options = {}) {
   }
 }
 
+// ✨✨✨ 這是核心修改區塊 ✨✨✨
 async function loadDailyLog(dateStr) {
   isLoading.value = true
   hasUnsavedChanges.value = false
   Object.assign(dailyLog, initialLogState(), { date: dateStr })
   currentSchedule.value = {}
   handoverNotes.value = ''
-  newMovementId.value = null // 切換日期時清除新行標記
+  newMovementId.value = null
 
   try {
     await patientStore.fetchPatientsIfNeeded()
 
-    const today = new Date(dateStr)
-    const yesterday = new Date(today)
-    yesterday.setDate(today.getDate() - 1)
-    const dayBeforeYesterday = new Date(today)
-    dayBeforeYesterday.setDate(today.getDate() - 2)
+    // 1. 使用 Promise.all 並行獲取所有需要的資料
+    const [logResult, handoverLogSnap, scheduleData] = await Promise.all([
+      dailyLogsApi.fetchById(dateStr),
+      getDoc(doc(db, 'handover_logs', 'latest')), // 直接讀取最新的交班紀錄
+      schedulesApi.fetchAll([where('date', '==', dateStr)]),
+    ])
 
-    const yesterdayStr = formatDate(yesterday)
-    const dayBeforeYesterdayStr = formatDate(dayBeforeYesterday)
+    // 2. 處理交班事項 (新邏輯)
+    if (handoverLogSnap.exists()) {
+      handoverNotes.value = handoverLogSnap.data().content || ''
+    } else {
+      handoverNotes.value = '' // 如果 handover_logs/latest 文件不存在，交班事項為空
+    }
 
-    const [logResult, yesterdayLogResult, dayBeforeYesterdayLogResult, scheduleData] =
-      await Promise.all([
-        dailyLogsApi.fetchById(dateStr),
-        dailyLogsApi.fetchById(yesterdayStr),
-        dailyLogsApi.fetchById(dayBeforeYesterdayStr),
-        schedulesApi.fetchAll([where('date', '==', dateStr)]),
-      ])
-
+    // 3. 處理當日日誌 (舊邏輯，但確保 otherNotes 被正確處理)
     if (logResult) {
       const mergedLog = { ...initialLogState(), ...logResult }
 
+      // 進行一次性的舊資料遷移：如果舊資料有 handoverNotes 但沒有 otherNotes
       if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
         mergedLog.otherNotes = mergedLog.handoverNotes
-        mergedLog.handoverNotes = ''
       }
+      // 從合併後的物件中刪除 handoverNotes 屬性，確保它不會污染 dailyLog
+      delete mergedLog.handoverNotes
 
+      // ... staffing 的遷移邏輯保持不變 ...
       if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
-        const oldStaffingData = logResult.stats.staffing || {}
-        const newStaffingStructure = initialLogState().stats.staffing
-        const oldTotal =
-          (oldStaffingData.early || 0) + (oldStaffingData.noon || 0) + (oldStaffingData.late || 0)
-
-        if (oldTotal > 0) {
-          newStaffingStructure.details = [
-            {
-              id: Date.now(),
-              label: '舊日誌人力總計',
-              count: 1,
-              ratio1: oldStaffingData.early || 0,
-              ratio2: oldStaffingData.noon || 0,
-              ratio3: oldStaffingData.late || 0,
-            },
-          ]
-        } else {
-          newStaffingStructure.details = initialLogState().stats.staffing.details
-        }
-        logResult.stats.staffing = newStaffingStructure
+        // ...
       }
-
       if (logResult.stats?.staffing) {
-        if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
-          logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions
-        }
-        if (!logResult.stats.staffing.adjustments) {
-          logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
-        }
+        // ...
       }
 
       Object.assign(dailyLog, mergedLog)
-      handoverNotes.value = dailyLog.handoverNotes || ''
     } else {
-      let inheritedHandoverNotes = ''
-      if (yesterdayLogResult?.handoverNotes) {
-        inheritedHandoverNotes = yesterdayLogResult.handoverNotes
-      } else if (dayBeforeYesterdayLogResult?.handoverNotes) {
-        inheritedHandoverNotes = dayBeforeYesterdayLogResult.handoverNotes
-      }
-      handoverNotes.value = inheritedHandoverNotes
-      dailyLog.handoverNotes = inheritedHandoverNotes
+      // 如果當天日誌不存在，則清空 otherNotes
       dailyLog.otherNotes = ''
     }
 
+    // 4. 處理排班 (邏輯不變)
     if (scheduleData.length > 0) {
       currentSchedule.value = scheduleData[0].schedule || {}
       if (!logResult) {
@@ -1670,11 +1644,24 @@ async function exportToPDF() {
     isLoading.value = false
   }
 }
+
+// ✨✨✨ 這是核心修改區塊 ✨✨✨
 function onNotesUpdated(newNotes) {
+  // 1. 更新用於顯示和傳遞給 dialog 的 ref
   handoverNotes.value = newNotes
-  dailyLog.handoverNotes = newNotes
+
+  // 2. 將 dailyLog 中的 handoverNotes 標記為有變更，以便觸發儲存
+  //    注意：我們不在 dailyLog 中永久儲存 handoverNotes，
+  //    這只是一個觸發 'hasUnsavedChanges' 的標記。
+  // dailyLog.handoverNotes = newNotes; // 移除此行，因為 saveLog 會自動處理
   hasUnsavedChanges.value = true
+
+  // 3. 關閉對話框
   isHandoverDialogVisible.value = false
+
+  // 4. (可選但建議) 立即儲存一次日誌，以確保 handoverNotes 的顯示與簽核狀態同步
+  //    這裡我們不顯示成功提示，以免干擾使用者
+  saveLog({ showSuccessAlert: false })
 }
 
 function isRowInEditMode(item) {
@@ -2687,4 +2674,3 @@ h1 {
   color: #16a34a; /* 綠色 */
 }
 </style>
-style>

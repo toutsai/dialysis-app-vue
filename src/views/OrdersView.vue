@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/OrdersView.vue (滾動問題修正版) -->
+<!-- 檔案路徑: src/views/OrdersView.vue (新增匯出 Excel 功能版) -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -65,9 +65,18 @@
           <button @click="handleSearch" :disabled="isLoading" class="search-btn">
             <i class="fas fa-search"></i> {{ isLoading ? '查詢中...' : '查詢' }}
           </button>
+
+          <!-- ✨ 核心修改 1: 新增匯出 Excel 按鈕 -->
+          <button
+            @click="exportOrdersToExcel"
+            :disabled="isLoading || searchResult.length === 0"
+            class="export-btn"
+          >
+            <i class="fas fa-file-excel"></i> 匯出 Excel
+          </button>
         </div>
 
-        <!-- 2. 查詢結果顯示區 -->
+        <!-- 2. 查詢結果顯示區 (此處結構不變) -->
         <div class="results-display">
           <div v-if="isLoading" class="loading-state">
             <div class="loading-spinner"></div>
@@ -123,7 +132,7 @@
         </div>
       </div>
 
-      <!-- (B) 資料上傳頁籤 -->
+      <!-- (B) 資料上傳頁籤 (此處結構不變) -->
       <div v-show="activeTab === 'upload'" class="tab-panel upload-panel">
         <div class="upload-core-panel">
           <h4>批次上傳藥囑 Excel</h4>
@@ -183,6 +192,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
+import * as XLSX from 'xlsx' // ✨ 核心修改 2: 引入 xlsx 函式庫
 import { functions } from '@/composables/useFirebase.js'
 import { httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager.js'
@@ -268,7 +278,7 @@ function formatOrderCell(order) {
   return `${dose}${unit}`
 }
 
-// --- Core Search Logic ---
+// --- Core Search Logic (此處邏輯不變) ---
 async function handleSearch() {
   isLoading.value = true
   searchPerformed.value = true
@@ -288,6 +298,7 @@ async function handleSearch() {
 }
 
 async function searchGroupOrders() {
+  // ... 此函式內部邏輯不變 ...
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
@@ -343,6 +354,7 @@ async function searchGroupOrders() {
 }
 
 async function searchIndividualOrders() {
+  // ... 此函式內部邏輯不變 ...
   const term = individualSearchTerm.value.trim().toLowerCase()
   if (!term) {
     alert('請輸入姓名或病歷號')
@@ -399,7 +411,105 @@ function changeYear(offset) {
   if (individualSearchTerm.value.trim()) handleSearch()
 }
 
-// --- Upload Tab Methods ---
+// ✨ 核心修改: 這是更新後的匯出函式
+function exportOrdersToExcel() {
+  if (!searchResult.value || searchResult.value.length === 0) {
+    alert('沒有可匯出的資料。')
+    return
+  }
+
+  try {
+    let title = '藥囑查詢結果'
+    let headers = []
+    let dataRows = []
+    let sheetData = []
+    let fileName = '藥囑查詢結果.xlsx'
+
+    const medHeaders = allMedications.value.map((med) => med.tradeName)
+
+    if (searchType.value === 'group') {
+      // 處理群組搜尋的匯出
+      const { freq, shift, month } = groupSearchParams
+      const shiftNameMap = { early: '早班', noon: '午班', late: '晚班' }
+      const shiftName = shiftNameMap[shift] || shift
+
+      title = `藥囑查詢結果：群組 ${freq} / ${shiftName} / ${month}`
+      fileName = `藥囑查詢_群組_${freq}_${shiftName}_${month}.xlsx`
+
+      headers = ['頻率', '班別', '床號', '姓名', ...medHeaders]
+      dataRows = searchResult.value.map((patientRow) => {
+        const row = [
+          patientRow.freq,
+          formatShift(patientRow.shiftIndex),
+          patientRow.bedNum,
+          patientRow.patientName,
+        ]
+        allMedications.value.forEach((med) => {
+          const order = patientRow.orders[med.code]
+          row.push(formatOrderCell(order))
+        })
+        return row
+      })
+    } else {
+      // searchType === 'individual'
+      // 處理個人搜尋的匯出
+      const patientName = individualSearchTerm.value.trim()
+      const year = individualSearchYear.value
+
+      title = `藥囑查詢結果：個人 ${patientName} / ${year} 年`
+      fileName = `藥囑查詢_個人_${patientName}_${year}.xlsx`
+
+      headers = ['月份', ...medHeaders]
+      dataRows = searchResult.value.map((monthRow) => {
+        const row = [monthRow.month]
+        allMedications.value.forEach((med) => {
+          const order = monthRow.orders[med.code]
+          row.push(formatOrderCell(order))
+        })
+        return row
+      })
+    }
+
+    // 組合最終的工作表資料：標題 + 空行 + 表頭 + 資料
+    sheetData = [[title], [], headers, ...dataRows]
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData)
+
+    // 設定標題儲存格合併
+    if (!ws['!merges']) ws['!merges'] = []
+    ws['!merges'].push({ s: { r: 0, c: 0 }, e: { r: 0, c: headers.length - 1 } })
+
+    // 設定欄寬 (可選，但建議)
+    const colWidths = headers.map((h, index) => {
+      if (index < 4 && searchType.value === 'group') return { wch: 12 } // 固定欄位
+      if (index === 0 && searchType.value === 'individual') return { wch: 15 } // 月份欄位
+      return { wch: 20 } // 藥品欄位
+    })
+    ws['!cols'] = colWidths
+
+    // 使用 Blob 觸發瀏覽器下載 (與 ConsumablesView 相同)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, '藥囑查詢結果')
+
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([wbout], { type: 'application/octet-stream' })
+
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = fileName
+    document.body.appendChild(link)
+
+    link.click()
+
+    document.body.removeChild(link)
+    URL.revokeObjectURL(link.href)
+  } catch (error) {
+    console.error('匯出 Excel 失敗:', error)
+    alert('匯出 Excel 時發生錯誤，請檢查主控台。')
+  }
+}
+
+// --- Upload Tab Methods (此處邏輯不變) ---
 function handleFileSelect(event) {
   selectedFile.value = event.target.files[0]
   uploadResult.value = null
@@ -559,7 +669,9 @@ p {
   height: 38px;
   box-sizing: border-box;
 }
-.search-btn {
+.search-btn,
+.export-btn {
+  /* ✨ 核心修改 4: 將 export-btn 加入樣式群組 */
   padding: 0.5rem 1.5rem;
   border-radius: 4px;
   border: 1px solid #007bff;
@@ -572,11 +684,20 @@ p {
   height: 38px;
   box-sizing: border-box;
 }
-.search-btn:disabled {
+.search-btn:disabled,
+.export-btn:disabled {
+  /* ✨ 核心修改 4: 將 export-btn 加入樣式群組 */
   background-color: #6c757d;
   border-color: #6c757d;
   cursor: not-allowed;
 }
+
+/* ✨ 核心修改 4: 為匯出按鈕提供獨特顏色 */
+.export-btn {
+  background-color: #198754;
+  border-color: #198754;
+}
+
 .year-selector {
   display: flex;
   align-items: center;
@@ -599,11 +720,9 @@ p {
   box-sizing: border-box;
 }
 
-/* ✨ --- [核心CSS修改] --- ✨ */
 .results-display {
   flex-grow: 1;
   min-height: 0;
-  /* 將此容器也設定為 Flexbox，以便約束其子元素的高度 */
   display: flex;
   flex-direction: column;
 }
