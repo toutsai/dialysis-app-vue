@@ -11,7 +11,8 @@
           <MarqueeBanner />
         </div>
 
-        <div class="header-actions">
+        <!-- ✨ 核心修改 1: 為按鈕加上 'desktop-only-flex' class ✨ -->
+        <div class="header-actions desktop-only-flex">
           <button
             @click="openCreateModal(null)"
             class="btn btn-primary"
@@ -816,11 +817,18 @@ onMounted(() => {
     padding: 8px;
   }
 
-  .page-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 1rem;
-    margin-bottom: 1rem;
+  .header-main-row {
+    /* 在行動版上，讓跑馬燈佔滿剩餘空間，按鈕會被隱藏 */
+    justify-content: space-between;
+  }
+
+  /*
+    這是一個新的通用 class，專門用來在行動版上隱藏元素。
+    我們用 'display: none !important' 來確保它的優先級最高。
+    'desktop-only-flex' 只是為了語意化，表示這個 flex 容器只在桌面版顯示。
+  */
+  .desktop-only-flex {
+    display: none !important;
   }
 
   .page-title {
