@@ -1,5 +1,4 @@
 import { ref, watch, computed } from 'vue'
-import { useAuth } from '@/composables/useAuth.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useMedicationStore } from '@/stores/medicationStore.js'
@@ -11,7 +10,6 @@ const assignmentsApi = ApiManager('nurse_assignments')
 const schedulesApi = ApiManager('schedules')
 
 export function useMyPatientList(userIdRef, dateRef) {
-  const { currentUser } = useAuth()
   const taskStore = useTaskStore()
   const patientStore = usePatientStore()
   const medicationStore = useMedicationStore()
