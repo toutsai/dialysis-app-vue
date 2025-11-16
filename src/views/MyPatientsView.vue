@@ -168,7 +168,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue' // ✨ 新增 watch, onMounted
+import { ref, computed, watch } from 'vue'
 import { useMyPatientList } from '@/composables/useMyPatientList.js'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
@@ -180,9 +180,9 @@ import {
   collection,
   addDoc,
   serverTimestamp,
-  getDocs,
 } from 'firebase/firestore' // ✨ getDocs
 import { db } from '@/composables/useFirebase'
+import { useUserDirectory } from '@/composables/useUserDirectory'
 
 // Component Imports
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
@@ -197,6 +197,7 @@ import { handleTaskCreated } from '@/utils/taskHandlers.js'
 const { currentUser, hasPermission } = useAuth()
 const patientStore = usePatientStore()
 const { createGlobalNotification } = useGlobalNotifier()
+const { ensureUsersLoaded, users: userDirectoryUsers, clearCachedUsers } = useUserDirectory()
 
 // ✨ 核心修改 3: 重構 useMyPatientList 的使用方式 ✨
 const selectedUserId = ref(currentUser.value?.uid)
@@ -209,8 +210,9 @@ const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList(
 )
 
 const selectableUsers = ref([])
-// ✨ 修改後：只要使用者已登入，就顯示下拉選單
 const canSwitchUser = computed(() => !!currentUser.value)
+const SELECTABLE_USERS_TTL = 10 * 60 * 1000
+let lastSelectableUsersUpdatedAt = 0
 
 // --- 藥品對照表和轉換函式 ---
 const INJECTION_MEDS_MASTER = [
@@ -413,64 +415,63 @@ async function handleOrderSave(updatedOrders) {
 }
 // ✨ 核心修改 4: 新增或修改的事件處理函式 ✨
 function reloadData() {
-  fetchMyPatientData()
+  fetchMyPatientData(selectedDate.value)
 }
 
-// 載入可選擇的使用者列表
-async function loadSelectableUsers() {
-  if (canSwitchUser.value) {
-    try {
-      const usersCollection = collection(db, 'users')
-      const userSnapshot = await getDocs(usersCollection)
-      const users = []
-      userSnapshot.forEach((doc) => {
-        const data = doc.data()
-        // 確保只加入護理相關職稱且有員編(username)的使用者
-        if (['護理師', '護理師組長'].includes(data.title) && data.username) {
-          users.push({
-            uid: doc.id,
-            name: data.name,
-            username: data.username, // 將員編(username)也加入物件中
-          })
-        }
-      })
+async function loadSelectableUsers({ force = false } = {}) {
+  if (!canSwitchUser.value) {
+    selectableUsers.value = []
+    return
+  }
 
-      // ✨ 核心修改：使用 username 進行排序 ✨
-      selectableUsers.value = users.sort((a, b) => {
-        // 嘗試將 username 轉為數字進行比較
-        const idA = parseInt(a.username, 10)
-        const idB = parseInt(b.username, 10)
+  const now = Date.now()
+  if (
+    !force &&
+    selectableUsers.value.length > 0 &&
+    now - lastSelectableUsersUpdatedAt < SELECTABLE_USERS_TTL
+  ) {
+    return
+  }
 
-        // 如果兩者都能成功轉為數字，則按數字大小排序
-        if (!isNaN(idA) && !isNaN(idB)) {
-          return idA - idB
-        }
+  try {
+    await ensureUsersLoaded(force)
+    const filteredUsers = userDirectoryUsers.value
+      .filter((user) => ['護理師', '護理師組長'].includes(user.title) && user.username)
+      .map((user) => ({
+        uid: user.uid,
+        name: user.name,
+        username: user.username,
+      }))
 
-        // 如果無法都轉為數字（例如員編包含英文字母），則退回到字串比較
-        return String(a.username).localeCompare(String(b.username), undefined, { numeric: true })
-      })
-    } catch (error) {
-      console.error('無法載入使用者列表:', error)
-    }
+    selectableUsers.value = filteredUsers.sort((a, b) => {
+      const idA = parseInt(a.username, 10)
+      const idB = parseInt(b.username, 10)
+      if (!isNaN(idA) && !isNaN(idB)) {
+        return idA - idB
+      }
+      return String(a.username).localeCompare(String(b.username), undefined, { numeric: true })
+    })
+    lastSelectableUsersUpdatedAt = now
+  } catch (error) {
+    console.error('無法載入使用者列表:', error)
   }
 }
 
-// --- Lifecycle Hooks & Watchers ---
-onMounted(() => {
-  loadSelectableUsers()
-  // 當前使用者登出時，重設選擇為 null
-  watch(
-    () => currentUser.value,
-    (newUser) => {
-      if (newUser) {
-        selectedUserId.value = newUser.uid
-        loadSelectableUsers()
-      } else {
-        selectedUserId.value = null
-      }
-    },
-  )
-})
+watch(
+  () => currentUser.value,
+  (newUser) => {
+    if (newUser) {
+      selectedUserId.value = newUser.uid
+      loadSelectableUsers({ force: true })
+    } else {
+      selectedUserId.value = null
+      selectableUsers.value = []
+      clearCachedUsers()
+      lastSelectableUsersUpdatedAt = 0
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
