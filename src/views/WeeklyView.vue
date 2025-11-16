@@ -164,11 +164,7 @@ import {
 } from '@/services/optimizedApiService.js'
 import { useAuth } from '@/composables/useAuth.js'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
-import {
-  SHIFT_CODES,
-  ORDERED_SHIFT_CODES,
-  getShiftDisplayName,
-} from '@/constants/scheduleConstants.js'
+import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
 import {
   createEmptySlotData,
   generateAutoNote,
@@ -195,8 +191,7 @@ const archiveStore = useArchiveStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 const { sortedFeedMessages } = storeToRefs(taskStore)
 
-const auth = useAuth()
-const { isAdmin, canEditSchedules } = useAuth()
+const { canEditSchedules } = useAuth()
 
 function getStartOfWeek(date) {
   const d = new Date(date)
@@ -1177,6 +1172,12 @@ function exportWeeklyScheduleToExcel() {
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '週排班表')
   XLSX.writeFile(workbook, `週排班表_${formatDateForQuery(currentWeekStartDate.value)}.xlsx`)
+}
+
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
 }
 
 onMounted(() => {

@@ -45,7 +45,7 @@
 import { ref, watch, computed } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 // ✨ 步驟 1: 引入 'in' 查詢運算子
-import { where, orderBy, documentId } from 'firebase/firestore'
+import { where } from 'firebase/firestore'
 
 const props = defineProps({
   isVisible: Boolean,

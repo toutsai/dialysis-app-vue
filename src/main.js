@@ -12,7 +12,7 @@ import '@vueup/vue-quill/dist/vue-quill.snow.css'
 
 let app
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, () => {
   if (!app) {
     app = createApp(App)
 

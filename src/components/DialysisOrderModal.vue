@@ -604,7 +604,6 @@ function handleSave() {
     replacementFlow: localOrderData.replacementFlow,
     dehydration: localOrderData.dehydration,
     mannitol: localOrderData.mannitol,
-    dialysate: localOrderData.dialysateCa,
   }
 
   // 移除空值
@@ -658,10 +657,6 @@ function formatDate(isoString) {
   return date.toISOString().slice(0, 10)
 }
 
-function getComparisonClass(currentValue, previousValue) {
-  if (previousValue === undefined) return ''
-  return (currentValue || '') !== (previousValue || '') ? 'is-changed' : ''
-}
 </script>
 
 <style scoped>

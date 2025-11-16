@@ -1,9 +1,9 @@
 // 檔案路徑: src/services/nurseAssignmentsService.js
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
-  getDoc,
   setDoc,
   updateDoc,
   query,

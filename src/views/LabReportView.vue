@@ -89,9 +89,9 @@
                 />
               </div>
               <div class="year-selector">
-                <button @click="changeYear(-1)">< 上一年</button>
+                <button @click="changeYear(-1)">&lt; 上一年</button>
                 <span>{{ individualSearchYear }} 年</span>
-                <button @click="changeYear(1)">下一年 ></button>
+                <button @click="changeYear(1)">下一年 &gt;</button>
               </div>
             </div>
             <button @click="handleSearch" :disabled="isLoadingReports" class="search-btn">
@@ -377,13 +377,11 @@ import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
-import { useAuth } from '@/composables/useAuth.js'
 // ✨ 新增：從 constants 引入 LAB_ITEM_DISPLAY_NAMES
 import { LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js'
 
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
-const auth = useAuth()
 const route = useRoute()
 const router = useRouter()
 const showBackButton = ref(false)
@@ -1233,7 +1231,7 @@ async function searchIndividualReports() {
     }
     if (bun && postBun > 0) {
       if (!processedData['URR']) processedData['URR'] = {}
-      if (!processedData['Kt/V']) data['Kt/V'] = {}
+      if (!processedData['Kt/V']) processedData['Kt/V'] = {}
       processedData['URR'][monthKey] = (((bun - postBun) / bun) * 100).toFixed(1)
       processedData['Kt/V'][monthKey] = Math.log(bun / postBun).toFixed(2)
     }

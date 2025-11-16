@@ -255,7 +255,7 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
           if (result.success) {
             createGlobalNotification('排程資料已清除', 'schedule')
           } else {
-            addNotification('清除排程時發生錯誤', 'error')
+            createGlobalNotification('清除排程時發生錯誤', 'error')
           }
         }
 
