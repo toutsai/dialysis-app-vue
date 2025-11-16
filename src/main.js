@@ -7,6 +7,8 @@ import router from './router'
 import { auth } from '@/composables/useFirebase.js'
 import { onAuthStateChanged } from 'firebase/auth'
 import overlayCloseDirective from '@/directives/overlayClose.js'
+// ✨✨✨ 在這裡加入，將 Quill 的樣式變成全域 ✨✨✨
+import '@vueup/vue-quill/dist/vue-quill.snow.css'
 
 let app
 

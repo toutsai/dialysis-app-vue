@@ -1,25 +1,44 @@
-<!-- 檔案路徑: src/views/MyPatientsView.vue (v6 - 新增 "新增交辦" 功能 - 完整無省略版) -->
+<!-- 檔案路徑: src/views/MyPatientsView.vue (✨ 新版面配置 ✨) -->
 <template>
   <div class="my-patients-container">
+    <!-- ✨ 核心修改 1: 重構 page-header 結構 ✨ -->
     <div class="page-header">
-      <div>
-        <h1 class="page-title">我的今日病人</h1>
-        <p v-if="currentUser" class="page-subtitle">
-          {{ currentUser.name }} / {{ todayDateString }}
-        </p>
+      <div class="header-main-row">
+        <h1 class="page-title">今日病人清單</h1>
+
+        <!-- 將跑馬燈元件移動到這裡 -->
+        <div class="header-marquee-container">
+          <MarqueeBanner />
+        </div>
+
+        <div class="header-actions">
+          <button
+            @click="openCreateModal(null)"
+            class="btn btn-primary"
+            :disabled="!hasPermission('viewer')"
+          >
+            <i class="fas fa-plus"></i> 新增交辦/留言
+          </button>
+          <button @click="reloadData" :disabled="isLoading" class="btn-refresh">
+            <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
+            {{ isLoading ? '載入中...' : '重新整理' }}
+          </button>
+        </div>
       </div>
-      <div class="header-actions">
-        <button
-          @click="openCreateModal(null)"
-          class="btn btn-primary"
-          :disabled="!hasPermission('viewer')"
-        >
-          <i class="fas fa-plus"></i> 新增交辦/留言
-        </button>
-        <button @click="fetchMyPatientData" :disabled="isLoading" class="btn-refresh">
-          <i class="fas fa-sync-alt" :class="{ 'fa-spin': isLoading }"></i>
-          {{ isLoading ? '載入中...' : '重新整理' }}
-        </button>
+      <div class="view-filters">
+        <div v-if="canSwitchUser" class="filter-item">
+          <label for="user-select">檢視對象:</label>
+          <select id="user-select" v-model="selectedUserId">
+            <option :value="currentUser.uid">我自己</option>
+            <option v-for="user in selectableUsers" :key="user.uid" :value="user.uid">
+              {{ user.name }}
+            </option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label for="date-select">檢視日期:</label>
+          <input type="date" id="date-select" v-model="selectedDate" />
+        </div>
       </div>
     </div>
 
@@ -54,7 +73,6 @@
               </thead>
               <tbody>
                 <tr v-for="patient in shiftPatients" :key="patient.id">
-                  <!-- ✨ 核心修改: 加上 data-label 屬性 -->
                   <td data-label="床位">{{ patient.bedNum }}</td>
                   <td
                     data-label="姓名"
@@ -62,7 +80,8 @@
                     @click="openOrderModal(patient)"
                     title="點擊以編輯此病人醫囑"
                   >
-                    {{ patient.name }}
+                    <!-- ✨ 核心修改 2: 姓名設為粗體 ✨ -->
+                    <strong>{{ patient.name }}</strong>
                   </td>
                   <td data-label="AK">{{ patient.preparation.ak }}</td>
                   <td data-label="Ca">{{ patient.preparation.dialysateCa }}</td>
@@ -120,7 +139,7 @@
       </template>
     </div>
 
-    <!-- ... 其他 Dialog 元件維持不變 ... -->
+    <!-- Dialogs -->
     <TaskCreateDialog
       :is-visible="isCreateModalVisible"
       :all-patients="patientStore.allPatients"
@@ -148,24 +167,49 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue' // ✨ 新增 watch, onMounted
 import { useMyPatientList } from '@/composables/useMyPatientList.js'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
-import { doc, updateDoc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import {
+  doc,
+  updateDoc,
+  deleteDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+  getDocs,
+} from 'firebase/firestore' // ✨ getDocs
 import { db } from '@/composables/useFirebase'
+
+// Component Imports
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-// ✨ 核心修正：引入我們剛剛建立的共用函式
+import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
+import MarqueeBanner from '@/components/MarqueeBanner.vue' // ✨ 核心修改 2: 引入跑馬燈元件
+
+// Shared Logic Imports
 import { handleTaskCreated } from '@/utils/taskHandlers.js'
-import DialysisOrderModal from '@/components/DialysisOrderModal.vue' // ✨ 1. 引入醫囑元件
 
 // --- 初始化 Composables 和 Stores ---
-const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList()
 const { currentUser, hasPermission } = useAuth()
 const patientStore = usePatientStore()
 const { createGlobalNotification } = useGlobalNotifier()
+
+// ✨ 核心修改 3: 重構 useMyPatientList 的使用方式 ✨
+const selectedUserId = ref(currentUser.value?.uid)
+const selectedDate = ref(new Date().toISOString().slice(0, 10))
+
+// 將 useMyPatientList 的呼叫放到 computed 中，使其能響應 selectedUserId 和 selectedDate 的變化
+const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList(
+  computed(() => selectedUserId.value),
+  computed(() => selectedDate.value),
+)
+
+const selectableUsers = ref([])
+// ✨ 修改後：只要使用者已登入，就顯示下拉選單
+const canSwitchUser = computed(() => !!currentUser.value)
 
 // --- 藥品對照表和轉換函式 ---
 const INJECTION_MEDS_MASTER = [
@@ -205,6 +249,15 @@ const hasAnyPatients = computed(() => {
   return Object.values(patientListByShift.value).some((list) => list.length > 0)
 })
 
+const statusMessage = computed(() => {
+  if (selectedUserId.value !== currentUser.value?.uid) {
+    const selectedUserName =
+      selectableUsers.value.find((u) => u.uid === selectedUserId.value)?.name || ''
+    return `${selectedUserName} 在 ${selectedDate.value} 沒有被分配到照護病人。`
+  }
+  return '您今天沒有被分配到照護病人，或班表尚未更新。'
+})
+
 // --- 輔助函式 ---
 const getShiftTitle = (shiftCode) => {
   const map = {
@@ -230,7 +283,6 @@ function getMessageTypeIcon(type) {
 
 // --- 事件處理函式 ---
 
-// 開啟「新增/編輯」Dialog
 function openCreateModal(itemToEdit = null) {
   if (!hasPermission('viewer')) {
     createGlobalNotification('您的權限不足，無法執行此操作。', 'error')
@@ -240,13 +292,11 @@ function openCreateModal(itemToEdit = null) {
   isCreateModalVisible.value = true
 }
 
-// 關閉「新增/編輯」Dialog
 function closeCreateModal() {
   isCreateModalVisible.value = false
   editingItem.value = null
 }
 
-// 處理 Dialog 送出的事件 (可能是新增或編輯)
 async function handleTaskSubmit(data) {
   if (data.id) {
     // 編輯模式
@@ -273,7 +323,6 @@ async function handleTaskSubmit(data) {
   closeCreateModal()
 }
 
-// 更新任務狀態 (例如：已讀)
 async function updateTaskStatus(task, newStatus) {
   if (!currentUser.value) return
   try {
@@ -294,13 +343,11 @@ async function updateTaskStatus(task, newStatus) {
   }
 }
 
-// 開啟「刪除確認」Dialog
 function confirmDeleteTask(item) {
   itemToDelete.value = item
   isConfirmDeleteVisible.value = true
 }
 
-// 執行刪除
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
   const collectionName = itemToDelete.value.isLegacy ? 'memos' : 'tasks'
@@ -316,14 +363,11 @@ async function executeDeleteTask() {
   itemToDelete.value = null
 }
 
-// 為了方便，我們把 openEditModal 也定義一下
 function openEditModal(itemToEdit) {
   openCreateModal(itemToEdit)
 }
 
-// ✨ 3. 新增開啟醫囑 Modal 的函式
 function openOrderModal(patientFromList) {
-  // 從 patientStore 中找到最完整的病人資料，因為列表上的 patient 物件可能經過簡化
   const fullPatientData = patientStore.allPatients.find((p) => p.id === patientFromList.patientId)
   if (fullPatientData) {
     selectedPatientForOrder.value = fullPatientData
@@ -334,7 +378,6 @@ function openOrderModal(patientFromList) {
   }
 }
 
-// ✨ 4. 新增關閉和儲存醫囑的處理函式
 function closeOrderModal() {
   isOrderModalVisible.value = false
   selectedPatientForOrder.value = null
@@ -347,12 +390,10 @@ async function handleOrderSave(updatedOrders) {
   const historyRef = collection(db, 'dialysis_order_history')
 
   try {
-    // 步驟 1: 更新 patient 文件中的 dialysisOrders
     await updateDoc(patientRef, {
       dialysisOrders: updatedOrders,
     })
 
-    // 步驟 2: 新增一筆歷史紀錄
     await addDoc(historyRef, {
       patientId: selectedPatientForOrder.value.id,
       patientName: selectedPatientForOrder.value.name,
@@ -362,16 +403,55 @@ async function handleOrderSave(updatedOrders) {
     })
 
     createGlobalNotification(`${selectedPatientForOrder.value.name} 的醫囑已更新`, 'success')
-
-    // 手動更新 store 中的資料，讓畫面即時反應
     patientStore.updatePatientOrders(selectedPatientForOrder.value.id, updatedOrders)
-
     closeOrderModal()
   } catch (error) {
     console.error('儲存醫囑失敗:', error)
     createGlobalNotification('醫囑儲存失敗，請檢查網路連線', 'error')
   }
 }
+// ✨ 核心修改 4: 新增或修改的事件處理函式 ✨
+function reloadData() {
+  fetchMyPatientData()
+}
+
+// 載入可選擇的使用者列表
+async function loadSelectableUsers() {
+  if (canSwitchUser.value) {
+    try {
+      const usersCollection = collection(db, 'users')
+      const userSnapshot = await getDocs(usersCollection)
+      const users = []
+      userSnapshot.forEach((doc) => {
+        const data = doc.data()
+        // 只加入護理相關職稱
+        if (['護理師', '護理師組長'].includes(data.title)) {
+          users.push({ uid: doc.id, name: data.name })
+        }
+      })
+      selectableUsers.value = users.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    } catch (error) {
+      console.error('無法載入使用者列表:', error)
+    }
+  }
+}
+
+// --- Lifecycle Hooks & Watchers ---
+onMounted(() => {
+  loadSelectableUsers()
+  // 當前使用者登出時，重設選擇為 null
+  watch(
+    () => currentUser.value,
+    (newUser) => {
+      if (newUser) {
+        selectedUserId.value = newUser.uid
+        loadSelectableUsers()
+      } else {
+        selectedUserId.value = null
+      }
+    },
+  )
+})
 </script>
 
 <style scoped>
@@ -386,12 +466,20 @@ async function handleOrderSave(updatedOrders) {
   flex-direction: column;
 }
 
+/* ✨ 核心修改 2: 更新 page-header 的樣式 ✨ */
 .page-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1.5rem;
+  flex-direction: column; /* 改為垂直堆疊 */
+  gap: 1rem; /* 標題列和篩選器列之間的間距 */
+  margin-bottom: 1rem; /* 與下方內容的間距 */
   flex-shrink: 0;
+}
+
+.header-main-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem; /* 標題、跑馬燈、按鈕之間的間距 */
+  width: 100%;
 }
 
 .page-title {
@@ -399,18 +487,31 @@ async function handleOrderSave(updatedOrders) {
   font-weight: bold;
   color: #2c3e50;
   margin: 0;
+  white-space: nowrap; /* 確保標題本身不換行 */
 }
 
-.page-subtitle {
-  font-size: 1rem;
-  color: #6c757d;
-  margin: 0.25rem 0 0 0;
+.header-marquee-container {
+  flex-grow: 1; /* 這是關鍵：讓跑馬燈容器填滿中間的空間 */
+  min-width: 0; /* 允許容器在空間不足時被壓縮 */
+}
+
+/* ✨ 核心修改 3: 調整 MarqueeBanner 的樣式 ✨ */
+/* 我們需要使用 :deep() 來修改子元件的根元素樣式 */
+:deep(.marquee-banner) {
+  margin-bottom: 0; /* 移除原本與下方內容的間距 */
+  height: 45px; /* 讓高度與右側按鈕大致對齊 */
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 1rem;
+}
+
+.page-subtitle {
+  font-size: 1rem;
+  color: #6c757d;
+  margin: 0.25rem 0 0 0;
 }
 
 .btn {
@@ -677,6 +778,34 @@ async function handleOrderSave(updatedOrders) {
   background-color: #f0fdf4;
   color: #15803d;
   font-weight: 500;
+}
+
+/* ✨ 核心修改 5: 新增篩選器樣式 ✨ */
+.view-filters {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+.filter-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.filter-item label {
+  font-weight: 500;
+  color: #495057;
+}
+.filter-item select,
+.filter-item input[type='date'] {
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #ced4da;
+  font-size: 1rem;
+}
+
+/* ✨ 核心修改 6: 病人姓名粗體 ✨ */
+.patient-name strong {
+  font-weight: 700; /* 使用 700 來確保粗體效果 */
 }
 
 /* ================================== */
