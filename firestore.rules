@@ -114,10 +114,6 @@ service cloud.firestore {
       allow read: if isViewer();
       allow write: if isEditor();
     }
-    
-    // ========================================================
-    // ✨✨✨ 這是您需要修改的核心區塊 ✨✨✨
-    // ========================================================
 
     // 【1. 新增】組長交班 handover_logs 的規則
     // 只有 admin 與 editor 可以閱讀和編輯
@@ -136,10 +132,13 @@ service cloud.firestore {
       // ✨ 關鍵修改 2：只有 admin 與 editor (isEditor) 可以編輯/寫入
       allow write: if isEditor() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
-    
-    // ========================================================
-    // ✨✨✨ 修改區塊結束 ✨✨✨
-    // ========================================================
+
+    match /site_config/{configId} {
+      // 允許所有登入者讀取 (例如跑馬燈元件)
+      allow read: if isViewer();
+      // 只允許 admin 或 editor 寫入 (例如從工作日誌頁面更新)
+      allow write: if isEditor();
+    }
 
     match /tasks/{taskId} {
       allow read, create, update: if isViewer();

@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/DailyLogView.vue (✨ 最終整合版 ✨) -->
+<!-- 檔案路徑: src/views/DailyLogView.vue (✨ 整合富文本編輯器版 ✨) -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -30,6 +30,14 @@
           :disabled="isPageLocked"
         >
           <i class="fas fa-clipboard-list"></i> 組長交班
+        </button>
+        <!-- ✨ 核心修改 1: 新增跑馬燈設定按鈕 -->
+        <button
+          class="btn btn-marquee-settings"
+          @click="isMarqueeDialogVisible = true"
+          :disabled="isPageLocked"
+        >
+          <i class="fas fa-bullhorn"></i> 公告設定
         </button>
       </div>
       <div class="header-right">
@@ -845,143 +853,91 @@
       @close="isHandoverDialogVisible = false"
       @notes-updated="onNotesUpdated"
     />
+    <!-- ✨ 核心修改 3: 加入新的 MarqueeEditDialog 元件 -->
+    <MarqueeEditDialog
+      :is-visible="isMarqueeDialogVisible"
+      :initial-content="marqueeHtmlContent"
+      @close="isMarqueeDialogVisible = false"
+      @save="handleMarqueeSave"
+    />
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+// ===================================================================
+// 1. Imports
+// ===================================================================
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import ApiManager from '@/services/api_manager.js'
 import { useAuth } from '@/composables/useAuth.js'
-import { where, doc, getDoc } from 'firebase/firestore'
+import { where, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
-import WardNumberDialog from '@/components/WardNumberDialog.vue'
-import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import AlertDialog from '@/components/AlertDialog.vue'
-import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
-import HandoverNotesDialog from '@/components/HandoverNotesDialog.vue'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { storeToRefs } from 'pinia'
+import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
 
+// Component Imports
+import WardNumberDialog from '@/components/WardNumberDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue'
+import HandoverNotesDialog from '@/components/HandoverNotesDialog.vue'
+import MarqueeEditDialog from '@/components/MarqueeEditDialog.vue'
+
+// ===================================================================
+// 2. Composables, Stores, and APIs
+// ===================================================================
+const { currentUser, canEditSchedules } = useAuth()
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
-
 const dailyLogsApi = ApiManager('daily_logs')
 const schedulesApi = ApiManager('schedules')
 
+// ===================================================================
+// 3. Core Component State
+// ===================================================================
 const isLoading = ref(false)
 const selectedDate = ref(formatDate(new Date()))
 const hasUnsavedChanges = ref(false)
-const { currentUser, canEditSchedules } = useAuth()
 const isPageLocked = computed(() => !canEditSchedules.value)
+const currentSchedule = ref({})
+const dailyLog = reactive(initialLogState())
+
+// UI State
 const otherNotesTextarea = ref(null)
+const isStaffingDetailsVisible = ref(false)
+let marqueeUnsubscribe = null
+
+// Dialog State
 const isWardDialogVisible = ref(false)
-const currentEditingMovementIndex = ref(-1)
 const isConfirmDialogVisible = ref(false)
+const isAlertDialogVisible = ref(false)
+const isHandoverDialogVisible = ref(false)
+const isMarqueeDialogVisible = ref(false)
+
+// Dialog Data
+const handoverNotes = ref('')
+const marqueeHtmlContent = ref('')
 const confirmDialogTitle = ref('')
 const confirmDialogMessage = ref('')
 const confirmAction = ref(null)
-const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
-const currentSchedule = ref({})
-const isHandoverDialogVisible = ref(false)
-const handoverNotes = ref('')
-const isStaffingDetailsVisible = ref(false)
+const currentEditingMovementIndex = ref(-1)
+
+// Dynamic Table & Autocomplete State
 const newMovementId = ref(null)
-
-const initialLogState = () => ({
-  id: null,
-  date: selectedDate.value,
-  stats: {
-    main_beds: {
-      early: { opd: 0, ipd: 0, er: 0, total: 0 },
-      noon: { opd: 0, ipd: 0, er: 0, total: 0 },
-      late: { opd: 0, ipd: 0, er: 0, total: 0 },
-    },
-    peripheral_beds: {
-      early: { ipd: 0, er: 0, total: 0 },
-      noon: { ipd: 0, er: 0, total: 0 },
-      late: { ipd: 0, er: 0, total: 0 },
-    },
-    patient_care: {
-      onDL: { early: '', noon: '', late: '' },
-      akChange: { early: '', noon: '', late: '' },
-      noShow: { early: '', noon: '', late: '' },
-    },
-    staffing: {
-      details: [
-        {
-          id: Date.now() + 1,
-          label: '7-4(洗腎室)',
-          count: 0,
-          ratio1: 1,
-          ratio2: 1,
-          ratio3: 0,
-          isLocked: true,
-        },
-        {
-          id: Date.now() + 2,
-          label: '7-5(洗腎室)',
-          count: 0,
-          ratio1: 1,
-          ratio2: 1,
-          ratio3: 0.25,
-          isLocked: true,
-        },
-        {
-          id: Date.now() + 3,
-          label: '8-16(ICU)',
-          count: 0,
-          ratio1: 1,
-          ratio2: 1,
-          ratio3: 0,
-          isLocked: true,
-        },
-        {
-          id: Date.now() + 4,
-          label: '12-8',
-          count: 0,
-          ratio1: 0,
-          ratio2: 0.375,
-          ratio3: 0.625,
-          isLocked: true,
-        },
-        {
-          id: Date.now() + 5,
-          label: '3-11(夜班)',
-          count: 0,
-          ratio1: 0,
-          ratio2: 0,
-          ratio3: 1,
-          isLocked: true,
-        },
-      ],
-      adjustments: { shift1: null, shift2: null, shift3: null },
-      early: 0,
-      noon: 0,
-      late: 0,
-    },
-  },
-  patientMovements: [],
-  vascularAccessLog: [],
-  otherNotes: '',
-  leader: {
-    early: { userId: null, name: null, signedAt: null },
-    noon: { userId: null, name: null, signedAt: null },
-    late: { userId: null, name: null, signedAt: null },
-  },
-})
-
-const dailyLog = reactive(initialLogState())
 const activeSearch = ref({ type: null, index: -1 })
 const patientSearchResults = ref([])
 const inputRefs = reactive({})
 const isAutocompleteVisible = ref(false)
 const autocompleteStyle = reactive({ top: '0px', left: '0px', width: '0px' })
 
+// ===================================================================
+// 4. Computed Properties
+// ===================================================================
 const selectedDateDisplay = computed(() => {
   const d = new Date(selectedDate.value)
   if (isNaN(d.getTime())) return selectedDate.value
@@ -1001,9 +957,7 @@ const weekdayDisplay = computed(() => {
 })
 
 const statusText = computed(() => {
-  if (hasUnsavedChanges.value) {
-    return '有未儲存的變更'
-  }
+  if (hasUnsavedChanges.value) return '有未儲存的變更'
   const isSigned = Object.values(dailyLog.leader).some((l) => l && l.userId)
   return isSigned ? '變更已儲存' : '尚未簽核'
 })
@@ -1043,77 +997,200 @@ const calculatedStaffingTotals = computed(() => {
   totals.noon = Math.max(0, totals.noon)
   totals.late = Math.max(0, totals.late)
   totals.total = totals.early + totals.noon + totals.late
-
   return totals
 })
 
-watch(
-  calculatedStaffingTotals,
-  (newTotals) => {
-    if (dailyLog.stats.staffing) {
-      dailyLog.stats.staffing.early = newTotals.early
-      dailyLog.stats.staffing.noon = newTotals.noon
-      dailyLog.stats.staffing.late = newTotals.late
-    }
-  },
-  { deep: true, immediate: true },
-)
-
-function toggleStaffingDetails() {
-  isStaffingDetailsVisible.value = !isStaffingDetailsVisible.value
-}
-
-function addStaffingRow() {
-  dailyLog.stats.staffing.details.push({
-    id: Date.now(),
-    label: '',
-    count: 0,
-    ratio1: 0,
-    ratio2: 0,
-    ratio3: 0,
-    isLocked: false,
-  })
-}
-
-function deleteStaffingRow(index) {
-  dailyLog.stats.staffing.details.splice(index, 1)
-}
-
 const nursePatientRatios = computed(() => {
   const calculateRatio = (patients, staff) => {
-    if (!staff || staff === 0) {
-      return 'N/A'
-    }
+    if (!staff || staff === 0) return 'N/A'
     return (patients / staff).toFixed(2)
   }
-
-  const totalStaff =
-    (dailyLog.stats.staffing.early || 0) +
-    (dailyLog.stats.staffing.noon || 0) +
-    (dailyLog.stats.staffing.late || 0)
-
+  const totalStaff = calculatedStaffingTotals.value.total
   const totalPatientCount =
     totalPatients.value.early + totalPatients.value.noon + totalPatients.value.late
 
   return {
-    early: calculateRatio(totalPatients.value.early, dailyLog.stats.staffing.early),
-    noon: calculateRatio(totalPatients.value.noon, dailyLog.stats.staffing.noon),
-    late: calculateRatio(totalPatients.value.late, dailyLog.stats.staffing.late),
+    early: calculateRatio(totalPatients.value.early, calculatedStaffingTotals.value.early),
+    noon: calculateRatio(totalPatients.value.noon, calculatedStaffingTotals.value.noon),
+    late: calculateRatio(totalPatients.value.late, calculatedStaffingTotals.value.late),
     total: calculateRatio(totalPatientCount, totalStaff),
   }
 })
 
-function formatDate(date) {
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
+// ===================================================================
+// 5. Core Business Logic
+// ===================================================================
+
+function initialLogState() {
+  return {
+    id: null,
+    date: selectedDate.value,
+    stats: {
+      main_beds: {
+        early: { opd: 0, ipd: 0, er: 0, total: 0 },
+        noon: { opd: 0, ipd: 0, er: 0, total: 0 },
+        late: { opd: 0, ipd: 0, er: 0, total: 0 },
+      },
+      peripheral_beds: {
+        early: { ipd: 0, er: 0, total: 0 },
+        noon: { ipd: 0, er: 0, total: 0 },
+        late: { ipd: 0, er: 0, total: 0 },
+      },
+      patient_care: {
+        onDL: { early: '', noon: '', late: '' },
+        akChange: { early: '', noon: '', late: '' },
+        noShow: { early: '', noon: '', late: '' },
+      },
+      staffing: {
+        details: [
+          {
+            id: Date.now() + 1,
+            label: '7-4(洗腎室)',
+            count: 0,
+            ratio1: 1,
+            ratio2: 1,
+            ratio3: 0,
+            isLocked: true,
+          },
+          {
+            id: Date.now() + 2,
+            label: '7-5(洗腎室)',
+            count: 0,
+            ratio1: 1,
+            ratio2: 1,
+            ratio3: 0.25,
+            isLocked: true,
+          },
+          {
+            id: Date.now() + 3,
+            label: '8-16(ICU)',
+            count: 0,
+            ratio1: 1,
+            ratio2: 1,
+            ratio3: 0,
+            isLocked: true,
+          },
+          {
+            id: Date.now() + 4,
+            label: '12-8',
+            count: 0,
+            ratio1: 0,
+            ratio2: 0.375,
+            ratio3: 0.625,
+            isLocked: true,
+          },
+          {
+            id: Date.now() + 5,
+            label: '3-11(夜班)',
+            count: 0,
+            ratio1: 0,
+            ratio2: 0,
+            ratio3: 1,
+            isLocked: true,
+          },
+        ],
+        adjustments: { shift1: null, shift2: null, shift3: null },
+        early: 0,
+        noon: 0,
+        late: 0,
+      },
+    },
+    patientMovements: [],
+    vascularAccessLog: [],
+    otherNotes: '',
+    leader: {
+      early: { userId: null, name: null, signedAt: null },
+      noon: { userId: null, name: null, signedAt: null },
+      late: { userId: null, name: null, signedAt: null },
+    },
+  }
+}
+
+async function loadDailyLog(dateStr) {
+  isLoading.value = true
+  hasUnsavedChanges.value = false
+  Object.assign(dailyLog, initialLogState(), { date: dateStr })
+  currentSchedule.value = {}
+  handoverNotes.value = ''
+  newMovementId.value = null
+
+  try {
+    await patientStore.fetchPatientsIfNeeded()
+
+    const [logResult, handoverLogSnap, scheduleData] = await Promise.all([
+      dailyLogsApi.fetchById(dateStr),
+      getDoc(doc(db, 'handover_logs', 'latest')),
+      schedulesApi.fetchAll([where('date', '==', dateStr)]),
+    ])
+
+    if (handoverLogSnap.exists()) {
+      handoverNotes.value = handoverLogSnap.data().content || ''
+    } else {
+      handoverNotes.value = ''
+    }
+
+    if (logResult) {
+      const mergedLog = { ...initialLogState(), ...logResult }
+      if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
+        mergedLog.otherNotes = mergedLog.handoverNotes
+      }
+      delete mergedLog.handoverNotes
+
+      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
+        const oldStaffingData = logResult.stats.staffing || {}
+        const newStaffingStructure = initialLogState().stats.staffing
+        const oldTotal =
+          (oldStaffingData.early || 0) + (oldStaffingData.noon || 0) + (oldStaffingData.late || 0)
+
+        if (oldTotal > 0) {
+          newStaffingStructure.details = [
+            {
+              id: Date.now(),
+              label: '舊日誌人力總計',
+              count: 1,
+              ratio1: oldStaffingData.early || 0,
+              ratio2: oldStaffingData.noon || 0,
+              ratio3: oldStaffingData.late || 0,
+            },
+          ]
+        } else {
+          newStaffingStructure.details = initialLogState().stats.staffing.details
+        }
+        logResult.stats.staffing = newStaffingStructure
+      }
+
+      if (logResult.stats?.staffing) {
+        if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
+          logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions
+        }
+        if (!logResult.stats.staffing.adjustments) {
+          logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
+        }
+      }
+
+      Object.assign(dailyLog, mergedLog)
+    } else {
+      dailyLog.otherNotes = ''
+    }
+
+    if (scheduleData.length > 0) {
+      currentSchedule.value = scheduleData[0].schedule || {}
+      if (!logResult) {
+        calculateStatsFromSchedule(scheduleData[0])
+      }
+    }
+  } catch (error) {
+    console.error('載入日誌失敗:', error)
+    showAlert('載入失敗', '載入日誌時發生錯誤')
+  } finally {
+    isLoading.value = false
+    await nextTick()
+    handleTextareaInput()
+  }
 }
 
 async function saveLog(options = {}) {
   const { successMessage = '日誌已儲存！', showSuccessAlert = true } = options
-
   if (isLoading.value) return
   isLoading.value = true
 
@@ -1137,7 +1214,6 @@ async function saveLog(options = {}) {
       }
     }
 
-    // 從要儲存的 daily_log 中移除 handoverNotes，因为它現在是獨立的
     if ('handoverNotes' in dataToSave) {
       delete dataToSave.handoverNotes
     }
@@ -1162,74 +1238,31 @@ async function saveLog(options = {}) {
   }
 }
 
-// ✨✨✨ 這是核心修改區塊 ✨✨✨
-async function loadDailyLog(dateStr) {
-  isLoading.value = true
-  hasUnsavedChanges.value = false
-  Object.assign(dailyLog, initialLogState(), { date: dateStr })
-  currentSchedule.value = {}
-  handoverNotes.value = ''
-  newMovementId.value = null
+async function handleMarqueeSave(newContent) {
+  if (isPageLocked.value) {
+    showAlert('權限不足', '您沒有權限修改全域公告。')
+    return
+  }
 
   try {
-    await patientStore.fetchPatientsIfNeeded()
-
-    // 1. 使用 Promise.all 並行獲取所有需要的資料
-    const [logResult, handoverLogSnap, scheduleData] = await Promise.all([
-      dailyLogsApi.fetchById(dateStr),
-      getDoc(doc(db, 'handover_logs', 'latest')), // 直接讀取最新的交班紀錄
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-    ])
-
-    // 2. 處理交班事項 (新邏輯)
-    if (handoverLogSnap.exists()) {
-      handoverNotes.value = handoverLogSnap.data().content || ''
-    } else {
-      handoverNotes.value = '' // 如果 handover_logs/latest 文件不存在，交班事項為空
-    }
-
-    // 3. 處理當日日誌 (舊邏輯，但確保 otherNotes 被正確處理)
-    if (logResult) {
-      const mergedLog = { ...initialLogState(), ...logResult }
-
-      // 進行一次性的舊資料遷移：如果舊資料有 handoverNotes 但沒有 otherNotes
-      if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
-        mergedLog.otherNotes = mergedLog.handoverNotes
-      }
-      // 從合併後的物件中刪除 handoverNotes 屬性，確保它不會污染 dailyLog
-      delete mergedLog.handoverNotes
-
-      // ... staffing 的遷移邏輯保持不變 ...
-      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
-        // ...
-      }
-      if (logResult.stats?.staffing) {
-        // ...
-      }
-
-      Object.assign(dailyLog, mergedLog)
-    } else {
-      // 如果當天日誌不存在，則清空 otherNotes
-      dailyLog.otherNotes = ''
-    }
-
-    // 4. 處理排班 (邏輯不變)
-    if (scheduleData.length > 0) {
-      currentSchedule.value = scheduleData[0].schedule || {}
-      if (!logResult) {
-        calculateStatsFromSchedule(scheduleData[0])
-      }
-    }
+    const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
+    await setDoc(marqueeRef, {
+      content: newContent,
+      updatedAt: new Date(),
+      updatedBy: {
+        uid: currentUser.value.uid,
+        name: currentUser.value.name,
+      },
+    })
+    isMarqueeDialogVisible.value = false
+    showAlert('儲存成功', '全域跑馬燈公告已更新！')
   } catch (error) {
-    console.error('載入日誌失敗:', error)
-    showAlert('載入失敗', '載入日誌時發生錯誤')
-  } finally {
-    isLoading.value = false
-    await nextTick()
-    handleTextareaInput()
+    console.error('儲存跑馬燈公告失敗:', error)
+    showAlert('儲存失敗', '更新公告時發生錯誤。')
   }
 }
 
+// --- Stats Calculation ---
 function calculateStatsFromSchedule(scheduleRecord) {
   const newStats = {
     main_beds: {
@@ -1272,6 +1305,7 @@ function calculateStatsFromSchedule(scheduleRecord) {
   dailyLog.stats.main_beds = newStats.main_beds
   dailyLog.stats.peripheral_beds = newStats.peripheral_beds
 }
+
 async function syncStatsWithSchedule() {
   showConfirm(
     '確認同步人數',
@@ -1296,272 +1330,29 @@ async function syncStatsWithSchedule() {
     },
   )
 }
-function changeDate(days) {
-  const newDate = new Date(selectedDate.value)
-  newDate.setDate(newDate.getDate() + days)
-  selectedDate.value = formatDate(newDate)
+
+// --- Staffing Calculation ---
+function toggleStaffingDetails() {
+  isStaffingDetailsVisible.value = !isStaffingDetailsVisible.value
 }
-function goToToday() {
-  selectedDate.value = formatDate(new Date())
-}
-function triggerDateInput() {
-  document.querySelector('.hidden-date-input').showPicker()
-}
-function addRow(targetArrayKey) {
-  if (newMovementId.value) {
-    showAlert('提示', '請先儲存目前新增的動態，再新增下一筆。')
-    return
-  }
-  const newId = Date.now()
-  if (targetArrayKey === 'patientMovements') {
-    dailyLog.patientMovements.push({
-      id: newId,
-      type: '手動',
-      name: '',
-      medicalRecordNumber: '',
-      bedChange: '',
-      admissionDate: '',
-      dischargeDate: '',
-      physician: '',
-      reason: '',
-      remarks: '',
-    })
-    newMovementId.value = newId
-  } else if (targetArrayKey === 'vascularAccessLog') {
-    dailyLog.vascularAccessLog.push({
-      id: newId,
-      name: '',
-      medicalRecordNumber: '',
-      date: selectedDate.value,
-      interventions: [],
-      location: '',
-    })
-  }
-}
-function deleteRow(index, targetArrayKey) {
-  const item = dailyLog[targetArrayKey][index]
-  showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
-    if (item.id === newMovementId.value) {
-      newMovementId.value = null
-    }
-    dailyLog[targetArrayKey].splice(index, 1)
+
+function addStaffingRow() {
+  dailyLog.stats.staffing.details.push({
+    id: Date.now(),
+    label: '',
+    count: 0,
+    ratio1: 0,
+    ratio2: 0,
+    ratio3: 0,
+    isLocked: false,
   })
 }
-async function saveMovement(item) {
-  if (!item.name) {
-    showAlert('資料不完整', '請至少填寫病人姓名。')
-    return
-  }
 
-  if (item.isEdited && item.originalType) {
-    item.originalAutoId = item.id
-    item.id = `edited_${item.id}`
-    item.type = '手動'
-  }
+function deleteStaffingRow(index) {
+  dailyLog.stats.staffing.details.splice(index, 1)
+}
 
-  if (item.id === newMovementId.value) {
-    newMovementId.value = null
-  }
-  item.isEdited = false
-
-  await saveJustMovements()
-}
-async function saveJustMovements() {
-  isLoading.value = true
-  try {
-    const docId = selectedDate.value
-    const dataToUpdate = {
-      patientMovements: JSON.parse(JSON.stringify(dailyLog.patientMovements)),
-    }
-
-    if (dailyLog.id) {
-      await dailyLogsApi.update(docId, dataToUpdate)
-    } else {
-      await dailyLogsApi.save(docId, dataToUpdate)
-      dailyLog.id = docId
-    }
-    hasUnsavedChanges.value = false
-    showAlert('操作成功', '病人動態已更新！')
-  } catch (error) {
-    console.error('儲存病人動態失敗:', error)
-    showAlert('儲存失敗', '更新病人動態時發生錯誤。')
-  } finally {
-    isLoading.value = false
-  }
-}
-function handlePatientSearch(index, type) {
-  const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
-  const query = targetArray[index].name.toLowerCase()
-  if (!query) {
-    patientSearchResults.value = []
-    return
-  }
-  patientSearchResults.value = allPatients.value.filter(
-    (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
-  )
-}
-function showAutocomplete(event, index, type) {
-  activeSearch.value = { type, index }
-  handlePatientSearch(index, type)
-  const inputElement = event.target
-  const rect = inputElement.getBoundingClientRect()
-  autocompleteStyle.top = `${rect.bottom + window.scrollY}px`
-  autocompleteStyle.left = `${rect.left + window.scrollX}px`
-  autocompleteStyle.width = `${rect.width}px`
-  isAutocompleteVisible.value = true
-}
-function hideAutocomplete() {
-  setTimeout(() => {
-    isAutocompleteVisible.value = false
-  }, 200)
-}
-function selectPatient(patient, index, type) {
-  const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
-  targetArray[index].name = patient.name
-  targetArray[index].patientId = patient.id
-  targetArray[index].medicalRecordNumber = patient.medicalRecordNumber
-  if (type === 'movements') {
-    targetArray[index].admissionDate = patient.admissionDate || ''
-    targetArray[index].physician = patient.physician || ''
-    let foundBed = ''
-    if (currentSchedule.value) {
-      for (const shiftKey in currentSchedule.value) {
-        const slot = currentSchedule.value[shiftKey]
-        if (slot.patientId === patient.id) {
-          const parts = shiftKey.split('-')
-          foundBed = parts[0] === 'peripheral' ? `外圍${parts[1]}` : parts[1]
-          break
-        }
-      }
-    }
-    targetArray[index].bedChange = foundBed
-  }
-  isAutocompleteVisible.value = false
-}
-async function signAsLeader(shift) {
-  if (!currentUser.value) return
-  const performSign = async (isOverride = false) => {
-    dailyLog.leader[shift] = {
-      userId: currentUser.value.uid,
-      name: currentUser.value.name,
-      signedAt: new Date().toISOString(),
-    }
-    const successMsg = isOverride ? '覆蓋簽核成功！日誌已更新。' : '簽核成功！日誌已儲存。'
-    await saveLog({ successMessage: successMsg })
-  }
-
-  const existingLeader = dailyLog.leader[shift]
-  let confirmMsg = `您確定要以「${currentUser.value.name}」的名義簽核此班別，並儲存所有變更嗎？`
-  let confirmTitle = '確認簽核'
-  if (existingLeader?.userId && existingLeader.userId !== currentUser.value.uid) {
-    confirmTitle = '覆蓋簽核'
-    confirmMsg = `此班別已由 ${existingLeader.name} 簽核。\n\n` + confirmMsg
-  } else if (existingLeader?.userId && !hasUnsavedChanges.value) {
-    showAlert('提示', '您已簽核，且日誌無未儲存的變更。')
-    return
-  } else if (hasUnsavedChanges.value) {
-    confirmTitle = '更新簽核並儲存'
-  }
-  showConfirm(confirmTitle, confirmMsg, performSign)
-}
-function formatSignTime(isoString) {
-  if (!isoString) return ''
-  const date = new Date(isoString)
-  const hours = date.getHours().toString().padStart(2, '0')
-  const minutes = date.getMinutes().toString().padStart(2, '0')
-  return `${hours}:${minutes}`
-}
-async function unsignLeader(shift) {
-  if (!currentUser.value) return
-  const performUnsign = async () => {
-    dailyLog.leader[shift] = { userId: null, name: null, signedAt: null }
-    await saveLog({ successMessage: '撤銷簽核成功！日誌已更新。' })
-  }
-
-  if (dailyLog.leader[shift]?.userId) {
-    if (
-      dailyLog.leader[shift]?.userId === currentUser.value.uid ||
-      currentUser.value.role === 'admin'
-    ) {
-      showConfirm(
-        '撤銷簽核',
-        `您確定要撤銷 ${dailyLog.leader[shift].name} 的簽核並儲存變更嗎？`,
-        performUnsign,
-      )
-    } else {
-      showAlert('權限不足', '您沒有權限撤銷其他人的簽核。')
-    }
-  }
-}
-function showConfirm(title, message, onConfirmCallback) {
-  confirmDialogTitle.value = title
-  confirmDialogMessage.value = message
-  confirmAction.value = onConfirmCallback
-  isConfirmDialogVisible.value = true
-}
-function handleConfirm() {
-  if (typeof confirmAction.value === 'function') {
-    confirmAction.value()
-  }
-  handleCancel()
-}
-function handleCancel() {
-  isConfirmDialogVisible.value = false
-  confirmDialogTitle.value = ''
-  confirmDialogMessage.value = ''
-  confirmAction.value = null
-}
-function showAlert(title, message) {
-  alertDialogTitle.value = title
-  alertDialogMessage.value = message
-  isAlertDialogVisible.value = true
-}
-function promptWardNumber(index) {
-  const patientId = dailyLog.patientMovements[index]?.patientId
-  if (!patientId) {
-    showAlert('操作失敗', '請先透過「姓名」欄位選擇一位病人，才能設定床號。')
-    return
-  }
-  const patient = patientMap.value.get(patientId)
-  if (!patient || !['ipd', 'er'].includes(patient.status)) {
-    showAlert(
-      '提示',
-      `病人「${patient.name}」目前的狀態是「${patient.status === 'opd' ? '門診' : '未知'}」，無法設定住院床號。`,
-    )
-    return
-  }
-  currentEditingMovementIndex.value = index
-  isWardDialogVisible.value = true
-}
-async function handleWardNumberConfirm(newWardNumber) {
-  const index = currentEditingMovementIndex.value
-  if (index < 0) return
-  const patientId = dailyLog.patientMovements[index]?.patientId
-  if (!patientId) return
-  try {
-    await optimizedUpdatePatient(patientId, { wardNumber: newWardNumber })
-    await patientStore.forceRefreshPatients()
-    showAlert('操作成功', '住院床號已更新！')
-  } catch (error) {
-    console.error('更新住院床號失敗:', error)
-    showAlert('操作失敗', '更新住院床號時發生錯誤。')
-  } finally {
-    handleWardNumberCancel()
-  }
-}
-function handleWardNumberCancel() {
-  isWardDialogVisible.value = false
-  currentEditingMovementIndex.value = -1
-}
-function handleTextareaInput() {
-  const textareas = [otherNotesTextarea.value]
-  textareas.forEach((textarea) => {
-    if (textarea) {
-      textarea.style.height = 'auto'
-      textarea.style.height = `${textarea.scrollHeight}px`
-    }
-  })
-}
+// --- PDF Export ---
 async function exportToPDF() {
   if (isLoading.value) {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
@@ -1645,47 +1436,331 @@ async function exportToPDF() {
   }
 }
 
-// ✨✨✨ 這是核心修改區塊 ✨✨✨
-function onNotesUpdated(newNotes) {
-  // 1. 更新用於顯示和傳遞給 dialog 的 ref
-  handoverNotes.value = newNotes
+// ===================================================================
+// 6. UI Event Handlers
+// ===================================================================
 
-  // 2. 將 dailyLog 中的 handoverNotes 標記為有變更，以便觸發儲存
-  //    注意：我們不在 dailyLog 中永久儲存 handoverNotes，
-  //    這只是一個觸發 'hasUnsavedChanges' 的標記。
-  // dailyLog.handoverNotes = newNotes; // 移除此行，因為 saveLog 會自動處理
-  hasUnsavedChanges.value = true
+// --- Header Controls ---
+function changeDate(days) {
+  const newDate = new Date(selectedDate.value)
+  newDate.setDate(newDate.getDate() + days)
+  selectedDate.value = formatDate(newDate)
+}
 
-  // 3. 關閉對話框
-  isHandoverDialogVisible.value = false
+function goToToday() {
+  selectedDate.value = formatDate(new Date())
+}
 
-  // 4. (可選但建議) 立即儲存一次日誌，以確保 handoverNotes 的顯示與簽核狀態同步
-  //    這裡我們不顯示成功提示，以免干擾使用者
-  saveLog({ showSuccessAlert: false })
+function triggerDateInput() {
+  document.querySelector('.hidden-date-input').showPicker()
+}
+
+// --- Dynamic Table Row Management ---
+function addRow(targetArrayKey) {
+  if (newMovementId.value) {
+    showAlert('提示', '請先儲存目前新增的動態，再新增下一筆。')
+    return
+  }
+  const newId = Date.now()
+  if (targetArrayKey === 'patientMovements') {
+    dailyLog.patientMovements.push({
+      id: newId,
+      type: '手動',
+      name: '',
+      medicalRecordNumber: '',
+      bedChange: '',
+      admissionDate: '',
+      dischargeDate: '',
+      physician: '',
+      reason: '',
+      remarks: '',
+    })
+    newMovementId.value = newId
+  } else if (targetArrayKey === 'vascularAccessLog') {
+    dailyLog.vascularAccessLog.push({
+      id: newId,
+      name: '',
+      medicalRecordNumber: '',
+      date: selectedDate.value,
+      interventions: [],
+      location: '',
+    })
+  }
+}
+
+function deleteRow(index, targetArrayKey) {
+  const item = dailyLog[targetArrayKey][index]
+  showConfirm('確認移除', '您確定要移除這一行嗎？', () => {
+    if (item.id === newMovementId.value) {
+      newMovementId.value = null
+    }
+    dailyLog[targetArrayKey].splice(index, 1)
+  })
 }
 
 function isRowInEditMode(item) {
-  if (item.id === newMovementId.value) {
-    return true
-  }
-  if (item.isEdited) {
-    return true
-  }
-  return false
+  return item.id === newMovementId.value || !!item.isEdited
 }
 
 function unlockMovement(item) {
   item.isEdited = true
 }
 
+async function saveMovement(item) {
+  if (!item.name) {
+    showAlert('資料不完整', '請至少填寫病人姓名。')
+    return
+  }
+
+  if (item.isEdited && item.originalType) {
+    item.originalAutoId = item.id
+    item.id = `edited_${item.id}`
+    item.type = '手動'
+  }
+
+  if (item.id === newMovementId.value) {
+    newMovementId.value = null
+  }
+  item.isEdited = false
+
+  await saveJustMovements()
+}
+
+async function saveJustMovements() {
+  isLoading.value = true
+  try {
+    const docId = selectedDate.value
+    const dataToUpdate = {
+      patientMovements: JSON.parse(JSON.stringify(dailyLog.patientMovements)),
+    }
+
+    if (dailyLog.id) {
+      await dailyLogsApi.update(docId, dataToUpdate)
+    } else {
+      await dailyLogsApi.save(docId, dataToUpdate)
+      dailyLog.id = docId
+    }
+    hasUnsavedChanges.value = false
+    showAlert('操作成功', '病人動態已更新！')
+  } catch (error) {
+    console.error('儲存病人動態失敗:', error)
+    showAlert('儲存失敗', '更新病人動態時發生錯誤。')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// --- Patient Autocomplete ---
+function handlePatientSearch(index, type) {
+  const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
+  const query = targetArray[index].name.toLowerCase()
+  if (!query) {
+    patientSearchResults.value = []
+    return
+  }
+  patientSearchResults.value = allPatients.value.filter(
+    (p) => p.name.toLowerCase().includes(query) || p.medicalRecordNumber.includes(query),
+  )
+}
+
+function showAutocomplete(event, index, type) {
+  activeSearch.value = { type, index }
+  handlePatientSearch(index, type)
+  const inputElement = event.target
+  const rect = inputElement.getBoundingClientRect()
+  autocompleteStyle.top = `${rect.bottom + window.scrollY}px`
+  autocompleteStyle.left = `${rect.left + window.scrollX}px`
+  autocompleteStyle.width = `${rect.width}px`
+  isAutocompleteVisible.value = true
+}
+
+function hideAutocomplete() {
+  setTimeout(() => {
+    isAutocompleteVisible.value = false
+  }, 200)
+}
+
+function selectPatient(patient, index, type) {
+  const targetArray = type === 'movements' ? dailyLog.patientMovements : dailyLog.vascularAccessLog
+  targetArray[index].name = patient.name
+  targetArray[index].patientId = patient.id
+  targetArray[index].medicalRecordNumber = patient.medicalRecordNumber
+  if (type === 'movements') {
+    targetArray[index].admissionDate = patient.admissionDate || ''
+    targetArray[index].physician = patient.physician || ''
+    let foundBed = ''
+    if (currentSchedule.value) {
+      for (const shiftKey in currentSchedule.value) {
+        const slot = currentSchedule.value[shiftKey]
+        if (slot.patientId === patient.id) {
+          const parts = shiftKey.split('-')
+          foundBed = parts[0] === 'peripheral' ? `外圍${parts[1]}` : parts[1]
+          break
+        }
+      }
+    }
+    targetArray[index].bedChange = foundBed
+  }
+  isAutocompleteVisible.value = false
+}
+
+// --- Dialog Management ---
+function showConfirm(title, message, onConfirmCallback) {
+  confirmDialogTitle.value = title
+  confirmDialogMessage.value = message
+  confirmAction.value = onConfirmCallback
+  isConfirmDialogVisible.value = true
+}
+
+function handleConfirm() {
+  if (typeof confirmAction.value === 'function') {
+    confirmAction.value()
+  }
+  handleCancel()
+}
+
+function handleCancel() {
+  isConfirmDialogVisible.value = false
+  confirmDialogTitle.value = ''
+  confirmDialogMessage.value = ''
+  confirmAction.value = null
+}
+
+function showAlert(title, message) {
+  alertDialogTitle.value = title
+  alertDialogMessage.value = message
+  isAlertDialogVisible.value = true
+}
+
+function onNotesUpdated(newNotes) {
+  handoverNotes.value = newNotes
+  isHandoverDialogVisible.value = false
+}
+
+// --- Ward Number Dialog ---
+function promptWardNumber(index) {
+  const patientId = dailyLog.patientMovements[index]?.patientId
+  if (!patientId) {
+    showAlert('操作失敗', '請先透過「姓名」欄位選擇一位病人，才能設定床號。')
+    return
+  }
+  const patient = patientMap.value.get(patientId)
+  if (!patient || !['ipd', 'er'].includes(patient.status)) {
+    showAlert(
+      '提示',
+      `病人「${patient.name}」目前的狀態是「${patient.status === 'opd' ? '門診' : '未知'}」，無法設定住院床號。`,
+    )
+    return
+  }
+  currentEditingMovementIndex.value = index
+  isWardDialogVisible.value = true
+}
+
+async function handleWardNumberConfirm(newWardNumber) {
+  const index = currentEditingMovementIndex.value
+  if (index < 0) return
+  const patientId = dailyLog.patientMovements[index]?.patientId
+  if (!patientId) return
+  try {
+    await optimizedUpdatePatient(patientId, { wardNumber: newWardNumber })
+    await patientStore.forceRefreshPatients()
+    showAlert('操作成功', '住院床號已更新！')
+  } catch (error) {
+    console.error('更新住院床號失敗:', error)
+    showAlert('操作失敗', '更新住院床號時發生錯誤。')
+  } finally {
+    handleWardNumberCancel()
+  }
+}
+
+function handleWardNumberCancel() {
+  isWardDialogVisible.value = false
+  currentEditingMovementIndex.value = -1
+}
+
+// --- Leader Signature ---
+async function signAsLeader(shift) {
+  if (!currentUser.value) return
+  const performSign = async (isOverride = false) => {
+    dailyLog.leader[shift] = {
+      userId: currentUser.value.uid,
+      name: currentUser.value.name,
+      signedAt: new Date().toISOString(),
+    }
+    const successMsg = isOverride ? '覆蓋簽核成功！日誌已更新。' : '簽核成功！日誌已儲存。'
+    await saveLog({ successMessage: successMsg })
+  }
+
+  const existingLeader = dailyLog.leader[shift]
+  let confirmMsg = `您確定要以「${currentUser.value.name}」的名義簽核此班別，並儲存所有變更嗎？`
+  let confirmTitle = '確認簽核'
+  if (existingLeader?.userId && existingLeader.userId !== currentUser.value.uid) {
+    confirmTitle = '覆蓋簽核'
+    confirmMsg = `此班別已由 ${existingLeader.name} 簽核。\n\n` + confirmMsg
+  } else if (existingLeader?.userId && !hasUnsavedChanges.value) {
+    showAlert('提示', '您已簽核，且日誌無未儲存的變更。')
+    return
+  } else if (hasUnsavedChanges.value) {
+    confirmTitle = '更新簽核並儲存'
+  }
+  showConfirm(confirmTitle, confirmMsg, performSign)
+}
+
+async function unsignLeader(shift) {
+  if (!currentUser.value) return
+  const performUnsign = async () => {
+    dailyLog.leader[shift] = { userId: null, name: null, signedAt: null }
+    await saveLog({ successMessage: '撤銷簽核成功！日誌已更新。' })
+  }
+
+  if (dailyLog.leader[shift]?.userId) {
+    if (
+      dailyLog.leader[shift]?.userId === currentUser.value.uid ||
+      currentUser.value.role === 'admin'
+    ) {
+      showConfirm(
+        '撤銷簽核',
+        `您確定要撤銷 ${dailyLog.leader[shift].name} 的簽核並儲存變更嗎？`,
+        performUnsign,
+      )
+    } else {
+      showAlert('權限不足', '您沒有權限撤銷其他人的簽核。')
+    }
+  }
+}
+
+// --- Misc UI Handlers ---
+function handleTextareaInput() {
+  const textarea = otherNotesTextarea.value
+  if (textarea) {
+    textarea.style.height = 'auto'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }
+}
+
+// ===================================================================
+// 7. Lifecycle Hooks & Watchers
+// ===================================================================
+
+// --- Lifecycle Hooks ---
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
+
+  const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
+  marqueeUnsubscribe = onSnapshot(marqueeRef, (docSnap) => {
+    marqueeHtmlContent.value = docSnap.exists() ? docSnap.data().content || '' : ''
+  })
 })
+
+onUnmounted(() => {
+  if (marqueeUnsubscribe) marqueeUnsubscribe()
+})
+
+// --- Watchers ---
 watch(selectedDate, (newDate) => {
-  if (newDate) {
-    loadDailyLog(newDate)
-  }
+  if (newDate) loadDailyLog(newDate)
 })
+
 watch(
   dailyLog,
   () => {
@@ -1694,6 +1769,35 @@ watch(
   },
   { deep: true },
 )
+
+watch(
+  calculatedStaffingTotals,
+  (newTotals) => {
+    if (dailyLog.stats.staffing) {
+      dailyLog.stats.staffing.early = newTotals.early
+      dailyLog.stats.staffing.noon = newTotals.noon
+      dailyLog.stats.staffing.late = newTotals.late
+    }
+  },
+  { deep: true, immediate: true },
+)
+
+// ===================================================================
+// 8. Utility Functions
+// ===================================================================
+function formatDate(date) {
+  const d = new Date(date)
+  const year = d.getFullYear()
+  const month = (d.getMonth() + 1).toString().padStart(2, '0')
+  const day = d.getDate().toString().padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatSignTime(isoString) {
+  if (!isoString) return ''
+  const date = new Date(isoString)
+  return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
 </script>
 
 <style scoped>
@@ -2672,5 +2776,26 @@ h1 {
 .signature-item .signed {
   font-weight: bold;
   color: #16a34a; /* 綠色 */
+}
+/* ✨ 核心修改 8: 新增公告設定按鈕的樣式 */
+.btn-marquee-settings {
+  background-color: #f59e0b;
+  color: white;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  border: none;
+}
+.btn-marquee-settings:hover:not(:disabled) {
+  background-color: #d97706;
+}
+.btn-marquee-settings i {
+  margin-right: 0.5rem;
 }
 </style>

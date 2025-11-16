@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/MyPatientsView.vue (v6 - 新增 "新增交辦" 功能 - 完整無省略版) -->
+<!-- 檔案路徑: src/views/MyPatientsView.vue (✨ 整合跑馬燈功能版 ✨) -->
 <template>
   <div class="my-patients-container">
     <div class="page-header">
@@ -22,6 +22,9 @@
         </button>
       </div>
     </div>
+
+    <!-- ✨ 核心修改 1: 在這裡加入跑馬燈元件 ✨ -->
+    <MarqueeBanner />
 
     <div v-if="isLoading && !hasAnyPatients" class="status-panel">
       <div class="spinner"></div>
@@ -54,7 +57,6 @@
               </thead>
               <tbody>
                 <tr v-for="patient in shiftPatients" :key="patient.id">
-                  <!-- ✨ 核心修改: 加上 data-label 屬性 -->
                   <td data-label="床位">{{ patient.bedNum }}</td>
                   <td
                     data-label="姓名"
@@ -120,7 +122,7 @@
       </template>
     </div>
 
-    <!-- ... 其他 Dialog 元件維持不變 ... -->
+    <!-- Dialogs -->
     <TaskCreateDialog
       :is-visible="isCreateModalVisible"
       :all-patients="patientStore.allPatients"
@@ -155,11 +157,15 @@ import { usePatientStore } from '@/stores/patientStore'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 import { doc, updateDoc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
+
+// Component Imports
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-// ✨ 核心修正：引入我們剛剛建立的共用函式
+import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
+import MarqueeBanner from '@/components/MarqueeBanner.vue' // ✨ 核心修改 2: 引入跑馬燈元件
+
+// Shared Logic Imports
 import { handleTaskCreated } from '@/utils/taskHandlers.js'
-import DialysisOrderModal from '@/components/DialysisOrderModal.vue' // ✨ 1. 引入醫囑元件
 
 // --- 初始化 Composables 和 Stores ---
 const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList()
@@ -230,7 +236,6 @@ function getMessageTypeIcon(type) {
 
 // --- 事件處理函式 ---
 
-// 開啟「新增/編輯」Dialog
 function openCreateModal(itemToEdit = null) {
   if (!hasPermission('viewer')) {
     createGlobalNotification('您的權限不足，無法執行此操作。', 'error')
@@ -240,13 +245,11 @@ function openCreateModal(itemToEdit = null) {
   isCreateModalVisible.value = true
 }
 
-// 關閉「新增/編輯」Dialog
 function closeCreateModal() {
   isCreateModalVisible.value = false
   editingItem.value = null
 }
 
-// 處理 Dialog 送出的事件 (可能是新增或編輯)
 async function handleTaskSubmit(data) {
   if (data.id) {
     // 編輯模式
@@ -273,7 +276,6 @@ async function handleTaskSubmit(data) {
   closeCreateModal()
 }
 
-// 更新任務狀態 (例如：已讀)
 async function updateTaskStatus(task, newStatus) {
   if (!currentUser.value) return
   try {
@@ -294,13 +296,11 @@ async function updateTaskStatus(task, newStatus) {
   }
 }
 
-// 開啟「刪除確認」Dialog
 function confirmDeleteTask(item) {
   itemToDelete.value = item
   isConfirmDeleteVisible.value = true
 }
 
-// 執行刪除
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
   const collectionName = itemToDelete.value.isLegacy ? 'memos' : 'tasks'
@@ -316,14 +316,11 @@ async function executeDeleteTask() {
   itemToDelete.value = null
 }
 
-// 為了方便，我們把 openEditModal 也定義一下
 function openEditModal(itemToEdit) {
   openCreateModal(itemToEdit)
 }
 
-// ✨ 3. 新增開啟醫囑 Modal 的函式
 function openOrderModal(patientFromList) {
-  // 從 patientStore 中找到最完整的病人資料，因為列表上的 patient 物件可能經過簡化
   const fullPatientData = patientStore.allPatients.find((p) => p.id === patientFromList.patientId)
   if (fullPatientData) {
     selectedPatientForOrder.value = fullPatientData
@@ -334,7 +331,6 @@ function openOrderModal(patientFromList) {
   }
 }
 
-// ✨ 4. 新增關閉和儲存醫囑的處理函式
 function closeOrderModal() {
   isOrderModalVisible.value = false
   selectedPatientForOrder.value = null
@@ -347,12 +343,10 @@ async function handleOrderSave(updatedOrders) {
   const historyRef = collection(db, 'dialysis_order_history')
 
   try {
-    // 步驟 1: 更新 patient 文件中的 dialysisOrders
     await updateDoc(patientRef, {
       dialysisOrders: updatedOrders,
     })
 
-    // 步驟 2: 新增一筆歷史紀錄
     await addDoc(historyRef, {
       patientId: selectedPatientForOrder.value.id,
       patientName: selectedPatientForOrder.value.name,
@@ -362,10 +356,7 @@ async function handleOrderSave(updatedOrders) {
     })
 
     createGlobalNotification(`${selectedPatientForOrder.value.name} 的醫囑已更新`, 'success')
-
-    // 手動更新 store 中的資料，讓畫面即時反應
     patientStore.updatePatientOrders(selectedPatientForOrder.value.id, updatedOrders)
-
     closeOrderModal()
   } catch (error) {
     console.error('儲存醫囑失敗:', error)
