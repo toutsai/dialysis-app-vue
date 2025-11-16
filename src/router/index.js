@@ -134,17 +134,13 @@ const routes = [
         component: () => import('../views/OrdersView.vue'),
         meta: { title: '藥囑管理', requiredAuth: true, roles: ['contributor', 'editor', 'admin'] },
       },
-      // ==========================================================
-      // ✨✨✨【第一步修改處】✨✨✨
-      // 在此處新增「我的今日病人」的路由設定
-      // ==========================================================
       {
-        path: 'my-patients', // 1. 設定頁面網址
-        name: 'MyPatients', // 2. 設定路由的獨特名稱
-        component: () => import('../views/MyPatientsView.vue'), // 3. 指向我們剛建立的 MyPatientsView.vue 檔案
+        path: 'my-patients',
+        name: 'MyPatients',
+        component: () => import('../views/MyPatientsView.vue'),
         meta: {
-          title: '我的今日病人', // 4. 設定頁面標題
-          requiresAuth: true, // 5. 確保使用者需要登入才能訪問
+          title: '我的今日病人',
+          requiresAuth: true,
         },
       },
       {
@@ -166,7 +162,10 @@ const router = createRouter({
   routes,
 })
 
-// 路由守衛保持不變
+// ==========================================================
+// ✨✨✨【核心修改處】✨✨✨
+// 在路由守衛中加入職稱判斷邏輯
+// ==========================================================
 router.beforeEach(async (to, from, next) => {
   const { isLoggedIn, isAdmin, waitForAuthInit, currentUser } = useAuth()
   await waitForAuthInit()
@@ -175,16 +174,34 @@ router.beforeEach(async (to, from, next) => {
   const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
   const requiredRoles = to.matched.flatMap((record) => record.meta.roles || [])
 
+  // 1. 如果目標頁面需要登入，但使用者未登入 -> 導向登入頁
   if (requiresAuth && !isLoggedIn.value) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
+
+    // 2. 如果使用者已登入，但又試圖訪問登入頁 -> 根據職稱決定導向何處
   } else if (to.name === 'Login' && isLoggedIn.value) {
-    next({ name: 'Collaboration' })
+    const userTitle = currentUser.value?.title // 獲取當前使用者的職稱
+
+    // ✨ 新增的判斷邏輯
+    if (userTitle === '護理師' || userTitle === '護理師組長') {
+      // 如果是護理師或組長，導向「我的今日病人」
+      next({ name: 'MyPatients' })
+    } else {
+      // 其他所有角色，維持原樣，導向「協作訊息中心」
+      next({ name: 'Collaboration' })
+    }
+
+    // 3. 如果目標頁面需要管理員權限，但使用者不是管理員 -> 導向預設頁面
   } else if (requiresAdmin && !isAdmin.value) {
     console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問管理員頁面。`)
     next({ name: 'Schedule' })
+
+    // 4. 如果目標頁面需要特定角色，但使用者角色不符 -> 導向預設頁面
   } else if (requiredRoles.length > 0 && !requiredRoles.includes(currentUser.value?.role)) {
     console.warn(`權限不足：用戶角色 (${currentUser.value?.role}) 無法訪問此頁面。`)
     next({ name: 'Schedule' })
+
+    // 5. 所有檢查都通過 -> 允許導航
   } else {
     next()
   }
