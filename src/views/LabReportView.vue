@@ -215,7 +215,7 @@
                       {{ item.patient.name }}
                     </td>
                     <td class="clickable" @click="openAlertDetailModal(item, group.key)">
-                      {{ formatAbnormalityReason(item.abnormality) }}
+                      <div v-html="formatAbnormalityReason(item.abnormality)"></div>
                     </td>
                     <!-- ✨ 修改：使用 div 顯示內容，增加可讀性 -->
                     <td>
@@ -547,13 +547,49 @@ function sortAlertItems(items) {
 }
 
 function formatAbnormalityReason(abnormality) {
-  if (!abnormality || !abnormality.values) return abnormality.reason || 'N/A'
-  return abnormality.values
-    .map((item) => {
-      const monthNum = parseInt(item.month.split('-')[1], 10)
-      return `${item.value}(${monthNum}月)`
-    })
-    .join(', ')
+  if (!abnormality || !abnormality.values || abnormality.values.length < 3) {
+    return abnormality.reason || 'N/A'
+  }
+
+  // 確保月份是按時間順序排列的
+  const sortedValues = [...abnormality.values].sort((a, b) => a.month.localeCompare(b.month))
+
+  const monthsHtml = sortedValues
+    .map((item) => `${parseInt(item.month.split('-')[1], 10)}月`)
+    .join(' → ')
+
+  const valuesHtml = sortedValues.map((item) => item.value).join(' → ')
+
+  // 趨勢判斷邏輯
+  const firstValue = parseFloat(sortedValues[0].value)
+  const lastValue = parseFloat(sortedValues[sortedValues.length - 1].value)
+  let trendIndicator = ''
+  let trendClass = 'trend-stable'
+
+  // 定義哪些項目升高是惡化
+  const worseningIfIncreased = ['CaXP']
+  // 定義哪些項目降低是惡化
+  const worseningIfDecreased = ['Hb', 'Albumin', 'URR']
+
+  if (lastValue > firstValue) {
+    trendIndicator = '▲'
+    trendClass = worseningIfIncreased.includes(abnormality.key) ? 'is-worsening' : 'is-improving'
+  } else if (lastValue < firstValue) {
+    trendIndicator = '▼'
+    trendClass = worseningIfDecreased.includes(abnormality.key) ? 'is-worsening' : 'is-improving'
+  } else {
+    trendIndicator = '―'
+  }
+
+  const indicatorHtml = `<span class="trend-indicator ${trendClass}">${trendIndicator}</span>`
+
+  // 生成最終的 HTML 結構
+  return `
+    <div class="abnormality-details">
+      <div class="months-row">${monthsHtml}</div>
+      <div class="values-row">${valuesHtml} ${indicatorHtml}</div>
+    </div>
+  `
 }
 
 function setActiveTab(tabName) {
@@ -1907,6 +1943,52 @@ input[type='file'] {
   padding: 0.5rem;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+
+.abnormality-details {
+  line-height: 1.4;
+  text-align: left;
+  padding: 2px 4px;
+}
+
+.months-row {
+  font-size: 0.85em;
+  color: #6c757d;
+  white-space: nowrap;
+}
+
+.values-row {
+  font-size: 1.05em;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+.trend-indicator {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 1.2em;
+}
+
+/* 趨勢顏色定義 */
+.trend-indicator.is-worsening {
+  color: #dc3545; /* 紅色，惡化 */
+}
+
+.trend-indicator.is-improving {
+  color: #0d6efd; /* 藍色，改善 */
+}
+
+.trend-indicator.trend-stable {
+  color: #6c757d; /* 灰色，穩定 */
+}
+
+/* 確保整個儲存格都是可點擊區域 */
+.alert-table td.clickable {
+  /* 移除預設的 text-decoration，因為視覺上已經很清晰 */
+  text-decoration: none;
+}
+.alert-table td.clickable:hover {
+  background-color: #f0f8ff; /* 滑鼠懸停時給一點背景色回饋 */
 }
 
 /* --- 行動版響應式樣式 (無變動，省略) --- */
