@@ -3,11 +3,9 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useMedicationStore } from '@/stores/medicationStore.js'
-import { collection, getDocs } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
-import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
+import { useUserDirectory } from '@/composables/useUserDirectory.js'
 
 const assignmentsApi = ApiManager('nurse_assignments')
 const schedulesApi = ApiManager('schedules')
@@ -17,25 +15,10 @@ export function useMyPatientList(userIdRef, dateRef) {
   const taskStore = useTaskStore()
   const patientStore = usePatientStore()
   const medicationStore = useMedicationStore()
+  const { ensureUsersLoaded, userMap } = useUserDirectory()
   const isLoading = ref(true)
   const patientListByShift = ref({})
   const patientMap = computed(() => new Map(patientStore.allPatients.map((p) => [p.id, p])))
-  const allUsers = ref(new Map())
-
-  async function fetchAllUsers() {
-    if (allUsers.value.size > 0) return
-    try {
-      const usersCollection = collection(db, 'users')
-      const userSnapshot = await getDocs(usersCollection)
-      const userMap = new Map()
-      userSnapshot.forEach((doc) => {
-        userMap.set(doc.id, doc.data())
-      })
-      allUsers.value = userMap
-    } catch (error) {
-      console.error('無法獲取使用者列表:', error)
-    }
-  }
 
   const processAndBuildList = async () => {
     if (!userIdRef.value || !dateRef.value || patientStore.isLoading) {
@@ -45,12 +28,12 @@ export function useMyPatientList(userIdRef, dateRef) {
     }
 
     isLoading.value = true
-    await fetchAllUsers()
 
     try {
       const targetDate = dateRef.value
       const targetUserId = userIdRef.value
-      const targetUser = allUsers.value.get(targetUserId)
+      await ensureUsersLoaded()
+      const targetUser = userMap.value.get(targetUserId)
 
       if (!targetUser) {
         console.warn(`找不到 UID 為 ${targetUserId} 的使用者資料。`)
@@ -201,17 +184,37 @@ export function useMyPatientList(userIdRef, dateRef) {
     }
   }
 
+  const triggerRebuild = () => {
+    if (!userIdRef.value) {
+      isLoading.value = false
+      patientListByShift.value = {}
+      return
+    }
+
+    if (!dateRef.value) {
+      return
+    }
+
+    if (!patientStore.hasFetched || patientStore.isLoading || taskStore.isLoading) {
+      isLoading.value = true
+      return
+    }
+
+    processAndBuildList()
+  }
+
   watch(
-    () => [userIdRef.value, dateRef.value, patientStore.allPatients, taskStore.feedMessages],
-    () => {
-      if (userIdRef.value && dateRef.value && !patientStore.isLoading && !taskStore.isLoading) {
-        processAndBuildList()
-      } else if (!userIdRef.value) {
-        isLoading.value = false
-        patientListByShift.value = {}
-      }
-    },
-    { immediate: true, deep: true },
+    [
+      () => userIdRef.value,
+      () => dateRef.value,
+      () => patientStore.hasFetched,
+      () => patientStore.isLoading,
+      () => patientStore.patientsVersion,
+      () => taskStore.feedMessagesVersion,
+      () => taskStore.isLoading,
+    ],
+    triggerRebuild,
+    { immediate: true },
   )
 
   const getBedNumberFromKey = (shiftId) => {
@@ -235,9 +238,11 @@ export function useMyPatientList(userIdRef, dateRef) {
     return map[shiftKey] || shiftKey
   }
 
-  const refreshData = () => {
+  const refreshData = (targetDate = dateRef.value) => {
+    if (targetDate) {
+      medicationStore.clearCache(targetDate)
+    }
     if (!isLoading.value) {
-      medicationStore.clearCache()
       processAndBuildList()
     }
   }

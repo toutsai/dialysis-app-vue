@@ -19,6 +19,7 @@ export const useTaskStore = defineStore('task', () => {
   const myTasks = ref([])
   const mySentTasks = ref([])
   const feedMessages = ref([])
+  const feedMessagesVersion = ref(0)
   const isLoading = ref(true) // 初始為 true
   let unsubscribes = []
   const conditionRecordPatientIds = ref(new Set())
@@ -234,7 +235,7 @@ export const useTaskStore = defineStore('task', () => {
           isLegacy: false,
           type: msg.type || '常規',
         }))
-        feedMessages.value = [...standardizedMessages, ...standardizedMemos]
+        setFeedMessages([...standardizedMessages, ...standardizedMemos])
       }
     }
 
@@ -286,8 +287,13 @@ export const useTaskStore = defineStore('task', () => {
     unsubscribes = []
     myTasks.value = []
     mySentTasks.value = []
-    feedMessages.value = []
+    setFeedMessages([])
     isLoading.value = true // 重置為 true
+  }
+
+  const setFeedMessages = (messages) => {
+    feedMessages.value = messages
+    feedMessagesVersion.value += 1
   }
 
   watch(
@@ -310,6 +316,7 @@ export const useTaskStore = defineStore('task', () => {
     myTasks,
     mySentTasks,
     feedMessages, // ✨ 直接回傳 feedMessages
+    feedMessagesVersion,
     sortedFeedMessages,
     todayRelevantMemosCount,
     getPatientMessageTypesMapForDate,
