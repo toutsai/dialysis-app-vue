@@ -197,10 +197,10 @@
                 <thead>
                   <tr>
                     <th>頻率</th>
-                    <th>預設班別</th>
-                    <th>預設床號</th>
+                    <th>班別</th>
+                    <th>床號</th>
                     <th>姓名</th>
-                    <th>不合格項目詳情</th>
+                    <th>累積報告</th>
                     <th class="col-analysis">病因分析</th>
                     <th class="col-suggestion">建議處置</th>
                   </tr>
