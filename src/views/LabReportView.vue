@@ -1970,15 +1970,15 @@ input[type='file'] {
 }
 
 /* 趨勢顏色定義 */
-.trend-indicator.is-worsening {
+:deep(.trend-indicator.is-worsening) {
   color: #dc3545; /* 紅色，惡化 */
 }
 
-.trend-indicator.is-improving {
+:deep(.trend-indicator.is-improving) {
   color: #0d6efd; /* 藍色，改善 */
 }
 
-.trend-indicator.trend-stable {
+:deep(.trend-indicator.trend-stable) {
   color: #6c757d; /* 灰色，穩定 */
 }
 
