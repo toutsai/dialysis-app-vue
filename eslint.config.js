@@ -20,6 +20,17 @@ export default defineConfig([
     },
   },
 
+  {
+    name: 'node-specific-overrides',
+    files: ['functions/**/*.js', 'scripts/**/*.cjs'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+      sourceType: 'commonjs',
+    },
+  },
+
   js.configs.recommended,
   ...pluginVue.configs['flat/essential'],
   skipFormatting,

@@ -173,16 +173,10 @@ import { useMyPatientList } from '@/composables/useMyPatientList.js'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
-import {
-  doc,
-  updateDoc,
-  deleteDoc,
-  collection,
-  addDoc,
-  serverTimestamp,
-} from 'firebase/firestore' // ✨ getDocs
+import { doc, updateDoc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore' // ✨ getDocs
 import { db } from '@/composables/useFirebase'
 import { useUserDirectory } from '@/composables/useUserDirectory'
+import { formatDateToYYYYMMDD } from '@/utils/dateUtils' // ✨ 1. 引入您的日期工具函式
 
 // Component Imports
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
@@ -201,7 +195,7 @@ const { ensureUsersLoaded, users: userDirectoryUsers, clearCachedUsers } = useUs
 
 // ✨ 核心修改 3: 重構 useMyPatientList 的使用方式 ✨
 const selectedUserId = ref(currentUser.value?.uid)
-const selectedDate = ref(new Date().toISOString().slice(0, 10))
+const selectedDate = ref(formatDateToYYYYMMDD()) // ✨ 3. 使用新的函式來初始化日期
 
 // 將 useMyPatientList 的呼叫放到 computed 中，使其能響應 selectedUserId 和 selectedDate 的變化
 const { isLoading, patientListByShift, fetchMyPatientData } = useMyPatientList(
