@@ -3,6 +3,8 @@ import { useAuth } from '@/composables/useAuth.js'
 import { useTaskStore } from '@/stores/taskStore.js'
 import { usePatientStore } from '@/stores/patientStore.js'
 import { useMedicationStore } from '@/stores/medicationStore.js'
+import { collection, getDocs } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager.js'
 import { where } from 'firebase/firestore'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
@@ -10,7 +12,7 @@ import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 const assignmentsApi = ApiManager('nurse_assignments')
 const schedulesApi = ApiManager('schedules')
 
-export function useMyPatientList() {
+export function useMyPatientList(userIdRef, dateRef) {
   const { currentUser } = useAuth()
   const taskStore = useTaskStore()
   const patientStore = usePatientStore()
@@ -18,40 +20,63 @@ export function useMyPatientList() {
   const isLoading = ref(true)
   const patientListByShift = ref({})
   const patientMap = computed(() => new Map(patientStore.allPatients.map((p) => [p.id, p])))
+  const allUsers = ref(new Map())
+
+  async function fetchAllUsers() {
+    if (allUsers.value.size > 0) return
+    try {
+      const usersCollection = collection(db, 'users')
+      const userSnapshot = await getDocs(usersCollection)
+      const userMap = new Map()
+      userSnapshot.forEach((doc) => {
+        userMap.set(doc.id, doc.data())
+      })
+      allUsers.value = userMap
+    } catch (error) {
+      console.error('無法獲取使用者列表:', error)
+    }
+  }
 
   const processAndBuildList = async () => {
-    if (!currentUser.value || patientStore.isLoading) {
-      if (!currentUser.value) {
-        patientListByShift.value = {}
-        isLoading.value = false
-      }
+    if (!userIdRef.value || !dateRef.value || patientStore.isLoading) {
+      patientListByShift.value = {}
+      isLoading.value = false
       return
     }
+
     isLoading.value = true
+    await fetchAllUsers()
+
     try {
-      const today = formatDateToYYYYMMDD(new Date())
-      const currentUserName = currentUser.value.name
+      const targetDate = dateRef.value
+      const targetUserId = userIdRef.value
+      const targetUser = allUsers.value.get(targetUserId)
 
-      // ✨ 優化 1: 使用 Promise.all 並行獲取分組和排班資料，取代串行 await
-      console.time('Parallel Fetch (Assignments & Schedules)')
+      if (!targetUser) {
+        console.warn(`找不到 UID 為 ${targetUserId} 的使用者資料。`)
+        patientListByShift.value = {}
+        isLoading.value = false
+        return
+      }
+      const targetUserName = targetUser.name
+
       const [assignmentsSnapshot, schedulesSnapshot] = await Promise.all([
-        assignmentsApi.fetchAll([where('date', '==', today)]),
-        schedulesApi.fetchAll([where('date', '==', today)]),
+        assignmentsApi.fetchAll([where('date', '==', targetDate)]),
+        schedulesApi.fetchAll([where('date', '==', targetDate)]),
       ])
-      console.timeEnd('Parallel Fetch (Assignments & Schedules)')
 
-      // --- 處理分組資料 (邏輯不變) ---
       const myAssignedIds = new Set()
       const myAssignments = new Map()
       if (assignmentsSnapshot.length > 0) {
         const { names, teams } = assignmentsSnapshot[0]
         if (names && teams) {
           const myTeamCodes = Object.keys(names).filter(
-            (teamCode) => names[teamCode]?.trim() === currentUserName,
+            (teamCode) => names[teamCode]?.trim() === targetUserName,
           )
           if (myTeamCodes.length > 0) {
             for (const teamKey in teams) {
               const [pId] = teamKey.split('-')
+              // ✨✨✨ 錯誤修正處：將 teams[key] 改為 teams[teamKey] ✨✨✨
               const teamAssignment = teams[teamKey]
               const roles = []
               if (myTeamCodes.includes(teamAssignment.nurseTeam)) roles.push('main')
@@ -74,7 +99,6 @@ export function useMyPatientList() {
         return
       }
 
-      // --- 處理排班資料 (邏輯不變) ---
       const myFinalListWithBedInfo = []
       if (schedulesSnapshot.length > 0 && schedulesSnapshot[0].schedule) {
         const scheduleData = schedulesSnapshot[0].schedule
@@ -86,36 +110,31 @@ export function useMyPatientList() {
         }
       }
 
-      // --- 獲取針劑資料 (邏輯不變，它依賴前面的結果，所以不能並行) ---
       const allMyPatientIds = Array.from(myAssignedIds)
       if (allMyPatientIds.length > 0) {
-        await medicationStore.fetchDailyInjections(today, allMyPatientIds)
+        await medicationStore.fetchDailyInjections(targetDate, allMyPatientIds)
       }
 
       const groupedResults = { early: [], noonOn: [], noonOff: [], late: [] }
-      const allInjections = medicationStore.getInjectionsForDate(today) || []
+      const allInjections = medicationStore.getInjectionsForDate(targetDate) || []
 
-      // --- 預處理針劑資料 (邏輯不變，此模式很好) ---
       const injectionsMap = allInjections.reduce((map, injection) => {
         if (!map.has(injection.patientId)) map.set(injection.patientId, [])
         map.get(injection.patientId).push(injection)
         return map
       }, new Map())
 
-      // ✨ 優化 2: 預處理備忘錄資料，建立 memosMap，避免在迴圈中重複 filter
       const pendingMemos = (taskStore.feedMessages || []).filter(
-        (msg) => msg.status === 'pending' && (!msg.targetDate || msg.targetDate >= today),
+        (msg) => msg.status === 'pending' && (!msg.targetDate || msg.targetDate >= targetDate),
       )
       const memosMap = pendingMemos.reduce((map, memo) => {
         if (memo.patientId) {
-          // 只處理有關聯病人的備忘
           if (!map.has(memo.patientId)) map.set(memo.patientId, [])
           map.get(memo.patientId).push(memo)
         }
         return map
       }, new Map())
 
-      // --- 組合最終資料 ---
       myFinalListWithBedInfo.forEach((slot) => {
         const patientFromStore = patientMap.value.get(slot.patientId)
         if (!patientFromStore) return
@@ -141,8 +160,6 @@ export function useMyPatientList() {
           }
 
           const injectionsForPatient = injectionsMap.get(slot.patientId) || []
-
-          // ✨ 優化 2 的應用: 直接從 memosMap 高效獲取資料
           const memos = memosMap.get(slot.patientId) || []
 
           return {
@@ -168,7 +185,6 @@ export function useMyPatientList() {
           groupedResults.noonOff.push(createPatientObject('noonOff'))
       })
 
-      // --- 排序 (邏輯不變) ---
       for (const shift in groupedResults) {
         groupedResults[shift].sort((a, b) => {
           if (a.bedNum === 'N/A') return 1
@@ -185,13 +201,12 @@ export function useMyPatientList() {
     }
   }
 
-  // --- Watcher (邏輯不變) ---
   watch(
-    () => [currentUser.value?.uid, patientStore.allPatients, taskStore.feedMessages],
-    ([uid]) => {
-      if (uid && !patientStore.isLoading && !taskStore.isLoading) {
+    () => [userIdRef.value, dateRef.value, patientStore.allPatients, taskStore.feedMessages],
+    () => {
+      if (userIdRef.value && dateRef.value && !patientStore.isLoading && !taskStore.isLoading) {
         processAndBuildList()
-      } else if (!uid) {
+      } else if (!userIdRef.value) {
         isLoading.value = false
         patientListByShift.value = {}
       }
@@ -199,7 +214,6 @@ export function useMyPatientList() {
     { immediate: true, deep: true },
   )
 
-  // --- 輔助函式 (邏輯不變) ---
   const getBedNumberFromKey = (shiftId) => {
     if (!shiftId) return NaN
     const parts = shiftId.split('-')
