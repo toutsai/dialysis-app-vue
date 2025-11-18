@@ -54,12 +54,26 @@
             <button
               v-for="assignee in assigneeOptions"
               :key="assignee.value"
-              @click="formData.assigneeValue = assignee.value"
-              :class="{ active: formData.assigneeValue === assignee.value }"
+              @click="selectAssigneeRole(assignee.value)"
+              :class="{ active: formData.assigneeRole === assignee.value }"
               class="btn-assignee"
             >
               {{ assignee.label }}
             </button>
+          </div>
+
+          <div v-if="formData.assigneeRole" class="assignee-select-wrapper">
+            <label class="select-label" for="assigneeUser">選擇成員</label>
+            <select
+              id="assigneeUser"
+              v-model="formData.assigneeUserId"
+              class="form-control"
+            >
+              <option value="" disabled>請選擇 {{ selectedAssigneeLabel }} 名單</option>
+              <option v-for="user in filteredAssigneeUsers" :key="user.uid" :value="user.uid">
+                {{ user.name }}<span v-if="user.title">（{{ user.title }}）</span>
+              </option>
+            </select>
           </div>
         </div>
 
@@ -232,12 +246,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { serverTimestamp } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth'
 import ApiManager from '@/services/api_manager.js'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
+import { useUserDirectory } from '@/composables/useUserDirectory'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -253,6 +268,7 @@ const emit = defineEmits(['close', 'submit'])
 const { currentUser } = useAuth()
 const tasksApi = ApiManager('tasks')
 const { createGlobalNotification } = useGlobalNotifier()
+const { ensureUsersLoaded, users: directoryUsers } = useUserDirectory()
 
 const isSubmitting = ref(false)
 const isPatientDialogVisible = ref(false)
@@ -261,9 +277,9 @@ const isEditMode = computed(() => !!props.initialData)
 
 const formData = reactive({
   id: null,
-  isLegacy: false,
   category: 'message',
-  assigneeValue: '',
+  assigneeRole: '',
+  assigneeUserId: '',
   targetDate: new Date().toISOString().slice(0, 10),
   content: '',
   messageType: '常規',
@@ -316,7 +332,30 @@ const supplyTypeOptions = ref([
 const dynamicSupplyItems = ref([])
 const otherSupplyInfo = ref('')
 const isClerkSupplyTask = computed(
-  () => formData.category === 'task' && formData.assigneeValue === 'clerk' && !isEditMode.value,
+  () => formData.category === 'task' && formData.assigneeRole === 'clerk' && !isEditMode.value,
+)
+
+const titleToRoleValue = {
+  書記: 'clerk',
+  主治醫師: 'doctor',
+  專科護理師: 'np',
+  護理師組長: 'editor',
+}
+
+const filteredAssigneeUsers = computed(() => {
+  if (!formData.assigneeRole) return []
+  return directoryUsers.value
+    .filter((user) => titleToRoleValue[user.title] === formData.assigneeRole)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+})
+
+const selectedAssigneeLabel = computed(() => {
+  const matched = assigneeOptions.find((opt) => opt.value === formData.assigneeRole)
+  return matched?.label || '指定職務'
+})
+
+const selectedAssigneeUser = computed(
+  () => directoryUsers.value.find((user) => user.uid === formData.assigneeUserId) || null,
 )
 
 const isFormValid = computed(() => {
@@ -333,7 +372,7 @@ const isFormValid = computed(() => {
     }
     return allItemsValid
   }
-  if (formData.category === 'task' && !formData.assigneeValue) {
+  if (formData.category === 'task' && (!formData.assigneeRole || !formData.assigneeUserId)) {
     return false
   }
   return true
@@ -343,12 +382,13 @@ watch(
   () => props.isVisible,
   (newVal) => {
     if (newVal) {
+      ensureUsersLoaded().catch((error) => console.error('載入使用者名單失敗', error))
       if (isEditMode.value) {
         const item = props.initialData
         formData.id = item.id
-        formData.isLegacy = item.isLegacy || false
         formData.category = item.assignee ? 'task' : 'message'
-        formData.assigneeValue = item.assignee?.value || ''
+        formData.assigneeRole = item.assignee?.role || item.assignee?.value || ''
+        formData.assigneeUserId = item.assignee?.type === 'user' ? item.assignee?.value : ''
         formData.targetDate = item.targetDate || new Date().toISOString().slice(0, 10)
         formData.content = item.content
         formData.messageType = item.type || '常規'
@@ -364,6 +404,10 @@ watch(
   },
 )
 
+onMounted(() => {
+  ensureUsersLoaded().catch((error) => console.error('載入使用者名單失敗', error))
+})
+
 function addSupplyItem() {
   dynamicSupplyItems.value.push({ id: Date.now(), type: '', spec: '', quantity: 1 })
 }
@@ -376,11 +420,20 @@ function onItemTypeChange(item) {
   item.spec = ''
 }
 
+function selectAssigneeRole(role) {
+  formData.assigneeRole = role
+  formData.assigneeUserId = ''
+  const candidates = filteredAssigneeUsers.value
+  if (candidates.length === 1) {
+    formData.assigneeUserId = candidates[0].uid
+  }
+}
+
 function resetForm() {
   formData.id = null
-  formData.isLegacy = false
   formData.category = 'message'
-  formData.assigneeValue = ''
+  formData.assigneeRole = ''
+  formData.assigneeUserId = ''
   formData.targetDate = new Date().toISOString().slice(0, 10)
   formData.content = ''
   formData.messageType = '常規'
@@ -422,6 +475,9 @@ async function handleSubmit() {
 
   if (!isEditMode.value) {
     // --- 新增模式 ---
+    const expireAtDate = new Date()
+    expireAtDate.setMonth(expireAtDate.getMonth() + 2)
+
     const dataToSave = {
       category: formData.category,
       content: formData.content.trim(),
@@ -435,11 +491,17 @@ async function handleSubmit() {
       patientName: selectedPatient.value?.name || null,
       createdAt: serverTimestamp(),
       // ✨ 在這裡計算並加入 expireAt 欄位 ✨
-      expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 設定 7 天後過期
+      expireAt: expireAtDate, // 設定 2 個月後過期
     }
 
     if (dataToSave.category === 'task') {
-      dataToSave.assignee = { type: 'role', value: formData.assigneeValue }
+      dataToSave.assignee = {
+        type: 'user',
+        value: formData.assigneeUserId,
+        role: formData.assigneeRole,
+        name: selectedAssigneeUser.value?.name || '',
+        title: selectedAssigneeUser.value?.title || '',
+      }
       dataToSave.targetDate = new Date().toISOString().slice(0, 10)
     } else {
       dataToSave.type = formData.messageType
@@ -461,7 +523,8 @@ async function handleSubmit() {
         notifType = 'message'
       } else {
         const assigneeLabel =
-          assigneeOptions.find((opt) => opt.value === dataToSave.assignee.value)?.label || ''
+          selectedAssigneeUser.value?.name ||
+          assigneeOptions.find((opt) => opt.value === dataToSave.assignee.role)?.label || ''
         notifMessage = `新交辦: 給 ${assigneeLabel} - ${dataToSave.content.substring(0, 20)}...`
         notifType = 'task'
       }
@@ -487,7 +550,7 @@ async function handleSubmit() {
       },
       lastEditedAt: serverTimestamp(),
     }
-    emit('submit', { id: formData.id, isLegacy: formData.isLegacy, ...dataToUpdate })
+    emit('submit', { id: formData.id, ...dataToUpdate })
     isSubmitting.value = false
   }
 }
@@ -707,6 +770,18 @@ function close() {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.assignee-select-wrapper {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.select-label {
+  font-weight: 600;
+  color: #343a40;
 }
 
 .btn-assignee {

@@ -208,7 +208,7 @@
                 <div v-if="msg.status === 'pending' && msg.type !== '衛教'" class="item-actions">
                   <button
                     class="btn-action btn-complete"
-                    @click="updateTaskStatus(msg.id, 'completed', msg.isLegacy)"
+                    @click="updateTaskStatus(msg.id, 'completed')"
                     :disabled="displayDate < msg.targetDate"
                     :title="
                       displayDate < msg.targetDate
@@ -232,7 +232,7 @@
                 <div v-else-if="msg.status === 'expired'" class="item-actions">
                   <button
                     class="btn-action btn-revert"
-                    @click="updateTaskStatus(msg.id, 'pending', msg.isLegacy)"
+                    @click="updateTaskStatus(msg.id, 'pending')"
                     title="將此事項移回待辦清單"
                   >
                     <i class="fas fa-undo"></i> 移回待辦
@@ -300,7 +300,7 @@
                 <div v-if="task.status === 'pending'" class="item-actions">
                   <button
                     class="btn-action btn-complete-task"
-                    @click="updateTaskStatus(task.id, 'completed', task.isLegacy)"
+                    @click="updateTaskStatus(task.id, 'completed')"
                   >
                     <i class="fas fa-check"></i> 完成
                   </button>
@@ -562,7 +562,7 @@
                   <div v-if="msg.status === 'pending'" class="item-actions">
                     <button
                       class="btn-action btn-complete"
-                      @click="updateTaskStatus(msg.id, 'completed', msg.isLegacy)"
+                      @click="updateTaskStatus(msg.id, 'completed')"
                       :disabled="displayDate < msg.targetDate"
                       :title="
                         displayDate < msg.targetDate
@@ -576,7 +576,7 @@
                   <div v-else-if="msg.status === 'expired'" class="item-actions">
                     <button
                       class="btn-action btn-revert"
-                      @click="updateTaskStatus(msg.id, 'pending', msg.isLegacy)"
+                      @click="updateTaskStatus(msg.id, 'pending')"
                       title="將此事項移回待辦清單"
                     >
                       <i class="fas fa-undo"></i> 移回待辦
@@ -619,7 +619,7 @@
                   <div v-if="task.status === 'pending'" class="item-actions">
                     <button
                       class="btn-action btn-complete-task"
-                      @click="updateTaskStatus(task.id, 'completed', task.isLegacy)"
+                      @click="updateTaskStatus(task.id, 'completed')"
                     >
                       <i class="fas fa-check"></i> 完成
                     </button>
@@ -914,9 +914,8 @@ async function handleTaskSubmit(data) {
 }
 
 async function updateTask(data) {
-  const collectionName = data.isLegacy ? 'memos' : 'tasks'
-  const taskRef = doc(db, collectionName, data.id)
-  const { id, isLegacy, ...updateData } = data
+  const taskRef = doc(db, 'tasks', data.id)
+  const { id, ...updateData } = data
 
   try {
     await updateDoc(taskRef, updateData)
@@ -942,7 +941,7 @@ function confirmDeleteTask(item) {
 
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
-  await deleteTask(itemToDelete.value.id, itemToDelete.value.isLegacy)
+  await deleteTask(itemToDelete.value.id)
   isConfirmDeleteVisible.value = false
   itemToDelete.value = null
 }
@@ -963,11 +962,10 @@ function closeCreateModal() {
 }
 // ✨ --- END: 新增/修改函式 --- ✨
 
-async function updateTaskStatus(taskId, newStatus, isLegacy = false) {
+async function updateTaskStatus(taskId, newStatus) {
   if (!currentUser.value) return
   try {
-    const collectionName = isLegacy ? 'memos' : 'tasks'
-    const taskRef = doc(db, collectionName, taskId)
+    const taskRef = doc(db, 'tasks', taskId)
     await updateDoc(taskRef, {
       status: newStatus,
       resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
@@ -983,10 +981,9 @@ async function updateTaskStatus(taskId, newStatus, isLegacy = false) {
   }
 }
 
-async function deleteTask(taskId, isLegacy = false) {
+async function deleteTask(taskId) {
   try {
-    const collectionName = isLegacy ? 'memos' : 'tasks'
-    const taskRef = doc(db, collectionName, taskId)
+    const taskRef = doc(db, 'tasks', taskId)
     await deleteDoc(taskRef)
     createGlobalNotification('訊息已刪除', 'info')
   } catch (error) {
@@ -1020,6 +1017,10 @@ function getAssigneeName(assignee) {
   if (!assignee) return '未知'
   if (assignee.type === 'role') {
     return roleDisplayNames[assignee.value] || assignee.value
+  }
+  if (assignee.type === 'user') {
+    const titleSuffix = assignee.title ? `（${assignee.title}）` : ''
+    return `${assignee.name || '指定成員'}${titleSuffix}`
   }
   return '特定使用者'
 }
