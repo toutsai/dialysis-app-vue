@@ -297,9 +297,8 @@ function closeCreateModal() {
 async function handleTaskSubmit(data) {
   if (data.id) {
     // 編輯模式
-    const collectionName = data.isLegacy ? 'memos' : 'tasks'
-    const taskRef = doc(db, collectionName, data.id)
-    const { id, isLegacy, ...updateData } = data
+    const taskRef = doc(db, 'tasks', data.id)
+    const { id, ...updateData } = data
     try {
       await updateDoc(taskRef, updateData)
       createGlobalNotification('備忘已更新', 'success')
@@ -323,8 +322,7 @@ async function handleTaskSubmit(data) {
 async function updateTaskStatus(task, newStatus) {
   if (!currentUser.value) return
   try {
-    const collectionName = task.isLegacy ? 'memos' : 'tasks'
-    const taskRef = doc(db, collectionName, task.id)
+    const taskRef = doc(db, 'tasks', task.id)
     await updateDoc(taskRef, {
       status: newStatus,
       resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
@@ -347,8 +345,7 @@ function confirmDeleteTask(item) {
 
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
-  const collectionName = itemToDelete.value.isLegacy ? 'memos' : 'tasks'
-  const taskRef = doc(db, collectionName, itemToDelete.value.id)
+  const taskRef = doc(db, 'tasks', itemToDelete.value.id)
   try {
     await deleteDoc(taskRef)
     createGlobalNotification('訊息已刪除', 'info')
