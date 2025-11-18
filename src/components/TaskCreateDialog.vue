@@ -64,11 +64,7 @@
 
           <div v-if="formData.assigneeRole" class="assignee-select-wrapper">
             <label class="select-label" for="assigneeUser">選擇成員</label>
-            <select
-              id="assigneeUser"
-              v-model="formData.assigneeUserId"
-              class="form-control"
-            >
+            <select id="assigneeUser" v-model="formData.assigneeUserId" class="form-control">
               <option value="" disabled>請選擇 {{ selectedAssigneeLabel }} 名單</option>
               <option v-for="user in filteredAssigneeUsers" :key="user.uid" :value="user.uid">
                 {{ user.name }}<span v-if="user.title">（{{ user.title }}）</span>
@@ -294,7 +290,7 @@ const assigneeOptions = [
   { value: 'clerk', label: '書記' },
   { value: 'doctor', label: '醫師' },
   { value: 'np', label: '專科護理師' },
-  { value: 'editor', label: '護理師組長' },
+  { value: 'editor', label: '護理師' },
 ]
 const akOptions = [
   '13M',
@@ -339,7 +335,7 @@ const titleToRoleValue = {
   書記: 'clerk',
   主治醫師: 'doctor',
   專科護理師: 'np',
-  護理師組長: 'editor',
+  護理師: 'editor',
 }
 
 const filteredAssigneeUsers = computed(() => {
@@ -524,7 +520,8 @@ async function handleSubmit() {
       } else {
         const assigneeLabel =
           selectedAssigneeUser.value?.name ||
-          assigneeOptions.find((opt) => opt.value === dataToSave.assignee.role)?.label || ''
+          assigneeOptions.find((opt) => opt.value === dataToSave.assignee.role)?.label ||
+          ''
         notifMessage = `新交辦: 給 ${assigneeLabel} - ${dataToSave.content.substring(0, 20)}...`
         notifType = 'task'
       }
