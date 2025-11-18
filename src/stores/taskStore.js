@@ -24,6 +24,32 @@ export const useTaskStore = defineStore('task', () => {
   let unsubscribes = []
   const conditionRecordPatientIds = ref(new Set())
 
+  const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000
+
+  const isWithinSevenDays = (dateValue) => {
+    const date = getSafeDate(dateValue)
+    const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_IN_MS)
+    return date.getTime() >= sevenDaysAgo.getTime()
+  }
+
+  const applyRetentionPolicy = (items) =>
+    items
+      .map((item) => ({ ...item, type: item.type || '常規' }))
+      .filter((item) => {
+        if (item.status === 'deleted') return false
+
+        if (item.category === 'message') {
+          if (item.type === '衛教') return true
+          return isWithinSevenDays(item.createdAt)
+        }
+
+        if (item.category === 'task') {
+          return isWithinSevenDays(item.createdAt)
+        }
+
+        return true
+      })
+
   // --- Getters 保持不變 ---
   const sortedFeedMessages = computed(() => {
     // ... (原有邏輯不變)
@@ -140,7 +166,13 @@ export const useTaskStore = defineStore('task', () => {
 
     isLoading.value = true
     let listenersInitialized = 0
-    const totalListeners = 4 // myTasks, mySentTasks, messages, legacyMemos
+    const totalListeners = 4 // myTasksByRole, myTasksByUser, mySentTasks, messages
+    let roleAssignedTasks = []
+    let userAssignedTasks = []
+
+    const refreshMyTasks = () => {
+      myTasks.value = applyRetentionPolicy([...roleAssignedTasks, ...userAssignedTasks])
+    }
 
     const checkLoadingState = () => {
       listenersInitialized++
@@ -173,7 +205,8 @@ export const useTaskStore = defineStore('task', () => {
         onSnapshot(
           myTasksQuery,
           (snapshot) => {
-            myTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+            roleAssignedTasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+            refreshMyTasks()
             checkLoadingState()
           },
           (error) => {
@@ -186,6 +219,27 @@ export const useTaskStore = defineStore('task', () => {
       checkLoadingState() // 如果沒有這個查詢，也要算一次
     }
 
+    const myUserTasksQuery = query(
+      collection(db, 'tasks'),
+      where('category', '==', 'task'),
+      where('assignee.type', '==', 'user'),
+      where('assignee.value', '==', uid),
+    )
+    unsubscribes.push(
+      onSnapshot(
+        myUserTasksQuery,
+        (snapshot) => {
+          userAssignedTasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          refreshMyTasks()
+          checkLoadingState()
+        },
+        (error) => {
+          console.error('Error listening to my user-specific tasks:', error)
+          checkLoadingState()
+        },
+      ),
+    )
+
     const mySentTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
@@ -195,7 +249,7 @@ export const useTaskStore = defineStore('task', () => {
       onSnapshot(
         mySentTasksQuery,
         (snapshot) => {
-          mySentTasks.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          mySentTasks.value = applyRetentionPolicy(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
           checkLoadingState()
         },
         (error) => {
@@ -205,76 +259,24 @@ export const useTaskStore = defineStore('task', () => {
       ),
     )
 
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const messagesQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'message'),
-      where('createdAt', '>=', sevenDaysAgo),
-    )
-    const legacyMemosQuery = query(
-      collection(db, 'memos'),
-      where('status', 'in', ['pending', 'expired']),
-    )
+    const messagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
 
-    let currentMessages = []
-    let currentMemos = []
     let messagesLoaded = false
-    let memosLoaded = false
-
-    const updateCombinedFeed = () => {
-      // ✨ 核心修正：只在兩個來源都至少載入過一次後才合併
-      if (messagesLoaded && memosLoaded) {
-        const standardizedMemos = currentMemos.map((memo) => ({
-          ...memo,
-          isLegacy: true,
-          type: memo.type || '常規',
-        }))
-        const standardizedMessages = currentMessages.map((msg) => ({
-          ...msg,
-          isLegacy: false,
-          type: msg.type || '常規',
-        }))
-        setFeedMessages([...standardizedMessages, ...standardizedMemos])
-      }
-    }
 
     unsubscribes.push(
       onSnapshot(
         messagesQuery,
         (snapshot) => {
-          currentMessages = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+          setFeedMessages(applyRetentionPolicy(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))))
           if (!messagesLoaded) {
             messagesLoaded = true
             checkLoadingState()
           }
-          updateCombinedFeed()
         },
         (error) => {
           console.error('Error listening to messages:', error)
           if (!messagesLoaded) {
             messagesLoaded = true
-            checkLoadingState()
-          }
-        },
-      ),
-    )
-
-    unsubscribes.push(
-      onSnapshot(
-        legacyMemosQuery,
-        (snapshot) => {
-          currentMemos = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-          if (!memosLoaded) {
-            memosLoaded = true
-            checkLoadingState()
-          }
-          updateCombinedFeed()
-        },
-        (error) => {
-          console.error('Error listening to legacy memos:', error)
-          if (!memosLoaded) {
-            memosLoaded = true
             checkLoadingState()
           }
         },
