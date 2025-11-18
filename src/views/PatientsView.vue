@@ -1,10 +1,12 @@
 <!-- 檔案路徑: src/views/PatientsView.vue -->
 <script setup>
-import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
+import { ref, onMounted, computed, watch, onUnmounted, reactive } from 'vue'
+import { useDebounce } from '@vueuse/core'
 import {
   savePatient as optimizedSavePatient,
   updatePatient as optimizedUpdatePatient,
   createDialysisOrderAndUpdatePatient,
+  fetchAllPatients as optimizedFetchAllPatients,
 } from '@/services/optimizedApiService.js'
 import ApiManager from '@/services/api_manager.js'
 import { usePatientStore } from '@/stores/patientStore.js'
@@ -19,8 +21,7 @@ import PatientHistoryModal from '@/components/PatientHistoryModal.vue'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import { useAuth } from '@/composables/useAuth.js'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { db } from '@/composables/useFirebase.js'
-import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
+import { where } from 'firebase/firestore'
 
 // ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務
 const tasksApi = ApiManager('tasks')
@@ -38,6 +39,20 @@ const ipdListFilter = ref('')
 const opdListFilter = ref('')
 const deletedSearchTerm = ref('')
 const globalSearchTerm = ref('')
+const enableServerPagination = import.meta.env.VITE_ENABLE_PATIENT_SERVER_PAGINATION === 'true'
+const defaultPageSize = Number(import.meta.env.VITE_PATIENT_PAGE_SIZE) || 50
+const pagination = reactive({
+  page: 1,
+  pageSize: enableServerPagination ? defaultPageSize : Number.POSITIVE_INFINITY,
+})
+const serverPatientCache = ref(new Map())
+const serverPatients = ref([])
+const serverPatientsTotal = ref(0)
+const isServerLoading = ref(false)
+const debouncedErListFilter = useDebounce(erListFilter, 300)
+const debouncedIpdListFilter = useDebounce(ipdListFilter, 300)
+const debouncedOpdListFilter = useDebounce(opdListFilter, 300)
+const debouncedDeletedSearchTerm = useDebounce(deletedSearchTerm, 300)
 const patientStats = ref({
   source: { er: 0, ipd: 0, opd: 0, deleted: 0 },
   mode: {},
@@ -111,6 +126,46 @@ const RESTORE_OPTIONS = [
   { value: 'er', text: '復原至 急診' },
 ]
 
+async function loadPatientsPageFromServer() {
+  if (!enableServerPagination) return
+
+  const searchTerm = getActiveSearchTerm()
+  const cacheKey = JSON.stringify({
+    tab: activeTab.value,
+    searchTerm,
+    sort: currentSort.value,
+    page: pagination.page,
+    pageSize: pagination.pageSize,
+  })
+
+  const cached = serverPatientCache.value.get(cacheKey)
+  if (cached) {
+    serverPatients.value = cached.patients
+    serverPatientsTotal.value = cached.total
+    return
+  }
+
+  isServerLoading.value = true
+  try {
+    const result = await optimizedFetchAllPatients({
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      sort: currentSort.value,
+      searchTerm,
+      status: activeTab.value,
+    })
+    const patients = Array.isArray(result) ? result : result?.patients || []
+    const total = result?.total ?? patients.length
+    serverPatients.value = patients
+    serverPatientsTotal.value = total
+    serverPatientCache.value.set(cacheKey, { patients, total })
+  } catch (error) {
+    console.error('Failed to fetch patients with server pagination:', error)
+  } finally {
+    isServerLoading.value = false
+  }
+}
+
 function normalizeDateObject(dateInput) {
   if (!dateInput) return null
   if (typeof dateInput.toDate === 'function') return dateInput.toDate()
@@ -118,23 +173,35 @@ function normalizeDateObject(dateInput) {
   return isNaN(date.getTime()) ? null : date
 }
 
+function getActiveSearchTerm() {
+  if (activeTab.value === 'er') return debouncedErListFilter.value
+  if (activeTab.value === 'ipd') return debouncedIpdListFilter.value
+  if (activeTab.value === 'opd') return debouncedOpdListFilter.value
+  if (activeTab.value === 'deleted') return debouncedDeletedSearchTerm.value
+  return ''
+}
+
 const displayedPatients = computed(() => {
+  if (enableServerPagination) {
+    return serverPatients.value || []
+  }
+
   let patientsToDisplay
   let searchTerm = ''
   if (!allPatients.value) return []
 
   if (activeTab.value === 'er') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'er' && !p.isDeleted)
-    searchTerm = erListFilter.value.toLowerCase()
+    searchTerm = debouncedErListFilter.value.toLowerCase()
   } else if (activeTab.value === 'ipd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'ipd' && !p.isDeleted)
-    searchTerm = ipdListFilter.value.toLowerCase()
+    searchTerm = debouncedIpdListFilter.value.toLowerCase()
   } else if (activeTab.value === 'opd') {
     patientsToDisplay = allPatients.value.filter((p) => p.status === 'opd' && !p.isDeleted)
-    searchTerm = opdListFilter.value.toLowerCase()
+    searchTerm = debouncedOpdListFilter.value.toLowerCase()
   } else if (activeTab.value === 'deleted') {
     patientsToDisplay = allPatients.value.filter((p) => p.isDeleted)
-    searchTerm = deletedSearchTerm.value.toLowerCase()
+    searchTerm = debouncedDeletedSearchTerm.value.toLowerCase()
   } else {
     patientsToDisplay = []
   }
@@ -146,6 +213,11 @@ const displayedPatients = computed(() => {
         (p.medicalRecordNumber && p.medicalRecordNumber.includes(searchTerm)),
     )
   }
+
+  const startIndex = Math.max((pagination.page - 1) * pagination.pageSize, 0)
+  const endIndex = startIndex + pagination.pageSize
+  const slicedPatients = patientsToDisplay.slice(startIndex, endIndex)
+  patientsToDisplay = slicedPatients
 
   return [...patientsToDisplay].sort((a, b) => {
     const sortColumn = currentSort.value.column
@@ -866,10 +938,32 @@ function exportDeletedPatients() {
   XLSX.writeFile(wb, `已刪除病人清單_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
 
+watch(
+  [activeTab, debouncedErListFilter, debouncedIpdListFilter, debouncedOpdListFilter, debouncedDeletedSearchTerm],
+  () => {
+    pagination.page = 1
+    if (enableServerPagination) {
+      loadPatientsPageFromServer()
+    }
+  },
+)
+
+watch(
+  [currentSort, () => pagination.page, () => pagination.pageSize],
+  () => {
+    if (enableServerPagination) {
+      loadPatientsPageFromServer()
+    }
+  },
+)
+
 onMounted(() => {
   patientStore.fetchPatientsIfNeeded().then(() => {
     refreshAllData()
   })
+  if (enableServerPagination) {
+    loadPatientsPageFromServer()
+  }
   window.addEventListener('click', closePopovers)
 })
 onUnmounted(() => {
