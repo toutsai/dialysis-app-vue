@@ -1,11 +1,11 @@
 // 檔案路徑: src/services/optimizedApiService.js (✨ 最終功能增強版 ✨)
 import ApiManager from '@/services/api_manager.js'
-import { doc, getDoc, setDoc, orderBy, where } from 'firebase/firestore'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase.js'
 
 // 快取系統... (保持不變)
 const cache = new Map()
-const CACHE_TTL = 5 * 60 * 1000 // 5 分鐘快取，減少不必要的重抓
+const CACHE_TTL = 30000
 function getCacheKey(operation, collection, id = null, paramsKey = '') {
   const paramsSuffix = paramsKey ? `:${paramsKey}` : ''
   return `${operation}:${collection}${id ? `:${id}` : ''}${paramsSuffix}`
@@ -186,29 +186,19 @@ export async function fetchAllPatients(options = {}) {
     searchTerm = '',
     status,
     useCache = true,
-    updatedAfter,
-    cacheVersion,
   } = options
-  const paramsKey = JSON.stringify({ page, pageSize, sort, searchTerm, status, cacheVersion })
+  const paramsKey =
+    page && pageSize
+      ? JSON.stringify({ page, pageSize, sort, searchTerm, status })
+      : ''
   const cacheKey = getCacheKey('fetchAll', 'patients_with_rules', null, paramsKey)
-  const isDeltaRequest = Boolean(updatedAfter)
-  const cached = useCache && !isDeltaRequest ? getCache(cacheKey) : null
+  const cached = useCache ? getCache(cacheKey) : null
   if (cached) return cached
 
   const patientsApi = ApiManager('patients')
   const schedulesApi = ApiManager('base_schedules')
-  const patientQueryConstraints = []
-
-  if (updatedAfter) {
-    const updatedAfterDate = updatedAfter instanceof Date ? updatedAfter : new Date(updatedAfter)
-    if (!Number.isNaN(updatedAfterDate.getTime())) {
-      patientQueryConstraints.push(where('updatedAt', '>=', updatedAfterDate))
-      patientQueryConstraints.push(orderBy('updatedAt', 'asc'))
-    }
-  }
-
   const [patients, masterScheduleDoc] = await Promise.all([
-    patientsApi.fetchAll(patientQueryConstraints),
+    patientsApi.fetchAll(),
     schedulesApi.fetchById('MASTER_SCHEDULE'),
   ])
   const masterRules = masterScheduleDoc?.schedule || {}
@@ -224,11 +214,11 @@ export async function fetchAllPatients(options = {}) {
     const start = Math.max((page - 1) * pageSize, 0)
     const paginated = sorted.slice(start, start + pageSize)
     const payload = { patients: paginated, total: filtered.length }
-    if (useCache && !isDeltaRequest) setCache(cacheKey, payload)
+    if (useCache) setCache(cacheKey, payload)
     return payload
   }
 
-  if (useCache && !isDeltaRequest) setCache(cacheKey, patientsWithRules)
+  setCache(cacheKey, patientsWithRules)
   return patientsWithRules
 }
 export async function savePatient(patientData) {
