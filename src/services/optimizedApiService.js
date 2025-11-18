@@ -6,8 +6,9 @@ import { db } from '@/composables/useFirebase.js'
 // 快取系統... (保持不變)
 const cache = new Map()
 const CACHE_TTL = 30000
-function getCacheKey(operation, collection, id = null) {
-  return `${operation}:${collection}${id ? `:${id}` : ''}`
+function getCacheKey(operation, collection, id = null, paramsKey = '') {
+  const paramsSuffix = paramsKey ? `:${paramsKey}` : ''
+  return `${operation}:${collection}${id ? `:${id}` : ''}${paramsSuffix}`
 }
 function setCache(key, data) {
   cache.set(key, { data, timestamp: Date.now() })
@@ -113,9 +114,85 @@ export async function updateSchedule(scheduleId, updateData) {
 }
 
 // 患者相關函式... (保持不變)
-export async function fetchAllPatients() {
-  const cacheKey = getCacheKey('fetchAll', 'patients_with_rules')
-  const cached = getCache(cacheKey)
+function normalizeDateForSort(dateInput) {
+  if (!dateInput) return null
+  if (typeof dateInput.toDate === 'function') return dateInput.toDate()
+  const date = new Date(dateInput)
+  return isNaN(date.getTime()) ? null : date
+}
+
+function sortPatients(patients, sortOptions = {}) {
+  if (!sortOptions.column) return patients
+
+  const { column, order } = sortOptions
+  return [...patients].sort((a, b) => {
+    let valA = a[column]
+    let valB = b[column]
+
+    if (column === 'patientStatus') {
+      const statusA = a.patientStatus || {}
+      const statusB = b.patientStatus || {}
+      valA =
+        (statusA.isFirstDialysis?.active ? '1' : '0') +
+        (statusA.isPaused?.active ? '1' : '0') +
+        (statusA.hasBloodDraw?.active ? '1' : '0')
+      valB =
+        (statusB.isFirstDialysis?.active ? '1' : '0') +
+        (statusB.isPaused?.active ? '1' : '0') +
+        (statusB.hasBloodDraw?.active ? '1' : '0')
+    }
+
+    const dateA = normalizeDateForSort(valA)
+    const dateB = normalizeDateForSort(valB)
+
+    let compareResult
+
+    if (dateA && dateB) {
+      compareResult = dateA.getTime() - dateB.getTime()
+    } else {
+      const strA = valA || ''
+      const strB = valB || ''
+      compareResult = String(strA).localeCompare(String(strB), 'zh-Hant')
+    }
+
+    return order === 'asc' ? compareResult : -compareResult
+  })
+}
+
+function filterPatientsForQuery(patients, { searchTerm = '', status } = {}) {
+  const normalizedSearchTerm = searchTerm.trim().toLowerCase()
+
+  let filtered = patients
+  if (status === 'er' || status === 'ipd' || status === 'opd') {
+    filtered = filtered.filter((p) => p.status === status && !p.isDeleted)
+  } else if (status === 'deleted') {
+    filtered = filtered.filter((p) => p.isDeleted)
+  }
+
+  if (!normalizedSearchTerm) return filtered
+
+  return filtered.filter(
+    (p) =>
+      (p.name && p.name.toLowerCase().includes(normalizedSearchTerm)) ||
+      (p.medicalRecordNumber && p.medicalRecordNumber.includes(normalizedSearchTerm)),
+  )
+}
+
+export async function fetchAllPatients(options = {}) {
+  const {
+    page,
+    pageSize,
+    sort,
+    searchTerm = '',
+    status,
+    useCache = true,
+  } = options
+  const paramsKey =
+    page && pageSize
+      ? JSON.stringify({ page, pageSize, sort, searchTerm, status })
+      : ''
+  const cacheKey = getCacheKey('fetchAll', 'patients_with_rules', null, paramsKey)
+  const cached = useCache ? getCache(cacheKey) : null
   if (cached) return cached
 
   const patientsApi = ApiManager('patients')
@@ -130,6 +207,17 @@ export async function fetchAllPatients() {
     ...patient,
     scheduleRule: rulesMap.get(patient.id) || null,
   }))
+
+  if (page && pageSize) {
+    const filtered = filterPatientsForQuery(patientsWithRules, { searchTerm, status })
+    const sorted = sort ? sortPatients(filtered, sort) : filtered
+    const start = Math.max((page - 1) * pageSize, 0)
+    const paginated = sorted.slice(start, start + pageSize)
+    const payload = { patients: paginated, total: filtered.length }
+    if (useCache) setCache(cacheKey, payload)
+    return payload
+  }
+
   setCache(cacheKey, patientsWithRules)
   return patientsWithRules
 }
