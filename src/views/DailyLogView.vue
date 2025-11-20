@@ -891,7 +891,7 @@ import MarqueeEditDialog from '@/components/MarqueeEditDialog.vue'
 // ===================================================================
 const { currentUser, canEditSchedules } = useAuth()
 const patientStore = usePatientStore()
-const { allPatients, patientMap } = storeToRefs(patientStore)
+const { allPatients, patientMap, hasFetched } = storeToRefs(patientStore)
 const dailyLogsApi = ApiManager('daily_logs')
 const schedulesApi = ApiManager('schedules')
 
@@ -909,6 +909,7 @@ const dailyLog = reactive(initialLogState())
 const otherNotesTextarea = ref(null)
 const isStaffingDetailsVisible = ref(false)
 let marqueeUnsubscribe = null
+const dailyLogCache = new Map()
 
 // Dialog State
 const isWardDialogVisible = ref(false)
@@ -1115,7 +1116,22 @@ async function loadDailyLog(dateStr) {
   newMovementId.value = null
 
   try {
-    await patientStore.fetchPatientsIfNeeded()
+    const patientFetchPromise = patientStore.fetchPatientsIfNeeded()
+
+    const cachedLog = dailyLogCache.get(dateStr)
+    if (cachedLog && hasFetched.value) {
+      applyLoadedData(
+        cloneData(cachedLog.dailyLog),
+        cloneData(cachedLog.schedule),
+        cachedLog.handoverNotes,
+      )
+      isLoading.value = false
+      await nextTick()
+      handleTextareaInput()
+      return
+    }
+
+    await patientFetchPromise
 
     const [logResult, handoverLogSnap, scheduleData] = await Promise.all([
       dailyLogsApi.fetchById(dateStr),
@@ -1174,11 +1190,18 @@ async function loadDailyLog(dateStr) {
     }
 
     if (scheduleData.length > 0) {
-      currentSchedule.value = scheduleData[0].schedule || {}
+      const scheduleRecord = scheduleData[0]
+      currentSchedule.value = scheduleRecord.schedule || {}
       if (!logResult) {
-        calculateStatsFromSchedule(scheduleData[0])
+        calculateStatsFromSchedule(scheduleRecord)
       }
     }
+
+    dailyLogCache.set(dateStr, {
+      dailyLog: cloneData(dailyLog),
+      schedule: cloneData(currentSchedule.value),
+      handoverNotes: handoverNotes.value,
+    })
   } catch (error) {
     console.error('載入日誌失敗:', error)
     showAlert('載入失敗', '載入日誌時發生錯誤')
@@ -1791,6 +1814,17 @@ function formatDate(date) {
   const month = (d.getMonth() + 1).toString().padStart(2, '0')
   const day = d.getDate().toString().padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function cloneData(data) {
+  return data ? JSON.parse(JSON.stringify(data)) : data
+}
+
+function applyLoadedData(logData, scheduleData, handoverContent) {
+  Object.assign(dailyLog, initialLogState(), logData || { date: selectedDate.value })
+  currentSchedule.value = scheduleData || {}
+  handoverNotes.value = handoverContent || ''
+  hasUnsavedChanges.value = false
 }
 
 function formatSignTime(isoString) {
