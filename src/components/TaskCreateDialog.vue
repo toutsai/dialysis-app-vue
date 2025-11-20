@@ -245,7 +245,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { serverTimestamp } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 import { useUserDirectory } from '@/composables/useUserDirectory'

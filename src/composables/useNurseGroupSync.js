@@ -1,6 +1,6 @@
 // src/composables/useNurseGroupSync.js
 import { ref } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 
 export function useNurseGroupSync() {
   const nursingSchedulesApi = ApiManager('nursing_schedules')

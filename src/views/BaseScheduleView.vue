@@ -122,8 +122,8 @@
 import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
 import * as XLSX from 'xlsx'
 import { updatePatient } from '@/services/optimizedApiService.js'
-import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js'
+import ApiManager from '@/services/api_manager'
+import { useAuth } from '@/composables/useAuth'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import {
   generateAutoNote,
@@ -138,7 +138,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 
 const patientStore = usePatientStore()

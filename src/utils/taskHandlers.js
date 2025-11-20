@@ -1,7 +1,7 @@
 // 檔案路徑: src/utils/taskHandlers.js
 
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 
 /**
  * 處理新增交辦/留言的通用函式

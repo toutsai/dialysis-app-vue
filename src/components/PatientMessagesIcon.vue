@@ -14,7 +14,7 @@
 
 <script setup>
 import { computed, inject } from 'vue'
-import { useTaskStore } from '@/stores/taskStore.js'
+import { useTaskStore } from '@/stores/taskStore'
 
 const props = defineProps({
   patientId: {

@@ -638,7 +638,7 @@
 <script setup>
 import { computed, reactive, watch } from 'vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
-import { useAuth } from '@/composables/useAuth.js' // ✨ 1. 引入 useAuth
+import { useAuth } from '@/composables/useAuth' // ✨ 1. 引入 useAuth
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 const auth = useAuth() // ✨ 2. 實例化 auth

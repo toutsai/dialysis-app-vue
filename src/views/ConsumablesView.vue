@@ -164,11 +164,11 @@
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
 import { documentId } from 'firebase/firestore'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 import * as XLSX from 'xlsx'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 
 // --- Store & State ---

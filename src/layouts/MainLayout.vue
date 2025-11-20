@@ -230,18 +230,18 @@
 <script setup>
 import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 // ✨✨✨【核心修改 B】✨✨✨
 // 從 firebase/firestore 引入所有需要的函式
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
 
 import { storeToRefs } from 'pinia'
-import { usePatientStore } from '@/stores/patientStore.js'
-import { useTaskStore } from '@/stores/taskStore.js'
+import { usePatientStore } from '@/stores/patientStore'
+import { useTaskStore } from '@/stores/taskStore'
 
 const auth = useAuth()
 const router = useRouter()

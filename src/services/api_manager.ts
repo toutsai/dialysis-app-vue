@@ -1,4 +1,4 @@
-// src/services/api_manager.js
+// src/services/api_manager.ts
 
 // 1. 從 Firebase SDK 中，引入所有我們需要用到的函式
 import {
@@ -11,37 +11,57 @@ import {
   deleteDoc,
   query,
   getDoc,
+  type QueryConstraint,
+  type FirestoreDataConverter,
 } from 'firebase/firestore'
 
 // 2. 導入您的 Firebase db 實例
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
+
+type FirestoreRecord = { id?: string; [key: string]: unknown }
+
+type ApiManagerReturn<T extends FirestoreRecord> = {
+  fetchAll: (queryConstraints?: QueryConstraint[]) => Promise<T[]>
+  save: (idOrData: string | T, data?: T) => Promise<T>
+  update: (id: string, data: Partial<T>) => Promise<T>
+  delete: (id: string) => Promise<{ id: string }>
+  fetchById: (id: string) => Promise<T | null>
+  create: (data: T) => Promise<T>
+}
 
 /**
  * 創建一個通用的 Firestore API 管理器。
  * @param {string} resourceType - Firestore 集合的名稱 (例如 'users', 'products')。
  * @returns {object} - 包含對該集合進行 CRUD 操作的函式物件。
  */
-const ApiManager = (resourceType) => {
+const ApiManager = <T extends FirestoreRecord>(resourceType: string): ApiManagerReturn<T> => {
   // 檢查 db 是否成功引入，這是非常好的習慣
   if (!db) {
     throw new Error("Firestore 'db' instance is not available! Check your firebase configuration.")
   }
 
-  const collectionRef = collection(db, resourceType)
+  const collectionRef = collection(db, resourceType).withConverter({
+    toFirestore(data: T) {
+      const { id, ...rest } = data
+      return rest as T
+    },
+    fromFirestore(snapshot) {
+      return { id: snapshot.id, ...(snapshot.data() as T) }
+    },
+  } satisfies FirestoreDataConverter<T>)
 
   /**
    * 獲取集合中的所有文件。
    * @param {Array} [queryConstraints=[]] - (可選) Firestore 查詢約束陣列 (e.g., [where(...), orderBy(...)])。
    * @returns {Promise<Array<object>>} - 包含所有文件資料的陣列。
    */
-  const fetchAll = async (queryConstraints = []) => {
+  const fetchAll = async (queryConstraints: QueryConstraint[] = []) => {
     try {
-      const q =
-        queryConstraints.length > 0 ? query(collectionRef, ...queryConstraints) : collectionRef
+      const q = queryConstraints.length > 0 ? query(collectionRef, ...queryConstraints) : collectionRef
       const querySnapshot = await getDocs(q)
-      const allData = []
+      const allData: T[] = []
       querySnapshot.forEach((docSnapshot) => {
-        allData.push({ id: docSnapshot.id, ...docSnapshot.data() })
+        allData.push({ id: docSnapshot.id, ...(docSnapshot.data() as T) })
       })
       return allData
     } catch (error) {
@@ -58,7 +78,7 @@ const ApiManager = (resourceType) => {
    * @param {object} [data] - (可選) 如果第一個參數是 ID，則這是要保存的資料。
    * @returns {Promise<object>} - 返回包含 id 和已保存資料的物件，方便前端更新。
    */
-  const save = async (idOrData, data) => {
+  const save = async (idOrData: string | T, data?: T) => {
     try {
       // 情況一：新增文件 (addDoc)
       if (typeof idOrData === 'object' && data === undefined) {
@@ -92,7 +112,7 @@ const ApiManager = (resourceType) => {
    * @param {object} data - 要更新的欄位物件。
    * @returns {Promise<object>} - 返回包含 id 和已更新資料的物件。
    */
-  const update = async (id, data) => {
+  const update = async (id: string, data: Partial<T>) => {
     if (!id || typeof id !== 'string') {
       const errorMessage = `[ApiManager] Invalid or missing ID for update in ${resourceType}. ID must be a non-empty string.`
       console.error(errorMessage)
@@ -103,7 +123,7 @@ const ApiManager = (resourceType) => {
       const docRef = doc(db, resourceType, id)
       await updateDoc(docRef, data)
       console.log(`[ApiManager] Successfully updated document with ID: ${id} in ${resourceType}`)
-      return { id, ...data }
+      return { id, ...(data as T) }
     } catch (error) {
       console.error(`[ApiManager] Error updating document with ID ${id}:`, error)
       throw error
@@ -115,7 +135,7 @@ const ApiManager = (resourceType) => {
    * @param {string} id - 要獲取的文件 ID。
    * @returns {Promise<object|null>} - 返回文件物件，如果不存在則返回 null。
    */
-  const fetchById = async (id) => {
+  const fetchById = async (id: string) => {
     if (!id || typeof id !== 'string') {
       // 修正：當ID為空時，不應該拋出錯誤，而是直接返回 null，讓呼叫端處理
       console.warn(
@@ -130,7 +150,7 @@ const ApiManager = (resourceType) => {
 
       if (docSnap.exists()) {
         console.log(`[ApiManager] Fetched document with ID ${id} from ${resourceType}`)
-        return { id: docSnap.id, ...docSnap.data() }
+        return { id: docSnap.id, ...(docSnap.data() as T) }
       } else {
         console.warn(`[ApiManager] No document found with ID ${id} in ${resourceType}`)
         return null
@@ -146,7 +166,7 @@ const ApiManager = (resourceType) => {
    * @param {string} id - 要刪除的文件的 ID。
    * @returns {Promise<{id: string}>} - 返回被刪除文件的 ID。
    */
-  const deleteDocument = async (id) => {
+  const deleteDocument = async (id: string) => {
     if (!id || typeof id !== 'string') {
       const errorMessage = `[ApiManager] Invalid or missing ID for deletion in ${resourceType}. ID must be a non-empty string.`
       console.error(errorMessage)
@@ -170,7 +190,7 @@ const ApiManager = (resourceType) => {
    * @param {object} data - 要新增的資料。
    * @returns {Promise<object>} - 返回包含新 ID 和已儲存資料的物件。
    */
-  const create = async (data) => {
+  const create = async (data: T) => {
     // 直接呼叫您已經寫好的 save 函式的第一種情況
     return save(data)
   }

@@ -126,7 +126,7 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import { where, orderBy } from 'firebase/firestore'
 
 // --- Props & Emits ---

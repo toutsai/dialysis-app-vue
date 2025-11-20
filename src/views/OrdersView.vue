@@ -193,14 +193,14 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import * as XLSX from 'xlsx' // ✨ 核心修改 2: 引入 xlsx 函式庫
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 import { httpsCallable } from 'firebase/functions'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import { where } from 'firebase/firestore'
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
-import { useMedicationStore } from '@/stores/medicationStore.js'
+import { useMedicationStore } from '@/stores/medicationStore'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()

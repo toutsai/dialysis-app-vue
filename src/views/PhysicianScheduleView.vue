@@ -1062,10 +1062,10 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import * as XLSX from 'xlsx' // ✨ 2. [核心修改] 引入 xlsx 函式庫
 

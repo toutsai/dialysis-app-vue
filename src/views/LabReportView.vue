@@ -360,7 +360,7 @@
 
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import {
   where,
   orderBy,
@@ -369,13 +369,13 @@ import {
   getDocs,
   query as firestoreQuery,
 } from 'firebase/firestore'
-import { db, functions } from '@/composables/useFirebase.js'
+import { db, functions } from '@/composables/useFirebase'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 // ✨ 新增：從 constants 引入 LAB_ITEM_DISPLAY_NAMES
 import { LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js'
