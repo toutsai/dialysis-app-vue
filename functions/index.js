@@ -29,7 +29,6 @@ const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestor
 const { google } = require('googleapis')
 const stream = require('stream')
 const path = require('path')
-const { hashPassword, verifyPassword, isScryptHash } = require('./utils/passwordUtils')
 
 // --- ✨ 引入統一的日期處理工具 ✨ ---
 const {
@@ -885,18 +884,9 @@ exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
     }
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
-    const storedPassword = userData.password || ''
-    const isValidPassword = await verifyPassword(password, storedPassword)
-    if (!isValidPassword) {
+    if (userData.password !== password) {
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
-
-    // 如果仍是明碼儲存，於登入成功後自動升級為強雜湊
-    if (!isScryptHash(storedPassword)) {
-      const hashedPassword = await hashPassword(password)
-      await userDoc.ref.update({ password: hashedPassword })
-    }
-
     const uid = userDoc.id
     const customToken = await admin.auth().createCustomToken(uid, {
       role: userData.role,
@@ -927,14 +917,10 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
       throw new HttpsError('not-found', '在資料庫中找不到對應的使用者紀錄。')
     }
     const userData = userDoc.data()
-    const storedPassword = userData.password || ''
-    const isValidPassword = await verifyPassword(oldPassword, storedPassword)
-    if (!isValidPassword) {
+    if (userData.password !== oldPassword) {
       throw new HttpsError('unauthenticated', '舊密碼不正確。')
     }
-
-    const hashedNewPassword = await hashPassword(newPassword)
-    await userDocRef.update({ password: hashedNewPassword })
+    await userDocRef.update({ password: newPassword })
     try {
       await admin.auth().updateUser(uid, { password: newPassword })
     } catch (authError) {
