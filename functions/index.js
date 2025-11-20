@@ -2391,6 +2391,10 @@ exports.handleNewExceptionRequest = onDocumentCreated(
         return null
       }
 
+      if (exceptionData.type === 'RANGE_MOVE') {
+        throw new Error('區間調班功能已停用，無法處理此申請。')
+      }
+
       // ✨✨✨ 核心修正 1: 開始 [時區感知日期守門員] ✨✨✨
       // 1. 獲取「台北時區」的今天日期字串
       const taipeiDateString = new Date()
@@ -2427,7 +2431,6 @@ exports.handleNewExceptionRequest = onDocumentCreated(
           relevantStartDateStr = exceptionData.date
           break
         case 'SUSPEND':
-        case 'RANGE_MOVE':
         default:
           relevantStartDateStr = exceptionData.startDate
           break
