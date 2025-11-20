@@ -185,6 +185,7 @@ const typeMap = {
   MOVE: '臨時調班',
   SUSPEND: '區間暫停',
   ADD_SESSION: '臨時加洗',
+  RANGE_MOVE: '區間調班',
   SWAP: '同日互調',
 }
 const shiftMap = { early: '早班', noon: '午班', late: '晚班' }
@@ -204,6 +205,7 @@ const calendarEvents = computed(() => {
       MOVE: '#17a2b8',
       SUSPEND: '#6610f2',
       ADD_SESSION: '#20c997',
+      RANGE_MOVE: '#e83e8c',
       SWAP: '#fd7e14',
     }
     const style = statusStyles[ex.status] || { color: '#6c757d', prefix: '[?]' }
@@ -223,6 +225,8 @@ const calendarEvents = computed(() => {
       description = `從 ${formatShiftInfo({ ...ex.from, date: ex.from.sourceDate })} 移至 ${formatShiftInfo({ ...ex.to, date: ex.to.goalDate })}`
     } else if (ex.type === 'ADD_SESSION' && ex.to) {
       description = `新增於 ${formatShiftInfo({ ...ex.to, date: ex.to.goalDate })}`
+    } else if (ex.type === 'RANGE_MOVE' && ex.to) {
+      description = `區間內移至: ${formatBedAndShift(ex.to)}`
     } else if (ex.type === 'SWAP' && ex.patient1 && ex.patient2) {
       const from1 = formatBedAndShift(ex.patient1)
       const from2 = formatBedAndShift(ex.patient2)

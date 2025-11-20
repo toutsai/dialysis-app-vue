@@ -51,35 +51,13 @@ export const useTaskStore = defineStore('task', () => {
       })
 
   // --- Getters 保持不變 ---
-  const patientScopedTasks = computed(() => {
-    const mergedTasks = new Map()
-    const addTasks = (tasks) => {
-      tasks.forEach((task) => {
-        if (!task.patientId) return
-        if (task.status === 'deleted') return
-        const normalizedTask = {
-          ...task,
-          category: task.category || 'task',
-          type: task.type || '常規',
-          createdAt: getSafeDate(task.createdAt),
-          resolvedAt: getSafeDate(task.resolvedAt),
-        }
-        const key = task.id || `${normalizedTask.category}-${normalizedTask.patientId}-${normalizedTask.createdAt?.getTime()}`
-        if (!mergedTasks.has(key)) {
-          mergedTasks.set(key, normalizedTask)
-        }
-      })
-    }
-
-    addTasks(feedMessages.value)
-    addTasks(myTasks.value)
-    addTasks(mySentTasks.value)
-
-    return Array.from(mergedTasks.values())
-  })
-
   const sortedFeedMessages = computed(() => {
-    const standardizedMessages = patientScopedTasks.value
+    // ... (原有邏輯不變)
+    const standardizedMessages = feedMessages.value.map((msg) => ({
+      ...msg,
+      createdAt: getSafeDate(msg.createdAt),
+      resolvedAt: getSafeDate(msg.resolvedAt),
+    }))
     return standardizedMessages.sort((a, b) => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
@@ -96,7 +74,7 @@ export const useTaskStore = defineStore('task', () => {
       dateToCompare.setHours(0, 0, 0, 0)
       const dateStr = `${dateToCompare.getFullYear()}-${String(dateToCompare.getMonth() + 1).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
       const map = new Map()
-      const pendingMessages = patientScopedTasks.value.filter((msg) => msg.status === 'pending')
+      const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
       for (const msg of pendingMessages) {
         if (!msg.patientId) continue
         let shouldDisplayIcon = false
@@ -126,7 +104,7 @@ export const useTaskStore = defineStore('task', () => {
   const allPendingPatientMessageTypesMap = computed(() => {
     // ... (原有邏輯不變)
     const map = new Map()
-    const pendingMessages = patientScopedTasks.value.filter((msg) => msg.status === 'pending')
+    const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
     for (const msg of pendingMessages) {
       if (!msg.patientId) continue
       if (!map.has(msg.patientId)) {
@@ -160,7 +138,7 @@ export const useTaskStore = defineStore('task', () => {
       const today = new Date()
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
       const patientIdSet = new Set(patientIdArray)
-      return patientScopedTasks.value.filter((item) => {
+      return feedMessages.value.filter((item) => {
         const isTargetDateRelevant = !item.targetDate || item.targetDate <= todayStr
         return (
           item.status === 'pending' &&
