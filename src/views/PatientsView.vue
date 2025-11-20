@@ -6,8 +6,8 @@ import {
   updatePatient as optimizedUpdatePatient,
   createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
-import ApiManager from '@/services/api_manager.js'
-import { usePatientStore } from '@/stores/patientStore.js'
+import ApiManager from '@/services/api_manager'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import * as XLSX from 'xlsx'
 import PatientFormModal from '@/components/PatientFormModal.vue'
@@ -17,9 +17,9 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import PatientHistoryModal from '@/components/PatientHistoryModal.vue'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 
 // ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務

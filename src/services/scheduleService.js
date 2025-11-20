@@ -1,7 +1,7 @@
 // src/services/scheduleService.js (修正版 - 移除ID格式驗證)
 
 import { doc, updateDoc, where, limit, collection, getDocs, query } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 
 // ✨ 整合優化系統

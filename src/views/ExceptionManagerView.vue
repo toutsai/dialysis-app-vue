@@ -123,9 +123,9 @@ import {
   setDoc,
   addDoc,
 } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
-import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js'
+import { db } from '@/composables/useFirebase'
+import ApiManager from '@/services/api_manager'
+import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -137,7 +137,7 @@ import listPlugin from '@fullcalendar/list'
 import zhTwLocale from '@fullcalendar/core/locales/zh-tw'
 import MonthYearPicker from '@/components/MonthYearPicker.vue'
 import { useBreakpoints } from '@/composables/useBreakpoints.js'
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 

@@ -117,8 +117,8 @@ import {
   addDoc,
   setDoc,
 } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
-import { useAuth } from '@/composables/useAuth.js'
+import { db } from '@/composables/useFirebase'
+import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FullCalendar from '@fullcalendar/vue3'
@@ -126,7 +126,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import zhTwLocale from '@fullcalendar/core/locales/zh-tw'
 // ✨ 3. 引入 Pinia Store 和新 Dialog
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import NewUpdateTypeDialog from '@/components/NewUpdateTypeDialog.vue'
 import PatientUpdateSchedulerDialog from '@/components/PatientUpdateSchedulerDialog.vue'

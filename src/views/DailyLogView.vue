@@ -868,12 +868,12 @@
 // 1. Imports
 // ===================================================================
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js'
+import ApiManager from '@/services/api_manager'
+import { useAuth } from '@/composables/useAuth'
 import { where, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
-import { usePatientStore } from '@/stores/patientStore.js'
+import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
 import jsPDF from 'jspdf'

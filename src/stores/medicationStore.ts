@@ -1,24 +1,30 @@
-// 檔案路徑: src/stores/medicationStore.js (v2 - 修正快取累加問題)
+// 檔案路徑: src/stores/medicationStore.ts (v2 - 修正快取累加問題)
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, type Ref } from 'vue'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
+
+export interface InjectionRecord {
+  patientId: string
+  orderCode: string
+  [key: string]: unknown
+}
 
 export const useMedicationStore = defineStore('medication', () => {
-  const dailyInjectionsCache = ref({})
+  const dailyInjectionsCache: Ref<Record<string, InjectionRecord[]>> = ref({})
   const isLoading = ref(false)
-  const error = ref(null)
+  const error = ref<unknown>(null)
 
   const getInjectionsForDate = computed(() => {
-    return (targetDate) => dailyInjectionsCache.value[targetDate] || null
+    return (targetDate: string) => dailyInjectionsCache.value[targetDate] || null
   })
 
-  async function fetchDailyInjections(targetDate, patientIds) {
+  async function fetchDailyInjections(targetDate: string, patientIds: string[]) {
     console.log(`[Store] 接到請求: 日期=${targetDate}, 病人數=${patientIds.length}`)
 
     if (!patientIds || patientIds.length === 0) {
-      return []
+      return [] as InjectionRecord[]
     }
 
     isLoading.value = true
@@ -40,16 +46,19 @@ export const useMedicationStore = defineStore('medication', () => {
           idsToFetch,
         )
 
-        const getDailyInjections = httpsCallable(functions, 'getDailyInjections')
+        const getDailyInjections = httpsCallable<
+          { targetDate: string; patientIds: string[] },
+          { success: boolean; injections: InjectionRecord[] }
+        >(functions, 'getDailyInjections')
         const CHUNK_SIZE = 30
-        const promises = []
+        const promises: Array<Promise<{ data: { success: boolean; injections: InjectionRecord[] } }>> = []
         for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
           const chunk = idsToFetch.slice(i, i + CHUNK_SIZE)
           promises.push(getDailyInjections({ targetDate, patientIds: chunk }))
         }
 
         const results = await Promise.all(promises)
-        let newlyFetchedInjections = []
+        let newlyFetchedInjections: InjectionRecord[] = []
         for (const result of results) {
           if (result.data && result.data.success) {
             newlyFetchedInjections = newlyFetchedInjections.concat(result.data.injections)
@@ -91,7 +100,7 @@ export const useMedicationStore = defineStore('medication', () => {
     }
   }
 
-  function clearCache(targetDate = null) {
+  function clearCache(targetDate: string | null = null) {
     if (targetDate) {
       console.log(`[MedicationStore] 🗑️ 清除 ${targetDate} 的快取。`)
       delete dailyInjectionsCache.value[targetDate]

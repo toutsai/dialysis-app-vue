@@ -1,11 +1,11 @@
-// 檔案路徑: src/composables/useFirebase.js (✨ 最終修正版 ✨)
+// 檔案路徑: src/composables/useFirebase.ts (✨ 最終修正版 ✨)
 
-import { initializeApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator } from 'firebase/auth'
-import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore'
-import { getFunctions, connectFunctionsEmulator } from 'firebase/functions'
+import { initializeApp, type FirebaseOptions } from 'firebase/app'
+import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth'
+import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase/firestore'
+import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions'
 
-const firebaseConfig = {
+const firebaseConfig: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
@@ -17,9 +17,9 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 
 // ✨ 1. 先宣告變數，但不立即賦值
-const auth = getAuth(app)
-const db = getFirestore(app)
-const functions = getFunctions(app, 'asia-east1') // 確保指定您的 Cloud Function 區域
+const auth: Auth = getAuth(app)
+const db: Firestore = getFirestore(app)
+const functions: Functions = getFunctions(app, 'asia-east1') // 確保指定您的 Cloud Function 區域
 
 // ✨ 2. 核心修改：將模擬器連接的邏輯移到最前面，並在賦值之前執行
 if (import.meta.env.VITE_APP_ENV === 'emulator') {

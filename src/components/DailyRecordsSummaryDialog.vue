@@ -43,7 +43,7 @@
 
 <script setup>
 import { ref, watch, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 // ✨ 步驟 1: 引入 'in' 查詢運算子
 import { where } from 'firebase/firestore'
 

@@ -1,22 +1,26 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService.js'
+import { ref, computed, type Ref } from 'vue'
+import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService'
 // 從 firebase/firestore 引入 writeBatch
-import { doc, getDoc, updateDoc, writeBatch } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { doc, getDoc, updateDoc } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase'
 
 // 引入 ApiManager 以便操作多個集合
-import ApiManager from '@/services/api_manager.js'
 
-// 建立 schedule_exceptions 的 ApiManager 實例
-const scheduleExceptionsApi = ApiManager('schedule_exceptions')
+interface Patient {
+  id: string
+  name?: string
+  status?: string
+  isDeleted?: boolean
+  [key: string]: unknown
+}
 
 // 使用 Setup Store 語法，更靈活且有利於 TypeScript
 export const usePatientStore = defineStore('patient', () => {
   // --- State (狀態) ---
-  const allPatients = ref([])
+  const allPatients: Ref<Patient[]> = ref([])
   const isLoading = ref(false)
-  const error = ref(null)
+  const error = ref<string | null>(null)
   const hasFetched = ref(false)
   const patientsVersion = ref(0)
 
@@ -75,7 +79,7 @@ export const usePatientStore = defineStore('patient', () => {
     }
   }
 
-  function addPatientInStore(newPatient) {
+  function addPatientInStore(newPatient: Patient) {
     const exists = allPatients.value.some((p) => p.id === newPatient.id)
     if (!exists) {
       allPatients.value.unshift(newPatient)
@@ -84,7 +88,7 @@ export const usePatientStore = defineStore('patient', () => {
     }
   }
 
-  function updatePatientInStore(updatedData) {
+  function updatePatientInStore(updatedData: Patient) {
     const index = allPatients.value.findIndex((p) => p.id === updatedData.id)
     if (index !== -1) {
       allPatients.value[index] = { ...allPatients.value[index], ...updatedData }
@@ -94,11 +98,11 @@ export const usePatientStore = defineStore('patient', () => {
       console.warn(
         `[Pinia] Patient with ID ${updatedData.id} not found for update, triggering refresh.`,
       )
-      forceRefreshPatients()
+      void forceRefreshPatients()
     }
   }
 
-  function removePatientInStore(patientId) {
+  function removePatientInStore(patientId: string) {
     const index = allPatients.value.findIndex((p) => p.id === patientId)
     if (index !== -1) {
       allPatients.value.splice(index, 1)
@@ -114,7 +118,7 @@ export const usePatientStore = defineStore('patient', () => {
    * @param {string} patientId - 病人 ID。
    * @returns {Promise<boolean>} 操作是否成功。
    */
-  async function removeRuleFromMasterSchedule(patientId) {
+  async function removeRuleFromMasterSchedule(patientId: string) {
     if (!patientId) {
       console.error('[Store] removeRuleFromMasterSchedule: patientId is missing.')
       return false
@@ -135,7 +139,7 @@ export const usePatientStore = defineStore('patient', () => {
         return true // 文件不存在，視為成功
       }
 
-      const schedule = docSnap.data().schedule || {}
+      const schedule = (docSnap.data().schedule || {}) as Record<string, unknown>
 
       if (schedule[patientId]) {
         delete schedule[patientId]
@@ -152,7 +156,10 @@ export const usePatientStore = defineStore('patient', () => {
       return true
     } catch (error) {
       console.error('❌ [Store] Error removing rule from master schedule:', error)
-      throw new Error(`移除總表規則時發生錯誤: ${error.message}`)
+      if (error instanceof Error) {
+        throw new Error(`移除總表規則時發生錯誤: ${error.message}`)
+      }
+      throw error
     }
   }
 
