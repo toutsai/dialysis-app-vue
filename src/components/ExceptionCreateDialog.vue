@@ -261,13 +261,13 @@
 
 <script setup>
 import { ref, reactive, computed, watch } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 // 🔥【核心修改 #2】引入 deleteDoc 和 doc
 import { deleteDoc, doc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 
 // Props & Emits
 const props = defineProps({

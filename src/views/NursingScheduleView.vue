@@ -725,11 +725,11 @@
 // ========================================
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
-import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js'
+import ApiManager from '@/services/api_manager'
+import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
 
 // ========================================

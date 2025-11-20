@@ -162,7 +162,7 @@ import {
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
 } from '@/services/optimizedApiService.js'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
 import {
@@ -179,11 +179,11 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-import { usePatientStore } from '@/stores/patientStore.js'
-import { useTaskStore } from '@/stores/taskStore.js'
-import { useArchiveStore } from '@/stores/archiveStore.js'
+import { usePatientStore } from '@/stores/patientStore'
+import { useTaskStore } from '@/stores/taskStore'
+import { useArchiveStore } from '@/stores/archiveStore'
 import { storeToRefs } from 'pinia'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()

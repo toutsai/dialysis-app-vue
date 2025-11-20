@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import { where } from 'firebase/firestore'
 import { SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
 import * as XLSX from 'xlsx'

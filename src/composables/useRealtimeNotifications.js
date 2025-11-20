@@ -2,7 +2,7 @@
 
 import { ref } from 'vue'
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import { useRouter } from 'vue-router'
 
 const notifications = ref([])

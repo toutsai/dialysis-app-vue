@@ -189,11 +189,11 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js'
-import { useTaskStore } from '@/stores/taskStore.js'
+import ApiManager from '@/services/api_manager'
+import { useAuth } from '@/composables/useAuth'
+import { useTaskStore } from '@/stores/taskStore'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 import { getShiftDisplayName as getShiftName } from '@/constants/scheduleConstants.js'
 
 // 引入 "內容面板" 元件

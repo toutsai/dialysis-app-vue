@@ -1,8 +1,8 @@
 import { ref, watch, computed } from 'vue'
-import { useTaskStore } from '@/stores/taskStore.js'
-import { usePatientStore } from '@/stores/patientStore.js'
-import { useMedicationStore } from '@/stores/medicationStore.js'
-import ApiManager from '@/services/api_manager.js'
+import { useTaskStore } from '@/stores/taskStore'
+import { usePatientStore } from '@/stores/patientStore'
+import { useMedicationStore } from '@/stores/medicationStore'
+import ApiManager from '@/services/api_manager'
 import { where } from 'firebase/firestore'
 import { useUserDirectory } from '@/composables/useUserDirectory.js'
 

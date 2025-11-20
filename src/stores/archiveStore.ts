@@ -1,14 +1,20 @@
-// 檔案路徑: src/stores/archiveStore.js
+// 檔案路徑: src/stores/archiveStore.ts
 
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import { ref, type Ref } from 'vue'
+import ApiManager from '@/services/api_manager'
 import { where } from 'firebase/firestore'
+
+interface ScheduleRecord {
+  id?: string
+  date: string
+  schedule: Record<string, unknown>
+}
 
 export const useArchiveStore = defineStore('archive', () => {
   // --- State ---
   // 只儲存本次工作階段中已查詢過的排班，key 為 'YYYY-MM-DD'
-  const schedulesCache = ref(new Map())
+  const schedulesCache: Ref<Map<string, ScheduleRecord>> = ref(new Map())
   const isLoading = ref(false)
 
   // --- Action ---
@@ -18,20 +24,20 @@ export const useArchiveStore = defineStore('archive', () => {
    * @param {string} dateStr - 'YYYY-MM-DD' 格式的日期。
    * @returns {Promise<object|null>} 返回該日期的排班記錄，或在找不到時返回 null。
    */
-  async function fetchScheduleByDate(dateStr) {
+  async function fetchScheduleByDate(dateStr: string): Promise<ScheduleRecord | null> {
     // 1. 檢查快取
     if (schedulesCache.value.has(dateStr)) {
       console.log(`[ArchiveStore] Cache hit for ${dateStr}.`)
-      return schedulesCache.value.get(dateStr)
+      return schedulesCache.value.get(dateStr) ?? null
     }
 
     // 2. 如果快取未命中，則從 Firestore 獲取
     console.log(`[ArchiveStore] Cache miss for ${dateStr}. Fetching from Firestore...`)
     isLoading.value = true
     try {
-      const api = ApiManager('expired_schedules')
+      const api = ApiManager<ScheduleRecord>('expired_schedules')
       const records = await api.fetchAll([where('date', '==', dateStr)])
-      const scheduleRecord = records.length > 0 ? records[0] : { date: dateStr, schedule: {} } // 即使找不到也回傳一個空物件結構
+      const scheduleRecord = records.length > 0 ? records[0] : { date: dateStr, schedule: {} }
 
       // 3. 將結果存入快取 (即使是空物件也存，避免重複查詢不存在的日期)
       schedulesCache.value.set(dateStr, scheduleRecord)

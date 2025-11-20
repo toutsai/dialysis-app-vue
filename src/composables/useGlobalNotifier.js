@@ -1,7 +1,7 @@
 // 檔案路徑: src/composables/useGlobalNotifier.js (已加入 30 天後過期的 expireAt 欄位)
 
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
 
 // 導出一個可複用的函式
