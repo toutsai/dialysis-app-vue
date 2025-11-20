@@ -232,7 +232,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 
 const props = defineProps({
   isVisible: Boolean,

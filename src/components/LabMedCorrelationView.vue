@@ -158,10 +158,10 @@
 
 <script setup>
 import { ref, computed, watch, reactive } from 'vue'
-import ApiManager from '@/services/api_manager.js'
-import { db } from '@/composables/useFirebase.js'
+import ApiManager from '@/services/api_manager'
+import { db } from '@/composables/useFirebase'
 import { where, orderBy, writeBatch, query, collection, getDocs, doc } from 'firebase/firestore'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 
 const props = defineProps({
   patient: Object,

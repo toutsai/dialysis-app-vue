@@ -38,7 +38,7 @@
 <script setup>
 import { ref } from 'vue'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 
 const props = defineProps({
   patient: {

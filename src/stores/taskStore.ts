@@ -1,38 +1,55 @@
-// 檔案路徑: src/stores/taskStore.js (最終修正版 - 穩定 feedMessages 更新)
+// 檔案路徑: src/stores/taskStore.ts (最終修正版 - 穩定 feedMessages 更新)
 
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, type Ref } from 'vue'
 import { defineStore } from 'pinia'
-import { collection, query, where, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore'
+import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
 
-function getSafeDate(timestamp) {
+export type TaskItem = {
+  id?: string
+  category?: string
+  status?: string
+  type?: string
+  patientId?: string
+  createdAt?: unknown
+  resolvedAt?: unknown
+  targetDate?: string
+  content?: string
+  assignee?: string
+  roles?: string[]
+  [key: string]: unknown
+}
+
+function getSafeDate(timestamp: unknown) {
   if (!timestamp) return new Date(0)
   if (timestamp instanceof Date) return timestamp
-  if (typeof timestamp.toDate === 'function') return timestamp.toDate()
-  const date = new Date(timestamp)
+  if (typeof (timestamp as { toDate?: () => Date }).toDate === 'function') {
+    return (timestamp as { toDate: () => Date }).toDate()
+  }
+  const date = new Date(timestamp as string)
   return isNaN(date.getTime()) ? new Date(0) : date
 }
 
 export const useTaskStore = defineStore('task', () => {
   const { currentUser } = useAuth()
-  const myTasks = ref([])
-  const mySentTasks = ref([])
-  const feedMessages = ref([])
+  const myTasks: Ref<TaskItem[]> = ref([])
+  const mySentTasks: Ref<TaskItem[]> = ref([])
+  const feedMessages: Ref<TaskItem[]> = ref([])
   const feedMessagesVersion = ref(0)
   const isLoading = ref(true) // 初始為 true
-  let unsubscribes = []
-  const conditionRecordPatientIds = ref(new Set())
+  let unsubscribes: Unsubscribe[] = []
+  const conditionRecordPatientIds: Ref<Set<string>> = ref(new Set())
 
   const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000
 
-  const isWithinSevenDays = (dateValue) => {
+  const isWithinSevenDays = (dateValue: unknown) => {
     const date = getSafeDate(dateValue)
     const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_IN_MS)
     return date.getTime() >= sevenDaysAgo.getTime()
   }
 
-  const applyRetentionPolicy = (items) =>
+  const applyRetentionPolicy = (items: TaskItem[]) =>
     items
       .map((item) => ({ ...item, type: item.type || '常規' }))
       .filter((item) => {
@@ -62,39 +79,39 @@ export const useTaskStore = defineStore('task', () => {
       const aIsDone = a.status === 'completed'
       const bIsDone = b.status === 'completed'
       if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
-      const dateA = aIsDone ? a.resolvedAt : a.createdAt
-      const dateB = bIsDone ? b.resolvedAt : b.createdAt
+      const dateA = aIsDone ? (a.resolvedAt as Date) : (a.createdAt as Date)
+      const dateB = bIsDone ? (b.resolvedAt as Date) : (b.createdAt as Date)
       return dateB.getTime() - dateA.getTime()
     })
   })
   const getPatientMessageTypesMapForDate = computed(() => {
     // ... (原有邏輯不變)
-    return (targetDate) => {
+    return (targetDate?: string) => {
       const dateToCompare = targetDate ? new Date(targetDate) : new Date()
       dateToCompare.setHours(0, 0, 0, 0)
       const dateStr = `${dateToCompare.getFullYear()}-${String(dateToCompare.getMonth() + 1).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
-      const map = new Map()
+      const map = new Map<string, Set<string>>()
       const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
       for (const msg of pendingMessages) {
         if (!msg.patientId) continue
         let shouldDisplayIcon = false
-        if (!msg.targetDate || msg.targetDate <= dateStr) {
+        if (!msg.targetDate || (msg.targetDate as string) <= dateStr) {
           shouldDisplayIcon = true
         }
         if (shouldDisplayIcon) {
           if (!map.has(msg.patientId)) {
             map.set(msg.patientId, new Set())
           }
-          map.get(msg.patientId).add(msg.type === '常規' ? 'memo' : msg.type)
+          map.get(msg.patientId)?.add(msg.type === '常規' ? 'memo' : (msg.type as string))
         }
       }
       conditionRecordPatientIds.value.forEach((patientId) => {
         if (!map.has(patientId)) {
           map.set(patientId, new Set())
         }
-        map.get(patientId).add('record')
+        map.get(patientId)?.add('record')
       })
-      const finalMap = new Map()
+      const finalMap = new Map<string, string[]>()
       for (const [patientId, typeSet] of map.entries()) {
         finalMap.set(patientId, Array.from(typeSet))
       }
@@ -103,22 +120,22 @@ export const useTaskStore = defineStore('task', () => {
   })
   const allPendingPatientMessageTypesMap = computed(() => {
     // ... (原有邏輯不變)
-    const map = new Map()
+    const map = new Map<string, Set<string>>()
     const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
     for (const msg of pendingMessages) {
       if (!msg.patientId) continue
       if (!map.has(msg.patientId)) {
         map.set(msg.patientId, new Set())
       }
-      map.get(msg.patientId).add(msg.type || '常規')
+      map.get(msg.patientId)?.add((msg.type as string) || '常規')
     }
-    const finalMap = new Map()
+    const finalMap = new Map<string, string[]>()
     for (const [patientId, typeSet] of map.entries()) {
       finalMap.set(patientId, Array.from(typeSet))
     }
     return finalMap
   })
-  const todayTaskCount = computed(() => (todayAssignedPatientIds) => {
+  const todayTaskCount = computed(() => (todayAssignedPatientIds?: string[]) => {
     // ... (原有邏輯不變)
     if (!currentUser.value) return 0
     const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
@@ -133,31 +150,31 @@ export const useTaskStore = defineStore('task', () => {
   })
   const todayRelevantMemosCount = computed(() => {
     // ... (原有邏輯不變)
-    return (patientIdArray) => {
+    return (patientIdArray?: string[]) => {
       if (!patientIdArray || patientIdArray.length === 0) return 0
       const today = new Date()
       const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
       const patientIdSet = new Set(patientIdArray)
       return feedMessages.value.filter((item) => {
-        const isTargetDateRelevant = !item.targetDate || item.targetDate <= todayStr
+        const isTargetDateRelevant = !item.targetDate || (item.targetDate as string) <= todayStr
         return (
           item.status === 'pending' &&
           item.patientId &&
           patientIdSet.has(item.patientId) &&
           isTargetDateRelevant &&
           item.content &&
-          !item.content.startsWith('【')
+          !(item.content as string).startsWith('【')
         )
       }).length
     }
   })
 
   // --- Actions ---
-  function updateTasksFromConditionRecords(patientIdSet) {
+  function updateTasksFromConditionRecords(patientIdSet: Set<string>) {
     conditionRecordPatientIds.value = patientIdSet
   }
 
-  function startRealtimeUpdates(uid) {
+  function startRealtimeUpdates(uid?: string) {
     if (unsubscribes.length > 0) return
     if (!uid || !currentUser.value) {
       isLoading.value = false // 如果無法啟動，也應該結束 loading
@@ -167,8 +184,8 @@ export const useTaskStore = defineStore('task', () => {
     isLoading.value = true
     let listenersInitialized = 0
     const totalListeners = 4 // myTasksByRole, myTasksByUser, mySentTasks, messages
-    let roleAssignedTasks = []
-    let userAssignedTasks = []
+    let roleAssignedTasks: TaskItem[] = []
+    let userAssignedTasks: TaskItem[] = []
 
     const refreshMyTasks = () => {
       myTasks.value = applyRetentionPolicy([...roleAssignedTasks, ...userAssignedTasks])
@@ -183,14 +200,14 @@ export const useTaskStore = defineStore('task', () => {
     }
 
     const user = currentUser.value
-    const titleToRoleValue = {
+    const titleToRoleValue: Record<string, string> = {
       書記: 'clerk',
       主治醫師: 'doctor',
       專科護理師: 'np',
       護理師組長: 'editor',
     }
-    const myTargetAssigneeValues = new Set()
-    const titleBasedRole = titleToRoleValue[user.title]
+    const myTargetAssigneeValues = new Set<string>()
+    const titleBasedRole = user.title && titleToRoleValue[user.title]
     if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
     if (user.role) myTargetAssigneeValues.add(user.role)
 
@@ -198,132 +215,101 @@ export const useTaskStore = defineStore('task', () => {
       const myTasksQuery = query(
         collection(db, 'tasks'),
         where('category', '==', 'task'),
-        where('assignee.type', '==', 'role'),
-        where('assignee.value', 'in', Array.from(myTargetAssigneeValues)),
+        where('status', 'in', ['pending', 'completed']),
+        where('assignee', 'in', Array.from(myTargetAssigneeValues)),
       )
-      unsubscribes.push(
-        onSnapshot(
-          myTasksQuery,
-          (snapshot) => {
-            roleAssignedTasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-            refreshMyTasks()
-            checkLoadingState()
-          },
-          (error) => {
-            console.error('Error listening to myTasks:', error)
-            checkLoadingState()
-          },
-        ),
-      )
+
+      const unsubscribeRoleTasks = onSnapshot(myTasksQuery, (snapshot) => {
+        roleAssignedTasks = snapshot.docs
+          .map((doc) => ({ id: doc.id, ...doc.data() }))
+          .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
+        refreshMyTasks()
+        checkLoadingState()
+      })
+      unsubscribes.push(unsubscribeRoleTasks)
     } else {
-      checkLoadingState() // 如果沒有這個查詢，也要算一次
+      checkLoadingState()
     }
 
-    const myUserTasksQuery = query(
+    const myTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
-      where('assignee.type', '==', 'user'),
-      where('assignee.value', '==', uid),
+      where('status', 'in', ['pending', 'completed']),
+      where('assignee', '==', user.uid),
     )
-    unsubscribes.push(
-      onSnapshot(
-        myUserTasksQuery,
-        (snapshot) => {
-          userAssignedTasks = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-          refreshMyTasks()
-          checkLoadingState()
-        },
-        (error) => {
-          console.error('Error listening to my user-specific tasks:', error)
-          checkLoadingState()
-        },
-      ),
-    )
+
+    const unsubscribeUserTasks = onSnapshot(myTasksQuery, (snapshot) => {
+      userAssignedTasks = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
+      refreshMyTasks()
+      checkLoadingState()
+    })
+    unsubscribes.push(unsubscribeUserTasks)
 
     const mySentTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
-      where('creator.uid', '==', uid),
-    )
-    unsubscribes.push(
-      onSnapshot(
-        mySentTasksQuery,
-        (snapshot) => {
-          mySentTasks.value = applyRetentionPolicy(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
-          checkLoadingState()
-        },
-        (error) => {
-          console.error('Error listening to mySentTasks:', error)
-          checkLoadingState()
-        },
-      ),
+      where('createdBy.uid', '==', user.uid),
+      where('status', 'in', ['pending', 'completed']),
     )
 
-    const messagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
+    const unsubscribeMySentTasks = onSnapshot(mySentTasksQuery, (snapshot) => {
+      mySentTasks.value = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
+      checkLoadingState()
+    })
+    unsubscribes.push(unsubscribeMySentTasks)
 
-    let messagesLoaded = false
+    const myMessagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
 
-    unsubscribes.push(
-      onSnapshot(
-        messagesQuery,
-        (snapshot) => {
-          setFeedMessages(applyRetentionPolicy(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))))
-          if (!messagesLoaded) {
-            messagesLoaded = true
-            checkLoadingState()
-          }
-        },
-        (error) => {
-          console.error('Error listening to messages:', error)
-          if (!messagesLoaded) {
-            messagesLoaded = true
-            checkLoadingState()
-          }
-        },
-      ),
-    )
+    const unsubscribeMessages = onSnapshot(myMessagesQuery, (snapshot) => {
+      const messages = snapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((msg) => msg.status === 'pending' || isWithinSevenDays(msg.createdAt))
+      feedMessages.value = applyRetentionPolicy(messages)
+      feedMessagesVersion.value++
+      checkLoadingState()
+    })
+    unsubscribes.push(unsubscribeMessages)
   }
 
-  function cleanupListeners() {
-    unsubscribes.forEach((unsubscribe) => unsubscribe())
+  function stopRealtimeUpdates() {
+    unsubscribes.forEach((unsub) => unsub())
     unsubscribes = []
-    myTasks.value = []
-    mySentTasks.value = []
-    setFeedMessages([])
-    isLoading.value = true // 重置為 true
-  }
-
-  const setFeedMessages = (messages) => {
-    feedMessages.value = messages
-    feedMessagesVersion.value += 1
+    isLoading.value = false
   }
 
   watch(
-    () => currentUser.value?.uid,
-    (uid) => {
-      cleanupListeners()
-      if (uid) {
-        startRealtimeUpdates(uid)
-      } else {
-        isLoading.value = false // 如果登出，結束 loading
+    () => currentUser.value?.id,
+    (newUserId, oldUserId) => {
+      if (newUserId !== oldUserId) {
+        stopRealtimeUpdates()
+        if (newUserId) startRealtimeUpdates(newUserId)
       }
     },
-    { immediate: true },
   )
 
   return {
-    isLoading,
-    startRealtimeUpdates,
-    cleanupListeners,
+    // State
     myTasks,
     mySentTasks,
-    feedMessages, // ✨ 直接回傳 feedMessages
+    feedMessages,
     feedMessagesVersion,
+    isLoading,
+    conditionRecordPatientIds,
+
+    // Getters
     sortedFeedMessages,
-    todayRelevantMemosCount,
     getPatientMessageTypesMapForDate,
     allPendingPatientMessageTypesMap,
     todayTaskCount,
+    todayRelevantMemosCount,
+
+    // Actions
+    startRealtimeUpdates,
+    stopRealtimeUpdates,
     updateTasksFromConditionRecords,
   }
 })

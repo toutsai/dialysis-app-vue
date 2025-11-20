@@ -28,7 +28,7 @@
 
 <script setup>
 import { computed } from 'vue' // ✨ 只需引入 computed
-import { useTaskStore } from '@/stores/taskStore.js' // ✨ 引入 taskStore
+import { useTaskStore } from '@/stores/taskStore' // ✨ 引入 taskStore
 
 const props = defineProps({
   patientId: String,

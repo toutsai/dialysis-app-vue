@@ -1,13 +1,13 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
-import { useAuth } from '@/composables/useAuth.js'
+import ApiManager from '@/services/api_manager'
+import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import UserFormModal from '@/components/UserFormModal.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 
 // --- API and State ---
 const usersApi = ApiManager('users')

@@ -12,6 +12,7 @@
     "// --- 程式碼品質 ---": "",
     "lint": "eslint . --fix",
     "format": "prettier --write src/",
+    "type-check": "vue-tsc --noEmit",
     "// --- 模擬器與資料填充 ---": "",
     "emu": "firebase emulators:start --project develop --only firestore,auth,functions",
     "seed": "node ./scripts/seed-firestore.cjs",
@@ -49,6 +50,7 @@
   "devDependencies": {
     "@eslint/js": "^9.22.0",
     "@faker-js/faker": "^9.9.0",
+    "@types/node": "^20.17.10",
     "@vitejs/plugin-vue": "^5.2.3",
     "@vue/eslint-config-prettier": "^10.2.0",
     "dotenv": "^17.2.1",
@@ -58,7 +60,9 @@
     "globals": "^16.0.0",
     "npm-run-all": "^4.1.5",
     "prettier": "3.5.3",
+    "typescript": "^5.6.3",
     "vite": "^6.2.4",
-    "vite-plugin-vue-devtools": "^7.7.2"
+    "vite-plugin-vue-devtools": "^7.7.2",
+    "vue-tsc": "^2.1.10"
   }
 }

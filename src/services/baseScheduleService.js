@@ -2,7 +2,7 @@
 // (已根據 { [patientId]: ruleData } 的正確資料結構進行重構)
 
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 
 // 直接獲取 Firestore 文件引用

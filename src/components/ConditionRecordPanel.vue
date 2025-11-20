@@ -53,9 +53,9 @@
 
 <script setup>
 import { ref, watch, toRefs } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import { where, orderBy } from 'firebase/firestore'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 
 const props = defineProps({

@@ -54,9 +54,9 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 // ✨ 修正 1/2: 從正確的 firebase 設定檔中引入 db 和 doc
-import { db } from '@/composables/useFirebase.js'
+import { db } from '@/composables/useFirebase'
 import { where, orderBy, writeBatch, doc } from 'firebase/firestore'
 
 const draftOrdersApi = ApiManager('medication_drafts')

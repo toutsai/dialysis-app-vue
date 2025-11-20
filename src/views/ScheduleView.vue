@@ -875,9 +875,9 @@ import {
   updatePatient as optimizedUpdatePatient,
   createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
-import ApiManager from '@/services/api_manager.js'
+import ApiManager from '@/services/api_manager'
 import { where, orderBy, limit } from 'firebase/firestore'
-import { useAuth } from '@/composables/useAuth.js'
+import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
@@ -914,7 +914,7 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase.js'
+import { functions } from '@/composables/useFirebase'
 import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
 import IcuOrdersDialog from '@/components/IcuOrdersDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
@@ -922,12 +922,12 @@ import CRRTOrderModal from '@/components/CRRTOrderModal.vue'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 
 // Pinia Stores
-import { usePatientStore } from '@/stores/patientStore.js'
-import { useTaskStore } from '@/stores/taskStore.js'
-import { useArchiveStore } from '@/stores/archiveStore.js'
+import { usePatientStore } from '@/stores/patientStore'
+import { useTaskStore } from '@/stores/taskStore'
+import { useArchiveStore } from '@/stores/archiveStore'
 import { storeToRefs } from 'pinia'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
-import { useMedicationStore } from '@/stores/medicationStore.js'
+import { useMedicationStore } from '@/stores/medicationStore'
 
 // Store & Hook Instantiation
 const patientStore = usePatientStore()

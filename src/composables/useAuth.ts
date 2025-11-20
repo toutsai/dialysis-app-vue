@@ -1,8 +1,8 @@
-// 檔案路徑: src/composables/useAuth.js (已修正)
+// 檔案路徑: src/composables/useAuth.ts (已修正)
 
-import { ref, computed, readonly } from 'vue'
+import { ref, computed, readonly, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { auth, functions } from '@/composables/useFirebase.js'
+import { auth, functions } from '@/composables/useFirebase'
 
 // 從 firebase/auth 引入必要的函式
 import {
@@ -16,15 +16,37 @@ import {
 import { httpsCallable } from 'firebase/functions'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
+interface AuthClaims {
+  role?: string
+  title?: string
+  name?: string
+  [key: string]: unknown
+}
+
+export interface AppUser {
+  id: string
+  uid: string
+  name: string
+  role: string
+  title: string
+  email: string | null
+  lastLogin: string
+}
+
+interface LoginResult {
+  success: boolean
+  redirectPath: string
+}
+
 // --- 全局狀態 ---
-const currentUser = ref(null)
+const currentUser: Ref<AppUser | null> = ref(null)
 const authLoading = ref(true)
 // ✨ 1. 【新增】在這裡定義一個全域的 claims ref
-const claims = ref(null)
+const claims: Ref<AuthClaims | null> = ref(null)
 
 // --- 建立一個只 resolve 一次的 Promise ---
-let authReadyResolve
-const authReadyPromise = new Promise((resolve) => {
+let authReadyResolve: () => void
+const authReadyPromise = new Promise<void>((resolve) => {
   authReadyResolve = resolve
 })
 
@@ -37,12 +59,12 @@ onAuthStateChanged(auth, async (user) => {
       // ✨ 2. 【新增】為 claims ref 賦值
       claims.value = idTokenResult.claims
 
-      const userData = {
+      const userData: AppUser = {
         id: user.uid,
         uid: user.uid,
-        name: idTokenResult.claims.name || '未命名',
-        role: idTokenResult.claims.role || 'viewer',
-        title: idTokenResult.claims.title || '未知職稱',
+        name: (idTokenResult.claims as AuthClaims).name || '未命名',
+        role: (idTokenResult.claims as AuthClaims).role || 'viewer',
+        title: (idTokenResult.claims as AuthClaims).title || '未知職稱',
         email: user.email,
         lastLogin: new Date().toISOString(),
       }
@@ -74,7 +96,7 @@ export function useAuth() {
   const logoutLoading = ref(false)
 
   // --- 登入函式 ---
-  const login = async (username, password) => {
+  const login = async (username: string, password: string): Promise<LoginResult> => {
     loginLoading.value = true
 
     const usernameValidation = validateInput(username, [
@@ -91,13 +113,16 @@ export function useAuth() {
     }
 
     try {
-      const result = await handleApiCall(
+      const result = await handleApiCall<LoginResult>(
         async () => {
           // 設定身份驗證的持久性為 SESSION
           await setPersistence(auth, browserSessionPersistence)
 
           // 呼叫後端 Cloud Function
-          const customLoginFunction = httpsCallable(functions, 'customLogin')
+          const customLoginFunction = httpsCallable<{ username: string; password: string }, { token: string }>(
+            functions,
+            'customLogin',
+          )
           const response = await customLoginFunction({ username, password })
 
           const token = response?.data?.token
@@ -109,7 +134,7 @@ export function useAuth() {
           await signInWithCustomToken(auth, token)
 
           // 導航到目標頁面
-          const redirectPath = router.currentRoute.value.query.redirect || '/schedule'
+          const redirectPath = (router.currentRoute.value.query.redirect as string) || '/schedule'
           await router.replace(redirectPath)
 
           return { success: true, redirectPath }
@@ -153,14 +178,17 @@ export function useAuth() {
   }
 
   // --- 修改密碼函式 ---
-  const updatePassword = async (oldPassword, newPassword) => {
+  const updatePassword = async (oldPassword: string, newPassword: string) => {
     if (!auth.currentUser) {
       throw new Error('使用者未登入，無法更改密碼。')
     }
 
     return handleApiCall(
       async () => {
-        const changeUserPasswordFunction = httpsCallable(functions, 'changeUserPassword')
+        const changeUserPasswordFunction = httpsCallable<
+          { oldPassword: string; newPassword: string },
+          { success: boolean }
+        >(functions, 'changeUserPassword')
         const result = await changeUserPasswordFunction({ oldPassword, newPassword })
         return result.data
       },
@@ -179,9 +207,9 @@ export function useAuth() {
   }
 
   // --- 權限判斷 ---
-  const hasPermission = (requiredRole) => {
+  const hasPermission = (requiredRole: string) => {
     if (!currentUser.value) return false
-    const roleHierarchy = {
+    const roleHierarchy: Record<string, number> = {
       viewer: 1,
       contributor: 2,
       editor: 3,

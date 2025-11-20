@@ -10,8 +10,8 @@
 
 <script setup>
 import { onMounted, watch } from 'vue' // ✨ 新增 watch
-import { usePatientStore } from '@/stores/patientStore.js' // ✨ 1. 引入 Patient Store
-import { useAuth } from '@/composables/useAuth.js' // ✨ 2. 引入 useAuth 以監聽登入狀態
+import { usePatientStore } from '@/stores/patientStore' // ✨ 1. 引入 Patient Store
+import { useAuth } from '@/composables/useAuth' // ✨ 2. 引入 useAuth 以監聽登入狀態
 
 const patientStore = usePatientStore() // ✨ 3. 實例化 Store
 const { isLoggedIn } = useAuth() // ✨ 4. 獲取 isLoggedIn 響應式狀態
