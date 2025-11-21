@@ -457,7 +457,10 @@ watch(
       startListening()
       startConflictListener()
       await fetchTodayAssignedPatients()
-      taskStore.startRealtimeUpdates(newUser.uid)
+      // 確保 taskStore 存在且函式存在才執行
+      if (taskStore && typeof taskStore.startRealtimeUpdates === 'function') {
+        taskStore.startRealtimeUpdates(newUser.uid)
+      }
     } else {
       activeMemos.value = []
       stopSharedDataListeners()
@@ -465,8 +468,13 @@ watch(
       stopListening()
       stopConflictListener()
       patientStore.$reset()
-      taskStore.cleanupListeners()
+
       todayMyPatientIds.value = []
+
+      // ✨✨✨ 修正點 1：加入防呆檢查 ✨✨✨
+      if (taskStore && typeof taskStore.cleanupListeners === 'function') {
+        taskStore.cleanupListeners()
+      }
     }
   },
   { immediate: true },
@@ -485,7 +493,11 @@ onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
   stopConflictListener()
-  taskStore.cleanupListeners()
+
+  // ✨✨✨ 修正點 2：加入防呆檢查 ✨✨✨
+  if (taskStore && typeof taskStore.cleanupListeners === 'function') {
+    taskStore.cleanupListeners()
+  }
 })
 </script>
 

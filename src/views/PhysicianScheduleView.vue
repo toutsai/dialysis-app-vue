@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/PhysicianScheduleView.vue (整合病人搜尋功能) -->
+<!-- 檔案路徑: src/views/PhysicianScheduleView.vue -->
 <template>
   <div class="page-container">
     <div v-if="isLoading" class="loading-overlay">
@@ -15,10 +15,11 @@
           <button @click="goToNextMonth" title="下一個月">❯</button>
         </div>
       </div>
-      <div class="header-right hide-on-mobile">
-        <span class="status-indicator" :class="{ 'has-changes': hasUnsavedChanges }">{{
-          statusText
-        }}</span>
+      <!-- ✨ 修改：只有有權限的人才看得到儲存按鈕與狀態提示 -->
+      <div class="header-right hide-on-mobile" v-if="canManagePhysicianSchedule">
+        <span class="status-indicator" :class="{ 'has-changes': hasUnsavedChanges }">
+          {{ statusText }}
+        </span>
         <button @click="saveAllChanges" class="save-btn" :disabled="!hasUnsavedChanges">
           <i class="fas fa-save"></i> 儲存所有變更
         </button>
@@ -100,6 +101,7 @@
                     :class="[getPhysicianClass(day, 'early', 'dialysis'), getShiftCellClass(day)]"
                   >
                     <select
+                      :disabled="!canManagePhysicianSchedule"
                       v-if="day.day && scheduleData[day.day]"
                       v-model="scheduleData[day.day].early.physicianId"
                       @change="checkClinicConflict($event, day, 'early')"
@@ -123,6 +125,7 @@
                     :class="[getPhysicianClass(day, 'noon', 'dialysis'), getShiftCellClass(day)]"
                   >
                     <select
+                      :disabled="!canManagePhysicianSchedule"
                       v-if="day.day && scheduleData[day.day]"
                       v-model="scheduleData[day.day].noon.physicianId"
                       @change="checkClinicConflict($event, day, 'noon')"
@@ -146,6 +149,7 @@
                     :class="[getPhysicianClass(day, 'late', 'dialysis'), getShiftCellClass(day)]"
                   >
                     <select
+                      :disabled="!canManagePhysicianSchedule"
                       v-if="day.day && scheduleData[day.day]"
                       v-model="scheduleData[day.day].late.physicianId"
                       @change="checkClinicConflict($event, day, 'late')"
@@ -240,6 +244,7 @@
                     ]"
                   >
                     <select
+                      :disabled="!canManagePhysicianSchedule"
                       v-if="day.day && consultationScheduleData[day.day]"
                       v-model="consultationScheduleData[day.day].morning.physicianId"
                       @change="checkClinicConflict($event, day, 'morning')"
@@ -266,6 +271,7 @@
                     ]"
                   >
                     <select
+                      :disabled="!canManagePhysicianSchedule"
                       v-if="day.day && consultationScheduleData[day.day]"
                       v-model="consultationScheduleData[day.day].afternoon.physicianId"
                       @change="checkClinicConflict($event, day, 'afternoon')"
@@ -292,6 +298,7 @@
                     ]"
                   >
                     <select
+                      :disabled="!canManagePhysicianSchedule"
                       v-if="day.day && consultationScheduleData[day.day]"
                       v-model="consultationScheduleData[day.day].night.physicianId"
                       @change="checkClinicConflict($event, day, 'night')"
@@ -433,7 +440,12 @@
                         />
                       </td>
                       <td>
-                        <select v-model="record.physicianId" required class="emergency-input">
+                        <select
+                          :disabled="!canManagePhysicianSchedule"
+                          v-model="record.physicianId"
+                          required
+                          class="emergency-input"
+                        >
                           <option :value="null">請選擇</option>
                           <option v-for="doc in availablePhysicians" :key="doc.id" :value="doc.id">
                             {{ doc.name }}
@@ -539,6 +551,7 @@
                       <td colspan="3">
                         <div class="clinic-select-container">
                           <select
+                            :disabled="!canManagePhysicianSchedule"
                             v-if="physicianClinicSelections[doc.id]"
                             v-model="physicianClinicSelections[doc.id][0]"
                             class="clinic-select"
@@ -553,6 +566,7 @@
                             </option>
                           </select>
                           <select
+                            :disabled="!canManagePhysicianSchedule"
                             v-if="physicianClinicSelections[doc.id]"
                             v-model="physicianClinicSelections[doc.id][1]"
                             class="clinic-select"
@@ -567,6 +581,7 @@
                             </option>
                           </select>
                           <select
+                            :disabled="!canManagePhysicianSchedule"
                             v-if="physicianClinicSelections[doc.id]"
                             v-model="physicianClinicSelections[doc.id][2]"
                             class="clinic-select"
@@ -581,6 +596,7 @@
                             </option>
                           </select>
                           <select
+                            :disabled="!canManagePhysicianSchedule"
                             v-if="physicianClinicSelections[doc.id]"
                             v-model="physicianClinicSelections[doc.id][3]"
                             class="clinic-select"
@@ -613,6 +629,7 @@
                     v-if="monthlyPdClinicSelections[doc.id]"
                     v-model="monthlyPdClinicSelections[doc.id][0].date"
                   /><select
+                    :disabled="!canManagePhysicianSchedule"
                     v-if="monthlyPdClinicSelections[doc.id]"
                     v-model="monthlyPdClinicSelections[doc.id][0].shift"
                   >
@@ -628,6 +645,7 @@
                     v-if="monthlyPdClinicSelections[doc.id]"
                     v-model="monthlyPdClinicSelections[doc.id][1].date"
                   /><select
+                    :disabled="!canManagePhysicianSchedule"
                     v-if="monthlyPdClinicSelections[doc.id]"
                     v-model="monthlyPdClinicSelections[doc.id][1].shift"
                   >
@@ -720,7 +738,11 @@
             <h2>國定假日管理 (本月)</h2>
             <div class="holiday-manager">
               <div class="holiday-add-form">
-                <select v-model="holidayForm.name" class="holiday-input">
+                <select
+                  :disabled="!canManagePhysicianSchedule"
+                  v-model="holidayForm.name"
+                  class="holiday-input"
+                >
                   <option disabled value="">選擇或自訂假日</option>
                   <option
                     v-for="holiday in currentYearHolidays"
@@ -784,6 +806,7 @@
                           <td colspan="3">
                             <div class="clinic-select-container">
                               <select
+                                :disabled="!canManagePhysicianSchedule"
                                 v-if="physicianClinicSelections[doc.id]"
                                 v-model="physicianClinicSelections[doc.id][0]"
                                 class="clinic-select"
@@ -798,6 +821,7 @@
                                 </option>
                               </select>
                               <select
+                                :disabled="!canManagePhysicianSchedule"
                                 v-if="physicianClinicSelections[doc.id]"
                                 v-model="physicianClinicSelections[doc.id][1]"
                                 class="clinic-select"
@@ -812,6 +836,7 @@
                                 </option>
                               </select>
                               <select
+                                :disabled="!canManagePhysicianSchedule"
                                 v-if="physicianClinicSelections[doc.id]"
                                 v-model="physicianClinicSelections[doc.id][2]"
                                 class="clinic-select"
@@ -826,6 +851,7 @@
                                 </option>
                               </select>
                               <select
+                                :disabled="!canManagePhysicianSchedule"
                                 v-if="physicianClinicSelections[doc.id]"
                                 v-model="physicianClinicSelections[doc.id][3]"
                                 class="clinic-select"
@@ -867,6 +893,7 @@
                         v-if="monthlyPdClinicSelections[doc.id]"
                         v-model="monthlyPdClinicSelections[doc.id][0].date"
                       /><select
+                        :disabled="!canManagePhysicianSchedule"
                         v-if="monthlyPdClinicSelections[doc.id]"
                         v-model="monthlyPdClinicSelections[doc.id][0].shift"
                       >
@@ -882,6 +909,7 @@
                         v-if="monthlyPdClinicSelections[doc.id]"
                         v-model="monthlyPdClinicSelections[doc.id][1].date"
                       /><select
+                        :disabled="!canManagePhysicianSchedule"
                         v-if="monthlyPdClinicSelections[doc.id]"
                         v-model="monthlyPdClinicSelections[doc.id][1].shift"
                       >
@@ -994,7 +1022,11 @@
               <div class="panel-content" v-show="activeMobilePanel === 'holidays'">
                 <div class="holiday-manager">
                   <div class="holiday-add-form">
-                    <select v-model="holidayForm.name" class="holiday-input">
+                    <select
+                      :disabled="!canManagePhysicianSchedule"
+                      v-model="holidayForm.name"
+                      class="holiday-input"
+                    >
                       <option disabled value="">選擇或自訂假日</option>
                       <option
                         v-for="holiday in currentYearHolidays"
@@ -1062,6 +1094,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { where } from 'firebase/firestore'
+import { useAuth } from '@/composables/useAuth' // ✨ 1. 引入 useAuth
 import ApiManager from '@/services/api_manager'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -1094,6 +1127,7 @@ const activeMobilePanel = ref('physicians')
 const activeTab = ref('dialysis')
 const consultationScheduleData = ref({}) // 會診班表
 const emergencyRecords = ref([]) // 緊急出勤紀錄
+const { canManagePhysicianSchedule } = useAuth()
 
 // 病人搜尋相關狀態
 const activeSearch = ref({ type: null, index: -1 })

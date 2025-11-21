@@ -1,6 +1,6 @@
 // 檔案路徑: src/composables/useAuth.ts
 
-import { ref, computed, readonly, type Ref } from 'vue'
+import { ref, computed, readonly, type Ref, watch } from 'vue' // ✨ 加引入 watch
 import { useRouter } from 'vue-router'
 import { auth, functions } from '@/composables/useFirebase'
 import {
@@ -104,17 +104,39 @@ export function useAuth() {
       const result = await handleApiCall<LoginResult>(
         async () => {
           await setPersistence(auth, browserSessionPersistence)
+
           const customLoginFunction = httpsCallable<
             { username: string; password: string },
             { token: string }
           >(functions, 'customLogin')
           const response = await customLoginFunction({ username, password })
-          const token = response?.data?.token
-          if (!token) throw new Error('從伺服器獲取登入憑證(token)失敗。')
 
+          const token = response?.data?.token
+          if (!token) {
+            throw new Error('從伺服器獲取登入憑證(token)失敗。')
+          }
+
+          // 1. 執行登入
           await signInWithCustomToken(auth, token)
+
+          // ✨✨✨【關鍵修正】✨✨✨
+          // signInWithCustomToken 結束不代表 onAuthStateChanged 已經跑完
+          // 我們必須手動等待 currentUser 被賦值，避免跳轉後狀態仍為 null
+          if (!currentUser.value) {
+            await new Promise<void>((resolve) => {
+              const unwatch = watch(currentUser, (val) => {
+                if (val) {
+                  unwatch() // 停止監聽
+                  resolve() // 繼續執行
+                }
+              })
+            })
+          }
+
+          // 2. 確保 currentUser 有值後，再導航
           const redirectPath = (router.currentRoute.value.query.redirect as string) || '/schedule'
           await router.replace(redirectPath)
+
           return { success: true, redirectPath }
         },
         {
@@ -126,6 +148,7 @@ export function useAuth() {
       )
       return result
     } catch (error) {
+      console.error('[Auth] Login process failed:', error)
       throw error
     } finally {
       loginLoading.value = false
