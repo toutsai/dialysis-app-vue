@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/DailyLogView.vue (✨ 整合富文本編輯器版 ✨) -->
+<!-- 檔案路徑: src/views/DailyLogView.vue -->
 <template>
   <div class="log-page-container" id="pdf-export-area">
     <div v-if="isLoading" class="loading-overlay">
@@ -24,6 +24,7 @@
           <button @click="changeDate(1)">下一日 ❯</button>
           <button @click="goToToday">今日</button>
         </div>
+        <!-- 只有非鎖定狀態(Editor/Admin)才能點擊 -->
         <button
           class="btn btn-handover"
           @click="isHandoverDialogVisible = true"
@@ -31,7 +32,6 @@
         >
           <i class="fas fa-clipboard-list"></i> 組長交班
         </button>
-        <!-- ✨ 核心修改 1: 新增跑馬燈設定按鈕 -->
         <button
           class="btn btn-marquee-settings"
           @click="isMarqueeDialogVisible = true"
@@ -41,7 +41,9 @@
         </button>
       </div>
       <div class="header-right">
+        <!-- 如果是 Viewer，狀態文字可以稍微調整，或保持原樣 -->
         <span class="status-indicator">{{ statusText }}</span>
+        <!-- 匯出 PDF 是 Viewer 唯一可以做的操作，保持開啟 -->
         <button @click="exportToPDF" class="export-pdf-btn" :disabled="isLoading">匯出 PDF</button>
       </div>
     </header>
@@ -55,7 +57,8 @@
         <section class="log-section">
           <div class="section-header">
             <h2>營運統計</h2>
-            <button @click="syncStatsWithSchedule" class="sync-stats-btn">
+            <!-- ✨ 修改：Viewer 隱藏同步按鈕 -->
+            <button v-if="!isPageLocked" @click="syncStatsWithSchedule" class="sync-stats-btn">
               <i class="fas fa-sync-alt"></i> 更新各班病人人數
             </button>
           </div>
@@ -69,7 +72,7 @@
             <div class="grid-header cell-shift">第三班 (3-11)</div>
             <div class="grid-header cell-total">合計</div>
 
-            <!-- 洗腎中心床位 -->
+            <!-- 洗腎中心床位 (唯讀數據，保持原樣) -->
             <div class="cell-item rowspan-4">洗腎中心床位 (限44床)</div>
             <div class="cell-category">門診</div>
             <div class="cell-data">{{ dailyLog.stats.main_beds.early.opd }}</div>
@@ -119,7 +122,7 @@
               }}
             </div>
 
-            <!-- 急重症床位 -->
+            <!-- 急重症床位 (唯讀數據) -->
             <div class="cell-item rowspan-2">急重症 (外圍)</div>
             <div class="cell-category">加護病房+RCC (B)</div>
             <div class="cell-data">{{ dailyLog.stats.peripheral_beds.early.ipd }}</div>
@@ -155,41 +158,78 @@
               {{ totalPatients.early + totalPatients.noon + totalPatients.late }}
             </div>
 
-            <!-- 病人照護 -->
+            <!-- 病人照護 (需要鎖定輸入框) -->
             <div class="cell-item rowspan-3">病人照護</div>
             <div class="cell-category">ON D/L 病患</div>
+            <!-- ✨ 修改：加入 disabled -->
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.onDL.early" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.onDL.early"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.onDL.noon" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.onDL.noon"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.onDL.late" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.onDL.late"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-total">-</div>
 
             <div class="cell-category">AK 凝固更換病患</div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.akChange.early" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.akChange.early"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.akChange.noon" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.akChange.noon"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.akChange.late" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.akChange.late"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-total">-</div>
 
             <div class="cell-category">預約未到病患</div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.noShow.early" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.noShow.early"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.noShow.noon" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.noShow.noon"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-input">
-              <input type="text" v-model="dailyLog.stats.patient_care.noShow.late" />
+              <input
+                type="text"
+                v-model="dailyLog.stats.patient_care.noShow.late"
+                :disabled="isPageLocked"
+              />
             </div>
             <div class="cell-total">-</div>
 
@@ -228,13 +268,21 @@
               <template v-for="(item, index) in dailyLog.stats.staffing.details" :key="item.id">
                 <div class="cell-item nested-item"></div>
                 <div class="cell-category nested-item label-count-cell">
+                  <!-- ✨ 修改：加入 disabled -->
                   <input
                     type="text"
                     v-model="item.label"
                     placeholder="項目名稱"
                     class="label-input"
+                    :disabled="isPageLocked"
                   />
-                  <input type="number" min="0" v-model.number="item.count" class="count-input" />
+                  <input
+                    type="number"
+                    min="0"
+                    v-model.number="item.count"
+                    class="count-input"
+                    :disabled="isPageLocked"
+                  />
                 </div>
                 <div class="cell-input nested-item">
                   <input
@@ -242,7 +290,7 @@
                     min="0"
                     step="0.01"
                     v-model.number="item.ratio1"
-                    :disabled="item.isLocked"
+                    :disabled="isPageLocked || item.isLocked"
                   />
                 </div>
                 <div class="cell-input nested-item">
@@ -251,7 +299,7 @@
                     min="0"
                     step="0.01"
                     v-model.number="item.ratio2"
-                    :disabled="item.isLocked"
+                    :disabled="isPageLocked || item.isLocked"
                   />
                 </div>
                 <div class="cell-input nested-item">
@@ -260,11 +308,18 @@
                     min="0"
                     step="0.01"
                     v-model.number="item.ratio3"
-                    :disabled="item.isLocked"
+                    :disabled="isPageLocked || item.isLocked"
                   />
                 </div>
                 <div class="cell-input nested-item action-cell">
-                  <button @click="deleteStaffingRow(index)" class="delete-btn mini">移除</button>
+                  <!-- ✨ 修改：隱藏移除按鈕 -->
+                  <button
+                    v-if="!isPageLocked"
+                    @click="deleteStaffingRow(index)"
+                    class="delete-btn mini"
+                  >
+                    移除
+                  </button>
                 </div>
               </template>
 
@@ -279,6 +334,7 @@
                   step="0.01"
                   v-model.number="dailyLog.stats.staffing.adjustments.shift1"
                   placeholder="例: +2 或 -1.5小時"
+                  :disabled="isPageLocked"
                 />
               </div>
               <div class="cell-input nested-item deduction-row">
@@ -287,6 +343,7 @@
                   step="0.01"
                   v-model.number="dailyLog.stats.staffing.adjustments.shift2"
                   placeholder="例: +2 或 -1.5小時"
+                  :disabled="isPageLocked"
                 />
               </div>
               <div class="cell-input nested-item deduction-row">
@@ -295,6 +352,7 @@
                   step="0.01"
                   v-model.number="dailyLog.stats.staffing.adjustments.shift3"
                   placeholder="例: +2 或 -1.5小時"
+                  :disabled="isPageLocked"
                 />
               </div>
               <div class="cell-input nested-item deduction-row"></div>
@@ -302,7 +360,10 @@
               <!-- 新增按鈕行 -->
               <div class="cell-item nested-item"></div>
               <div class="add-row-cell">
-                <button @click="addStaffingRow" class="add-row-btn-header">新增計算項目</button>
+                <!-- ✨ 修改：隱藏新增按鈕 -->
+                <button v-if="!isPageLocked" @click="addStaffingRow" class="add-row-btn-header">
+                  新增計算項目
+                </button>
               </div>
             </template>
 
@@ -320,7 +381,12 @@
         <section class="log-section">
           <div class="section-header">
             <h2>病人動態表</h2>
-            <button @click="addRow('patientMovements')" class="add-row-btn-header">
+            <!-- ✨ 修改：隱藏新增按鈕 -->
+            <button
+              v-if="!isPageLocked"
+              @click="addRow('patientMovements')"
+              class="add-row-btn-header"
+            >
               新增手動動態
             </button>
           </div>
@@ -426,14 +492,15 @@
                     <input type="text" v-model="item.remarks" :disabled="!isRowInEditMode(item)" />
                   </td>
                   <td class="col-actions">
+                    <!-- ✨ 修改：隱藏編輯/儲存按鈕 -->
                     <button
-                      v-if="!isRowInEditMode(item)"
+                      v-if="!isRowInEditMode(item) && !isPageLocked"
                       @click="unlockMovement(item)"
                       class="edit-btn"
                     >
                       編輯
                     </button>
-                    <div v-else class="action-buttons-group">
+                    <div v-else-if="isRowInEditMode(item)" class="action-buttons-group">
                       <button @click="saveMovement(item)" class="save-btn">儲存</button>
                       <button @click="deleteRow(index, 'patientMovements')" class="delete-btn">
                         移除
@@ -450,7 +517,12 @@
         <section class="log-section">
           <div class="section-header">
             <h2>血管通路阻塞</h2>
-            <button @click="addRow('vascularAccessLog')" class="add-row-btn-header">
+            <!-- ✨ 修改：隱藏新增按鈕 -->
+            <button
+              v-if="!isPageLocked"
+              @click="addRow('vascularAccessLog')"
+              class="add-row-btn-header"
+            >
               新增處置
             </button>
           </div>
@@ -470,6 +542,7 @@
                 <tr v-for="(item, index) in dailyLog.vascularAccessLog" :key="item.id">
                   <td class="col-name">
                     <div class="autocomplete-wrapper">
+                      <!-- ✨ 修改：disabled -->
                       <input
                         type="text"
                         :ref="(el) => (inputRefs[`vascular-${index}`] = el)"
@@ -478,11 +551,21 @@
                         @focus="showAutocomplete($event, index, 'vascular')"
                         @blur="hideAutocomplete"
                         placeholder="搜尋病人..."
+                        :disabled="isPageLocked"
                       />
                     </div>
                   </td>
-                  <td class="col-mrn"><input type="text" v-model="item.medicalRecordNumber" /></td>
-                  <td class="col-date"><input type="date" v-model="item.date" /></td>
+                  <!-- ✨ 修改：disabled -->
+                  <td class="col-mrn">
+                    <input
+                      type="text"
+                      v-model="item.medicalRecordNumber"
+                      :disabled="isPageLocked"
+                    />
+                  </td>
+                  <td class="col-date">
+                    <input type="date" v-model="item.date" :disabled="isPageLocked" />
+                  </td>
                   <td class="col-interventions-wide">
                     <div class="checkbox-group">
                       <label
@@ -490,6 +573,7 @@
                           type="checkbox"
                           value="PTA"
                           v-model="item.interventions"
+                          :disabled="isPageLocked"
                         />PTA</label
                       >
                       <label
@@ -497,6 +581,7 @@
                           type="checkbox"
                           value="新建"
                           v-model="item.interventions"
+                          :disabled="isPageLocked"
                         />新建</label
                       >
                       <label
@@ -504,6 +589,7 @@
                           type="checkbox"
                           value="重建"
                           v-model="item.interventions"
+                          :disabled="isPageLocked"
                         />重建</label
                       >
                       <label
@@ -511,6 +597,7 @@
                           type="checkbox"
                           value="清血塊"
                           v-model="item.interventions"
+                          :disabled="isPageLocked"
                         />清血塊</label
                       >
                       <label
@@ -518,6 +605,7 @@
                           type="checkbox"
                           value="PERM-Cath"
                           v-model="item.interventions"
+                          :disabled="isPageLocked"
                         />PERM-Cath</label
                       >
                       <label
@@ -525,13 +613,21 @@
                           type="checkbox"
                           value="例行返診"
                           v-model="item.interventions"
+                          :disabled="isPageLocked"
                         />例行返診</label
                       >
                     </div>
                   </td>
-                  <td class="col-location"><input type="text" v-model="item.location" /></td>
+                  <td class="col-location">
+                    <input type="text" v-model="item.location" :disabled="isPageLocked" />
+                  </td>
                   <td class="col-actions">
-                    <button @click="deleteRow(index, 'vascularAccessLog')" class="delete-btn">
+                    <!-- ✨ 修改：隱藏移除按鈕 -->
+                    <button
+                      v-if="!isPageLocked"
+                      @click="deleteRow(index, 'vascularAccessLog')"
+                      class="delete-btn"
+                    >
                       移除
                     </button>
                   </td>
@@ -545,6 +641,7 @@
         <section class="log-section">
           <h2>其他事項</h2>
           <div class="autoresize-textarea-wrapper">
+            <!-- ✨ 修改：disabled -->
             <textarea
               v-model="dailyLog.otherNotes"
               ref="otherNotesTextarea"
@@ -552,6 +649,7 @@
               rows="1"
               placeholder="請輸入其他事項..."
               @input="handleTextareaInput"
+              :disabled="isPageLocked"
             ></textarea>
             <div class="notes-display-for-pdf">{{ dailyLog.otherNotes }}</div>
           </div>
@@ -570,7 +668,8 @@
                     formatSignTime(dailyLog.leader.early.signedAt)
                   }}</span>
                 </div>
-                <div class="signature-actions">
+                <!-- ✨ 修改：隱藏操作按鈕 -->
+                <div class="signature-actions" v-if="!isPageLocked">
                   <button
                     @click="signAsLeader('early')"
                     class="action-text-btn edit-btn"
@@ -587,7 +686,10 @@
                   </button>
                 </div>
               </div>
-              <button v-else @click="signAsLeader('early')" class="sign-btn">簽核</button>
+              <!-- ✨ 修改：隱藏簽核按鈕 -->
+              <button v-else-if="!isPageLocked" @click="signAsLeader('early')" class="sign-btn">
+                簽核
+              </button>
             </div>
             <div class="signature-slot">
               <span class="shift-label">第二班：</span>
@@ -598,7 +700,7 @@
                     formatSignTime(dailyLog.leader.noon.signedAt)
                   }}</span>
                 </div>
-                <div class="signature-actions">
+                <div class="signature-actions" v-if="!isPageLocked">
                   <button
                     @click="signAsLeader('noon')"
                     class="action-text-btn edit-btn"
@@ -615,7 +717,9 @@
                   </button>
                 </div>
               </div>
-              <button v-else @click="signAsLeader('noon')" class="sign-btn">簽核</button>
+              <button v-else-if="!isPageLocked" @click="signAsLeader('noon')" class="sign-btn">
+                簽核
+              </button>
             </div>
             <div class="signature-slot">
               <span class="shift-label">第三班：</span>
@@ -624,7 +728,7 @@
                 <span class="signature-time">{{
                   formatSignTime(dailyLog.leader.late.signedAt)
                 }}</span>
-                <div class="signature-actions">
+                <div class="signature-actions" v-if="!isPageLocked">
                   <button
                     @click="signAsLeader('late')"
                     class="action-text-btn edit-btn"
@@ -641,7 +745,9 @@
                   </button>
                 </div>
               </div>
-              <button v-else @click="signAsLeader('late')" class="sign-btn">簽核</button>
+              <button v-else-if="!isPageLocked" @click="signAsLeader('late')" class="sign-btn">
+                簽核
+              </button>
             </div>
           </div>
         </footer>
@@ -651,10 +757,12 @@
       <!-- ✨ 全新的行動版容器 ✨ -->
       <!-- ================================== -->
       <div class="mobile-only">
+        <!-- (行動版內容多為純文字顯示，本身就是唯讀的，不需要大量修改，保持原樣即可) -->
         <!-- 行動版：營運統計 -->
         <div class="mobile-section-card">
           <h2 class="mobile-section-title">營運統計</h2>
           <div class="mobile-stats-container">
+            <!-- ... (保持不變) ... -->
             <!-- 總人次 -->
             <div class="stat-highlight-card">
               <div class="stat-value">
@@ -811,6 +919,7 @@
       </div>
     </main>
 
+    <!-- 下方 Dialog 等保持原樣，只要沒有被觸發就不會顯示，或者內部也有權限判斷 -->
     <ul v-if="isAutocompleteVisible" class="global-autocomplete-results" :style="autocompleteStyle">
       <li
         v-for="p in patientSearchResults"
@@ -853,7 +962,6 @@
       @close="isHandoverDialogVisible = false"
       @notes-updated="onNotesUpdated"
     />
-    <!-- ✨ 核心修改 3: 加入新的 MarqueeEditDialog 元件 -->
     <MarqueeEditDialog
       :is-visible="isMarqueeDialogVisible"
       :initial-content="marqueeHtmlContent"
@@ -1381,7 +1489,7 @@ async function exportToPDF() {
     showAlert('提示', '目前正在載入資料，請稍後再試。')
     return
   }
-  if (hasUnsavedChanges.value) {
+  if (hasUnsavedChanges.value && !isPageLocked.value) {
     await saveLog({ showSuccessAlert: false })
   }
   const originalLoadingText = document.querySelector('.loading-overlay p')?.textContent || ''
@@ -1855,6 +1963,12 @@ function formatSignTime(isoString) {
   background-color: #e0a800;
 }
 
+.btn-handover:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
+}
+
 .btn-handover i {
   margin-right: 0.5rem;
 }
@@ -2090,6 +2204,11 @@ h1 {
   border-radius: 4px;
   text-align: center;
   font-size: 1.1rem;
+}
+.cell-input input:disabled {
+  background-color: #e9ecef;
+  cursor: not-allowed;
+  color: #6c757d;
 }
 
 /* 護理人力整合表格樣式 */
@@ -2378,6 +2497,11 @@ h1 {
   overflow-y: hidden;
   min-height: 50px;
   box-sizing: border-box;
+}
+.handover-textarea:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
 }
 .log-page-footer {
   margin-top: 1rem;
@@ -2828,6 +2952,11 @@ h1 {
 }
 .btn-marquee-settings:hover:not(:disabled) {
   background-color: #d97706;
+}
+.btn-marquee-settings:disabled {
+  background-color: #e9ecef;
+  color: #6c757d;
+  cursor: not-allowed;
 }
 .btn-marquee-settings i {
   margin-right: 0.5rem;

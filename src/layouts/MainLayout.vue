@@ -133,8 +133,8 @@
           <ul v-if="!isManagementSectionCollapsed" class="sidebar-nav">
             <!-- ✨ 修改：使用 currentUser.role 嚴格區分護理(Editor)與醫療(Contributor)職責 -->
 
-            <!-- 1. [工作日誌] Admin, Editor (Nurse) -->
-            <li v-if="isAdmin || currentUser?.role === 'editor'">
+            <!-- 1. [工作日誌] Admin, Editor (Nurse), Viewer -->
+            <li v-if="isAdmin || currentUser?.role === 'editor' || currentUser?.role === 'viewer'">
               <RouterLink to="/daily-log" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">工作日誌</span>
