@@ -115,21 +115,20 @@ service cloud.firestore {
       allow write: if isEditor();
     }
 
-    // 【1. 新增】組長交班 handover_logs 的規則
-    // 只有 admin 與 editor 可以閱讀和編輯
     match /handover_logs/{logId} {
-      allow read, write: if isEditor();
+      // 1. 允許所有登入者 (Viewer) 讀取，這樣工作日誌頁面才能載入交班事項
+      allow read: if isViewer();
+      // 2. 維持只有 Admin 與 Editor 可以編輯/寫入
+      allow write: if isEditor();
     }
 
-    // 【2. 修改】工作日誌 daily_logs 的規則
+
     match /daily_logs/{logId} {
-      // 允許 isEditor 的人列出集合 (保持不變)
-      allow list: if isEditor();
+      // ✨ 修改點：讀取 (read) 不做正則表達式 ID 檢查，只要是 Viewer 就能看
+      // 這樣比較穩定，不會因為前端傳入的 ID 格式有一點誤差就報錯
+      allow read: if isViewer();
       
-      // ✨ 關鍵修改 1：允許所有登入者 (isViewer) 讀取單一文件
-      allow get: if isViewer() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
-      
-      // ✨ 關鍵修改 2：只有 admin 與 editor (isEditor) 可以編輯/寫入
+      // 寫入 (write)：維持嚴格限制，只有 Editor/Admin 且 ID 必須是日期格式才能寫入
       allow write: if isEditor() && logId.matches('^\\d{4}-\\d{2}-\\d{2}$');
     }
 
