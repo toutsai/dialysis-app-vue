@@ -10,11 +10,11 @@
           </span>
         </div>
         <ul class="sidebar-nav">
+          <!-- 共用功能 -->
           <li>
             <RouterLink to="/schedule" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">每日排程</span>
-                <span class="nav-subtitle"></span>
               </div>
             </RouterLink>
           </li>
@@ -22,7 +22,6 @@
             <RouterLink to="/stats" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">護理分組</span>
-                <span class="nav-subtitle"></span>
               </div>
             </RouterLink>
           </li>
@@ -33,60 +32,59 @@
               </div>
             </RouterLink>
           </li>
-          <li class="desktop-only-nav-item">
-            <RouterLink to="/weekly" class="nav-link">
-              <div class="nav-item-content">
-                <span class="nav-title">週排班</span>
-                <span class="nav-subtitle"></span>
-              </div>
-            </RouterLink>
-          </li>
-          <li class="desktop-only-nav-item">
-            <RouterLink to="/base-schedule" class="nav-link">
-              <div class="nav-item-content">
-                <span class="nav-title">床位總表</span>
-                <span class="nav-subtitle"></span>
-              </div>
-            </RouterLink>
-          </li>
-          <li class="desktop-only-nav-item">
-            <RouterLink to="/exception-manager" class="nav-link">
-              <div class="nav-item-content">
-                <span class="nav-title">調班換床</span>
-                <span class="nav-subtitle"></span>
-              </div>
-              <span
-                v-if="conflictCount > 0"
-                class="alert-badge"
-                :title="`有 ${conflictCount} 個衝突待解決`"
-              >
-                <i class="fas fa-exclamation-triangle"></i>
-              </span>
-            </RouterLink>
-          </li>
 
-          <!-- 只有護理師可以看到預約變更 -->
-          <li v-if="isEditor" class="desktop-only-nav-item">
-            <RouterLink to="/update-scheduler" class="nav-link">
-              <div class="nav-item-content">
-                <span class="nav-title">預約變更</span>
-              </div>
-            </RouterLink>
-          </li>
+          <!-- 只有 Admin 和 Editor (護理師) 可見的功能 -->
+          <template v-if="isAdmin || isEditor">
+            <li class="desktop-only-nav-item">
+              <RouterLink to="/weekly" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">週排班</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li class="desktop-only-nav-item">
+              <RouterLink to="/base-schedule" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">床位總表</span>
+                </div>
+              </RouterLink>
+            </li>
+            <li class="desktop-only-nav-item">
+              <RouterLink to="/exception-manager" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">調班換床</span>
+                </div>
+                <span
+                  v-if="conflictCount > 0"
+                  class="alert-badge"
+                  :title="`有 ${conflictCount} 個衝突待解決`"
+                >
+                  <i class="fas fa-exclamation-triangle"></i>
+                </span>
+              </RouterLink>
+            </li>
+            <li class="desktop-only-nav-item">
+              <RouterLink to="/update-scheduler" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">預約變更</span>
+                </div>
+              </RouterLink>
+            </li>
+          </template>
 
-          <li>
+          <!-- 病人清單: Admin, Editor, Contributor 可見 (Viewer 不可見) -->
+          <li v-if="isAdmin || isEditor || isContributor">
             <RouterLink to="/patients" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">病人清單</span>
-                <span class="nav-subtitle"></span>
               </div>
             </RouterLink>
           </li>
+
           <li>
             <RouterLink to="/collaboration" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">訊息中心</span>
-                <span class="nav-subtitle"></span>
               </div>
               <span v-if="notificationCount > 0" class="notification-badge">
                 {{ notificationCount }}
@@ -133,66 +131,91 @@
           </h3>
 
           <ul v-if="!isManagementSectionCollapsed" class="sidebar-nav">
-            <li v-if="canEditSchedules">
+            <!-- ✨ 修改：使用 currentUser.role 嚴格區分護理(Editor)與醫療(Contributor)職責 -->
+
+            <!-- 1. [工作日誌] Admin, Editor (Nurse) -->
+            <li v-if="isAdmin || currentUser?.role === 'editor'">
               <RouterLink to="/daily-log" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">工作日誌</span>
                 </div>
               </RouterLink>
             </li>
-            <li>
+
+            <!-- 2. [護理班表與職責] Admin, Editor (Nurse) -->
+            <li v-if="isAdmin || currentUser?.role === 'editor'">
               <RouterLink to="/nursing-schedule" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">護理班表與職責</span>
                 </div>
               </RouterLink>
             </li>
-            <li v-if="canManagePhysicianSchedule">
-              <RouterLink to="/physician-schedule" class="nav-link">
-                <div class="nav-item-content">
-                  <span class="nav-title">醫師班表</span>
-                </div>
-              </RouterLink>
-            </li>
-            <li>
-              <RouterLink to="/lab-reports" class="nav-link">
-                <div class="nav-item-content">
-                  <span class="nav-title">檢驗報告</span>
-                </div>
-              </RouterLink>
-            </li>
-            <li v-if="canViewConsumables">
-              <RouterLink to="/consumables" class="nav-link">
-                <div class="nav-item-content">
-                  <span class="nav-title">每月耗材</span>
-                </div>
-              </RouterLink>
-            </li>
-            <li v-if="canManageOrders">
-              <RouterLink to="/orders" class="nav-link">
-                <div class="nav-item-content">
-                  <span class="nav-title">藥囑管理</span>
-                </div>
-              </RouterLink>
-            </li>
-            <li>
-              <RouterLink to="/reporting" class="nav-link">
-                <div class="nav-item-content">
-                  <span class="nav-title">統計報表</span>
-                </div>
-              </RouterLink>
-            </li>
-            <!-- ✨✨✨【新增：KiDit 申報】✨✨✨ -->
-            <!-- 只有 Admin 或 Editor (護理師) 可見 -->
-            <li v-if="isAdmin || isEditor">
+
+            <!-- 3. [KiDit 申報] Admin, Editor (Nurse) -->
+            <li v-if="isAdmin || currentUser?.role === 'editor'">
               <RouterLink to="/kidit-report" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">KiDit 申報</span>
                 </div>
               </RouterLink>
             </li>
-            <li>
-              <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
+
+            <!-- 4. [醫師班表] Admin, Contributor (Doc), Viewer -->
+            <li
+              v-if="
+                isAdmin || currentUser?.role === 'contributor' || currentUser?.role === 'viewer'
+              "
+            >
+              <RouterLink to="/physician-schedule" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">醫師班表</span>
+                </div>
+              </RouterLink>
+            </li>
+
+            <!-- 5. [檢驗報告] Admin, Contributor (Doc) -->
+            <li v-if="isAdmin || currentUser?.role === 'contributor'">
+              <RouterLink to="/lab-reports" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">檢驗報告</span>
+                </div>
+              </RouterLink>
+            </li>
+
+            <!-- 6. [每月耗材] Admin, Viewer -->
+            <li v-if="isAdmin || currentUser?.role === 'viewer'">
+              <RouterLink to="/consumables" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">每月耗材</span>
+                </div>
+              </RouterLink>
+            </li>
+
+            <!-- 7. [藥囑管理] Admin, Contributor (Doc) -->
+            <li v-if="isAdmin || currentUser?.role === 'contributor'">
+              <RouterLink to="/orders" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">藥囑管理</span>
+                </div>
+              </RouterLink>
+            </li>
+
+            <!-- 8. [統計報表] Admin, Editor, Contributor -->
+            <li
+              v-if="
+                isAdmin || currentUser?.role === 'editor' || currentUser?.role === 'contributor'
+              "
+            >
+              <RouterLink to="/reporting" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">統計報表</span>
+                </div>
+              </RouterLink>
+            </li>
+
+            <!-- 9. [使用者管理] Admin Only -->
+            <li v-if="isAdmin">
+              <RouterLink to="/user-management" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">使用者管理</span>
                 </div>
@@ -257,17 +280,8 @@ const auth = useAuth()
 const router = useRouter()
 const route = useRoute()
 
-// ✨✨✨【補充：確保這裡有解構出需要的權限變數】✨✨✨
-const {
-  currentUser,
-  logout,
-  isAdmin,
-  isEditor, // 確保這個被解構出來
-  canEditSchedules,
-  canManagePhysicianSchedule,
-  canManageOrders,
-  canViewConsumables,
-} = useAuth()
+// ✨ 修改：解構所有角色旗標，包含新增的 isViewer，但主要邏輯依賴 currentUser
+const { currentUser, logout, isAdmin, isEditor, isContributor, isViewer } = useAuth()
 
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
@@ -285,7 +299,7 @@ const todayMyPatientIds = ref([])
 const assignmentsApi = ApiManager('nurse_assignments')
 
 const conflictCount = ref(0)
-let conflictUnsubscribe = null // 用於儲存取消監聽的函式
+let conflictUnsubscribe = null
 
 const notificationCount = computed(() => {
   if (!currentUser.value) return 0
@@ -294,7 +308,7 @@ const notificationCount = computed(() => {
   return myPendingTasksCount + myPendingMemosCount
 })
 
-// --- 過渡期 provide/inject ---
+// --- Provide/Inject ---
 const activeMemos = ref([])
 const isMemoDialogVisible = ref(false)
 const patientNameForDialog = ref('')
@@ -349,7 +363,7 @@ function handleLogout() {
 }
 
 async function fetchTodayAssignedPatients() {
-  if (!currentUser.value || !['護理師', '護理師組長'].includes(currentUser.value.title)) {
+  if (!currentUser.value || !(isEditor.value || isAdmin.value)) {
     todayMyPatientIds.value = []
     return
   }
@@ -402,8 +416,9 @@ function stopSharedDataListeners() {
 }
 
 function startConflictListener() {
-  if (conflictUnsubscribe) return
+  if (!(isAdmin.value || isEditor.value)) return
 
+  if (conflictUnsubscribe) return
   const exceptionsRef = collection(db, 'schedule_exceptions')
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -418,12 +433,9 @@ function startConflictListener() {
     q,
     (snapshot) => {
       conflictCount.value = snapshot.size
-      if (snapshot.size > 0) {
-        console.log(`[MainLayout] 偵測到 ${snapshot.size} 個【未過期】的待處理衝突。`)
-      }
     },
     (error) => {
-      console.error('❌ [MainLayout] 監聽調班衝突時發生錯誤:', error)
+      console.error('Conflict listener error:', error)
       conflictCount.value = 0
     },
   )
@@ -441,14 +453,12 @@ watch(
   () => currentUser.value,
   async (newUser) => {
     if (newUser) {
-      console.log('✅ [MainLayout] User logged in, starting services.')
       startSharedDataListeners()
       startListening()
       startConflictListener()
       await fetchTodayAssignedPatients()
       taskStore.startRealtimeUpdates(newUser.uid)
     } else {
-      console.log('🚪 [MainLayout] User logged out, stopping services.')
       activeMemos.value = []
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
@@ -480,15 +490,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* ================================== */
-/*         通用及桌面版樣式         */
-/* ================================== */
+/* 樣式保持不變，省略以節省篇幅，請沿用原始 CSS */
 .dashboard-container {
   display: flex;
   height: 100vh;
   overflow: hidden;
 }
-
 .sidebar {
   width: 210px;
   background-color: #2c3e50;
@@ -499,12 +506,10 @@ onUnmounted(() => {
   height: 100vh;
   transition: width 0.3s ease;
 }
-
 .main-nav-section {
   padding: 15px 0;
   flex-shrink: 0;
 }
-
 .notification-area {
   flex-grow: 1;
   min-height: 0;
@@ -512,12 +517,10 @@ onUnmounted(() => {
   padding: 8px;
   border-top: 1px solid #34495e;
 }
-
 .bottom-fixed-section {
   flex-shrink: 0;
   border-top: 1px solid #34495e;
 }
-
 .notification-area::-webkit-scrollbar {
   width: 6px;
 }
@@ -531,7 +534,6 @@ onUnmounted(() => {
 .notification-area::-webkit-scrollbar-thumb:hover {
   background-color: #4a5568;
 }
-
 .sidebar-header {
   padding: 0 15px 15px 15px;
   border-bottom: 1px solid #34495e;
@@ -820,7 +822,6 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
 }
-/* ✨✨✨【核心修改 E】✨✨✨ */
 .alert-badge {
   background-color: transparent;
   color: #ffc107;

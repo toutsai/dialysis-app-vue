@@ -1,10 +1,8 @@
-// 檔案路徑: src/composables/useAuth.ts (已修正)
+// 檔案路徑: src/composables/useAuth.ts
 
 import { ref, computed, readonly, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { auth, functions } from '@/composables/useFirebase'
-
-// 從 firebase/auth 引入必要的函式
 import {
   signInWithCustomToken,
   onAuthStateChanged,
@@ -12,7 +10,6 @@ import {
   setPersistence,
   browserSessionPersistence,
 } from 'firebase/auth'
-
 import { httpsCallable } from 'firebase/functions'
 import { useErrorHandler } from '@/composables/useErrorHandler.js'
 
@@ -41,7 +38,6 @@ interface LoginResult {
 // --- 全局狀態 ---
 const currentUser: Ref<AppUser | null> = ref(null)
 const authLoading = ref(true)
-// ✨ 1. 【新增】在這裡定義一個全域的 claims ref
 const claims: Ref<AuthClaims | null> = ref(null)
 
 // --- 建立一個只 resolve 一次的 Promise ---
@@ -56,7 +52,6 @@ onAuthStateChanged(auth, async (user) => {
   if (user) {
     try {
       const idTokenResult = await user.getIdTokenResult()
-      // ✨ 2. 【新增】為 claims ref 賦值
       claims.value = idTokenResult.claims
 
       const userData: AppUser = {
@@ -69,40 +64,33 @@ onAuthStateChanged(auth, async (user) => {
         lastLogin: new Date().toISOString(),
       }
       currentUser.value = userData
-      console.log('✅ Auth state changed: User is logged in.', currentUser.value)
     } catch (error) {
       console.error('❌ Error getting user token result:', error)
       currentUser.value = null
-      claims.value = null // ✨ 登出或錯誤時也要清空 claims
-      await signOut(auth) // 發生錯誤時強制登出
+      claims.value = null
+      await signOut(auth)
     }
   } else {
     currentUser.value = null
-    claims.value = null // ✨ 登出時也要清空 claims
-    console.log('🚪 Auth state changed: User is logged out.')
+    claims.value = null
   }
   authLoading.value = false
-  // 當第一次狀態確認後，resolve a Promise
   authReadyResolve()
 })
 
-// --- 主要的 Composable 函式 ---
 export function useAuth() {
   const router = useRouter()
   const { handleApiCall, validateInput, validationRules } = useErrorHandler()
-
-  // 局部加載狀態
   const loginLoading = ref(false)
   const logoutLoading = ref(false)
 
-  // --- 登入函式 ---
   const login = async (username: string, password: string): Promise<LoginResult> => {
     loginLoading.value = true
-
     const usernameValidation = validateInput(username, [
       validationRules.required('使用者名稱為必填'),
     ])
     const passwordValidation = validateInput(password, [validationRules.required('密碼為必填')])
+
     if (!usernameValidation.isValid) {
       loginLoading.value = false
       throw new Error(usernameValidation.errors[0])
@@ -115,28 +103,18 @@ export function useAuth() {
     try {
       const result = await handleApiCall<LoginResult>(
         async () => {
-          // 設定身份驗證的持久性為 SESSION
           await setPersistence(auth, browserSessionPersistence)
-
-          // 呼叫後端 Cloud Function
-          const customLoginFunction = httpsCallable<{ username: string; password: string }, { token: string }>(
-            functions,
-            'customLogin',
-          )
+          const customLoginFunction = httpsCallable<
+            { username: string; password: string },
+            { token: string }
+          >(functions, 'customLogin')
           const response = await customLoginFunction({ username, password })
-
           const token = response?.data?.token
-          if (!token) {
-            throw new Error('從伺服器獲取登入憑證(token)失敗。')
-          }
+          if (!token) throw new Error('從伺服器獲取登入憑證(token)失敗。')
 
-          // 使用 custom token 登入 Firebase Auth
           await signInWithCustomToken(auth, token)
-
-          // 導航到目標頁面
           const redirectPath = (router.currentRoute.value.query.redirect as string) || '/schedule'
           await router.replace(redirectPath)
-
           return { success: true, redirectPath }
         },
         {
@@ -148,14 +126,12 @@ export function useAuth() {
       )
       return result
     } catch (error) {
-      console.error('[Auth] Login process failed:', error)
       throw error
     } finally {
       loginLoading.value = false
     }
   }
 
-  // --- 登出函式 ---
   const logout = async () => {
     logoutLoading.value = true
     try {
@@ -177,12 +153,8 @@ export function useAuth() {
     }
   }
 
-  // --- 修改密碼函式 ---
   const updatePassword = async (oldPassword: string, newPassword: string) => {
-    if (!auth.currentUser) {
-      throw new Error('使用者未登入，無法更改密碼。')
-    }
-
+    if (!auth.currentUser) throw new Error('使用者未登入，無法更改密碼。')
     return handleApiCall(
       async () => {
         const changeUserPasswordFunction = httpsCallable<
@@ -201,12 +173,9 @@ export function useAuth() {
     )
   }
 
-  // --- 等待認證初始化 ---
-  const waitForAuthInit = () => {
-    return authReadyPromise
-  }
+  const waitForAuthInit = () => authReadyPromise
 
-  // --- 權限判斷 ---
+  // 層級判斷 (用於功能操作權限)
   const hasPermission = (requiredRole: string) => {
     if (!currentUser.value) return false
     const roleHierarchy: Record<string, number> = {
@@ -220,17 +189,21 @@ export function useAuth() {
     return userLevel >= requiredLevel
   }
 
-  // --- 計算屬性 ---
   const isLoggedIn = computed(() => !!currentUser.value)
+
+  // 計算屬性
   const isAdmin = computed(() => hasPermission('admin'))
-  const isEditor = computed(() => hasPermission('editor')) // ✅ 修正：這應該是 computed 而不是 ref
-  const canEditSchedules = computed(() => hasPermission('editor'))
-  const isContributor = computed(() => hasPermission('contributor'))
-  const canEditPatients = computed(() => hasPermission('contributor'))
+  const isEditor = computed(() => hasPermission('editor')) // 包含 Admin, Editor
+  const isContributor = computed(() => hasPermission('contributor')) // 包含 Admin, Editor, Contributor
+  // ✨ 新增：嚴格的 Viewer 判斷 (不使用 hasPermission，避免邏輯混淆)
+  const isViewer = computed(() => currentUser.value?.role === 'viewer')
+
   const isReadOnly = computed(() => !hasPermission('contributor'))
   const isAnyLoading = computed(
     () => authLoading.value || loginLoading.value || logoutLoading.value,
   )
+
+  // 其他功能性權限判斷
   const canManagePhysicianSchedule = computed(() => {
     if (!currentUser.value) return false
     return ['admin', 'contributor'].includes(currentUser.value.role)
@@ -240,22 +213,15 @@ export function useAuth() {
     if (!currentUser.value) return false
     return ['admin', 'contributor'].includes(currentUser.value.role)
   })
-  const canViewConsumables = computed(() => {
-    if (!currentUser.value) return false
-    return !!currentUser.value
-  })
-
+  const canViewConsumables = computed(() => !!currentUser.value)
+  const canEditSchedules = computed(() => hasPermission('editor'))
+  const canEditPatients = computed(() => hasPermission('contributor'))
   const canEditClinicalNotesAndOrders = computed(() => {
     if (!currentUser.value?.role) return false
     return ['admin', 'contributor'].includes(currentUser.value.role)
   })
 
-  // ❌ 移除這兩行重複定義！它們覆蓋了上面正確的定義
-  // const isEditor = ref(false)
-  // const currentUser = ref(null)
-
   return {
-    // 狀態
     currentUser: readonly(currentUser),
     claims: readonly(claims),
     isLoggedIn: readonly(isLoggedIn),
@@ -263,25 +229,25 @@ export function useAuth() {
     loginLoading: readonly(loginLoading),
     logoutLoading: readonly(logoutLoading),
     isAnyLoading: readonly(isAnyLoading),
-    canManagePhysicianSchedule,
-    canUploadLabReport,
 
-    // 方法
     login,
     logout,
     updatePassword,
     waitForAuthInit,
     hasPermission,
 
-    // 權限計算屬性
     isAdmin,
-    isEditor, // ✅ 現在這個正確地指向 computed 屬性
+    isEditor,
     isContributor,
+    isViewer, // ✨ 導出 isViewer
+
     canEditSchedules,
     canEditPatients,
     isReadOnly,
     canManageOrders,
     canViewConsumables,
+    canManagePhysicianSchedule,
+    canUploadLabReport,
     canEditClinicalNotesAndOrders,
   }
 }
