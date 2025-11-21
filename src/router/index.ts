@@ -152,6 +152,18 @@ const routes = [
           requiresAuth: true,
         },
       },
+      // ✨✨✨【新增這段】✨✨✨
+      {
+        path: 'kidit-report',
+        name: 'KiDitReport',
+        component: () => import('@/views/PatientMovementReportView.vue'),
+        meta: {
+          title: 'KiDit 申報工作站',
+          requiresAuth: true,
+          // 如果您原本的路由有在使用 roles 陣列控制，請加上下面這行
+          // roles: ['admin', 'editor']
+        },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

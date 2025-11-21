@@ -189,5 +189,15 @@ service cloud.firestore {
       allow read: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
       allow write: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
     }
+
+    // KiDit Logbook 權限設定
+    match /kidit_logbook/{dateStr} {
+      // 允許所有已登入的使用者讀取 (isAnyUser() 是您之前定義的函式)
+      allow read: if request.auth != null;
+      
+      // 只允許護理師或管理員寫入 (更新已登錄狀態等)
+      // 假設您的規則中有定義 isEditor() 或 isAdmin()
+      allow write: if isEditor() || isAdmin();
+    }
   }
 }

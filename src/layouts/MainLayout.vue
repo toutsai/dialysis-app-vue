@@ -64,13 +64,16 @@
               </span>
             </RouterLink>
           </li>
-          <li v-if="auth.isEditor.value" class="desktop-only-nav-item">
+
+          <!-- 只有護理師可以看到預約變更 -->
+          <li v-if="isEditor" class="desktop-only-nav-item">
             <RouterLink to="/update-scheduler" class="nav-link">
               <div class="nav-item-content">
                 <span class="nav-title">預約變更</span>
               </div>
             </RouterLink>
           </li>
+
           <li>
             <RouterLink to="/patients" class="nav-link">
               <div class="nav-item-content">
@@ -179,6 +182,15 @@
                 </div>
               </RouterLink>
             </li>
+            <!-- ✨✨✨【新增：KiDit 申報】✨✨✨ -->
+            <!-- 只有 Admin 或 Editor (護理師) 可見 -->
+            <li v-if="isAdmin || isEditor">
+              <RouterLink to="/kidit-report" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">KiDit 申報</span>
+                </div>
+              </RouterLink>
+            </li>
             <li>
               <RouterLink v-if="isAdmin" to="/user-management" class="nav-link">
                 <div class="nav-item-content">
@@ -233,8 +245,6 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-// ✨✨✨【核心修改 B】✨✨✨
-// 從 firebase/firestore 引入所有需要的函式
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
@@ -246,15 +256,19 @@ import { useTaskStore } from '@/stores/taskStore'
 const auth = useAuth()
 const router = useRouter()
 const route = useRoute()
+
+// ✨✨✨【補充：確保這裡有解構出需要的權限變數】✨✨✨
 const {
   currentUser,
   logout,
   isAdmin,
+  isEditor, // 確保這個被解構出來
   canEditSchedules,
   canManagePhysicianSchedule,
   canManageOrders,
   canViewConsumables,
 } = useAuth()
+
 const { notifications, startListening, stopListening } = useRealtimeNotifications()
 
 const isSidebarOpen = ref(false)
@@ -270,7 +284,6 @@ const { todayRelevantMemosCount } = taskStore
 const todayMyPatientIds = ref([])
 const assignmentsApi = ApiManager('nurse_assignments')
 
-// ✨✨✨【核心修改 C】✨✨✨
 const conflictCount = ref(0)
 let conflictUnsubscribe = null // 用於儲存取消監聽的函式
 
@@ -388,22 +401,16 @@ function stopSharedDataListeners() {
   }
 }
 
-// ✨✨✨【核心修正：強化衝突監聽器】✨✨✨
 function startConflictListener() {
   if (conflictUnsubscribe) return
 
   const exceptionsRef = collection(db, 'schedule_exceptions')
-
-  // 建立一個代表「今天凌晨」的 Date 物件
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // 建立一個新的查詢，它需要同時滿足兩個條件：
   const q = query(
     exceptionsRef,
-    // 條件一：狀態必須是「衝突待解決」
     where('status', '==', 'conflict_requires_resolution'),
-    // 🔥 條件二：文件的「過期日 (expireAt)」必須是今天或未來 🔥
     where('expireAt', '>=', today),
   )
 
@@ -417,7 +424,6 @@ function startConflictListener() {
     },
     (error) => {
       console.error('❌ [MainLayout] 監聽調班衝突時發生錯誤:', error)
-      // 如果查詢失敗（例如缺少索引），也將計數歸零
       conflictCount.value = 0
     },
   )
@@ -438,7 +444,7 @@ watch(
       console.log('✅ [MainLayout] User logged in, starting services.')
       startSharedDataListeners()
       startListening()
-      startConflictListener() // ✨ 在使用者登入時，啟動衝突監聽
+      startConflictListener()
       await fetchTodayAssignedPatients()
       taskStore.startRealtimeUpdates(newUser.uid)
     } else {
@@ -447,7 +453,7 @@ watch(
       stopSharedDataListeners()
       sessionStorage.removeItem('hasCheckedSchedules')
       stopListening()
-      stopConflictListener() // ✨ 在使用者登出時，停止衝突監聽
+      stopConflictListener()
       patientStore.$reset()
       taskStore.cleanupListeners()
       todayMyPatientIds.value = []
@@ -468,7 +474,7 @@ watch(
 onUnmounted(() => {
   stopListening()
   stopSharedDataListeners()
-  stopConflictListener() // ✨ 在元件卸載時，也確保停止監聽
+  stopConflictListener()
   taskStore.cleanupListeners()
 })
 </script>
