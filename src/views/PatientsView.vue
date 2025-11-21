@@ -77,6 +77,11 @@ const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
 const { isLoggedIn } = auth
 const isPageLocked = computed(() => auth.isReadOnly.value)
+// ✨✨✨ [新增] 專門給刪除按鈕用的鎖定狀態 ✨✨✨
+// 如果是唯讀(Viewer) 或者 角色是 contributor，都鎖起來
+const isDeleteLocked = computed(() => {
+  return isPageLocked.value || auth.currentUser.value?.role === 'contributor'
+})
 const FREQ_COLOR_MAP = {
   一三五: 'freq-blue',
   二四六: 'freq-green',
@@ -639,9 +644,11 @@ async function transferPatient(patientId, newStatus) {
   )
 }
 
+// ✨✨✨ [修改] 確認刪除的邏輯檢查 ✨✨✨
 async function handleDeleteReasonSelected(reason) {
-  if (isPageLocked.value) {
-    showAlert('操作失敗', '操作被鎖定：權限不足。')
+  // 使用新的鎖定變數進行檢查
+  if (isDeleteLocked.value) {
+    showAlert('操作失敗', '權限不足：您的角色無法刪除病人資料。')
     return
   }
   const patientId = patientToDeleteId.value
@@ -784,7 +791,11 @@ function openHistoryModal(patientId) {
   selectedPatientForHistory.value = { id: patientId }
   isHistoryModalVisible.value = true
 }
+// ✨✨✨ [修改] 刪除前的邏輯檢查，防止有人繞過 UI 呼叫 ✨✨✨
 function deletePatient(patientId) {
+  // 如果被鎖定，直接不反應
+  if (isDeleteLocked.value) return
+
   patientToDeleteId.value = patientId
   isDeleteDialogVisible.value = true
 }
@@ -1198,7 +1209,7 @@ watch(
                     ><button
                       class="btn-icon btn-delete"
                       @click="deletePatient(p.id)"
-                      :disabled="isPageLocked"
+                      :disabled="isDeleteLocked"
                       title="刪除"
                     >
                       <i class="fas fa-trash-alt"></i>
@@ -1327,7 +1338,7 @@ watch(
                 ><button
                   class="btn-icon btn-delete"
                   @click="deletePatient(p.id)"
-                  :disabled="isPageLocked"
+                  :disabled="isDeleteLocked"
                   title="刪除"
                 >
                   <i class="fas fa-trash-alt"></i>
