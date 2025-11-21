@@ -43,13 +43,13 @@ const routes = [
         path: 'physician-schedule',
         component: PhysicianScheduleView,
         redirect: '/physician-schedule/rounding',
-        meta: { title: '醫師排班', roles: ['admin', 'contributor'] },
+        meta: { title: '醫師排班', roles: ['admin', 'contributor', 'viewer'] },
         children: [
           {
             path: 'rounding',
             name: 'PhysicianRoundingSchedule',
             component: PhysicianScheduleView,
-            meta: { title: '查房班表' },
+            meta: { title: '查房班表', roles: ['admin', 'contributor', 'viewer'] },
           },
         ],
       },
@@ -150,6 +150,18 @@ const routes = [
         meta: {
           title: '護理班表與職責',
           requiresAuth: true,
+        },
+      },
+      // ✨✨✨【新增這段】✨✨✨
+      {
+        path: 'kidit-report',
+        name: 'KiDitReport',
+        component: () => import('@/views/PatientMovementReportView.vue'),
+        meta: {
+          title: 'KiDit 申報工作站',
+          requiresAuth: true,
+          // 如果您原本的路由有在使用 roles 陣列控制，請加上下面這行
+          // roles: ['admin', 'editor']
         },
       },
     ],
