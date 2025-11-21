@@ -26,7 +26,6 @@ const routes = [
         component: () => import('@/views/ScheduleView.vue'),
         meta: { title: '每日排程表' },
       },
-      // ... (您其他的路由設定保持不變)
       {
         path: 'weekly',
         name: 'Weekly',
@@ -117,10 +116,15 @@ const routes = [
         meta: { title: '帳號設定' },
       },
       {
-        path: 'daily-log',
+        path: '/daily-log',
         name: 'DailyLog',
-        component: () => import('@/views/DailyLogView.vue'),
-        meta: { title: '工作日誌', requiresAuth: true },
+        component: () => import('../views/DailyLogView.vue'),
+        meta: {
+          title: '工作日誌',
+          requiresAuth: true,
+          // ✨ 修改點：加上 'viewer'，允許所有人進入查看
+          roles: ['admin', 'editor', 'viewer'],
+        },
       },
       {
         path: 'collaboration',
