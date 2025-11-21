@@ -1,3 +1,4 @@
+<!-- src/components/kidit/MovementDetailModal.vue -->
 <template>
   <div v-if="visible" class="modal-overlay" @click.self="close">
     <div class="modal-content">
@@ -73,13 +74,17 @@
                       @click.stop
                     />
                   </td>
+                  <!-- KiDit 登錄欄位 -->
                   <td class="text-center" @click.stop>
                     <label class="checkbox-container">
                       <input type="checkbox" v-model="event.isRegistered" />
                       <span class="checkmark"></span>
                     </label>
                   </td>
-                  <td class="text-center">
+
+                  <!-- 操作欄位 -->
+                  <td class="text-center action-cell">
+                    <!-- 刪除按鈕 -->
                     <button
                       class="icon-btn delete-btn"
                       @click.stop="deleteEvent(index)"
@@ -87,6 +92,26 @@
                     >
                       <i class="fas fa-trash-alt"></i>
                     </button>
+
+                    <!-- 資料完整性提示 -->
+                    <div class="status-indicator" @click.stop>
+                      <!-- 如果資料完整 -> 綠色勾勾 -->
+                      <i
+                        v-if="isKiDitDataComplete(event)"
+                        class="fas fa-check-circle text-green-500"
+                        title="KiDit 資料已完整"
+                      ></i>
+
+                      <!-- 如果資料不全 -> 紅色驚嘆號 (點擊可切換到資料頁籤) -->
+                      <button
+                        v-else
+                        class="icon-btn warning-btn"
+                        @click.stop="handleIncompleteClick(event)"
+                        title="KiDit 資料尚未填寫完整，點擊填寫"
+                      >
+                        <i class="fas fa-exclamation-triangle"></i>
+                      </button>
+                    </div>
                   </td>
                 </tr>
                 <tr v-if="localEvents.length === 0">
@@ -127,16 +152,13 @@
 
               <div class="sub-content">
                 <VascularAccessForm
-                  v-if="subTab === 'current'"
-                  :patient="selectedPatientData"
-                  type="current"
-                  @updated="refreshPatientData"
-                />
-                <VascularAccessForm
-                  v-if="subTab === 'unused'"
-                  :patient="selectedPatientData"
-                  type="unused"
-                  @updated="refreshPatientData"
+                  v-if="subTab === 'current' || subTab === 'unused'"
+                  :type="subTab"
+                  :date="date"
+                  :event-id="selectedEvent.id"
+                  :initial-data="getEventData('kidit_vascular')"
+                  :master-patient="selectedPatientData"
+                  @updated="handleDataUpdated"
                 />
                 <div v-if="subTab === 'events'" class="event-list-container">
                   <ul class="event-list">
@@ -155,27 +177,44 @@
             <!-- 頁籤 3: KiDit病患資料 -->
             <KiDitPatientForm
               v-if="activeTab === 'profile'"
-              :patient="selectedPatientData"
-              @updated="refreshPatientData"
+              :date="date"
+              :event-id="selectedEvent.id"
+              :initial-data="getEventData('kidit_profile')"
+              :master-patient="selectedPatientData"
+              @updated="handleDataUpdated"
             />
 
             <!-- 頁籤 4: 病史原發病 -->
             <KiDitHistoryForm
               v-if="activeTab === 'history'"
-              :patient="selectedPatientData"
-              @updated="refreshPatientData"
+              :date="date"
+              :event-id="selectedEvent.id"
+              :initial-data="getEventData('kidit_history')"
+              :master-patient="selectedPatientData"
+              @updated="handleDataUpdated"
             />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ✨ 整合 Alert Dialog ✨ -->
+    <!-- ✨ 整合 Alert Dialog (提示訊息) ✨ -->
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
+    />
+
+    <!-- ✨ 整合 Confirm Dialog (刪除確認) ✨ -->
+    <ConfirmDialog
+      :is-visible="isConfirmDialogVisible"
+      :title="confirmDialogTitle"
+      :message="confirmDialogMessage"
+      confirm-text="刪除"
+      confirm-class="btn-danger"
+      @confirm="executeDelete"
+      @cancel="isConfirmDialogVisible = false"
     />
   </div>
 </template>
@@ -186,8 +225,8 @@ import { kiditService } from '@/services/kiditService'
 import VascularAccessForm from './VascularAccessForm.vue'
 import KiDitPatientForm from './KiDitPatientForm.vue'
 import KiDitHistoryForm from './KiDitHistoryForm.vue'
-// ✨ 引入 AlertDialog
 import AlertDialog from '@/components/AlertDialog.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const props = defineProps({
   visible: Boolean,
@@ -204,17 +243,22 @@ const selectedPatientId = ref(null)
 const selectedPatientName = ref('')
 const selectedPatientData = ref(null)
 
-// ✨ Alert Dialog 狀態
+// Alert Dialog 狀態
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
 const alertDialogMessage = ref('')
 
-// ✨ Alert Helper 函式
 function showAlert(title, message) {
   alertDialogTitle.value = title
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
+
+// ✨ Confirm Dialog 狀態
+const isConfirmDialogVisible = ref(false)
+const confirmDialogTitle = ref('')
+const confirmDialogMessage = ref('')
+const pendingDeleteIndex = ref(-1)
 
 const tabs = [
   { key: 'movement', label: '當日病患動態', requiresSelection: false },
@@ -223,6 +267,7 @@ const tabs = [
   { key: 'history', label: 'KiDit 病史原發病', requiresSelection: true },
 ]
 
+// 同步 props 到本地
 watch(
   () => props.events,
   (newVal) => {
@@ -231,9 +276,10 @@ watch(
   { immediate: true },
 )
 
+// 當選擇病人改變時，去抓取該病人的主檔資料 (用於預填)
 watch(selectedPatientId, async (newId) => {
   if (newId) {
-    selectedPatientData.value = await kiditService.fetchPatient(newId)
+    selectedPatientData.value = await kiditService.fetchPatientMasterRecord(newId)
   } else {
     selectedPatientData.value = null
   }
@@ -250,6 +296,14 @@ const selectedPatientVascularEvents = computed(() => {
     (e) => e.patientId === selectedPatientId.value && e.type === 'ACCESS',
   )
 })
+
+const selectedEvent = computed(() => {
+  return localEvents.value.find((e) => e.patientId === selectedPatientId.value) || {}
+})
+
+function getEventData(key) {
+  return selectedEvent.value[key] || null
+}
 
 function translateType(type) {
   const map = { MOVEMENT: '動態', ACCESS: '通路', TRANSFER: '轉移', CREATE: '新收', DELETE: '結案' }
@@ -281,14 +335,27 @@ function selectPatient(event) {
 function handleTabClick(key) {
   const tab = tabs.find((t) => t.key === key)
   if (tab.requiresSelection && !selectedPatientId.value) {
-    // ✨ 使用 showAlert 取代 alert
     showAlert('提示', '請先在列表中點選一位病人')
     return
   }
   activeTab.value = key
 }
 
-// 快捷切換 (保留相容)
+function handleDataUpdated(key, newData) {
+  const targetEvent = localEvents.value.find((e) => e.patientId === selectedPatientId.value)
+  if (targetEvent && key) {
+    targetEvent[key] = JSON.parse(JSON.stringify(newData))
+  }
+  showAlert('成功', '資料已儲存！')
+  emit('refresh')
+}
+
+// 處理點擊驚嘆號時執行
+function handleIncompleteClick(event) {
+  selectPatient(event)
+  switchToProfileTab()
+}
+
 function switchToVascularTab() {
   handleTabClick('vascular')
 }
@@ -301,32 +368,42 @@ function switchToHistoryTab() {
 
 async function refreshPatientData() {
   if (selectedPatientId.value) {
-    selectedPatientData.value = await kiditService.fetchPatient(selectedPatientId.value)
+    selectedPatientData.value = await kiditService.fetchPatientMasterRecord(selectedPatientId.value)
   }
 }
 
+// 1. 點擊刪除按鈕：打開確認框
 function deleteEvent(index) {
   const event = localEvents.value[index]
-  // 這裡暫時維持瀏覽器原生的 confirm，因為 AlertDialog 元件主要是單一按鈕的通知
-  // 如果您有 ConfirmDialog 元件也可以替換進來
-  if (confirm(`確定要移除 ${event.patientName} 的這筆紀錄嗎？`)) {
-    localEvents.value.splice(index, 1)
-    if (event.patientId === selectedPatientId.value) {
+  pendingDeleteIndex.value = index
+  confirmDialogTitle.value = '確認移除'
+  confirmDialogMessage.value = `確定要移除 ${event.patientName} 的這筆紀錄嗎？\n移除後需點擊「儲存動態列表變更」才會生效。`
+  isConfirmDialogVisible.value = true
+}
+
+// 2. 執行刪除動作 (按下確認後)
+function executeDelete() {
+  if (pendingDeleteIndex.value !== -1) {
+    const deletedEvent = localEvents.value[pendingDeleteIndex.value]
+    localEvents.value.splice(pendingDeleteIndex.value, 1)
+
+    // 如果刪除的是當前選中的病人，重置選取狀態
+    if (deletedEvent.patientId === selectedPatientId.value) {
       selectedPatientId.value = null
       selectedPatientName.value = ''
     }
+    pendingDeleteIndex.value = -1
   }
+  isConfirmDialogVisible.value = false
 }
 
 async function saveAllEvents() {
   try {
     await kiditService.updateLogEvents(props.date, localEvents.value)
-    // ✨ 使用 showAlert 取代 alert
     showAlert('成功', '動態列表儲存成功！')
     emit('refresh')
   } catch (e) {
     console.error(e)
-    // ✨ 使用 showAlert 取代 alert
     showAlert('錯誤', '儲存失敗，請稍後再試。')
   }
 }
@@ -336,9 +413,18 @@ function close() {
   activeTab.value = 'movement'
   selectedPatientId.value = null
 }
+
+function isKiDitDataComplete(event) {
+  const hasProfile = event.kidit_profile && event.kidit_profile.idNumber
+  const hasHistory = event.kidit_history && event.kidit_history.diagnosisCategory
+  const v = event.kidit_vascular?.current || {}
+  const hasVascular = v.isAutoCap || v.isManuCap || v.isPermCath || v.isDoubleLumen
+  return hasProfile && hasHistory && hasVascular
+}
 </script>
 
 <style scoped>
+/* 樣式與原檔相同，此處保留不變，請使用原本的樣式即可 */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -741,5 +827,41 @@ function close() {
   text-align: center;
   padding: 20px;
   font-style: italic;
+}
+
+.action-cell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px; /* 讓刪除按鈕和警示圖示保持距離 */
+}
+
+.text-green-500 {
+  color: #27ae60;
+  font-size: 1.1rem;
+}
+
+.warning-btn {
+  color: #e67e22; /* 橘色警告 */
+  animation: pulse 2s infinite;
+}
+.warning-btn:hover {
+  color: #d35400;
+  background: #fff3e0;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 </style>

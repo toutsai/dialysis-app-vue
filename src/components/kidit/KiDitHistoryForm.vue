@@ -22,7 +22,9 @@
         <div class="form-group">
           <label>06 本院開始HD</label>
           <select v-model="formData.isStartHDHere">
-            <option v-for="opt in opts.yesNo" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.yesNo" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
         <div class="form-group">
@@ -38,7 +40,9 @@
         <div class="form-group">
           <label>09 本院開始PD</label>
           <select v-model="formData.isStartPDHere">
-            <option v-for="opt in opts.yesNo" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.yesNo" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
         <div class="form-group">
@@ -54,7 +58,9 @@
         <div class="form-group">
           <label>12 本院移植</label>
           <select v-model="formData.isTransplantHere">
-            <option v-for="opt in opts.yesNo" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.yesNo" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
         <div class="form-group">
@@ -71,13 +77,17 @@
         <div class="form-group">
           <label>14 知為慢性腎衰竭</label>
           <select v-model="formData.isKnownCKD">
-            <option v-for="opt in opts.yesNo" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.yesNo" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
         <div class="form-group">
           <label>15 BUN/Cr異常</label>
           <select v-model="formData.isBUNCreatAbnormal">
-            <option v-for="opt in opts.yesNo" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.yesNo" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
         <div class="form-group">
@@ -113,7 +123,9 @@
         <div class="form-group">
           <label>24 DM型式</label>
           <select v-model="formData.dmType">
-            <option v-for="opt in opts.dmType" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.dmType" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
       </div>
@@ -151,13 +163,17 @@
         <div class="form-group">
           <label>33 HBsAg</label>
           <select v-model="formData.hbsag">
-            <option v-for="opt in opts.hepatitis" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.hepatitis" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
         <div class="form-group">
           <label>34 Anti-HCV</label>
           <select v-model="formData.antihcv">
-            <option v-for="opt in opts.hepatitis" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.hepatitis" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
       </div>
@@ -170,7 +186,9 @@
         <div class="form-group full-width">
           <label>35 適應症種類</label>
           <select v-model="formData.indicationType">
-            <option v-for="opt in opts.indicationType" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.indicationType" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
 
@@ -206,7 +224,9 @@
         <div class="form-group">
           <label>50 初次重大傷病</label>
           <select v-model="formData.isFirstCatastrophic">
-            <option v-for="opt in opts.yesNo" :value="opt.value">{{ opt.label }}</option>
+            <option v-for="opt in opts.yesNo" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
           </select>
         </div>
       </div>
@@ -226,7 +246,10 @@ import { kiditService } from '@/services/kiditService'
 import { KIDIT_HISTORY_OPTIONS } from '@/utils/kiditHelpers'
 
 const props = defineProps({
-  patient: Object,
+  date: String, // '2025-11-21'
+  eventId: String, // 'move_...'
+  initialData: Object, // 來自 kidit_logbook (優先)
+  masterPatient: Object, // 來自 patients (預填用)
 })
 
 const emit = defineEmits(['updated'])
@@ -234,13 +257,19 @@ const isSaving = ref(false)
 const formData = ref({})
 const opts = KIDIT_HISTORY_OPTIONS
 
-// 初始化資料
+// 初始化資料：優先讀取 Logbook 快照，若無則嘗試從病患主檔帶入
 watch(
-  () => props.patient,
-  (newVal) => {
-    if (newVal) {
+  () => [props.initialData, props.masterPatient],
+  () => {
+    // 1. 如果 Logbook 有資料 (已存過)，直接使用
+    if (props.initialData) {
+      formData.value = JSON.parse(JSON.stringify(props.initialData))
+    }
+
+    // 2. 如果沒存過，從 Master Record 預填
+    else if (props.masterPatient) {
       // 存放在 kiditProfile.history 下
-      const h = newVal.kiditProfile?.history || {}
+      const h = props.masterPatient.kiditProfile?.history || {}
 
       formData.value = {
         transferFromName: h.transferFromName || '',
@@ -284,28 +313,29 @@ watch(
         isFirstCatastrophic: h.isFirstCatastrophic || 'N',
       }
     }
+
+    // 3. 最後，給空值
+    else {
+      formData.value = {}
+    }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 
 async function saveData() {
   isSaving.value = true
   try {
-    // 注意：updatePatientAccessInfo 可能要改名或擴充功能以支援更深層的更新
-    // 這裡我們傳入 kiditProfile.history
-    const currentProfile = props.patient.kiditProfile || {}
-    const newProfile = {
-      ...currentProfile,
-      history: formData.value,
-    }
+    await kiditService.updateEventKiDitData(
+      props.date,
+      props.eventId,
+      'kidit_history',
+      formData.value,
+    )
 
-    await kiditService.updatePatientAccessInfo(props.patient.id, {
-      kiditProfile: newProfile,
-    })
-    alert('病史資料已儲存！')
-    emit('updated')
+    // ✨✨✨ 關鍵修改：傳遞欄位名稱和新資料 ✨✨✨
+    emit('updated', 'kidit_history', formData.value)
   } catch (error) {
-    console.error(error)
+    console.error('儲存失敗:', error)
     alert('儲存失敗')
   } finally {
     isSaving.value = false
@@ -401,5 +431,9 @@ select:focus {
 }
 .save-btn:hover {
   background: #219150;
+}
+.save-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 </style>

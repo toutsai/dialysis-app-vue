@@ -1,3 +1,4 @@
+<!-- src/components/kidit/KiDitPatientForm.vue -->
 <template>
   <div class="kidit-form-container" v-if="formData">
     <!-- 區塊 1: 身分與基本資料 -->
@@ -6,6 +7,7 @@
       <div class="form-grid">
         <div class="form-group">
           <label>01 姓名</label>
+          <!-- 從 Master Data 讀取的姓名通常不允許修改，以保持一致性 -->
           <input type="text" v-model="formData.name" disabled class="input-disabled" />
         </div>
 
@@ -183,7 +185,6 @@
 
         <div class="form-group span-2">
           <label>23 原發病細類</label>
-          <!-- 這裡如果選項太多，也可以考慮改成帶搜尋功能的 Select -->
           <select v-model="formData.diagnosisSubcategory">
             <option value="">請選擇</option>
             <option
@@ -212,28 +213,39 @@ import { kiditService } from '@/services/kiditService'
 import { KIDIT_OPTIONS, toRocDate } from '@/utils/kiditHelpers'
 
 const props = defineProps({
-  patient: Object,
+  date: String, // '2025-11-21'
+  eventId: String, // 'move_...'
+  initialData: Object, // 來自 kidit_logbook (優先)
+  masterPatient: Object, // 來自 patients (預填用)
 })
 
 const emit = defineEmits(['updated'])
 const isSaving = ref(false)
 const formData = ref({})
 
-// 初始化資料：優先讀取 kiditProfile，若無則嘗試從病患基本資料帶入
+// 初始化資料：優先讀取 Logbook 快照，若無則嘗試從病患主檔帶入
 watch(
-  () => props.patient,
-  (newVal) => {
-    if (newVal) {
-      const k = newVal.kiditProfile || {}
+  () => [props.initialData, props.masterPatient],
+  () => {
+    // 1. 如果 Logbook 有資料 (已存過)，直接使用
+    if (props.initialData) {
+      formData.value = JSON.parse(JSON.stringify(props.initialData))
+    }
+
+    // 2. 如果沒存過，從 Master Record 預填
+    else if (props.masterPatient) {
+      const p = props.masterPatient
+      // 相容舊資料 kiditProfile
+      const k = p.kiditProfile || {}
 
       formData.value = {
         // 基本資料
-        name: newVal.name || '',
-        idNumber: k.idNumber || newVal.idNumber || '',
-        medicalRecordNumber: k.medicalRecordNumber || newVal.medicalRecordNumber || '',
+        name: p.name || '',
+        idNumber: k.idNumber || p.idNumber || '',
+        medicalRecordNumber: k.medicalRecordNumber || p.medicalRecordNumber || '',
         patientCategory: k.patientCategory || '00', // 預設健保
-        birthDate: k.birthDate || newVal.birthDate || '',
-        gender: k.gender || (newVal.gender === '男' ? '1' : '2'),
+        birthDate: k.birthDate || p.birthDate || '',
+        gender: k.gender || (p.gender === '男' ? '1' : '2'),
         bloodType: k.bloodType || '',
         isIndigenous: k.isIndigenous || 'N', // 預設否
         isWelfare: k.isWelfare || 'N', // 預設否
@@ -257,21 +269,29 @@ watch(
         diagnosisSubcategory: k.diagnosisSubcategory || '',
       }
     }
+
+    // 3. 若兩者皆無，給空值 (通常不應發生，至少有 masterPatient)
+    else {
+      formData.value = {}
+    }
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 
 async function saveData() {
   isSaving.value = true
   try {
-    // 儲存到 kiditProfile 欄位
-    await kiditService.updatePatientAccessInfo(props.patient.id, {
-      kiditProfile: formData.value,
-    })
-    alert('KiDit 資料已儲存！')
-    emit('updated')
+    await kiditService.updateEventKiDitData(
+      props.date,
+      props.eventId,
+      'kidit_profile',
+      formData.value,
+    )
+
+    // ✨✨✨ 關鍵修改：傳遞欄位名稱和新資料 ✨✨✨
+    emit('updated', 'kidit_profile', formData.value)
   } catch (error) {
-    console.error(error)
+    console.error('儲存失敗:', error)
     alert('儲存失敗')
   } finally {
     isSaving.value = false

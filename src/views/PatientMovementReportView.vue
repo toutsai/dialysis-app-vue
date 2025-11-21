@@ -2,32 +2,39 @@
   <div class="report-container">
     <!-- 標題區 -->
     <header class="page-header">
-      <h2 class="page-title"><i class="fas fa-file-medical-alt icon"></i> KiDit 申報工作站</h2>
+      <div class="header-left">
+        <h2 class="page-title"><i class="fas fa-file-medical-alt icon"></i> KiDit 申報工作站</h2>
+      </div>
 
       <!-- 月份導航 -->
       <div class="month-navigator">
         <button class="nav-btn" @click="changeMonth(-1)">
-          <i class="fas fa-chevron-left"></i> 上個月
+          <i class="fas fa-chevron-left"></i>
         </button>
         <span class="current-month">
           {{ currentYear }} 年 <span class="month-number">{{ currentMonth }}</span> 月
         </span>
         <button class="nav-btn" @click="changeMonth(1)">
-          下個月 <i class="fas fa-chevron-right"></i>
+          <i class="fas fa-chevron-right"></i>
+        </button>
+      </div>
+
+      <!-- 右側功能區 -->
+      <div class="header-right">
+        <button class="action-btn export-btn" @click="exportToCSV" :disabled="isLoading">
+          <i class="fas fa-file-export"></i> 匯出本月資料
         </button>
       </div>
     </header>
 
-    <!-- 月曆主體 -->
+    <!-- 月曆主體 (保持不變) -->
     <div class="calendar-wrapper" v-if="!isLoading">
-      <!-- 星期標頭 -->
+      <!-- ... (略，保持原樣) ... -->
       <div class="weekdays-header">
         <div v-for="day in weekDays" :key="day" class="weekday">{{ day }}</div>
       </div>
 
-      <!-- 日期網格 -->
       <div class="calendar-grid">
-        <!-- 補白：如果第一天不是星期日，前面要補空格 (Optional, 視需求開啟) -->
         <div v-for="n in firstDayOffset" :key="'empty-' + n" class="day-cell empty"></div>
 
         <div
@@ -55,7 +62,7 @@
               </div>
               <div class="stat-row" v-if="day.unregistered > 0">
                 <span class="count-badge danger">
-                  <i class="fas fa-exclamation-circle"></i> {{ day.unregistered }} 未登錄
+                  <i class="fas fa-exclamation-circle"></i> {{ day.unregistered }} 未
                 </span>
               </div>
             </div>
@@ -67,13 +74,11 @@
       </div>
     </div>
 
-    <!-- Loading 狀態 -->
     <div v-else class="loading-container">
       <div class="spinner"></div>
       <p>正在讀取申報資料...</p>
     </div>
 
-    <!-- 彈窗元件 -->
     <MovementDetailModal
       :visible="showModal"
       :date="selectedDate"
@@ -88,23 +93,26 @@
 import { ref, onMounted, computed } from 'vue'
 import { kiditService } from '@/services/kiditService'
 import MovementDetailModal from '@/components/kidit/MovementDetailModal.vue'
+// ✨ 引入 Store 和 工具
+import { usePatientStore } from '@/stores/patientStore'
+import { toRocDate } from '@/utils/kiditHelpers'
+import { exportKiDitExcel } from '@/services/kiditExportService' // 引入新服務
 
+const patientStore = usePatientStore()
 const currentYear = ref(new Date().getFullYear())
 const currentMonth = ref(new Date().getMonth() + 1)
 const daysData = ref([])
 const isLoading = ref(false)
 const weekDays = ['日', '一', '二', '三', '四', '五', '六']
 
-// 用來計算該月第一天是星期幾，以便對齊月曆
-const firstDayOffset = computed(() => {
-  const firstDay = new Date(currentYear.value, currentMonth.value - 1, 1).getDay()
-  return firstDay
-})
-
 // Modal 狀態
 const showModal = ref(false)
 const selectedDate = ref('')
 const selectedEvents = ref([])
+
+const firstDayOffset = computed(() => {
+  return new Date(currentYear.value, currentMonth.value - 1, 1).getDay()
+})
 
 function isToday(dateStr) {
   const today = new Date()
@@ -117,6 +125,11 @@ function isToday(dateStr) {
 async function fetchData() {
   isLoading.value = true
   try {
+    // 確保病人資料已載入 (為了匯出時能對照到詳細資料)
+    if (patientStore.allPatients.length === 0) {
+      await patientStore.fetchPatientsIfNeeded()
+    }
+
     const logs = await kiditService.fetchMonthLogs(currentYear.value, currentMonth.value)
     const daysInMonth = new Date(currentYear.value, currentMonth.value, 0).getDate()
     const tempDays = []
@@ -165,20 +178,51 @@ function openModal(day) {
   showModal.value = true
 }
 
+// 修改 exportToCSV 函式
+function exportToCSV() {
+  if (!daysData.value.length) {
+    alert('目前無資料可匯出')
+    return
+  }
+
+  // 1. 收集整個月所有的 events (攤平)
+  const allEvents = daysData.value.flatMap((day) => day.events)
+
+  if (allEvents.length === 0) {
+    alert('本月份尚無任何事件紀錄。')
+    return
+  }
+
+  // 2. 呼叫匯出服務
+  const filename = `KiDit_Export_${currentYear.value}_${String(currentMonth.value).padStart(2, '0')}.xlsx`
+
+  try {
+    exportKiDitExcel(allEvents, filename)
+    // alert('匯出成功！'); // XLSX.writeFile 會自動觸發下載，通常不需要 alert
+  } catch (error) {
+    console.error('匯出失敗:', error)
+    alert('匯出失敗，請檢查資料格式')
+  }
+}
+
+function translateType(type) {
+  const map = { MOVEMENT: '動態', ACCESS: '通路', TRANSFER: '轉移', CREATE: '新收', DELETE: '結案' }
+  return map[type] || type
+}
+
 onMounted(() => {
   fetchData()
 })
 </script>
 
 <style scoped>
+/* --- 樣式調整 --- */
 .report-container {
   padding: 10px;
   background-color: #f8f9fa;
   min-height: 100vh;
-  font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* --- 標題與導航 --- */
 .page-header {
   display: flex;
   justify-content: space-between;
@@ -190,6 +234,17 @@ onMounted(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
+/* Header 分區 */
+.header-left,
+.header-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+.header-right {
+  justify-content: flex-end;
+}
+
 .page-title {
   font-size: 32px;
   color: #2c3e50;
@@ -198,40 +253,35 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
 }
-
 .page-title .icon {
   color: #3498db;
 }
 
 .month-navigator {
+  flex: 2;
   display: flex;
+  justify-content: center;
   align-items: center;
   gap: 20px;
-  background: #f1f3f5;
-  padding: 5px 10px;
-  border-radius: 30px;
 }
 
 .nav-btn {
-  background: white;
+  background: #f1f3f5;
   border: none;
-  padding: 8px 16px;
-  border-radius: 20px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   cursor: pointer;
-  font-weight: 600;
   color: #555;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-  transition: all 0.2s;
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  transition: all 0.2s;
 }
-
 .nav-btn:hover {
-  background: #3498db;
-  color: white;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(52, 152, 219, 0.2);
+  background: #e9ecef;
+  color: #333;
+  transform: scale(1.1);
 }
 
 .current-month {
@@ -241,20 +291,46 @@ onMounted(() => {
   min-width: 120px;
   text-align: center;
 }
-
 .month-number {
   color: #3498db;
   font-size: 1.4em;
 }
 
-/* --- 月曆本體 --- */
+/* --- 匯出按鈕 --- */
+.action-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.export-btn {
+  background-color: #27ae60;
+  color: white;
+}
+.export-btn:hover {
+  background-color: #219150;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(39, 174, 96, 0.2);
+}
+.export-btn:disabled {
+  background-color: #95a5a6;
+  cursor: not-allowed;
+}
+
+/* --- 月曆樣式 (保持之前美化版) --- */
 .calendar-wrapper {
   background: white;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
   padding: 20px;
 }
-
 .weekdays-header {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -263,20 +339,15 @@ onMounted(() => {
   border-bottom: 2px solid #f1f3f5;
   padding-bottom: 10px;
 }
-
 .weekday {
   font-weight: 600;
   color: #95a5a6;
-  text-transform: uppercase;
-  font-size: 0.9rem;
 }
-
 .calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 12px; /* 格子間距 */
+  gap: 12px;
 }
-
 .day-cell {
   background: #fff;
   border: 1px solid #e9ecef;
@@ -287,32 +358,24 @@ onMounted(() => {
   transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
-  position: relative;
 }
-
 .day-cell:hover {
   border-color: #3498db;
   box-shadow: 0 4px 12px rgba(52, 152, 219, 0.15);
   transform: translateY(-3px);
   z-index: 1;
 }
-
-/* 狀態樣式 */
 .day-cell.has-data {
   background: #fbfdff;
   border-color: #d6eaf8;
 }
-
 .day-cell.has-alert {
-  border-left: 4px solid #e74c3c; /* 左側紅色警告條 */
+  border-left: 4px solid #e74c3c;
 }
-
 .day-cell.is-today {
-  background: #fff9e6; /* 淡黃色背景 */
+  background: #fff9e6;
   border: 2px solid #f1c40f;
 }
-
-/* 空白補位格 */
 .day-cell.empty {
   background: transparent;
   border: none;
@@ -320,27 +383,22 @@ onMounted(() => {
   pointer-events: none;
 }
 
-/* 格子內部 */
 .cell-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
   margin-bottom: 8px;
 }
-
 .day-number {
   font-size: 1.1rem;
   font-weight: 700;
   color: #555;
 }
-
 .today-badge {
   background: #f1c40f;
-  color: #fff;
+  color: white;
   font-size: 0.7rem;
   padding: 2px 6px;
   border-radius: 4px;
-  font-weight: bold;
 }
 
 .cell-content {
@@ -349,11 +407,9 @@ onMounted(() => {
   flex-direction: column;
   justify-content: center;
 }
-
 .stat-row {
   margin-bottom: 4px;
 }
-
 .count-badge {
   display: inline-flex;
   align-items: center;
@@ -363,17 +419,14 @@ onMounted(() => {
   border-radius: 6px;
   width: 100%;
 }
-
 .count-badge.primary {
   background: #e3f2fd;
   color: #1976d2;
 }
-
 .count-badge.danger {
   background: #ffebee;
   color: #c62828;
 }
-
 .no-event .dot {
   display: block;
   width: 6px;
@@ -383,7 +436,6 @@ onMounted(() => {
   margin: 0 auto;
 }
 
-/* Loading */
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -392,7 +444,6 @@ onMounted(() => {
   height: 400px;
   color: #666;
 }
-
 .spinner {
   border: 4px solid #f3f3f3;
   border-top: 4px solid #3498db;
@@ -402,7 +453,6 @@ onMounted(() => {
   animation: spin 1s linear infinite;
   margin-bottom: 15px;
 }
-
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -412,26 +462,16 @@ onMounted(() => {
   }
 }
 
-/* RWD 手機版調整 */
 @media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    gap: 15px;
+  }
   .calendar-grid {
-    grid-template-columns: repeat(1, 1fr); /* 手機變清單式 */
-    gap: 8px;
+    grid-template-columns: repeat(1, 1fr);
   }
   .weekdays-header {
-    display: none; /* 手機隱藏星期 */
-  }
-  .day-cell {
-    min-height: auto;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .day-cell.empty {
     display: none;
-  }
-  .cell-content {
-    align-items: flex-end;
   }
 }
 </style>
