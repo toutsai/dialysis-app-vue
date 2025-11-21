@@ -1,4 +1,4 @@
-<!-- 檔案路徑: src/views/LoginView.vue (已修正) -->
+<!-- 檔案路徑: src/views/LoginView.vue -->
 <template>
   <div class="login-container">
     <div class="login-box">
@@ -13,6 +13,7 @@
             required
             autocomplete="username"
             placeholder="請輸入帳號"
+            :disabled="isLoading"
           />
         </div>
         <div class="form-group">
@@ -25,6 +26,7 @@
               required
               autocomplete="current-password"
               placeholder="請輸入密碼"
+              :disabled="isLoading"
             />
             <span class="password-toggle-icon" @click="togglePasswordVisibility">
               {{ isPasswordVisible ? '🙈' : '👁️' }}
@@ -33,18 +35,24 @@
         </div>
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
         <button type="submit" class="login-button" :disabled="isLoading">
-          {{ isLoading ? '登入中...' : '登入' }}
+          {{ isLoading ? '登入系統中...' : '登入' }}
         </button>
       </form>
+
       <div class="user-notice">
         <p><strong>使用者須知：</strong></p>
         <ul>
           <li>帳號：預設為您的 <strong>HIS 帳號</strong>。</li>
           <li>密碼：預設為 <strong>123456</strong>。</li>
-          <li>首次登入後，建議立即至「帳號設定」頁面變更密碼。</li>
         </ul>
         <p class="forgot-password">若忘記密碼，請聯繫系統管理員或護理長重設。</p>
       </div>
+    </div>
+
+    <!-- ✨✨✨ 新增：全螢幕 Loading 遮罩 ✨✨✨ -->
+    <div v-if="isLoading" class="loading-overlay">
+      <div class="spinner"></div>
+      <p class="loading-text">正在驗證身分，請稍候...</p>
     </div>
   </div>
 </template>
@@ -61,13 +69,12 @@ const isLoading = ref(false)
 const isPasswordVisible = ref(false)
 
 const router = useRouter()
-const { login } = useAuth() // 從 useAuth 獲取 login 函式
+const { login } = useAuth()
 
 const togglePasswordVisibility = () => {
   isPasswordVisible.value = !isPasswordVisible.value
 }
 
-// ✨ 保持這個版本，它已經是正確的了
 async function handleLogin() {
   if (isLoading.value) return
 
@@ -75,15 +82,14 @@ async function handleLogin() {
   errorMessage.value = ''
 
   try {
-    // login 函式現在內部會處理路由跳轉
+    // 因為 useAuth.ts 已經修正為會等待狀態更新
+    // 所以這裡 await 結束後，代表使用者已經登入且 currentUser 有值了
     await login(username.value, password.value)
-
-    // 登入成功後，useAuth 內部會自動導航，這裡不需要再做 router.push
   } catch (error) {
-    errorMessage.value = error.message
-  } finally {
-    isLoading.value = false
+    errorMessage.value = error.message || '登入發生錯誤'
+    isLoading.value = false // 只有失敗才需要手動關閉 loading，成功的話路由會跳轉
   }
+  // 成功時不將 isLoading 設為 false，避免跳轉瞬間畫面閃爍
 }
 </script>
 
@@ -95,6 +101,7 @@ async function handleLogin() {
   min-height: 100vh;
   background-color: #f0f2f5;
   background-image: linear-gradient(120deg, #3498db, #8e44ad);
+  position: relative; /* 為遮罩定位做準備 */
 }
 
 .login-box {
@@ -106,6 +113,7 @@ async function handleLogin() {
   max-width: 450px;
   text-align: center;
   animation: fadeIn 0.5s ease-in-out;
+  z-index: 10;
 }
 
 @keyframes fadeIn {
@@ -240,26 +248,59 @@ async function handleLogin() {
   color: #888;
 }
 
-/* ‼️‼️‼️ 以下是新增的響應式樣式 ‼️‼️‼️ */
-/* 當螢幕寬度小於或等於 768px 時 (適用於大多數手機) */
+/* ✨✨✨ 新增：Loading 遮罩樣式 ✨✨✨ */
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6); /* 半透明黑色背景 */
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px); /* 模糊背景效果 */
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid #f3f3f3;
+  border-top: 5px solid #3498db; /* 轉動的顏色 */
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 15px;
+}
+
+.loading-text {
+  color: white;
+  font-size: 1.2rem;
+  font-weight: 500;
+  letter-spacing: 1px;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 768px) {
-  /* 讓背景容器在手機上從頂部對齊，而不是置中 */
   .login-container {
     align-items: flex-start;
   }
-
-  /* 核心修改：讓登入框佔滿整個螢幕 */
   .login-box {
-    max-width: none; /* 移除最大寬度限制 */
-    width: 100%; /* 確保寬度為 100% */
-    min-height: 100vh; /* 讓它至少和螢幕一樣高 */
-    border-radius: 0; /* 移除圓角，使其邊緣與螢幕對齊 */
-    box-shadow: none; /* 移除陰影，因為它已經是全螢幕了 */
-
-    /* 減少邊距，避免內容太擠 */
+    max-width: none;
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    box-shadow: none;
     padding: 40px 25px;
-
-    /* 使用 flex 讓內容在垂直方向上更居中，體驗更好 */
     display: flex;
     flex-direction: column;
     justify-content: center;

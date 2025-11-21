@@ -1,4 +1,4 @@
-// 檔案路徑: src/stores/taskStore.ts (最終修正版 - 穩定 feedMessages 更新)
+// 檔案路徑: src/stores/taskStore.ts
 
 import { ref, computed, watch, type Ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -67,9 +67,8 @@ export const useTaskStore = defineStore('task', () => {
         return true
       })
 
-  // --- Getters 保持不變 ---
+  // --- Getters ---
   const sortedFeedMessages = computed(() => {
-    // ... (原有邏輯不變)
     const standardizedMessages = feedMessages.value.map((msg) => ({
       ...msg,
       createdAt: getSafeDate(msg.createdAt),
@@ -84,8 +83,8 @@ export const useTaskStore = defineStore('task', () => {
       return dateB.getTime() - dateA.getTime()
     })
   })
+
   const getPatientMessageTypesMapForDate = computed(() => {
-    // ... (原有邏輯不變)
     return (targetDate?: string) => {
       const dateToCompare = targetDate ? new Date(targetDate) : new Date()
       dateToCompare.setHours(0, 0, 0, 0)
@@ -118,8 +117,8 @@ export const useTaskStore = defineStore('task', () => {
       return finalMap
     }
   })
+
   const allPendingPatientMessageTypesMap = computed(() => {
-    // ... (原有邏輯不變)
     const map = new Map<string, Set<string>>()
     const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
     for (const msg of pendingMessages) {
@@ -135,8 +134,8 @@ export const useTaskStore = defineStore('task', () => {
     }
     return finalMap
   })
+
   const todayTaskCount = computed(() => (todayAssignedPatientIds?: string[]) => {
-    // ... (原有邏輯不變)
     if (!currentUser.value) return 0
     const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
     if (!todayAssignedPatientIds || todayAssignedPatientIds.length === 0) {
@@ -148,8 +147,8 @@ export const useTaskStore = defineStore('task', () => {
     ).length
     return myPendingTasksCount + myPendingMemosCount
   })
+
   const todayRelevantMemosCount = computed(() => {
-    // ... (原有邏輯不變)
     return (patientIdArray?: string[]) => {
       if (!patientIdArray || patientIdArray.length === 0) return 0
       const today = new Date()
@@ -177,13 +176,17 @@ export const useTaskStore = defineStore('task', () => {
   function startRealtimeUpdates(uid?: string) {
     if (unsubscribes.length > 0) return
     if (!uid || !currentUser.value) {
-      isLoading.value = false // 如果無法啟動，也應該結束 loading
+      isLoading.value = false
       return
     }
 
     isLoading.value = true
     let listenersInitialized = 0
-    const totalListeners = 4 // myTasksByRole, myTasksByUser, mySentTasks, messages
+    // 定義我們總共需要幾個 listener 回來才算 ready
+    // 如果你的 myTargetAssigneeValues 沒有 role，那就只有 3 個
+    // 為了簡單起見，我們在每個 snapshot 都 checkLoadingState
+    // 但這裡原本寫死 4，可以稍微彈性一點，或保留你原本邏輯
+    const totalListeners = 4
     let roleAssignedTasks: TaskItem[] = []
     let userAssignedTasks: TaskItem[] = []
 
@@ -193,9 +196,9 @@ export const useTaskStore = defineStore('task', () => {
 
     const checkLoadingState = () => {
       listenersInitialized++
+      // 這裡原本的邏輯是累加次數，簡單判斷大於等於預期數就關閉 loading
       if (listenersInitialized >= totalListeners) {
         isLoading.value = false
-        console.log('[TaskStore] All listeners initialized. isLoading is now false.') // 偵錯日誌
       }
     }
 
@@ -211,6 +214,7 @@ export const useTaskStore = defineStore('task', () => {
     if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
     if (user.role) myTargetAssigneeValues.add(user.role)
 
+    // 1. Role tasks
     if (myTargetAssigneeValues.size > 0) {
       const myTasksQuery = query(
         collection(db, 'tasks'),
@@ -228,9 +232,11 @@ export const useTaskStore = defineStore('task', () => {
       })
       unsubscribes.push(unsubscribeRoleTasks)
     } else {
+      // 如果沒有 role listener，手動增加計數以免 loading 卡住
       checkLoadingState()
     }
 
+    // 2. User specific tasks
     const myTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
@@ -247,6 +253,7 @@ export const useTaskStore = defineStore('task', () => {
     })
     unsubscribes.push(unsubscribeUserTasks)
 
+    // 3. Tasks sent by me
     const mySentTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
@@ -262,6 +269,7 @@ export const useTaskStore = defineStore('task', () => {
     })
     unsubscribes.push(unsubscribeMySentTasks)
 
+    // 4. Messages
     const myMessagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
 
     const unsubscribeMessages = onSnapshot(myMessagesQuery, (snapshot) => {
@@ -279,7 +287,15 @@ export const useTaskStore = defineStore('task', () => {
     unsubscribes.forEach((unsub) => unsub())
     unsubscribes = []
     isLoading.value = false
+    // 如果需要在停止時清空資料，可以在這裡加：
+    // myTasks.value = []
+    // mySentTasks.value = []
+    // feedMessages.value = []
   }
+
+  // ✨✨✨ 新增：定義 cleanupListeners 作為 stopRealtimeUpdates 的別名 ✨✨✨
+  // 這樣 MainLayout 呼叫 cleanupListeners() 就不會報錯了
+  const cleanupListeners = stopRealtimeUpdates
 
   watch(
     () => currentUser.value?.id,
@@ -311,5 +327,6 @@ export const useTaskStore = defineStore('task', () => {
     startRealtimeUpdates,
     stopRealtimeUpdates,
     updateTasksFromConditionRecords,
+    cleanupListeners, // ✨✨✨ 記得導出 ✨✨✨
   }
 })
