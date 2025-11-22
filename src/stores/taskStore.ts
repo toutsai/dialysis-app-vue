@@ -16,7 +16,8 @@ export type TaskItem = {
   resolvedAt?: unknown
   targetDate?: string
   content?: string
-  assignee?: string
+  assignee?: any // 因為現在可能是物件 { role: string, value: string ... }
+  creator?: any // 因為現在可能是物件 { uid: string, name: string ... }
   roles?: string[]
   [key: string]: unknown
 }
@@ -183,20 +184,23 @@ export const useTaskStore = defineStore('task', () => {
     isLoading.value = true
     let listenersInitialized = 0
     // 定義我們總共需要幾個 listener 回來才算 ready
-    // 如果你的 myTargetAssigneeValues 沒有 role，那就只有 3 個
-    // 為了簡單起見，我們在每個 snapshot 都 checkLoadingState
-    // 但這裡原本寫死 4，可以稍微彈性一點，或保留你原本邏輯
+    // myTasksByRole, myTasksByUser, mySentTasks, messages = 4 個
     const totalListeners = 4
     let roleAssignedTasks: TaskItem[] = []
     let userAssignedTasks: TaskItem[] = []
 
     const refreshMyTasks = () => {
-      myTasks.value = applyRetentionPolicy([...roleAssignedTasks, ...userAssignedTasks])
+      // ✨ 修正：合併陣列後，使用 Map 根據 id 進行去重複
+      const allRawTasks = [...roleAssignedTasks, ...userAssignedTasks]
+
+      // 利用 Map 的特性，相同的 key (id) 會被覆蓋，只保留一個
+      const uniqueTasks = Array.from(new Map(allRawTasks.map((item) => [item.id, item])).values())
+
+      myTasks.value = applyRetentionPolicy(uniqueTasks)
     }
 
     const checkLoadingState = () => {
       listenersInitialized++
-      // 這裡原本的邏輯是累加次數，簡單判斷大於等於預期數就關閉 loading
       if (listenersInitialized >= totalListeners) {
         isLoading.value = false
       }
@@ -214,13 +218,14 @@ export const useTaskStore = defineStore('task', () => {
     if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
     if (user.role) myTargetAssigneeValues.add(user.role)
 
-    // 1. Role tasks
+    // 1. Role tasks (依角色指派)
+    // 修正：查詢 assignee.role 欄位
     if (myTargetAssigneeValues.size > 0) {
       const myTasksQuery = query(
         collection(db, 'tasks'),
         where('category', '==', 'task'),
         where('status', 'in', ['pending', 'completed']),
-        where('assignee', 'in', Array.from(myTargetAssigneeValues)),
+        where('assignee.role', 'in', Array.from(myTargetAssigneeValues)),
       )
 
       const unsubscribeRoleTasks = onSnapshot(myTasksQuery, (snapshot) => {
@@ -236,12 +241,13 @@ export const useTaskStore = defineStore('task', () => {
       checkLoadingState()
     }
 
-    // 2. User specific tasks
+    // 2. User specific tasks (依特定人員指派)
+    // 修正：查詢 assignee.value 欄位 (UID)
     const myTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
       where('status', 'in', ['pending', 'completed']),
-      where('assignee', '==', user.uid),
+      where('assignee.value', '==', user.uid),
     )
 
     const unsubscribeUserTasks = onSnapshot(myTasksQuery, (snapshot) => {
@@ -253,11 +259,12 @@ export const useTaskStore = defineStore('task', () => {
     })
     unsubscribes.push(unsubscribeUserTasks)
 
-    // 3. Tasks sent by me
+    // 3. Tasks sent by me (我寄出的)
+    // 修正：查詢 creator.uid 欄位 (取代舊的 createdBy.uid)
     const mySentTasksQuery = query(
       collection(db, 'tasks'),
       where('category', '==', 'task'),
-      where('createdBy.uid', '==', user.uid),
+      where('creator.uid', '==', user.uid),
       where('status', 'in', ['pending', 'completed']),
     )
 
@@ -269,7 +276,7 @@ export const useTaskStore = defineStore('task', () => {
     })
     unsubscribes.push(unsubscribeMySentTasks)
 
-    // 4. Messages
+    // 4. Messages (病人留言)
     const myMessagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
 
     const unsubscribeMessages = onSnapshot(myMessagesQuery, (snapshot) => {
@@ -287,14 +294,9 @@ export const useTaskStore = defineStore('task', () => {
     unsubscribes.forEach((unsub) => unsub())
     unsubscribes = []
     isLoading.value = false
-    // 如果需要在停止時清空資料，可以在這裡加：
-    // myTasks.value = []
-    // mySentTasks.value = []
-    // feedMessages.value = []
   }
 
-  // ✨✨✨ 新增：定義 cleanupListeners 作為 stopRealtimeUpdates 的別名 ✨✨✨
-  // 這樣 MainLayout 呼叫 cleanupListeners() 就不會報錯了
+  // 定義 cleanupListeners 作為 stopRealtimeUpdates 的別名
   const cleanupListeners = stopRealtimeUpdates
 
   watch(
@@ -327,6 +329,6 @@ export const useTaskStore = defineStore('task', () => {
     startRealtimeUpdates,
     stopRealtimeUpdates,
     updateTasksFromConditionRecords,
-    cleanupListeners, // ✨✨✨ 記得導出 ✨✨✨
+    cleanupListeners,
   }
 })
