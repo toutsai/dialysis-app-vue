@@ -44,9 +44,10 @@
               <thead>
                 <tr>
                   <th width="10%">類型</th>
-                  <th width="15%">姓名</th>
-                  <th width="30%">詳細內容</th>
-                  <th width="25%">轉出院所</th>
+                  <th width="12%">姓名</th>
+                  <th width="12%">病歷號</th>
+                  <th width="26%">詳細內容</th>
+                  <th width="20%">轉出院所</th>
                   <th width="10%" class="text-center">KiDit 登錄</th>
                   <th width="10%" class="text-center">操作</th>
                 </tr>
@@ -64,6 +65,7 @@
                     </span>
                   </td>
                   <td class="font-medium">{{ event.patientName }}</td>
+                  <td class="text-gray-600">{{ event.medicalRecordNumber || '-' }}</td>
                   <td class="text-gray-600">{{ event.details }}</td>
                   <td>
                     <input
@@ -115,7 +117,7 @@
                   </td>
                 </tr>
                 <tr v-if="localEvents.length === 0">
-                  <td colspan="6" class="empty-row">本日無相關動態紀錄</td>
+                  <td colspan="7" class="empty-row">本日無相關動態紀錄</td>
                 </tr>
               </tbody>
             </table>
