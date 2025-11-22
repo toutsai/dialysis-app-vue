@@ -342,9 +342,14 @@
                 <strong>To {{ getAssigneeName(task.assignee) }}:</strong> {{ task.content }}
               </p>
               <div class="item-footer">
-                <small class="creator-info"
-                  ><i class="fas fa-user"></i> patient: {{ task.patientName || 'N/A' }}</small
-                >
+                <!-- ✨ 修改這裡：加入時間顯示 -->
+                <small class="creator-info">
+                  <i class="fas fa-user"></i> patient: {{ task.patientName || 'N/A' }}
+                  <!-- 新增這行 -->
+                  <span style="margin-left: 8px; color: #9ca3af">
+                    at {{ formatTimestamp(task.createdAt) }}
+                  </span>
+                </small>
                 <div class="item-actions">
                   <span v-if="task.status === 'pending'" class="sent-status">
                     <i class="far fa-clock"></i> 處理中...
