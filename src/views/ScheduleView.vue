@@ -1228,12 +1228,16 @@ const headerShiftChips = computed(() => {
 })
 const headerPhysicians = computed(() => {
   const names = []
-  ;(dailyPhysicians.value || []).forEach((doc) => {
-    if (doc?.name) names.push(doc.name)
-  })
-  ;(dailyConsultPhysicians.value || []).forEach((doc) => {
-    if (doc?.name) names.push(`諮：${doc.name}`)
-  })
+  if (dailyPhysicians.value && typeof dailyPhysicians.value === 'object') {
+    Object.values(dailyPhysicians.value).forEach((doc) => {
+      if (doc?.name) names.push(doc.name)
+    })
+  }
+  if (dailyConsultPhysicians.value && typeof dailyConsultPhysicians.value === 'object') {
+    Object.values(dailyConsultPhysicians.value).forEach((doc) => {
+      if (doc?.name) names.push(`諮：${doc.name}`)
+    })
+  }
   return names
 })
 const todayInpatients = computed(() => {
