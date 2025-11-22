@@ -7,63 +7,24 @@
     </div>
 
     <header class="page-header">
-      <div class="header-grid">
-        <div class="hero-card glass-card">
-          <div class="hero-top">
-            <div class="title-block">
-              <div class="eyebrow">每日排程</div>
-              <div class="title-line">
-                <h1 class="page-title">排程與護理分組</h1>
-                <button
-                  class="btn-secondary mobile-only"
-                  @click="isIcuOrdersDialogVisible = true"
-                  :disabled="!auth.canEditClinicalNotesAndOrders"
-                  title="顯示外圍病房當日透析醫囑單"
-                >
-                  <i class="fas fa-notes-medical"></i>
-                  <span class="mobile-btn-text">ICU醫囑</span>
-                </button>
-              </div>
-              <p class="title-caption">將日期導航、常用動作與人員資訊集中在一條視覺軸上</p>
-            </div>
-            <div class="primary-actions desktop-only">
-              <button class="pill-btn soft" @click="runScheduleCheck">
-                <i class="fas fa-search"></i>
-                <span>排程檢視</span>
-              </button>
+      <div class="header-shell glass-card">
+        <div class="headline-row">
+          <div class="title-side">
+            <div class="eyebrow">每日排程</div>
+            <div class="title-line">
+              <h1 class="page-title">排程與護理分組</h1>
+              <span class="title-chip">快速掌握今日排程與人員</span>
               <button
-                class="pill-btn info"
-                @click="isAssignmentDialogVisible = true"
-                :disabled="isPageLocked"
+                class="btn-secondary mobile-only"
+                @click="isIcuOrdersDialogVisible = true"
+                :disabled="!auth.canEditClinicalNotesAndOrders"
+                title="顯示外圍病房當日透析醫囑單"
               >
-                <i class="fas fa-procedures"></i>
-                <span>智慧排床</span>
-              </button>
-              <button
-                class="pill-btn primary"
-                @click="autoAssignNurseTeams"
-                :disabled="isPageLocked"
-              >
-                <i class="fas fa-project-diagram"></i>
-                <span>自動分組</span>
-              </button>
-              <button
-                class="pill-btn success"
-                @click="saveDataToCloud"
-                :disabled="!hasUnsavedChanges || isPageLocked"
-              >
-                <i class="fas fa-save"></i>
-                <span>儲存</span>
-              </button>
-              <button class="pill-btn neutral" @click="exportScheduleToExcel">
-                <i class="fas fa-file-export"></i>
-                <span>匯出Excel</span>
+                <i class="fas fa-notes-medical"></i>
+                <span class="mobile-btn-text">ICU醫囑</span>
               </button>
             </div>
-          </div>
-
-          <div class="hero-body">
-            <div class="date-card">
+            <div class="date-rail">
               <button class="nav-btn" @click="changeDate(-1)"><i class="fas fa-chevron-left"></i></button>
               <div class="date-stack">
                 <div class="current-date-text">{{ currentDateDisplay }}</div>
@@ -71,21 +32,71 @@
               </div>
               <button class="nav-btn" @click="changeDate(1)"><i class="fas fa-chevron-right"></i></button>
               <button class="btn subtle" @click="goToToday">回到今日</button>
-            </div>
-            <div class="mobile-quick-actions mobile-only">
-              <button
-                class="pill-btn ghost"
-                @click="isInpatientRoundsDialogVisible = true"
-                :disabled="todayInpatients.length === 0"
-                title="顯示今日住院病人總覽"
-              >
-                <i class="fas fa-walking"></i>
-                <span class="mobile-btn-text">住院趴趴走</span>
-              </button>
+              <div class="mobile-quick-actions mobile-only">
+                <button
+                  class="pill-btn ghost"
+                  @click="isInpatientRoundsDialogVisible = true"
+                  :disabled="todayInpatients.length === 0"
+                  title="顯示今日住院病人總覽"
+                >
+                  <i class="fas fa-walking"></i>
+                  <span class="mobile-btn-text">住院趴趴走</span>
+                </button>
+              </div>
             </div>
           </div>
+          <div class="primary-actions desktop-only">
+            <button class="pill-btn soft" @click="runScheduleCheck">
+              <i class="fas fa-search"></i>
+              <span>排程檢視</span>
+            </button>
+            <button
+              class="pill-btn info"
+              @click="isAssignmentDialogVisible = true"
+              :disabled="isPageLocked"
+            >
+              <i class="fas fa-procedures"></i>
+              <span>智慧排床</span>
+            </button>
+            <button
+              class="pill-btn primary"
+              @click="autoAssignNurseTeams"
+              :disabled="isPageLocked"
+            >
+              <i class="fas fa-project-diagram"></i>
+              <span>自動分組</span>
+            </button>
+            <button
+              class="pill-btn success"
+              @click="saveDataToCloud"
+              :disabled="!hasUnsavedChanges || isPageLocked"
+            >
+              <i class="fas fa-save"></i>
+              <span>儲存</span>
+            </button>
+            <button class="pill-btn neutral" @click="exportScheduleToExcel">
+              <i class="fas fa-file-export"></i>
+              <span>匯出Excel</span>
+            </button>
+          </div>
+        </div>
 
-          <div class="utility-row desktop-only">
+        <div class="meta-row">
+          <div class="insight-rail">
+            <StatsToolbar
+              :stats-data="statsToolbarData"
+              :weekdays="statsToolbarWeekdays"
+              :show-patient-numbers="true"
+              size="compact"
+            />
+            <div class="physician-rail">
+              <DailyStaffDisplay
+                :daily-physicians="dailyPhysicians"
+                :daily-consult-physicians="dailyConsultPhysicians"
+              />
+            </div>
+          </div>
+          <div class="utility-rail">
             <div class="utility-actions">
               <button class="pill-btn ghost" @click="isSimplifiedViewVisible = !isSimplifiedViewVisible">
                 <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
@@ -119,59 +130,29 @@
           </div>
         </div>
 
-        <div class="insight-card glass-card">
-          <div class="insight-header">
-            <div class="eyebrow">今日概況</div>
-            <div class="mini-indicator">查房 / 病患分佈</div>
-          </div>
-          <div class="insight-grid">
-            <div class="insight-block">
-              <StatsToolbar
-                :stats-data="statsToolbarData"
-                :weekdays="statsToolbarWeekdays"
-                :show-patient-numbers="true"
-              />
+        <section class="status-row">
+          <div class="status-core">
+            <div class="status-chip">
+              <span class="chip-label">狀態</span>
+              <span class="chip-value">{{ statusIndicator }}</span>
             </div>
-            <div class="insight-block slim">
-              <DailyStaffDisplay
-                :daily-physicians="dailyPhysicians"
-                :daily-consult-physicians="dailyConsultPhysicians"
-              />
+            <div class="timestamp-chips">
+              <div class="timestamp-chip">
+                <span class="chip-label">排程</span>
+                <span class="chip-value">{{ scheduleLastSavedText }}</span>
+              </div>
+              <div class="timestamp-chip">
+                <span class="chip-label">護理分組</span>
+                <span class="chip-value">{{ teamLastSavedText }}</span>
+              </div>
             </div>
           </div>
-          <div class="mobile-stats mobile-and-print-only">
-            <StatsToolbar
-              :stats-data="statsToolbarData"
-              :weekdays="statsToolbarWeekdays"
-              :show-patient-numbers="true"
-              size="compact"
-            />
+          <div class="status-actions">
+            <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
           </div>
-        </div>
+        </section>
       </div>
     </header>
-
-    <section class="status-row">
-      <div class="status-core">
-        <div class="status-chip">
-          <span class="chip-label">狀態</span>
-          <span class="chip-value">{{ statusIndicator }}</span>
-        </div>
-        <div class="timestamp-chips">
-          <div class="timestamp-chip">
-            <span class="chip-label">排程</span>
-            <span class="chip-value">{{ scheduleLastSavedText }}</span>
-          </div>
-          <div class="timestamp-chip">
-            <span class="chip-label">護理分組</span>
-            <span class="chip-value">{{ teamLastSavedText }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="status-actions">
-        <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
-      </div>
-    </section>
 
     <section v-if="scheduleConflictMessage || teamConflictMessage" class="conflict-stack">
       <div v-if="scheduleConflictMessage" class="conflict-banner">
@@ -2641,38 +2622,32 @@ onUnmounted(() => {
   min-height: 0;
   position: relative;
 }
-.header-grid {
-  display: grid;
-  grid-template-columns: 1.6fr 1fr;
-  gap: 12px;
-  align-items: stretch;
-}
-
 .glass-card {
-  background: linear-gradient(135deg, #ffffff 0%, #f6f9ff 50%, #ffffff 100%);
+  background: linear-gradient(135deg, #ffffff 0%, #f7f9fc 50%, #ffffff 100%);
   border: 1px solid #e5e7eb;
   border-radius: 14px;
-  padding: 14px 16px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.04);
+  padding: 12px 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.03);
 }
 
-.hero-card {
+.header-shell {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.hero-top {
+.headline-row {
   display: flex;
   justify-content: space-between;
   gap: 14px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
-.title-block {
+.title-side {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .eyebrow {
@@ -2680,7 +2655,7 @@ onUnmounted(() => {
   font-weight: 700;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  color: #7c8db5;
+  color: #6b7a99;
 }
 
 .title-line {
@@ -2690,16 +2665,71 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 
-.title-caption {
+.page-title {
+  font-size: 28px;
   margin: 0;
-  color: #556987;
-  font-size: 14px;
+  color: #0f172a;
 }
 
-.page-title {
-  font-size: 30px;
-  margin: 0;
-  color: #111827;
+.title-chip {
+  background: #eef2ff;
+  color: #4338ca;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.date-rail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #0ea5e9;
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.18);
+}
+
+.date-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 150px;
+}
+
+.nav-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.26);
+  transform: translateY(-1px);
+}
+
+.btn.subtle {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-weight: 600;
+}
+
+.mobile-quick-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .primary-actions {
@@ -2707,6 +2737,7 @@ onUnmounted(() => {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: flex-start;
 }
 
 .pill-btn {
@@ -2770,139 +2801,91 @@ onUnmounted(() => {
   transform: none;
 }
 
-.hero-body {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.meta-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: 12px;
+  align-items: stretch;
+}
+
+.insight-rail {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
   flex-wrap: wrap;
 }
 
-.date-card {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: linear-gradient(90deg, #0ea5e9 0%, #2563eb 100%);
-  color: #fff;
+.insight-rail :deep(.stats-toolbar) {
+  background: #ffffff;
+  padding: 8px;
   border-radius: 12px;
-  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+  border: 1px solid #e5e7eb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.date-stack {
+.insight-rail :deep(.stat-item) {
+  background: transparent;
+}
+
+.physician-rail {
+  flex: 1;
+  min-width: 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px dashed #e5e7eb;
+  background: #f8fafc;
+  overflow-x: auto;
+}
+
+.physician-rail :deep(.daily-staff-container) {
+  gap: 6px;
+}
+
+.physician-rail :deep(.staff-item) {
+  min-width: 150px;
+  height: 46px;
+  padding: 6px 10px;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.physician-rail :deep(.staff-name) {
+  font-size: 0.95rem;
+}
+
+.physician-rail :deep(.staff-contact) {
+  font-size: 0.68rem;
+}
+
+.utility-rail {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  min-width: 170px;
-}
-
-.nav-btn {
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.2);
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: background 0.2s ease, transform 0.2s ease;
-}
-
-.nav-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.3);
-  transform: translateY(-1px);
-}
-
-.btn.subtle {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-weight: 600;
-}
-
-.mobile-quick-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.utility-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding-top: 6px;
-  border-top: 1px dashed #e5e7eb;
+  gap: 6px;
+  align-items: flex-end;
+  min-width: 290px;
 }
 
 .utility-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.insight-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.insight-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.mini-indicator {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #eef2ff;
-  color: #4338ca;
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.insight-grid {
-  display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 10px;
-  align-items: stretch;
-}
-
-.insight-block {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 10px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-}
-
-.insight-block.slim {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mobile-stats {
-  margin-top: 4px;
-}
 .status-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin: 10px 0 6px;
-  padding: 12px 14px;
-  background: linear-gradient(90deg, #f8f9fa 0%, #f1f3f5 100%);
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: #f8fafc;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .status-core {
@@ -3646,36 +3629,37 @@ button:disabled {
   }
 
   .page-header {
-    padding: 0.75rem 0.9rem 0.4rem;
+    padding: 0.75rem 0.9rem 0.6rem;
     background-color: #fff;
   }
 
-  .header-grid {
-    grid-template-columns: 1fr;
+  .header-shell {
+    gap: 8px;
   }
 
-  .hero-top {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .hero-body {
+  .headline-row {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .date-card {
-    width: 100%;
-    justify-content: center;
+  .primary-actions {
+    justify-content: flex-start;
   }
 
-  .utility-row {
-    padding-top: 10px;
-    border-top: 1px dashed #e5e7eb;
-  }
-
-  .insight-grid {
+  .meta-row {
     grid-template-columns: 1fr;
+  }
+
+  .insight-rail {
+    flex-direction: column;
+  }
+
+  .physician-rail {
+    min-width: 0;
+  }
+
+  .utility-rail {
+    align-items: flex-start;
   }
 
   .page-main-content {
@@ -3755,7 +3739,7 @@ button:disabled {
     min-width: 36px;
   }
 
-  .date-card {
+  .date-rail {
     gap: 6px;
     padding: 8px 10px;
   }
