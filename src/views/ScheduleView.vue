@@ -7,27 +7,45 @@
     </div>
 
     <header class="page-header">
-      <div class="ribbon-shell glass-card">
-        <div class="ribbon-grid">
-          <div class="ribbon-block title-block">
+      <div class="header-shell glass-card">
+        <div class="headline-row">
+          <div class="title-side">
             <div class="eyebrow">每日排程</div>
             <div class="title-line">
               <h1 class="page-title">排程與護理分組</h1>
               <span class="title-chip">快速掌握今日排程與人員</span>
+              <button
+                class="btn-secondary mobile-only"
+                @click="isIcuOrdersDialogVisible = true"
+                :disabled="!auth.canEditClinicalNotesAndOrders"
+                title="顯示外圍病房當日透析醫囑單"
+              >
+                <i class="fas fa-notes-medical"></i>
+                <span class="mobile-btn-text">ICU醫囑</span>
+              </button>
+            </div>
+            <div class="date-rail">
+              <button class="nav-btn" @click="changeDate(-1)"><i class="fas fa-chevron-left"></i></button>
+              <div class="date-stack">
+                <div class="current-date-text">{{ currentDateDisplay }}</div>
+                <div class="weekday-display">{{ weekdayDisplay }}</div>
+              </div>
+              <button class="nav-btn" @click="changeDate(1)"><i class="fas fa-chevron-right"></i></button>
+              <button class="btn subtle" @click="goToToday">回到今日</button>
+              <div class="mobile-quick-actions mobile-only">
+                <button
+                  class="pill-btn ghost"
+                  @click="isInpatientRoundsDialogVisible = true"
+                  :disabled="todayInpatients.length === 0"
+                  title="顯示今日住院病人總覽"
+                >
+                  <i class="fas fa-walking"></i>
+                  <span class="mobile-btn-text">住院趴趴走</span>
+                </button>
+              </div>
             </div>
           </div>
-
-          <div class="ribbon-block date-block">
-            <button class="nav-btn" @click="changeDate(-1)"><i class="fas fa-chevron-left"></i></button>
-            <div class="date-stack">
-              <div class="current-date-text">{{ currentDateDisplay }}</div>
-              <div class="weekday-display">{{ weekdayDisplay }}</div>
-            </div>
-            <button class="nav-btn" @click="changeDate(1)"><i class="fas fa-chevron-right"></i></button>
-            <button class="btn subtle" @click="goToToday">回到今日</button>
-          </div>
-
-          <div class="ribbon-block action-block">
+          <div class="primary-actions desktop-only">
             <button class="pill-btn soft" @click="runScheduleCheck">
               <i class="fas fa-search"></i>
               <span>排程檢視</span>
@@ -60,76 +78,65 @@
               <i class="fas fa-file-export"></i>
               <span>匯出Excel</span>
             </button>
-            <button
-              class="pill-btn ghost mobile-only"
-              @click="isIcuOrdersDialogVisible = true"
-              :disabled="!auth.canEditClinicalNotesAndOrders"
-              title="顯示外圍病房當日透析醫囑單"
-            >
-              <i class="fas fa-notes-medical"></i>
-              <span class="mobile-btn-text">ICU醫囑</span>
-            </button>
           </div>
+        </div>
 
-          <div class="ribbon-block utility-block">
-            <button class="pill-btn ghost" @click="isSimplifiedViewVisible = !isSimplifiedViewVisible">
-              <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
-              {{ isSimplifiedViewVisible ? '收合臨床查閱' : '展開臨床查閱' }}
-            </button>
-            <button
-              class="pill-btn ghost"
-              @click="isInpatientRoundsDialogVisible = true"
-              :disabled="todayInpatients.length === 0"
-              title="顯示今日住院病人總覽"
-            >
-              <i class="fas fa-walking"></i>
-              <span>住院趴趴走 ({{ todayInpatients.length }})</span>
-            </button>
-            <button
-              class="pill-btn ghost desktop-only"
-              @click="isIcuOrdersDialogVisible = true"
-              :disabled="!auth.canEditClinicalNotesAndOrders"
-              title="顯示外圍病房當日透析醫囑單"
-            >
-              <i class="fas fa-notes-medical"></i>
-              <span>ICU醫囑單</span>
-            </button>
-          </div>
-
-          <div class="ribbon-block total-chip">
-            <div class="chip-label">總人數</div>
-            <div class="total-number">{{ headerTotalPatients }}</div>
-          </div>
-
-          <div
-            v-for="chip in headerShiftChips"
-            :key="chip.code"
-            class="ribbon-block stat-chip"
-            :class="chip.code"
-          >
-            <div class="chip-label">{{ chip.label }}</div>
-            <div class="chip-values">
-              <span class="chip-total">{{ chip.total }}</span>
-              <span class="chip-sub" v-if="chip.er">急 {{ chip.er }}</span>
-              <span class="chip-sub" v-if="chip.ipd">住 {{ chip.ipd }}</span>
-              <span class="chip-sub" v-if="chip.opd">門 {{ chip.opd }}</span>
+        <div class="meta-row">
+          <div class="insight-rail">
+            <StatsToolbar
+              :stats-data="statsToolbarData"
+              :weekdays="statsToolbarWeekdays"
+              :show-patient-numbers="true"
+              size="compact"
+            />
+            <div class="physician-rail">
+              <DailyStaffDisplay
+                :daily-physicians="dailyPhysicians"
+                :daily-consult-physicians="dailyConsultPhysicians"
+              />
             </div>
           </div>
-
-          <div v-if="headerPhysicians.length" class="ribbon-block physician-chip">
-            <div class="chip-label">查房醫師</div>
-            <div class="chip-values">
-              <span v-for="(name, idx) in headerPhysicians" :key="idx" class="chip-badge">{{ name }}</span>
+          <div class="utility-rail">
+            <div class="utility-actions">
+              <button class="pill-btn ghost" @click="isSimplifiedViewVisible = !isSimplifiedViewVisible">
+                <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
+                {{ isSimplifiedViewVisible ? '收合臨床查閱' : '展開臨床查閱' }}
+              </button>
+              <button
+                class="pill-btn ghost"
+                @click="isInpatientRoundsDialogVisible = true"
+                :disabled="todayInpatients.length === 0"
+                title="顯示今日住院病人總覽"
+              >
+                <i class="fas fa-walking"></i>
+                <span>住院趴趴走 ({{ todayInpatients.length }})</span>
+              </button>
+              <button
+                class="pill-btn ghost"
+                @click="isIcuOrdersDialogVisible = true"
+                :disabled="!auth.canEditClinicalNotesAndOrders"
+                title="顯示外圍病房當日透析醫囑單"
+              >
+                <i class="fas fa-notes-medical"></i>
+                <span>ICU醫囑單</span>
+              </button>
+            </div>
+            <div class="utility-actions">
+              <button class="pill-btn ghost" @click="reloadCurrentDay">
+                <i class="fas fa-sync"></i>
+                <span>重新載入資料</span>
+              </button>
             </div>
           </div>
+        </div>
 
-          <div class="ribbon-block status-chip-wide">
-            <div class="status-pill">
-              <i class="fas fa-circle"></i>
+        <section class="status-row">
+          <div class="status-core">
+            <div class="status-chip">
               <span class="chip-label">狀態</span>
               <span class="chip-value">{{ statusIndicator }}</span>
             </div>
-            <div class="timestamp-group">
+            <div class="timestamp-chips">
               <div class="timestamp-chip">
                 <span class="chip-label">排程</span>
                 <span class="chip-value">{{ scheduleLastSavedText }}</span>
@@ -139,11 +146,11 @@
                 <span class="chip-value">{{ teamLastSavedText }}</span>
               </div>
             </div>
-            <div class="status-actions">
-              <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
-            </div>
           </div>
-        </div>
+          <div class="status-actions">
+            <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
+          </div>
+        </section>
       </div>
     </header>
 
@@ -951,6 +958,7 @@ import {
 
 // Components
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
+import StatsToolbar from '@/components/StatsToolbar.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
@@ -962,6 +970,7 @@ import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 import DailyRecordsSummaryDialog from '@/components/DailyRecordsSummaryDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
+import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
@@ -1210,32 +1219,7 @@ const statsToolbarData = computed(() => {
   }
   return [dailyData]
 })
-const headerTotalPatients = computed(() => statsToolbarData.value?.[0]?.total || 0)
-const headerShiftChips = computed(() => {
-  const stats = statsToolbarData.value?.[0]
-  if (!stats) return []
-  return ORDERED_SHIFT_CODES.map((code) => {
-    const shiftStats = stats.counts[code] || { total: 0, opd: 0, ipd: 0, er: 0 }
-    return {
-      code,
-      label: getShiftDisplayName(code),
-      total: shiftStats.total || 0,
-      opd: shiftStats.opd || 0,
-      ipd: shiftStats.ipd || 0,
-      er: shiftStats.er || 0,
-    }
-  })
-})
-const headerPhysicians = computed(() => {
-  const names = []
-  ;(dailyPhysicians.value || []).forEach((doc) => {
-    if (doc?.name) names.push(doc.name)
-  })
-  ;(dailyConsultPhysicians.value || []).forEach((doc) => {
-    if (doc?.name) names.push(`諮：${doc.name}`)
-  })
-  return names
-})
+const statsToolbarWeekdays = computed(() => ['本日'])
 const todayInpatients = computed(() => {
   const inpatientsMap = new Map()
   if (currentRecord && currentRecord.schedule) {
@@ -2646,38 +2630,24 @@ onUnmounted(() => {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.03);
 }
 
-
 .header-shell {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.ribbon-grid {
+.headline-row {
   display: flex;
-  align-items: stretch;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.ribbon-block {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #f8fbff;
-  border: 1px solid #e8edf5;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.03);
-}
-
-.title-block {
-  flex: 1 1 240px;
-  background: linear-gradient(120deg, #f4f6ff 0%, #eef7ff 100%);
-  border: 1px solid #e2e8ff;
-  box-shadow: 0 10px 20px rgba(99, 102, 241, 0.08);
-  flex-direction: column;
+  justify-content: space-between;
+  gap: 14px;
   align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.title-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .eyebrow {
@@ -2696,7 +2666,7 @@ onUnmounted(() => {
 }
 
 .page-title {
-  font-size: 24px;
+  font-size: 28px;
   margin: 0;
   color: #0f172a;
 }
@@ -2710,12 +2680,16 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.date-block {
-  flex: 1 1 260px;
-  background: linear-gradient(135deg, #27a5ff 0%, #00c2ff 100%);
+.date-rail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #0ea5e9;
   color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 10px 22px rgba(14, 165, 233, 0.18);
+  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.18);
 }
 
 .date-stack {
@@ -2732,7 +2706,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.18);
-  color: inherit;
+  color: #fff;
   border: none;
   border-radius: 10px;
   cursor: pointer;
@@ -2753,66 +2727,17 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.action-block,
-.utility-block {
-  flex: 2 1 380px;
+.mobile-quick-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.primary-actions {
+  display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
-.total-chip {
-  background: linear-gradient(120deg, #fef3c7, #fde68a);
-  color: #854d0e;
-  min-width: 120px;
-  justify-content: space-between;
-  box-shadow: 0 8px 14px rgba(250, 204, 21, 0.18);
-}
-
-.total-number {
-  font-size: 20px;
-  font-weight: 800;
-}
-
-.stat-chip {
-  flex: 1 1 150px;
-  color: #0f172a;
-  background: #f8fafc;
-  border-color: #e2e8f0;
-}
-
-.stat-chip .chip-label {
-  font-weight: 700;
-}
-
-.stat-chip.early {
-  background: linear-gradient(135deg, #ecfdf3, #dcfce7);
-  border-color: #bbf7d0;
-}
-
-.stat-chip.noon {
-  background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
-  border-color: #bae6fd;
-}
-
-.stat-chip.late {
-  background: linear-gradient(135deg, #fff7ed, #ffedd5);
-  border-color: #fed7aa;
-}
-
-.physician-chip {
-  flex: 2 1 260px;
-  background: linear-gradient(135deg, #fdf4ff, #fae8ff);
-  border-color: #f5d0fe;
-}
-
-.status-chip-wide {
-  flex: 1 1 100%;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  background: #f8fafc;
-  border-color: #e2e8f0;
+  justify-content: flex-end;
+  align-items: flex-start;
 }
 
 .pill-btn {
@@ -2876,64 +2801,110 @@ onUnmounted(() => {
   transform: none;
 }
 
-.chip-values {
+.meta-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.insight-rail {
   display: flex;
-  gap: 8px;
-  align-items: center;
+  gap: 10px;
+  align-items: stretch;
   flex-wrap: wrap;
 }
 
-.chip-total {
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.chip-sub {
-  font-size: 13px;
-  color: #475569;
-  background: #fff;
-  padding: 4px 8px;
-  border-radius: 999px;
-}
-
-.chip-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: #fff;
-  color: #6b21a8;
-  border: 1px solid #f3e8ff;
-  font-weight: 700;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #0f766e;
-  color: #fff;
+.insight-rail :deep(.stats-toolbar) {
+  background: #ffffff;
+  padding: 8px;
   border-radius: 12px;
-  font-weight: 700;
+  border: 1px solid #e5e7eb;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.timestamp-group {
+.insight-rail :deep(.stat-item) {
+  background: transparent;
+}
+
+.physician-rail {
+  flex: 1;
+  min-width: 320px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px dashed #e5e7eb;
+  background: #f8fafc;
+  overflow-x: auto;
+}
+
+.physician-rail :deep(.daily-staff-container) {
+  gap: 6px;
+}
+
+.physician-rail :deep(.staff-item) {
+  min-width: 150px;
+  height: 46px;
+  padding: 6px 10px;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.physician-rail :deep(.staff-name) {
+  font-size: 0.95rem;
+}
+
+.physician-rail :deep(.staff-contact) {
+  font-size: 0.68rem;
+}
+
+.utility-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  min-width: 290px;
+}
+
+.utility-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.timestamp-chip {
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.status-core {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
-  background: #fff;
-  color: #374151;
-  border-radius: 12px;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  padding: 6px 12px;
+  background: #0f766e;
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 .chip-label {
@@ -2944,6 +2915,25 @@ onUnmounted(() => {
 .chip-value {
   font-size: 14px;
   letter-spacing: 0.1px;
+}
+
+.timestamp-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timestamp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #374151;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .status-actions {
