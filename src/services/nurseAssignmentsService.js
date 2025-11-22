@@ -4,8 +4,8 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  runTransaction,
   setDoc,
-  updateDoc,
   query,
   where,
   serverTimestamp,
@@ -44,9 +44,10 @@ export async function fetchTeamsByDate(dateStr) {
  * @param {Object} data - 包含 date 和 teams 的資料
  * @returns {Promise<Object>} 儲存後的記錄（含 ID）
  */
-export async function saveTeams(data) {
+export async function saveTeams(data, options = {}) {
   try {
     const docRef = doc(db, 'nurse_assignments', data.date)
+    const { updatedBy = '系統' } = options
 
     // 新建時確保結構完整
     const saveData = {
@@ -55,6 +56,8 @@ export async function saveTeams(data) {
       names: data.names || {},
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
+      updatedBy,
+      version: 1,
     }
 
     await setDoc(docRef, saveData)
@@ -71,18 +74,34 @@ export async function saveTeams(data) {
  * @param {Object} data - 更新的資料
  * @returns {Promise<void>}
  */
-export async function updateTeams(docId, data) {
+export async function updateTeams(docId, data, options = {}) {
   try {
     const docRef = doc(db, 'nurse_assignments', docId)
+    const { expectedVersion = null, updatedBy = '系統' } = options
 
-    // 確保更新時包含所有必要欄位
-    const updateData = {
-      ...data,
-      updatedAt: serverTimestamp(),
-    }
+    const { version } = await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(docRef)
+      if (!snapshot.exists()) {
+        throw new Error('護理師分組資料不存在或已被刪除')
+      }
 
-    await updateDoc(docRef, updateData)
-    return { success: true }
+      const currentVersion = snapshot.data().version ?? 0
+      if (expectedVersion !== null && expectedVersion !== currentVersion) {
+        throw new Error('TEAM_VERSION_CONFLICT')
+      }
+
+      const nextVersion = currentVersion + 1
+      transaction.update(docRef, {
+        ...data,
+        updatedAt: serverTimestamp(),
+        updatedBy,
+        version: nextVersion,
+      })
+
+      return { version: nextVersion }
+    })
+
+    return { success: true, version }
   } catch (error) {
     console.error('更新護理師分組失敗:', error)
     throw error

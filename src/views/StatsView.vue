@@ -1696,6 +1696,7 @@ async function saveChangesToCloud() {
   statusIndicator.value = '儲存中...'
   const promises = []
   try {
+    const updatedBy = currentUser.value?.name || '未知使用者'
     if (hasUnsavedScheduleChanges.value) {
       const scheduleToSave = JSON.parse(JSON.stringify(currentRecord.schedule))
       for (const key in scheduleToSave) {
@@ -1721,10 +1722,12 @@ async function saveChangesToCloud() {
         names: currentTeamsRecord.value.names || {},
       }
       if (currentTeamsRecord.value.id) {
-        promises.push(updateTeams(currentTeamsRecord.value.id, teamsData))
+        promises.push(updateTeams(currentTeamsRecord.value.id, teamsData, { updatedBy }))
       } else {
         promises.push(
-          saveTeams(teamsData).then((saved) => (currentTeamsRecord.value.id = saved.id)),
+          saveTeams(teamsData, { updatedBy }).then(
+            (saved) => (currentTeamsRecord.value.id = saved.id),
+          ),
         )
       }
     }

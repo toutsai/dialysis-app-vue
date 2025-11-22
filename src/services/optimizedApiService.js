@@ -1,6 +1,6 @@
 // 檔案路徑: src/services/optimizedApiService.js (✨ 最終功能增強版 ✨)
 import ApiManager from '@/services/api_manager'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { doc, getDoc, runTransaction, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 
 // 快取系統... (保持不變)
@@ -100,16 +100,47 @@ export async function fetchAllSchedules(queries = []) {
   const api = ApiManager('schedules')
   return api.fetchAll(queries)
 }
-export async function saveSchedule(scheduleData) {
+export async function saveSchedule(scheduleData, options = {}) {
   const api = ApiManager('schedules')
-  const result = await api.save(scheduleData)
+  const { updatedBy = '系統', initialVersion = 1 } = options
+  const payload = {
+    ...scheduleData,
+    version: scheduleData?.version ?? initialVersion,
+    updatedAt: serverTimestamp(),
+    updatedBy,
+  }
+  const result = await api.save(payload)
   clearCacheByPattern('schedules')
   return result
 }
-export async function updateSchedule(scheduleId, updateData) {
-  const api = ApiManager('schedules')
-  await api.update(scheduleId, updateData)
+export async function updateSchedule(scheduleId, updateData, options = {}) {
+  const { expectedVersion = null, updatedBy = '系統' } = options
+  const docRef = doc(db, 'schedules', scheduleId)
+
+  const transactionResult = await runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(docRef)
+    if (!snapshot.exists()) {
+      throw new Error('排程文件不存在或已被刪除')
+    }
+
+    const currentVersion = snapshot.data().version ?? 0
+    if (expectedVersion !== null && expectedVersion !== currentVersion) {
+      throw new Error('VERSION_CONFLICT')
+    }
+
+    const nextVersion = currentVersion + 1
+    transaction.update(docRef, {
+      ...updateData,
+      version: nextVersion,
+      updatedAt: serverTimestamp(),
+      updatedBy,
+    })
+
+    return { version: nextVersion }
+  })
+
   clearCacheByPattern('schedules')
+  return transactionResult
 }
 
 // 患者相關函式... (保持不變)
