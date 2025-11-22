@@ -764,15 +764,14 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
 })
 
 // ===================================================================
-// ✨ KIDit Logbook 統一同步函式 (v4.0 - 純 DailyLog 版)
-// 只監聽 daily_logs，不再重複抓取 patient_history，避免重複顯示
+// ✨ KIDit Logbook 統一同步函式 (v4.1 - 修正病歷號遺失)
 // ===================================================================
 
 exports.syncEventsToKiditLogbook = onDocumentWritten('daily_logs/{dateStr}', async (event) => {
   const dateStr = event.params.dateStr
   const afterData = event.data?.after.data()
 
-  // 1. 處理刪除事件：如果 daily_log 被刪除，清空 kidit_logbook 對應紀錄
+  // 1. 處理刪除事件
   if (!afterData) {
     logger.info(
       `[KIDIT Sync] Daily log for ${dateStr} was deleted. Clearing events in kidit_logbook...`,
@@ -782,31 +781,29 @@ exports.syncEventsToKiditLogbook = onDocumentWritten('daily_logs/{dateStr}', asy
     return null
   }
 
-  logger.info(`🚀 [KIDIT Sync] Triggered for date ${dateStr}. Processing Daily Log entries only...`)
+  logger.info(`🚀 [KIDIT Sync] Triggered for date ${dateStr}. Processing Daily Log entries...`)
 
   try {
     // --- 階段 1: 從 Daily Log 本身提取事件 ---
     const dailyLogEvents = []
-    // 優先使用日誌的建立時間，若無則使用當下時間
     const fallbackTimestamp = afterData.createdAt ? afterData.createdAt.toDate() : new Date()
 
     // 1-1. 處理病人動態 (Patient Movements)
     ;(afterData.patientMovements || []).forEach((item) => {
       if (item.patientId && item.name) {
-        // 確保時間戳記統一轉換為 JS Date 物件
         let eventTime = fallbackTimestamp
         if (item.timestamp) {
           eventTime = item.timestamp.toDate ? item.timestamp.toDate() : new Date(item.timestamp)
         }
 
         dailyLogEvents.push({
-          // 使用 daily_logs 內部的 ID，確保唯一性
           id: `move_${dateStr}_${item.id}`,
           type: item.type || 'MOVEMENT',
           timestamp: eventTime,
           patientName: item.name,
           patientId: item.patientId,
-          // 這裡直接使用工作日誌中較為人性化的描述
+          // ✨✨✨ [修正點 1] 補上病歷號欄位 ✨✨✨
+          medicalRecordNumber: item.medicalRecordNumber || '',
           details: item.remarks || item.reason || '手動記錄於工作日誌',
         })
       }
@@ -826,6 +823,8 @@ exports.syncEventsToKiditLogbook = onDocumentWritten('daily_logs/{dateStr}', asy
           timestamp: eventTime,
           patientName: item.name,
           patientId: item.patientId,
+          // ✨✨✨ [修正點 2] 補上病歷號欄位 ✨✨✨
+          medicalRecordNumber: item.medicalRecordNumber || '',
           details: `通路處置: ${(item.interventions || []).join(', ')} (${item.location || '未知院所'})`,
         })
       }
@@ -833,16 +832,11 @@ exports.syncEventsToKiditLogbook = onDocumentWritten('daily_logs/{dateStr}', asy
 
     logger.info(`[KIDIT Sync] Extracted ${dailyLogEvents.length} events from daily_log.`)
 
-    // --- 階段 2: (已移除 patient_history 查詢) ---
-    // 我們只信任 daily_logs，因為它已經包含了自動產生的動態
-
     // --- 階段 3: 合併、去重、排序並寫入 ---
-    const allEventsForDay = dailyLogEvents // 現在只包含日誌事件
+    const allEventsForDay = dailyLogEvents
     const kiditLogRef = db.collection('kidit_logbook').doc(dateStr)
 
     if (allEventsForDay.length === 0) {
-      logger.info(`[KIDIT Sync] No events found for ${dateStr}. Ensuring clean state.`)
-      // 如果當天變更後沒有任何事件，我們保留空陣列而不是刪除文件，以免前端讀取出錯
       await kiditLogRef.set({ date: dateStr, events: [] }, { merge: true })
       return null
     }
@@ -851,16 +845,13 @@ exports.syncEventsToKiditLogbook = onDocumentWritten('daily_logs/{dateStr}', asy
       const kiditDoc = await transaction.get(kiditLogRef)
       const existingEvents = kiditDoc.exists ? kiditDoc.data().events || [] : []
 
-      // 3-1. 建立基準：以本次從 Daily Log 抓到的「最新事件」為準
       const verifiedEventsMap = new Map()
       allEventsForDay.forEach((e) => verifiedEventsMap.set(e.id, e))
 
-      // 3-2. 合併舊資料中的「人工標記狀態」(isRegistered, transferOutHospital)
-      // 只有當舊事件的 ID 存在於「新日誌列表」中時，才保留其手動勾選的狀態
       existingEvents.forEach((existing) => {
         if (verifiedEventsMap.has(existing.id)) {
           const current = verifiedEventsMap.get(existing.id)
-          // 覆蓋手動欄位，保留使用者之前勾選的結果
+          // 保留使用者的手動勾選狀態
           current.isRegistered = existing.isRegistered || false
           current.transferOutHospital = existing.transferOutHospital || ''
         }
@@ -868,20 +859,18 @@ exports.syncEventsToKiditLogbook = onDocumentWritten('daily_logs/{dateStr}', asy
 
       const finalEvents = Array.from(verifiedEventsMap.values())
 
-      // 3-3. 排序 (依據時間戳記)
       finalEvents.sort((a, b) => {
         return a.timestamp.getTime() - b.timestamp.getTime()
       })
 
-      // 3-4. 寫入 Firestore
       transaction.set(kiditLogRef, {
         date: dateStr,
         events: finalEvents.map((e) => ({
           ...e,
-          // 直接儲存 JS Date 物件
           timestamp: e.timestamp,
           isRegistered: e.isRegistered || false,
           transferOutHospital: e.transferOutHospital || '',
+          // 這裡會自動包含 medicalRecordNumber，因為 ...e 已經包含了它
         })),
       })
     })
