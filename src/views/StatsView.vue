@@ -57,7 +57,6 @@
           </button>
         </div>
         <div class="toolbar-right desktop-only-flex">
-          <span class="status-indicator">{{ statusIndicator }}</span>
           <button
             id="save-changes-btn"
             :disabled="!hasUnsavedChanges || isPageLocked"
@@ -68,6 +67,30 @@
           <button @click="exportAssignmentsToExcel" class="btn-secondary">
             <i class="fas fa-file-excel"></i> 匯出Excel
           </button>
+        </div>
+      </div>
+
+      <div class="status-row">
+        <div class="status-row-left">
+          <span class="status-label">狀態</span>
+          <span class="status-indicator">{{ statusIndicator }}</span>
+        </div>
+        <div class="status-updates">
+          <span>排程最後更新：{{ scheduleLastSavedText }}</span>
+          <span>護理分組最後更新：{{ teamLastSavedText }}</span>
+          <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
+        </div>
+        <div class="status-alerts">
+          <div v-if="scheduleConflictMessage" class="conflict-banner">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>{{ scheduleConflictMessage }}</span>
+            <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
+          </div>
+          <div v-if="teamConflictMessage" class="conflict-banner info">
+            <i class="fas fa-info-circle"></i>
+            <span>{{ teamConflictMessage }}</span>
+            <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
+          </div>
         </div>
       </div>
 
@@ -1147,16 +1170,19 @@
 
 <script setup>
 import { ref, onMounted, computed, reactive, watch, onUnmounted, provide } from 'vue'
-import { serverTimestamp, addDoc, collection } from 'firebase/firestore'
+import { serverTimestamp, addDoc, collection, doc, onSnapshot, where, orderBy, limit } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
-import { where, orderBy, limit } from 'firebase/firestore'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
-import { createDialysisOrderAndUpdatePatient } from '@/services/optimizedApiService.js'
+import {
+  createDialysisOrderAndUpdatePatient,
+  saveSchedule as optimizedSaveSchedule,
+  updateSchedule as optimizedUpdateSchedule,
+} from '@/services/optimizedApiService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import PatientMessagesIcon from '@/components/PatientMessagesIcon.vue'
@@ -1250,6 +1276,34 @@ const dutyAssignments = {
 }
 
 // --- 輔助函式 (保持不變) ---
+function getSafeDate(timestamp) {
+  if (!timestamp) return null
+  if (typeof timestamp.toDate === 'function') return timestamp.toDate()
+  const date = new Date(timestamp)
+  return isNaN(date.getTime()) ? null : date
+}
+
+function formatRelativeTime(date) {
+  if (!date) return '時間未知'
+  const safeDate = getSafeDate(date)
+  if (!safeDate) return '時間未知'
+  const diffSeconds = Math.max(0, Math.floor((Date.now() - safeDate.getTime()) / 1000))
+  if (diffSeconds < 60) return `${Math.max(diffSeconds, 1)} 秒前`
+  const diffMinutes = Math.floor(diffSeconds / 60)
+  if (diffMinutes < 60) return `${diffMinutes} 分鐘前`
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours < 24) return `${diffHours} 小時前`
+  const diffDays = Math.floor(diffHours / 24)
+  return `${diffDays} 天前`
+}
+
+function formatLastSavedText(meta) {
+  if (!meta || !meta.updatedAt) return '尚未儲存'
+  const relative = formatRelativeTime(meta.updatedAt)
+  const userName = meta.updatedBy || '未知使用者'
+  return `${relative}由 ${userName} 儲存`
+}
+
 async function getEffectiveOrdersForDate(patientId, targetDate) {
   if (!patientId || !targetDate) return {}
   const dateStr = targetDate.toISOString().slice(0, 10)
@@ -1275,6 +1329,10 @@ const statusIndicator = ref('')
 const isLoading = ref(false)
 const currentRecord = reactive({ id: null, date: '', schedule: {} })
 const currentTeamsRecord = ref({ id: null, date: '', teams: {}, names: {} })
+const currentRecordMeta = reactive({ version: 0, updatedAt: null, updatedBy: '' })
+const currentTeamsMeta = reactive({ version: 0, updatedAt: null, updatedBy: '' })
+const scheduleConflictMessage = ref('')
+const teamConflictMessage = ref('')
 const hasUnsavedScheduleChanges = ref(false)
 const hasUnsavedTeamChanges = ref(false)
 const isBedChangeDialogVisible = ref(false)
@@ -1317,6 +1375,8 @@ const changeTypeForScheduler = ref('')
 const hasUnsavedChanges = computed(
   () => hasUnsavedScheduleChanges.value || hasUnsavedTeamChanges.value,
 )
+const scheduleLastSavedText = computed(() => formatLastSavedText(currentRecordMeta))
+const teamLastSavedText = computed(() => formatLastSavedText(currentTeamsMeta))
 const isPageLocked = computed(() => {
   if (!canEditSchedules.value) return true
   const today = new Date()
@@ -1613,6 +1673,9 @@ async function loadData(date) {
   hasUnsavedTeamChanges.value = false
   statusIndicator.value = '讀取中...'
   isLoading.value = true
+  scheduleConflictMessage.value = ''
+  teamConflictMessage.value = ''
+  clearRealtimeSubscriptions()
   const dateStr = formatDate(date)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -1638,6 +1701,16 @@ async function loadData(date) {
     // 4. 將獲取到的資料賦值給本地狀態
     Object.assign(currentRecord, scheduleRecord)
     currentTeamsRecord.value = teamsData || { id: null, date: dateStr, teams: {}, names: {} }
+    Object.assign(currentRecordMeta, {
+      version: scheduleRecord.version ?? 0,
+      updatedAt: scheduleRecord.updatedAt ? getSafeDate(scheduleRecord.updatedAt) : null,
+      updatedBy: scheduleRecord.updatedBy || '',
+    })
+    Object.assign(currentTeamsMeta, {
+      version: teamsData?.version ?? 0,
+      updatedAt: teamsData?.updatedAt ? getSafeDate(teamsData.updatedAt) : null,
+      updatedBy: teamsData?.updatedBy || '',
+    })
 
     // 5. 為當天排班上的病人，獲取其有效的透析醫囑
     const patientIdsInSchedule = [
@@ -1673,7 +1746,11 @@ async function loadData(date) {
       }
     }
 
-    // 7. 設置最終的狀態指示文字
+    // 7. 建立即時監聽並設置狀態指示文字
+    if (!isPastDate) {
+      subscribeToScheduleRealtime(currentRecord.id)
+      subscribeToTeamsRealtime(currentTeamsRecord.value.id)
+    }
     statusIndicator.value = currentRecord.id ? '資料已載入' : '本日無排班資料'
   } catch (error) {
     console.error('讀取報表資料失敗:', error)
@@ -1681,6 +1758,66 @@ async function loadData(date) {
   } finally {
     isLoading.value = false
   }
+}
+
+let scheduleUnsubscribe = null
+let teamUnsubscribe = null
+
+function subscribeToScheduleRealtime(recordId) {
+  if (scheduleUnsubscribe) scheduleUnsubscribe()
+  scheduleConflictMessage.value = ''
+  if (!recordId) return
+
+  const docRef = doc(db, 'schedules', recordId)
+  scheduleUnsubscribe = onSnapshot(docRef, (snapshot) => {
+    if (!snapshot.exists()) return
+    const data = snapshot.data()
+    const remoteVersion = data.version ?? 0
+    const remoteUpdatedAt = data.updatedAt ? getSafeDate(data.updatedAt) : null
+    const remoteUpdatedBy = data.updatedBy || '未知使用者'
+
+    if (remoteVersion > currentRecordMeta.version) {
+      scheduleConflictMessage.value = `排程在 ${
+        remoteUpdatedAt ? formatRelativeTime(remoteUpdatedAt) : '未知時間'
+      } 由 ${remoteUpdatedBy} 更新，請重新整理或合併後再儲存。`
+    } else {
+      scheduleConflictMessage.value = ''
+    }
+  })
+}
+
+function subscribeToTeamsRealtime(recordId) {
+  if (teamUnsubscribe) teamUnsubscribe()
+  teamConflictMessage.value = ''
+  if (!recordId) return
+
+  const docRef = doc(db, 'nurse_assignments', recordId)
+  teamUnsubscribe = onSnapshot(docRef, (snapshot) => {
+    if (!snapshot.exists()) return
+    const data = snapshot.data()
+    const remoteVersion = data.version ?? 0
+    const remoteUpdatedAt = data.updatedAt ? getSafeDate(data.updatedAt) : null
+    const remoteUpdatedBy = data.updatedBy || '未知使用者'
+
+    if (remoteVersion > currentTeamsMeta.version) {
+      teamConflictMessage.value = `護理分組在 ${
+        remoteUpdatedAt ? formatRelativeTime(remoteUpdatedAt) : '未知時間'
+      } 由 ${remoteUpdatedBy} 更新，請重新整理後再儲存。`
+    } else {
+      teamConflictMessage.value = ''
+    }
+  })
+}
+
+function clearRealtimeSubscriptions() {
+  if (scheduleUnsubscribe) scheduleUnsubscribe()
+  if (teamUnsubscribe) teamUnsubscribe()
+  scheduleConflictMessage.value = ''
+  teamConflictMessage.value = ''
+}
+
+function reloadCurrentDay() {
+  loadData(currentDate.value)
 }
 
 function getArchivedOrLivePatientInfo(slotData) {
@@ -1708,10 +1845,24 @@ async function saveChangesToCloud() {
       }
       const scheduleData = { date: currentRecord.date, schedule: scheduleToSave }
       if (currentRecord.id) {
-        promises.push(schedulesApi.update(currentRecord.id, scheduleData))
+        promises.push(
+          optimizedUpdateSchedule(currentRecord.id, scheduleData, {
+            expectedVersion: currentRecordMeta.version,
+            updatedBy,
+          }).then((result) => {
+            currentRecordMeta.version = result?.version ?? currentRecordMeta.version + 1
+            currentRecordMeta.updatedAt = new Date()
+            currentRecordMeta.updatedBy = updatedBy
+          }),
+        )
       } else if (Object.keys(scheduleData.schedule).length > 0) {
         promises.push(
-          schedulesApi.save(scheduleData).then((saved) => (currentRecord.id = saved.id)),
+          optimizedSaveSchedule(scheduleData, { updatedBy }).then((saved) => {
+            currentRecord.id = saved.id
+            currentRecordMeta.version = saved.version ?? 1
+            currentRecordMeta.updatedAt = new Date()
+            currentRecordMeta.updatedBy = updatedBy
+          }),
         )
       }
     }
@@ -1722,12 +1873,24 @@ async function saveChangesToCloud() {
         names: currentTeamsRecord.value.names || {},
       }
       if (currentTeamsRecord.value.id) {
-        promises.push(updateTeams(currentTeamsRecord.value.id, teamsData, { updatedBy }))
+        promises.push(
+          updateTeams(currentTeamsRecord.value.id, teamsData, {
+            expectedVersion: currentTeamsMeta.version,
+            updatedBy,
+          }).then((result) => {
+            currentTeamsMeta.version = result?.version ?? currentTeamsMeta.version + 1
+            currentTeamsMeta.updatedAt = new Date()
+            currentTeamsMeta.updatedBy = updatedBy
+          }),
+        )
       } else {
         promises.push(
-          saveTeams(teamsData, { updatedBy }).then(
-            (saved) => (currentTeamsRecord.value.id = saved.id),
-          ),
+          saveTeams(teamsData, { updatedBy }).then((saved) => {
+            currentTeamsRecord.value.id = saved.id
+            currentTeamsMeta.version = saved.version ?? 1
+            currentTeamsMeta.updatedAt = new Date()
+            currentTeamsMeta.updatedBy = updatedBy
+          }),
         )
       }
     }
@@ -1742,6 +1905,16 @@ async function saveChangesToCloud() {
   } catch (error) {
     console.error('儲存變更失敗:', error)
     statusIndicator.value = '儲存失敗'
+    if (error.message === 'VERSION_CONFLICT') {
+      scheduleConflictMessage.value = '排程已被其他人更新，請重新整理資料後再嘗試儲存。'
+      showAlert('儲存被中止', scheduleConflictMessage.value)
+      return
+    }
+    if (error.message === 'TEAM_VERSION_CONFLICT') {
+      teamConflictMessage.value = '護理分組已被其他人更新，請重新整理資料後再嘗試儲存。'
+      showAlert('儲存被中止', teamConflictMessage.value)
+      return
+    }
     showAlert('儲存失敗', `儲存失敗: ${error.message}`)
   }
 }
@@ -2378,7 +2551,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // cleanup if needed
+  clearRealtimeSubscriptions()
 })
 </script>
 
@@ -2601,6 +2774,68 @@ button:disabled {
   color: #757575;
   font-style: italic;
   white-space: nowrap;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+}
+
+.status-row-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 140px;
+  font-weight: 600;
+  color: #495057;
+}
+
+.status-label {
+  font-size: 13px;
+  color: #6c757d;
+}
+
+.status-updates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: #555;
+  font-size: 14px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.status-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.conflict-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+  padding: 6px 10px;
+  border-radius: 18px;
+  line-height: 1.4;
+}
+
+.conflict-banner.info {
+  background: #e8f4ff;
+  color: #0c5176;
+  border-color: #b6dcff;
 }
 
 /* ================================================= */

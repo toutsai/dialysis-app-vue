@@ -54,7 +54,6 @@
             size="compact"
             class="mobile-and-print-only"
           />
-          <span class="status-indicator">{{ statusIndicator }}</span>
           <button
             class="btn btn-success desktop-only"
             @click="saveDataToCloud"
@@ -109,21 +108,27 @@
       </div>
     </header>
 
-    <section class="realtime-alerts">
-      <div class="last-saved-row">
+    <section class="status-row">
+      <div class="status-row-left">
+        <span class="status-label">狀態</span>
+        <span class="status-indicator">{{ statusIndicator }}</span>
+      </div>
+      <div class="status-updates">
         <span>排程最後更新：{{ scheduleLastSavedText }}</span>
         <span>護理分組最後更新：{{ teamLastSavedText }}</span>
         <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
       </div>
-      <div v-if="scheduleConflictMessage" class="conflict-banner">
-        <i class="fas fa-exclamation-triangle"></i>
-        <span>{{ scheduleConflictMessage }}</span>
-        <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
-      </div>
-      <div v-if="teamConflictMessage" class="conflict-banner info">
-        <i class="fas fa-info-circle"></i>
-        <span>{{ teamConflictMessage }}</span>
-        <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
+      <div class="status-alerts">
+        <div v-if="scheduleConflictMessage" class="conflict-banner">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span>{{ scheduleConflictMessage }}</span>
+          <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
+        </div>
+        <div v-if="teamConflictMessage" class="conflict-banner info">
+          <i class="fas fa-info-circle"></i>
+          <span>{{ teamConflictMessage }}</span>
+          <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
+        </div>
       </div>
     </section>
 
@@ -2582,24 +2587,50 @@ onUnmounted(() => {
   min-height: 0;
   position: relative;
 }
-.realtime-alerts {
+.status-row {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   margin: 12px 0;
   padding: 10px 12px;
   background: #f8f9fa;
   border: 1px solid #e0e0e0;
   border-radius: 8px;
 }
-.last-saved-row {
+
+.status-row-left {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 14px;
-  color: #555;
+  gap: 6px;
+  min-width: 140px;
+  font-weight: 600;
+  color: #495057;
 }
+
+.status-label {
+  font-size: 13px;
+  color: #6c757d;
+}
+
+.status-updates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: #555;
+  font-size: 14px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.status-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .conflict-banner {
   display: flex;
   align-items: center;
@@ -2607,9 +2638,11 @@ onUnmounted(() => {
   background: #fff3cd;
   color: #856404;
   border: 1px solid #ffeeba;
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 6px 10px;
+  border-radius: 18px;
+  line-height: 1.4;
 }
+
 .conflict-banner.info {
   background: #e8f4ff;
   color: #0c5176;
