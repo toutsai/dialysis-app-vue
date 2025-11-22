@@ -71,26 +71,37 @@
       </div>
 
       <div class="status-row">
-        <div class="status-row-left">
-          <span class="status-label">狀態</span>
-          <span class="status-indicator">{{ statusIndicator }}</span>
+        <div class="status-core">
+          <div class="status-chip">
+            <span class="chip-label">狀態</span>
+            <span class="chip-value">{{ statusIndicator }}</span>
+          </div>
+          <div class="timestamp-chips">
+            <div class="timestamp-chip">
+              <span class="chip-label">排程</span>
+              <span class="chip-value">{{ scheduleLastSavedText }}</span>
+            </div>
+            <div class="timestamp-chip">
+              <span class="chip-label">護理分組</span>
+              <span class="chip-value">{{ teamLastSavedText }}</span>
+            </div>
+          </div>
         </div>
-        <div class="status-updates">
-          <span>排程最後更新：{{ scheduleLastSavedText }}</span>
-          <span>護理分組最後更新：{{ teamLastSavedText }}</span>
+        <div class="status-actions">
           <button class="btn btn-light btn-xs" @click="reloadCurrentDay">重新載入</button>
         </div>
-        <div class="status-alerts">
-          <div v-if="scheduleConflictMessage" class="conflict-banner">
-            <i class="fas fa-exclamation-triangle"></i>
-            <span>{{ scheduleConflictMessage }}</span>
-            <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
-          </div>
-          <div v-if="teamConflictMessage" class="conflict-banner info">
-            <i class="fas fa-info-circle"></i>
-            <span>{{ teamConflictMessage }}</span>
-            <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
-          </div>
+      </div>
+
+      <div v-if="scheduleConflictMessage || teamConflictMessage" class="conflict-stack">
+        <div v-if="scheduleConflictMessage" class="conflict-banner">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span>{{ scheduleConflictMessage }}</span>
+          <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
+        </div>
+        <div v-if="teamConflictMessage" class="conflict-banner info">
+          <i class="fas fa-info-circle"></i>
+          <span>{{ teamConflictMessage }}</span>
+          <button class="btn btn-warning btn-xs" @click="reloadCurrentDay">重新整理</button>
         </div>
       </div>
 
@@ -2779,45 +2790,76 @@ button:disabled {
 .status-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  margin: 12px 0;
-  padding: 10px 12px;
-  background: #f8f9fa;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
+  margin: 10px 0 6px;
+  padding: 12px 14px;
+  background: linear-gradient(90deg, #f8f9fa 0%, #f1f3f5 100%);
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
-.status-row-left {
+.status-core {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 140px;
-  font-weight: 600;
-  color: #495057;
-}
-
-.status-label {
-  font-size: 13px;
-  color: #6c757d;
-}
-
-.status-updates {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  color: #555;
-  font-size: 14px;
-  flex: 1;
-  min-width: 260px;
+  flex-wrap: wrap;
 }
 
-.status-alerts {
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #0f766e;
+  color: #fff;
+  border-radius: 999px;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.chip-label {
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.chip-value {
+  font-size: 14px;
+  letter-spacing: 0.1px;
+}
+
+.timestamp-chips {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.timestamp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #374151;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.status-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conflict-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
 }
 
 .conflict-banner {
@@ -2827,9 +2869,10 @@ button:disabled {
   background: #fff3cd;
   color: #856404;
   border: 1px solid #ffeeba;
-  padding: 6px 10px;
-  border-radius: 18px;
+  padding: 8px 12px;
+  border-radius: 12px;
   line-height: 1.4;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 .conflict-banner.info {
