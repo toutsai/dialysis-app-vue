@@ -7,27 +7,27 @@
     </div>
 
     <header class="page-header">
-      <div class="ribbon-shell glass-card">
-        <div class="ribbon-grid">
-          <div class="ribbon-block title-block">
+      <div class="header-card glass-card">
+        <div class="header-row primary-row">
+          <div class="title-stack">
             <div class="eyebrow">每日排程</div>
             <div class="title-line">
               <h1 class="page-title">排程與護理分組</h1>
-              <span class="title-chip">快速掌握今日排程與人員</span>
+              <span class="title-chip">今日概覽</span>
             </div>
           </div>
 
-          <div class="ribbon-block date-block">
+          <div class="date-nav">
             <button class="nav-btn" @click="changeDate(-1)"><i class="fas fa-chevron-left"></i></button>
             <div class="date-stack">
               <div class="current-date-text">{{ currentDateDisplay }}</div>
               <div class="weekday-display">{{ weekdayDisplay }}</div>
             </div>
             <button class="nav-btn" @click="changeDate(1)"><i class="fas fa-chevron-right"></i></button>
-            <button class="btn subtle" @click="goToToday">回到今日</button>
+            <button class="pill-btn ghost" @click="goToToday">回到今日</button>
           </div>
 
-          <div class="ribbon-block action-block">
+          <div class="action-rail">
             <button class="pill-btn soft" @click="runScheduleCheck">
               <i class="fas fa-search"></i>
               <span>排程檢視</span>
@@ -71,7 +71,7 @@
             </button>
           </div>
 
-          <div class="ribbon-block utility-block">
+          <div class="utility-rail">
             <button class="pill-btn ghost" @click="isSimplifiedViewVisible = !isSimplifiedViewVisible">
               <span class="toggle-icon">{{ isSimplifiedViewVisible ? '▼' : '▶' }}</span>
               {{ isSimplifiedViewVisible ? '收合臨床查閱' : '展開臨床查閱' }}
@@ -95,8 +95,10 @@
               <span>ICU醫囑單</span>
             </button>
           </div>
+        </div>
 
-          <div class="ribbon-block total-chip">
+        <div class="header-row stats-row">
+          <div class="chip total-chip">
             <div class="chip-label">總人數</div>
             <div class="total-number">{{ headerTotalPatients }}</div>
           </div>
@@ -104,7 +106,7 @@
           <div
             v-for="chip in headerShiftChips"
             :key="chip.code"
-            class="ribbon-block stat-chip"
+            class="chip stat-chip"
             :class="chip.code"
           >
             <div class="chip-label">{{ chip.label }}</div>
@@ -116,14 +118,14 @@
             </div>
           </div>
 
-          <div v-if="headerPhysicians.length" class="ribbon-block physician-chip">
+          <div v-if="headerPhysicians.length" class="chip physician-chip">
             <div class="chip-label">查房醫師</div>
             <div class="chip-values">
               <span v-for="(name, idx) in headerPhysicians" :key="idx" class="chip-badge">{{ name }}</span>
             </div>
           </div>
 
-          <div class="ribbon-block status-chip-wide">
+          <div class="chip status-chip-wide">
             <div class="status-pill">
               <i class="fas fa-circle"></i>
               <span class="chip-label">狀態</span>
@@ -2650,38 +2652,38 @@ onUnmounted(() => {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.03);
 }
 
-
-.header-shell {
+.header-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.ribbon-grid {
-  display: flex;
-  align-items: stretch;
-  flex-wrap: wrap;
-  gap: 10px;
+.header-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
 }
 
-.ribbon-block {
+.primary-row {
+  grid-template-columns: minmax(220px, 1.2fr) minmax(230px, 1fr) minmax(320px, 1.2fr) auto;
+  align-items: stretch;
+}
+
+.stats-row {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: stretch;
+}
+
+.title-stack {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 6px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: #f8fbff;
-  border: 1px solid #e8edf5;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.03);
-}
-
-.title-block {
-  flex: 1 1 240px;
   background: linear-gradient(120deg, #f4f6ff 0%, #eef7ff 100%);
   border: 1px solid #e2e8ff;
-  box-shadow: 0 10px 20px rgba(99, 102, 241, 0.08);
-  flex-direction: column;
-  align-items: flex-start;
+  box-shadow: 0 8px 18px rgba(99, 102, 241, 0.08);
 }
 
 .eyebrow {
@@ -2714,8 +2716,12 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.date-block {
-  flex: 1 1 260px;
+.date-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: linear-gradient(135deg, #27a5ff 0%, #00c2ff 100%);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -2748,21 +2754,38 @@ onUnmounted(() => {
   transform: translateY(-1px);
 }
 
-.btn.subtle {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 10px;
-  padding: 7px 12px;
-  font-weight: 600;
-}
-
-.action-block,
-.utility-block {
-  flex: 2 1 380px;
+.action-rail,
+.utility-rail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
-  justify-content: flex-start;
+}
+
+.action-rail {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f8fbff;
+  border: 1px solid #e8edf5;
+}
+
+.utility-rail {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #ffffff;
+  border: 1px dashed #e2e8f0;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #f8fbff;
+  border: 1px solid #e8edf5;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.03);
 }
 
 .total-chip {
@@ -2779,7 +2802,7 @@ onUnmounted(() => {
 }
 
 .stat-chip {
-  flex: 1 1 150px;
+  min-width: 180px;
   color: #0f172a;
   background: #f8fafc;
   border-color: #e2e8f0;
@@ -2805,18 +2828,42 @@ onUnmounted(() => {
 }
 
 .physician-chip {
-  flex: 2 1 260px;
   background: linear-gradient(135deg, #fdf4ff, #fae8ff);
   border-color: #f5d0fe;
 }
 
 .status-chip-wide {
-  flex: 1 1 100%;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
   background: #f8fafc;
   border-color: #e2e8f0;
+  grid-column: span 2;
+}
+
+@media (max-width: 1280px) {
+  .primary-row {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+  }
+
+  .action-rail,
+  .utility-rail {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 900px) {
+  .primary-row {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-row {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .status-chip-wide {
+    grid-column: span 1;
+  }
 }
 
 .pill-btn {
