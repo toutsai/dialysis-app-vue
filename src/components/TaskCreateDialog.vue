@@ -1,4 +1,3 @@
-<!-- 檔案路徑: src/components/TaskCreateDialog.vue (✨ 支援編輯模式的最終版 ✨) -->
 <template>
   <div v-if="isVisible" class="modal-overlay" v-overlay-close="close">
     <div class="modal-container">
@@ -30,7 +29,7 @@
           </div>
         </div>
 
-        <!-- 備忘類型 -->
+        <!-- 備忘類型 (僅留言顯示) -->
         <div v-if="formData.category === 'message'" class="form-group">
           <label for="messageType" class="form-label">備忘類型</label>
           <div class="assignee-btn-group">
@@ -47,7 +46,7 @@
           </div>
         </div>
 
-        <!-- 交辦給 (僅在交辦事項時顯示) -->
+        <!-- 交辦給 (僅交辦事項顯示) -->
         <div v-if="formData.category === 'task'" class="form-group">
           <label for="assignee" class="form-label">交辦給</label>
           <div class="assignee-btn-group">
@@ -62,7 +61,11 @@
             </button>
           </div>
 
-          <div v-if="formData.assigneeRole" class="assignee-select-wrapper">
+          <!-- ✨ [核心修改] 下拉選單：只有在非「護理師組長」時才顯示 -->
+          <div
+            v-if="formData.assigneeRole && formData.assigneeRole !== 'nurse_leader'"
+            class="assignee-select-wrapper"
+          >
             <label class="select-label" for="assigneeUser">選擇成員</label>
             <select id="assigneeUser" v-model="formData.assigneeUserId" class="form-control">
               <option value="" disabled>請選擇 {{ selectedAssigneeLabel }} 名單</option>
@@ -70,6 +73,11 @@
                 {{ user.name }}<span v-if="user.title">（{{ user.title }}）</span>
               </option>
             </select>
+          </div>
+
+          <!-- ✨ [核心修改] 提示文字：如果是組長，顯示提示 -->
+          <div v-else-if="formData.assigneeRole === 'nurse_leader'" class="assignee-info-text">
+            <i class="fas fa-info-circle"></i> 此任務將發送給所有護理師（組長），由當值人員處理。
           </div>
         </div>
 
@@ -97,7 +105,7 @@
           </button>
         </div>
 
-        <!-- 目標日期 (僅在病人留言時顯示) -->
+        <!-- 目標日期 (僅在病人留言顯示) -->
         <div v-if="formData.category === 'message'" class="form-group">
           <label for="targetDate" class="form-label">目標日期</label>
           <input type="date" id="targetDate" v-model="formData.targetDate" class="form-control" />
@@ -107,7 +115,7 @@
         <div class="form-group">
           <label for="content" class="form-label">內容</label>
 
-          <!-- ✨ [修改] 書記耗材介面在編輯模式下禁用 -->
+          <!-- 書記耗材介面 -->
           <div
             v-if="isClerkSupplyTask"
             class="supply-container"
@@ -286,12 +294,25 @@ const messageTypeOptions = [
   { value: '抽血', label: '抽血提醒', icon: '🩸' },
   { value: '衛教', label: '衛教事項', icon: '📢' },
 ]
+
+// ✨ [核心修改] 1. 更新選項，將護理師拆分
 const assigneeOptions = [
   { value: 'clerk', label: '書記' },
   { value: 'doctor', label: '醫師' },
   { value: 'np', label: '專科護理師' },
-  { value: 'editor', label: '護理師' },
+  { value: 'nurse_individual', label: '護理師 (指定)' }, // 指定人
+  { value: 'nurse_leader', label: '護理師組長' }, // 不指定人 (Role Editor)
 ]
+
+// ✨ [核心修改] 2. 更新職稱對應，讓護理師對應到 nurse_individual 以供篩選
+const titleToRoleValue = {
+  書記: 'clerk',
+  主治醫師: 'doctor',
+  專科護理師: 'np',
+  護理師: 'nurse_individual', // 這樣選「護理師(指定)」時才能篩出人名
+  護理長: 'nurse_individual', // 如果有護理長，也歸類在此
+}
+
 const akOptions = [
   '13M',
   '15S',
@@ -331,15 +352,13 @@ const isClerkSupplyTask = computed(
   () => formData.category === 'task' && formData.assigneeRole === 'clerk' && !isEditMode.value,
 )
 
-const titleToRoleValue = {
-  書記: 'clerk',
-  主治醫師: 'doctor',
-  專科護理師: 'np',
-  護理師: 'editor',
-}
-
+// ✨ [核心修改] 3. 篩選人員名單
 const filteredAssigneeUsers = computed(() => {
   if (!formData.assigneeRole) return []
+
+  // 如果是組長模式，不需要顯示下拉選單，直接回傳空陣列
+  if (formData.assigneeRole === 'nurse_leader') return []
+
   return directoryUsers.value
     .filter((user) => titleToRoleValue[user.title] === formData.assigneeRole)
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
@@ -354,6 +373,7 @@ const selectedAssigneeUser = computed(
   () => directoryUsers.value.find((user) => user.uid === formData.assigneeUserId) || null,
 )
 
+// ✨ [核心修改] 4. 表單驗證邏輯更新
 const isFormValid = computed(() => {
   if (isEditMode.value) return true
   if (isClerkSupplyTask.value) {
@@ -368,8 +388,15 @@ const isFormValid = computed(() => {
     }
     return allItemsValid
   }
-  if (formData.category === 'task' && (!formData.assigneeRole || !formData.assigneeUserId)) {
-    return false
+  if (formData.category === 'task') {
+    // 如果是組長模式，不需要選人，直接通過
+    if (formData.assigneeRole === 'nurse_leader') {
+      return true
+    }
+    // 其他模式必須要有角色和選人
+    if (!formData.assigneeRole || !formData.assigneeUserId) {
+      return false
+    }
   }
   return true
 })
@@ -383,8 +410,21 @@ watch(
         const item = props.initialData
         formData.id = item.id
         formData.category = item.assignee ? 'task' : 'message'
-        formData.assigneeRole = item.assignee?.role || item.assignee?.value || ''
-        formData.assigneeUserId = item.assignee?.type === 'user' ? item.assignee?.value : ''
+
+        // 編輯回填邏輯：判斷是組長(Role)還是指定人(User)
+        if (item.assignee) {
+          if (item.assignee.type === 'role' && item.assignee.role === 'editor') {
+            formData.assigneeRole = 'nurse_leader'
+            formData.assigneeUserId = ''
+          } else if (item.assignee.type === 'user' && item.assignee.role === 'editor') {
+            formData.assigneeRole = 'nurse_individual'
+            formData.assigneeUserId = item.assignee.value
+          } else {
+            formData.assigneeRole = item.assignee.role || item.assignee.value || ''
+            formData.assigneeUserId = item.assignee.value
+          }
+        }
+
         formData.targetDate = item.targetDate || new Date().toISOString().slice(0, 10)
         formData.content = item.content
         formData.messageType = item.type || '常規'
@@ -447,7 +487,7 @@ function clearPatient() {
   selectedPatient.value = null
 }
 
-// ✨ [核心修改] 更新 handleSubmit 函式 ✨
+// ✨ [核心修改] 5. 更新 handleSubmit 函式
 async function handleSubmit() {
   if (isClerkSupplyTask.value) {
     const parts = dynamicSupplyItems.value
@@ -486,18 +526,41 @@ async function handleSubmit() {
       patientId: selectedPatient.value?.id || null,
       patientName: selectedPatient.value?.name || null,
       createdAt: serverTimestamp(),
-      // ✨ 在這裡計算並加入 expireAt 欄位 ✨
-      expireAt: expireAtDate, // 設定 2 個月後過期
+      expireAt: expireAtDate,
     }
 
     if (dataToSave.category === 'task') {
-      dataToSave.assignee = {
-        type: 'user',
-        value: formData.assigneeUserId,
-        role: formData.assigneeRole,
-        name: selectedAssigneeUser.value?.name || '',
-        title: selectedAssigneeUser.value?.title || '',
+      // ✨ [關鍵邏輯] 根據 UI 選項決定存檔資料結構
+
+      if (formData.assigneeRole === 'nurse_leader') {
+        // 情境 A: 給組長 (Role Task)，資料庫 role 為 editor
+        dataToSave.assignee = {
+          type: 'role',
+          role: 'editor',
+          value: 'editor',
+          name: '護理師組長',
+          title: '職務指派',
+        }
+      } else if (formData.assigneeRole === 'nurse_individual') {
+        // 情境 B: 給特定護理師 (User Task)，但資料庫 role 仍為 editor
+        dataToSave.assignee = {
+          type: 'user',
+          role: 'editor',
+          value: formData.assigneeUserId,
+          name: selectedAssigneeUser.value?.name || '',
+          title: selectedAssigneeUser.value?.title || '',
+        }
+      } else {
+        // 情境 C: 其他 (醫師、書記等)
+        dataToSave.assignee = {
+          type: 'user',
+          role: formData.assigneeRole,
+          value: formData.assigneeUserId,
+          name: selectedAssigneeUser.value?.name || '',
+          title: selectedAssigneeUser.value?.title || '',
+        }
       }
+
       dataToSave.targetDate = new Date().toISOString().slice(0, 10)
     } else {
       dataToSave.type = formData.messageType
@@ -518,10 +581,8 @@ async function handleSubmit() {
         notifMessage = `${typeLabel}: ${patientPart} - ${contentPart}`
         notifType = 'message'
       } else {
-        const assigneeLabel =
-          selectedAssigneeUser.value?.name ||
-          assigneeOptions.find((opt) => opt.value === dataToSave.assignee.role)?.label ||
-          ''
+        // 顯示交辦對象名稱
+        const assigneeLabel = dataToSave.assignee.name || '指定人員'
         notifMessage = `新交辦: 給 ${assigneeLabel} - ${dataToSave.content.substring(0, 20)}...`
         notifType = 'task'
       }
@@ -558,7 +619,6 @@ function close() {
 </script>
 
 <style scoped>
-/* ✨ [新增] 禁用狀態的樣式 */
 .disabled-view {
   opacity: 0.6;
   pointer-events: none;
@@ -809,6 +869,19 @@ function close() {
   color: white;
   border-color: #007bff;
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+
+/* ✨ [新增] 提示文字區塊樣式 */
+.assignee-info-text {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background-color: #e3f2fd; /* 淡藍色背景 */
+  color: #0d47a1; /* 深藍色文字 */
+  border-radius: 4px;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .message-type-icon {

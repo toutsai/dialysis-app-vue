@@ -190,7 +190,13 @@ export const useTaskStore = defineStore('task', () => {
     let userAssignedTasks: TaskItem[] = []
 
     const refreshMyTasks = () => {
-      myTasks.value = applyRetentionPolicy([...roleAssignedTasks, ...userAssignedTasks])
+      // ✨ 修正：合併陣列後，使用 Map 根據 id 進行去重複
+      const allRawTasks = [...roleAssignedTasks, ...userAssignedTasks]
+
+      // 利用 Map 的特性，相同的 key (id) 會被覆蓋，只保留一個
+      const uniqueTasks = Array.from(new Map(allRawTasks.map((item) => [item.id, item])).values())
+
+      myTasks.value = applyRetentionPolicy(uniqueTasks)
     }
 
     const checkLoadingState = () => {
