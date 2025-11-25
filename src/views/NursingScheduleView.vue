@@ -624,7 +624,7 @@
                 <input v-model="shift.label" :disabled="!auth.isAdmin.value" />
               </div>
               <div class="field field-wide">
-                <label>可用組別 (逗號分隔)</label>
+                <label>共用組別 (逗號分隔)</label>
                 <input
                   :value="shift.groups.join(', ')"
                   @input="updateGroupList('day', index, $event.target.value)"
@@ -632,6 +632,26 @@
                   placeholder="例如：A, B, C, D"
                 />
                 <p class="field-hint">{{ describeGroupList(shift.groups) }}</p>
+              </div>
+              <div class="field field-wide">
+                <label>一、三、五組別 (逗號分隔)</label>
+                <input
+                  :value="(shift.groups135?.length ? shift.groups135 : shift.groups).join(', ')"
+                  @input="updateDayGroupList(index, 'groups135', $event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例：A, B, C, D"
+                />
+                <p class="field-hint">套用於星期一、三、五：{{ describeGroupList(shift.groups135?.length ? shift.groups135 : shift.groups) }}</p>
+              </div>
+              <div class="field field-wide">
+                <label>二、四、六組別 (逗號分隔)</label>
+                <input
+                  :value="(shift.groups246?.length ? shift.groups246 : shift.groups).join(', ')"
+                  @input="updateDayGroupList(index, 'groups246', $event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例：A, B, C, D"
+                />
+                <p class="field-hint">套用於星期二、四、六：{{ describeGroupList(shift.groups246?.length ? shift.groups246 : shift.groups) }}</p>
               </div>
               <div class="field">
                 <label>預計線數</label>
@@ -815,6 +835,10 @@
                     <span v-for="group in shift.groups" :key="group" class="chip">{{ group }}</span>
                   </span>
                   <span class="muted">({{ shift.plannedLines || shift.groups.length }} 線)</span>
+                  <p class="muted small-text">
+                    一三五：{{ describeGroupList(shift.groups135?.length ? shift.groups135 : shift.groups) }}；
+                    二四六：{{ describeGroupList(shift.groups246?.length ? shift.groups246 : shift.groups) }}
+                  </p>
                 </li>
               </ul>
             </div>
@@ -1092,6 +1116,8 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
       code: '74',
       label: '74 班',
       groups: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      groups135: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      groups246: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
       plannedLines: 9,
       notes: '早班常態 9 線，可依人力增減線數',
     },
@@ -1099,6 +1125,8 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
       code: '75',
       label: '75 班',
       groups: ['F', 'J'],
+      groups135: ['F', 'J'],
+      groups246: ['F', 'J'],
       plannedLines: 2,
       notes: '若人力增加可再開新組別，例如 K 或 L',
     },
@@ -1106,6 +1134,8 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
       code: '74/L',
       label: 'Leader 班',
       groups: ['K'],
+      groups135: ['K'],
+      groups246: ['K'],
       plannedLines: 1,
       notes: '固定為組長/Leader 線',
     },
@@ -1113,6 +1143,8 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
       code: '816',
       label: '外圍 816',
       groups: ['外圍'],
+      groups135: ['外圍'],
+      groups246: ['外圍'],
       plannedLines: 1,
       notes: '外圍/備機線',
     },
@@ -1402,6 +1434,16 @@ const findShiftConfig = (code, type = 'day') => {
   return source.find((shift) => shift.code === code) || null
 }
 
+const getDayGroupsForDate = (code, date) => {
+  const dayConfig = findShiftConfig(code, 'day')
+  if (!dayConfig) return []
+  const dayOfWeek = new Date(date).getDay()
+  const fallback = dayConfig.groups || []
+  if ([1, 3, 5].includes(dayOfWeek)) return dayConfig.groups135?.length ? dayConfig.groups135 : fallback
+  if ([2, 4, 6].includes(dayOfWeek)) return dayConfig.groups246?.length ? dayConfig.groups246 : fallback
+  return fallback
+}
+
 const getNightGroupsForDate = (date) => {
   const dayOfWeek = new Date(date).getDay()
   const nightConfig = findShiftConfig('311', 'night')
@@ -1416,8 +1458,8 @@ const getNightGroupsForDate = (date) => {
 const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
   if (s === '74') {
-    const dayConfig = findShiftConfig('74', 'day')
-    return dayConfig?.groups?.length ? dayConfig.groups : ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+    const groups = getDayGroupsForDate('74', date)
+    return groups.length ? groups : ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
   }
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
     let groups = getNightGroupsForDate(date)
@@ -1883,6 +1925,12 @@ const updateGroupList = (type, index, value) => {
   target[index].groups = parseGroupInput(value)
 }
 
+const updateDayGroupList = (index, field, value) => {
+  const target = groupConfig.value.dayShifts
+  if (!target[index]) return
+  target[index][field] = parseGroupInput(value)
+}
+
 const updateNightGroupList = (index, field, value) => {
   const target = groupConfig.value.nightShifts
   if (!target[index]) return
@@ -1899,7 +1947,15 @@ const updateNightLeaderBlacklist = (value) => {
 
 const addShiftConfig = (type) => {
   if (!auth.isAdmin.value) return
-  const template = { code: '', label: '', groups: [], plannedLines: 0, notes: '' }
+  const template = {
+    code: '',
+    label: '',
+    groups: [],
+    groups135: [],
+    groups246: [],
+    plannedLines: 0,
+    notes: '',
+  }
   if (type === 'night') {
     groupConfig.value.nightShifts.push({ ...template, groups135: [], groups246: [] })
   } else {
@@ -1942,7 +1998,15 @@ async function loadGroupConfig() {
       groupConfig.value = {
         ...defaults,
         ...configFromDb,
-        dayShifts: configFromDb.dayShifts?.length ? configFromDb.dayShifts : defaults.dayShifts,
+        dayShifts: (configFromDb.dayShifts || defaults.dayShifts).map((shift, idx) => {
+          const fallback = defaults.dayShifts[idx] || defaults.dayShifts[0]
+          return {
+            ...fallback,
+            ...shift,
+            groups135: shift.groups135?.length ? shift.groups135 : fallback.groups135 || shift.groups || [],
+            groups246: shift.groups246?.length ? shift.groups246 : fallback.groups246 || shift.groups || [],
+          }
+        }),
         nightShifts: (configFromDb.nightShifts || defaults.nightShifts).map((shift, idx) => {
           const fallback = defaults.nightShifts[idx] || defaults.nightShifts[0]
           return {
