@@ -684,14 +684,34 @@
                 <input v-model="shift.label" :disabled="!auth.isAdmin.value" />
               </div>
               <div class="field field-wide">
-                <label>可用組別 (逗號分隔)</label>
+                <label>一般 / 週日組別 (逗號分隔)</label>
                 <input
                   :value="shift.groups.join(', ')"
-                  @input="updateGroupList('night', index, $event.target.value)"
+                  @input="updateNightGroupList(index, 'groups', $event.target.value)"
                   :disabled="!auth.isAdmin.value"
-                  placeholder="例如：A, B, C, D"
+                  placeholder="例：A, B, C, D"
                 />
-                <p class="field-hint">{{ describeGroupList(shift.groups) }}</p>
+                <p class="field-hint">預設組別 (星期日或未指定情境)：{{ describeGroupList(shift.groups) }}</p>
+              </div>
+              <div class="field field-wide">
+                <label>一、三、五組別 (逗號分隔)</label>
+                <input
+                  :value="(shift.groups135?.length ? shift.groups135 : shift.groups).join(', ')"
+                  @input="updateNightGroupList(index, 'groups135', $event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例：A, B, C, D"
+                />
+                <p class="field-hint">套用於星期一、三、五：{{ describeGroupList(shift.groups135?.length ? shift.groups135 : shift.groups) }}</p>
+              </div>
+              <div class="field field-wide">
+                <label>二、四、六組別 (逗號分隔)</label>
+                <input
+                  :value="(shift.groups246?.length ? shift.groups246 : shift.groups).join(', ')"
+                  @input="updateNightGroupList(index, 'groups246', $event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例：A, B, C, D"
+                />
+                <p class="field-hint">套用於星期二、四、六：{{ describeGroupList(shift.groups246?.length ? shift.groups246 : shift.groups) }}</p>
               </div>
               <div class="field">
                 <label>預計線數</label>
@@ -753,6 +773,19 @@
             </div>
             <div class="shift-row">
               <div class="field field-wide">
+                <label>不可擔任夜班 Leader 名單 (逗號或換行分隔)</label>
+                <textarea
+                  :value="groupConfig.nightLeaderBlacklist.join('\n')"
+                  @input="updateNightLeaderBlacklist($event.target.value)"
+                  rows="2"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例：王小明, 李小華"
+                ></textarea>
+                <p class="field-hint">排班時會將這些護理師排除夜班 Leader 組別 (例如 A 組)。</p>
+              </div>
+            </div>
+            <div class="shift-row">
+              <div class="field field-wide">
                 <label>共通備註</label>
                 <textarea
                   v-model="groupConfig.notes"
@@ -794,6 +827,10 @@
                     <span v-for="group in shift.groups" :key="group" class="chip">{{ group }}</span>
                   </span>
                   <span class="muted">({{ shift.plannedLines || shift.groups.length }} 線)</span>
+                  <p class="muted small-text">
+                    一三五：{{ describeGroupList(shift.groups135?.length ? shift.groups135 : shift.groups) }}；
+                    二四六：{{ describeGroupList(shift.groups246?.length ? shift.groups246 : shift.groups) }}
+                  </p>
                 </li>
               </ul>
             </div>
@@ -802,6 +839,9 @@
               <p class="muted">
                 {{ groupConfig.standbyRules.label }}：每天 {{ groupConfig.standbyRules.maxPerDay }} 人，
                 來源班別：{{ describeGroupList(groupConfig.standbyRules.eligibleShifts) }}。
+              </p>
+              <p class="muted" v-if="groupConfig.nightLeaderBlacklist?.length">
+                夜班不可當 Leader：{{ groupConfig.nightLeaderBlacklist.join('、') }}
               </p>
               <p class="muted" v-if="groupConfig.notes">備註：{{ groupConfig.notes }}</p>
             </div>
@@ -1082,6 +1122,8 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
       code: '311',
       label: '夜班 3-11',
       groups: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      groups135: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      groups246: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
       plannedLines: 8,
       notes: '夜班線數可依週期調整',
     },
@@ -1091,6 +1133,7 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
     maxPerDay: 1,
     eligibleShifts: ['74', '75'],
   },
+  nightLeaderBlacklist: ['蘇愛玲', '陳淑玲', '謝慶諭', '林佩佳', '林芳羽', '蔡靜怡'],
   notes: '',
 })
 
@@ -1354,22 +1397,40 @@ const canAssignGroup = (shift) => {
   return s === '74' || isNightShift(s)
 }
 
+const findShiftConfig = (code, type = 'day') => {
+  const source = type === 'night' ? groupConfig.value.nightShifts : groupConfig.value.dayShifts
+  return source.find((shift) => shift.code === code) || null
+}
+
+const getNightGroupsForDate = (date) => {
+  const dayOfWeek = new Date(date).getDay()
+  const nightConfig = findShiftConfig('311', 'night')
+  if (!nightConfig) return []
+
+  const fallback = nightConfig.groups || []
+  if ([1, 3, 5].includes(dayOfWeek)) return nightConfig.groups135?.length ? nightConfig.groups135 : fallback
+  if ([2, 4, 6].includes(dayOfWeek)) return nightConfig.groups246?.length ? nightConfig.groups246 : fallback
+  return fallback
+}
+
 const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
-  const dayOfWeek = new Date(date).getDay()
   if (s === '74') {
-    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+    const dayConfig = findShiftConfig('74', 'day')
+    return dayConfig?.groups?.length ? dayConfig.groups : ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
   }
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
-    let groups = []
-    if ([1, 3, 5].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
-    } else if ([2, 4, 6].includes(dayOfWeek)) {
+    let groups = getNightGroupsForDate(date)
+    if (!groups.length) {
       groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
     }
     if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
       const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
-      if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
+      const leaderBlockList =
+        groupConfig.value.nightLeaderBlacklist?.length
+          ? groupConfig.value.nightLeaderBlacklist
+          : CANNOT_BE_NIGHT_LEADER
+      if (leaderBlockList.includes(nurseName)) {
         groups = groups.filter((g) => g !== 'A')
       }
     }
@@ -1806,7 +1867,7 @@ async function processAndUpload() {
 const parseGroupInput = (value) => {
   if (!value) return []
   return value
-    .split(',')
+    .split(/[,，\n]/)
     .map((item) => item.trim())
     .filter(Boolean)
 }
@@ -1822,15 +1883,25 @@ const updateGroupList = (type, index, value) => {
   target[index].groups = parseGroupInput(value)
 }
 
+const updateNightGroupList = (index, field, value) => {
+  const target = groupConfig.value.nightShifts
+  if (!target[index]) return
+  target[index][field] = parseGroupInput(value)
+}
+
 const updateEligibleShifts = (value) => {
   groupConfig.value.standbyRules.eligibleShifts = parseGroupInput(value)
+}
+
+const updateNightLeaderBlacklist = (value) => {
+  groupConfig.value.nightLeaderBlacklist = parseGroupInput(value)
 }
 
 const addShiftConfig = (type) => {
   if (!auth.isAdmin.value) return
   const template = { code: '', label: '', groups: [], plannedLines: 0, notes: '' }
   if (type === 'night') {
-    groupConfig.value.nightShifts.push({ ...template })
+    groupConfig.value.nightShifts.push({ ...template, groups135: [], groups246: [] })
   } else {
     groupConfig.value.dayShifts.push({ ...template })
   }
@@ -1872,8 +1943,19 @@ async function loadGroupConfig() {
         ...defaults,
         ...configFromDb,
         dayShifts: configFromDb.dayShifts?.length ? configFromDb.dayShifts : defaults.dayShifts,
-        nightShifts: configFromDb.nightShifts?.length ? configFromDb.nightShifts : defaults.nightShifts,
+        nightShifts: (configFromDb.nightShifts || defaults.nightShifts).map((shift, idx) => {
+          const fallback = defaults.nightShifts[idx] || defaults.nightShifts[0]
+          return {
+            ...fallback,
+            ...shift,
+            groups135: shift.groups135?.length ? shift.groups135 : fallback.groups135 || shift.groups || [],
+            groups246: shift.groups246?.length ? shift.groups246 : fallback.groups246 || shift.groups || [],
+          }
+        }),
         standbyRules: { ...defaults.standbyRules, ...(configFromDb.standbyRules || {}) },
+        nightLeaderBlacklist: Array.isArray(configFromDb.nightLeaderBlacklist)
+          ? configFromDb.nightLeaderBlacklist
+          : defaults.nightLeaderBlacklist,
       }
       groupConfigStatus.value = `${monthId} 配置已載入${
         configFromDb.lastModifiedBy ? ` (最後由 ${configFromDb.lastModifiedBy} 更新)` : ''
@@ -3465,5 +3547,10 @@ onMounted(() => {
 .muted {
   color: #868e96;
   font-size: 0.9rem;
+}
+
+.small-text {
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
 }
 </style>
