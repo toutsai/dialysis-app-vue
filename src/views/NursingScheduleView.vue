@@ -16,6 +16,9 @@
       <button :class="{ active: activeTab === 'weekly' }" @click="activeTab = 'weekly'">
         當月週班表
       </button>
+      <button :class="{ active: activeTab === 'groupConfig' }" @click="activeTab = 'groupConfig'">
+        組別配置管理
+      </button>
       <button
         :class="{ active: activeTab === 'responsibilities' }"
         @click="activeTab = 'responsibilities'"
@@ -36,9 +39,9 @@
               type="month"
               id="schedule-month"
               v-model="selectedMonth"
-              @change="loadMonthlySchedule"
+              @change="handleMonthChange"
             />
-            <button @click="loadMonthlySchedule" :disabled="isLoadingSchedule" class="btn-primary">
+            <button @click="handleMonthChange" :disabled="isLoadingSchedule" class="btn-primary">
               {{ isLoadingSchedule ? '載入中...' : '重新載入' }}
             </button>
           </div>
@@ -145,7 +148,7 @@
               type="month"
               id="schedule-month-weekly"
               v-model="selectedMonth"
-              @change="loadMonthlySchedule"
+              @change="handleMonthChange"
             />
           </div>
 
@@ -548,7 +551,265 @@
         </div>
       </div>
 
-      <!-- 3. 護理當班分組工作職責 -->
+      <!-- 3. 組別配置管理 -->
+      <div v-if="activeTab === 'groupConfig'" class="tab-pane group-config-tab-layout">
+        <header class="pane-header">
+          <div>
+            <h2 class="table-title">組別配置管理 (Beta)</h2>
+            <p class="tab-hint">
+              管理「班別可用的組別 / 線數」、「預備75班配置」等，讓分組邏輯讀取最新的現場設定。
+            </p>
+          </div>
+          <div class="header-actions">
+            <label for="group-config-month">月份：</label>
+            <input
+              type="month"
+              id="group-config-month"
+              v-model="selectedMonth"
+              @change="handleMonthChange"
+            />
+            <button @click="loadGroupConfig" :disabled="isLoadingGroupConfig" class="btn-secondary">
+              {{ isLoadingGroupConfig ? '載入中...' : '重新載入配置' }}
+            </button>
+            <button
+              v-if="auth.isAdmin.value"
+              @click="resetGroupConfig"
+              :disabled="isLoadingGroupConfig || isSavingGroupConfig"
+              class="btn-ghost"
+            >
+              回復預設
+            </button>
+            <button
+              v-if="auth.isAdmin.value"
+              @click="saveGroupConfig"
+              :disabled="isSavingGroupConfig || isLoadingGroupConfig"
+              class="btn-primary"
+            >
+              {{ isSavingGroupConfig ? '儲存中...' : '儲存配置' }}
+            </button>
+          </div>
+        </header>
+
+        <div
+          v-if="groupConfigStatus"
+          :class="['status-message', /錯誤|失敗/.test(groupConfigStatus) ? 'error' : 'success']"
+        >
+          {{ groupConfigStatus }}
+        </div>
+
+        <section class="config-grid">
+          <div class="config-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">白班/日班線別</h3>
+                <p class="card-subtitle">設定可用組別、線數與備註，適用於 74/75/816/74L 班。</p>
+              </div>
+              <button
+                v-if="auth.isAdmin.value"
+                class="btn-link"
+                @click="addShiftConfig('day')"
+                :disabled="isSavingGroupConfig"
+              >
+                + 新增班別
+              </button>
+            </div>
+
+            <div v-for="(shift, index) in groupConfig.dayShifts" :key="`day-${index}`" class="shift-row">
+              <div class="field">
+                <label>班別代碼</label>
+                <input v-model="shift.code" :disabled="!auth.isAdmin.value" />
+              </div>
+              <div class="field">
+                <label>顯示名稱</label>
+                <input v-model="shift.label" :disabled="!auth.isAdmin.value" />
+              </div>
+              <div class="field field-wide">
+                <label>可用組別 (逗號分隔)</label>
+                <input
+                  :value="shift.groups.join(', ')"
+                  @input="updateGroupList('day', index, $event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例如：A, B, C, D"
+                />
+                <p class="field-hint">{{ describeGroupList(shift.groups) }}</p>
+              </div>
+              <div class="field">
+                <label>預計線數</label>
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="shift.plannedLines"
+                  :disabled="!auth.isAdmin.value"
+                />
+              </div>
+              <div class="field field-wide">
+                <label>備註</label>
+                <input v-model="shift.notes" :disabled="!auth.isAdmin.value" />
+              </div>
+              <button
+                v-if="auth.isAdmin.value"
+                class="icon-btn"
+                @click="removeShiftConfig('day', index)"
+                :disabled="groupConfig.dayShifts.length <= 1"
+                title="刪除此班別"
+              >
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="config-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">夜班線別</h3>
+                <p class="card-subtitle">設定 311/夜班的組別與線數，支援未來夜班分線數調整。</p>
+              </div>
+              <button
+                v-if="auth.isAdmin.value"
+                class="btn-link"
+                @click="addShiftConfig('night')"
+                :disabled="isSavingGroupConfig"
+              >
+                + 新增夜班
+              </button>
+            </div>
+
+            <div v-for="(shift, index) in groupConfig.nightShifts" :key="`night-${index}`" class="shift-row">
+              <div class="field">
+                <label>班別代碼</label>
+                <input v-model="shift.code" :disabled="!auth.isAdmin.value" />
+              </div>
+              <div class="field">
+                <label>顯示名稱</label>
+                <input v-model="shift.label" :disabled="!auth.isAdmin.value" />
+              </div>
+              <div class="field field-wide">
+                <label>可用組別 (逗號分隔)</label>
+                <input
+                  :value="shift.groups.join(', ')"
+                  @input="updateGroupList('night', index, $event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例如：A, B, C, D"
+                />
+                <p class="field-hint">{{ describeGroupList(shift.groups) }}</p>
+              </div>
+              <div class="field">
+                <label>預計線數</label>
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="shift.plannedLines"
+                  :disabled="!auth.isAdmin.value"
+                />
+              </div>
+              <div class="field field-wide">
+                <label>備註</label>
+                <input v-model="shift.notes" :disabled="!auth.isAdmin.value" />
+              </div>
+              <button
+                v-if="auth.isAdmin.value"
+                class="icon-btn"
+                @click="removeShiftConfig('night', index)"
+                :disabled="groupConfig.nightShifts.length <= 1"
+                title="刪除此班別"
+              >
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="config-card">
+            <div class="card-header">
+              <div>
+                <h3 class="card-title">預備/特殊規則</h3>
+                <p class="card-subtitle">設定預備 75 班與任何額外的分線規則備註。</p>
+              </div>
+            </div>
+
+            <div class="shift-row compact">
+              <div class="field">
+                <label>預備班標題</label>
+                <input v-model="groupConfig.standbyRules.label" :disabled="!auth.isAdmin.value" />
+              </div>
+              <div class="field">
+                <label>每日名額</label>
+                <input
+                  type="number"
+                  min="0"
+                  v-model.number="groupConfig.standbyRules.maxPerDay"
+                  :disabled="!auth.isAdmin.value"
+                />
+              </div>
+              <div class="field field-wide">
+                <label>可指派班別 (逗號分隔)</label>
+                <input
+                  :value="groupConfig.standbyRules.eligibleShifts.join(', ')"
+                  @input="updateEligibleShifts($event.target.value)"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例如：74, 75"
+                />
+                <p class="field-hint">系統會優先在這些班別中尋找預備 75 人力。</p>
+              </div>
+            </div>
+            <div class="shift-row">
+              <div class="field field-wide">
+                <label>共通備註</label>
+                <textarea
+                  v-model="groupConfig.notes"
+                  rows="3"
+                  :disabled="!auth.isAdmin.value"
+                  placeholder="例：74 班人力超過 10 人時新增一組 / 75 班改為 F、J、K 三組"
+                ></textarea>
+              </div>
+            </div>
+            <div v-if="groupConfig.lastModifiedAt" class="last-updated">
+              由 {{ groupConfig.lastModifiedBy || '未知使用者' }} 於
+              {{ formatDateTime(groupConfig.lastModifiedAt) }} 更新
+            </div>
+          </div>
+        </section>
+
+        <section class="config-preview">
+          <h3 class="card-title">配置預覽</h3>
+          <p class="card-subtitle">提供給組長/護理長確認現行分線設定，之後分組演算法將讀取這份配置。</p>
+          <div class="preview-grid">
+            <div class="preview-card">
+              <h4>白班/日班</h4>
+              <ul>
+                <li v-for="(shift, index) in groupConfig.dayShifts" :key="`preview-day-${index}`">
+                  <strong>{{ shift.label || shift.code }}</strong>
+                  <span class="chip-list">
+                    <span v-for="group in shift.groups" :key="group" class="chip">{{ group }}</span>
+                  </span>
+                  <span class="muted">({{ shift.plannedLines || shift.groups.length }} 線)</span>
+                </li>
+              </ul>
+            </div>
+            <div class="preview-card">
+              <h4>夜班</h4>
+              <ul>
+                <li v-for="(shift, index) in groupConfig.nightShifts" :key="`preview-night-${index}`">
+                  <strong>{{ shift.label || shift.code }}</strong>
+                  <span class="chip-list">
+                    <span v-for="group in shift.groups" :key="group" class="chip">{{ group }}</span>
+                  </span>
+                  <span class="muted">({{ shift.plannedLines || shift.groups.length }} 線)</span>
+                </li>
+              </ul>
+            </div>
+            <div class="preview-card">
+              <h4>預備/特殊規則</h4>
+              <p class="muted">
+                {{ groupConfig.standbyRules.label }}：每天 {{ groupConfig.standbyRules.maxPerDay }} 人，
+                來源班別：{{ describeGroupList(groupConfig.standbyRules.eligibleShifts) }}。
+              </p>
+              <p class="muted" v-if="groupConfig.notes">備註：{{ groupConfig.notes }}</p>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- 4. 護理當班分組工作職責 -->
       <div v-if="activeTab === 'responsibilities'" class="tab-pane responsibilities-tab-layout">
         <header class="pane-header">
           <h2 class="table-title">洗腎中心當班分組工作職責</h2>
@@ -764,6 +1025,12 @@ const isShiftEditMode = ref(false)
 const hasUnsavedShiftChanges = ref(false)
 const shiftFilter = ref('all') // 'all', 'day', 'night'
 
+// --- "組別配置" 頁籤的狀態 ---
+const groupConfig = ref(buildDefaultGroupConfig())
+const isLoadingGroupConfig = ref(false)
+const isSavingGroupConfig = ref(false)
+const groupConfigStatus = ref('')
+
 // --- "工作職責" 頁籤的狀態 ---
 const announcementText = ref('')
 const dayShiftData = ref({ codes: '', tasks: '' })
@@ -777,11 +1044,61 @@ const lastModifiedInfo = ref({ date: '', user: '' })
 // ========================================
 const usersApi = ApiManager('users')
 const nursingSchedulesApi = ApiManager('nursing_schedules')
+const groupConfigApi = ApiManager('nurse_group_configs')
 
 // ========================================
 // 5. 常數定義
 // ========================================
 const shiftOptions = ref(['', '74', '75', '816', '74/L', '311', '休', '例', '國定'])
+
+const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
+  month,
+  dayShifts: [
+    {
+      code: '74',
+      label: '74 班',
+      groups: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      plannedLines: 9,
+      notes: '早班常態 9 線，可依人力增減線數',
+    },
+    {
+      code: '75',
+      label: '75 班',
+      groups: ['F', 'J'],
+      plannedLines: 2,
+      notes: '若人力增加可再開新組別，例如 K 或 L',
+    },
+    {
+      code: '74/L',
+      label: 'Leader 班',
+      groups: ['K'],
+      plannedLines: 1,
+      notes: '固定為組長/Leader 線',
+    },
+    {
+      code: '816',
+      label: '外圍 816',
+      groups: ['外圍'],
+      plannedLines: 1,
+      notes: '外圍/備機線',
+    },
+  ],
+  nightShifts: [
+    {
+      code: '311',
+      label: '夜班 3-11',
+      groups: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      plannedLines: 8,
+      notes: '夜班線數可依週期調整',
+    },
+  ],
+  standbyRules: {
+    label: '預備 75 班',
+    maxPerDay: 1,
+    eligibleShifts: ['74', '75'],
+  },
+  notes: '',
+})
 
 // ========================================
 // 6. 計算屬性 (Computed Properties)
@@ -1485,6 +1802,126 @@ async function processAndUpload() {
   }
 }
 
+// --- 組別配置管理 ---
+const parseGroupInput = (value) => {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+const describeGroupList = (list = []) => {
+  if (!list || list.length === 0) return '未設定'
+  return list.join('、')
+}
+
+const updateGroupList = (type, index, value) => {
+  const target = type === 'night' ? groupConfig.value.nightShifts : groupConfig.value.dayShifts
+  if (!target[index]) return
+  target[index].groups = parseGroupInput(value)
+}
+
+const updateEligibleShifts = (value) => {
+  groupConfig.value.standbyRules.eligibleShifts = parseGroupInput(value)
+}
+
+const addShiftConfig = (type) => {
+  if (!auth.isAdmin.value) return
+  const template = { code: '', label: '', groups: [], plannedLines: 0, notes: '' }
+  if (type === 'night') {
+    groupConfig.value.nightShifts.push({ ...template })
+  } else {
+    groupConfig.value.dayShifts.push({ ...template })
+  }
+}
+
+const removeShiftConfig = (type, index) => {
+  if (!auth.isAdmin.value) return
+  const target = type === 'night' ? groupConfig.value.nightShifts : groupConfig.value.dayShifts
+  if (target.length <= 1) return
+  target.splice(index, 1)
+}
+
+const resetGroupConfig = () => {
+  groupConfig.value = buildDefaultGroupConfig()
+  groupConfigStatus.value = '已回復預設模板，請記得儲存'
+}
+
+const formatDateTime = (value) => {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
+}
+
+async function loadGroupConfig() {
+  isLoadingGroupConfig.value = true
+  groupConfigStatus.value = ''
+  try {
+    const monthId = selectedMonth.value
+    const defaults = buildDefaultGroupConfig(monthId)
+    const configFromDb = await groupConfigApi.fetchById(monthId)
+
+    if (configFromDb) {
+      groupConfig.value = {
+        ...defaults,
+        ...configFromDb,
+        dayShifts: configFromDb.dayShifts?.length ? configFromDb.dayShifts : defaults.dayShifts,
+        nightShifts: configFromDb.nightShifts?.length ? configFromDb.nightShifts : defaults.nightShifts,
+        standbyRules: { ...defaults.standbyRules, ...(configFromDb.standbyRules || {}) },
+      }
+      groupConfigStatus.value = `${monthId} 配置已載入${
+        configFromDb.lastModifiedBy ? ` (最後由 ${configFromDb.lastModifiedBy} 更新)` : ''
+      }`
+    } else {
+      groupConfig.value = defaults
+      groupConfigStatus.value = `${monthId} 尚未建立配置，已套用預設模板`
+    }
+  } catch (error) {
+    console.error('載入組別配置失敗:', error)
+    groupConfig.value = buildDefaultGroupConfig(selectedMonth.value)
+    groupConfigStatus.value = `載入組別配置失敗：${error.message}`
+  } finally {
+    isLoadingGroupConfig.value = false
+  }
+}
+
+async function saveGroupConfig() {
+  if (!auth.isAdmin.value) return
+  isSavingGroupConfig.value = true
+  groupConfigStatus.value = '正在儲存配置...'
+
+  try {
+    const payload = {
+      ...groupConfig.value,
+      month: selectedMonth.value,
+      lastModifiedBy: auth.currentUser.value?.name || '未知管理員',
+      lastModifiedAt: new Date().toISOString(),
+    }
+
+    await groupConfigApi.save(selectedMonth.value, payload)
+    groupConfig.value.lastModifiedBy = payload.lastModifiedBy
+    groupConfig.value.lastModifiedAt = payload.lastModifiedAt
+    groupConfigStatus.value = '配置已儲存，分組演算法可讀取最新設定'
+    createGlobalNotification('組別配置已更新', 'success')
+  } catch (error) {
+    console.error('儲存組別配置失敗:', error)
+    groupConfigStatus.value = `儲存組別配置失敗：${error.message}`
+  } finally {
+    isSavingGroupConfig.value = false
+  }
+}
+
+const handleMonthChange = () => {
+  loadMonthlySchedule()
+  loadGroupConfig()
+}
+
 async function loadMonthlySchedule() {
   isLoadingSchedule.value = true
   uploadStatus.value = ''
@@ -1649,6 +2086,9 @@ watch(activeTab, (newTab) => {
   if (newTab !== 'weekly') {
     shiftFilter.value = 'all'
   }
+  if (newTab === 'groupConfig') {
+    loadGroupConfig()
+  }
 })
 
 watch(
@@ -1659,11 +2099,16 @@ watch(
   { deep: true },
 )
 
+watch(selectedMonth, (newValue) => {
+  groupConfig.value.month = newValue
+})
+
 // ========================================
 // 9. 生命週期 (Lifecycle Hooks)
 // ========================================
 onMounted(() => {
   loadMonthlySchedule()
+  loadGroupConfig()
   loadData()
 })
 </script>
@@ -2845,5 +3290,180 @@ onMounted(() => {
     font-size: 0.7rem;
     padding: 1px 4px;
   }
+}
+
+/* ===== 組別配置管理 ===== */
+.group-config-tab-layout {
+  gap: 1rem;
+  overflow-y: auto;
+}
+
+.tab-hint {
+  margin-top: 0.25rem;
+  color: #6c757d;
+  font-size: 0.95rem;
+}
+
+.btn-link {
+  background: none;
+  color: #0d6efd;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+}
+
+.btn-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background-color: #f1f3f5;
+  color: #495057;
+  border: 1px solid #dee2e6;
+}
+
+.icon-btn {
+  background-color: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  align-self: flex-end;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1rem;
+}
+
+.config-card {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.card-subtitle {
+  margin: 0.25rem 0 0;
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.shift-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px dashed #e9ecef;
+  position: relative;
+}
+
+.shift-row.compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field label {
+  font-weight: 600;
+  color: #495057;
+}
+
+.field input,
+.field textarea {
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 0.95rem;
+}
+
+.field textarea {
+  resize: vertical;
+}
+
+.field-hint {
+  margin: 0;
+  color: #868e96;
+  font-size: 0.85rem;
+}
+
+.field-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 768px) {
+  .field-wide {
+    grid-column: span 1;
+  }
+}
+
+.last-updated {
+  font-size: 0.85rem;
+  color: #868e96;
+  margin-top: 0.25rem;
+}
+
+.config-preview {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.preview-card {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0 0.25rem;
+}
+
+.chip {
+  background: #e7f5ff;
+  color: #1c7ed6;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.muted {
+  color: #868e96;
+  font-size: 0.9rem;
 }
 </style>
