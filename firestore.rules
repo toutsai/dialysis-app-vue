@@ -183,6 +183,14 @@ service cloud.firestore {
       allow read: if isEditor();
       allow write: if isAdmin();
     }
+
+    // 護理組別配置（組別配置管理頁籤）
+    match /nurse_group_configs/{configId} {
+      // 需要能在排班頁載入配置，因此 Editor 以上可以讀取
+      allow read: if isEditor();
+      // 僅管理員可調整組別配置
+      allow write: if isAdmin();
+    }
     
     match /scheduled_patient_updates/{updateId} {
       allow read: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
