@@ -1025,12 +1025,6 @@ const isShiftEditMode = ref(false)
 const hasUnsavedShiftChanges = ref(false)
 const shiftFilter = ref('all') // 'all', 'day', 'night'
 
-// --- "組別配置" 頁籤的狀態 ---
-const groupConfig = ref(buildDefaultGroupConfig())
-const isLoadingGroupConfig = ref(false)
-const isSavingGroupConfig = ref(false)
-const groupConfigStatus = ref('')
-
 // --- "工作職責" 頁籤的狀態 ---
 const announcementText = ref('')
 const dayShiftData = ref({ codes: '', tasks: '' })
@@ -1099,6 +1093,12 @@ const buildDefaultGroupConfig = (month = selectedMonth.value) => ({
   },
   notes: '',
 })
+
+// --- "組別配置" 頁籤的狀態 ---
+const groupConfig = ref(buildDefaultGroupConfig())
+const isLoadingGroupConfig = ref(false)
+const isSavingGroupConfig = ref(false)
+const groupConfigStatus = ref('')
 
 // ========================================
 // 6. 計算屬性 (Computed Properties)
