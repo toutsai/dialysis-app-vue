@@ -89,6 +89,7 @@
               <div class="fixed-rules-info">
                 <span class="fixed-item"><b>74/L</b> → A組</span>
                 <span class="fixed-item"><b>816</b> → 外圍</span>
+                <span class="fixed-item"><b>311C</b> → C組（夜班）</span>
               </div>
             </section>
 
@@ -193,6 +194,127 @@
                 </div>
               </div>
             </section>
+
+            <!-- ===== 第四區：夜班組別限制 ===== -->
+            <section class="config-section">
+              <h3 class="section-title">夜班組別限制</h3>
+              <p class="section-desc">設定特定護理師不可分配到特定夜班組別</p>
+
+              <div v-if="nurses.length === 0" class="no-data">
+                尚無護理師資料
+              </div>
+
+              <div v-else class="night-restriction-container">
+                <!-- 已設定限制的護理師列表 -->
+                <div v-if="nightRestrictionList.length > 0" class="restriction-list">
+                  <div
+                    v-for="item in nightRestrictionList"
+                    :key="item.nurseId"
+                    class="restriction-item"
+                  >
+                    <span class="nurse-name">{{ item.nurseName }}</span>
+                    <div class="restricted-groups">
+                      <span
+                        v-for="group in item.groups"
+                        :key="group"
+                        class="group-tag"
+                      >
+                        {{ group }}組
+                        <button
+                          type="button"
+                          class="remove-group-btn"
+                          @click="removeNightRestrictionGroup(item.nurseId, group)"
+                          title="移除"
+                        >&times;</button>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      class="remove-btn"
+                      @click="removeNightRestriction(item.nurseId)"
+                      title="移除此護理師的所有限制"
+                    >
+                      全部移除
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 新增限制 -->
+                <div class="add-restriction-form">
+                  <select v-model="newRestrictionNurseId" class="nurse-select">
+                    <option value="">選擇護理師...</option>
+                    <option
+                      v-for="nurse in availableNursesForNightRestriction"
+                      :key="nurse.uid"
+                      :value="nurse.uid"
+                    >
+                      {{ nurse.name || nurse.displayName }}
+                    </option>
+                  </select>
+                  <div class="group-checkboxes">
+                    <label
+                      v-for="group in nightShiftGroupOptions"
+                      :key="group"
+                      class="checkbox-label small"
+                    >
+                      <input
+                        type="checkbox"
+                        :value="group"
+                        v-model="newRestrictionGroups"
+                        :disabled="!newRestrictionNurseId"
+                      />
+                      <span class="checkbox-text">{{ group }}</span>
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn-add"
+                    @click="addNightRestriction"
+                    :disabled="!newRestrictionNurseId || newRestrictionGroups.length === 0"
+                  >
+                    新增限制
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <!-- ===== 第五區：新進護理師暫不分組 ===== -->
+            <section class="config-section">
+              <h3 class="section-title">新進護理師暫不分組</h3>
+              <p class="section-desc">勾選的護理師將暫時不參與分組，可隨時取消勾選以加入分組</p>
+
+              <div v-if="nurses.length === 0" class="no-data">
+                尚無護理師資料
+              </div>
+
+              <div v-else class="nurse-restriction-list">
+                <div class="search-box">
+                  <input
+                    type="text"
+                    v-model="excludedNurseSearchQuery"
+                    placeholder="搜尋護理師..."
+                    class="search-input"
+                  />
+                </div>
+                <div class="nurse-checkbox-grid">
+                  <label
+                    v-for="nurse in filteredNursesForExcluded"
+                    :key="nurse.uid"
+                    class="checkbox-label nurse-item"
+                  >
+                    <input
+                      type="checkbox"
+                      :value="nurse.uid"
+                      v-model="config.excludedNurses"
+                    />
+                    <span class="checkbox-text">{{ nurse.name || nurse.displayName }}</span>
+                  </label>
+                </div>
+                <div class="selected-info">
+                  已設定 {{ config.excludedNurses?.length || 0 }} 位暫不分組
+                </div>
+              </div>
+            </section>
           </template>
         </main>
 
@@ -262,8 +384,14 @@ const isLoading = ref(true)
 const isSaving = ref(false)
 const statusMessage = ref(null)
 const nurseSearchQuery = ref('')
+const excludedNurseSearchQuery = ref('')
 const config = ref(getDefaultConfig())
 const sourceMonth = ref(null) // 配置來源月份
+
+// 夜班組別限制相關狀態
+const newRestrictionNurseId = ref('')
+const newRestrictionGroups = ref([])
+const nightShiftGroupOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
 
 // 計算早班可用組別（根據組數）
 const dayGroups135 = computed(() => {
@@ -325,6 +453,89 @@ const filteredNurses = computed(() => {
   })
 })
 
+// 篩選後的護理師列表（暫不分組用）
+const filteredNursesForExcluded = computed(() => {
+  if (!excludedNurseSearchQuery.value) return nurses.value
+  const query = excludedNurseSearchQuery.value.toLowerCase()
+  return nurses.value.filter((nurse) => {
+    const name = (nurse.name || nurse.displayName || '').toLowerCase()
+    return name.includes(query)
+  })
+})
+
+// 夜班組別限制列表（用於顯示）
+const nightRestrictionList = computed(() => {
+  const restrictions = config.value.nightShiftRestrictions || {}
+  const list = []
+  Object.entries(restrictions).forEach(([nurseId, groups]) => {
+    if (groups && groups.length > 0) {
+      const nurse = nurses.value.find((n) => n.uid === nurseId)
+      list.push({
+        nurseId,
+        nurseName: nurse?.name || nurse?.displayName || nurseId,
+        groups: [...groups].sort(),
+      })
+    }
+  })
+  // 依護理師名稱排序
+  list.sort((a, b) => a.nurseName.localeCompare(b.nurseName, 'zh-TW'))
+  return list
+})
+
+// 可選擇新增限制的護理師（排除已設定的）
+const availableNursesForNightRestriction = computed(() => {
+  const restrictions = config.value.nightShiftRestrictions || {}
+  return nurses.value.filter((nurse) => {
+    // 已有限制設定的也可以選（可以追加組別）
+    return true
+  })
+})
+
+// 新增夜班組別限制
+const addNightRestriction = () => {
+  if (!newRestrictionNurseId.value || newRestrictionGroups.value.length === 0) return
+
+  if (!config.value.nightShiftRestrictions) {
+    config.value.nightShiftRestrictions = {}
+  }
+
+  const nurseId = newRestrictionNurseId.value
+  const existingGroups = config.value.nightShiftRestrictions[nurseId] || []
+  const newGroups = [...new Set([...existingGroups, ...newRestrictionGroups.value])].sort()
+
+  config.value.nightShiftRestrictions[nurseId] = newGroups
+
+  // 重置表單
+  newRestrictionNurseId.value = ''
+  newRestrictionGroups.value = []
+}
+
+// 移除護理師的特定夜班組別限制
+const removeNightRestrictionGroup = (nurseId, group) => {
+  if (!config.value.nightShiftRestrictions || !config.value.nightShiftRestrictions[nurseId]) return
+
+  const groups = config.value.nightShiftRestrictions[nurseId]
+  const newGroups = groups.filter((g) => g !== group)
+
+  // 如果沒有剩餘組別，移除整個護理師的設定
+  if (newGroups.length === 0) {
+    const { [nurseId]: removed, ...rest } = config.value.nightShiftRestrictions
+    config.value.nightShiftRestrictions = rest
+  } else {
+    config.value.nightShiftRestrictions = {
+      ...config.value.nightShiftRestrictions,
+      [nurseId]: newGroups,
+    }
+  }
+}
+
+// 移除護理師的所有夜班組別限制
+const removeNightRestriction = (nurseId) => {
+  if (!config.value.nightShiftRestrictions) return
+  const { [nurseId]: removed, ...rest } = config.value.nightShiftRestrictions
+  config.value.nightShiftRestrictions = rest
+}
+
 // 驗證錯誤
 const validationErrors = computed(() => {
   const result = validateConfig(config.value)
@@ -376,6 +587,8 @@ const loadConfig = async () => {
           ...(data.dayShiftRules?.['246'] || {}),
         },
       },
+      nightShiftRestrictions: data.nightShiftRestrictions || {},
+      excludedNurses: data.excludedNurses || [],
     }
   } catch (error) {
     console.error('載入配置失敗:', error)
@@ -849,6 +1062,142 @@ const closeDialog = () => {
   color: #6c757d;
   background: #f8f9fa;
   border-radius: 4px;
+}
+
+/* ===== Night Shift Restriction ===== */
+.night-restriction-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.restriction-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.restriction-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+
+.restriction-item .nurse-name {
+  font-weight: 600;
+  color: #495057;
+  font-size: 0.85rem;
+  min-width: 80px;
+}
+
+.restricted-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.group-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.15rem 0.4rem;
+  background: #dc3545;
+  color: white;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.remove-group-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0.8;
+}
+
+.remove-group-btn:hover {
+  opacity: 1;
+}
+
+.remove-btn {
+  background: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.remove-btn:hover {
+  background: #5a6268;
+}
+
+.add-restriction-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.6rem;
+  background: #e9ecef;
+  border-radius: 4px;
+}
+
+.nurse-select {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  min-width: 140px;
+  background: white;
+}
+
+.nurse-select:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.group-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.btn-add {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 0.35rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-add:hover:not(:disabled) {
+  background: #218838;
+}
+
+.btn-add:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 /* ===== Status Messages ===== */
