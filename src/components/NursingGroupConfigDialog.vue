@@ -33,101 +33,30 @@
               </ul>
             </div>
 
-            <!-- ===== 第一區：基礎組別設定 ===== -->
+            <!-- ===== 第一區：固定分配說明 ===== -->
             <section class="config-section">
-              <h3 class="section-title">基礎組別設定</h3>
-              <p class="section-desc">設定 74班和75班的基礎可用組別（兩者不可重複）</p>
-
-              <div class="two-column">
-                <!-- 75班組別 -->
-                <div class="config-card">
-                  <h4 class="card-title">75班組別</h4>
-                  <div class="checkbox-group">
-                    <label
-                      v-for="group in allGroups"
-                      :key="`base75-${group}`"
-                      class="checkbox-label"
-                    >
-                      <input
-                        type="checkbox"
-                        :value="group"
-                        v-model="config.shift75Groups"
-                        @change="on75GroupChange"
-                      />
-                      <span class="checkbox-text">{{ group }}</span>
-                    </label>
-                  </div>
-                  <div class="selected-info">
-                    已選：{{ config.shift75Groups.join(', ') || '無' }}
-                  </div>
-                </div>
-
-                <!-- 74班組別 -->
-                <div class="config-card">
-                  <h4 class="card-title">74班組別</h4>
-                  <div class="checkbox-group">
-                    <label
-                      v-for="group in allGroups"
-                      :key="`base74-${group}`"
-                      class="checkbox-label"
-                      :class="{ disabled: config.shift75Groups.includes(group) }"
-                    >
-                      <input
-                        type="checkbox"
-                        :value="group"
-                        v-model="config.shift74Groups"
-                        :disabled="config.shift75Groups.includes(group)"
-                      />
-                      <span class="checkbox-text">{{ group }}</span>
-                      <span v-if="config.shift75Groups.includes(group)" class="excluded-tag">(75班)</span>
-                    </label>
-                  </div>
-                  <div class="selected-info">
-                    已選：{{ config.shift74Groups.join(', ') || '無' }}
-                  </div>
-                </div>
-              </div>
-
-              <!-- 固定分配說明 -->
+              <h3 class="section-title">固定分配規則</h3>
               <div class="fixed-rules-info">
-                <span class="fixed-label">固定分配：</span>
                 <span class="fixed-item"><b>74/L</b> → A組</span>
                 <span class="fixed-item"><b>816</b> → 外圍</span>
+                <span class="fixed-note">早班可用組別：B ~ J（共9組）</span>
               </div>
             </section>
 
             <!-- ===== 第二區：早班星期別設定 ===== -->
             <section class="config-section">
               <h3 class="section-title">早班星期別設定</h3>
-              <p class="section-desc">設定一三五和二四六各班別使用的組別</p>
+              <p class="section-desc">設定一三五和二四六的 75班組別（74班會自動取得剩餘組別）</p>
 
               <div class="weekday-grid">
                 <!-- 一三五 早班 -->
                 <div class="weekday-card">
                   <div class="weekday-header">一、三、五</div>
                   <div class="shift-row">
-                    <span class="shift-label">74班：</span>
-                    <div class="checkbox-group compact">
-                      <label
-                        v-for="group in config.shift74Groups"
-                        :key="`135-74-${group}`"
-                        class="checkbox-label small"
-                      >
-                        <input
-                          type="checkbox"
-                          :value="group"
-                          v-model="config.dayShiftRules['135'].shift74Groups"
-                        />
-                        <span class="checkbox-text">{{ group }}</span>
-                      </label>
-                    </div>
-                    <span class="count-badge">{{ config.dayShiftRules['135'].shift74Groups.length }}組</span>
-                  </div>
-                  <div class="shift-row">
                     <span class="shift-label">75班：</span>
                     <div class="checkbox-group compact">
                       <label
-                        v-for="group in config.shift75Groups"
+                        v-for="group in allDayGroups"
                         :key="`135-75-${group}`"
                         class="checkbox-label small"
                       >
@@ -141,34 +70,21 @@
                     </div>
                     <span class="count-badge">{{ config.dayShiftRules['135'].shift75Groups.length }}組</span>
                   </div>
+                  <div class="auto-calculated">
+                    <span class="calc-label">74班（自動）：</span>
+                    <span class="calc-groups">{{ calculated74Groups135.join(', ') }}</span>
+                    <span class="count-badge secondary">{{ calculated74Groups135.length }}組</span>
+                  </div>
                 </div>
 
                 <!-- 二四六 早班 -->
                 <div class="weekday-card">
                   <div class="weekday-header">二、四、六</div>
                   <div class="shift-row">
-                    <span class="shift-label">74班：</span>
-                    <div class="checkbox-group compact">
-                      <label
-                        v-for="group in config.shift74Groups"
-                        :key="`246-74-${group}`"
-                        class="checkbox-label small"
-                      >
-                        <input
-                          type="checkbox"
-                          :value="group"
-                          v-model="config.dayShiftRules['246'].shift74Groups"
-                        />
-                        <span class="checkbox-text">{{ group }}</span>
-                      </label>
-                    </div>
-                    <span class="count-badge">{{ config.dayShiftRules['246'].shift74Groups.length }}組</span>
-                  </div>
-                  <div class="shift-row">
                     <span class="shift-label">75班：</span>
                     <div class="checkbox-group compact">
                       <label
-                        v-for="group in config.shift75Groups"
+                        v-for="group in allDayGroups"
                         :key="`246-75-${group}`"
                         class="checkbox-label small"
                       >
@@ -182,6 +98,11 @@
                     </div>
                     <span class="count-badge">{{ config.dayShiftRules['246'].shift75Groups.length }}組</span>
                   </div>
+                  <div class="auto-calculated">
+                    <span class="calc-label">74班（自動）：</span>
+                    <span class="calc-groups">{{ calculated74Groups246.join(', ') }}</span>
+                    <span class="count-badge secondary">{{ calculated74Groups246.length }}組</span>
+                  </div>
                 </div>
               </div>
             </section>
@@ -189,6 +110,7 @@
             <!-- ===== 第三區：晚班星期別設定 ===== -->
             <section class="config-section">
               <h3 class="section-title">晚班星期別設定 (311)</h3>
+              <p class="section-desc">晚班可用組別：A ~ I（共9組，A組為組長）</p>
 
               <div class="weekday-grid">
                 <!-- 一三五 晚班 -->
@@ -198,7 +120,7 @@
                     <span class="shift-label">晚班：</span>
                     <div class="checkbox-group compact">
                       <label
-                        v-for="group in nightGroupOptions"
+                        v-for="group in allNightGroups"
                         :key="`night135-${group}`"
                         class="checkbox-label small"
                       >
@@ -221,7 +143,7 @@
                     <span class="shift-label">晚班：</span>
                     <div class="checkbox-group compact">
                       <label
-                        v-for="group in nightGroupOptions"
+                        v-for="group in allNightGroups"
                         :key="`night246-${group}`"
                         class="checkbox-label small"
                       >
@@ -311,6 +233,9 @@ import {
   saveNursingGroupConfig,
   getDefaultConfig,
   validateConfig,
+  ALL_DAY_SHIFT_GROUPS,
+  ALL_NIGHT_SHIFT_GROUPS,
+  calculate74Groups,
 } from '@/services/nursingGroupConfigService'
 
 // Props & Emits
@@ -328,8 +253,8 @@ const auth = useAuth()
 const { ensureUsersLoaded, users } = useUserDirectory()
 
 // 常數
-const allGroups = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
-const nightGroupOptions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+const allDayGroups = ALL_DAY_SHIFT_GROUPS
+const allNightGroups = ALL_NIGHT_SHIFT_GROUPS
 
 // 狀態
 const isLoading = ref(true)
@@ -337,6 +262,15 @@ const isSaving = ref(false)
 const statusMessage = ref(null)
 const nurseSearchQuery = ref('')
 const config = ref(getDefaultConfig())
+
+// 計算74班組別（自動）
+const calculated74Groups135 = computed(() => {
+  return calculate74Groups(config.value.dayShiftRules?.['135']?.shift75Groups || [])
+})
+
+const calculated74Groups246 = computed(() => {
+  return calculate74Groups(config.value.dayShiftRules?.['246']?.shift75Groups || [])
+})
 
 // 護理師列表
 const nurses = computed(() => {
@@ -364,21 +298,6 @@ const validationErrors = computed(() => {
   const result = validateConfig(config.value)
   return result.errors
 })
-
-// 當75班組別變更時，自動移除74班中重複的組別
-const on75GroupChange = () => {
-  // 從基礎 74 班移除
-  config.value.shift74Groups = config.value.shift74Groups.filter(
-    (group) => !config.value.shift75Groups.includes(group)
-  )
-  // 從星期別設定中也移除
-  config.value.dayShiftRules['135'].shift74Groups = config.value.dayShiftRules['135'].shift74Groups.filter(
-    (group) => !config.value.shift75Groups.includes(group)
-  )
-  config.value.dayShiftRules['246'].shift74Groups = config.value.dayShiftRules['246'].shift74Groups.filter(
-    (group) => !config.value.shift75Groups.includes(group)
-  )
-}
 
 // 當 Dialog 開啟時載入配置
 watch(
@@ -491,7 +410,7 @@ const closeDialog = () => {
   background: white;
   border-radius: 8px;
   width: 95%;
-  max-width: 900px;
+  max-width: 850px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
@@ -598,110 +517,16 @@ const closeDialog = () => {
   margin: 0 0 0.75rem 0;
 }
 
-/* ===== Two Column Layout ===== */
-.two-column {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-@media (max-width: 600px) {
-  .two-column {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ===== Config Card ===== */
-.config-card {
-  background: #f8f9fa;
-  border-radius: 6px;
-  padding: 0.75rem;
-}
-
-.card-title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #495057;
-  margin: 0 0 0.5rem 0;
-}
-
-/* ===== Checkbox Group ===== */
-.checkbox-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-}
-
-.checkbox-group.compact {
-  gap: 0.3rem;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.5rem;
-  background: white;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: all 0.15s;
-}
-
-.checkbox-label:hover:not(.disabled) {
-  border-color: #007bff;
-}
-
-.checkbox-label.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: #e9ecef;
-}
-
-.checkbox-label.small {
-  padding: 0.2rem 0.4rem;
-  font-size: 0.8rem;
-}
-
-.checkbox-label input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-}
-
-.checkbox-text {
-  font-weight: 500;
-  color: #495057;
-}
-
-.excluded-tag {
-  font-size: 0.65rem;
-  color: #dc3545;
-  margin-left: 0.1rem;
-}
-
-.selected-info {
-  margin-top: 0.5rem;
-  font-size: 0.75rem;
-  color: #6c757d;
-}
-
 /* ===== Fixed Rules Info ===== */
 .fixed-rules-info {
-  margin-top: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.6rem 0.75rem;
   background: #e9ecef;
   border-radius: 4px;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.5rem;
   flex-wrap: wrap;
-}
-
-.fixed-label {
-  color: #6c757d;
 }
 
 .fixed-item {
@@ -710,6 +535,11 @@ const closeDialog = () => {
 
 .fixed-item b {
   color: #007bff;
+}
+
+.fixed-note {
+  color: #6c757d;
+  font-style: italic;
 }
 
 /* ===== Weekday Grid ===== */
@@ -750,15 +580,82 @@ const closeDialog = () => {
   flex-wrap: wrap;
 }
 
-.shift-row:last-child {
-  margin-bottom: 0;
-}
-
 .shift-label {
   font-size: 0.8rem;
   font-weight: 600;
   color: #495057;
   min-width: 45px;
+}
+
+/* ===== Auto Calculated ===== */
+.auto-calculated {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed #dee2e6;
+  flex-wrap: wrap;
+}
+
+.calc-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #6c757d;
+  min-width: 90px;
+}
+
+.calc-groups {
+  font-size: 0.8rem;
+  color: #495057;
+  background: white;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+}
+
+/* ===== Checkbox Group ===== */
+.checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.checkbox-group.compact {
+  gap: 0.3rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: white;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.15s;
+}
+
+.checkbox-label:hover {
+  border-color: #007bff;
+}
+
+.checkbox-label.small {
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.checkbox-text {
+  font-weight: 500;
+  color: #495057;
 }
 
 .count-badge {
@@ -768,6 +665,16 @@ const closeDialog = () => {
   padding: 0.15rem 0.4rem;
   border-radius: 10px;
   margin-left: auto;
+}
+
+.count-badge.secondary {
+  background: #6c757d;
+}
+
+.selected-info {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: #6c757d;
 }
 
 /* ===== Nurse List ===== */

@@ -747,7 +747,7 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
-import { fetchNursingGroupConfig, getDefaultConfig } from '@/services/nursingGroupConfigService'
+import { fetchNursingGroupConfig, getDefaultConfig, calculate74Groups } from '@/services/nursingGroupConfigService'
 import NursingGroupConfigDialog from '@/components/NursingGroupConfigDialog.vue'
 
 // ========================================
@@ -1065,31 +1065,28 @@ const getAvailableGroups = (shift, date, nurseId) => {
   const config = groupConfig.value || getDefaultConfig()
 
   // 取得早班星期別設定的輔助函式
+  // 74班 = 早班全部組別 - 75班組別（自動計算）
   const getDayShiftGroups = () => {
     const dayRules = config.dayShiftRules || {}
-    const baseAvailable74Groups = config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
-    const baseAvailable75Groups = config.shift75Groups || ['F', 'J']
+    let shift75Groups = []
 
     if ([1, 3, 5].includes(dayOfWeek)) {
-      return {
-        groups74: dayRules['135']?.shift74Groups || baseAvailable74Groups,
-        groups75: dayRules['135']?.shift75Groups || ['F'],
-      }
+      shift75Groups = dayRules['135']?.shift75Groups || ['F']
     } else if ([2, 4, 6].includes(dayOfWeek)) {
-      return {
-        groups74: dayRules['246']?.shift74Groups || baseAvailable74Groups,
-        groups75: dayRules['246']?.shift75Groups || baseAvailable75Groups,
-      }
+      shift75Groups = dayRules['246']?.shift75Groups || ['F', 'J']
+    } else {
+      // 星期日使用二四六的設定
+      shift75Groups = dayRules['246']?.shift75Groups || ['F', 'J']
     }
-    // 星期日使用基礎設定
+
     return {
-      groups74: baseAvailable74Groups,
-      groups75: baseAvailable75Groups,
+      groups74: calculate74Groups(shift75Groups),
+      groups75: shift75Groups,
     }
   }
 
   if (s === '74') {
-    // 從配置讀取74班可用組別（根據星期別）
+    // 從配置讀取74班可用組別（根據星期別，自動計算）
     return getDayShiftGroups().groups74
   }
   if (s === '75') {

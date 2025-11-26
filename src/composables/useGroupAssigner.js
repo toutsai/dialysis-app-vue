@@ -1,7 +1,11 @@
 // 檔案路徑: src/composables/useGroupAssigner.js
 
-import { computed, ref } from 'vue'
-import { getDefaultConfig } from '@/services/nursingGroupConfigService'
+import { computed } from 'vue'
+import {
+  getDefaultConfig,
+  ALL_DAY_SHIFT_GROUPS,
+  calculate74Groups,
+} from '@/services/nursingGroupConfigService'
 
 /**
  * 護理師組別分配 Composable
@@ -142,44 +146,49 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     const yearMonth = schedule.yearMonth
     const [year, month] = yearMonth.split('-').map(Number)
 
-    // 從配置取得基礎組別設定（用於初始化計數器）
-    const baseAvailable74Groups = config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
-    const baseAvailable75Groups = config.shift75Groups || ['F', 'J']
+    // 從配置取得不能當晚班組長的名單
     const cannotBeNightLeaderIds = config.cannotBeNightLeader || []
 
     // 取得星期別設定的輔助函式
+    // 74班 = 早班全部組別 - 75班組別（自動計算）
     const getDayShiftGroups = (dayOfWeek) => {
       const dayRules = config.dayShiftRules || {}
+      let shift75Groups = []
+
       if ([1, 3, 5].includes(dayOfWeek)) {
-        return {
-          groups74: dayRules['135']?.shift74Groups || baseAvailable74Groups,
-          groups75: dayRules['135']?.shift75Groups || ['F'],
-        }
+        shift75Groups = dayRules['135']?.shift75Groups || ['F']
       } else if ([2, 4, 6].includes(dayOfWeek)) {
-        return {
-          groups74: dayRules['246']?.shift74Groups || baseAvailable74Groups,
-          groups75: dayRules['246']?.shift75Groups || baseAvailable75Groups,
-        }
+        shift75Groups = dayRules['246']?.shift75Groups || ['F', 'J']
+      } else {
+        // 星期日使用二四六的設定（或預設）
+        shift75Groups = dayRules['246']?.shift75Groups || ['F', 'J']
       }
-      // 星期日使用基礎設定
+
       return {
-        groups74: baseAvailable74Groups,
-        groups75: baseAvailable75Groups,
+        groups74: calculate74Groups(shift75Groups),
+        groups75: shift75Groups,
       }
     }
+
+    // 收集所有可能的75班組別（用於初始化計數器）
+    const all75Groups = new Set()
+    const dayRules = config.dayShiftRules || {}
+    ;(dayRules['135']?.shift75Groups || ['F']).forEach((g) => all75Groups.add(g))
+    ;(dayRules['246']?.shift75Groups || ['F', 'J']).forEach((g) => all75Groups.add(g))
+    const baseAvailable75Groups = Array.from(all75Groups)
 
     // 初始化計數器
     if (!groupCounts) {
       groupCounts = {}
       Object.keys(schedule.scheduleByNurse).forEach((nurseId) => {
-        // 初始化 75 班的計數器（根據配置的組別）
+        // 初始化 75 班的計數器
         const init75Counts = {}
         baseAvailable75Groups.forEach((g) => {
           init75Counts[g] = 0
         })
         groupCounts[nurseId] = {
           74: {}, // 74班各組計數
-          75: init75Counts, // 75班組計數（根據配置）
+          75: init75Counts, // 75班組計數
           311: {}, // 夜班各組計數
         }
       })
@@ -280,7 +289,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
         nurses75.forEach((nurseId) => {
           // 找出該護理師次數最少的組
           let minCount = Infinity
-          let minGroup = available75Groups[next75GroupIndex]
+          let minGroup = available75Groups[next75GroupIndex % available75Groups.length]
 
           available75Groups.forEach((group) => {
             const count = groupCounts[nurseId]['75'][group] || 0
@@ -296,11 +305,11 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
         // 如果只有一個護理師，使用輪流偏好組
         if (nurses75.length === 1) {
           const nurseId = nurses75[0]
-          const group = available75Groups[next75GroupIndex]
+          const group = available75Groups[next75GroupIndex % available75Groups.length]
           schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
           groupCounts[nurseId]['75'][group] = (groupCounts[nurseId]['75'][group] || 0) + 1
           // 下一天換組
-          next75GroupIndex = (next75GroupIndex + 1) % available75Groups.length
+          next75GroupIndex = (next75GroupIndex + 1) % baseAvailable75Groups.length
         } else {
           // 多個護理師時，確保每個組最多一人（如果可能）
           // 重新分配以確保平衡
@@ -355,7 +364,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
           })
 
           // 更新下一天的偏好
-          next75GroupIndex = (next75GroupIndex + 1) % available75Groups.length
+          next75GroupIndex = (next75GroupIndex + 1) % baseAvailable75Groups.length
         }
       }
 
@@ -550,17 +559,20 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     if (!schedule || !weeklyData) return schedule
 
     const config = getConfig()
-    const baseAvailable75Groups = config.shift75Groups || ['F', 'J']
 
-    const yearMonth = schedule.yearMonth
-    const [year, month] = yearMonth.split('-').map(Number)
+    // 收集所有可能的75班組別（用於初始化計數器）
+    const all75Groups = new Set()
+    const dayRules = config.dayShiftRules || {}
+    ;(dayRules['135']?.shift75Groups || ['F']).forEach((g) => all75Groups.add(g))
+    ;(dayRules['246']?.shift75Groups || ['F', 'J']).forEach((g) => all75Groups.add(g))
+    const baseAvailable75Groups = Array.from(all75Groups)
 
     // 收集已確認週次的統計
     const groupCounts = {}
     const standby75Counts = {}
 
     Object.keys(schedule.scheduleByNurse).forEach((nurseId) => {
-      // 初始化 75 班的計數器（根據配置的組別）
+      // 初始化 75 班的計數器
       const init75Counts = {}
       baseAvailable75Groups.forEach((g) => {
         init75Counts[g] = 0
