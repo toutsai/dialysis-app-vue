@@ -514,12 +514,16 @@ const removeNightRestrictionGroup = (nurseId, group) => {
   if (!config.value.nightShiftRestrictions || !config.value.nightShiftRestrictions[nurseId]) return
 
   const groups = config.value.nightShiftRestrictions[nurseId]
-  const index = groups.indexOf(group)
-  if (index > -1) {
-    groups.splice(index, 1)
-    // 如果沒有剩餘組別，移除整個護理師的設定
-    if (groups.length === 0) {
-      delete config.value.nightShiftRestrictions[nurseId]
+  const newGroups = groups.filter((g) => g !== group)
+
+  // 如果沒有剩餘組別，移除整個護理師的設定
+  if (newGroups.length === 0) {
+    const { [nurseId]: removed, ...rest } = config.value.nightShiftRestrictions
+    config.value.nightShiftRestrictions = rest
+  } else {
+    config.value.nightShiftRestrictions = {
+      ...config.value.nightShiftRestrictions,
+      [nurseId]: newGroups,
     }
   }
 }
@@ -527,7 +531,8 @@ const removeNightRestrictionGroup = (nurseId, group) => {
 // 移除護理師的所有夜班組別限制
 const removeNightRestriction = (nurseId) => {
   if (!config.value.nightShiftRestrictions) return
-  delete config.value.nightShiftRestrictions[nurseId]
+  const { [nurseId]: removed, ...rest } = config.value.nightShiftRestrictions
+  config.value.nightShiftRestrictions = rest
 }
 
 // 驗證錯誤
