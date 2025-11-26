@@ -543,9 +543,46 @@
                               <div v-else class="empty-cell">-</div>
                             </template>
                           </template>
-                          <!-- 非當月顯示 -->
+                          <!-- 非當月顯示（跨月班表） -->
                           <template v-else>
-                            <div class="other-month-cell">-</div>
+                            <div
+                              class="other-month-cell"
+                              :class="{
+                                'adjacent-loading': adjacentMonthsLoading,
+                                'adjacent-not-uploaded':
+                                  getAdjacentMonthData(nurseId, dayInfo)?.notUploaded,
+                              }"
+                            >
+                              <template v-if="adjacentMonthsLoading">
+                                <span class="loading-dot">...</span>
+                              </template>
+                              <template
+                                v-else-if="getAdjacentMonthData(nurseId, dayInfo)?.notUploaded"
+                              >
+                                <span class="not-uploaded-text">未上傳</span>
+                              </template>
+                              <template v-else>
+                                <div class="adjacent-shift-cell">
+                                  <span class="adjacent-shift">{{
+                                    getAdjacentMonthData(nurseId, dayInfo)?.shift || '-'
+                                  }}</span>
+                                  <span
+                                    v-if="getAdjacentMonthData(nurseId, dayInfo)?.isStandby"
+                                    class="standby-75-marker adjacent"
+                                    title="預備75班"
+                                  >
+                                    ⭐
+                                  </span>
+                                  <span
+                                    v-if="getAdjacentMonthData(nurseId, dayInfo)?.group"
+                                    class="group-badge adjacent"
+                                    :class="`group-${getAdjacentMonthData(nurseId, dayInfo)?.group}`"
+                                  >
+                                    {{ getAdjacentMonthData(nurseId, dayInfo)?.group }} 組
+                                  </span>
+                                </div>
+                              </template>
+                            </div>
                           </template>
                         </td>
                       </tr>
@@ -781,6 +818,11 @@ const monthlySchedule = ref(null)
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
 const showUsername = ref(false)
 
+// --- 跨月班表狀態 ---
+const prevMonthSchedule = ref(null) // 上個月班表
+const nextMonthSchedule = ref(null) // 下個月班表
+const adjacentMonthsLoading = ref(false) // 載入相鄰月份中
+
 // --- "當月週班表" 頁籤的狀態 ---
 const isGroupEditMode = ref(false)
 const tempScheduleWithGroups = ref(null)
@@ -908,6 +950,7 @@ const weeklyData = computed(() => {
     const prevMonth = month - 1 || 12
     const prevYear = month - 1 < 1 ? year - 1 : year
     const prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate()
+    const prevYearMonth = `${prevYear}-${String(prevMonth).padStart(2, '0')}`
     for (let i = daysFromPrevMonth; i > 0; i--) {
       const day = prevMonthLastDay - i + 1
       const date = new Date(prevYear, prevMonth - 1, day)
@@ -917,8 +960,11 @@ const weeklyData = computed(() => {
         month: prevMonth,
         weekday: weekdays[date.getDay()],
         isWeekend: date.getDay() === 0 || date.getDay() === 6,
-        dayIndex: -1,
+        dayIndex: day - 1, // 在該月份的 0-based index
         isCurrentMonth: false,
+        isPrevMonth: true,
+        isNextMonth: false,
+        adjacentYearMonth: prevYearMonth,
         displayText: `${prevMonth}/${day}`,
       })
     }
@@ -934,6 +980,9 @@ const weeklyData = computed(() => {
       isWeekend: date.getDay() === 0 || date.getDay() === 6,
       dayIndex: day - 1,
       isCurrentMonth: true,
+      isPrevMonth: false,
+      isNextMonth: false,
+      adjacentYearMonth: null,
       displayText: `${day}`,
     })
   }
@@ -941,6 +990,7 @@ const weeklyData = computed(() => {
   if (daysFromNextMonth > 0) {
     const nextMonth = month + 1 > 12 ? 1 : month + 1
     const nextYear = month + 1 > 12 ? year + 1 : year
+    const nextYearMonth = `${nextYear}-${String(nextMonth).padStart(2, '0')}`
     for (let day = 1; day <= daysFromNextMonth; day++) {
       const date = new Date(nextYear, nextMonth - 1, day)
       allDays.push({
@@ -949,8 +999,11 @@ const weeklyData = computed(() => {
         month: nextMonth,
         weekday: weekdays[date.getDay()],
         isWeekend: date.getDay() === 0 || date.getDay() === 6,
-        dayIndex: -1,
+        dayIndex: day - 1, // 在該月份的 0-based index
         isCurrentMonth: false,
+        isPrevMonth: false,
+        isNextMonth: true,
+        adjacentYearMonth: nextYearMonth,
         displayText: `${nextMonth}/${day}`,
       })
     }
@@ -1059,6 +1112,34 @@ const shouldDimCell = (nurseData, dayInfo) => {
     return true
   }
   return false
+}
+
+// 取得相鄰月份的班表資料
+const getAdjacentMonthData = (nurseId, dayInfo) => {
+  if (dayInfo.isCurrentMonth) return null
+
+  const schedule = dayInfo.isPrevMonth ? prevMonthSchedule.value : nextMonthSchedule.value
+
+  if (!schedule || !schedule.scheduleByNurse) {
+    return { notUploaded: true }
+  }
+
+  const nurseData = schedule.scheduleByNurse[nurseId]
+  if (!nurseData) {
+    return { notFound: true }
+  }
+
+  const shift = nurseData.shifts?.[dayInfo.dayIndex] || ''
+  const group = nurseData.groups?.[dayInfo.dayIndex] || ''
+  const isStandby = nurseData.standby75Days?.includes(dayInfo.dayIndex) || false
+
+  return {
+    shift: shift.trim(),
+    group,
+    isStandby,
+    notUploaded: false,
+    notFound: false,
+  }
 }
 
 const canAssignGroup = (shift) => {
@@ -1556,6 +1637,21 @@ async function processAndUpload() {
   }
 }
 
+// 計算相鄰月份的輔助函式
+function getAdjacentMonths(yearMonth) {
+  const [year, month] = yearMonth.split('-').map(Number)
+
+  const prevYear = month === 1 ? year - 1 : year
+  const prevMonth = month === 1 ? 12 : month - 1
+  const prevYearMonth = `${prevYear}-${String(prevMonth).padStart(2, '0')}`
+
+  const nextYear = month === 12 ? year + 1 : year
+  const nextMonth = month === 12 ? 1 : month + 1
+  const nextYearMonth = `${nextYear}-${String(nextMonth).padStart(2, '0')}`
+
+  return { prevYearMonth, nextYearMonth }
+}
+
 async function loadMonthlySchedule() {
   isLoadingSchedule.value = true
   uploadStatus.value = ''
@@ -1567,11 +1663,38 @@ async function loadMonthlySchedule() {
     const schedule = await nursingSchedulesApi.fetchById(documentId)
     monthlySchedule.value = schedule || null
     activeWeekTab.value = 1
+
+    // 非同步載入相鄰月份班表（不阻塞主流程）
+    loadAdjacentMonthSchedules(documentId)
   } catch (error) {
     console.error('❌ 載入月班表失敗:', error)
     monthlySchedule.value = null
   } finally {
     isLoadingSchedule.value = false
+  }
+}
+
+// 載入相鄰月份班表
+async function loadAdjacentMonthSchedules(currentYearMonth) {
+  adjacentMonthsLoading.value = true
+  prevMonthSchedule.value = null
+  nextMonthSchedule.value = null
+
+  try {
+    const { prevYearMonth, nextYearMonth } = getAdjacentMonths(currentYearMonth)
+
+    // 並行載入上下月班表
+    const [prevSchedule, nextSchedule] = await Promise.all([
+      nursingSchedulesApi.fetchById(prevYearMonth).catch(() => null),
+      nursingSchedulesApi.fetchById(nextYearMonth).catch(() => null),
+    ])
+
+    prevMonthSchedule.value = prevSchedule || null
+    nextMonthSchedule.value = nextSchedule || null
+  } catch (error) {
+    console.error('❌ 載入相鄰月份班表失敗:', error)
+  } finally {
+    adjacentMonthsLoading.value = false
   }
 }
 
@@ -2746,8 +2869,55 @@ onMounted(() => {
 }
 
 .other-month-cell {
-  color: #ddd;
+  color: #999;
   text-align: center;
+  font-size: 0.85em;
+}
+
+.other-month-cell.adjacent-loading {
+  color: #ccc;
+}
+
+.other-month-cell.adjacent-not-uploaded {
+  color: #bbb;
+}
+
+.other-month-cell .loading-dot {
+  color: #aaa;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+.other-month-cell .not-uploaded-text {
+  color: #bbb;
+  font-size: 0.75em;
+  font-style: italic;
+}
+
+.adjacent-shift-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.adjacent-shift {
+  color: #888;
+}
+
+.standby-75-marker.adjacent {
+  font-size: 0.7em;
+  opacity: 0.7;
+}
+
+.group-badge.adjacent {
+  font-size: 0.65em;
+  padding: 1px 4px;
+  opacity: 0.8;
 }
 
 /* 預備75班相關樣式 */
