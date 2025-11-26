@@ -731,6 +731,7 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
+import { fetchNursingGroupConfig, getDefaultConfig } from '@/services/nursingGroupConfigService'
 
 // ========================================
 // 2. Composables 初始化
@@ -772,6 +773,9 @@ const checklistItems = ref([])
 const teamworkItems = ref([])
 const lastModifiedInfo = ref({ date: '', user: '' })
 
+// --- 護理組別配置 ---
+const groupConfig = ref(getDefaultConfig())
+
 // ========================================
 // 4. API 實例
 // ========================================
@@ -791,13 +795,13 @@ const scheduleSourceForStats = computed(() => {
   return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
 })
 
-// 使用 Composable
+// 使用 Composable (傳入配置)
 const {
   groupCountsDashboard,
   generateGroupAssignments,
   redistributeRemainingWeeks: redistributeWeeks,
-  CANNOT_BE_NIGHT_LEADER,
-} = useGroupAssigner(scheduleSourceForStats)
+  currentConfig,
+} = useGroupAssigner(scheduleSourceForStats, groupConfig)
 
 // 檢查是否有已確認的週次
 const hasConfirmedWeeks = computed(() => {
@@ -1040,19 +1044,25 @@ const canAssignGroup = (shift) => {
 const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
   const dayOfWeek = new Date(date).getDay()
+  const config = groupConfig.value || getDefaultConfig()
+
   if (s === '74') {
-    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+    // 從配置讀取74班可用組別
+    return config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
   }
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
+    // 從配置讀取晚班組別
     let groups = []
+    const nightRules = config.nightShiftRules || {}
     if ([1, 3, 5].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+      groups = [...(nightRules['135']?.groups || ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'])]
     } else if ([2, 4, 6].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+      groups = [...(nightRules['246']?.groups || ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'])]
     }
+    // 檢查是否為不能當晚班組長的護理師
     if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
-      const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
-      if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
+      const cannotBeNightLeaderIds = config.cannotBeNightLeader || []
+      if (cannotBeNightLeaderIds.includes(nurseId)) {
         groups = groups.filter((g) => g !== 'A')
       }
     }
@@ -1662,7 +1672,24 @@ watch(
 // ========================================
 // 9. 生命週期 (Lifecycle Hooks)
 // ========================================
+// 載入護理組別配置
+const loadGroupConfig = async () => {
+  try {
+    const config = await fetchNursingGroupConfig()
+    groupConfig.value = {
+      ...getDefaultConfig(),
+      ...config,
+    }
+    console.log('✅ 護理組別配置已載入')
+  } catch (error) {
+    console.error('❌ 載入護理組別配置失敗:', error)
+    // 使用預設配置
+    groupConfig.value = getDefaultConfig()
+  }
+}
+
 onMounted(() => {
+  loadGroupConfig() // 載入組別配置
   loadMonthlySchedule()
   loadData()
 })

@@ -156,6 +156,16 @@ const routes = [
           requiresAuth: true,
         },
       },
+      {
+        path: 'nursing-group-config',
+        name: 'NursingGroupConfig',
+        component: () => import('@/views/NursingGroupConfigView.vue'),
+        meta: {
+          title: '護理組別配置',
+          requiresAuth: true,
+          requiresAdmin: true,
+        },
+      },
       // ✨✨✨【新增這段】✨✨✨
       {
         path: 'kidit-report',
