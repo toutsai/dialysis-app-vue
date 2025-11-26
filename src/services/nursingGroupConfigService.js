@@ -209,7 +209,8 @@ export async function saveNursingGroupConfig(config, yearMonth, currentUser) {
       },
     }
 
-    await setDoc(docRef, dataToSave, { merge: true })
+    // 不使用 merge: true，直接覆寫整份文件，確保刪除的欄位會被移除
+    await setDoc(docRef, dataToSave)
     console.log(`✅ 護理組別配置已成功儲存到 Firestore (${yearMonth})`)
   } catch (error) {
     console.error('❌ 儲存護理組別配置失敗:', error)
