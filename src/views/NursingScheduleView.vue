@@ -964,13 +964,14 @@ const weeklyData = computed(() => {
   }
 
   // 找到包含最後一天的週的週六
+  // 注意：週日不在班表中，所以如果最後一天是週日，最後一週結束於前一天（週六）
   let lastWeekSaturday
   if (lastDayWeekday === 6) {
     // 最後一天是週六
     lastWeekSaturday = new Date(year, month - 1, lastDate)
   } else if (lastDayWeekday === 0) {
-    // 最後一天是週日，往後找到下週六
-    lastWeekSaturday = new Date(year, month - 1, lastDate + 6)
+    // 最後一天是週日，最後一週結束於前一天（週六）
+    lastWeekSaturday = new Date(year, month - 1, lastDate - 1)
   } else {
     // 最後一天是週一到週五，往後找週六
     const daysForward = 6 - lastDayWeekday

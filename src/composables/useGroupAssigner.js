@@ -702,12 +702,13 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
     }
 
     // 找到包含最後一天的週的週六
-    let lastWeekSaturdayOffset // 相對於最後一天的偏移量（正數表示下個月）
+    // 注意：週日不在班表中，所以如果最後一天是週日，最後一週結束於前一天（週六）
+    let lastWeekSaturdayOffset // 相對於最後一天的偏移量（正數表示下個月，負數表示當月往前）
     if (lastDayWeekday === 6) {
       lastWeekSaturdayOffset = 0
     } else if (lastDayWeekday === 0) {
-      // 最後一天是週日，往後到下週六
-      lastWeekSaturdayOffset = 6
+      // 最後一天是週日，最後一週結束於前一天（週六）
+      lastWeekSaturdayOffset = -1
     } else {
       lastWeekSaturdayOffset = 6 - lastDayWeekday
     }
