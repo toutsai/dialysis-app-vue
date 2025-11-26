@@ -58,6 +58,13 @@ export const getDefaultConfig = () => ({
   fixedAssignments: {
     '74/L': 'A',
     '816': '外圍',
+    '311C': 'C', // 311C 固定為夜班 C 組
+  },
+
+  // 住院組定義
+  hospitalGroups: {
+    dayShift: ['H', 'I'],     // 白班住院組
+    nightShift: ['G', 'H'],   // 夜班住院組
   },
 
   // 星期別組數設定
@@ -84,6 +91,10 @@ export const getDefaultConfig = () => ({
 
   // 不可擔任晚班組長的護理師 (存放 nurseId)
   cannotBeNightLeader: [],
+
+  // 夜班組別限制 - 特定護理師不能排特定夜班組別
+  // 格式: { nurseId: ['C', 'G', 'H'], ... }
+  nightShiftRestrictions: {},
 
   // 最後修改資訊
   lastModified: {
