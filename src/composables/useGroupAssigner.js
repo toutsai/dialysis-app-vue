@@ -142,10 +142,31 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     const yearMonth = schedule.yearMonth
     const [year, month] = yearMonth.split('-').map(Number)
 
-    // 從配置取得組別設定
-    const available74Groups = config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
-    const available75Groups = config.shift75Groups || ['F', 'J']
+    // 從配置取得基礎組別設定（用於初始化計數器）
+    const baseAvailable74Groups = config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
+    const baseAvailable75Groups = config.shift75Groups || ['F', 'J']
     const cannotBeNightLeaderIds = config.cannotBeNightLeader || []
+
+    // 取得星期別設定的輔助函式
+    const getDayShiftGroups = (dayOfWeek) => {
+      const dayRules = config.dayShiftRules || {}
+      if ([1, 3, 5].includes(dayOfWeek)) {
+        return {
+          groups74: dayRules['135']?.shift74Groups || baseAvailable74Groups,
+          groups75: dayRules['135']?.shift75Groups || ['F'],
+        }
+      } else if ([2, 4, 6].includes(dayOfWeek)) {
+        return {
+          groups74: dayRules['246']?.shift74Groups || baseAvailable74Groups,
+          groups75: dayRules['246']?.shift75Groups || baseAvailable75Groups,
+        }
+      }
+      // 星期日使用基礎設定
+      return {
+        groups74: baseAvailable74Groups,
+        groups75: baseAvailable75Groups,
+      }
+    }
 
     // 初始化計數器
     if (!groupCounts) {
@@ -153,7 +174,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       Object.keys(schedule.scheduleByNurse).forEach((nurseId) => {
         // 初始化 75 班的計數器（根據配置的組別）
         const init75Counts = {}
-        available75Groups.forEach((g) => {
+        baseAvailable75Groups.forEach((g) => {
           init75Counts[g] = 0
         })
         groupCounts[nurseId] = {
@@ -175,16 +196,16 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     let next75GroupIndex = 0
 
     // 檢查最近的75班使用的組別，以決定起始偏好
-    if (available75Groups.length > 0) {
+    if (baseAvailable75Groups.length > 0) {
       for (let i = dayIndices[0] - 1; i >= 0; i--) {
         let found75 = false
         Object.values(schedule.scheduleByNurse).forEach((nurseData) => {
           if (nurseData.shifts?.[i] === '75' && nurseData.groups?.[i]) {
             const usedGroup = nurseData.groups[i]
-            const usedIndex = available75Groups.indexOf(usedGroup)
+            const usedIndex = baseAvailable75Groups.indexOf(usedGroup)
             if (usedIndex >= 0) {
               // 下一天使用下一個組
-              next75GroupIndex = (usedIndex + 1) % available75Groups.length
+              next75GroupIndex = (usedIndex + 1) % baseAvailable75Groups.length
               found75 = true
             }
           }
@@ -197,6 +218,11 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     dayIndices.forEach((dayIndex) => {
       const date = new Date(year, month - 1, dayIndex + 1)
       const dayOfWeek = date.getDay()
+
+      // 取得當天的早班組別設定（根據星期別）
+      const dayShiftGroups = getDayShiftGroups(dayOfWeek)
+      const available74Groups = dayShiftGroups.groups74
+      const available75Groups = dayShiftGroups.groups75
 
       // 收集當天各班別的護理師
       const nurses74 = []
@@ -524,7 +550,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     if (!schedule || !weeklyData) return schedule
 
     const config = getConfig()
-    const available75Groups = config.shift75Groups || ['F', 'J']
+    const baseAvailable75Groups = config.shift75Groups || ['F', 'J']
 
     const yearMonth = schedule.yearMonth
     const [year, month] = yearMonth.split('-').map(Number)
@@ -536,7 +562,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     Object.keys(schedule.scheduleByNurse).forEach((nurseId) => {
       // 初始化 75 班的計數器（根據配置的組別）
       const init75Counts = {}
-      available75Groups.forEach((g) => {
+      baseAvailable75Groups.forEach((g) => {
         init75Counts[g] = 0
       })
       groupCounts[nurseId] = {

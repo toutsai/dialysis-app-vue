@@ -21,10 +21,7 @@
 
           <template v-else>
             <!-- 狀態訊息 -->
-            <div
-              v-if="statusMessage"
-              :class="['status-message', statusMessage.type]"
-            >
+            <div v-if="statusMessage" :class="['status-message', statusMessage.type]">
               {{ statusMessage.text }}
             </div>
 
@@ -36,19 +33,19 @@
               </ul>
             </div>
 
-            <div class="config-grid">
-              <!-- 左側：班別組別設定 -->
-              <section class="config-section">
-                <h3 class="section-title">班別組別對應設定</h3>
+            <!-- ===== 第一區：基礎組別設定 ===== -->
+            <section class="config-section">
+              <h3 class="section-title">基礎組別設定</h3>
+              <p class="section-desc">設定 74班和75班的基礎可用組別（兩者不可重複）</p>
 
+              <div class="two-column">
                 <!-- 75班組別 -->
                 <div class="config-card">
                   <h4 class="card-title">75班組別</h4>
-                  <p class="card-description">選擇75班可用的組別（74班將自動排除這些組別）</p>
                   <div class="checkbox-group">
                     <label
                       v-for="group in allGroups"
-                      :key="`75-${group}`"
+                      :key="`base75-${group}`"
                       class="checkbox-label"
                     >
                       <input
@@ -61,21 +58,17 @@
                     </label>
                   </div>
                   <div class="selected-info">
-                    已選擇：{{ config.shift75Groups.length }} 組
-                    <span v-if="config.shift75Groups.length > 0">
-                      ({{ config.shift75Groups.join(', ') }})
-                    </span>
+                    已選：{{ config.shift75Groups.join(', ') || '無' }}
                   </div>
                 </div>
 
                 <!-- 74班組別 -->
                 <div class="config-card">
                   <h4 class="card-title">74班組別</h4>
-                  <p class="card-description">選擇74班可用的組別（已排除75班選擇的組別）</p>
                   <div class="checkbox-group">
                     <label
                       v-for="group in allGroups"
-                      :key="`74-${group}`"
+                      :key="`base74-${group}`"
                       class="checkbox-label"
                       :class="{ disabled: config.shift75Groups.includes(group) }"
                     >
@@ -86,126 +79,203 @@
                         :disabled="config.shift75Groups.includes(group)"
                       />
                       <span class="checkbox-text">{{ group }}</span>
-                      <span v-if="config.shift75Groups.includes(group)" class="excluded-tag">
-                        (75班)
-                      </span>
+                      <span v-if="config.shift75Groups.includes(group)" class="excluded-tag">(75班)</span>
                     </label>
                   </div>
                   <div class="selected-info">
-                    已選擇：{{ config.shift74Groups.length }} 組
+                    已選：{{ config.shift74Groups.join(', ') || '無' }}
                   </div>
                 </div>
+              </div>
 
-                <!-- 固定分配 -->
-                <div class="config-card">
-                  <h4 class="card-title">固定分配規則</h4>
-                  <div class="fixed-rules">
-                    <div class="fixed-rule-item">
-                      <span class="shift-badge">74/L</span>
-                      <span class="arrow">→</span>
-                      <span class="group-badge">A 組</span>
-                    </div>
-                    <div class="fixed-rule-item">
-                      <span class="shift-badge">816</span>
-                      <span class="arrow">→</span>
-                      <span class="group-badge">外圍</span>
-                    </div>
-                  </div>
-                </div>
-              </section>
+              <!-- 固定分配說明 -->
+              <div class="fixed-rules-info">
+                <span class="fixed-label">固定分配：</span>
+                <span class="fixed-item"><b>74/L</b> → A組</span>
+                <span class="fixed-item"><b>816</b> → 外圍</span>
+              </div>
+            </section>
 
-              <!-- 右側：星期別設定 + 人員限制 -->
-              <section class="config-section">
-                <!-- 星期別設定 - 晚班 -->
-                <div class="config-card">
-                  <h3 class="section-title">星期別設定 - 晚班 (311)</h3>
+            <!-- ===== 第二區：早班星期別設定 ===== -->
+            <section class="config-section">
+              <h3 class="section-title">早班星期別設定</h3>
+              <p class="section-desc">設定一三五和二四六各班別使用的組別</p>
 
-                  <div class="weekday-rule">
-                    <h4 class="rule-title">一、三、五</h4>
-                    <div class="night-group-select">
-                      <div class="checkbox-group compact">
-                        <label
-                          v-for="group in nightGroupOptions"
-                          :key="`night135-${group}`"
-                          class="checkbox-label small"
-                        >
-                          <input
-                            type="checkbox"
-                            :value="group"
-                            v-model="config.nightShiftRules['135'].groups"
-                          />
-                          <span class="checkbox-text">{{ group }}</span>
-                        </label>
-                      </div>
-                      <div class="selected-info">
-                        已選 {{ config.nightShiftRules['135'].groups.length }} 組
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="weekday-rule">
-                    <h4 class="rule-title">二、四、六</h4>
-                    <div class="night-group-select">
-                      <div class="checkbox-group compact">
-                        <label
-                          v-for="group in nightGroupOptions"
-                          :key="`night246-${group}`"
-                          class="checkbox-label small"
-                        >
-                          <input
-                            type="checkbox"
-                            :value="group"
-                            v-model="config.nightShiftRules['246'].groups"
-                          />
-                          <span class="checkbox-text">{{ group }}</span>
-                        </label>
-                      </div>
-                      <div class="selected-info">
-                        已選 {{ config.nightShiftRules['246'].groups.length }} 組
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 人員限制設定 -->
-                <div class="config-card">
-                  <h3 class="section-title">不可擔任晚班組長</h3>
-                  <p class="card-description">勾選的護理師將不可分配到 A 組</p>
-
-                  <div v-if="nurses.length === 0" class="no-nurses">
-                    <p>尚無護理師資料</p>
-                  </div>
-
-                  <div v-else class="nurse-restriction-list">
-                    <div class="search-box">
-                      <input
-                        type="text"
-                        v-model="nurseSearchQuery"
-                        placeholder="搜尋護理師..."
-                        class="search-input"
-                      />
-                    </div>
-                    <div class="nurse-checkbox-grid">
+              <div class="weekday-grid">
+                <!-- 一三五 早班 -->
+                <div class="weekday-card">
+                  <div class="weekday-header">一、三、五</div>
+                  <div class="shift-row">
+                    <span class="shift-label">74班：</span>
+                    <div class="checkbox-group compact">
                       <label
-                        v-for="nurse in filteredNurses"
-                        :key="nurse.uid"
-                        class="checkbox-label nurse-item"
+                        v-for="group in config.shift74Groups"
+                        :key="`135-74-${group}`"
+                        class="checkbox-label small"
                       >
                         <input
                           type="checkbox"
-                          :value="nurse.uid"
-                          v-model="config.cannotBeNightLeader"
+                          :value="group"
+                          v-model="config.dayShiftRules['135'].shift74Groups"
                         />
-                        <span class="checkbox-text">{{ nurse.name || nurse.displayName }}</span>
+                        <span class="checkbox-text">{{ group }}</span>
                       </label>
                     </div>
-                    <div class="selected-info">
-                      已限制 {{ config.cannotBeNightLeader.length }} 位
+                    <span class="count-badge">{{ config.dayShiftRules['135'].shift74Groups.length }}組</span>
+                  </div>
+                  <div class="shift-row">
+                    <span class="shift-label">75班：</span>
+                    <div class="checkbox-group compact">
+                      <label
+                        v-for="group in config.shift75Groups"
+                        :key="`135-75-${group}`"
+                        class="checkbox-label small"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="group"
+                          v-model="config.dayShiftRules['135'].shift75Groups"
+                        />
+                        <span class="checkbox-text">{{ group }}</span>
+                      </label>
                     </div>
+                    <span class="count-badge">{{ config.dayShiftRules['135'].shift75Groups.length }}組</span>
                   </div>
                 </div>
-              </section>
-            </div>
+
+                <!-- 二四六 早班 -->
+                <div class="weekday-card">
+                  <div class="weekday-header">二、四、六</div>
+                  <div class="shift-row">
+                    <span class="shift-label">74班：</span>
+                    <div class="checkbox-group compact">
+                      <label
+                        v-for="group in config.shift74Groups"
+                        :key="`246-74-${group}`"
+                        class="checkbox-label small"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="group"
+                          v-model="config.dayShiftRules['246'].shift74Groups"
+                        />
+                        <span class="checkbox-text">{{ group }}</span>
+                      </label>
+                    </div>
+                    <span class="count-badge">{{ config.dayShiftRules['246'].shift74Groups.length }}組</span>
+                  </div>
+                  <div class="shift-row">
+                    <span class="shift-label">75班：</span>
+                    <div class="checkbox-group compact">
+                      <label
+                        v-for="group in config.shift75Groups"
+                        :key="`246-75-${group}`"
+                        class="checkbox-label small"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="group"
+                          v-model="config.dayShiftRules['246'].shift75Groups"
+                        />
+                        <span class="checkbox-text">{{ group }}</span>
+                      </label>
+                    </div>
+                    <span class="count-badge">{{ config.dayShiftRules['246'].shift75Groups.length }}組</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ===== 第三區：晚班星期別設定 ===== -->
+            <section class="config-section">
+              <h3 class="section-title">晚班星期別設定 (311)</h3>
+
+              <div class="weekday-grid">
+                <!-- 一三五 晚班 -->
+                <div class="weekday-card">
+                  <div class="weekday-header">一、三、五</div>
+                  <div class="shift-row">
+                    <span class="shift-label">晚班：</span>
+                    <div class="checkbox-group compact">
+                      <label
+                        v-for="group in nightGroupOptions"
+                        :key="`night135-${group}`"
+                        class="checkbox-label small"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="group"
+                          v-model="config.nightShiftRules['135'].groups"
+                        />
+                        <span class="checkbox-text">{{ group }}</span>
+                      </label>
+                    </div>
+                    <span class="count-badge">{{ config.nightShiftRules['135'].groups.length }}組</span>
+                  </div>
+                </div>
+
+                <!-- 二四六 晚班 -->
+                <div class="weekday-card">
+                  <div class="weekday-header">二、四、六</div>
+                  <div class="shift-row">
+                    <span class="shift-label">晚班：</span>
+                    <div class="checkbox-group compact">
+                      <label
+                        v-for="group in nightGroupOptions"
+                        :key="`night246-${group}`"
+                        class="checkbox-label small"
+                      >
+                        <input
+                          type="checkbox"
+                          :value="group"
+                          v-model="config.nightShiftRules['246'].groups"
+                        />
+                        <span class="checkbox-text">{{ group }}</span>
+                      </label>
+                    </div>
+                    <span class="count-badge">{{ config.nightShiftRules['246'].groups.length }}組</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <!-- ===== 第四區：人員限制 ===== -->
+            <section class="config-section">
+              <h3 class="section-title">不可擔任晚班組長</h3>
+              <p class="section-desc">勾選的護理師將不可分配到晚班 A 組</p>
+
+              <div v-if="nurses.length === 0" class="no-data">
+                尚無護理師資料
+              </div>
+
+              <div v-else class="nurse-restriction-list">
+                <div class="search-box">
+                  <input
+                    type="text"
+                    v-model="nurseSearchQuery"
+                    placeholder="搜尋護理師..."
+                    class="search-input"
+                  />
+                </div>
+                <div class="nurse-checkbox-grid">
+                  <label
+                    v-for="nurse in filteredNurses"
+                    :key="nurse.uid"
+                    class="checkbox-label nurse-item"
+                  >
+                    <input
+                      type="checkbox"
+                      :value="nurse.uid"
+                      v-model="config.cannotBeNightLeader"
+                    />
+                    <span class="checkbox-text">{{ nurse.name || nurse.displayName }}</span>
+                  </label>
+                </div>
+                <div class="selected-info">
+                  已限制 {{ config.cannotBeNightLeader.length }} 位
+                </div>
+              </div>
+            </section>
           </template>
         </main>
 
@@ -233,7 +303,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useAuth } from '@/composables/useAuth'
 import { useUserDirectory } from '@/composables/useUserDirectory'
 import {
@@ -297,27 +367,18 @@ const validationErrors = computed(() => {
 
 // 當75班組別變更時，自動移除74班中重複的組別
 const on75GroupChange = () => {
+  // 從基礎 74 班移除
   config.value.shift74Groups = config.value.shift74Groups.filter(
     (group) => !config.value.shift75Groups.includes(group)
   )
+  // 從星期別設定中也移除
+  config.value.dayShiftRules['135'].shift74Groups = config.value.dayShiftRules['135'].shift74Groups.filter(
+    (group) => !config.value.shift75Groups.includes(group)
+  )
+  config.value.dayShiftRules['246'].shift74Groups = config.value.dayShiftRules['246'].shift74Groups.filter(
+    (group) => !config.value.shift75Groups.includes(group)
+  )
 }
-
-// 同步晚班組數
-watch(
-  () => config.value.nightShiftRules['135'].groups,
-  (groups) => {
-    config.value.nightShiftRules['135'].count = groups.length
-  },
-  { deep: true }
-)
-
-watch(
-  () => config.value.nightShiftRules['246'].groups,
-  (groups) => {
-    config.value.nightShiftRules['246'].count = groups.length
-  },
-  { deep: true }
-)
 
 // 當 Dialog 開啟時載入配置
 watch(
@@ -336,16 +397,30 @@ const loadConfig = async () => {
   try {
     await ensureUsersLoaded()
     const data = await fetchNursingGroupConfig()
+    const defaultConfig = getDefaultConfig()
+
     config.value = {
-      ...getDefaultConfig(),
+      ...defaultConfig,
       ...data,
       dayShiftRules: {
-        ...getDefaultConfig().dayShiftRules,
-        ...(data.dayShiftRules || {}),
+        '135': {
+          ...defaultConfig.dayShiftRules['135'],
+          ...(data.dayShiftRules?.['135'] || {}),
+        },
+        '246': {
+          ...defaultConfig.dayShiftRules['246'],
+          ...(data.dayShiftRules?.['246'] || {}),
+        },
       },
       nightShiftRules: {
-        ...getDefaultConfig().nightShiftRules,
-        ...(data.nightShiftRules || {}),
+        '135': {
+          ...defaultConfig.nightShiftRules['135'],
+          ...(data.nightShiftRules?.['135'] || {}),
+        },
+        '246': {
+          ...defaultConfig.nightShiftRules['246'],
+          ...(data.nightShiftRules?.['246'] || {}),
+        },
       },
     }
   } catch (error) {
@@ -372,9 +447,7 @@ const saveConfig = async () => {
   try {
     await saveNursingGroupConfig(config.value, auth.currentUser.value)
     statusMessage.value = { type: 'success', text: '配置已成功儲存！' }
-    // 通知父元件配置已更新
     emit('saved', config.value)
-    // 延遲關閉
     setTimeout(() => {
       closeDialog()
     }, 800)
@@ -417,9 +490,9 @@ const closeDialog = () => {
 .dialog-container {
   background: white;
   border-radius: 8px;
-  width: 90%;
+  width: 95%;
   max-width: 900px;
-  max-height: 85vh;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
@@ -433,11 +506,12 @@ const closeDialog = () => {
   padding: 1rem 1.25rem;
   border-bottom: 1px solid #dee2e6;
   flex-shrink: 0;
+  background: #f8f9fa;
 }
 
 .dialog-header h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   color: #2c3e50;
 }
 
@@ -459,7 +533,7 @@ const closeDialog = () => {
 .dialog-content {
   flex: 1;
   overflow-y: auto;
-  padding: 1.25rem;
+  padding: 1rem 1.25rem;
 }
 
 .loading-container {
@@ -486,84 +560,103 @@ const closeDialog = () => {
   100% { transform: rotate(360deg); }
 }
 
-/* ===== Config Grid ===== */
-.config-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.25rem;
-}
-
-@media (max-width: 768px) {
-  .config-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
+/* ===== Section ===== */
 .config-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.config-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
 }
 
 .section-title {
   font-size: 1rem;
   font-weight: 600;
   color: #2c3e50;
-  margin: 0 0 0.5rem 0;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #1abc9c;
-}
-
-.config-card {
-  background: #f8f9fa;
-  border-radius: 6px;
-  padding: 1rem;
-}
-
-.card-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #495057;
   margin: 0 0 0.25rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.card-description {
+.section-title::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  background: #1abc9c;
+  border-radius: 2px;
+}
+
+.section-desc {
   font-size: 0.8rem;
   color: #6c757d;
   margin: 0 0 0.75rem 0;
+}
+
+/* ===== Two Column Layout ===== */
+.two-column {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .two-column {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Config Card ===== */
+.config-card {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.card-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #495057;
+  margin: 0 0 0.5rem 0;
 }
 
 /* ===== Checkbox Group ===== */
 .checkbox-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .checkbox-group.compact {
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.6rem;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
   background: white;
   border: 1px solid #dee2e6;
   border-radius: 4px;
   cursor: pointer;
   font-size: 0.85rem;
-  transition: all 0.2s;
+  transition: all 0.15s;
 }
 
 .checkbox-label:hover:not(.disabled) {
-  background: #e9ecef;
+  border-color: #007bff;
 }
 
 .checkbox-label.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  background: #e9ecef;
 }
 
 .checkbox-label.small {
@@ -583,82 +676,103 @@ const closeDialog = () => {
 }
 
 .excluded-tag {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #dc3545;
+  margin-left: 0.1rem;
 }
 
 .selected-info {
   margin-top: 0.5rem;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: #6c757d;
 }
 
-/* ===== Fixed Rules ===== */
-.fixed-rules {
+/* ===== Fixed Rules Info ===== */
+.fixed-rules-info {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: #e9ecef;
+  border-radius: 4px;
+  font-size: 0.8rem;
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.fixed-rule-item {
+.fixed-label {
+  color: #6c757d;
+}
+
+.fixed-item {
+  color: #495057;
+}
+
+.fixed-item b {
+  color: #007bff;
+}
+
+/* ===== Weekday Grid ===== */
+.weekday-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .weekday-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.weekday-card {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.weekday-header {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: white;
+  background: #495057;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  margin-bottom: 0.6rem;
+  text-align: center;
+}
+
+.shift-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem;
-  background: white;
-  border-radius: 4px;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
 }
 
-.shift-badge {
-  padding: 0.2rem 0.5rem;
-  background: #007bff;
-  color: white;
-  border-radius: 4px;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.arrow {
-  color: #6c757d;
-}
-
-.group-badge {
-  padding: 0.2rem 0.5rem;
-  background: #28a745;
-  color: white;
-  border-radius: 4px;
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-/* ===== Weekday Rules ===== */
-.weekday-rule {
-  margin-bottom: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid #e9ecef;
-}
-
-.weekday-rule:last-child {
+.shift-row:last-child {
   margin-bottom: 0;
-  padding-bottom: 0;
-  border-bottom: none;
 }
 
-.rule-title {
-  font-size: 0.9rem;
+.shift-label {
+  font-size: 0.8rem;
   font-weight: 600;
   color: #495057;
-  margin: 0 0 0.5rem 0;
-  padding: 0.2rem 0.4rem;
-  background: #e9ecef;
-  border-radius: 4px;
-  display: inline-block;
+  min-width: 45px;
+}
+
+.count-badge {
+  font-size: 0.75rem;
+  background: #007bff;
+  color: white;
+  padding: 0.15rem 0.4rem;
+  border-radius: 10px;
+  margin-left: auto;
 }
 
 /* ===== Nurse List ===== */
 .nurse-restriction-list {
-  max-height: 180px;
-  overflow-y: auto;
+  max-height: 200px;
 }
 
 .search-box {
@@ -673,14 +787,19 @@ const closeDialog = () => {
   font-size: 0.85rem;
 }
 
+.search-input:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
 .nurse-checkbox-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 0.4rem;
-  max-height: 120px;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 0.3rem;
+  max-height: 140px;
   overflow-y: auto;
   padding: 0.4rem;
-  background: white;
+  background: #f8f9fa;
   border-radius: 4px;
 }
 
@@ -688,17 +807,17 @@ const closeDialog = () => {
   font-size: 0.8rem;
 }
 
-.no-nurses {
-  padding: 0.75rem;
+.no-data {
+  padding: 1rem;
   text-align: center;
   color: #6c757d;
-  background: white;
+  background: #f8f9fa;
   border-radius: 4px;
 }
 
 /* ===== Status Messages ===== */
 .status-message {
-  padding: 0.6rem 1rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 4px;
   font-size: 0.85rem;
   margin-bottom: 1rem;
@@ -720,14 +839,14 @@ const closeDialog = () => {
   background-color: #fff3cd;
   color: #856404;
   border: 1px solid #ffeeba;
-  padding: 0.6rem 1rem;
+  padding: 0.5rem 0.75rem;
   border-radius: 4px;
   margin-bottom: 1rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .validation-errors ul {
-  margin: 0.4rem 0 0 0;
+  margin: 0.3rem 0 0 0;
   padding-left: 1.2rem;
 }
 
@@ -736,22 +855,23 @@ const closeDialog = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   border-top: 1px solid #dee2e6;
   flex-shrink: 0;
+  background: #f8f9fa;
 }
 
 .footer-right {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .btn-primary,
 .btn-secondary {
-  padding: 0.5rem 1rem;
+  padding: 0.4rem 1rem;
   border: none;
   border-radius: 4px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -779,6 +899,6 @@ const closeDialog = () => {
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background-color: #f8f9fa;
+  background-color: #e9ecef;
 }
 </style>

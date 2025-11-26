@@ -1056,7 +1056,7 @@ const shouldDimCell = (nurseData, dayInfo) => {
 const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
-  return s === '74' || isNightShift(s)
+  return s === '74' || s === '75' || isNightShift(s)
 }
 
 const getAvailableGroups = (shift, date, nurseId) => {
@@ -1064,9 +1064,37 @@ const getAvailableGroups = (shift, date, nurseId) => {
   const dayOfWeek = new Date(date).getDay()
   const config = groupConfig.value || getDefaultConfig()
 
+  // 取得早班星期別設定的輔助函式
+  const getDayShiftGroups = () => {
+    const dayRules = config.dayShiftRules || {}
+    const baseAvailable74Groups = config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
+    const baseAvailable75Groups = config.shift75Groups || ['F', 'J']
+
+    if ([1, 3, 5].includes(dayOfWeek)) {
+      return {
+        groups74: dayRules['135']?.shift74Groups || baseAvailable74Groups,
+        groups75: dayRules['135']?.shift75Groups || ['F'],
+      }
+    } else if ([2, 4, 6].includes(dayOfWeek)) {
+      return {
+        groups74: dayRules['246']?.shift74Groups || baseAvailable74Groups,
+        groups75: dayRules['246']?.shift75Groups || baseAvailable75Groups,
+      }
+    }
+    // 星期日使用基礎設定
+    return {
+      groups74: baseAvailable74Groups,
+      groups75: baseAvailable75Groups,
+    }
+  }
+
   if (s === '74') {
-    // 從配置讀取74班可用組別
-    return config.shift74Groups || ['B', 'C', 'D', 'E', 'G', 'H', 'I']
+    // 從配置讀取74班可用組別（根據星期別）
+    return getDayShiftGroups().groups74
+  }
+  if (s === '75') {
+    // 從配置讀取75班可用組別（根據星期別）
+    return getDayShiftGroups().groups75
   }
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
     // 從配置讀取晚班組別
