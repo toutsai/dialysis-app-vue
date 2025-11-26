@@ -33,30 +33,72 @@
               </ul>
             </div>
 
-            <!-- ===== 第一區：固定分配說明 ===== -->
+            <!-- ===== 第一區：組數設定 ===== -->
             <section class="config-section">
-              <h3 class="section-title">固定分配規則</h3>
+              <h3 class="section-title">組數設定</h3>
+              <p class="section-desc">設定一三五和二四六的早班、晚班組數（組別代碼依字母順序自動產生）</p>
+
+              <div class="group-counts-grid">
+                <!-- 一三五 -->
+                <div class="count-card">
+                  <div class="count-header">一、三、五</div>
+                  <div class="count-row">
+                    <label class="count-label">早班：</label>
+                    <select v-model.number="config.groupCounts['135'].dayShiftCount" class="count-select" @change="onDayCountChange('135')">
+                      <option v-for="n in maxDayShiftGroups" :key="`135-day-${n}`" :value="n">{{ n }} 組</option>
+                    </select>
+                    <span class="groups-preview">{{ dayGroups135.join(', ') }}</span>
+                  </div>
+                  <div class="count-row">
+                    <label class="count-label">晚班：</label>
+                    <select v-model.number="config.groupCounts['135'].nightShiftCount" class="count-select">
+                      <option v-for="n in maxNightShiftGroups" :key="`135-night-${n}`" :value="n">{{ n }} 組</option>
+                    </select>
+                    <span class="groups-preview">{{ nightGroups135.join(', ') }}</span>
+                  </div>
+                </div>
+
+                <!-- 二四六 -->
+                <div class="count-card">
+                  <div class="count-header">二、四、六</div>
+                  <div class="count-row">
+                    <label class="count-label">早班：</label>
+                    <select v-model.number="config.groupCounts['246'].dayShiftCount" class="count-select" @change="onDayCountChange('246')">
+                      <option v-for="n in maxDayShiftGroups" :key="`246-day-${n}`" :value="n">{{ n }} 組</option>
+                    </select>
+                    <span class="groups-preview">{{ dayGroups246.join(', ') }}</span>
+                  </div>
+                  <div class="count-row">
+                    <label class="count-label">晚班：</label>
+                    <select v-model.number="config.groupCounts['246'].nightShiftCount" class="count-select">
+                      <option v-for="n in maxNightShiftGroups" :key="`246-night-${n}`" :value="n">{{ n }} 組</option>
+                    </select>
+                    <span class="groups-preview">{{ nightGroups246.join(', ') }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 固定分配說明 -->
               <div class="fixed-rules-info">
                 <span class="fixed-item"><b>74/L</b> → A組</span>
                 <span class="fixed-item"><b>816</b> → 外圍</span>
-                <span class="fixed-note">早班可用組別：B ~ J（共9組）</span>
               </div>
             </section>
 
-            <!-- ===== 第二區：早班星期別設定 ===== -->
+            <!-- ===== 第二區：75班組別設定 ===== -->
             <section class="config-section">
-              <h3 class="section-title">早班星期別設定</h3>
-              <p class="section-desc">設定一三五和二四六的 75班組別（74班會自動取得剩餘組別）</p>
+              <h3 class="section-title">75班組別設定</h3>
+              <p class="section-desc">從早班可用組別中選擇75班使用的組別（74班自動取得剩餘組別）</p>
 
               <div class="weekday-grid">
-                <!-- 一三五 早班 -->
+                <!-- 一三五 -->
                 <div class="weekday-card">
                   <div class="weekday-header">一、三、五</div>
                   <div class="shift-row">
                     <span class="shift-label">75班：</span>
                     <div class="checkbox-group compact">
                       <label
-                        v-for="group in allDayGroups"
+                        v-for="group in dayGroups135"
                         :key="`135-75-${group}`"
                         class="checkbox-label small"
                       >
@@ -72,19 +114,19 @@
                   </div>
                   <div class="auto-calculated">
                     <span class="calc-label">74班（自動）：</span>
-                    <span class="calc-groups">{{ calculated74Groups135.join(', ') }}</span>
+                    <span class="calc-groups">{{ calculated74Groups135.join(', ') || '無' }}</span>
                     <span class="count-badge secondary">{{ calculated74Groups135.length }}組</span>
                   </div>
                 </div>
 
-                <!-- 二四六 早班 -->
+                <!-- 二四六 -->
                 <div class="weekday-card">
                   <div class="weekday-header">二、四、六</div>
                   <div class="shift-row">
                     <span class="shift-label">75班：</span>
                     <div class="checkbox-group compact">
                       <label
-                        v-for="group in allDayGroups"
+                        v-for="group in dayGroups246"
                         :key="`246-75-${group}`"
                         class="checkbox-label small"
                       >
@@ -100,68 +142,14 @@
                   </div>
                   <div class="auto-calculated">
                     <span class="calc-label">74班（自動）：</span>
-                    <span class="calc-groups">{{ calculated74Groups246.join(', ') }}</span>
+                    <span class="calc-groups">{{ calculated74Groups246.join(', ') || '無' }}</span>
                     <span class="count-badge secondary">{{ calculated74Groups246.length }}組</span>
                   </div>
                 </div>
               </div>
             </section>
 
-            <!-- ===== 第三區：晚班星期別設定 ===== -->
-            <section class="config-section">
-              <h3 class="section-title">晚班星期別設定 (311)</h3>
-              <p class="section-desc">晚班可用組別：A ~ I（共9組，A組為組長）</p>
-
-              <div class="weekday-grid">
-                <!-- 一三五 晚班 -->
-                <div class="weekday-card">
-                  <div class="weekday-header">一、三、五</div>
-                  <div class="shift-row">
-                    <span class="shift-label">晚班：</span>
-                    <div class="checkbox-group compact">
-                      <label
-                        v-for="group in allNightGroups"
-                        :key="`night135-${group}`"
-                        class="checkbox-label small"
-                      >
-                        <input
-                          type="checkbox"
-                          :value="group"
-                          v-model="config.nightShiftRules['135'].groups"
-                        />
-                        <span class="checkbox-text">{{ group }}</span>
-                      </label>
-                    </div>
-                    <span class="count-badge">{{ config.nightShiftRules['135'].groups.length }}組</span>
-                  </div>
-                </div>
-
-                <!-- 二四六 晚班 -->
-                <div class="weekday-card">
-                  <div class="weekday-header">二、四、六</div>
-                  <div class="shift-row">
-                    <span class="shift-label">晚班：</span>
-                    <div class="checkbox-group compact">
-                      <label
-                        v-for="group in allNightGroups"
-                        :key="`night246-${group}`"
-                        class="checkbox-label small"
-                      >
-                        <input
-                          type="checkbox"
-                          :value="group"
-                          v-model="config.nightShiftRules['246'].groups"
-                        />
-                        <span class="checkbox-text">{{ group }}</span>
-                      </label>
-                    </div>
-                    <span class="count-badge">{{ config.nightShiftRules['246'].groups.length }}組</span>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <!-- ===== 第四區：人員限制 ===== -->
+            <!-- ===== 第三區：人員限制 ===== -->
             <section class="config-section">
               <h3 class="section-title">不可擔任晚班組長</h3>
               <p class="section-desc">勾選的護理師將不可分配到晚班 A 組</p>
@@ -233,9 +221,11 @@ import {
   saveNursingGroupConfig,
   getDefaultConfig,
   validateConfig,
-  ALL_DAY_SHIFT_GROUPS,
-  ALL_NIGHT_SHIFT_GROUPS,
+  generateDayShiftGroups,
+  generateNightShiftGroups,
   calculate74Groups,
+  MAX_DAY_SHIFT_GROUPS,
+  MAX_NIGHT_SHIFT_GROUPS,
 } from '@/services/nursingGroupConfigService'
 
 // Props & Emits
@@ -253,8 +243,8 @@ const auth = useAuth()
 const { ensureUsersLoaded, users } = useUserDirectory()
 
 // 常數
-const allDayGroups = ALL_DAY_SHIFT_GROUPS
-const allNightGroups = ALL_NIGHT_SHIFT_GROUPS
+const maxDayShiftGroups = MAX_DAY_SHIFT_GROUPS
+const maxNightShiftGroups = MAX_NIGHT_SHIFT_GROUPS
 
 // 狀態
 const isLoading = ref(true)
@@ -263,14 +253,44 @@ const statusMessage = ref(null)
 const nurseSearchQuery = ref('')
 const config = ref(getDefaultConfig())
 
+// 計算早班可用組別（根據組數）
+const dayGroups135 = computed(() => {
+  return generateDayShiftGroups(config.value.groupCounts?.['135']?.dayShiftCount || 8)
+})
+
+const dayGroups246 = computed(() => {
+  return generateDayShiftGroups(config.value.groupCounts?.['246']?.dayShiftCount || 9)
+})
+
+// 計算晚班可用組別（根據組數）
+const nightGroups135 = computed(() => {
+  return generateNightShiftGroups(config.value.groupCounts?.['135']?.nightShiftCount || 9)
+})
+
+const nightGroups246 = computed(() => {
+  return generateNightShiftGroups(config.value.groupCounts?.['246']?.nightShiftCount || 8)
+})
+
 // 計算74班組別（自動）
 const calculated74Groups135 = computed(() => {
-  return calculate74Groups(config.value.dayShiftRules?.['135']?.shift75Groups || [])
+  const dayGroups = dayGroups135.value
+  const shift75Groups = config.value.dayShiftRules?.['135']?.shift75Groups || []
+  return calculate74Groups(dayGroups, shift75Groups)
 })
 
 const calculated74Groups246 = computed(() => {
-  return calculate74Groups(config.value.dayShiftRules?.['246']?.shift75Groups || [])
+  const dayGroups = dayGroups246.value
+  const shift75Groups = config.value.dayShiftRules?.['246']?.shift75Groups || []
+  return calculate74Groups(dayGroups, shift75Groups)
 })
+
+// 當早班組數變更時，過濾掉不在範圍內的75班組別
+const onDayCountChange = (weekday) => {
+  const dayGroups = weekday === '135' ? dayGroups135.value : dayGroups246.value
+  const currentShift75 = config.value.dayShiftRules[weekday].shift75Groups || []
+  // 過濾掉超出範圍的組別
+  config.value.dayShiftRules[weekday].shift75Groups = currentShift75.filter((g) => dayGroups.includes(g))
+}
 
 // 護理師列表
 const nurses = computed(() => {
@@ -321,6 +341,16 @@ const loadConfig = async () => {
     config.value = {
       ...defaultConfig,
       ...data,
+      groupCounts: {
+        '135': {
+          ...defaultConfig.groupCounts['135'],
+          ...(data.groupCounts?.['135'] || {}),
+        },
+        '246': {
+          ...defaultConfig.groupCounts['246'],
+          ...(data.groupCounts?.['246'] || {}),
+        },
+      },
       dayShiftRules: {
         '135': {
           ...defaultConfig.dayShiftRules['135'],
@@ -329,16 +359,6 @@ const loadConfig = async () => {
         '246': {
           ...defaultConfig.dayShiftRules['246'],
           ...(data.dayShiftRules?.['246'] || {}),
-        },
-      },
-      nightShiftRules: {
-        '135': {
-          ...defaultConfig.nightShiftRules['135'],
-          ...(data.nightShiftRules?.['135'] || {}),
-        },
-        '246': {
-          ...defaultConfig.nightShiftRules['246'],
-          ...(data.nightShiftRules?.['246'] || {}),
         },
       },
     }
@@ -517,12 +537,85 @@ const closeDialog = () => {
   margin: 0 0 0.75rem 0;
 }
 
-/* ===== Fixed Rules Info ===== */
-.fixed-rules-info {
-  padding: 0.6rem 0.75rem;
-  background: #e9ecef;
+/* ===== Group Counts Grid ===== */
+.group-counts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 600px) {
+  .group-counts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.count-card {
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.count-header {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: white;
+  background: #495057;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  margin-bottom: 0.6rem;
+  text-align: center;
+}
+
+.count-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.count-row:last-child {
+  margin-bottom: 0;
+}
+
+.count-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #495057;
+  min-width: 45px;
+}
+
+.count-select {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #dee2e6;
   border-radius: 4px;
   font-size: 0.85rem;
+  background: white;
+  min-width: 70px;
+}
+
+.count-select:focus {
+  outline: none;
+  border-color: #007bff;
+}
+
+.groups-preview {
+  font-size: 0.75rem;
+  color: #6c757d;
+  background: white;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+  flex: 1;
+}
+
+/* ===== Fixed Rules Info ===== */
+.fixed-rules-info {
+  padding: 0.5rem 0.75rem;
+  background: #e9ecef;
+  border-radius: 4px;
+  font-size: 0.8rem;
   display: flex;
   align-items: center;
   gap: 1.5rem;
@@ -535,11 +628,6 @@ const closeDialog = () => {
 
 .fixed-item b {
   color: #007bff;
-}
-
-.fixed-note {
-  color: #6c757d;
-  font-style: italic;
 }
 
 /* ===== Weekday Grid ===== */

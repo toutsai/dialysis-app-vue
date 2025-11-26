@@ -6,22 +6,49 @@ import { db } from '@/composables/useFirebase'
 const CONFIG_COLLECTION = 'nursing_group_config'
 const CONFIG_DOC_ID = 'default'
 
-// 早班全部可用組別（固定 B-J，A組保留給74/L）
-export const ALL_DAY_SHIFT_GROUPS = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+// 早班組別字母（B-J，A組保留給74/L）
+const DAY_SHIFT_LETTERS = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
 
-// 晚班全部可用組別（A-I）
-export const ALL_NIGHT_SHIFT_GROUPS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+// 晚班組別字母（A-I）
+const NIGHT_SHIFT_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
+
+/**
+ * 根據組數產生早班可用組別（從B開始）
+ * @param {number} count - 組數
+ * @returns {string[]}
+ */
+export const generateDayShiftGroups = (count) => {
+  const validCount = Math.min(Math.max(count || 0, 0), DAY_SHIFT_LETTERS.length)
+  return DAY_SHIFT_LETTERS.slice(0, validCount)
+}
+
+/**
+ * 根據組數產生晚班可用組別（從A開始）
+ * @param {number} count - 組數
+ * @returns {string[]}
+ */
+export const generateNightShiftGroups = (count) => {
+  const validCount = Math.min(Math.max(count || 0, 0), NIGHT_SHIFT_LETTERS.length)
+  return NIGHT_SHIFT_LETTERS.slice(0, validCount)
+}
 
 /**
  * 計算74班可用組別
- * 74班 = 早班全部組別 - 75班組別
+ * 74班 = 早班可用組別 - 75班組別
+ * @param {string[]} dayShiftGroups - 早班可用組別
  * @param {string[]} shift75Groups - 75班使用的組別
  * @returns {string[]}
  */
-export const calculate74Groups = (shift75Groups) => {
+export const calculate74Groups = (dayShiftGroups, shift75Groups) => {
   const shift75Set = new Set(shift75Groups || [])
-  return ALL_DAY_SHIFT_GROUPS.filter((g) => !shift75Set.has(g))
+  return (dayShiftGroups || []).filter((g) => !shift75Set.has(g))
 }
+
+// 早班最大組數
+export const MAX_DAY_SHIFT_GROUPS = DAY_SHIFT_LETTERS.length // 9
+
+// 晚班最大組數
+export const MAX_NIGHT_SHIFT_GROUPS = NIGHT_SHIFT_LETTERS.length // 9
 
 /**
  * 預設的組別配置
@@ -34,27 +61,25 @@ export const getDefaultConfig = () => ({
     '816': '外圍',
   },
 
-  // 星期別設定 - 早班（只需設定75班組別，74班自動計算）
-  dayShiftRules: {
-    // 一三五：75班只用F，74班用剩餘的 B,C,D,E,G,H,I,J
+  // 星期別組數設定
+  groupCounts: {
     '135': {
-      shift75Groups: ['F'],
+      dayShiftCount: 8,   // 一三五早班共8組 → B-I
+      nightShiftCount: 9, // 一三五晚班共9組 → A-I
     },
-    // 二四六：75班用F,J，74班用剩餘的 B,C,D,E,G,H,I
     '246': {
-      shift75Groups: ['F', 'J'],
+      dayShiftCount: 9,   // 二四六早班共9組 → B-J
+      nightShiftCount: 8, // 二四六晚班共8組 → A-H
     },
   },
 
-  // 星期別設定 - 晚班
-  nightShiftRules: {
-    // 一三五
+  // 早班 75班組別設定（從早班可用組別中選）
+  dayShiftRules: {
     '135': {
-      groups: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'],
+      shift75Groups: ['F'], // 75班用F，74班自動用剩餘的
     },
-    // 二四六
     '246': {
-      groups: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
+      shift75Groups: ['F', 'J'], // 75班用F,J，74班自動用剩餘的
     },
   },
 
@@ -125,57 +150,51 @@ export async function saveNursingGroupConfig(config, currentUser) {
  */
 export function validateConfig(config) {
   const errors = []
-  const allDayGroups = new Set(ALL_DAY_SHIFT_GROUPS)
-  const allNightGroups = new Set(ALL_NIGHT_SHIFT_GROUPS)
-
-  // 檢查早班星期別設定
+  const groupCounts = config.groupCounts || {}
   const dayRules = config.dayShiftRules || {}
 
-  // 一三五早班
-  if (dayRules['135']) {
-    const shift75Groups = dayRules['135'].shift75Groups || []
-    if (shift75Groups.length === 0) {
-      errors.push('一三五 75班至少需要選擇一個組別')
-    }
-    const invalid75 = shift75Groups.filter((g) => !allDayGroups.has(g))
-    if (invalid75.length > 0) {
-      errors.push(`一三五 75班組別 ${invalid75.join(', ')} 不是有效的早班組別`)
-    }
+  // 驗證一三五
+  const counts135 = groupCounts['135'] || {}
+  const dayCount135 = counts135.dayShiftCount || 0
+  const nightCount135 = counts135.nightShiftCount || 0
+  const dayGroups135 = generateDayShiftGroups(dayCount135)
+  const shift75Groups135 = dayRules['135']?.shift75Groups || []
+
+  if (dayCount135 < 1) {
+    errors.push('一三五早班至少需要1組')
+  }
+  if (nightCount135 < 1) {
+    errors.push('一三五晚班至少需要1組')
+  }
+  if (shift75Groups135.length === 0) {
+    errors.push('一三五 75班至少需要選擇一個組別')
+  }
+  // 檢查75班組別是否在早班可用組別內
+  const invalid75_135 = shift75Groups135.filter((g) => !dayGroups135.includes(g))
+  if (invalid75_135.length > 0) {
+    errors.push(`一三五 75班組別 ${invalid75_135.join(', ')} 超出早班可用範圍 (${dayGroups135.join(', ')})`)
   }
 
-  // 二四六早班
-  if (dayRules['246']) {
-    const shift75Groups = dayRules['246'].shift75Groups || []
-    if (shift75Groups.length === 0) {
-      errors.push('二四六 75班至少需要選擇一個組別')
-    }
-    const invalid75 = shift75Groups.filter((g) => !allDayGroups.has(g))
-    if (invalid75.length > 0) {
-      errors.push(`二四六 75班組別 ${invalid75.join(', ')} 不是有效的早班組別`)
-    }
-  }
+  // 驗證二四六
+  const counts246 = groupCounts['246'] || {}
+  const dayCount246 = counts246.dayShiftCount || 0
+  const nightCount246 = counts246.nightShiftCount || 0
+  const dayGroups246 = generateDayShiftGroups(dayCount246)
+  const shift75Groups246 = dayRules['246']?.shift75Groups || []
 
-  // 檢查晚班組數
-  const nightRules = config.nightShiftRules || {}
-  if (nightRules['135']) {
-    const groups = nightRules['135'].groups || []
-    if (groups.length === 0) {
-      errors.push('一三五晚班至少需要選擇一個組別')
-    }
-    const invalidNight = groups.filter((g) => !allNightGroups.has(g))
-    if (invalidNight.length > 0) {
-      errors.push(`一三五晚班組別 ${invalidNight.join(', ')} 不是有效的晚班組別`)
-    }
+  if (dayCount246 < 1) {
+    errors.push('二四六早班至少需要1組')
   }
-  if (nightRules['246']) {
-    const groups = nightRules['246'].groups || []
-    if (groups.length === 0) {
-      errors.push('二四六晚班至少需要選擇一個組別')
-    }
-    const invalidNight = groups.filter((g) => !allNightGroups.has(g))
-    if (invalidNight.length > 0) {
-      errors.push(`二四六晚班組別 ${invalidNight.join(', ')} 不是有效的晚班組別`)
-    }
+  if (nightCount246 < 1) {
+    errors.push('二四六晚班至少需要1組')
+  }
+  if (shift75Groups246.length === 0) {
+    errors.push('二四六 75班至少需要選擇一個組別')
+  }
+  // 檢查75班組別是否在早班可用組別內
+  const invalid75_246 = shift75Groups246.filter((g) => !dayGroups246.includes(g))
+  if (invalid75_246.length > 0) {
+    errors.push(`二四六 75班組別 ${invalid75_246.join(', ')} 超出早班可用範圍 (${dayGroups246.join(', ')})`)
   }
 
   return {
