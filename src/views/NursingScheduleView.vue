@@ -1893,6 +1893,7 @@ onMounted(() => {
 .btn-primary,
 .btn-secondary,
 .btn-edit,
+.btn-config,
 .btn-success,
 .btn-warning {
   padding: 0.4rem 1rem;
