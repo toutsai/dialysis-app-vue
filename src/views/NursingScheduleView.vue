@@ -943,81 +943,84 @@ const weeklyData = computed(() => {
 
   const firstDayOfMonth = new Date(year, month - 1, 1)
   const lastDayOfMonth = new Date(year, month, 0)
-  const firstDayWeekday = firstDayOfMonth.getDay()
+  const firstDayWeekday = firstDayOfMonth.getDay() // 0=週日, 1=週一, ...
   const lastDate = lastDayOfMonth.getDate()
   const lastDayWeekday = lastDayOfMonth.getDay()
 
-  const daysFromPrevMonth = firstDayWeekday === 0 ? 6 : firstDayWeekday - 1
-  const daysFromNextMonth = lastDayWeekday === 0 ? 0 : 7 - lastDayWeekday
+  // 找到包含1號的週的週一
+  // 如果1號是週日(0)，則第一週從2號(週一)開始
+  // 否則，往前找到週一
+  let firstWeekMonday
+  if (firstDayWeekday === 0) {
+    // 1號是週日，第一週從2號開始
+    firstWeekMonday = new Date(year, month - 1, 2)
+  } else if (firstDayWeekday === 1) {
+    // 1號是週一，第一週從1號開始
+    firstWeekMonday = new Date(year, month - 1, 1)
+  } else {
+    // 1號是週二到週六，往前找週一(可能在上個月)
+    const daysBack = firstDayWeekday - 1
+    firstWeekMonday = new Date(year, month - 1, 1 - daysBack)
+  }
 
+  // 找到包含最後一天的週的週六
+  let lastWeekSaturday
+  if (lastDayWeekday === 6) {
+    // 最後一天是週六
+    lastWeekSaturday = new Date(year, month - 1, lastDate)
+  } else if (lastDayWeekday === 0) {
+    // 最後一天是週日，往後找到下週六
+    lastWeekSaturday = new Date(year, month - 1, lastDate + 6)
+  } else {
+    // 最後一天是週一到週五，往後找週六
+    const daysForward = 6 - lastDayWeekday
+    lastWeekSaturday = new Date(year, month - 1, lastDate + daysForward)
+  }
+
+  // 生成所有天數（週一到週六，排除週日）
   const allDays = []
+  const currentDate = new Date(firstWeekMonday)
 
-  if (daysFromPrevMonth > 0) {
-    const prevMonth = month - 1 || 12
-    const prevYear = month - 1 < 1 ? year - 1 : year
-    const prevMonthLastDay = new Date(prevYear, prevMonth, 0).getDate()
-    const prevYearMonth = `${prevYear}-${String(prevMonth).padStart(2, '0')}`
-    for (let i = daysFromPrevMonth; i > 0; i--) {
-      const day = prevMonthLastDay - i + 1
-      const date = new Date(prevYear, prevMonth - 1, day)
+  while (currentDate <= lastWeekSaturday) {
+    const dayOfWeek = currentDate.getDay()
+
+    // 只包含週一(1)到週六(6)，跳過週日(0)
+    if (dayOfWeek !== 0) {
+      const dayYear = currentDate.getFullYear()
+      const dayMonth = currentDate.getMonth() + 1
+      const dayDate = currentDate.getDate()
+      const isCurrentMonth = dayYear === year && dayMonth === month
+      const isPrevMonth = dayYear < year || (dayYear === year && dayMonth < month)
+      const isNextMonth = dayYear > year || (dayYear === year && dayMonth > month)
+
+      let adjacentYearMonth = null
+      if (isPrevMonth || isNextMonth) {
+        adjacentYearMonth = `${dayYear}-${String(dayMonth).padStart(2, '0')}`
+      }
+
       allDays.push({
-        date: date.toISOString().slice(0, 10),
-        day: day,
-        month: prevMonth,
-        weekday: weekdays[date.getDay()],
-        isWeekend: date.getDay() === 0 || date.getDay() === 6,
-        dayIndex: day - 1, // 在該月份的 0-based index
-        isCurrentMonth: false,
-        isPrevMonth: true,
-        isNextMonth: false,
-        adjacentYearMonth: prevYearMonth,
-        displayText: `${prevMonth}/${day}`,
+        date: `${dayYear}-${String(dayMonth).padStart(2, '0')}-${String(dayDate).padStart(2, '0')}`,
+        day: dayDate,
+        month: dayMonth,
+        year: dayYear,
+        weekday: weekdays[dayOfWeek],
+        isWeekend: dayOfWeek === 6, // 週六
+        dayIndex: dayDate - 1, // 在該月份的 0-based index
+        isCurrentMonth,
+        isPrevMonth,
+        isNextMonth,
+        adjacentYearMonth,
+        displayText: isCurrentMonth ? `${dayDate}` : `${dayMonth}/${dayDate}`,
       })
     }
+
+    currentDate.setDate(currentDate.getDate() + 1)
   }
 
-  for (let day = 1; day <= lastDate; day++) {
-    const date = new Date(year, month - 1, day)
-    allDays.push({
-      date: `${yearMonth}-${String(day).padStart(2, '0')}`,
-      day: day,
-      month: month,
-      weekday: weekdays[date.getDay()],
-      isWeekend: date.getDay() === 0 || date.getDay() === 6,
-      dayIndex: day - 1,
-      isCurrentMonth: true,
-      isPrevMonth: false,
-      isNextMonth: false,
-      adjacentYearMonth: null,
-      displayText: `${day}`,
-    })
-  }
-
-  if (daysFromNextMonth > 0) {
-    const nextMonth = month + 1 > 12 ? 1 : month + 1
-    const nextYear = month + 1 > 12 ? year + 1 : year
-    const nextYearMonth = `${nextYear}-${String(nextMonth).padStart(2, '0')}`
-    for (let day = 1; day <= daysFromNextMonth; day++) {
-      const date = new Date(nextYear, nextMonth - 1, day)
-      allDays.push({
-        date: date.toISOString().slice(0, 10),
-        day: day,
-        month: nextMonth,
-        weekday: weekdays[date.getDay()],
-        isWeekend: date.getDay() === 0 || date.getDay() === 6,
-        dayIndex: day - 1, // 在該月份的 0-based index
-        isCurrentMonth: false,
-        isPrevMonth: false,
-        isNextMonth: true,
-        adjacentYearMonth: nextYearMonth,
-        displayText: `${nextMonth}/${day}`,
-      })
-    }
-  }
-
+  // 按每6天分組（週一到週六）
   let weekNumber = 1
-  for (let i = 0; i < allDays.length; i += 7) {
-    const weekDays = allDays.slice(i, i + 7)
+  for (let i = 0; i < allDays.length; i += 6) {
+    const weekDays = allDays.slice(i, i + 6)
     if (weekDays.length > 0) {
       const firstDay = weekDays[0]
       const lastDay = weekDays[weekDays.length - 1]

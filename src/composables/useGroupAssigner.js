@@ -668,6 +668,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
         week3: false,
         week4: false,
         week5: false,
+        week6: false, // 可能會有第6週
       }
     }
 
@@ -675,131 +676,124 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
     const [year, month] = yearMonth.split('-').map(Number)
     const daysInMonth = schedule.maxDaysInMonth || new Date(year, month, 0).getDate()
 
-    // 按週分配（因為有週次限制）
-    let groupCounts = null
-    let standby75Counts = null
-
-    // 計算每週的天數
-    const weeks = []
-    let currentWeek = []
-    for (let i = 0; i < daysInMonth; i++) {
-      const date = new Date(year, month - 1, i + 1)
-      const dayOfWeek = date.getDay()
-
-      currentWeek.push(i)
-
-      // 週六結束一週，或是月底
-      if (dayOfWeek === 6 || i === daysInMonth - 1) {
-        weeks.push([...currentWeek])
-        currentWeek = []
-      }
-    }
-
     // 取得相鄰月份班表
     const adjacentSchedules = getAdjacentSchedules()
     const prevMonthSchedule = adjacentSchedules.prev
     const nextMonthSchedule = adjacentSchedules.next
-
-    // 計算上個月天數（用於跨月計算）
     const prevMonthDays = new Date(year, month - 1, 0).getDate()
 
-    // 逐週分配
-    weeks.forEach((weekDays, weekIndex) => {
-      const isFirstWeek = weekIndex === 0
-      const isLastWeek = weekIndex === weeks.length - 1
+    // 按新的週邏輯計算週（週一到週六，完整週）
+    const firstDayOfMonth = new Date(year, month - 1, 1)
+    const lastDayOfMonth = new Date(year, month, 0)
+    const firstDayWeekday = firstDayOfMonth.getDay()
+    const lastDayWeekday = lastDayOfMonth.getDay()
 
+    // 找到包含1號的週的週一
+    let firstWeekMondayOffset // 相對於1號的偏移量（負數表示上個月）
+    if (firstDayWeekday === 0) {
+      // 1號是週日，第一週從2號(週一)開始
+      firstWeekMondayOffset = 1
+    } else if (firstDayWeekday === 1) {
+      // 1號是週一
+      firstWeekMondayOffset = 0
+    } else {
+      // 1號是週二到週六，往前找週一（可能在上個月）
+      firstWeekMondayOffset = -(firstDayWeekday - 1)
+    }
+
+    // 找到包含最後一天的週的週六
+    let lastWeekSaturdayOffset // 相對於最後一天的偏移量（正數表示下個月）
+    if (lastDayWeekday === 6) {
+      lastWeekSaturdayOffset = 0
+    } else if (lastDayWeekday === 0) {
+      // 最後一天是週日，往後到下週六
+      lastWeekSaturdayOffset = 6
+    } else {
+      lastWeekSaturdayOffset = 6 - lastDayWeekday
+    }
+
+    // 建立完整週的資料結構
+    // 每個元素: { dayIndex, isCurrentMonth, isPrevMonth, isNextMonth, actualDayIndex }
+    const allWeekDays = []
+    let currentDay = 1 + firstWeekMondayOffset // 可能是負數（上個月）
+    const lastDay = daysInMonth + lastWeekSaturdayOffset
+
+    while (currentDay <= lastDay) {
+      const actualDate = new Date(year, month - 1, currentDay)
+      const dayOfWeek = actualDate.getDay()
+
+      // 只包含週一(1)到週六(6)，跳過週日(0)
+      if (dayOfWeek !== 0) {
+        let dayInfo
+        if (currentDay < 1) {
+          // 上個月
+          const prevDayIndex = prevMonthDays + currentDay - 1 // 0-based
+          dayInfo = {
+            dayIndex: prevDayIndex,
+            isCurrentMonth: false,
+            isPrevMonth: true,
+            isNextMonth: false,
+            displayDay: currentDay, // 用於排序和定位
+          }
+        } else if (currentDay > daysInMonth) {
+          // 下個月
+          const nextDayIndex = currentDay - daysInMonth - 1 // 0-based
+          dayInfo = {
+            dayIndex: nextDayIndex,
+            isCurrentMonth: false,
+            isPrevMonth: false,
+            isNextMonth: true,
+            displayDay: currentDay,
+          }
+        } else {
+          // 當月
+          dayInfo = {
+            dayIndex: currentDay - 1, // 0-based
+            isCurrentMonth: true,
+            isPrevMonth: false,
+            isNextMonth: false,
+            displayDay: currentDay,
+          }
+        }
+        allWeekDays.push(dayInfo)
+      }
+
+      currentDay++
+    }
+
+    // 按每6天分組成週
+    const weeks = []
+    for (let i = 0; i < allWeekDays.length; i += 6) {
+      weeks.push(allWeekDays.slice(i, i + 6))
+    }
+
+    // 按週分配
+    let groupCounts = null
+    let standby75Counts = null
+
+    weeks.forEach((weekDays) => {
       const weeklyContext = {
         nurses816: new Set(),
         nurseHospitalDays: {},
         nurse75Days: {},
         nurseStandby75Days: {},
-        // 跨月資訊（用於相鄰檢查，使用特殊 dayIndex）
-        crossMonthInfo: {
-          prevMonthLastDays: [], // 上個月最後幾天的 dayIndex（使用負數）
-          nextMonthFirstDays: [], // 下個月前幾天的 dayIndex（使用 daysInMonth + offset）
-        },
       }
 
-      // 計算本週在一週中的位置（週日=0, 週一=1, ..., 週六=6）
-      const firstDayOfWeek = new Date(year, month - 1, weekDays[0] + 1).getDay()
-
-      // 如果是第一週且不是從週日開始，需要補上個月的天數
-      if (isFirstWeek && firstDayOfWeek !== 0 && prevMonthSchedule?.scheduleByNurse) {
-        // 計算需要補幾天（從週日到本週第一天）
-        const daysToFill = firstDayOfWeek === 0 ? 0 : firstDayOfWeek
-        for (let i = daysToFill; i > 0; i--) {
-          const prevDayIndex = prevMonthDays - i // 上個月的 dayIndex (0-based)
-          const specialDayIndex = -i // 使用負數表示上個月
-
-          weeklyContext.crossMonthInfo.prevMonthLastDays.push(specialDayIndex)
-
-          // 掃描上個月班表
-          Object.entries(prevMonthSchedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
-            const shift = nurseData.shifts?.[prevDayIndex]
-            if (!shift) return
-            const s = shift.trim()
-
-            if (s === '816') {
-              weeklyContext.nurses816.add(nurseId)
-            }
-            if (s === '75') {
-              if (!weeklyContext.nurse75Days[nurseId]) {
-                weeklyContext.nurse75Days[nurseId] = []
-              }
-              weeklyContext.nurse75Days[nurseId].push(specialDayIndex)
-            }
-            // 也檢查上個月的預備75
-            if (nurseData.standby75Days?.includes(prevDayIndex)) {
-              if (!weeklyContext.nurseStandby75Days[nurseId]) {
-                weeklyContext.nurseStandby75Days[nurseId] = []
-              }
-              weeklyContext.nurseStandby75Days[nurseId].push(specialDayIndex)
-            }
-          })
+      // 掃描整週的班表（包含跨月天數）建立 weeklyContext
+      weekDays.forEach((dayInfo) => {
+        let scheduleToScan = null
+        if (dayInfo.isCurrentMonth) {
+          scheduleToScan = schedule
+        } else if (dayInfo.isPrevMonth) {
+          scheduleToScan = prevMonthSchedule
+        } else if (dayInfo.isNextMonth) {
+          scheduleToScan = nextMonthSchedule
         }
-      }
 
-      // 如果是最後一週且不是到週六結束，需要補下個月的天數
-      const lastDayOfWeek = new Date(year, month - 1, weekDays[weekDays.length - 1] + 1).getDay()
-      if (isLastWeek && lastDayOfWeek !== 6 && nextMonthSchedule?.scheduleByNurse) {
-        // 計算需要補幾天（從本週最後一天到週六）
-        const daysToFill = 6 - lastDayOfWeek
-        for (let i = 0; i < daysToFill; i++) {
-          const nextDayIndex = i // 下個月的 dayIndex (0-based)
-          const specialDayIndex = daysInMonth + i // 使用大於本月天數的值表示下個月
+        if (!scheduleToScan?.scheduleByNurse) return
 
-          weeklyContext.crossMonthInfo.nextMonthFirstDays.push(specialDayIndex)
-
-          // 掃描下個月班表
-          Object.entries(nextMonthSchedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
-            const shift = nurseData.shifts?.[nextDayIndex]
-            if (!shift) return
-            const s = shift.trim()
-
-            if (s === '816') {
-              weeklyContext.nurses816.add(nurseId)
-            }
-            if (s === '75') {
-              if (!weeklyContext.nurse75Days[nurseId]) {
-                weeklyContext.nurse75Days[nurseId] = []
-              }
-              weeklyContext.nurse75Days[nurseId].push(specialDayIndex)
-            }
-            // 也檢查下個月的預備75
-            if (nurseData.standby75Days?.includes(nextDayIndex)) {
-              if (!weeklyContext.nurseStandby75Days[nurseId]) {
-                weeklyContext.nurseStandby75Days[nurseId] = []
-              }
-              weeklyContext.nurseStandby75Days[nurseId].push(specialDayIndex)
-            }
-          })
-        }
-      }
-
-      // 掃描本週的班表
-      weekDays.forEach((dayIndex) => {
-        Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
-          const shift = nurseData.shifts?.[dayIndex]
+        Object.entries(scheduleToScan.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+          const shift = nurseData.shifts?.[dayInfo.dayIndex]
           if (!shift) return
           const s = shift.trim()
 
@@ -810,14 +804,55 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
             if (!weeklyContext.nurse75Days[nurseId]) {
               weeklyContext.nurse75Days[nurseId] = []
             }
-            weeklyContext.nurse75Days[nurseId].push(dayIndex)
+            // 使用 displayDay 作為統一的日期索引
+            weeklyContext.nurse75Days[nurseId].push(dayInfo.displayDay)
+          }
+          // 檢查預備75
+          if (nurseData.standby75Days?.includes(dayInfo.dayIndex)) {
+            if (!weeklyContext.nurseStandby75Days[nurseId]) {
+              weeklyContext.nurseStandby75Days[nurseId] = []
+            }
+            weeklyContext.nurseStandby75Days[nurseId].push(dayInfo.displayDay)
           }
         })
       })
 
-      const result = assignGroupsForDays(schedule, weekDays, groupCounts, standby75Counts, weeklyContext)
-      groupCounts = result.groupCounts
-      standby75Counts = result.standby75Counts
+      // 只分配當月的天數
+      const currentMonthDays = weekDays
+        .filter((d) => d.isCurrentMonth)
+        .map((d) => d.dayIndex)
+
+      if (currentMonthDays.length > 0) {
+        // 將 weeklyContext 中的 displayDay 轉換為統一的座標系統
+        // displayDay - 1 可以直接與 dayIndex 比較
+        // 例如: 當月 displayDay=1 -> 0, displayDay=31 -> 30
+        //       上月 displayDay=0 -> -1, displayDay=-1 -> -2
+        //       下月 displayDay=32 -> 31
+        const adjustedContext = {
+          ...weeklyContext,
+          nurse75Days: {},
+          nurseStandby75Days: {},
+        }
+
+        // 將所有 displayDay 轉換為與 dayIndex 相容的座標
+        Object.entries(weeklyContext.nurse75Days).forEach(([nurseId, days]) => {
+          adjustedContext.nurse75Days[nurseId] = days.map((displayDay) => displayDay - 1)
+        })
+
+        Object.entries(weeklyContext.nurseStandby75Days).forEach(([nurseId, days]) => {
+          adjustedContext.nurseStandby75Days[nurseId] = days.map((displayDay) => displayDay - 1)
+        })
+
+        const result = assignGroupsForDays(
+          schedule,
+          currentMonthDays,
+          groupCounts,
+          standby75Counts,
+          adjustedContext
+        )
+        groupCounts = result.groupCounts
+        standby75Counts = result.standby75Counts
+      }
     })
 
     return schedule
@@ -828,6 +863,9 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
     if (!schedule || !weeklyData) return schedule
 
     const config = getConfig()
+    const adjacentSchedules = getAdjacentSchedules()
+    const prevMonthSchedule = adjacentSchedules.prev
+    const nextMonthSchedule = adjacentSchedules.next
 
     // 收集所有可能的75班組別
     const all75Groups = new Set()
@@ -836,7 +874,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
     ;(dayRules['246']?.shift75Groups || ['F', 'J']).forEach((g) => all75Groups.add(g))
     const baseAvailable75Groups = Array.from(all75Groups)
 
-    // 收集已確認週次的統計
+    // 收集已確認週次的統計（只計算當月日期）
     const groupCounts = {}
     const standby75Counts = {}
 
@@ -853,7 +891,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
       standby75Counts[nurseId] = 0
     })
 
-    // 統計已確認週次的分組情況
+    // 統計已確認週次的分組情況（只計算當月日期）
     weeklyData.forEach((week, weekIndex) => {
       if (schedule.weekConfirmed?.[`week${weekIndex + 1}`]) {
         week.days.forEach((day) => {
@@ -904,7 +942,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
           }
         })
 
-        // 建立週次上下文
+        // 建立週次上下文（包含跨月天數）
         if (weekDayIndices.length > 0) {
           const weeklyContext = {
             nurses816: new Set(),
@@ -913,10 +951,21 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
             nurseStandby75Days: {},
           }
 
-          // 先掃描本週的班表
-          weekDayIndices.forEach((dayIndex) => {
-            Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
-              const shift = nurseData.shifts?.[dayIndex]
+          // 掃描整週的班表（包含跨月天數）
+          week.days.forEach((day) => {
+            let scheduleToScan = null
+            if (day.isCurrentMonth) {
+              scheduleToScan = schedule
+            } else if (day.isPrevMonth) {
+              scheduleToScan = prevMonthSchedule
+            } else if (day.isNextMonth) {
+              scheduleToScan = nextMonthSchedule
+            }
+
+            if (!scheduleToScan?.scheduleByNurse) return
+
+            Object.entries(scheduleToScan.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+              const shift = nurseData.shifts?.[day.dayIndex]
               if (!shift) return
               const s = shift.trim()
 
@@ -927,12 +976,60 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
                 if (!weeklyContext.nurse75Days[nurseId]) {
                   weeklyContext.nurse75Days[nurseId] = []
                 }
-                weeklyContext.nurse75Days[nurseId].push(dayIndex)
+                // 計算統一的日期座標（unifiedDay）
+                // 當月: day.day (1 to daysInMonth)
+                // 上月: 負數
+                // 下月: > daysInMonth
+                const [currentYear, currentMonth] = schedule.yearMonth.split('-').map(Number)
+                const daysInCurrentMonth = new Date(currentYear, currentMonth, 0).getDate()
+                let unifiedDay
+                if (day.isCurrentMonth) {
+                  unifiedDay = day.day
+                } else if (day.isPrevMonth) {
+                  const prevMonthDays = new Date(day.year, day.month, 0).getDate()
+                  unifiedDay = day.day - prevMonthDays - 1
+                } else {
+                  unifiedDay = daysInCurrentMonth + day.day
+                }
+                weeklyContext.nurse75Days[nurseId].push(unifiedDay)
+              }
+              // 檢查預備75
+              if (nurseData.standby75Days?.includes(day.dayIndex)) {
+                if (!weeklyContext.nurseStandby75Days[nurseId]) {
+                  weeklyContext.nurseStandby75Days[nurseId] = []
+                }
+                const [currentYear, currentMonth] = schedule.yearMonth.split('-').map(Number)
+                const daysInCurrentMonth = new Date(currentYear, currentMonth, 0).getDate()
+                let unifiedDay
+                if (day.isCurrentMonth) {
+                  unifiedDay = day.day
+                } else if (day.isPrevMonth) {
+                  const prevMonthDays = new Date(day.year, day.month, 0).getDate()
+                  unifiedDay = day.day - prevMonthDays - 1
+                } else {
+                  unifiedDay = daysInCurrentMonth + day.day
+                }
+                weeklyContext.nurseStandby75Days[nurseId].push(unifiedDay)
               }
             })
           })
 
-          const result = assignGroupsForDays(schedule, weekDayIndices, groupCounts, standby75Counts, weeklyContext)
+          // 將 unifiedDay 轉換為與 dayIndex 相容的座標 (unifiedDay - 1)
+          const adjustedContext = {
+            ...weeklyContext,
+            nurse75Days: {},
+            nurseStandby75Days: {},
+          }
+
+          Object.entries(weeklyContext.nurse75Days).forEach(([nurseId, days]) => {
+            adjustedContext.nurse75Days[nurseId] = days.map((unifiedDay) => unifiedDay - 1)
+          })
+
+          Object.entries(weeklyContext.nurseStandby75Days).forEach(([nurseId, days]) => {
+            adjustedContext.nurseStandby75Days[nurseId] = days.map((unifiedDay) => unifiedDay - 1)
+          })
+
+          const result = assignGroupsForDays(schedule, weekDayIndices, groupCounts, standby75Counts, adjustedContext)
           Object.assign(groupCounts, result.groupCounts)
           Object.assign(standby75Counts, result.standby75Counts)
         }
