@@ -22,16 +22,33 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     return getDefaultConfig()
   }
 
-  // 分組統計儀表板 - 加入預備75班統計
+  // 分組統計儀表板 - 根據配置顯示完整欄位
   const groupCountsDashboard = computed(() => {
     const schedule = scheduleSource.value
     if (!schedule || !schedule.scheduleByNurse) {
       return { header: ['護理師'], nurses: [] }
     }
 
+    const config = getConfig()
+    const groupCounts = config.groupCounts || {}
+
+    // 取得一三五和二四六的組數，使用最大值來顯示完整欄位
+    const dayCount135 = groupCounts['135']?.dayShiftCount || 8
+    const dayCount246 = groupCounts['246']?.dayShiftCount || 9
+    const nightCount135 = groupCounts['135']?.nightShiftCount || 9
+    const nightCount246 = groupCounts['246']?.nightShiftCount || 8
+
+    const maxDayCount = Math.max(dayCount135, dayCount246)
+    const maxNightCount = Math.max(nightCount135, nightCount246)
+
+    // 根據最大組數產生固定的欄位
+    const fixedDayGroups = generateDayShiftGroups(maxDayCount)
+    const fixedNightGroups = generateNightShiftGroups(maxNightCount)
+
+    // 加入固定分配的組別（A組給74/L，外圍給816）
+    const allDayGroups = ['A', ...fixedDayGroups, '外圍']
+
     const nurses = {}
-    const dayGroups = new Set()
-    const nightGroups = new Set()
 
     // 收集所有護理師和組別資料
     Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
@@ -51,10 +68,8 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
           if (group) {
             const shift = nurseData.shifts[index]
             if (shift && isDayShift(shift)) {
-              dayGroups.add(group)
               nurses[nurseId].dayCounts[group] = (nurses[nurseId].dayCounts[group] || 0) + 1
             } else if (shift && isNightShift(shift)) {
-              nightGroups.add(group)
               nurses[nurseId].nightCounts[group] = (nurses[nurseId].nightCounts[group] || 0) + 1
             }
           }
@@ -67,14 +82,10 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       }
     })
 
-    // 排序組別
-    const sortedDayGroups = Array.from(dayGroups).sort()
-    const sortedNightGroups = Array.from(nightGroups).sort()
-
-    // 建立表頭
+    // 建立表頭（使用固定欄位）
     const header = ['護理師']
-    sortedDayGroups.forEach((group) => header.push(`白${group}`))
-    sortedNightGroups.forEach((group) => header.push(`晚${group}`))
+    allDayGroups.forEach((group) => header.push(`白${group}`))
+    fixedNightGroups.forEach((group) => header.push(`晚${group}`))
     header.push('預備75')
 
     // 整理資料 - 保持原始的護理師物件陣列
@@ -88,11 +99,11 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
         counts: {},
       }
 
-      // 建立 counts 物件供表格顯示
-      sortedDayGroups.forEach((group) => {
+      // 建立 counts 物件供表格顯示（使用固定欄位）
+      allDayGroups.forEach((group) => {
         nurse.counts[`白${group}`] = nurseData.dayCounts[group] || 0
       })
-      sortedNightGroups.forEach((group) => {
+      fixedNightGroups.forEach((group) => {
         nurse.counts[`晚${group}`] = nurseData.nightCounts[group] || 0
       })
       nurse.counts['預備75'] = nurseData.standby75Count || 0
