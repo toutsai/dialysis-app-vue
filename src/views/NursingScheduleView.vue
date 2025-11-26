@@ -863,13 +863,19 @@ const scheduleSourceForStats = computed(() => {
   return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
 })
 
-// 使用 Composable (傳入配置)
+// 相鄰月份班表（供跨月約束檢查用）
+const adjacentSchedules = computed(() => ({
+  prev: prevMonthSchedule.value,
+  next: nextMonthSchedule.value,
+}))
+
+// 使用 Composable (傳入配置和相鄰月份班表)
 const {
   groupCountsDashboard,
   generateGroupAssignments,
   redistributeRemainingWeeks: redistributeWeeks,
   currentConfig,
-} = useGroupAssigner(scheduleSourceForStats, groupConfig)
+} = useGroupAssigner(scheduleSourceForStats, groupConfig, adjacentSchedules)
 
 // 檢查是否有已確認的週次
 const hasConfirmedWeeks = computed(() => {
