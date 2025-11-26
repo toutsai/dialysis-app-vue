@@ -144,42 +144,52 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
 
   const isNightShift = (shift) => {
     const s = (shift || '').trim()
-    return ['311', '3-11'].some((ns) => s.includes(ns))
+    return ['311', '3-11', '311C'].some((ns) => s.includes(ns))
   }
 
-  // 主要的分組分配函式（支援所有天數）
+  // 檢查是否為住院組
+  const isHospitalGroup = (group, shiftType, hospitalGroups) => {
+    if (shiftType === 'day') {
+      return (hospitalGroups?.dayShift || ['H', 'I']).includes(group)
+    } else if (shiftType === 'night') {
+      return (hospitalGroups?.nightShift || ['G', 'H']).includes(group)
+    }
+    return false
+  }
+
+  // 主要的分組分配函式（支援所有天數，考慮週次限制）
   const assignGroupsForDays = (
     schedule,
     dayIndices,
     groupCounts = null,
     standby75Counts = null,
+    weeklyContext = null // 新增：週次上下文，用於追蹤週內限制
   ) => {
     const config = getConfig()
     const yearMonth = schedule.yearMonth
     const [year, month] = yearMonth.split('-').map(Number)
 
-    // 從配置取得不能當晚班組長的名單
+    // 從配置取得各種限制
     const cannotBeNightLeaderIds = config.cannotBeNightLeader || []
     const configGroupCounts = config.groupCounts || {}
     const dayRules = config.dayShiftRules || {}
+    const fixedAssignments = config.fixedAssignments || {}
+    const hospitalGroups = config.hospitalGroups || { dayShift: ['H', 'I'], nightShift: ['G', 'H'] }
+    const nightShiftRestrictions = config.nightShiftRestrictions || {}
+    const excludedNurses = new Set(config.excludedNurses || [])
 
     // 取得星期別設定的輔助函式
     const getDayShiftGroups = (dayOfWeek) => {
-      let weekdayKey = '246' // 預設使用二四六
+      let weekdayKey = '246'
       if ([1, 3, 5].includes(dayOfWeek)) {
         weekdayKey = '135'
       } else if ([2, 4, 6].includes(dayOfWeek)) {
         weekdayKey = '246'
       }
 
-      // 根據組數產生早班可用組別
       const dayShiftCount = configGroupCounts[weekdayKey]?.dayShiftCount || 8
       const dayShiftAvailable = generateDayShiftGroups(dayShiftCount)
-
-      // 取得75班組別
       const shift75Groups = dayRules[weekdayKey]?.shift75Groups || ['F']
-
-      // 計算74班組別
       const shift74Groups = calculate74Groups(dayShiftAvailable, shift75Groups)
 
       return {
@@ -201,7 +211,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       return generateNightShiftGroups(nightShiftCount)
     }
 
-    // 收集所有可能的75班組別（用於初始化計數器）
+    // 收集所有可能的75班組別
     const all75Groups = new Set()
     ;(dayRules['135']?.shift75Groups || ['F']).forEach((g) => all75Groups.add(g))
     ;(dayRules['246']?.shift75Groups || ['F', 'J']).forEach((g) => all75Groups.add(g))
@@ -211,15 +221,14 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     if (!groupCounts) {
       groupCounts = {}
       Object.keys(schedule.scheduleByNurse).forEach((nurseId) => {
-        // 初始化 75 班的計數器
         const init75Counts = {}
         baseAvailable75Groups.forEach((g) => {
           init75Counts[g] = 0
         })
         groupCounts[nurseId] = {
-          74: {}, // 74班各組計數
-          75: init75Counts, // 75班組計數
-          311: {}, // 夜班各組計數
+          74: {},
+          75: init75Counts,
+          311: {},
         }
       })
     }
@@ -231,10 +240,39 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       })
     }
 
-    // 用於追蹤75班組的輪流 (用於決定當天主要使用哪一組)
+    // 週次追蹤上下文（用於追蹤週內限制）
+    if (!weeklyContext) {
+      weeklyContext = {
+        nurses816: new Set(), // 本週有816的護理師
+        nurseHospitalDays: {}, // 護理師住院組天數: { nurseId: [dayIndex, ...] }
+        nurse75Days: {}, // 護理師75班天數: { nurseId: [dayIndex, ...] }
+        nurseStandby75Days: {}, // 護理師預備75天數: { nurseId: [dayIndex, ...] }
+      }
+    }
+
+    // 先掃描本週的班表，收集816護理師和75班護理師
+    dayIndices.forEach((dayIndex) => {
+      Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+        const shift = nurseData.shifts?.[dayIndex]
+        if (!shift) return
+        const s = shift.trim()
+
+        if (s === '816') {
+          weeklyContext.nurses816.add(nurseId)
+        }
+        if (s === '75') {
+          if (!weeklyContext.nurse75Days[nurseId]) {
+            weeklyContext.nurse75Days[nurseId] = []
+          }
+          weeklyContext.nurse75Days[nurseId].push(dayIndex)
+        }
+      })
+    })
+
+    // 用於追蹤75班組的輪流
     let next75GroupIndex = 0
 
-    // 檢查最近的75班使用的組別，以決定起始偏好
+    // 檢查最近的75班使用的組別
     if (baseAvailable75Groups.length > 0) {
       for (let i = dayIndices[0] - 1; i >= 0; i--) {
         let found75 = false
@@ -243,7 +281,6 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
             const usedGroup = nurseData.groups[i]
             const usedIndex = baseAvailable75Groups.indexOf(usedGroup)
             if (usedIndex >= 0) {
-              // 下一天使用下一個組
               next75GroupIndex = (usedIndex + 1) % baseAvailable75Groups.length
               found75 = true
             }
@@ -258,12 +295,9 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       const date = new Date(year, month - 1, dayIndex + 1)
       const dayOfWeek = date.getDay()
 
-      // 取得當天的早班組別設定（根據星期別）
       const dayShiftGroups = getDayShiftGroups(dayOfWeek)
       const available74Groups = dayShiftGroups.groups74
       const available75Groups = dayShiftGroups.groups75
-
-      // 取得當天的晚班組別
       const nightGroups = getNightShiftGroups(dayOfWeek)
 
       // 收集當天各班別的護理師
@@ -272,11 +306,15 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       const nurses74L = []
       const nurses816 = []
       const nurses311 = []
+      const nurses311C = []
       const eligibleFor75Standby = []
 
       Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
         const shift = nurseData.shifts?.[dayIndex]
         if (!shift) return
+
+        // 跳過暫不分組的護理師
+        if (excludedNurses.has(nurseId)) return
 
         const s = shift.trim()
 
@@ -293,91 +331,60 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
           nurses74L.push(nurseId)
         } else if (s === '816') {
           nurses816.push(nurseId)
+        } else if (s === '311C') {
+          nurses311C.push(nurseId)
         } else if (isNightShift(s)) {
           nurses311.push(nurseId)
         }
       })
 
-      // 分配白班組別
+      // === 分配白班組別 ===
 
       // 74/L 固定 A 組
       nurses74L.forEach((nurseId) => {
-        schedule.scheduleByNurse[nurseId].groups[dayIndex] = 'A'
+        schedule.scheduleByNurse[nurseId].groups[dayIndex] = fixedAssignments['74/L'] || 'A'
       })
 
       // 816 固定外圍組
       nurses816.forEach((nurseId) => {
-        schedule.scheduleByNurse[nurseId].groups[dayIndex] = '外圍'
+        schedule.scheduleByNurse[nurseId].groups[dayIndex] = fixedAssignments['816'] || '外圍'
       })
 
-      // 75班分配組別（根據配置的可用組別）
+      // 75班分配組別
       if (nurses75.length > 0 && available75Groups.length > 0) {
-        // 建立每個組的分配清單
-        const dayGroups75 = {}
-        available75Groups.forEach((g) => {
-          dayGroups75[g] = []
-        })
-
-        // 先根據每個護理師的歷史次數分配
-        nurses75.forEach((nurseId) => {
-          // 找出該護理師次數最少的組
-          let minCount = Infinity
-          let minGroup = available75Groups[next75GroupIndex % available75Groups.length]
-
-          available75Groups.forEach((group) => {
-            const count = groupCounts[nurseId]['75'][group] || 0
-            if (count < minCount) {
-              minCount = count
-              minGroup = group
-            }
-          })
-
-          dayGroups75[minGroup].push(nurseId)
-        })
-
-        // 如果只有一個護理師，使用輪流偏好組
         if (nurses75.length === 1) {
           const nurseId = nurses75[0]
           const group = available75Groups[next75GroupIndex % available75Groups.length]
           schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
           groupCounts[nurseId]['75'][group] = (groupCounts[nurseId]['75'][group] || 0) + 1
-          // 下一天換組
           next75GroupIndex = (next75GroupIndex + 1) % baseAvailable75Groups.length
         } else {
-          // 多個護理師時，確保每個組最多一人（如果可能）
-          // 重新分配以確保平衡
           const allNurses75 = [...nurses75]
           const assignedNurses = new Set()
 
-          // 優先分配到每個組一人
-          available75Groups.forEach((group, idx) => {
-            if (allNurses75.length > idx && !assignedNurses.has(allNurses75[idx])) {
-              // 找出這個組次數最少的護理師
-              let bestNurse = null
-              let minCount = Infinity
+          available75Groups.forEach((group) => {
+            let bestNurse = null
+            let minCount = Infinity
 
-              allNurses75.forEach((nurseId) => {
-                if (!assignedNurses.has(nurseId)) {
-                  const count = groupCounts[nurseId]['75'][group] || 0
-                  if (count < minCount) {
-                    minCount = count
-                    bestNurse = nurseId
-                  }
+            allNurses75.forEach((nurseId) => {
+              if (!assignedNurses.has(nurseId)) {
+                const count = groupCounts[nurseId]['75'][group] || 0
+                if (count < minCount) {
+                  minCount = count
+                  bestNurse = nurseId
                 }
-              })
-
-              if (bestNurse) {
-                schedule.scheduleByNurse[bestNurse].groups[dayIndex] = group
-                groupCounts[bestNurse]['75'][group] = (groupCounts[bestNurse]['75'][group] || 0) + 1
-                assignedNurses.add(bestNurse)
               }
+            })
+
+            if (bestNurse) {
+              schedule.scheduleByNurse[bestNurse].groups[dayIndex] = group
+              groupCounts[bestNurse]['75'][group] = (groupCounts[bestNurse]['75'][group] || 0) + 1
+              assignedNurses.add(bestNurse)
             }
           })
 
-          // 如果還有未分配的護理師，分配到已有人的組（平衡分配）
           allNurses75.forEach((nurseId) => {
             if (!assignedNurses.has(nurseId)) {
-              // 找出該護理師次數最少的組
               let minCount = Infinity
               let minGroup = available75Groups[0]
 
@@ -390,51 +397,75 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
               })
 
               schedule.scheduleByNurse[nurseId].groups[dayIndex] = minGroup
-              groupCounts[nurseId]['75'][minGroup] =
-                (groupCounts[nurseId]['75'][minGroup] || 0) + 1
+              groupCounts[nurseId]['75'][minGroup] = (groupCounts[nurseId]['75'][minGroup] || 0) + 1
               assignedNurses.add(nurseId)
             }
           })
 
-          // 更新下一天的偏好
           next75GroupIndex = (next75GroupIndex + 1) % baseAvailable75Groups.length
         }
       }
 
-      // 74班分配組別（考慮平衡）
+      // 74班分配組別（考慮住院組限制）
       if (nurses74.length > 0 && available74Groups.length > 0) {
-        // 計算每個護理師在每個組的次數
         const nurseGroupPriority = nurses74.map((nurseId) => {
-          const counts = available74Groups.map((group) => ({
+          // 過濾掉不可用的組別
+          let availableForNurse = [...available74Groups]
+
+          // 規則1: 816護理師不能有住院組
+          if (weeklyContext.nurses816.has(nurseId)) {
+            availableForNurse = availableForNurse.filter(g => !isHospitalGroup(g, 'day', hospitalGroups))
+          }
+
+          // 規則6: 當週住院組最多2次
+          const nurseHospitalCount = (weeklyContext.nurseHospitalDays[nurseId] || []).length
+          if (nurseHospitalCount >= 2) {
+            availableForNurse = availableForNurse.filter(g => !isHospitalGroup(g, 'day', hospitalGroups))
+          }
+
+          const counts = availableForNurse.map((group) => ({
             group,
             count: groupCounts[nurseId]['74'][group] || 0,
           }))
           counts.sort((a, b) => a.count - b.count)
-          return { nurseId, priority: counts }
+          return { nurseId, priority: counts, availableGroups: availableForNurse }
         })
 
-        // 分配組別，優先給次數少的
         const usedGroups = new Set()
-        nurseGroupPriority.forEach(({ nurseId, priority }) => {
+        nurseGroupPriority.forEach(({ nurseId, priority, availableGroups }) => {
           for (const { group } of priority) {
-            if (!usedGroups.has(group) && available74Groups.includes(group)) {
+            if (!usedGroups.has(group) && availableGroups.includes(group)) {
               schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
               groupCounts[nurseId]['74'][group] = (groupCounts[nurseId]['74'][group] || 0) + 1
               usedGroups.add(group)
+
+              // 追蹤住院組
+              if (isHospitalGroup(group, 'day', hospitalGroups)) {
+                if (!weeklyContext.nurseHospitalDays[nurseId]) {
+                  weeklyContext.nurseHospitalDays[nurseId] = []
+                }
+                weeklyContext.nurseHospitalDays[nurseId].push(dayIndex)
+              }
               break
             }
           }
         })
       }
 
-      // 分配夜班組別 (311) - 考慮平衡
+      // === 分配夜班組別 ===
+
+      // 311C 固定 C 組
+      nurses311C.forEach((nurseId) => {
+        schedule.scheduleByNurse[nurseId].groups[dayIndex] = fixedAssignments['311C'] || 'C'
+        groupCounts[nurseId]['311']['C'] = (groupCounts[nurseId]['311']['C'] || 0) + 1
+      })
+
+      // 分配夜班組別 (311)
       if (nurses311.length > 0 && nightGroups.length > 0) {
-        // 將護理師分為可以當Leader和不能當Leader兩組
         const canBeLeader = []
         const cannotBeLeader = []
 
         nurses311.forEach((nurseId) => {
-          // 使用 nurseId 比對（配置中存的是 nurseId）
           if (cannotBeNightLeaderIds.includes(nurseId)) {
             cannotBeLeader.push(nurseId)
           } else {
@@ -442,7 +473,30 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
           }
         })
 
-        // 根據已分配次數排序（次數少的優先）
+        // 取得護理師可用的夜班組別（考慮各種限制）
+        const getAvailableNightGroups = (nurseId, groups) => {
+          let available = [...groups]
+
+          // 規則1: 816護理師不能有住院組
+          if (weeklyContext.nurses816.has(nurseId)) {
+            available = available.filter(g => !isHospitalGroup(g, 'night', hospitalGroups))
+          }
+
+          // 規則6: 當週住院組最多2次
+          const nurseHospitalCount = (weeklyContext.nurseHospitalDays[nurseId] || []).length
+          if (nurseHospitalCount >= 2) {
+            available = available.filter(g => !isHospitalGroup(g, 'night', hospitalGroups))
+          }
+
+          // 規則7: 特定護理師夜班組別限制
+          const restrictions = nightShiftRestrictions[nurseId] || []
+          if (restrictions.length > 0) {
+            available = available.filter(g => !restrictions.includes(g))
+          }
+
+          return available
+        }
+
         canBeLeader.sort((a, b) => {
           const aCount = Object.values(groupCounts[a]['311'] || {}).reduce((sum, c) => sum + c, 0)
           const bCount = Object.values(groupCounts[b]['311'] || {}).reduce((sum, c) => sum + c, 0)
@@ -459,23 +513,27 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
 
         // 先分配A組給可以當Leader的護理師
         if (nightGroups[0] === 'A' && canBeLeader.length > 0) {
-          // 選擇A組次數最少的人
-          let selectedLeader = canBeLeader[0]
-          let minACount = groupCounts[selectedLeader]['311']['A'] || 0
+          // 找出可以當A組且沒有限制的護理師
+          let selectedLeader = null
+          let minACount = Infinity
 
           canBeLeader.forEach((nurseId) => {
-            const aCount = groupCounts[nurseId]['311']['A'] || 0
-            if (aCount < minACount) {
-              selectedLeader = nurseId
-              minACount = aCount
+            const available = getAvailableNightGroups(nurseId, nightGroups)
+            if (available.includes('A')) {
+              const aCount = groupCounts[nurseId]['311']['A'] || 0
+              if (aCount < minACount) {
+                selectedLeader = nurseId
+                minACount = aCount
+              }
             }
           })
 
-          schedule.scheduleByNurse[selectedLeader].groups[dayIndex] = 'A'
-          groupCounts[selectedLeader]['311']['A'] =
-            (groupCounts[selectedLeader]['311']['A'] || 0) + 1
-          canBeLeader.splice(canBeLeader.indexOf(selectedLeader), 1)
-          groupIndex = 1
+          if (selectedLeader) {
+            schedule.scheduleByNurse[selectedLeader].groups[dayIndex] = 'A'
+            groupCounts[selectedLeader]['311']['A'] = (groupCounts[selectedLeader]['311']['A'] || 0) + 1
+            canBeLeader.splice(canBeLeader.indexOf(selectedLeader), 1)
+            groupIndex = 1
+          }
         }
 
         // 分配剩餘的組別
@@ -483,19 +541,17 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
         const remainingGroups = nightGroups.slice(groupIndex)
 
         if (remainingNurses.length > 0 && remainingGroups.length > 0) {
-          // 計算每個護理師對每個組的優先權（基於次數）
           const assignments = []
           remainingNurses.forEach((nurseId) => {
-            remainingGroups.forEach((group) => {
+            const available = getAvailableNightGroups(nurseId, remainingGroups)
+            available.forEach((group) => {
               const count = groupCounts[nurseId]['311'][group] || 0
               assignments.push({ nurseId, group, count })
             })
           })
 
-          // 按次數排序
           assignments.sort((a, b) => a.count - b.count)
 
-          // 分配組別
           const assignedNurses = new Set()
           const assignedGroups = new Set()
 
@@ -505,31 +561,72 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
               groupCounts[nurseId]['311'][group] = (groupCounts[nurseId]['311'][group] || 0) + 1
               assignedNurses.add(nurseId)
               assignedGroups.add(group)
+
+              // 追蹤住院組
+              if (isHospitalGroup(group, 'night', hospitalGroups)) {
+                if (!weeklyContext.nurseHospitalDays[nurseId]) {
+                  weeklyContext.nurseHospitalDays[nurseId] = []
+                }
+                weeklyContext.nurseHospitalDays[nurseId].push(dayIndex)
+              }
             }
           })
         }
       }
 
-      // 分配預備75班（從74班護理師中選擇，考慮平衡）
+      // === 分配預備75班 ===
       if (eligibleFor75Standby.length > 0) {
-        // 根據已分配次數排序，選擇最少的
-        eligibleFor75Standby.sort((a, b) => standby75Counts[a] - standby75Counts[b])
+        // 過濾符合條件的護理師
+        const validCandidates = eligibleFor75Standby.filter((nurseId) => {
+          // 規則4: 白班住院組不排預備75
+          const todayGroup = schedule.scheduleByNurse[nurseId].groups[dayIndex]
+          if (isHospitalGroup(todayGroup, 'day', hospitalGroups)) {
+            return false
+          }
 
-        // 如果有多個人次數相同，隨機選一個
-        const minCount = standby75Counts[eligibleFor75Standby[0]]
-        const candidates = eligibleFor75Standby.filter((id) => standby75Counts[id] === minCount)
-        const selectedNurseId = candidates[Math.floor(Math.random() * candidates.length)]
+          // 規則2: 預備75前後不能有75
+          const nurse75Days = weeklyContext.nurse75Days[nurseId] || []
+          for (const day75 of nurse75Days) {
+            if (Math.abs(dayIndex - day75) <= 1) {
+              return false
+            }
+          }
 
-        // 記錄預備75班
-        if (!schedule.scheduleByNurse[selectedNurseId].standby75Days) {
-          schedule.scheduleByNurse[selectedNurseId].standby75Days = []
+          // 規則3: 當週 (75+預備75) 最多2天
+          const nurse75Count = nurse75Days.length
+          const nurseStandby75Count = (weeklyContext.nurseStandby75Days[nurseId] || []).length
+          if (nurse75Count + nurseStandby75Count >= 2) {
+            return false
+          }
+
+          return true
+        })
+
+        if (validCandidates.length > 0) {
+          // 根據已分配次數排序，選擇最少的
+          validCandidates.sort((a, b) => standby75Counts[a] - standby75Counts[b])
+
+          const minCount = standby75Counts[validCandidates[0]]
+          const candidates = validCandidates.filter((id) => standby75Counts[id] === minCount)
+          const selectedNurseId = candidates[Math.floor(Math.random() * candidates.length)]
+
+          // 記錄預備75班
+          if (!schedule.scheduleByNurse[selectedNurseId].standby75Days) {
+            schedule.scheduleByNurse[selectedNurseId].standby75Days = []
+          }
+          schedule.scheduleByNurse[selectedNurseId].standby75Days.push(dayIndex)
+          standby75Counts[selectedNurseId]++
+
+          // 追蹤週次上下文
+          if (!weeklyContext.nurseStandby75Days[selectedNurseId]) {
+            weeklyContext.nurseStandby75Days[selectedNurseId] = []
+          }
+          weeklyContext.nurseStandby75Days[selectedNurseId].push(dayIndex)
         }
-        schedule.scheduleByNurse[selectedNurseId].standby75Days.push(dayIndex)
-        standby75Counts[selectedNurseId]++
       }
     })
 
-    return { groupCounts, standby75Counts }
+    return { groupCounts, standby75Counts, weeklyContext }
   }
 
   // 自動分組並分配預備75班（初始分配）
@@ -563,14 +660,58 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     const [year, month] = yearMonth.split('-').map(Number)
     const daysInMonth = schedule.maxDaysInMonth || new Date(year, month, 0).getDate()
 
-    // 建立所有天數的陣列
-    const allDayIndices = []
+    // 按週分配（因為有週次限制）
+    let groupCounts = null
+    let standby75Counts = null
+
+    // 計算每週的天數
+    const weeks = []
+    let currentWeek = []
     for (let i = 0; i < daysInMonth; i++) {
-      allDayIndices.push(i)
+      const date = new Date(year, month - 1, i + 1)
+      const dayOfWeek = date.getDay()
+
+      currentWeek.push(i)
+
+      // 週六結束一週，或是月底
+      if (dayOfWeek === 6 || i === daysInMonth - 1) {
+        weeks.push([...currentWeek])
+        currentWeek = []
+      }
     }
 
-    // 執行分配
-    assignGroupsForDays(schedule, allDayIndices)
+    // 逐週分配
+    weeks.forEach((weekDays) => {
+      const weeklyContext = {
+        nurses816: new Set(),
+        nurseHospitalDays: {},
+        nurse75Days: {},
+        nurseStandby75Days: {},
+      }
+
+      // 先掃描本週的班表
+      weekDays.forEach((dayIndex) => {
+        Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+          const shift = nurseData.shifts?.[dayIndex]
+          if (!shift) return
+          const s = shift.trim()
+
+          if (s === '816') {
+            weeklyContext.nurses816.add(nurseId)
+          }
+          if (s === '75') {
+            if (!weeklyContext.nurse75Days[nurseId]) {
+              weeklyContext.nurse75Days[nurseId] = []
+            }
+            weeklyContext.nurse75Days[nurseId].push(dayIndex)
+          }
+        })
+      })
+
+      const result = assignGroupsForDays(schedule, weekDays, groupCounts, standby75Counts, weeklyContext)
+      groupCounts = result.groupCounts
+      standby75Counts = result.standby75Counts
+    })
 
     return schedule
   }
@@ -581,7 +722,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
 
     const config = getConfig()
 
-    // 收集所有可能的75班組別（用於初始化計數器）
+    // 收集所有可能的75班組別
     const all75Groups = new Set()
     const dayRules = config.dayShiftRules || {}
     ;(dayRules['135']?.shift75Groups || ['F']).forEach((g) => all75Groups.add(g))
@@ -593,7 +734,6 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     const standby75Counts = {}
 
     Object.keys(schedule.scheduleByNurse).forEach((nurseId) => {
-      // 初始化 75 班的計數器
       const init75Counts = {}
       baseAvailable75Groups.forEach((g) => {
         init75Counts[g] = 0
@@ -637,7 +777,6 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     // 清除並重新分配未確認週次
     weeklyData.forEach((week, weekIndex) => {
       if (!schedule.weekConfirmed?.[`week${weekIndex + 1}`]) {
-        // 收集這週的所有當月天數
         const weekDayIndices = []
         week.days.forEach((day) => {
           if (day.isCurrentMonth) {
@@ -658,10 +797,35 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
           }
         })
 
-        // 重新分配這週的組別
+        // 建立週次上下文
         if (weekDayIndices.length > 0) {
-          const result = assignGroupsForDays(schedule, weekDayIndices, groupCounts, standby75Counts)
-          // 更新計數器供下一週使用
+          const weeklyContext = {
+            nurses816: new Set(),
+            nurseHospitalDays: {},
+            nurse75Days: {},
+            nurseStandby75Days: {},
+          }
+
+          // 先掃描本週的班表
+          weekDayIndices.forEach((dayIndex) => {
+            Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+              const shift = nurseData.shifts?.[dayIndex]
+              if (!shift) return
+              const s = shift.trim()
+
+              if (s === '816') {
+                weeklyContext.nurses816.add(nurseId)
+              }
+              if (s === '75') {
+                if (!weeklyContext.nurse75Days[nurseId]) {
+                  weeklyContext.nurse75Days[nurseId] = []
+                }
+                weeklyContext.nurse75Days[nurseId].push(dayIndex)
+              }
+            })
+          })
+
+          const result = assignGroupsForDays(schedule, weekDayIndices, groupCounts, standby75Counts, weeklyContext)
           Object.assign(groupCounts, result.groupCounts)
           Object.assign(standby75Counts, result.standby75Counts)
         }
