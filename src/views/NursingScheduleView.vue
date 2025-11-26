@@ -200,6 +200,16 @@
                 <button @click="cancelShiftEditMode" class="btn-secondary">取消</button>
               </template>
 
+              <!-- 組別配置按鈕 -->
+              <button
+                v-if="!isGroupEditMode && !isShiftEditMode"
+                @click="showGroupConfigDialog = true"
+                class="btn-config"
+                title="設定護理師組別分配規則"
+              >
+                <i class="fas fa-cog"></i> 組別配置
+              </button>
+
               <!-- 分組編輯按鈕 -->
               <button
                 v-if="!isGroupEditMode && !isShiftEditMode"
@@ -716,6 +726,12 @@
         </div>
       </div>
     </main>
+
+    <!-- 護理組別配置 Dialog -->
+    <NursingGroupConfigDialog
+      v-model="showGroupConfigDialog"
+      @saved="onGroupConfigSaved"
+    />
   </div>
 </template>
 
@@ -732,6 +748,7 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
 import { fetchNursingGroupConfig, getDefaultConfig } from '@/services/nursingGroupConfigService'
+import NursingGroupConfigDialog from '@/components/NursingGroupConfigDialog.vue'
 
 // ========================================
 // 2. Composables 初始化
@@ -775,6 +792,7 @@ const lastModifiedInfo = ref({ date: '', user: '' })
 
 // --- 護理組別配置 ---
 const groupConfig = ref(getDefaultConfig())
+const showGroupConfigDialog = ref(false)
 
 // ========================================
 // 4. API 實例
@@ -1688,6 +1706,12 @@ const loadGroupConfig = async () => {
   }
 }
 
+// 配置儲存後的回調
+const onGroupConfigSaved = (newConfig) => {
+  groupConfig.value = newConfig
+  createGlobalNotification('組別配置已更新，下次編輯組別時將使用新配置', 'success')
+}
+
 onMounted(() => {
   loadGroupConfig() // 載入組別配置
   loadMonthlySchedule()
@@ -1867,6 +1891,15 @@ onMounted(() => {
 }
 .btn-edit:hover:not(:disabled) {
   background-color: #e0a800;
+}
+/* 配置按鈕樣式 */
+.btn-config {
+  background-color: #6c757d;
+  color: white;
+  border: 1px solid #6c757d;
+}
+.btn-config:hover:not(:disabled) {
+  background-color: #5a6268;
 }
 /* 新增按鈕樣式 */
 .btn-success {
