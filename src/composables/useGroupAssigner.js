@@ -248,26 +248,26 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
         nurse75Days: {}, // 護理師75班天數: { nurseId: [dayIndex, ...] }
         nurseStandby75Days: {}, // 護理師預備75天數: { nurseId: [dayIndex, ...] }
       }
-    }
 
-    // 先掃描本週的班表，收集816護理師和75班護理師
-    dayIndices.forEach((dayIndex) => {
-      Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
-        const shift = nurseData.shifts?.[dayIndex]
-        if (!shift) return
-        const s = shift.trim()
+      // 只在 weeklyContext 為空時掃描（避免重複掃描）
+      dayIndices.forEach((dayIndex) => {
+        Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
+          const shift = nurseData.shifts?.[dayIndex]
+          if (!shift) return
+          const s = shift.trim()
 
-        if (s === '816') {
-          weeklyContext.nurses816.add(nurseId)
-        }
-        if (s === '75') {
-          if (!weeklyContext.nurse75Days[nurseId]) {
-            weeklyContext.nurse75Days[nurseId] = []
+          if (s === '816') {
+            weeklyContext.nurses816.add(nurseId)
           }
-          weeklyContext.nurse75Days[nurseId].push(dayIndex)
-        }
+          if (s === '75') {
+            if (!weeklyContext.nurse75Days[nurseId]) {
+              weeklyContext.nurse75Days[nurseId] = []
+            }
+            weeklyContext.nurse75Days[nurseId].push(dayIndex)
+          }
+        })
       })
-    })
+    }
 
     // 用於追蹤75班組的輪流
     let next75GroupIndex = 0
@@ -584,17 +584,23 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
             return false
           }
 
-          // 規則2: 預備75前後不能有75
+          // 規則2: 預備75前後不能有75班
           const nurse75Days = weeklyContext.nurse75Days[nurseId] || []
-          for (const day75 of nurse75Days) {
-            if (Math.abs(dayIndex - day75) <= 1) {
-              return false
-            }
+          const hasAdjacentShift75 = nurse75Days.some((day75) => Math.abs(dayIndex - day75) <= 1)
+          if (hasAdjacentShift75) {
+            return false
+          }
+
+          // 規則2b: 預備75前後不能有另一個預備75
+          const nurseStandby75Days = weeklyContext.nurseStandby75Days[nurseId] || []
+          const hasAdjacentStandby75 = nurseStandby75Days.some((day) => Math.abs(dayIndex - day) <= 1)
+          if (hasAdjacentStandby75) {
+            return false
           }
 
           // 規則3: 當週 (75+預備75) 最多2天
           const nurse75Count = nurse75Days.length
-          const nurseStandby75Count = (weeklyContext.nurseStandby75Days[nurseId] || []).length
+          const nurseStandby75Count = nurseStandby75Days.length
           if (nurse75Count + nurseStandby75Count >= 2) {
             return false
           }
