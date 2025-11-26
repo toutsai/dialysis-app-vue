@@ -89,6 +89,7 @@
               <div class="fixed-rules-info">
                 <span class="fixed-item"><b>74/L</b> → A組</span>
                 <span class="fixed-item"><b>816</b> → 外圍</span>
+                <span class="fixed-item"><b>311C</b> → C組（夜班）</span>
               </div>
             </section>
 
