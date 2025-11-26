@@ -200,6 +200,16 @@
                 <button @click="cancelShiftEditMode" class="btn-secondary">取消</button>
               </template>
 
+              <!-- 組別配置按鈕 -->
+              <button
+                v-if="!isGroupEditMode && !isShiftEditMode"
+                @click="showGroupConfigDialog = true"
+                class="btn-config"
+                title="設定護理師組別分配規則"
+              >
+                <i class="fas fa-cog"></i> 組別配置
+              </button>
+
               <!-- 分組編輯按鈕 -->
               <button
                 v-if="!isGroupEditMode && !isShiftEditMode"
@@ -716,6 +726,13 @@
         </div>
       </div>
     </main>
+
+    <!-- 護理組別配置 Dialog -->
+    <NursingGroupConfigDialog
+      v-model="showGroupConfigDialog"
+      :year-month="selectedMonth"
+      @saved="onGroupConfigSaved"
+    />
   </div>
 </template>
 
@@ -731,6 +748,14 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
+import {
+  fetchNursingGroupConfig,
+  getDefaultConfig,
+  calculate74Groups,
+  generateDayShiftGroups,
+  generateNightShiftGroups,
+} from '@/services/nursingGroupConfigService'
+import NursingGroupConfigDialog from '@/components/NursingGroupConfigDialog.vue'
 
 // ========================================
 // 2. Composables 初始化
@@ -772,6 +797,11 @@ const checklistItems = ref([])
 const teamworkItems = ref([])
 const lastModifiedInfo = ref({ date: '', user: '' })
 
+// --- 護理組別配置 ---
+const groupConfig = ref(getDefaultConfig())
+const configSourceMonth = ref(null) // 配置來源月份
+const showGroupConfigDialog = ref(false)
+
 // ========================================
 // 4. API 實例
 // ========================================
@@ -791,13 +821,13 @@ const scheduleSourceForStats = computed(() => {
   return isGroupEditMode.value ? tempScheduleWithGroups.value : monthlySchedule.value
 })
 
-// 使用 Composable
+// 使用 Composable (傳入配置)
 const {
   groupCountsDashboard,
   generateGroupAssignments,
   redistributeRemainingWeeks: redistributeWeeks,
-  CANNOT_BE_NIGHT_LEADER,
-} = useGroupAssigner(scheduleSourceForStats)
+  currentConfig,
+} = useGroupAssigner(scheduleSourceForStats, groupConfig)
 
 // 檢查是否有已確認的週次
 const hasConfirmedWeeks = computed(() => {
@@ -1034,25 +1064,66 @@ const shouldDimCell = (nurseData, dayInfo) => {
 const canAssignGroup = (shift) => {
   const s = (shift || '').trim()
   if (!s || s.includes('休') || s.includes('例') || s.includes('國定')) return false
-  return s === '74' || isNightShift(s)
+  return s === '74' || s === '75' || isNightShift(s)
 }
 
 const getAvailableGroups = (shift, date, nurseId) => {
   const s = (shift || '').trim()
   const dayOfWeek = new Date(date).getDay()
+  const config = groupConfig.value || getDefaultConfig()
+
+  // 根據星期別取得對應設定
+  const getWeekdayKey = () => {
+    if ([1, 3, 5].includes(dayOfWeek)) return '135'
+    return '246' // 二四六及星期日都用246
+  }
+
+  // 取得早班星期別設定的輔助函式
+  // 74班 = 早班全部組別 - 75班組別（自動計算）
+  const getDayShiftGroups = () => {
+    const weekdayKey = getWeekdayKey()
+    const groupCounts = config.groupCounts || {}
+    const dayRules = config.dayShiftRules || {}
+
+    // 根據組數產生早班可用組別
+    const dayShiftCount = groupCounts[weekdayKey]?.dayShiftCount || 8
+    const dayShiftAvailable = generateDayShiftGroups(dayShiftCount)
+
+    // 取得75班設定的組別
+    const shift75Groups = dayRules[weekdayKey]?.shift75Groups || ['F']
+
+    // 74班 = 早班可用組別 - 75班組別
+    const shift74Groups = calculate74Groups(dayShiftAvailable, shift75Groups)
+
+    return {
+      groups74: shift74Groups,
+      groups75: shift75Groups,
+    }
+  }
+
+  // 取得晚班可用組別
+  const getNightShiftGroups = () => {
+    const weekdayKey = getWeekdayKey()
+    const groupCounts = config.groupCounts || {}
+    const nightShiftCount = groupCounts[weekdayKey]?.nightShiftCount || 9
+    return generateNightShiftGroups(nightShiftCount)
+  }
+
   if (s === '74') {
-    return ['B', 'C', 'D', 'E', 'G', 'H', 'I', 'K']
+    // 從配置讀取74班可用組別（根據星期別，自動計算）
+    return getDayShiftGroups().groups74
+  }
+  if (s === '75') {
+    // 從配置讀取75班可用組別（根據星期別）
+    return getDayShiftGroups().groups75
   }
   if (['311', '3-11'].some((ns) => s.includes(ns))) {
-    let groups = []
-    if ([1, 3, 5].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
-    } else if ([2, 4, 6].includes(dayOfWeek)) {
-      groups = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I']
-    }
+    // 根據組數產生晚班可用組別
+    let groups = [...getNightShiftGroups()]
+    // 檢查是否為不能當晚班組長的護理師
     if (nurseId && isGroupEditMode.value && tempScheduleWithGroups.value) {
-      const nurseName = tempScheduleWithGroups.value.scheduleByNurse[nurseId]?.nurseName
-      if (CANNOT_BE_NIGHT_LEADER.includes(nurseName)) {
+      const cannotBeNightLeaderIds = config.cannotBeNightLeader || []
+      if (cannotBeNightLeaderIds.includes(nurseId)) {
         groups = groups.filter((g) => g !== 'A')
       }
     }
@@ -1662,7 +1733,40 @@ watch(
 // ========================================
 // 9. 生命週期 (Lifecycle Hooks)
 // ========================================
+// 載入護理組別配置
+const loadGroupConfig = async () => {
+  try {
+    const result = await fetchNursingGroupConfig(selectedMonth.value)
+    groupConfig.value = {
+      ...getDefaultConfig(),
+      ...result.config,
+    }
+    configSourceMonth.value = result.sourceMonth
+    console.log(`✅ 護理組別配置已載入 (來源: ${result.sourceMonth || '預設值'})`)
+  } catch (error) {
+    console.error('❌ 載入護理組別配置失敗:', error)
+    // 使用預設配置
+    groupConfig.value = getDefaultConfig()
+    configSourceMonth.value = null
+  }
+}
+
+// 配置儲存後的回調
+const onGroupConfigSaved = (newConfig) => {
+  groupConfig.value = newConfig
+  configSourceMonth.value = selectedMonth.value // 更新來源月份
+  createGlobalNotification(`${selectedMonth.value} 組別配置已更新，下次編輯組別時將使用新配置`, 'success')
+}
+
+// 監聽月份變更，重新載入配置
+watch(selectedMonth, async (newMonth, oldMonth) => {
+  if (newMonth && newMonth !== oldMonth) {
+    await loadGroupConfig()
+  }
+})
+
 onMounted(() => {
+  loadGroupConfig() // 載入組別配置
   loadMonthlySchedule()
   loadData()
 })
@@ -1801,6 +1905,7 @@ onMounted(() => {
 .btn-primary,
 .btn-secondary,
 .btn-edit,
+.btn-config,
 .btn-success,
 .btn-warning {
   padding: 0.4rem 1rem;
@@ -1840,6 +1945,15 @@ onMounted(() => {
 }
 .btn-edit:hover:not(:disabled) {
   background-color: #e0a800;
+}
+/* 配置按鈕樣式 */
+.btn-config {
+  background-color: #6c757d;
+  color: white;
+  border: 1px solid #6c757d;
+}
+.btn-config:hover:not(:disabled) {
+  background-color: #5a6268;
 }
 /* 新增按鈕樣式 */
 .btn-success {
