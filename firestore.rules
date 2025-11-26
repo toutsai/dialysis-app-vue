@@ -183,6 +183,12 @@ service cloud.firestore {
       allow read: if isEditor();
       allow write: if isAdmin();
     }
+
+    // 護理組別配置
+    match /nursing_group_config/{configId} {
+      allow read: if isViewer();
+      allow write: if isEditor();
+    }
     
     match /scheduled_patient_updates/{updateId} {
       allow read: if request.auth.token.role == 'admin' || request.auth.token.role == 'editor';
