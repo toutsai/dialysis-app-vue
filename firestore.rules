@@ -187,7 +187,7 @@ service cloud.firestore {
     // 護理組別配置
     match /nursing_group_config/{configId} {
       allow read: if isViewer();
-      allow write: if isEditor();
+      allow write: if isAdmin();
     }
     
     match /scheduled_patient_updates/{updateId} {
