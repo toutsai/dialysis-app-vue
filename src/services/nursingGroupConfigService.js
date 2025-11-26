@@ -96,6 +96,9 @@ export const getDefaultConfig = () => ({
   // 格式: { nurseId: ['C', 'G', 'H'], ... }
   nightShiftRestrictions: {},
 
+  // 新進護理師暫不分組（存放 nurseId 陣列）
+  excludedNurses: [],
+
   // 最後修改資訊
   lastModified: {
     date: null,

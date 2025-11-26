@@ -176,6 +176,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
     const fixedAssignments = config.fixedAssignments || {}
     const hospitalGroups = config.hospitalGroups || { dayShift: ['H', 'I'], nightShift: ['G', 'H'] }
     const nightShiftRestrictions = config.nightShiftRestrictions || {}
+    const excludedNurses = new Set(config.excludedNurses || [])
 
     // 取得星期別設定的輔助函式
     const getDayShiftGroups = (dayOfWeek) => {
@@ -311,6 +312,9 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null) {
       Object.entries(schedule.scheduleByNurse).forEach(([nurseId, nurseData]) => {
         const shift = nurseData.shifts?.[dayIndex]
         if (!shift) return
+
+        // 跳過暫不分組的護理師
+        if (excludedNurses.has(nurseId)) return
 
         const s = shift.trim()
 
