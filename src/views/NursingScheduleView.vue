@@ -233,8 +233,7 @@
                   <button
                     @click="redistributeRemainingWeeks"
                     class="btn-warning"
-                    :disabled="!hasConfirmedWeeks"
-                    title="基於已確認的週次，重新平均分配剩餘週次"
+                    title="重新分配未確認週次的組別（若無已確認週次則重新產生整月）"
                   >
                     重新分配剩餘週次
                   </button>
