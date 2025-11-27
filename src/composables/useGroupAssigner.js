@@ -478,30 +478,33 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
           })
         }
 
-        // === 第二步：分配非住院組給剩餘護理師 ===
+        // === 第二步：分配非住院組給剩餘護理師（考慮全體平衡）===
         const remainingNurses = nurses74.filter(id => !assignedNurses.has(id))
+        const remainingGroups = available74Groups.filter(g => !usedGroups.has(g))
 
-        // 按歷史統計分配（組別使用次數少的優先）
-        remainingNurses.forEach(nurseId => {
-          const availableGroups = available74Groups.filter(g => !usedGroups.has(g))
-          if (availableGroups.length === 0) return
-
-          // 選擇此護理師最少使用的組別
-          let minCount = Infinity
-          let bestGroup = availableGroups[0]
-          availableGroups.forEach(group => {
-            const count = groupCounts[nurseId]['74'][group] || 0
-            if (count < minCount) {
-              minCount = count
-              bestGroup = group
-            }
+        if (remainingNurses.length > 0 && remainingGroups.length > 0) {
+          // 建立所有可能的 (護理師, 組別, 使用次數) 配對
+          const assignments = []
+          remainingNurses.forEach(nurseId => {
+            remainingGroups.forEach(group => {
+              const count = groupCounts[nurseId]['74'][group] || 0
+              assignments.push({ nurseId, group, count })
+            })
           })
 
-          schedule.scheduleByNurse[nurseId].groups[dayIndex] = bestGroup
-          groupCounts[nurseId]['74'][bestGroup] = (groupCounts[nurseId]['74'][bestGroup] || 0) + 1
-          usedGroups.add(bestGroup)
-          assignedNurses.add(nurseId)
-        })
+          // 按使用次數排序（少的優先），確保全體平均
+          assignments.sort((a, b) => a.count - b.count)
+
+          // 貪婪分配：優先滿足使用次數最少的配對
+          assignments.forEach(({ nurseId, group, count }) => {
+            if (!assignedNurses.has(nurseId) && !usedGroups.has(group)) {
+              schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
+              groupCounts[nurseId]['74'][group] = (groupCounts[nurseId]['74'][group] || 0) + 1
+              usedGroups.add(group)
+              assignedNurses.add(nurseId)
+            }
+          })
+        }
       }
 
       // === 分配夜班組別 ===
