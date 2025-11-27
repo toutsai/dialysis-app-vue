@@ -446,7 +446,7 @@
                                     class="add-standby-btn"
                                     title="設為預備75班"
                                   >
-                                    +⭐
+                                    +
                                   </button>
                                 </div>
                                 <!-- 分組編輯模式 (只有 admin 能進入 isGroupEditMode) -->
