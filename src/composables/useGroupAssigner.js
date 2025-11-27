@@ -547,7 +547,12 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
 
         // 分配剩餘的組別
         const remainingNurses = [...canBeLeader, ...cannotBeLeader]
-        const remainingGroups = nightGroups.slice(groupIndex)
+        let remainingGroups = nightGroups.slice(groupIndex)
+
+        // ✨ 修正：如果已有 311C 護理師佔用 C 組，則 311 不可再分配 C 組
+        if (nurses311C.length > 0) {
+          remainingGroups = remainingGroups.filter(g => g !== 'C')
+        }
 
         if (remainingNurses.length > 0 && remainingGroups.length > 0) {
           const assignments = []

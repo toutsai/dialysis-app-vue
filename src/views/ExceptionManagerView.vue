@@ -100,6 +100,18 @@
       :message="alertDialogMessage"
       @confirm="isAlertDialogVisible = false"
     />
+
+    <!-- 合併確認 Dialog -->
+    <ConfirmDialog
+      :is-visible="isMergeDialogVisible"
+      title="發現相同調班申請"
+      :message="mergeDialogMessage"
+      confirm-text="整併"
+      cancel-text="取消"
+      @confirm="handleMergeConfirm"
+      @cancel="handleMergeCancel"
+    />
+
     <MonthYearPicker
       :is-visible="isMonthPickerVisible"
       :initial-date="currentCalendarDate"
@@ -122,6 +134,8 @@ import {
   serverTimestamp,
   setDoc,
   addDoc,
+  where,
+  getDocs,
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
@@ -171,6 +185,12 @@ const isActionDialogVisible = ref(false)
 const actionDialogTitle = ref('')
 const actionDialogMessage = ref('')
 const currentActionData = ref(null)
+
+// 合併確認 Dialog 狀態
+const isMergeDialogVisible = ref(false)
+const mergeDialogMessage = ref('')
+const pendingFormData = ref(null) // 待處理的新申請表單資料
+const existingExceptionToMerge = ref(null) // 找到的現有申請
 
 const statusMap = {
   pending: '待處理',
@@ -463,7 +483,12 @@ async function handleDelete() {
   isActionDialogVisible.value = false
 
   try {
+    // 先刪除對應的調班訊息
+    await deleteOldExceptionMessages(exceptionData)
+
+    // 再刪除調班申請
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
+
     let message = ''
     if (exceptionData.type === 'SWAP') {
       message = `成功撤銷調班申請: ${exceptionData.patient1.patientName}與${exceptionData.patient2.patientName}`
@@ -486,9 +511,136 @@ function handleDeleteFromChild(id) {
   createGlobalNotification('成功撤銷衝突的調班申請', 'success')
 }
 
+/**
+ * 檢查是否存在可合併的現有調班申請
+ * @param {object} formData - 新提交的表單資料
+ * @returns {object|null} - 找到的現有申請，或 null
+ */
+function findMergeableException(formData) {
+  // 如果是編輯模式（更新現有申請），不檢查合併
+  if (formData.id) return null
+
+  // 取得新申請的目標日期
+  let targetDate = null
+  if (formData.type === 'MOVE') {
+    targetDate = formData.to?.goalDate
+  } else if (formData.type === 'ADD_SESSION') {
+    targetDate = formData.to?.goalDate
+  } else if (formData.type === 'SUSPEND') {
+    // 暫停類型用 startDate
+    targetDate = formData.startDate
+  } else if (formData.type === 'SWAP') {
+    targetDate = formData.date
+  }
+
+  if (!targetDate) return null
+
+  // 在現有申請中尋找可合併的
+  return exceptions.value.find((ex) => {
+    // 必須是同病人、同類型、且狀態為 pending 或 applied
+    if (ex.patientId !== formData.patientId) return false
+    if (ex.type !== formData.type) return false
+    if (!['pending', 'applied'].includes(ex.status)) return false
+
+    // 檢查目標日期是否相同
+    let existingTargetDate = null
+    if (ex.type === 'MOVE') {
+      existingTargetDate = ex.to?.goalDate
+    } else if (ex.type === 'ADD_SESSION') {
+      existingTargetDate = ex.to?.goalDate
+    } else if (ex.type === 'SUSPEND') {
+      existingTargetDate = ex.startDate
+    } else if (ex.type === 'SWAP') {
+      existingTargetDate = ex.date
+    }
+
+    return existingTargetDate === targetDate
+  })
+}
+
+/**
+ * 產生合併確認訊息
+ */
+function generateMergeMessage(existingEx, newFormData) {
+  const shiftDisplayMap = { early: '早班', noon: '午班', late: '晚班' }
+
+  const formatBed = (bedNum, shiftCode) => {
+    const bedText = String(bedNum).startsWith('peripheral')
+      ? `外圍${String(bedNum).split('-')[1]}`
+      : `${bedNum}床`
+    const shiftText = shiftDisplayMap[shiftCode] || shiftCode
+    return `${bedText}${shiftText}`
+  }
+
+  if (existingEx.type === 'MOVE') {
+    const existingFrom = formatBed(existingEx.from?.bedNum, existingEx.from?.shiftCode)
+    const existingTo = formatBed(existingEx.to?.bedNum, existingEx.to?.shiftCode)
+    const newTo = formatBed(newFormData.to?.bedNum, newFormData.to?.shiftCode)
+
+    return (
+      `${existingEx.patientName} 在 ${existingEx.to?.goalDate} 已有臨時調班申請：\n` +
+      `【${existingFrom} → ${existingTo}】\n\n` +
+      `是否整併為：\n` +
+      `【${existingFrom} → ${newTo}】？`
+    )
+  } else if (existingEx.type === 'ADD_SESSION') {
+    const existingBed = formatBed(existingEx.to?.bedNum, existingEx.to?.shiftCode)
+    const newBed = formatBed(newFormData.to?.bedNum, newFormData.to?.shiftCode)
+
+    return (
+      `${existingEx.patientName} 在 ${existingEx.to?.goalDate} 已有臨時加洗申請：\n` +
+      `【${existingBed}】\n\n` +
+      `是否改為：\n` +
+      `【${newBed}】？`
+    )
+  } else if (existingEx.type === 'SUSPEND') {
+    return (
+      `${existingEx.patientName} 已有區間暫停申請：\n` +
+      `【${existingEx.startDate} ~ ${existingEx.endDate}】\n\n` +
+      `是否更新為：\n` +
+      `【${newFormData.startDate} ~ ${newFormData.endDate}】？`
+    )
+  } else if (existingEx.type === 'SWAP') {
+    return (
+      `${existingEx.patient1?.patientName} 在 ${existingEx.date} 已有同日互調申請\n\n` +
+      `是否覆蓋為新的互調設定？`
+    )
+  }
+
+  return '發現相同類型的調班申請，是否合併？'
+}
+
 async function handleCreateException(formData) {
   try {
     const isUpdating = !!formData.id
+
+    // 如果不是更新模式，檢查是否有可合併的申請
+    if (!isUpdating) {
+      const existingException = findMergeableException(formData)
+      if (existingException) {
+        // 找到可合併的申請，先關閉 CreateDialog，再顯示確認對話框
+        closeCreateDialog()
+        existingExceptionToMerge.value = existingException
+        pendingFormData.value = formData
+        mergeDialogMessage.value = generateMergeMessage(existingException, formData)
+        isMergeDialogVisible.value = true
+        return // 等待用戶確認
+      }
+    }
+
+    // 正常流程：處理申請
+    await processExceptionSubmission(formData, isUpdating)
+  } catch (error) {
+    console.error('提交調班申請失敗:', error)
+    addLocalNotification(`操作失敗: ${error.message || '無法儲存調班申請'}`)
+  }
+}
+
+/**
+ * 實際處理調班申請的提交（新增或更新）
+ */
+async function processExceptionSubmission(formData, isUpdating) {
+  try {
     if (isUpdating) {
       await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
     }
@@ -582,6 +734,110 @@ async function handleCreateException(formData) {
     console.error('提交調班申請失敗:', error)
     addLocalNotification(`操作失敗: ${error.message || '無法儲存調班申請'}`)
   }
+}
+
+/**
+ * 刪除舊的調班訊息 (task/message)
+ * @param {object} existingEx - 現有的調班申請
+ */
+async function deleteOldExceptionMessages(existingEx) {
+  try {
+    // 取得要刪除的 targetDate
+    // 注意：訊息產生時用的是 formData.date || formData.startDate
+    // 所以這裡要用相同的邏輯
+    const targetDate = existingEx.date || existingEx.startDate
+
+    if (!targetDate) return
+
+    // 查詢符合條件的 task 訊息
+    const tasksQuery = query(
+      collection(db, 'tasks'),
+      where('category', '==', 'message'),
+      where('patientId', '==', existingEx.patientId),
+      where('targetDate', '==', targetDate),
+    )
+
+    const snapshot = await getDocs(tasksQuery)
+
+    // 調班類型對應的關鍵字
+    const typeKeywords = {
+      MOVE: '臨時調班',
+      SUSPEND: '區間暫停',
+      ADD_SESSION: '臨時加洗',
+      SWAP: '同日互調',
+    }
+    const keyword = typeKeywords[existingEx.type]
+
+    // 過濾並刪除包含對應關鍵字的訊息
+    const deletePromises = []
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data()
+      if (data.content && keyword && data.content.includes(keyword)) {
+        deletePromises.push(deleteDoc(doc(db, 'tasks', docSnap.id)))
+      }
+    })
+
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises)
+      console.log(`已刪除 ${deletePromises.length} 筆舊的調班訊息`)
+    }
+  } catch (error) {
+    console.error('刪除舊訊息失敗:', error)
+    // 不中斷流程，繼續執行整併
+  }
+}
+
+/**
+ * 使用者確認合併：刪除原有申請，保留原始 from，更新為新的 to
+ */
+async function handleMergeConfirm() {
+  isMergeDialogVisible.value = false
+
+  if (!existingExceptionToMerge.value || !pendingFormData.value) {
+    return
+  }
+
+  try {
+    const existingEx = existingExceptionToMerge.value
+    const newFormData = pendingFormData.value
+
+    // 先刪除舊的調班訊息
+    await deleteOldExceptionMessages(existingEx)
+
+    // 建立合併後的資料：保留原始 from，更新 to
+    const mergedData = {
+      ...newFormData,
+      id: existingEx.id, // 標記為更新模式
+    }
+
+    // 對於 MOVE 類型，保留原始的 from（起點）
+    if (existingEx.type === 'MOVE' && existingEx.from) {
+      mergedData.from = { ...existingEx.from }
+      mergedData.startDate = existingEx.from.sourceDate
+    }
+
+    // 提交合併後的申請（會刪除舊的，建立新的）
+    await processExceptionSubmission(mergedData, true)
+
+    createGlobalNotification('已整併調班申請', 'success')
+  } catch (error) {
+    console.error('合併調班申請失敗:', error)
+    addLocalNotification(`合併失敗: ${error.message || '無法合併調班申請'}`)
+  } finally {
+    // 清理暫存狀態
+    existingExceptionToMerge.value = null
+    pendingFormData.value = null
+  }
+}
+
+/**
+ * 使用者取消合併：取消這次操作，不提交任何東西
+ */
+function handleMergeCancel() {
+  isMergeDialogVisible.value = false
+  // 清理暫存狀態，不提交任何東西
+  existingExceptionToMerge.value = null
+  pendingFormData.value = null
 }
 
 async function initializePageData() {
