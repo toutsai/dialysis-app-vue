@@ -743,12 +743,9 @@ async function processExceptionSubmission(formData, isUpdating) {
 async function deleteOldExceptionMessages(existingEx) {
   try {
     // 取得要刪除的 targetDate
-    let targetDate = existingEx.startDate || existingEx.date
-    if (existingEx.type === 'MOVE' && existingEx.to?.goalDate) {
-      targetDate = existingEx.to.goalDate
-    } else if (existingEx.type === 'ADD_SESSION' && existingEx.to?.goalDate) {
-      targetDate = existingEx.to.goalDate
-    }
+    // 注意：訊息產生時用的是 formData.date || formData.startDate
+    // 所以這裡要用相同的邏輯
+    const targetDate = existingEx.date || existingEx.startDate
 
     if (!targetDate) return
 
