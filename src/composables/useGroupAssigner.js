@@ -426,6 +426,13 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
 
         // === 第一步：分配住院組（優先分配給本週住院次數少且非連續的護理師）===
         if (hospitalGroupsToday.length > 0) {
+          // 計算護理師的整月住院組次數（白班 H、I）
+          const getMonthlyHospitalCount74 = (nurseId) => {
+            const hCount = groupCounts[nurseId]?.['74']?.['H'] || 0
+            const iCount = groupCounts[nurseId]?.['74']?.['I'] || 0
+            return hCount + iCount
+          }
+
           // 評估每位護理師的住院組優先順序
           const hospitalCandidates = nurses74
             .filter(nurseId => {
@@ -439,13 +446,15 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
             .map(nurseId => {
               const hospitalDays = weeklyContext.nurseHospitalDays[nurseId] || []
               const hadYesterday = hospitalDays.includes(dayIndex - 1)
+              const monthlyCount = getMonthlyHospitalCount74(nurseId)
               return {
                 nurseId,
                 hospitalCount: hospitalDays.length,
+                monthlyCount,
                 hadYesterday,
-                // 排序分數：住院次數越少越好(0次優先)，昨天沒有住院組更好
-                // 0次+非連續=0, 0次+連續=5, 1次+非連續=10, 1次+連續=15
-                score: hospitalDays.length * 10 + (hadYesterday ? 5 : 0)
+                // 排序分數：整月次數最重要，當週次數次之，連續最後
+                // 整月0次+當週0次+非連續=0, 整月1次+當週0次+非連續=100
+                score: monthlyCount * 100 + hospitalDays.length * 10 + (hadYesterday ? 5 : 0)
               }
             })
             .sort((a, b) => a.score - b.score)
@@ -545,12 +554,20 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
           return available
         }
 
+        // 計算護理師的整月夜班住院組次數（G、H）
+        const getMonthlyHospitalCount311 = (nurseId) => {
+          const gCount = groupCounts[nurseId]?.['311']?.['G'] || 0
+          const hCount = groupCounts[nurseId]?.['311']?.['H'] || 0
+          return gCount + hCount
+        }
+
         // 計算護理師的住院組優先分數（用於平均分配）
         const getHospitalPriorityScore = (nurseId) => {
           const hospitalDays = weeklyContext.nurseHospitalDays[nurseId] || []
           const hadYesterday = hospitalDays.includes(dayIndex - 1)
-          // 住院次數越少越好，昨天沒有住院組更好
-          return hospitalDays.length * 10 + (hadYesterday ? 5 : 0)
+          const monthlyCount = getMonthlyHospitalCount311(nurseId)
+          // 排序分數：整月次數最重要，當週次數次之，連續最後
+          return monthlyCount * 100 + hospitalDays.length * 10 + (hadYesterday ? 5 : 0)
         }
 
         canBeLeader.sort((a, b) => {
