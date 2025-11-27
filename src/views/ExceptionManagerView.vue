@@ -134,6 +134,8 @@ import {
   serverTimestamp,
   setDoc,
   addDoc,
+  where,
+  getDocs,
 } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
@@ -730,6 +732,60 @@ async function processExceptionSubmission(formData, isUpdating) {
 }
 
 /**
+ * 刪除舊的調班訊息 (task/message)
+ * @param {object} existingEx - 現有的調班申請
+ */
+async function deleteOldExceptionMessages(existingEx) {
+  try {
+    // 取得要刪除的 targetDate
+    let targetDate = existingEx.startDate || existingEx.date
+    if (existingEx.type === 'MOVE' && existingEx.to?.goalDate) {
+      targetDate = existingEx.to.goalDate
+    } else if (existingEx.type === 'ADD_SESSION' && existingEx.to?.goalDate) {
+      targetDate = existingEx.to.goalDate
+    }
+
+    if (!targetDate) return
+
+    // 查詢符合條件的 task 訊息
+    const tasksQuery = query(
+      collection(db, 'tasks'),
+      where('category', '==', 'message'),
+      where('patientId', '==', existingEx.patientId),
+      where('targetDate', '==', targetDate),
+    )
+
+    const snapshot = await getDocs(tasksQuery)
+
+    // 調班類型對應的關鍵字
+    const typeKeywords = {
+      MOVE: '臨時調班',
+      SUSPEND: '區間暫停',
+      ADD_SESSION: '臨時加洗',
+      SWAP: '同日互調',
+    }
+    const keyword = typeKeywords[existingEx.type]
+
+    // 過濾並刪除包含對應關鍵字的訊息
+    const deletePromises = []
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data()
+      if (data.content && keyword && data.content.includes(keyword)) {
+        deletePromises.push(deleteDoc(doc(db, 'tasks', docSnap.id)))
+      }
+    })
+
+    if (deletePromises.length > 0) {
+      await Promise.all(deletePromises)
+      console.log(`已刪除 ${deletePromises.length} 筆舊的調班訊息`)
+    }
+  } catch (error) {
+    console.error('刪除舊訊息失敗:', error)
+    // 不中斷流程，繼續執行整併
+  }
+}
+
+/**
  * 使用者確認合併：刪除原有申請，保留原始 from，更新為新的 to
  */
 async function handleMergeConfirm() {
@@ -742,6 +798,9 @@ async function handleMergeConfirm() {
   try {
     const existingEx = existingExceptionToMerge.value
     const newFormData = pendingFormData.value
+
+    // 先刪除舊的調班訊息
+    await deleteOldExceptionMessages(existingEx)
 
     // 建立合併後的資料：保留原始 from，更新 to
     const mergedData = {
