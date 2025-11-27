@@ -417,47 +417,81 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
 
       // 74班分配組別（考慮住院組限制）
       if (nurses74.length > 0 && available74Groups.length > 0) {
-        const nurseGroupPriority = nurses74.map((nurseId) => {
-          // 過濾掉不可用的組別
-          let availableForNurse = [...available74Groups]
-
-          // 規則1: 816護理師不能有住院組
-          if (weeklyContext.nurses816.has(nurseId)) {
-            availableForNurse = availableForNurse.filter(g => !isHospitalGroup(g, 'day', hospitalGroups))
-          }
-
-          // 規則6: 當週住院組最多2次
-          const nurseHospitalCount = (weeklyContext.nurseHospitalDays[nurseId] || []).length
-          if (nurseHospitalCount >= 2) {
-            availableForNurse = availableForNurse.filter(g => !isHospitalGroup(g, 'day', hospitalGroups))
-          }
-
-          const counts = availableForNurse.map((group) => ({
-            group,
-            count: groupCounts[nurseId]['74'][group] || 0,
-          }))
-          counts.sort((a, b) => a.count - b.count)
-          return { nurseId, priority: counts, availableGroups: availableForNurse }
-        })
+        // 分離住院組和非住院組
+        const hospitalGroupsToday = available74Groups.filter(g => isHospitalGroup(g, 'day', hospitalGroups))
+        const nonHospitalGroupsToday = available74Groups.filter(g => !isHospitalGroup(g, 'day', hospitalGroups))
 
         const usedGroups = new Set()
-        nurseGroupPriority.forEach(({ nurseId, priority, availableGroups }) => {
-          for (const { group } of priority) {
-            if (!usedGroups.has(group) && availableGroups.includes(group)) {
+        const assignedNurses = new Set()
+
+        // === 第一步：分配住院組（優先分配給本週住院次數少且非連續的護理師）===
+        if (hospitalGroupsToday.length > 0) {
+          // 評估每位護理師的住院組優先順序
+          const hospitalCandidates = nurses74
+            .filter(nurseId => {
+              // 排除 816 護理師
+              if (weeklyContext.nurses816.has(nurseId)) return false
+              // 排除已達 2 次住院組的護理師
+              const hospitalDays = weeklyContext.nurseHospitalDays[nurseId] || []
+              if (hospitalDays.length >= 2) return false
+              return true
+            })
+            .map(nurseId => {
+              const hospitalDays = weeklyContext.nurseHospitalDays[nurseId] || []
+              const hadYesterday = hospitalDays.includes(dayIndex - 1)
+              return {
+                nurseId,
+                hospitalCount: hospitalDays.length,
+                hadYesterday,
+                // 排序分數：住院次數越少越好(0次優先)，昨天沒有住院組更好
+                // 0次+非連續=0, 0次+連續=5, 1次+非連續=10, 1次+連續=15
+                score: hospitalDays.length * 10 + (hadYesterday ? 5 : 0)
+              }
+            })
+            .sort((a, b) => a.score - b.score)
+
+          // 分配住院組
+          hospitalGroupsToday.forEach(group => {
+            const candidate = hospitalCandidates.find(c => !assignedNurses.has(c.nurseId))
+            if (candidate) {
+              const nurseId = candidate.nurseId
               schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
               groupCounts[nurseId]['74'][group] = (groupCounts[nurseId]['74'][group] || 0) + 1
               usedGroups.add(group)
+              assignedNurses.add(nurseId)
 
               // 追蹤住院組
-              if (isHospitalGroup(group, 'day', hospitalGroups)) {
-                if (!weeklyContext.nurseHospitalDays[nurseId]) {
-                  weeklyContext.nurseHospitalDays[nurseId] = []
-                }
-                weeklyContext.nurseHospitalDays[nurseId].push(dayIndex)
+              if (!weeklyContext.nurseHospitalDays[nurseId]) {
+                weeklyContext.nurseHospitalDays[nurseId] = []
               }
-              break
+              weeklyContext.nurseHospitalDays[nurseId].push(dayIndex)
             }
-          }
+          })
+        }
+
+        // === 第二步：分配非住院組給剩餘護理師 ===
+        const remainingNurses = nurses74.filter(id => !assignedNurses.has(id))
+
+        // 按歷史統計分配（組別使用次數少的優先）
+        remainingNurses.forEach(nurseId => {
+          const availableGroups = available74Groups.filter(g => !usedGroups.has(g))
+          if (availableGroups.length === 0) return
+
+          // 選擇此護理師最少使用的組別
+          let minCount = Infinity
+          let bestGroup = availableGroups[0]
+          availableGroups.forEach(group => {
+            const count = groupCounts[nurseId]['74'][group] || 0
+            if (count < minCount) {
+              minCount = count
+              bestGroup = group
+            }
+          })
+
+          schedule.scheduleByNurse[nurseId].groups[dayIndex] = bestGroup
+          groupCounts[nurseId]['74'][bestGroup] = (groupCounts[nurseId]['74'][bestGroup] || 0) + 1
+          usedGroups.add(bestGroup)
+          assignedNurses.add(nurseId)
         })
       }
 
@@ -483,7 +517,7 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
         })
 
         // 取得護理師可用的夜班組別（考慮各種限制）
-        const getAvailableNightGroups = (nurseId, groups) => {
+        const getAvailableNightGroups = (nurseId, groups, excludeHospital = false) => {
           let available = [...groups]
 
           // 規則1: 816護理師不能有住院組
@@ -492,8 +526,13 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
           }
 
           // 規則6: 當週住院組最多2次
-          const nurseHospitalCount = (weeklyContext.nurseHospitalDays[nurseId] || []).length
-          if (nurseHospitalCount >= 2) {
+          const nurseHospitalDays = weeklyContext.nurseHospitalDays[nurseId] || []
+          if (nurseHospitalDays.length >= 2) {
+            available = available.filter(g => !isHospitalGroup(g, 'night', hospitalGroups))
+          }
+
+          // 規則6b: 避免連續住院組（如果昨天有住院組，今天盡量不排）
+          if (excludeHospital || nurseHospitalDays.includes(dayIndex - 1)) {
             available = available.filter(g => !isHospitalGroup(g, 'night', hospitalGroups))
           }
 
@@ -504,6 +543,14 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
           }
 
           return available
+        }
+
+        // 計算護理師的住院組優先分數（用於平均分配）
+        const getHospitalPriorityScore = (nurseId) => {
+          const hospitalDays = weeklyContext.nurseHospitalDays[nurseId] || []
+          const hadYesterday = hospitalDays.includes(dayIndex - 1)
+          // 住院次數越少越好，昨天沒有住院組更好
+          return hospitalDays.length * 10 + (hadYesterday ? 5 : 0)
         }
 
         canBeLeader.sort((a, b) => {
@@ -555,36 +602,74 @@ export function useGroupAssigner(scheduleSource, groupConfigSource = null, adjac
         }
 
         if (remainingNurses.length > 0 && remainingGroups.length > 0) {
-          const assignments = []
-          remainingNurses.forEach((nurseId) => {
-            const available = getAvailableNightGroups(nurseId, remainingGroups)
-            available.forEach((group) => {
-              const count = groupCounts[nurseId]['311'][group] || 0
-              assignments.push({ nurseId, group, count })
-            })
-          })
-
-          assignments.sort((a, b) => a.count - b.count)
+          // 分離住院組和非住院組
+          const hospitalNightGroups = remainingGroups.filter(g => isHospitalGroup(g, 'night', hospitalGroups))
+          const nonHospitalNightGroups = remainingGroups.filter(g => !isHospitalGroup(g, 'night', hospitalGroups))
 
           const assignedNurses = new Set()
           const assignedGroups = new Set()
 
-          assignments.forEach(({ nurseId, group }) => {
-            if (!assignedNurses.has(nurseId) && !assignedGroups.has(group)) {
-              schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
-              groupCounts[nurseId]['311'][group] = (groupCounts[nurseId]['311'][group] || 0) + 1
-              assignedNurses.add(nurseId)
-              assignedGroups.add(group)
+          // === 第一步：優先分配夜班住院組（G、H）給本週住院次數少的護理師 ===
+          if (hospitalNightGroups.length > 0) {
+            // 找出可以接住院組的護理師，按優先分數排序
+            const hospitalCandidates = remainingNurses
+              .filter(nurseId => {
+                const available = getAvailableNightGroups(nurseId, hospitalNightGroups)
+                return available.length > 0
+              })
+              .map(nurseId => ({
+                nurseId,
+                score: getHospitalPriorityScore(nurseId),
+                available: getAvailableNightGroups(nurseId, hospitalNightGroups)
+              }))
+              .sort((a, b) => a.score - b.score)
 
-              // 追蹤住院組
-              if (isHospitalGroup(group, 'night', hospitalGroups)) {
+            // 分配住院組
+            hospitalNightGroups.forEach(group => {
+              const candidate = hospitalCandidates.find(c =>
+                !assignedNurses.has(c.nurseId) && c.available.includes(group)
+              )
+              if (candidate) {
+                const nurseId = candidate.nurseId
+                schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
+                groupCounts[nurseId]['311'][group] = (groupCounts[nurseId]['311'][group] || 0) + 1
+                assignedNurses.add(nurseId)
+                assignedGroups.add(group)
+
+                // 追蹤住院組
                 if (!weeklyContext.nurseHospitalDays[nurseId]) {
                   weeklyContext.nurseHospitalDays[nurseId] = []
                 }
                 weeklyContext.nurseHospitalDays[nurseId].push(dayIndex)
               }
-            }
-          })
+            })
+          }
+
+          // === 第二步：分配非住院組給剩餘護理師 ===
+          const stillRemainingNurses = remainingNurses.filter(id => !assignedNurses.has(id))
+          const stillRemainingGroups = remainingGroups.filter(g => !assignedGroups.has(g))
+
+          if (stillRemainingNurses.length > 0 && stillRemainingGroups.length > 0) {
+            const assignments = []
+            stillRemainingNurses.forEach((nurseId) => {
+              const available = getAvailableNightGroups(nurseId, stillRemainingGroups, true) // excludeHospital=true
+              available.forEach((group) => {
+                const count = groupCounts[nurseId]['311'][group] || 0
+                assignments.push({ nurseId, group, count })
+              })
+            })
+
+            assignments.sort((a, b) => a.count - b.count)
+
+            assignments.forEach(({ nurseId, group }) => {
+              if (!assignedNurses.has(nurseId) && !assignedGroups.has(group)) {
+                schedule.scheduleByNurse[nurseId].groups[dayIndex] = group
+                groupCounts[nurseId]['311'][group] = (groupCounts[nurseId]['311'][group] || 0) + 1
+                assignedNurses.add(nurseId)
+                assignedGroups.add(group)
+              }
+            })
+          }
         }
       }
 
