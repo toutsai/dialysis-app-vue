@@ -1592,7 +1592,6 @@ function redistributeRemainingWeeks() {
     if (newSchedule) {
       tempScheduleWithGroups.value = newSchedule
       uploadStatus.value = '已重新分配剩餘週次的組別'
-      createGlobalNotification('剩餘週次已重新分配', 'success')
     } else {
       uploadStatus.value = '重新分配失敗'
     }
@@ -1943,7 +1942,7 @@ const loadGroupConfig = async () => {
 const onGroupConfigSaved = (newConfig) => {
   groupConfig.value = newConfig
   configSourceMonth.value = selectedMonth.value // 更新來源月份
-  createGlobalNotification(`${selectedMonth.value} 組別配置已更新，下次編輯組別時將使用新配置`, 'success')
+  uploadStatus.value = `${selectedMonth.value} 組別配置已更新`
 }
 
 // 監聽月份變更，重新載入配置
