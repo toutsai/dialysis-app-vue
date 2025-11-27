@@ -465,6 +465,7 @@
                                         dayInfo.dayIndex
                                       ]
                                     "
+                                    @change="handleGroupChange(nurseId, dayInfo.dayIndex, $event)"
                                     class="group-select"
                                   >
                                     <option value="">-</option>
@@ -769,6 +770,14 @@
       :year-month="selectedMonth"
       @saved="onGroupConfigSaved"
     />
+
+    <!-- 組別衝突提示 Dialog -->
+    <AlertDialog
+      :is-visible="showGroupConflictAlert"
+      title="組別衝突提示"
+      :message="groupConflictMessage"
+      @confirm="showGroupConflictAlert = false"
+    />
   </div>
 </template>
 
@@ -792,6 +801,7 @@ import {
   generateNightShiftGroups,
 } from '@/services/nursingGroupConfigService'
 import NursingGroupConfigDialog from '@/components/NursingGroupConfigDialog.vue'
+import AlertDialog from '@/components/AlertDialog.vue'
 
 // ========================================
 // 2. Composables 初始化
@@ -842,6 +852,10 @@ const lastModifiedInfo = ref({ date: '', user: '' })
 const groupConfig = ref(getDefaultConfig())
 const configSourceMonth = ref(null) // 配置來源月份
 const showGroupConfigDialog = ref(false)
+
+// --- 組別衝突提示 ---
+const showGroupConflictAlert = ref(false)
+const groupConflictMessage = ref('')
 
 // ========================================
 // 4. API 實例
@@ -1229,6 +1243,48 @@ const getGroupClass = (group) => {
   return `group-${groupChar}`
 }
 
+// 處理組別變更，檢測衝突
+const handleGroupChange = (nurseId, dayIndex, event) => {
+  const newGroup = event.target.value
+  if (!newGroup || !tempScheduleWithGroups.value) return
+
+  // 取得當天已有相同組別的護理師
+  const conflictingNurses = []
+  const currentNurseData = tempScheduleWithGroups.value.scheduleByNurse[nurseId]
+  const currentShift = currentNurseData?.shifts?.[dayIndex]?.trim() || ''
+
+  Object.entries(tempScheduleWithGroups.value.scheduleByNurse).forEach(([otherId, otherData]) => {
+    if (otherId === nurseId) return // 跳過自己
+
+    const otherGroup = otherData.groups?.[dayIndex]
+    const otherShift = otherData.shifts?.[dayIndex]?.trim() || ''
+
+    // 檢查是否同組別
+    if (otherGroup === newGroup) {
+      // 判斷班別類型是否相同（白班 vs 夜班）
+      const isCurrentDayShift = ['74', '75', '816', '74/L'].includes(currentShift)
+      const isOtherDayShift = ['74', '75', '816', '74/L'].includes(otherShift)
+      const isCurrentNightShift = currentShift.includes('311') || currentShift.includes('3-11')
+      const isOtherNightShift = otherShift.includes('311') || otherShift.includes('3-11')
+
+      // 同類型班別才算衝突（白班對白班，夜班對夜班）
+      if ((isCurrentDayShift && isOtherDayShift) || (isCurrentNightShift && isOtherNightShift)) {
+        conflictingNurses.push({
+          name: otherData.nurseName || otherId,
+          shift: otherShift
+        })
+      }
+    }
+  })
+
+  // 如果有衝突，顯示提示
+  if (conflictingNurses.length > 0) {
+    const conflictList = conflictingNurses.map(n => `${n.name} (${n.shift}班)`).join('、')
+    groupConflictMessage.value = `${conflictList} 已經是 ${newGroup} 組，與您的修改有衝突。\n\n請確認是否需要調整。`
+    showGroupConflictAlert.value = true
+  }
+}
+
 const getShiftClass = (shift) => {
   if (!shift) return ''
   const shiftStr = String(shift).trim()
@@ -1536,7 +1592,6 @@ function redistributeRemainingWeeks() {
     if (newSchedule) {
       tempScheduleWithGroups.value = newSchedule
       uploadStatus.value = '已重新分配剩餘週次的組別'
-      createGlobalNotification('剩餘週次已重新分配', 'success')
     } else {
       uploadStatus.value = '重新分配失敗'
     }
@@ -1887,7 +1942,7 @@ const loadGroupConfig = async () => {
 const onGroupConfigSaved = (newConfig) => {
   groupConfig.value = newConfig
   configSourceMonth.value = selectedMonth.value // 更新來源月份
-  createGlobalNotification(`${selectedMonth.value} 組別配置已更新，下次編輯組別時將使用新配置`, 'success')
+  uploadStatus.value = `${selectedMonth.value} 組別配置已更新`
 }
 
 // 監聽月份變更，重新載入配置
