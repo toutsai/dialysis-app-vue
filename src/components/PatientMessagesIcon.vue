@@ -25,22 +25,32 @@ const props = defineProps({
     type: String,
     default: 'detail',
   },
+  // ✨ 新增：支援直接傳入 typesMap（用於 WeeklyView 的 ScheduleTable）
+  typesMap: {
+    type: Map,
+    default: null,
+  },
 })
 
 const taskStore = useTaskStore()
 
-// ✨ 1. 注入來自父層 (如 ScheduleView) 的正在檢視的日期
-// 如果沒有提供，就預設為 null，這樣 getter 會自動使用今天的日期
+// 注入來自父層 (如 ScheduleView) 的正在檢視的日期
+// 如果沒有提供，就預設為 null
 const viewingDate = inject('viewingDate', null)
 
-// ✨ 2. [核心修改] messageTypes 現在會根據注入的日期來計算
+// ✨ [核心修改] messageTypes 支援兩種模式：
+// 1. 如果有傳入 typesMap prop，直接使用（WeeklyView 模式）
+// 2. 否則從 taskStore 根據 viewingDate 計算（ScheduleView/StatsView 模式）
 const messageTypes = computed(() => {
   if (!props.patientId) return []
 
-  // 呼叫 store 的 getter 函式，並傳入我們從父層得到的 viewingDate 的值
-  // 如果 viewingDate 是 null (例如在某些頁面沒有提供)，getter 會自動用今天
-  const mapForDate = taskStore.getPatientMessageTypesMapForDate(viewingDate?.value)
+  // 模式 1：使用傳入的 typesMap（優先）
+  if (props.typesMap && props.typesMap instanceof Map) {
+    return props.typesMap.get(props.patientId) || []
+  }
 
+  // 模式 2：從 taskStore 根據 viewingDate 計算
+  const mapForDate = taskStore.getPatientMessageTypesMapForDate(viewingDate?.value)
   return mapForDate.get(props.patientId) || []
 })
 
