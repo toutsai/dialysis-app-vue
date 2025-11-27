@@ -483,7 +483,12 @@ async function handleDelete() {
   isActionDialogVisible.value = false
 
   try {
+    // 先刪除對應的調班訊息
+    await deleteOldExceptionMessages(exceptionData)
+
+    // 再刪除調班申請
     await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
+
     let message = ''
     if (exceptionData.type === 'SWAP') {
       message = `成功撤銷調班申請: ${exceptionData.patient1.patientName}與${exceptionData.patient2.patientName}`
