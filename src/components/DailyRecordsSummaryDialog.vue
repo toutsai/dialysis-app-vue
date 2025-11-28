@@ -18,13 +18,25 @@
             <table class="records-table">
               <thead>
                 <tr>
+                  <th class="col-bed">床號</th>
+                  <th class="col-mrn">病歷號</th>
                   <th class="col-name">病人</th>
                   <th class="col-time">紀錄時間</th>
                   <th class="col-content">紀錄內容</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="record in allRecords" :key="record.id">
+                <tr v-for="record in sortedRecords" :key="record.id">
+                  <td class="col-bed">{{ getPatientInfo(record.patientId).bedNum }}</td>
+                  <td class="col-mrn">
+                    <span
+                      class="mrn-clickable"
+                      @click="copyMedicalRecordNumber(getPatientInfo(record.patientId).medicalRecordNumber)"
+                      :title="getPatientInfo(record.patientId).medicalRecordNumber ? '點擊以複製病歷號' : ''"
+                    >
+                      {{ getPatientInfo(record.patientId).medicalRecordNumber || '-' }}
+                    </span>
+                  </td>
                   <td class="col-name">{{ record.patientName }}</td>
                   <td class="col-time">{{ formatTime(record.createdAt) }}</td>
                   <td class="col-content">{{ record.content }}</td>
@@ -64,6 +76,11 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  patientInfoMap: {
+    // 病人資訊對應表 { patientId: { bedNum, medicalRecordNumber } }
+    type: Object,
+    default: () => ({}),
+  },
 })
 
 const emit = defineEmits(['close'])
@@ -99,6 +116,53 @@ function formatTime(timestamp) {
   if (!timestamp || !timestamp.toDate) return 'N/A'
   return timestamp.toDate().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
 }
+
+function getPatientInfo(patientId) {
+  return props.patientInfoMap[patientId] || { bedNum: '-', medicalRecordNumber: '' }
+}
+
+async function copyMedicalRecordNumber(mrn) {
+  if (!mrn) return
+  try {
+    await navigator.clipboard.writeText(mrn)
+  } catch (err) {
+    console.error('複製失敗:', err)
+  }
+}
+
+// 依照床號排序的紀錄
+const sortedRecords = computed(() => {
+  if (!allRecords.value || allRecords.value.length === 0) return []
+
+  return [...allRecords.value].sort((a, b) => {
+    const infoA = getPatientInfo(a.patientId)
+    const infoB = getPatientInfo(b.patientId)
+    const bedA = infoA.bedNum || ''
+    const bedB = infoB.bedNum || ''
+
+    // 先區分一般床位和外圍床位
+    const isPeripheralA = bedA.startsWith('外')
+    const isPeripheralB = bedB.startsWith('外')
+
+    // 一般床位排在外圍床位前面
+    if (isPeripheralA !== isPeripheralB) {
+      return isPeripheralA ? 1 : -1
+    }
+
+    // 同類床位依數字排序
+    const numA = parseInt(bedA.replace('外', ''), 10) || 0
+    const numB = parseInt(bedB.replace('外', ''), 10) || 0
+
+    if (numA !== numB) {
+      return numA - numB
+    }
+
+    // 同一床號的紀錄依時間排序
+    const timeA = a.createdAt?.toDate() || 0
+    const timeB = b.createdAt?.toDate() || 0
+    return timeA - timeB
+  })
+})
 
 // ✨✨✨ 核心修正點：重構 fetchRecords 函式以支援分批查詢 ✨✨✨
 async function fetchRecords(date, patientIdList) {
@@ -236,17 +300,36 @@ watch(
 }
 
 /* 重新分配欄寬 */
+.col-bed {
+  width: 8%;
+  text-align: center;
+}
+.col-mrn {
+  width: 12%;
+  text-align: center;
+}
 .col-name {
-  width: 20%;
+  width: 12%;
 }
 .col-time {
-  width: 20%;
+  width: 12%;
   text-align: center;
 }
 .col-content {
-  width: 60%;
+  width: 56%;
   white-space: pre-wrap;
 } /* 讓內容欄更寬 */
+
+/* 病歷號點擊複製樣式 */
+.mrn-clickable {
+  cursor: pointer;
+  color: #007bff;
+  text-decoration: underline;
+  transition: color 0.2s;
+}
+.mrn-clickable:hover {
+  color: #0056b3;
+}
 
 .panel-loading,
 .panel-empty {

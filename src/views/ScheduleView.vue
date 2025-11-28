@@ -816,6 +816,7 @@
       :target-date="formatDate(currentDate)"
       :shift-code="shiftCodeForDialog"
       :patient-ids="patientIdsForDialog"
+      :patient-info-map="patientInfoMapForDialog"
       @close="closeRecordsSummaryDialog"
     />
     <DailyInjectionListDialog
@@ -1027,6 +1028,7 @@ const currentWardNumber = ref('')
 const currentEditingShiftId = ref(null)
 const shiftCodeForDialog = ref(null)
 const patientIdsForDialog = ref([])
+const patientInfoMapForDialog = ref({}) // { patientId: { bedNum, medicalRecordNumber } }
 const isInjectionDialogVisible = ref(false)
 const isInjectionLoading = ref(false)
 const allDailyInjections = ref([])
@@ -2119,22 +2121,33 @@ function executeAutoAssignment() {
 }
 function showShiftRecordsSummary(shiftCode) {
   const patientIds = new Set()
+  const patientInfoMap = {}
   for (const shiftId in currentRecord.schedule) {
     if (shiftId.endsWith(`-${shiftCode}`)) {
       const slot = currentRecord.schedule[shiftId]
       if (slot && slot.patientId) {
         patientIds.add(slot.patientId)
+        // 解析床號：bed-{bedNum}-{shiftCode} 或 peripheral-{i}-{shiftCode}
+        const parts = shiftId.split('-')
+        const bedNum = parts[0] === 'peripheral' ? `外${parts[1]}` : parts[1]
+        const patient = patientMap.value.get(slot.patientId)
+        patientInfoMap[slot.patientId] = {
+          bedNum,
+          medicalRecordNumber: patient?.medicalRecordNumber || '',
+        }
       }
     }
   }
   shiftCodeForDialog.value = shiftCode
   patientIdsForDialog.value = Array.from(patientIds)
+  patientInfoMapForDialog.value = patientInfoMap
   isRecordsSummaryDialogVisible.value = true
 }
 function closeRecordsSummaryDialog() {
   isRecordsSummaryDialogVisible.value = false
   shiftCodeForDialog.value = null
   patientIdsForDialog.value = []
+  patientInfoMapForDialog.value = {}
 }
 function getPatientMode(shiftId) {
   const patientId = currentRecord.schedule[shiftId]?.patientId

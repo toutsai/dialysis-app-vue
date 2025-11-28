@@ -972,10 +972,19 @@ exports.initializeFutureSchedules = onSchedule(
         return null
       }
       logger.info(`[Scheduler] Found ${datesToCreate.length} missing daily schedules. Creating...`)
+
+      // 🔥 v2.0: 查詢所有病人資料，用於動態生成 autoNote
+      const patientsSnapshot = await db.collection('patients').where('isDeleted', '!=', true).get()
+      const patientsMap = new Map()
+      patientsSnapshot.forEach((doc) => {
+        patientsMap.set(doc.id, doc.data())
+      })
+      logger.info(`[Scheduler] Loaded ${patientsMap.size} patients for dynamic autoNote generation.`)
+
       const batch = db.batch()
       datesToCreate.forEach((dateStr) => {
-        // 🔥 修正：直接傳遞日期字串，而不是建立 Date 物件
-        const dailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
+        // 🔥 v2.0: 傳遞 patientsMap 以動態生成 autoNote
+        const dailySchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
         const newDocRef = schedulesRef.doc(dateStr)
         batch.set(newDocRef, {
           date: dateStr,
@@ -1066,6 +1075,7 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
 
 /**
  * 管理員從前端點擊按鈕觸發(目前無用)
+ * 🔧 v2.0: 修正傳遞日期字串而非 Date 物件，並支援動態 autoNote
  */
 exports.ensureFutureSchedules = onCall(
   { cors: allowedOrigins, timeoutSeconds: 300, memory: '512MiB' },
@@ -1110,11 +1120,18 @@ exports.ensureFutureSchedules = onCall(
 
       logger.info(`⏳ [ensureFutureSchedules] 發現 ${datesToCreate.length} 個缺失排程，正在創建...`)
 
+      // 🔥 v2.0: 查詢所有病人資料，用於動態生成 autoNote
+      const patientsSnapshot = await db.collection('patients').where('isDeleted', '!=', true).get()
+      const patientsMap = new Map()
+      patientsSnapshot.forEach((doc) => {
+        patientsMap.set(doc.id, doc.data())
+      })
+      logger.info(`[ensureFutureSchedules] Loaded ${patientsMap.size} patients for dynamic autoNote.`)
+
       const batch = db.batch()
       datesToCreate.forEach((dateStr) => {
-        const dateParts = dateStr.split('-')
-        const targetDate = new Date(dateParts[0], parseInt(dateParts[1], 10) - 1, dateParts[2])
-        const dailySchedule = generateDailyScheduleFromRules(masterRules, targetDate)
+        // 🔥 v2.0: 直接傳遞日期字串和 patientsMap
+        const dailySchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
 
         const newDocRef = schedulesRef.doc(dateStr)
         batch.set(newDocRef, {
@@ -2297,7 +2314,8 @@ exports.scheduledDataBackup = onSchedule(
 )
 
 // ===================================================================
-// 🔥🔥🔥【最終健壯版 v13.3】 - syncMasterScheduleToFuture 🔥🔥🔥
+// 🔥🔥🔥【最終健壯版 v13.5】 - syncMasterScheduleToFuture 🔥🔥🔥
+// 🔧 v13.5: 支援動態 autoNote 生成
 // ===================================================================
 exports.syncMasterScheduleToFuture = onDocumentWritten(
   {
@@ -2306,22 +2324,30 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
     memory: '1GiB',
   },
   async (event) => {
-    logger.info('🚀 [AtomicSync-v13.4] 原子化同步流程啟動...')
+    logger.info('🚀 [AtomicSync-v13.5] 原子化同步流程啟動...')
 
     if (!event.data.after.exists) {
-      logger.info('✅ [AtomicSync-v13.4] 總表文件被刪除，無需同步。')
+      logger.info('✅ [AtomicSync-v13.5] 總表文件被刪除，無需同步。')
       return null
     }
 
     const beforeRules = event.data.before?.data()?.schedule || {}
     const afterRules = event.data.after.data().schedule || {}
     if (JSON.stringify(beforeRules) === JSON.stringify(afterRules)) {
-      logger.info('✅ [AtomicSync-v13.4] 總表資料無實質變更，跳過同步。')
+      logger.info('✅ [AtomicSync-v13.5] 總表資料無實質變更，跳過同步。')
       return null
     }
 
     try {
       const masterRules = afterRules
+
+      // 🔥 v13.5: 查詢所有病人資料，用於動態生成 autoNote
+      const patientsSnapshot = await db.collection('patients').where('isDeleted', '!=', true).get()
+      const patientsMap = new Map()
+      patientsSnapshot.forEach((doc) => {
+        patientsMap.set(doc.id, doc.data())
+      })
+      logger.info(`  [AtomicSync-v13.5] Loaded ${patientsMap.size} patients for dynamic autoNote.`)
 
       // --- 階段一: 精準計算差異，並原子性更新/創建基礎排程 ---
       logger.info('  ➡️ [Sync Step 1/2] 開始計算差異並同步從明天起的 60 天基礎排程...')
@@ -2364,7 +2390,8 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
         if (!existingSchedules.has(dateStr)) {
           logger.warn(`  [Sync Step 1/2] 警告：未來排程 ${dateStr} 不存在，將即時創建。`)
-          const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
+          // 🔥 v13.5: 傳遞 patientsMap 以動態生成 autoNote
+          const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
 
           const scheduleRef = db.collection('schedules').doc(dateStr)
           syncBatch.set(scheduleRef, {
@@ -2372,7 +2399,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
             schedule: newDailySchedule,
             createdAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
-            syncMethod: 'engine_driven_sync_v13.4_recreate',
+            syncMethod: 'engine_driven_sync_v13.5_recreate',
           })
           continue
         }
@@ -2386,15 +2413,20 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
           const isScheduled =
             ruleAfter && (FREQ_MAP_TO_DAY_INDEX[ruleAfter.freq] || []).includes(dayIndex)
 
+          // 🔥 v13.5: 使用動態 autoNote 而非總表中的靜態值
+          const { generateAutoNote } = require('./services/scheduleEngineService')
           const createSlotObject = (rule) => {
             if (!rule) return null
             const shiftCode = SHIFTS[rule.shiftIndex]
             if (!shiftCode) return null
+            // 🔥 v13.5: 從 patientsMap 獲取病人資料，動態生成 autoNote
+            const patient = patientsMap.get(patientId)
+            const dynamicAutoNote = patient ? generateAutoNote(patient) : (rule.autoNote || '')
             return {
               patientId: patientId,
               patientName: rule.patientName || '',
               shiftId: shiftCode,
-              autoNote: rule.autoNote || '',
+              autoNote: dynamicAutoNote,
               manualNote: rule.manualNote || '',
               baseRuleId: patientId,
             }
@@ -2434,7 +2466,7 @@ exports.syncMasterScheduleToFuture = onDocumentWritten(
 
         if (Object.keys(updates).length > 0) {
           updates.updatedAt = FieldValue.serverTimestamp()
-          updates.syncMethod = 'engine_driven_sync_v13.4_atomic'
+          updates.syncMethod = 'engine_driven_sync_v13.5_atomic'
           const scheduleRef = db.collection('schedules').doc(dateStr)
           syncBatch.update(scheduleRef, updates)
         }
@@ -4903,6 +4935,7 @@ exports.syncAndCreateAssignments = onDocumentWritten(
  * - 步驟 2: 查找所有未來有效的調班申請。
  * - 步驟 3: 透過更新調班文件的狀態，來重新觸發調班處理邏輯，讓系統自動重新套用它們。
  * 僅限管理員使用。
+ * 🔧 v2.0: 支援動態 autoNote 生成
  */
 exports.forceResyncAllSchedules = onCall(
   { cors: allowedOrigins, timeoutSeconds: 540, memory: '1GiB' },
@@ -4925,6 +4958,14 @@ exports.forceResyncAllSchedules = onCall(
       }
       const masterRules = masterDoc.data().schedule || {}
 
+      // 🔥 v2.0: 查詢所有病人資料，用於動態生成 autoNote
+      const patientsSnapshot = await db.collection('patients').where('isDeleted', '!=', true).get()
+      const patientsMap = new Map()
+      patientsSnapshot.forEach((doc) => {
+        patientsMap.set(doc.id, doc.data())
+      })
+      logger.info(`${logPrefix} Loaded ${patientsMap.size} patients for dynamic autoNote.`)
+
       // 🔥 修正：使用字串為基礎的日期計算
       const todayStr = getTaipeiTodayString()
 
@@ -4937,8 +4978,8 @@ exports.forceResyncAllSchedules = onCall(
         targetDate.setUTCDate(targetDate.getUTCDate() + i)
         const dateStr = formatDateToYYYYMMDD(targetDate)
 
-        // 🔥 修正：傳遞日期字串而非 Date 物件
-        const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr)
+        // 🔥 v2.0: 傳遞 patientsMap 以動態生成 autoNote
+        const newDailySchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
 
         const scheduleRef = db.collection('schedules').doc(dateStr)
         scheduleRebuildBatch.set(scheduleRef, {
@@ -4946,7 +4987,7 @@ exports.forceResyncAllSchedules = onCall(
           schedule: newDailySchedule,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
-          syncMethod: 'force_resync_base', // 標記為強制重建
+          syncMethod: 'force_resync_base_v2', // 標記為強制重建 (v2.0)
         })
         rebuiltCount++
       }
