@@ -1,4 +1,5 @@
-// functions/services/scheduleEngineService.js (完整最終版)
+// functions/services/scheduleEngineService.js (完整最終版 v2.0)
+// 🔧 v2.0: 新增 generateAutoNote 函數，動態生成 autoNote 取代總表中的靜態值
 
 // --- 引入相依性 ---
 const { getTaipeiDayIndex } = require('../utils/dateUtils')
@@ -26,6 +27,62 @@ const FREQ_MAP_TO_DAY_INDEX = {
 }
 
 const SHIFTS = ['early', 'noon', 'late']
+
+// 🔥 【新增】兩班頻率定義（一週兩次）- 與前端 scheduleUtils.js 保持一致
+const BIWEEKLY_FREQUENCIES = ['一四', '二五', '三六', '一五', '二六']
+
+// 🔥 【新增】頻率數字對應表（用於自動備註）
+const FREQ_NUMBER_MAP = {
+  一四: '14',
+  二五: '25',
+  三六: '36',
+  一五: '15',
+  二六: '26',
+}
+
+// ===================================================================
+// 🔥 【新增】動態生成 autoNote 函數 - 與前端 scheduleUtils.js 邏輯一致
+// ===================================================================
+
+/**
+ * 根據病人物件，生成標準化的自動備註字串。
+ * 這是後端版本，與前端 scheduleUtils.js 的 generateAutoNote 保持一致。
+ * @param {object} patient - 病人物件（需包含 status, freq, diseases 等欄位）
+ * @returns {string} - 自動生成的備註標籤，用空格分隔
+ */
+function generateAutoNote(patient) {
+  if (!patient) return ''
+  const autoNotes = new Set()
+
+  // 🔥 兩班頻率自動備註 (優先處理)
+  if (patient.freq && BIWEEKLY_FREQUENCIES.includes(patient.freq)) {
+    const freqNumber = FREQ_NUMBER_MAP[patient.freq]
+    if (freqNumber) {
+      autoNotes.add(freqNumber) // 例如：一四 → 14
+    }
+  }
+
+  // 核心狀態標籤 - 根據當前 status 動態生成
+  if (patient.status === 'ipd') autoNotes.add('住')
+  if (patient.status === 'er') autoNotes.add('急')
+
+  // 首次透析標籤
+  if (patient.isFirstDialysis) autoNotes.add('新')
+
+  // 疾病相關標籤
+  if (patient.diseases && Array.isArray(patient.diseases)) {
+    if (patient.diseases.includes('HBV')) autoNotes.add('B')
+    if (patient.diseases.includes('HCV')) autoNotes.add('C')
+    if (patient.diseases.includes('HIV')) autoNotes.add('H')
+    if (patient.diseases.includes('RPR')) autoNotes.add('R')
+    if (patient.diseases.includes('隔離')) autoNotes.add('隔')
+    if (patient.diseases.includes('COVID')) autoNotes.add('冠')
+    if (patient.diseases.includes('BC肝?')) autoNotes.add('BC?')
+    if (patient.diseases.includes('C肝治癒')) autoNotes.add('C癒')
+  }
+
+  return Array.from(autoNotes).join(' ')
+}
 
 // ===================================================================
 // 核心輔助函式
@@ -140,13 +197,16 @@ function applySingleException(schedule, ex, dateStr) {
 // ===================================================================
 
 /**
- * ✨✨✨【健壯版 v1.1】✨✨✨
+ * ✨✨✨【健壯版 v2.0】✨✨✨
  * 根據總表規則，為指定的「日期字串」產生當日的基礎排程。
+ * 🔧 v2.0: 新增 patientsMap 參數，支援動態生成 autoNote
  * @param {object} masterRules - 總表規則物件。
  * @param {string} dateStr - 目標日期字串 (格式 'YYYY-MM-DD')。
+ * @param {Map|object} [patientsMap=null] - 可選的病人資料 Map，key 為 patientId。
+ *                                          如果提供，會根據病人當前狀態動態生成 autoNote。
  * @returns {object} - 當日的基礎排程物件。
  */
-function generateDailyScheduleFromRules(masterRules, dateStr) {
+function generateDailyScheduleFromRules(masterRules, dateStr, patientsMap = null) {
   const dailySchedule = {}
 
   // 1. 根據傳入的日期字串，建立一個標準化的 UTC Date 物件
@@ -170,11 +230,23 @@ function generateDailyScheduleFromRules(masterRules, dateStr) {
 
       const shiftCode = SHIFTS[shiftIndex]
       const key = getScheduleKey(bedNum, shiftCode)
+
+      // 🔥 v2.0: 動態生成 autoNote
+      // 如果有提供 patientsMap，則根據病人當前狀態動態生成 autoNote
+      // 否則退回使用總表中的靜態 autoNote（向後相容）
+      let autoNote = rule.autoNote || ''
+      if (patientsMap) {
+        const patient = patientsMap instanceof Map ? patientsMap.get(patientId) : patientsMap[patientId]
+        if (patient) {
+          autoNote = generateAutoNote(patient)
+        }
+      }
+
       dailySchedule[key] = {
         patientId: patientId,
         patientName: rule.patientName || '',
         shiftId: shiftCode,
-        autoNote: rule.autoNote || '',
+        autoNote: autoNote,
         manualNote: rule.manualNote || '',
         baseRuleId: patientId,
       }
@@ -183,18 +255,21 @@ function generateDailyScheduleFromRules(masterRules, dateStr) {
   return dailySchedule
 }
 
-// 🔥【最終簡化版 v3.1】 - recalculateDailySchedule
+// 🔥【最終簡化版 v3.2】 - recalculateDailySchedule
 /**
  * 職責：純計算，並返回最終排程和檢測到的衝突列表
+ * 🔧 v3.2: 新增 patientsMap 參數，支援動態生成 autoNote
  * @param {string} dateStr - 目標日期
  * @param {object} masterRules - 最新的總表規則
  * @param {Array<object>} todaysExceptions - 已排序的、當天的調班列表
+ * @param {Map|object} [patientsMap=null] - 可選的病人資料 Map
  * @returns {{finalSchedule: object, conflictingExceptions: Array<object>}} - 返回包含最終排程和衝突列表的物件
  */
-function recalculateDailySchedule(dateStr, masterRules, todaysExceptions) {
+function recalculateDailySchedule(dateStr, masterRules, todaysExceptions, patientsMap = null) {
   // ✨✨✨【核心修正】✨✨✨
   // 將 dateStr (日期字串) 直接傳遞給 generateDailyScheduleFromRules
-  let finalSchedule = generateDailyScheduleFromRules(masterRules, dateStr)
+  // 🔧 v3.2: 傳遞 patientsMap 以支援動態 autoNote
+  let finalSchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
   const conflictingExceptions = []
 
   for (const ex of todaysExceptions) {
@@ -227,8 +302,10 @@ function recalculateDailySchedule(dateStr, masterRules, todaysExceptions) {
 module.exports = {
   recalculateDailySchedule,
   generateDailyScheduleFromRules,
+  generateAutoNote, // 🔥 v2.0: 新增導出
   // 也導出常數和輔助函式
   FREQ_MAP_TO_DAY_INDEX,
+  BIWEEKLY_FREQUENCIES, // 🔥 v2.0: 新增導出
   SHIFTS,
   getScheduleKey,
 }
