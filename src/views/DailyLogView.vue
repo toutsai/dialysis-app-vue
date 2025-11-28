@@ -57,10 +57,6 @@
         <section class="log-section">
           <div class="section-header">
             <h2>營運統計</h2>
-            <!-- ✨ 修改：Viewer 隱藏同步按鈕 -->
-            <button v-if="!isPageLocked" @click="syncStatsWithSchedule" class="sync-stats-btn">
-              <i class="fas fa-sync-alt"></i> 更新各班病人人數
-            </button>
           </div>
 
           <div class="stats-grid">
@@ -1593,31 +1589,6 @@ async function checkAndSyncBeforeSave(onComplete) {
   }
 }
 
-async function syncStatsWithSchedule() {
-  showConfirm(
-    '確認同步人數',
-    '此操作將會用最新的「每日排程表」資料覆蓋上方的「洗腎中心床位」與「急重症床位」統計。您手動填寫的其他欄位（如病人照護、護理人力）將不受影響。確定要繼續嗎？',
-    async () => {
-      isLoading.value = true
-      try {
-        const scheduleData = await schedulesApi.fetchAll([where('date', '==', selectedDate.value)])
-        if (scheduleData.length > 0) {
-          calculateStatsFromSchedule(scheduleData[0])
-          hasUnsavedChanges.value = true
-          showAlert('同步成功', '人數統計已更新，請記得儲存變更！')
-        } else {
-          showAlert('同步失敗', `找不到 ${selectedDate.value} 的排班資料。`)
-        }
-      } catch (error) {
-        console.error('同步排班統計失敗:', error)
-        showAlert('同步失敗', '同步人數統計時發生錯誤。')
-      } finally {
-        isLoading.value = false
-      }
-    },
-  )
-}
-
 // --- Staffing Calculation ---
 function toggleStaffingDetails() {
   isStaffingDetailsVisible.value = !isStaffingDetailsVisible.value
@@ -2279,29 +2250,6 @@ h1 {
   border: none;
   font-size: 1.5rem;
   color: #495057;
-}
-.sync-stats-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-  background-color: #6c757d;
-  color: white;
-  border: 1px solid #6c757d;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.sync-stats-btn:hover {
-  background-color: #5a6268;
-}
-.sync-stats-btn .fa-sync-alt {
-  animation: none;
-}
-.sync-stats-btn:active .fa-sync-alt {
-  animation: spin 1s linear infinite;
 }
 .add-row-btn-header {
   padding: 0.5rem 1rem;
