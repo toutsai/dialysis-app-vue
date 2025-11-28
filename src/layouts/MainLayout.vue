@@ -182,11 +182,11 @@
               </RouterLink>
             </li>
 
-            <!-- 6. [每月耗材] Admin, Viewer -->
+            <!-- 6. [庫存管理] Admin, Viewer -->
             <li v-if="isAdmin || currentUser?.role === 'viewer'">
-              <RouterLink to="/consumables" class="nav-link">
+              <RouterLink to="/inventory" class="nav-link">
                 <div class="nav-item-content">
-                  <span class="nav-title">每月耗材</span>
+                  <span class="nav-title">庫存管理</span>
                 </div>
               </RouterLink>
             </li>
