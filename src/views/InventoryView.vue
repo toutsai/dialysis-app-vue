@@ -115,7 +115,8 @@
                 <th>日期</th>
                 <th>類別</th>
                 <th>品項</th>
-                <th>數量</th>
+                <th>箱數</th>
+                <th>個數</th>
                 <th>輸入者</th>
                 <th>操作</th>
               </tr>
@@ -125,6 +126,7 @@
                 <td>{{ formatDate(item.date) }}</td>
                 <td>{{ CATEGORY_NAMES[item.category] }}</td>
                 <td>{{ item.item }}</td>
+                <td>{{ item.boxQuantity || '-' }}</td>
                 <td>{{ item.quantity }}</td>
                 <td>{{ item.createdBy }}</td>
                 <td>
@@ -318,13 +320,23 @@
           <table>
             <thead>
               <tr>
-                <th>類別</th>
-                <th>品項</th>
-                <th>上月結存</th>
-                <th>本月進貨</th>
-                <th>本月消耗</th>
-                <th>本月結存</th>
-                <th>調整</th>
+                <th rowspan="2">類別</th>
+                <th rowspan="2">品項</th>
+                <th colspan="2">上月結存</th>
+                <th colspan="2">本月進貨</th>
+                <th colspan="2">本月消耗</th>
+                <th colspan="2">本月結存</th>
+                <th rowspan="2">調整(個)</th>
+              </tr>
+              <tr>
+                <th>個數</th>
+                <th>箱數</th>
+                <th>個數</th>
+                <th>箱數</th>
+                <th>個數</th>
+                <th>箱數</th>
+                <th>個數</th>
+                <th>箱數</th>
               </tr>
             </thead>
             <tbody>
@@ -333,9 +345,13 @@
                   <td>{{ CATEGORY_NAMES[category] }}</td>
                   <td>{{ item }}</td>
                   <td>{{ data.previousStock }}</td>
+                  <td class="box-cell">{{ calculateBoxes(category, item, data.previousStock) }}</td>
                   <td class="positive">+{{ data.purchased }}</td>
+                  <td class="box-cell positive">+{{ calculateBoxes(category, item, data.purchased) }}</td>
                   <td class="negative">-{{ data.consumed }}</td>
+                  <td class="box-cell negative">-{{ calculateBoxes(category, item, data.consumed) }}</td>
                   <td class="result-cell">{{ data.currentStock }}</td>
+                  <td class="result-cell box-cell">{{ calculateBoxes(category, item, data.currentStock) }}</td>
                   <td>
                     <input
                       type="number"
@@ -403,19 +419,30 @@
             <div class="section-header">
               <h4>訂購建議</h4>
               <button class="btn-success" @click="exportWeeklyOrder" :disabled="!hasOrderData">
-                匯出訂單
+                匯出訂單 (以箱為單位)
               </button>
             </div>
             <div class="table-container">
               <table>
                 <thead>
                   <tr>
-                    <th>類別</th>
-                    <th>品項</th>
-                    <th>週二盤點</th>
-                    <th>預估週消耗</th>
-                    <th>安全庫存(9天)</th>
-                    <th>建議訂購量</th>
+                    <th rowspan="2">類別</th>
+                    <th rowspan="2">品項</th>
+                    <th rowspan="2">每箱數量</th>
+                    <th colspan="2">週二盤點</th>
+                    <th colspan="2">預估週消耗</th>
+                    <th colspan="2">安全庫存(9天)</th>
+                    <th colspan="2">建議訂購量</th>
+                  </tr>
+                  <tr>
+                    <th>個數</th>
+                    <th>箱數</th>
+                    <th>個數</th>
+                    <th>箱數</th>
+                    <th>個數</th>
+                    <th>箱數</th>
+                    <th>個數</th>
+                    <th>箱數</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -423,11 +450,18 @@
                     <tr v-for="item in getItemsForCategory(category)" :key="`order-${category}-${item}`">
                       <td>{{ CATEGORY_NAMES[category] }}</td>
                       <td>{{ item }}</td>
+                      <td>{{ getUnitsPerBox(category, item) }}</td>
                       <td>{{ weeklyCount[category]?.[item] || 0 }}</td>
+                      <td class="box-cell">{{ calculateBoxes(category, item, weeklyCount[category]?.[item] || 0) }}</td>
                       <td>{{ getWeeklyConsumption(category, item) }}</td>
+                      <td class="box-cell">{{ calculateBoxes(category, item, getWeeklyConsumption(category, item)) }}</td>
                       <td>{{ getSafetyStock(category, item) }}</td>
+                      <td class="box-cell">{{ calculateBoxes(category, item, getSafetyStock(category, item)) }}</td>
                       <td :class="{ 'need-order': getOrderQuantity(category, item) > 0 }">
                         {{ getOrderQuantity(category, item) }}
+                      </td>
+                      <td :class="{ 'need-order': getOrderQuantity(category, item) > 0, 'box-cell': true }">
+                        {{ calculateBoxesRounded(category, item, getOrderQuantity(category, item)) }}
                       </td>
                     </tr>
                   </template>
@@ -463,20 +497,20 @@
           </div>
           <div class="form-field">
             <label>品項 *</label>
-            <input
-              type="text"
-              v-model="purchaseForm.item"
-              list="item-suggestions"
-              placeholder="輸入或選擇品項"
-              required
-            />
-            <datalist id="item-suggestions">
-              <option v-for="item in getItemSuggestions(purchaseForm.category)" :key="item" :value="item" />
-            </datalist>
+            <select v-model="purchaseForm.item" required>
+              <option value="">請選擇品項</option>
+              <option v-for="item in getItemSuggestions(purchaseForm.category)" :key="item" :value="item">
+                {{ item }}
+              </option>
+            </select>
           </div>
           <div class="form-field">
-            <label>數量 *</label>
-            <input type="number" v-model.number="purchaseForm.quantity" min="1" required />
+            <label>箱數 *</label>
+            <input type="number" v-model.number="purchaseForm.boxQuantity" min="1" required />
+            <small class="field-hint" v-if="purchaseForm.item && purchaseForm.boxQuantity">
+              = {{ calculateUnits(purchaseForm.category, purchaseForm.item, purchaseForm.boxQuantity) }} 個
+              (每箱 {{ getUnitsPerBox(purchaseForm.category, purchaseForm.item) }} 個)
+            </small>
           </div>
         </div>
         <div class="modal-footer">
@@ -811,12 +845,38 @@ const purchaseForm = reactive({
   date: new Date().toISOString().slice(0, 10),
   category: '',
   item: '',
-  quantity: 1,
+  boxQuantity: 1,
 })
 
 const isPurchaseFormValid = computed(() => {
-  return purchaseForm.date && purchaseForm.category && purchaseForm.item && purchaseForm.quantity > 0
+  return purchaseForm.date && purchaseForm.category && purchaseForm.item && purchaseForm.boxQuantity > 0
 })
+
+// 取得品項的每箱數量
+function getUnitsPerBox(category, itemName) {
+  const item = inventoryItems.value.find((i) => i.category === category && i.name === itemName)
+  return item?.unitsPerBox || 1 // 預設為 1
+}
+
+// 計算箱數換算成個數
+function calculateUnits(category, itemName, boxQty) {
+  const unitsPerBox = getUnitsPerBox(category, itemName)
+  return boxQty * unitsPerBox
+}
+
+// 計算個數換算成箱數（帶小數）
+function calculateBoxes(category, itemName, units) {
+  const unitsPerBox = getUnitsPerBox(category, itemName)
+  if (unitsPerBox <= 1) return units
+  return (units / unitsPerBox).toFixed(1)
+}
+
+// 計算個數換算成箱數（四捨五入）
+function calculateBoxesRounded(category, itemName, units) {
+  const unitsPerBox = getUnitsPerBox(category, itemName)
+  if (unitsPerBox <= 1) return units
+  return Math.round(units / unitsPerBox)
+}
 
 async function fetchPurchases() {
   purchaseLoading.value = true
@@ -860,13 +920,13 @@ function openPurchaseModal(item = null) {
     purchaseForm.date = formatDateForInput(item.date)
     purchaseForm.category = item.category
     purchaseForm.item = item.item
-    purchaseForm.quantity = item.quantity
+    purchaseForm.boxQuantity = item.boxQuantity || 1
   } else {
     editingPurchase.value = null
     purchaseForm.date = new Date().toISOString().slice(0, 10)
     purchaseForm.category = ''
     purchaseForm.item = ''
-    purchaseForm.quantity = 1
+    purchaseForm.boxQuantity = 1
   }
   showPurchaseModal.value = true
 }
@@ -880,11 +940,17 @@ async function savePurchase() {
   if (!isPurchaseFormValid.value) return
 
   try {
+    // 計算個數 = 箱數 × 每箱數量
+    const unitsPerBox = getUnitsPerBox(purchaseForm.category, purchaseForm.item)
+    const quantity = purchaseForm.boxQuantity * unitsPerBox
+
     const data = {
       date: Timestamp.fromDate(new Date(purchaseForm.date)),
       category: purchaseForm.category,
       item: purchaseForm.item,
-      quantity: purchaseForm.quantity,
+      boxQuantity: purchaseForm.boxQuantity, // 儲存箱數
+      quantity: quantity, // 儲存個數（換算後）
+      unitsPerBox: unitsPerBox, // 儲存換算比例（方便日後查閱）
       createdBy: currentUser.value?.name || '未知',
       updatedAt: Timestamp.now(),
     }
@@ -1468,19 +1534,23 @@ const hasOrderData = computed(() => {
 })
 
 function exportWeeklyOrder() {
-  const rows = [['類別', '品項', '週二盤點', '預估週消耗', '安全庫存(9天)', '建議訂購量']]
+  const rows = [['類別', '品項', '每箱數量', '週二盤點(個)', '週二盤點(箱)', '預估週消耗(個)', '安全庫存(個)', '建議訂購(個)', '建議訂購(箱)']]
 
   for (const category of Object.keys(CATEGORY_NAMES)) {
     for (const item of getItemsForCategory(category)) {
       const orderQty = getOrderQuantity(category, item)
+      const orderBoxes = calculateBoxesRounded(category, item, orderQty)
       if (orderQty > 0) {
         rows.push([
           CATEGORY_NAMES[category],
           item,
+          getUnitsPerBox(category, item),
           weeklyCount[category]?.[item] || 0,
+          calculateBoxes(category, item, weeklyCount[category]?.[item] || 0),
           getWeeklyConsumption(category, item),
           getSafetyStock(category, item),
           orderQty,
+          orderBoxes,
         ])
       }
     }
@@ -2161,6 +2231,18 @@ input[type='file'] {
   background-color: #fff3cd;
   font-weight: bold;
   color: #856404;
+}
+
+.box-cell {
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: #6c757d;
 }
 
 /* === Modal === */
