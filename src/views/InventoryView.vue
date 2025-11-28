@@ -58,6 +58,7 @@
               <tr>
                 <th>類別</th>
                 <th>品項名稱</th>
+                <th>每箱數量</th>
                 <th>院內代碼</th>
                 <th>廠商聯絡電話</th>
                 <th>建立者</th>
@@ -68,6 +69,7 @@
               <tr v-for="item in filteredInventoryItems" :key="item.id">
                 <td>{{ CATEGORY_NAMES[item.category] }}</td>
                 <td>{{ item.name }}</td>
+                <td>{{ item.unitsPerBox || '-' }}</td>
                 <td>{{ item.hospitalCode || '-' }}</td>
                 <td>{{ item.vendorPhone || '-' }}</td>
                 <td>{{ item.createdBy || '-' }}</td>
@@ -508,6 +510,10 @@
             <input type="text" v-model="itemForm.name" placeholder="例如：Fresenius FX80" required />
           </div>
           <div class="form-field">
+            <label>每箱數量</label>
+            <input type="number" v-model.number="itemForm.unitsPerBox" placeholder="例如：20" min="1" />
+          </div>
+          <div class="form-field">
             <label>院內代碼</label>
             <input type="text" v-model="itemForm.hospitalCode" placeholder="例如：AK-001" />
           </div>
@@ -582,6 +588,7 @@ const editingItem = ref(null)
 const itemForm = reactive({
   category: '',
   name: '',
+  unitsPerBox: null,
   hospitalCode: '',
   vendorPhone: '',
 })
@@ -630,6 +637,7 @@ function useDefaultItemsAsFallback() {
         id: `default-${id++}`,
         category,
         name: itemName,
+        unitsPerBox: null,
         hospitalCode: null,
         vendorPhone: null,
         createdBy: '系統預設',
@@ -662,12 +670,14 @@ function openItemModal(item = null) {
     editingItem.value = item
     itemForm.category = item.category
     itemForm.name = item.name
+    itemForm.unitsPerBox = item.unitsPerBox || null
     itemForm.hospitalCode = item.hospitalCode || ''
     itemForm.vendorPhone = item.vendorPhone || ''
   } else {
     editingItem.value = null
     itemForm.category = ''
     itemForm.name = ''
+    itemForm.unitsPerBox = null
     itemForm.hospitalCode = ''
     itemForm.vendorPhone = ''
   }
@@ -686,6 +696,7 @@ async function saveInventoryItem() {
     const data = {
       category: itemForm.category,
       name: itemForm.name,
+      unitsPerBox: itemForm.unitsPerBox || null,
       hospitalCode: itemForm.hospitalCode || null,
       vendorPhone: itemForm.vendorPhone || null,
       updatedAt: Timestamp.now(),
@@ -760,6 +771,7 @@ async function initializeDefaultItems() {
           addDoc(collection(db, 'inventory_items'), {
             category,
             name: itemName,
+            unitsPerBox: null,
             hospitalCode: null,
             vendorPhone: null,
             createdAt: Timestamp.now(),
