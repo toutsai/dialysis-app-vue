@@ -145,6 +145,9 @@
           <button :class="{ active: consumptionSubTab === 'query' }" @click="consumptionSubTab = 'query'">
             耗材查詢
           </button>
+          <button :class="{ active: consumptionSubTab === 'summary' }" @click="consumptionSubTab = 'summary'">
+            當月總量
+          </button>
           <button :class="{ active: consumptionSubTab === 'upload' }" @click="consumptionSubTab = 'upload'">
             資料上傳
           </button>
@@ -228,6 +231,70 @@
                     </td>
                   </tr>
                 </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 當月總量 -->
+        <div v-show="consumptionSubTab === 'summary'" class="sub-panel">
+          <div class="search-controls">
+            <div class="search-field">
+              <label>選擇月份</label>
+              <input type="month" v-model="summaryMonth" />
+            </div>
+            <button @click="loadMonthlySummary" :disabled="summaryLoading" class="btn-primary">
+              {{ summaryLoading ? '載入中...' : '查詢總量' }}
+            </button>
+            <button
+              @click="exportMonthlySummary"
+              :disabled="summaryLoading || !summaryLoaded"
+              class="btn-success"
+            >
+              匯出 Excel
+            </button>
+          </div>
+
+          <div class="report-display">
+            <div v-if="summaryLoading" class="loading-state">正在計算當月消耗總量...</div>
+            <div v-else-if="!summaryLoaded" class="placeholder-text">請選擇月份並點擊查詢。</div>
+            <div v-else class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>類別</th>
+                    <th>品項</th>
+                    <th>每箱數量</th>
+                    <th>當月消耗(個)</th>
+                    <th>當月消耗(箱)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="category in Object.keys(CATEGORY_NAMES)" :key="category">
+                    <tr
+                      v-for="item in Object.keys(monthlySummaryData[category] || {})"
+                      :key="`summary-${category}-${item}`"
+                    >
+                      <td>{{ CATEGORY_NAMES[category] }}</td>
+                      <td>{{ item }}</td>
+                      <td>{{ getUnitsPerBox(category, item) }}</td>
+                      <td>{{ monthlySummaryData[category][item] }}</td>
+                      <td class="box-cell">{{ calculateBoxes(category, item, monthlySummaryData[category][item]) }}</td>
+                    </tr>
+                  </template>
+                </tbody>
+                <tfoot>
+                  <tr class="summary-total-row">
+                    <td colspan="3"><strong>各類別小計</strong></td>
+                    <td colspan="2"></td>
+                  </tr>
+                  <tr v-for="category in Object.keys(CATEGORY_NAMES)" :key="`total-${category}`" class="category-total">
+                    <td>{{ CATEGORY_NAMES[category] }}</td>
+                    <td colspan="2">合計</td>
+                    <td><strong>{{ getCategoryTotal(category) }}</strong></td>
+                    <td class="box-cell">-</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -1016,6 +1083,16 @@ const isUploading = ref(false)
 const uploadResult = ref(null)
 const isDragOver = ref(false)
 
+// 當月總量相關
+const summaryMonth = ref(new Date().toISOString().slice(0, 7))
+const summaryLoading = ref(false)
+const summaryLoaded = ref(false)
+const monthlySummaryData = reactive({
+  artificialKidney: {},
+  dialysateCa: {},
+  bicarbonateType: {},
+})
+
 const flattenedHeaders = computed(() => {
   return [
     ...dynamicHeaders.value.artificialKidney,
@@ -1256,6 +1333,75 @@ async function handleUpload() {
   } finally {
     isUploading.value = false
   }
+}
+
+// 當月總量查詢
+async function loadMonthlySummary() {
+  summaryLoading.value = true
+  summaryLoaded.value = false
+
+  // 重置
+  for (const category of Object.keys(monthlySummaryData)) {
+    monthlySummaryData[category] = {}
+  }
+
+  try {
+    const consumption = await getMonthlyConsumption(summaryMonth.value)
+
+    for (const category of Object.keys(monthlySummaryData)) {
+      monthlySummaryData[category] = consumption[category] || {}
+    }
+
+    summaryLoaded.value = true
+  } catch (error) {
+    console.error('載入當月總量失敗:', error)
+    alert('載入失敗: ' + error.message)
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
+function getCategoryTotal(category) {
+  const data = monthlySummaryData[category] || {}
+  return Object.values(data).reduce((sum, count) => sum + (count || 0), 0)
+}
+
+function exportMonthlySummary() {
+  const rows = [['類別', '品項', '每箱數量', '當月消耗(個)', '當月消耗(箱)']]
+
+  for (const category of Object.keys(CATEGORY_NAMES)) {
+    const items = monthlySummaryData[category] || {}
+    for (const [item, count] of Object.entries(items)) {
+      rows.push([
+        CATEGORY_NAMES[category],
+        item,
+        getUnitsPerBox(category, item),
+        count,
+        calculateBoxes(category, item, count),
+      ])
+    }
+  }
+
+  // 加入小計
+  rows.push([])
+  rows.push(['類別小計', '', '', '', ''])
+  for (const category of Object.keys(CATEGORY_NAMES)) {
+    rows.push([CATEGORY_NAMES[category], '合計', '', getCategoryTotal(category), ''])
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '當月消耗總量')
+
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([wbout], { type: 'application/octet-stream' })
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = `當月消耗總量_${summaryMonth.value}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(link.href)
 }
 
 // ==================== Tab 3: 每月盤點 ====================
@@ -2243,6 +2389,23 @@ input[type='file'] {
   margin-top: 0.25rem;
   font-size: 0.85rem;
   color: #6c757d;
+}
+
+/* === 當月總量表格 === */
+.summary-total-row {
+  background-color: #e9ecef;
+}
+
+.category-total {
+  background-color: #f8f9fa;
+}
+
+.category-total td {
+  font-weight: 500;
+}
+
+tfoot tr:first-child td {
+  border-top: 2px solid #dee2e6;
 }
 
 /* === Modal === */
