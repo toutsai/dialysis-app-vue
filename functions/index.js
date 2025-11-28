@@ -657,6 +657,9 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     if (cleanupCount > 0) {
       tasks.push(cleanupBatch.commit())
     }
+
+    // ✨ 刪除病人時，同步取消未到期的調班申請
+    tasks.push(cancelFutureExceptionsForPatient(patientId))
   }
   // === 處理病人復原 ===
   else if (
