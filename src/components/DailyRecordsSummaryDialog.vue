@@ -312,11 +312,11 @@ watch(
   width: 12%;
 }
 .col-time {
-  width: 10%;
+  width: 12%;
   text-align: center;
 }
 .col-content {
-  width: 58%;
+  width: 56%;
   white-space: pre-wrap;
 } /* 讓內容欄更寬 */
 
