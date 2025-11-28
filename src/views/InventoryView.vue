@@ -613,10 +613,35 @@ async function fetchInventoryItems() {
     })
   } catch (error) {
     console.error('載入品項設定失敗:', error)
-    alert('載入品項設定失敗')
+    // 如果資料庫存取失敗，使用預設品項
+    useDefaultItemsAsFallback()
   } finally {
     itemsLoading.value = false
   }
+}
+
+// 使用預設品項作為備援
+function useDefaultItemsAsFallback() {
+  const fallbackItems = []
+  let id = 1
+  for (const [category, items] of Object.entries(DEFAULT_ITEMS)) {
+    for (const itemName of items) {
+      fallbackItems.push({
+        id: `default-${id++}`,
+        category,
+        name: itemName,
+        hospitalCode: null,
+        vendorPhone: null,
+        createdBy: '系統預設',
+      })
+      // 同步更新 knownItems
+      if (!knownItems[category].includes(itemName)) {
+        knownItems[category].push(itemName)
+      }
+    }
+  }
+  inventoryItems.value = fallbackItems
+  filteredInventoryItems.value = fallbackItems
 }
 
 function filterItems() {
@@ -708,6 +733,58 @@ const knownItems = reactive({
   dialysateCa: [],
   bicarbonateType: [],
 })
+
+// --- 預設品項列表 ---
+const DEFAULT_ITEMS = {
+  artificialKidney: ['15S', '17UX', '25H', '34', 'APS21S', 'BG1.8', 'CAT/2000', 'FX80', 'HI:23'],
+  dialysateCa: ['2.5', '3.0', '3.5'],
+  bicarbonateType: ['0_袋裝Bicarbonate 500mg', '1_瓶裝Bicarbonate 500mg', '2_Hemodialysis 5L B液'],
+}
+
+// 初始化預設品項（如果資料庫是空的）
+async function initializeDefaultItems() {
+  try {
+    // 檢查是否已有品項
+    const snapshot = await getDocs(collection(db, 'inventory_items'))
+    if (snapshot.docs.length > 0) {
+      console.log('品項已存在，跳過初始化')
+      return
+    }
+
+    console.log('初始化預設品項...')
+    const batch = []
+
+    for (const [category, items] of Object.entries(DEFAULT_ITEMS)) {
+      for (const itemName of items) {
+        batch.push(
+          addDoc(collection(db, 'inventory_items'), {
+            category,
+            name: itemName,
+            hospitalCode: null,
+            vendorPhone: null,
+            createdAt: Timestamp.now(),
+            createdBy: '系統預設',
+            updatedAt: Timestamp.now(),
+            updatedBy: '系統預設',
+          })
+        )
+      }
+    }
+
+    await Promise.all(batch)
+    console.log('預設品項初始化完成')
+  } catch (error) {
+    console.error('初始化預設品項失敗（可能是權限問題，將使用備援品項）:', error)
+    // 即使寫入失敗，也先用預設品項填充 knownItems
+    for (const [category, items] of Object.entries(DEFAULT_ITEMS)) {
+      items.forEach((itemName) => {
+        if (!knownItems[category].includes(itemName)) {
+          knownItems[category].push(itemName)
+        }
+      })
+    }
+  }
+}
 
 // ==================== Tab 1: 進貨紀錄 ====================
 const purchases = ref([])
@@ -1428,7 +1505,8 @@ function formatDateForInput(timestamp) {
 // ==================== 初始化 ====================
 onMounted(async () => {
   await patientStore.fetchPatientsIfNeeded()
-  await fetchInventoryItems() // 先載入品項設定
+  await initializeDefaultItems() // 先初始化預設品項（如果資料庫是空的）
+  await fetchInventoryItems() // 載入品項設定
   await fetchPurchases()
   await loadKnownItems()
 })
