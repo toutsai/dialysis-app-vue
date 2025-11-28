@@ -576,6 +576,38 @@ function findMergeableExceptions(formData) {
 }
 
 /**
+ * 將調班申請串成鏈狀，找出鏈的起點（真正的原始床位）
+ * 例如：A→B, B→C, C→D 應該找出 A 作為鏈頭
+ * @param {Array} exceptions - 所有調班申請
+ * @param {object} newFormData - 新提交的表單資料
+ * @returns {object} - 鏈頭的 from 資料
+ */
+function findChainHead(exceptions, newFormData) {
+  // 將所有申請（包含新的）合併
+  const allMoves = [
+    ...exceptions.map(ex => ({
+      fromKey: `${ex.from?.bedNum}-${ex.from?.shiftCode}`,
+      toKey: `${ex.to?.bedNum}-${ex.to?.shiftCode}`,
+      from: ex.from
+    })),
+    {
+      fromKey: `${newFormData.from?.bedNum}-${newFormData.from?.shiftCode}`,
+      toKey: `${newFormData.to?.bedNum}-${newFormData.to?.shiftCode}`,
+      from: newFormData.from
+    }
+  ]
+
+  // 收集所有的 to 床位
+  const allToKeys = new Set(allMoves.map(m => m.toKey))
+
+  // 找出鏈頭：from 不在任何 to 中的申請
+  const chainHead = allMoves.find(m => !allToKeys.has(m.fromKey))
+
+  // 如果找不到（可能是環狀），就用第一筆
+  return chainHead?.from || exceptions[0]?.from
+}
+
+/**
  * 產生合併確認訊息（支援多筆現有申請）
  * @param {Array} existingExceptions - 所有可合併的現有申請陣列
  * @param {object} newFormData - 新提交的表單資料
@@ -602,16 +634,16 @@ function generateMergeMessage(existingExceptions, newFormData) {
       return `【${from} → ${to}】`
     }).join('\n')
 
-    // 找出最早的起點（用於合併後的 from）
-    const earliestFrom = existingExceptions[0].from
-    const earliestFromText = formatBed(earliestFrom?.bedNum, earliestFrom?.shiftCode)
+    // 找出鏈的起點（真正的原始床位）
+    const chainHeadFrom = findChainHead(existingExceptions, newFormData)
+    const chainHeadText = formatBed(chainHeadFrom?.bedNum, chainHeadFrom?.shiftCode)
     const newTo = formatBed(newFormData.to?.bedNum, newFormData.to?.shiftCode)
 
     return (
       `${firstEx.patientName} 在 ${firstEx.to?.goalDate} 已有 ${count} 筆臨時調班申請：\n` +
       `${existingPaths}\n\n` +
       `是否全部整併為：\n` +
-      `【${earliestFromText} → ${newTo}】？`
+      `【${chainHeadText} → ${newTo}】？`
     )
   } else if (firstEx.type === 'ADD_SESSION') {
     const existingBeds = existingExceptions.map((ex) => {
@@ -824,7 +856,7 @@ async function deleteOldExceptionMessages(existingEx) {
 }
 
 /**
- * 使用者確認合併：刪除所有原有申請，保留最早的 from，更新為新的 to
+ * 使用者確認合併：刪除所有原有申請，保留鏈頭的 from，更新為新的 to
  */
 async function handleMergeConfirm() {
   isMergeDialogVisible.value = false
@@ -848,16 +880,19 @@ async function handleMergeConfirm() {
       await deleteDoc(doc(db, 'schedule_exceptions', existingExceptions[i].id))
     }
 
-    // 建立合併後的資料：保留最早的 from，更新 to
+    // 建立合併後的資料：保留鏈頭的 from，更新 to
     const mergedData = {
       ...newFormData,
       id: firstEx.id, // 用第一筆的 id 更新
     }
 
-    // 對於 MOVE 類型，保留第一筆的 from（最早的起點）
-    if (firstEx.type === 'MOVE' && firstEx.from) {
-      mergedData.from = { ...firstEx.from }
-      mergedData.startDate = firstEx.from.sourceDate
+    // 對於 MOVE 類型，找出鏈頭作為真正的起點
+    if (firstEx.type === 'MOVE') {
+      const chainHeadFrom = findChainHead(existingExceptions, newFormData)
+      if (chainHeadFrom) {
+        mergedData.from = { ...chainHeadFrom }
+        mergedData.startDate = chainHeadFrom.sourceDate
+      }
     }
 
     // 提交合併後的申請（會更新第一筆）
