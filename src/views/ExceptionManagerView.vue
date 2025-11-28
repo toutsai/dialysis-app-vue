@@ -536,7 +536,8 @@ function findMergeableException(formData) {
   if (!targetDate) return null
 
   // 判斷新申請是否為「當日調班」（原始日期 = 目標日期）
-  const isNewSameDayMove = formData.type === 'MOVE' && formData.from?.date === formData.to?.goalDate
+  // 注意：使用 sourceDate 而非 date
+  const isNewSameDayMove = formData.type === 'MOVE' && formData.from?.sourceDate === formData.to?.goalDate
 
   // 在現有申請中尋找可合併的
   return exceptions.value.find((ex) => {
@@ -562,7 +563,8 @@ function findMergeableException(formData) {
     // ✨ MOVE 類型：只有當兩者都是「當日調班」時才合併
     // 跨日調班不合併，直接新增
     if (formData.type === 'MOVE') {
-      const isExistingSameDayMove = ex.from?.date === ex.to?.goalDate
+      // 注意：使用 sourceDate 而非 date
+      const isExistingSameDayMove = ex.from?.sourceDate === ex.to?.goalDate
       // 只有兩者都是當日調班才合併
       if (!isNewSameDayMove || !isExistingSameDayMove) {
         return false
