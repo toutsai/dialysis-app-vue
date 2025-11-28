@@ -190,7 +190,7 @@ const currentActionData = ref(null)
 const isMergeDialogVisible = ref(false)
 const mergeDialogMessage = ref('')
 const pendingFormData = ref(null) // 待處理的新申請表單資料
-const existingExceptionToMerge = ref(null) // 找到的現有申請
+const existingExceptionsToMerge = ref([]) // 找到的所有可合併申請（陣列）
 
 const statusMap = {
   pending: '待處理',
@@ -514,11 +514,11 @@ function handleDeleteFromChild(id) {
 /**
  * 檢查是否存在可合併的現有調班申請
  * @param {object} formData - 新提交的表單資料
- * @returns {object|null} - 找到的現有申請，或 null
+ * @returns {Array} - 找到的所有可合併申請陣列（可能為空）
  */
-function findMergeableException(formData) {
+function findMergeableExceptions(formData) {
   // 如果是編輯模式（更新現有申請），不檢查合併
-  if (formData.id) return null
+  if (formData.id) return []
 
   // 取得新申請的目標日期
   let targetDate = null
@@ -533,10 +533,14 @@ function findMergeableException(formData) {
     targetDate = formData.date
   }
 
-  if (!targetDate) return null
+  if (!targetDate) return []
 
-  // 在現有申請中尋找可合併的
-  return exceptions.value.find((ex) => {
+  // 判斷新申請是否為「當日調班」（原始日期 = 目標日期）
+  // 注意：使用 sourceDate 而非 date
+  const isNewSameDayMove = formData.type === 'MOVE' && formData.from?.sourceDate === formData.to?.goalDate
+
+  // 在現有申請中尋找【所有】可合併的（使用 filter 而非 find）
+  return exceptions.value.filter((ex) => {
     // 必須是同病人、同類型、且狀態為 pending 或 applied
     if (ex.patientId !== formData.patientId) return false
     if (ex.type !== formData.type) return false
@@ -554,14 +558,61 @@ function findMergeableException(formData) {
       existingTargetDate = ex.date
     }
 
-    return existingTargetDate === targetDate
+    if (existingTargetDate !== targetDate) return false
+
+    // ✨ MOVE 類型：只有當兩者都是「當日調班」時才合併
+    // 跨日調班不合併，直接新增
+    if (formData.type === 'MOVE') {
+      // 注意：使用 sourceDate 而非 date
+      const isExistingSameDayMove = ex.from?.sourceDate === ex.to?.goalDate
+      // 只有兩者都是當日調班才合併
+      if (!isNewSameDayMove || !isExistingSameDayMove) {
+        return false
+      }
+    }
+
+    return true
   })
 }
 
 /**
- * 產生合併確認訊息
+ * 將調班申請串成鏈狀，找出鏈的起點（真正的原始床位）
+ * 例如：A→B, B→C, C→D 應該找出 A 作為鏈頭
+ * @param {Array} exceptions - 所有調班申請
+ * @param {object} newFormData - 新提交的表單資料
+ * @returns {object} - 鏈頭的 from 資料
  */
-function generateMergeMessage(existingEx, newFormData) {
+function findChainHead(exceptions, newFormData) {
+  // 將所有申請（包含新的）合併
+  const allMoves = [
+    ...exceptions.map(ex => ({
+      fromKey: `${ex.from?.bedNum}-${ex.from?.shiftCode}`,
+      toKey: `${ex.to?.bedNum}-${ex.to?.shiftCode}`,
+      from: ex.from
+    })),
+    {
+      fromKey: `${newFormData.from?.bedNum}-${newFormData.from?.shiftCode}`,
+      toKey: `${newFormData.to?.bedNum}-${newFormData.to?.shiftCode}`,
+      from: newFormData.from
+    }
+  ]
+
+  // 收集所有的 to 床位
+  const allToKeys = new Set(allMoves.map(m => m.toKey))
+
+  // 找出鏈頭：from 不在任何 to 中的申請
+  const chainHead = allMoves.find(m => !allToKeys.has(m.fromKey))
+
+  // 如果找不到（可能是環狀），就用第一筆
+  return chainHead?.from || exceptions[0]?.from
+}
+
+/**
+ * 產生合併確認訊息（支援多筆現有申請）
+ * @param {Array} existingExceptions - 所有可合併的現有申請陣列
+ * @param {object} newFormData - 新提交的表單資料
+ */
+function generateMergeMessage(existingExceptions, newFormData) {
   const shiftDisplayMap = { early: '早班', noon: '午班', late: '晚班' }
 
   const formatBed = (bedNum, shiftCode) => {
@@ -572,42 +623,59 @@ function generateMergeMessage(existingEx, newFormData) {
     return `${bedText}${shiftText}`
   }
 
-  if (existingEx.type === 'MOVE') {
-    const existingFrom = formatBed(existingEx.from?.bedNum, existingEx.from?.shiftCode)
-    const existingTo = formatBed(existingEx.to?.bedNum, existingEx.to?.shiftCode)
+  const count = existingExceptions.length
+  const firstEx = existingExceptions[0]
+
+  if (firstEx.type === 'MOVE') {
+    // 列出所有現有調班的路徑
+    const existingPaths = existingExceptions.map((ex) => {
+      const from = formatBed(ex.from?.bedNum, ex.from?.shiftCode)
+      const to = formatBed(ex.to?.bedNum, ex.to?.shiftCode)
+      return `【${from} → ${to}】`
+    }).join('\n')
+
+    // 找出鏈的起點（真正的原始床位）
+    const chainHeadFrom = findChainHead(existingExceptions, newFormData)
+    const chainHeadText = formatBed(chainHeadFrom?.bedNum, chainHeadFrom?.shiftCode)
     const newTo = formatBed(newFormData.to?.bedNum, newFormData.to?.shiftCode)
 
     return (
-      `${existingEx.patientName} 在 ${existingEx.to?.goalDate} 已有臨時調班申請：\n` +
-      `【${existingFrom} → ${existingTo}】\n\n` +
-      `是否整併為：\n` +
-      `【${existingFrom} → ${newTo}】？`
+      `${firstEx.patientName} 在 ${firstEx.to?.goalDate} 已有 ${count} 筆臨時調班申請：\n` +
+      `${existingPaths}\n\n` +
+      `是否全部整併為：\n` +
+      `【${chainHeadText} → ${newTo}】？`
     )
-  } else if (existingEx.type === 'ADD_SESSION') {
-    const existingBed = formatBed(existingEx.to?.bedNum, existingEx.to?.shiftCode)
+  } else if (firstEx.type === 'ADD_SESSION') {
+    const existingBeds = existingExceptions.map((ex) => {
+      return `【${formatBed(ex.to?.bedNum, ex.to?.shiftCode)}】`
+    }).join('\n')
     const newBed = formatBed(newFormData.to?.bedNum, newFormData.to?.shiftCode)
 
     return (
-      `${existingEx.patientName} 在 ${existingEx.to?.goalDate} 已有臨時加洗申請：\n` +
-      `【${existingBed}】\n\n` +
-      `是否改為：\n` +
+      `${firstEx.patientName} 在 ${firstEx.to?.goalDate} 已有 ${count} 筆臨時加洗申請：\n` +
+      `${existingBeds}\n\n` +
+      `是否全部整併為：\n` +
       `【${newBed}】？`
     )
-  } else if (existingEx.type === 'SUSPEND') {
+  } else if (firstEx.type === 'SUSPEND') {
+    const existingRanges = existingExceptions.map((ex) => {
+      return `【${ex.startDate} ~ ${ex.endDate}】`
+    }).join('\n')
+
     return (
-      `${existingEx.patientName} 已有區間暫停申請：\n` +
-      `【${existingEx.startDate} ~ ${existingEx.endDate}】\n\n` +
-      `是否更新為：\n` +
+      `${firstEx.patientName} 已有 ${count} 筆區間暫停申請：\n` +
+      `${existingRanges}\n\n` +
+      `是否全部整併為：\n` +
       `【${newFormData.startDate} ~ ${newFormData.endDate}】？`
     )
-  } else if (existingEx.type === 'SWAP') {
+  } else if (firstEx.type === 'SWAP') {
     return (
-      `${existingEx.patient1?.patientName} 在 ${existingEx.date} 已有同日互調申請\n\n` +
-      `是否覆蓋為新的互調設定？`
+      `${firstEx.patient1?.patientName} 在 ${firstEx.date} 已有 ${count} 筆同日互調申請\n\n` +
+      `是否全部整併為新的互調設定？`
     )
   }
 
-  return '發現相同類型的調班申請，是否合併？'
+  return `發現 ${count} 筆相同類型的調班申請，是否全部整併？`
 }
 
 async function handleCreateException(formData) {
@@ -616,13 +684,13 @@ async function handleCreateException(formData) {
 
     // 如果不是更新模式，檢查是否有可合併的申請
     if (!isUpdating) {
-      const existingException = findMergeableException(formData)
-      if (existingException) {
+      const existingExceptions = findMergeableExceptions(formData)
+      if (existingExceptions.length > 0) {
         // 找到可合併的申請，先關閉 CreateDialog，再顯示確認對話框
         closeCreateDialog()
-        existingExceptionToMerge.value = existingException
+        existingExceptionsToMerge.value = existingExceptions
         pendingFormData.value = formData
-        mergeDialogMessage.value = generateMergeMessage(existingException, formData)
+        mergeDialogMessage.value = generateMergeMessage(existingExceptions, formData)
         isMergeDialogVisible.value = true
         return // 等待用戶確認
       }
@@ -788,44 +856,56 @@ async function deleteOldExceptionMessages(existingEx) {
 }
 
 /**
- * 使用者確認合併：刪除原有申請，保留原始 from，更新為新的 to
+ * 使用者確認合併：刪除所有原有申請，保留鏈頭的 from，更新為新的 to
  */
 async function handleMergeConfirm() {
   isMergeDialogVisible.value = false
 
-  if (!existingExceptionToMerge.value || !pendingFormData.value) {
+  if (existingExceptionsToMerge.value.length === 0 || !pendingFormData.value) {
     return
   }
 
   try {
-    const existingEx = existingExceptionToMerge.value
+    const existingExceptions = existingExceptionsToMerge.value
     const newFormData = pendingFormData.value
+    const firstEx = existingExceptions[0]
 
-    // 先刪除舊的調班訊息
-    await deleteOldExceptionMessages(existingEx)
+    // 先刪除所有舊的調班訊息
+    for (const ex of existingExceptions) {
+      await deleteOldExceptionMessages(ex)
+    }
 
-    // 建立合併後的資料：保留原始 from，更新 to
+    // 刪除除了第一筆之外的所有現有申請
+    for (let i = 1; i < existingExceptions.length; i++) {
+      await deleteDoc(doc(db, 'schedule_exceptions', existingExceptions[i].id))
+    }
+
+    // 建立合併後的資料：保留鏈頭的 from，更新 to
     const mergedData = {
       ...newFormData,
-      id: existingEx.id, // 標記為更新模式
+      id: firstEx.id, // 用第一筆的 id 更新
     }
 
-    // 對於 MOVE 類型，保留原始的 from（起點）
-    if (existingEx.type === 'MOVE' && existingEx.from) {
-      mergedData.from = { ...existingEx.from }
-      mergedData.startDate = existingEx.from.sourceDate
+    // 對於 MOVE 類型，找出鏈頭作為真正的起點
+    if (firstEx.type === 'MOVE') {
+      const chainHeadFrom = findChainHead(existingExceptions, newFormData)
+      if (chainHeadFrom) {
+        mergedData.from = { ...chainHeadFrom }
+        mergedData.startDate = chainHeadFrom.sourceDate
+      }
     }
 
-    // 提交合併後的申請（會刪除舊的，建立新的）
+    // 提交合併後的申請（會更新第一筆）
     await processExceptionSubmission(mergedData, true)
 
-    createGlobalNotification('已整併調班申請', 'success')
+    const count = existingExceptions.length
+    createGlobalNotification(`已整併 ${count} 筆調班申請`, 'success')
   } catch (error) {
     console.error('合併調班申請失敗:', error)
     addLocalNotification(`合併失敗: ${error.message || '無法合併調班申請'}`)
   } finally {
     // 清理暫存狀態
-    existingExceptionToMerge.value = null
+    existingExceptionsToMerge.value = []
     pendingFormData.value = null
   }
 }
@@ -836,7 +916,7 @@ async function handleMergeConfirm() {
 function handleMergeCancel() {
   isMergeDialogVisible.value = false
   // 清理暫存狀態，不提交任何東西
-  existingExceptionToMerge.value = null
+  existingExceptionsToMerge.value = []
   pendingFormData.value = null
 }
 

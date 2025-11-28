@@ -57,10 +57,6 @@
         <section class="log-section">
           <div class="section-header">
             <h2>營運統計</h2>
-            <!-- ✨ 修改：Viewer 隱藏同步按鈕 -->
-            <button v-if="!isPageLocked" @click="syncStatsWithSchedule" class="sync-stats-btn">
-              <i class="fas fa-sync-alt"></i> 更新各班病人人數
-            </button>
           </div>
 
           <div class="stats-grid">
@@ -1437,29 +1433,160 @@ function calculateStatsFromSchedule(scheduleRecord) {
   dailyLog.stats.peripheral_beds = newStats.peripheral_beds
 }
 
-async function syncStatsWithSchedule() {
-  showConfirm(
-    '確認同步人數',
-    '此操作將會用最新的「每日排程表」資料覆蓋上方的「洗腎中心床位」與「急重症床位」統計。您手動填寫的其他欄位（如病人照護、護理人力）將不受影響。確定要繼續嗎？',
-    async () => {
-      isLoading.value = true
-      try {
-        const scheduleData = await schedulesApi.fetchAll([where('date', '==', selectedDate.value)])
-        if (scheduleData.length > 0) {
-          calculateStatsFromSchedule(scheduleData[0])
-          hasUnsavedChanges.value = true
-          showAlert('同步成功', '人數統計已更新，請記得儲存變更！')
-        } else {
-          showAlert('同步失敗', `找不到 ${selectedDate.value} 的排班資料。`)
-        }
-      } catch (error) {
-        console.error('同步排班統計失敗:', error)
-        showAlert('同步失敗', '同步人數統計時發生錯誤。')
-      } finally {
-        isLoading.value = false
-      }
+// 計算 schedule 的人數統計，返回結果而不修改 dailyLog
+function getStatsFromSchedule(scheduleRecord) {
+  const stats = {
+    main_beds: {
+      early: { opd: 0, ipd: 0, er: 0, total: 0 },
+      noon: { opd: 0, ipd: 0, er: 0, total: 0 },
+      late: { opd: 0, ipd: 0, er: 0, total: 0 },
     },
-  )
+    peripheral_beds: {
+      early: { ipd: 0, er: 0, total: 0 },
+      noon: { ipd: 0, er: 0, total: 0 },
+      late: { ipd: 0, er: 0, total: 0 },
+    },
+  }
+  if (!scheduleRecord || !scheduleRecord.schedule) {
+    return stats
+  }
+  for (const shiftKey in scheduleRecord.schedule) {
+    const slotData = scheduleRecord.schedule[shiftKey]
+    if (!slotData?.patientId) continue
+    const patient = patientMap.value.get(slotData.patientId)
+    if (!patient) continue
+    const shiftCode = shiftKey.split('-').pop()
+    const isPeripheral = shiftKey.startsWith('peripheral')
+
+    if (['early', 'noon', 'late'].includes(shiftCode)) {
+      if (isPeripheral) {
+        stats.peripheral_beds[shiftCode].total++
+        if (patient.status === 'ipd') stats.peripheral_beds[shiftCode].ipd++
+        else if (patient.status === 'er') stats.peripheral_beds[shiftCode].er++
+      } else {
+        stats.main_beds[shiftCode].total++
+        if (patient.status === 'opd') stats.main_beds[shiftCode].opd++
+        else if (patient.status === 'ipd') stats.main_beds[shiftCode].ipd++
+        else if (patient.status === 'er') stats.main_beds[shiftCode].er++
+      }
+    }
+  }
+  return stats
+}
+
+// 比較兩邊的人數統計是否一致
+function compareStats(currentStats, scheduleStats) {
+  const differences = []
+  const shiftLabels = { early: '第一班', noon: '第二班', late: '第三班' }
+  const categoryLabels = { opd: '門診', ipd: '住院', er: '急診', total: '小計' }
+
+  // 比較洗腎中心床位
+  for (const shift of ['early', 'noon', 'late']) {
+    for (const category of ['opd', 'ipd', 'er', 'total']) {
+      const current = currentStats.main_beds?.[shift]?.[category] || 0
+      const schedule = scheduleStats.main_beds?.[shift]?.[category] || 0
+      if (current !== schedule) {
+        differences.push({
+          area: '洗腎中心',
+          shift: shiftLabels[shift],
+          category: categoryLabels[category],
+          current,
+          schedule,
+        })
+      }
+    }
+  }
+
+  // 比較急重症床位
+  for (const shift of ['early', 'noon', 'late']) {
+    for (const category of ['ipd', 'er', 'total']) {
+      const current = currentStats.peripheral_beds?.[shift]?.[category] || 0
+      const schedule = scheduleStats.peripheral_beds?.[shift]?.[category] || 0
+      if (current !== schedule) {
+        differences.push({
+          area: '急重症',
+          shift: shiftLabels[shift],
+          category: categoryLabels[category],
+          current,
+          schedule,
+        })
+      }
+    }
+  }
+
+  return differences
+}
+
+// 格式化差異訊息
+function formatDifferencesMessage(differences) {
+  if (differences.length === 0) return ''
+
+  // 按區域分組
+  const mainBedsDiffs = differences.filter((d) => d.area === '洗腎中心')
+  const peripheralDiffs = differences.filter((d) => d.area === '急重症')
+
+  let message = '以下人數與排程表不符：\n\n'
+
+  if (mainBedsDiffs.length > 0) {
+    message += '【洗腎中心床位】\n'
+    mainBedsDiffs.forEach((d) => {
+      message += `  ${d.shift} ${d.category}: ${d.current} → ${d.schedule}\n`
+    })
+    message += '\n'
+  }
+
+  if (peripheralDiffs.length > 0) {
+    message += '【急重症床位】\n'
+    peripheralDiffs.forEach((d) => {
+      message += `  ${d.shift} ${d.category}: ${d.current} → ${d.schedule}\n`
+    })
+  }
+
+  return message
+}
+
+// 存檔前檢查並自動同步人數統計
+async function checkAndSyncBeforeSave(onComplete) {
+  try {
+    // 獲取最新的 schedule 資料
+    const scheduleData = await schedulesApi.fetchAll([where('date', '==', selectedDate.value)])
+
+    if (scheduleData.length === 0) {
+      // 沒有排程資料，直接存檔
+      await onComplete()
+      return
+    }
+
+    // 計算 schedule 的人數統計
+    const scheduleStats = getStatsFromSchedule(scheduleData[0])
+
+    // 比較差異
+    const differences = compareStats(dailyLog.stats, scheduleStats)
+
+    if (differences.length === 0) {
+      // 沒有差異，直接執行
+      await onComplete()
+      return
+    }
+
+    // 有差異，顯示確認對話框
+    const diffMessage = formatDifferencesMessage(differences)
+    showConfirm(
+      '人數統計需要同步',
+      `${diffMessage}\n是否同步為排程表的人數後再儲存？`,
+      async () => {
+        // 同步人數
+        dailyLog.stats.main_beds = scheduleStats.main_beds
+        dailyLog.stats.peripheral_beds = scheduleStats.peripheral_beds
+        // 執行原本的操作
+        await onComplete()
+      },
+    )
+  } catch (error) {
+    console.error('檢查人數統計時發生錯誤:', error)
+    // 發生錯誤時仍然允許存檔
+    await onComplete()
+  }
 }
 
 // --- Staffing Calculation ---
@@ -1812,7 +1939,9 @@ function handleWardNumberCancel() {
 // --- Leader Signature ---
 async function signAsLeader(shift) {
   if (!currentUser.value) return
-  const performSign = async (isOverride = false) => {
+
+  // 執行簽核並存檔的函數
+  const performSignAndSave = async (isOverride = false) => {
     dailyLog.leader[shift] = {
       userId: currentUser.value.uid,
       name: currentUser.value.name,
@@ -1820,6 +1949,13 @@ async function signAsLeader(shift) {
     }
     const successMsg = isOverride ? '覆蓋簽核成功！日誌已更新。' : '簽核成功！日誌已儲存。'
     await saveLog({ successMessage: successMsg })
+  }
+
+  // 先檢查人數統計，再執行簽核
+  const performSign = async (isOverride = false) => {
+    await checkAndSyncBeforeSave(async () => {
+      await performSignAndSave(isOverride)
+    })
   }
 
   const existingLeader = dailyLog.leader[shift]
@@ -1839,9 +1975,18 @@ async function signAsLeader(shift) {
 
 async function unsignLeader(shift) {
   if (!currentUser.value) return
-  const performUnsign = async () => {
+
+  // 執行撤銷簽核並存檔的函數
+  const performUnsignAndSave = async () => {
     dailyLog.leader[shift] = { userId: null, name: null, signedAt: null }
     await saveLog({ successMessage: '撤銷簽核成功！日誌已更新。' })
+  }
+
+  // 先檢查人數統計，再執行撤銷
+  const performUnsign = async () => {
+    await checkAndSyncBeforeSave(async () => {
+      await performUnsignAndSave()
+    })
   }
 
   if (dailyLog.leader[shift]?.userId) {
@@ -2105,29 +2250,6 @@ h1 {
   border: none;
   font-size: 1.5rem;
   color: #495057;
-}
-.sync-stats-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-  background-color: #6c757d;
-  color: white;
-  border: 1px solid #6c757d;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.sync-stats-btn:hover {
-  background-color: #5a6268;
-}
-.sync-stats-btn .fa-sync-alt {
-  animation: none;
-}
-.sync-stats-btn:active .fa-sync-alt {
-  animation: spin 1s linear infinite;
 }
 .add-row-btn-header {
   padding: 0.5rem 1rem;
