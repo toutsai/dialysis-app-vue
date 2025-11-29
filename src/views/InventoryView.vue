@@ -356,13 +356,21 @@
       <!-- ========== Tab 3: 每月盤點 ========== -->
       <div v-show="activeTab === 'monthly'" class="tab-panel">
         <div class="panel-header">
-          <h3>每月盤點計算</h3>
+          <h3>每月盤點</h3>
         </div>
 
         <div class="filter-bar">
           <div class="filter-field">
-            <label>計算月份</label>
-            <input type="month" v-model="monthlyFilter.month" />
+            <label>盤點日</label>
+            <input type="date" v-model="monthlyFilter.countDate" />
+          </div>
+          <div class="filter-field">
+            <label>盤點區間（起）</label>
+            <input type="date" v-model="monthlyFilter.startDate" />
+          </div>
+          <div class="filter-field">
+            <label>盤點區間（迄）</label>
+            <input type="date" v-model="monthlyFilter.endDate" />
           </div>
           <button class="btn-primary" @click="calculateMonthlyInventory" :disabled="monthlyLoading">
             {{ monthlyLoading ? '計算中...' : '計算庫存' }}
@@ -374,23 +382,23 @@
 
         <div class="monthly-summary" v-if="monthlyCalculated">
           <div class="summary-card">
-            <h4>上月結存</h4>
-            <p>{{ monthlyFilter.month }} 之前的庫存</p>
+            <h4>期初結存</h4>
+            <p>{{ monthlyFilter.startDate }} 之前</p>
           </div>
           <div class="summary-card">
             <span class="operator">+</span>
-            <h4>本月進貨</h4>
-            <p>{{ monthlyFilter.month }} 進貨總量</p>
+            <h4>區間進貨</h4>
+            <p>{{ monthlyFilter.startDate }} ~ {{ monthlyFilter.endDate }}</p>
           </div>
           <div class="summary-card">
             <span class="operator">-</span>
-            <h4>本月消耗</h4>
-            <p>{{ monthlyFilter.month }} 消耗總量</p>
+            <h4>區間消耗</h4>
+            <p>{{ monthlyFilter.startDate }} ~ {{ monthlyFilter.endDate }}</p>
           </div>
           <div class="summary-card result">
             <span class="operator">=</span>
-            <h4>本月結存</h4>
-            <p>計算後庫存</p>
+            <h4>期末結存</h4>
+            <p>盤點日：{{ monthlyFilter.countDate }}</p>
           </div>
         </div>
 
@@ -400,10 +408,10 @@
               <tr>
                 <th rowspan="2">類別</th>
                 <th rowspan="2">品項</th>
-                <th colspan="2">上月結存</th>
-                <th colspan="2">本月進貨</th>
-                <th colspan="2">本月消耗</th>
-                <th colspan="2">本月結存</th>
+                <th colspan="2">期初結存</th>
+                <th colspan="2">區間進貨</th>
+                <th colspan="2">區間消耗</th>
+                <th colspan="2">期末結存</th>
                 <th rowspan="2">調整(個)</th>
               </tr>
               <tr>
@@ -455,6 +463,10 @@
 
         <div class="filter-bar">
           <div class="filter-field">
+            <label>盤點日（週二）</label>
+            <input type="date" v-model="weeklyFilter.countDate" />
+          </div>
+          <div class="filter-field">
             <label>選擇週次</label>
             <input type="week" v-model="weeklyFilter.week" />
           </div>
@@ -467,7 +479,7 @@
           <!-- 週二盤點輸入區 -->
           <div class="weekly-section">
             <div class="section-header">
-              <h4>週二盤點輸入</h4>
+              <h4>週二盤點輸入 ({{ weeklyFilter.countDate }})</h4>
               <button class="btn-sm btn-primary" @click="saveWeeklyCount" :disabled="weeklyLoading">
                 儲存盤點
               </button>
@@ -1426,8 +1438,23 @@ function exportMonthlySummary() {
 // ==================== Tab 3: 每月盤點 ====================
 const monthlyLoading = ref(false)
 const monthlyCalculated = ref(false)
+
+// 計算本月第一天和最後一天作為預設區間
+function getDefaultMonthlyDates() {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = today.getMonth()
+  const firstDay = new Date(year, month, 1).toISOString().slice(0, 10)
+  const lastDay = new Date(year, month + 1, 0).toISOString().slice(0, 10)
+  const countDate = today.toISOString().slice(0, 10)
+  return { firstDay, lastDay, countDate }
+}
+
+const defaultDates = getDefaultMonthlyDates()
 const monthlyFilter = reactive({
-  month: new Date().toISOString().slice(0, 7),
+  countDate: defaultDates.countDate,
+  startDate: defaultDates.firstDay,
+  endDate: defaultDates.lastDay,
 })
 const monthlyInventory = reactive({
   artificialKidney: {},
@@ -1445,22 +1472,22 @@ async function calculateMonthlyInventory() {
   }
 
   try {
-    const selectedMonth = monthlyFilter.month
-    const [year, month] = selectedMonth.split('-').map(Number)
+    // 使用自訂區間
+    const startDate = new Date(monthlyFilter.startDate)
+    startDate.setHours(0, 0, 0, 0)
+    const endDate = new Date(monthlyFilter.endDate)
+    endDate.setHours(23, 59, 59, 999)
 
-    // 計算上個月
-    const prevMonth = month === 1 ? 12 : month - 1
-    const prevYear = month === 1 ? year - 1 : year
-    const prevMonthStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}`
+    // 計算期初結存的查詢 key（使用 startDate 的前一天）
+    const prevDate = new Date(startDate)
+    prevDate.setDate(prevDate.getDate() - 1)
+    const prevCountKey = prevDate.toISOString().slice(0, 7) // 用月份作為 key
 
-    // 1. 取得上月盤點結果
-    const prevCountDoc = await getDoc(doc(db, 'inventory_counts', prevMonthStr))
+    // 1. 取得期初盤點結果（查詢最近一次的盤點）
+    const prevCountDoc = await getDoc(doc(db, 'inventory_counts', prevCountKey))
     const prevCounts = prevCountDoc.exists() ? prevCountDoc.data().counts || {} : {}
 
-    // 2. 取得本月進貨
-    const startDate = new Date(`${selectedMonth}-01`)
-    const endDate = new Date(year, month, 0, 23, 59, 59)
-
+    // 2. 取得區間進貨
     const purchaseQuery = query(
       collection(db, 'inventory_purchases'),
       where('date', '>=', Timestamp.fromDate(startDate)),
@@ -1468,14 +1495,14 @@ async function calculateMonthlyInventory() {
     )
     const purchaseSnapshot = await getDocs(purchaseQuery)
     const purchaseData = {}
-    purchaseSnapshot.docs.forEach((doc) => {
-      const p = doc.data()
+    purchaseSnapshot.docs.forEach((docSnap) => {
+      const p = docSnap.data()
       if (!purchaseData[p.category]) purchaseData[p.category] = {}
       purchaseData[p.category][p.item] = (purchaseData[p.category][p.item] || 0) + p.quantity
     })
 
-    // 3. 取得本月消耗 (從 consumables_reports 彙總)
-    const consumptionData = await getMonthlyConsumption(selectedMonth)
+    // 3. 取得區間消耗 (使用區間內的月份查詢)
+    const consumptionData = await getConsumptionByDateRange(startDate, endDate)
 
     // 4. 合併所有品項
     const allItems = new Set()
@@ -1509,7 +1536,7 @@ async function calculateMonthlyInventory() {
 
     monthlyCalculated.value = true
   } catch (error) {
-    console.error('計算月庫存失敗:', error)
+    console.error('計算庫存失敗:', error)
     alert('計算失敗: ' + error.message)
   } finally {
     monthlyLoading.value = false
@@ -1528,8 +1555,8 @@ async function getMonthlyConsumption(month) {
     const q = query(collection(db, 'consumables_reports'), where('reportMonth', '==', month))
     const snapshot = await getDocs(q)
 
-    snapshot.docs.forEach((doc) => {
-      const report = doc.data()
+    snapshot.docs.forEach((docSnap) => {
+      const report = docSnap.data()
       const data = report.data || {}
 
       for (const category of Object.keys(result)) {
@@ -1542,6 +1569,50 @@ async function getMonthlyConsumption(month) {
     })
   } catch (error) {
     console.error('取得月消耗資料失敗:', error)
+  }
+
+  return result
+}
+
+// 取得日期區間內的消耗資料
+async function getConsumptionByDateRange(startDate, endDate) {
+  const result = {
+    artificialKidney: {},
+    dialysateCa: {},
+    bicarbonateType: {},
+  }
+
+  try {
+    // 找出區間內涵蓋的月份
+    const months = []
+    const current = new Date(startDate.getFullYear(), startDate.getMonth(), 1)
+    const end = new Date(endDate.getFullYear(), endDate.getMonth(), 1)
+
+    while (current <= end) {
+      months.push(`${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`)
+      current.setMonth(current.getMonth() + 1)
+    }
+
+    // 查詢這些月份的消耗報告
+    for (const month of months) {
+      const q = query(collection(db, 'consumables_reports'), where('reportMonth', '==', month))
+      const snapshot = await getDocs(q)
+
+      snapshot.docs.forEach((docSnap) => {
+        const report = docSnap.data()
+        const data = report.data || {}
+
+        for (const category of Object.keys(result)) {
+          if (data[category] && Array.isArray(data[category])) {
+            data[category].forEach((item) => {
+              result[category][item.item] = (result[category][item.item] || 0) + (item.count || 0)
+            })
+          }
+        }
+      })
+    }
+  } catch (error) {
+    console.error('取得區間消耗資料失敗:', error)
   }
 
   return result
@@ -1560,9 +1631,14 @@ async function saveMonthlyCount() {
       }
     }
 
-    await setDoc(doc(db, 'inventory_counts', monthlyFilter.month), {
+    // 使用盤點日作為文件 ID
+    const countKey = monthlyFilter.countDate.slice(0, 7) // YYYY-MM 格式
+
+    await setDoc(doc(db, 'inventory_counts', countKey), {
       type: 'monthly',
-      month: monthlyFilter.month,
+      countDate: monthlyFilter.countDate,
+      startDate: monthlyFilter.startDate,
+      endDate: monthlyFilter.endDate,
       counts,
       createdBy: currentUser.value?.name || '未知',
       createdAt: Timestamp.now(),
@@ -1578,7 +1654,28 @@ async function saveMonthlyCount() {
 // ==================== Tab 4: 每週訂單 ====================
 const weeklyLoading = ref(false)
 const weeklyDataLoaded = ref(false)
+
+// 取得本週二的日期
+function getThisTuesday() {
+  const today = new Date()
+  const day = today.getDay()
+  const diff = day <= 2 ? 2 - day : 9 - day // 計算到最近的週二
+  const tuesday = new Date(today)
+  tuesday.setDate(today.getDate() + diff - 7) // 預設取上週二，如果今天是週二則取今天
+  if (day === 2) {
+    return today.toISOString().slice(0, 10)
+  }
+  // 如果今天在週二之後，取本週二；否則取上週二
+  if (day > 2) {
+    tuesday.setDate(today.getDate() - (day - 2))
+  } else {
+    tuesday.setDate(today.getDate() + (2 - day))
+  }
+  return tuesday.toISOString().slice(0, 10)
+}
+
 const weeklyFilter = reactive({
+  countDate: getThisTuesday(),
   week: getISOWeek(new Date()),
 })
 const weeklyCount = reactive({
@@ -1657,6 +1754,7 @@ async function saveWeeklyCount() {
     await setDoc(doc(db, 'inventory_counts', weeklyFilter.week), {
       type: 'weekly',
       week: weeklyFilter.week,
+      countDate: weeklyFilter.countDate,
       counts: {
         artificialKidney: { ...weeklyCount.artificialKidney },
         dialysateCa: { ...weeklyCount.dialysateCa },
