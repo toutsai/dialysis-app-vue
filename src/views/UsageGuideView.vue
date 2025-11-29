@@ -1,8 +1,13 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
+// 從自動生成的 JSON 檔案讀取版本記錄（每次構建時自動更新）
+import changelogData from '@/data/changelog.json'
 
 const activeSection = ref('overview')
 const expandedPages = ref({})
+
+// 版本更新記錄（從 JSON 動態載入，構建時自動從 git log 生成）
+const changelog = ref(changelogData)
 
 const sections = [
   { id: 'overview', name: '平台總覽', icon: 'fa-home' },
@@ -282,105 +287,6 @@ const pageGuides = {
     ],
   },
 }
-
-const changelog = [
-  {
-    version: '2025-11-29',
-    title: '庫存管理與品項設定優化',
-    changes: [
-      { type: 'feat', text: '優化品項設定頁面 UI' },
-    ],
-  },
-  {
-    version: '2025-11-28',
-    title: '庫存管理系統上線',
-    changes: [
-      { type: 'feat', text: '新增完整庫存管理系統' },
-      { type: 'feat', text: '新增消耗紀錄「當月總量」子頁籤' },
-      { type: 'feat', text: '新增庫存管理箱數/個數換算功能' },
-      { type: 'feat', text: '品項設定新增「每箱數量」欄位' },
-      { type: 'feat', text: '新增預設品項並優化錯誤處理' },
-      { type: 'feat', text: '臨床查閱模式中新增病歷號和床號欄位' },
-      { type: 'feat', text: '動態生成 autoNote 取代總表中的靜態值' },
-      { type: 'feat', text: '支援一次整併多筆調班申請' },
-      { type: 'feat', text: '簽核時自動同步排程人數統計' },
-    ],
-  },
-  {
-    version: '2025-11-27',
-    title: '護理分組智能化優化',
-    changes: [
-      { type: 'fix', text: '修正 311C 班別在護理分組同步時未被識別為晚班的問題' },
-      { type: 'feat', text: '新增組別修改衝突提示功能' },
-      { type: 'fix', text: '改善預備75班編輯時的顯示' },
-      { type: 'fix', text: '改善非住院組分配邏輯 - 考慮全體平衡' },
-      { type: 'fix', text: '住院組分配加入整月平均考量' },
-      { type: 'fix', text: '改善住院組分配邏輯 - 避免連續 + 平均分配' },
-      { type: 'fix', text: '讓「重新分配剩餘週次」按鈕從第一週就可使用' },
-      { type: 'fix', text: '修正夜班 311 分組邏輯避免與 311C 的 C 組重複' },
-      { type: 'fix', text: '修正刪除調班訊息時 targetDate 計算邏輯' },
-      { type: 'feat', text: '新增調班申請自動合併提示功能' },
-    ],
-  },
-  {
-    version: '2025-11-26',
-    title: '護理班表結構重構',
-    changes: [
-      { type: 'fix', text: '修正週日為月底時多出一週的問題' },
-      { type: 'feat', text: '重構週班表為完整週結構（週一到週六）' },
-      { type: 'feat', text: '新增跨月約束檢查功能' },
-      { type: 'feat', text: '新增跨月週視圖顯示功能' },
-      { type: 'feat', text: '新增護理組別配置功能' },
-      { type: 'feat', text: '新增組別配置對話框功能' },
-      { type: 'feat', text: '新增護理師分組邏輯規則' },
-    ],
-  },
-  {
-    version: '2025-11-22',
-    title: '訊息與申報系統修正',
-    changes: [
-      { type: 'fix', text: '修正 KiDit 申報新增病歷號欄位' },
-      { type: 'fix', text: '修正訊息資料夾抓不到 Task 的問題' },
-      { type: 'feat', text: '新增可區分單一護理師或護理師組長交辦' },
-    ],
-  },
-  {
-    version: '2025-11-20',
-    title: '調班申請流程優化',
-    changes: [
-      { type: 'feat', text: '調班申請支援多筆批次整併' },
-      { type: 'feat', text: '調班訊息同步刪除功能' },
-      { type: 'fix', text: '修正調班衝突檢測邏輯' },
-    ],
-  },
-  {
-    version: '2025-11-15',
-    title: '護理分組自動化',
-    changes: [
-      { type: 'feat', text: '新增護理分組自動分配功能' },
-      { type: 'feat', text: '住院組智能分配避免連續值班' },
-      { type: 'feat', text: '非住院組平衡分配算法' },
-    ],
-  },
-  {
-    version: '2025-11-10',
-    title: '檢驗報告與藥囑管理',
-    changes: [
-      { type: 'feat', text: '新增檢驗報告管理頁面' },
-      { type: 'feat', text: '新增藥囑管理頁面' },
-      { type: 'feat', text: '支援 Excel 批次匯入' },
-    ],
-  },
-  {
-    version: '2025-11-01',
-    title: '協作訊息中心',
-    changes: [
-      { type: 'feat', text: '新增協作訊息中心' },
-      { type: 'feat', text: '實時通知推播功能' },
-      { type: 'feat', text: '交班備忘錄系統' },
-    ],
-  },
-]
 
 function togglePage(pageKey) {
   expandedPages.value[pageKey] = !expandedPages.value[pageKey]
