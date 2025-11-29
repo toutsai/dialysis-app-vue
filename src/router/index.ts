@@ -104,10 +104,10 @@ const routes = [
         meta: { title: '檢驗報告管理', requiresAuth: true },
       },
       {
-        path: 'consumables',
-        name: 'Consumables',
-        component: () => import('@/views/ConsumablesView.vue'),
-        meta: { title: '每月耗材總表', requiresAuth: true },
+        path: 'inventory',
+        name: 'Inventory',
+        component: () => import('@/views/InventoryView.vue'),
+        meta: { title: '庫存管理', requiresAuth: true },
       },
       {
         path: 'account-settings',
