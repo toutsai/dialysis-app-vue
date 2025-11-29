@@ -491,12 +491,19 @@
                   <div class="item-inputs">
                     <div v-for="item in getItemsForCategory(category)" :key="item" class="item-row">
                       <label>{{ item }}</label>
-                      <input
-                        type="number"
-                        v-model.number="weeklyCount[category][item]"
-                        placeholder="庫存數量"
-                        min="0"
-                      />
+                      <div class="box-input-group">
+                        <input
+                          type="number"
+                          v-model.number="weeklyCountBoxes[category][item]"
+                          placeholder="箱數"
+                          min="0"
+                          class="box-input"
+                        />
+                        <span class="box-unit">箱</span>
+                        <span class="unit-hint" v-if="weeklyCountBoxes[category]?.[item]">
+                          = {{ calculateWeeklyUnits(category, item) }} 個
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1678,7 +1685,14 @@ const weeklyFilter = reactive({
   countDate: getThisTuesday(),
   week: getISOWeek(new Date()),
 })
+// 週盤點 - 個數（用於計算）
 const weeklyCount = reactive({
+  artificialKidney: {},
+  dialysateCa: {},
+  bicarbonateType: {},
+})
+// 週盤點 - 箱數（用於輸入）
+const weeklyCountBoxes = reactive({
   artificialKidney: {},
   dialysateCa: {},
   bicarbonateType: {},
@@ -1688,6 +1702,28 @@ const monthlyConsumptionForWeekly = reactive({
   dialysateCa: {},
   bicarbonateType: {},
 })
+
+// 計算週盤點的個數（從箱數換算）
+function calculateWeeklyUnits(category, item) {
+  const boxes = weeklyCountBoxes[category]?.[item] || 0
+  const unitsPerBox = getUnitsPerBox(category, item)
+  return boxes * unitsPerBox
+}
+
+// 同步更新 weeklyCount（個數）
+function syncWeeklyCount() {
+  for (const category of Object.keys(weeklyCountBoxes)) {
+    for (const [item, boxes] of Object.entries(weeklyCountBoxes[category])) {
+      const unitsPerBox = getUnitsPerBox(category, item)
+      weeklyCount[category][item] = (boxes || 0) * unitsPerBox
+    }
+  }
+}
+
+// 監聽箱數變化，自動同步個數
+watch(weeklyCountBoxes, () => {
+  syncWeeklyCount()
+}, { deep: true })
 
 function getISOWeek(date) {
   const d = new Date(date)
@@ -1709,6 +1745,7 @@ async function loadWeeklyData() {
   // 重置
   for (const category of Object.keys(weeklyCount)) {
     weeklyCount[category] = {}
+    weeklyCountBoxes[category] = {}
     monthlyConsumptionForWeekly[category] = {}
   }
 
@@ -1716,14 +1753,26 @@ async function loadWeeklyData() {
     // 1. 載入該週的盤點紀錄 (如果有)
     const weeklyCountDoc = await getDoc(doc(db, 'inventory_counts', weeklyFilter.week))
     if (weeklyCountDoc.exists()) {
-      const data = weeklyCountDoc.data().counts || {}
+      const docData = weeklyCountDoc.data()
+      const data = docData.counts || {}
+      const boxData = docData.countBoxes || {}
+
       for (const category of Object.keys(weeklyCount)) {
         weeklyCount[category] = { ...data[category] }
+        // 如果有儲存箱數，使用它；否則從個數反算
+        if (boxData[category]) {
+          weeklyCountBoxes[category] = { ...boxData[category] }
+        } else {
+          // 從個數反算箱數
+          for (const [item, units] of Object.entries(data[category] || {})) {
+            const unitsPerBox = getUnitsPerBox(category, item)
+            weeklyCountBoxes[category][item] = unitsPerBox > 1 ? Math.round(units / unitsPerBox) : units
+          }
+        }
       }
     }
 
     // 2. 載入當月消耗資料 (用於推估週消耗)
-    const currentMonth = weeklyFilter.week.slice(0, 7).replace('-W', '-')
     const actualMonth = new Date().toISOString().slice(0, 7)
     const consumption = await getMonthlyConsumption(actualMonth)
 
@@ -1736,6 +1785,9 @@ async function loadWeeklyData() {
       knownItems[category].forEach((item) => {
         if (weeklyCount[category][item] === undefined) {
           weeklyCount[category][item] = 0
+        }
+        if (weeklyCountBoxes[category][item] === undefined) {
+          weeklyCountBoxes[category][item] = 0
         }
       })
     }
@@ -1750,6 +1802,9 @@ async function loadWeeklyData() {
 }
 
 async function saveWeeklyCount() {
+  // 先同步計算個數
+  syncWeeklyCount()
+
   try {
     await setDoc(doc(db, 'inventory_counts', weeklyFilter.week), {
       type: 'weekly',
@@ -1759,6 +1814,11 @@ async function saveWeeklyCount() {
         artificialKidney: { ...weeklyCount.artificialKidney },
         dialysateCa: { ...weeklyCount.dialysateCa },
         bicarbonateType: { ...weeklyCount.bicarbonateType },
+      },
+      countBoxes: {
+        artificialKidney: { ...weeklyCountBoxes.artificialKidney },
+        dialysateCa: { ...weeklyCountBoxes.dialysateCa },
+        bicarbonateType: { ...weeklyCountBoxes.bicarbonateType },
       },
       createdBy: currentUser.value?.name || '未知',
       createdAt: Timestamp.now(),
@@ -2517,6 +2577,27 @@ input[type='file'] {
   border: 1px solid #ccc;
   border-radius: 4px;
   text-align: center;
+}
+
+/* === 箱數輸入群組 === */
+.box-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.box-input {
+  width: 70px !important;
+}
+
+.box-unit {
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+.unit-hint {
+  font-size: 0.85rem;
+  color: #6c757d;
 }
 
 .need-order {
