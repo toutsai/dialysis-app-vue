@@ -4791,7 +4791,7 @@ exports.syncAndCreateAssignments = onDocumentWritten(
             let prefix = ''
             if (['74', '75', '816', '74/L', '84', '815', '7-3', '8-4', '7-5'].includes(shift)) {
               prefix = '早'
-            } else if (['311', '3-11'].includes(shift)) {
+            } else if (['311', '3-11', '311C'].includes(shift)) {
               prefix = '晚'
             } else {
               prefix = '早'

@@ -39,7 +39,7 @@ export function useNurseGroupSync() {
 
         // 判斷是早班還是晚班
         const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815']
-        const LATE_SHIFTS = ['3-11', '311']
+        const LATE_SHIFTS = ['3-11', '311', '311C']
 
         const shiftStr = String(shift).trim()
 
