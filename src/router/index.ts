@@ -168,6 +168,15 @@ const routes = [
           // roles: ['admin', 'editor']
         },
       },
+      {
+        path: 'usage-guide',
+        name: 'UsageGuide',
+        component: () => import('@/views/UsageGuideView.vue'),
+        meta: {
+          title: '平台使用說明',
+          requiresAuth: true,
+        },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

@@ -91,6 +91,13 @@
               </span>
             </RouterLink>
           </li>
+          <li>
+            <RouterLink to="/usage-guide" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">使用說明</span>
+              </div>
+            </RouterLink>
+          </li>
         </ul>
       </div>
 
