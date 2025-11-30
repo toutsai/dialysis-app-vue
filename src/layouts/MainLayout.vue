@@ -852,9 +852,8 @@ onUnmounted(() => {
 }
 .nav-hint {
   font-size: 0.7rem;
-  color: #95a5a6;
-  font-weight: 400;
-  opacity: 0.85;
+  color: #bdc3c7;
+  font-weight: 600;
   white-space: nowrap;
 }
 .nav-link.router-link-exact-active .nav-hint {
