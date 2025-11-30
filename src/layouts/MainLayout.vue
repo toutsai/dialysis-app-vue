@@ -53,7 +53,7 @@
               <RouterLink to="/exception-manager" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">調班換床</span>
-                  <span class="nav-hint">(單次/區次)</span>
+                  <span class="nav-hint">(單次/區間)</span>
                 </div>
                 <span
                   v-if="conflictCount > 0"
