@@ -170,6 +170,7 @@ import {
   generateAutoNote,
   getUnifiedCellStyle,
 } from '@/utils/scheduleUtils.js'
+import { formatDateToYYYYMMDD, addDays } from '@/utils/dateUtils'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
 import InpatientSidebar from '@/components/InpatientSidebar.vue'
@@ -202,21 +203,12 @@ function getStartOfWeek(date) {
 function formatDate(date, withYear = false) {
   const d = new Date(date)
   if (isNaN(d.getTime())) return ''
-  const year = d.getFullYear()
-  const month = d.getMonth() + 1
-  const day = d.getDate()
+  const dateStr = formatDateToYYYYMMDD(d)
+  const [year, month, day] = dateStr.split('-')
   if (withYear) {
-    return `${year}/${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
+    return `${year}/${month}/${day}`
   }
-  return `${String(month).padStart(2, '0')}/${String(day).padStart(2, '0')}`
-}
-function formatDateForQuery(date) {
-  const d = new Date(date)
-  if (isNaN(d.getTime())) return ''
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return `${month}/${day}`
 }
 
 const SHIFTS = ORDERED_SHIFT_CODES
@@ -351,9 +343,8 @@ const weekDisplay = computed(() => {
 
 const weekDates = computed(() =>
   Array.from({ length: 6 }).map((_, i) => {
-    const d = new Date(currentWeekStartDate.value)
-    d.setDate(d.getDate() + i)
-    return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateForQuery(d) }
+    const d = addDays(currentWeekStartDate.value, i)
+    return { weekday: WEEKDAYS[i], date: `(${formatDate(d)})`, queryDate: formatDateToYYYYMMDD(d) }
   }),
 )
 
@@ -1171,7 +1162,7 @@ function exportWeeklyScheduleToExcel() {
 
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, '週排班表')
-  XLSX.writeFile(workbook, `週排班表_${formatDateForQuery(currentWeekStartDate.value)}.xlsx`)
+  XLSX.writeFile(workbook, `週排班表_${formatDateToYYYYMMDD(currentWeekStartDate.value)}.xlsx`)
 }
 
 function showAlert(title, message) {

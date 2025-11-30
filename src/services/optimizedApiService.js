@@ -2,6 +2,7 @@
 import ApiManager from '@/services/api_manager'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
+import { getNowISO, formatDateToYYYYMMDD } from '@/utils/dateUtils'
 
 // 快取系統... (保持不變)
 const cache = new Map()
@@ -235,8 +236,8 @@ export async function saveDialysisOrderHistory(historyData) {
   const api = ApiManager('dialysis_orders_history')
   const completeData = {
     ...historyData,
-    createdAt: historyData.createdAt || new Date().toISOString(),
-    updatedAt: historyData.updatedAt || new Date().toISOString(),
+    createdAt: historyData.createdAt || getNowISO(),
+    updatedAt: historyData.updatedAt || getNowISO(),
     operationType: historyData.operationType || 'CREATE',
   }
   return api.save(completeData)
@@ -246,7 +247,7 @@ export async function saveDialysisOrderHistory(historyData) {
 export async function createDialysisOrderAndUpdatePatient(patientId, patientName, orderData) {
   console.log(`📝 [API] 開始為 ${patientName} 創建/更新醫囑...`, orderData)
   const parseNumeric = (v) => (v === '' || v == null ? null : Number(v))
-  const now = new Date().toISOString()
+  const now = getNowISO()
 
   const historyRecord = {
     patientId,
@@ -262,7 +263,7 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
       heparinLM: `${orderData.heparinInitial || '0'}/${orderData.heparinMaintenance || '0'}`,
       bloodFlow: parseNumeric(orderData.bloodFlow),
       dryWeight: parseNumeric(orderData.dryWeight),
-      effectiveDate: orderData.effectiveDate || new Date().toISOString().slice(0, 10),
+      effectiveDate: orderData.effectiveDate || formatDateToYYYYMMDD(),
       vascAccess: orderData.vascAccess || '',
       arterialNeedle: orderData.arterialNeedle || '',
       venousNeedle: orderData.venousNeedle || '',

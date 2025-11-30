@@ -640,6 +640,7 @@ import { computed, reactive, watch } from 'vue'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { useAuth } from '@/composables/useAuth' // ✨ 1. 引入 useAuth
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
+import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils'
 
 const auth = useAuth() // ✨ 2. 實例化 auth
 const { addLocalNotification } = useRealtimeNotifications()
@@ -729,12 +730,8 @@ const getDehydrationRateDisplay = (crrtOrders) => {
 
 const formatDateTime = (timestamp) => {
   if (!timestamp) return ''
-  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
-  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(
-    date.getDate(),
-  ).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(
-    date.getMinutes(),
-  ).padStart(2, '0')}`
+  const date = parseFirestoreTimestamp(timestamp)
+  return formatDateTimeToLocal(date)
 }
 
 const updateEmergencyWithdraw = (patientId, value) => {

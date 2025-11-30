@@ -281,6 +281,7 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import { where, onSnapshot, collection, query } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
+import { getToday } from '@/utils/dateUtils'
 
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore'
@@ -377,7 +378,7 @@ async function fetchTodayAssignedPatients() {
     todayMyPatientIds.value = []
     return
   }
-  const today = new Date().toISOString().slice(0, 10)
+  const today = getToday()
   try {
     const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
     if (assignmentsSnapshot.length === 0) {

@@ -3,6 +3,7 @@
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
+import { addDays } from '@/utils/dateUtils'
 
 // 導出一個可複用的函式
 export function useGlobalNotifier() {
@@ -24,8 +25,7 @@ export function useGlobalNotifier() {
       // =================================================================
       // [核心修改] 計算 30 天後的過期時間
       // =================================================================
-      const expireDate = new Date()
-      expireDate.setDate(expireDate.getDate() + 30) // 將日期設定為 30 天後
+      const expireDate = addDays(new Date(), 30)
       // =================================================================
 
       const notificationsRef = collection(db, 'notifications')

@@ -130,6 +130,7 @@ import {
   getUnifiedCellStyle,
   hasFrequencyConflict,
 } from '@/utils/scheduleUtils.js'
+import { getToday } from '@/utils/dateUtils'
 import SelectionDialog from '@/components/SelectionDialog.vue'
 import StatsToolbar from '@/components/StatsToolbar.vue'
 import ScheduleTable from '@/components/ScheduleTable.vue'
@@ -559,7 +560,7 @@ function exportBaseScheduleToExcel() {
     return
   }
   const data = []
-  const exportDate = new Date().toISOString().slice(0, 10)
+  const exportDate = getToday()
   data.push(['部立台北醫院 透析排程總表 (固定規則)'])
   data.push([`匯出日期: ${exportDate}`])
   data.push([])
