@@ -1,12 +1,53 @@
 [
   {
+    "version": "2025-11-30",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正 getDailyInjections 無法正確解析 qw3.6 等頻率格式的問題"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "病人清單操作前檢查當日排程"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "優化側邊欄佈局"
+      }
+    ]
+  },
+  {
     "version": "2025-11-29",
     "title": "功能更新與問題修正",
     "changes": [
       {
         "type": "feat",
         "label": "新增",
+        "text": "實現版本更新記錄自動生成功能"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
         "text": "新增平台使用說明頁面"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "每週訂單盤點改為箱數輸入"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "盤點功能新增盤點日與區間設定"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "優化品項設定頁面UI"
       },
       {
         "type": "fix",
@@ -19,6 +60,36 @@
     "version": "2025-11-28",
     "title": "功能更新與問題修正",
     "changes": [
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增消耗紀錄「當月總量」子頁籤"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增庫存管理箱數/個數換算功能"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "品項設定新增「每箱數量」欄位"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增預設品項並優化錯誤處理"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增庫存管理 Firestore 安全規則"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增完整庫存管理系統"
+      },
       {
         "type": "feat",
         "label": "新增",
