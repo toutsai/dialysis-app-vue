@@ -280,7 +280,6 @@
                 active: activeWeekTab === index + 1,
                 confirmed: (tempScheduleWithGroups?.weekConfirmed ?? monthlySchedule?.weekConfirmed)?.[`week${index + 1}`],
                 unscheduled: !(tempScheduleWithGroups?.weekConfirmed ?? monthlySchedule?.weekConfirmed)?.[`week${index + 1}`],
-
               }"
               @click="activeWeekTab = index + 1"
             >
