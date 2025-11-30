@@ -4,6 +4,16 @@
     "title": "功能更新與問題修正",
     "changes": [
       {
+        "type": "feat",
+        "label": "新增",
+        "text": "優化影像頁籤功能"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "在影像頁籤新增手機版PACS連結按鈕"
+      },
+      {
         "type": "fix",
         "label": "修正",
         "text": "修正 getDailyInjections 無法正確解析 qw3.6 等頻率格式的問題"
