@@ -86,10 +86,20 @@
           <div v-show="activeTab === 'imaging'" class="tab-panel imaging-panel">
             <!-- 上傳區塊 -->
             <div class="image-uploader">
-              <!-- 階段一：初始狀態，顯示拍照按鈕 -->
-              <button v-if="cameraState === 'idle'" @click="startCamera" class="btn-primary">
-                <i class="fas fa-camera"></i> 開啟相機拍照
-              </button>
+              <!-- 階段一：初始狀態，顯示拍照按鈕與PACS連結 -->
+              <div v-if="cameraState === 'idle'" class="idle-buttons">
+                <button @click="startCamera" class="btn-primary">
+                  <i class="fas fa-camera"></i> 開啟相機拍照
+                </button>
+                <a
+                  href="https://ulite.tph.mohw.gov.tw:8080"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="btn-pacs"
+                >
+                  <i class="fas fa-x-ray"></i> 手機版PACS連結
+                </a>
+              </div>
 
               <!-- 階段二：相機開啟狀態 -->
               <div v-if="cameraState === 'streaming'" class="camera-view">
@@ -739,12 +749,36 @@ watch(
   opacity: 0.6;
   cursor: not-allowed;
 }
+.idle-buttons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
 .btn-primary {
   background-color: #007bff;
   color: white;
 }
 .btn-primary:hover:not(:disabled) {
   background-color: #0056b3;
+}
+.btn-pacs {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background-color: #17a2b8;
+  color: white;
+  text-decoration: none;
+}
+.btn-pacs:hover {
+  background-color: #138496;
 }
 .btn-capture {
   background-color: #dc3545;
