@@ -4,7 +4,7 @@
     <div class="page-header-section">
       <div class="header-toolbar">
         <div class="toolbar-left">
-          <h1 class="page-title">調班管理</h1>
+          <h1 class="page-title">調班管理(單次或區間調整班別)</h1>
           <button
             class="btn btn-primary desktop-only"
             @click="openCreateDialog"
@@ -15,7 +15,7 @@
         </div>
       </div>
       <p class="page-description">
-        處理明天以後的「臨時調班」、「區間暫停」或「臨時加洗」等特殊情況。建立的申請將會自動更新對應日期的排班表。
+        處理單次或區間調整，如「臨時調班」、「區間暫停」或「臨時加洗」等。建立的申請將會自動更新對應日期的排班表。
       </p>
     </div>
 
@@ -537,7 +537,8 @@ function findMergeableExceptions(formData) {
 
   // 判斷新申請是否為「當日調班」（原始日期 = 目標日期）
   // 注意：使用 sourceDate 而非 date
-  const isNewSameDayMove = formData.type === 'MOVE' && formData.from?.sourceDate === formData.to?.goalDate
+  const isNewSameDayMove =
+    formData.type === 'MOVE' && formData.from?.sourceDate === formData.to?.goalDate
 
   // 在現有申請中尋找【所有】可合併的（使用 filter 而非 find）
   return exceptions.value.filter((ex) => {
@@ -585,23 +586,23 @@ function findMergeableExceptions(formData) {
 function findChainHead(exceptions, newFormData) {
   // 將所有申請（包含新的）合併
   const allMoves = [
-    ...exceptions.map(ex => ({
+    ...exceptions.map((ex) => ({
       fromKey: `${ex.from?.bedNum}-${ex.from?.shiftCode}`,
       toKey: `${ex.to?.bedNum}-${ex.to?.shiftCode}`,
-      from: ex.from
+      from: ex.from,
     })),
     {
       fromKey: `${newFormData.from?.bedNum}-${newFormData.from?.shiftCode}`,
       toKey: `${newFormData.to?.bedNum}-${newFormData.to?.shiftCode}`,
-      from: newFormData.from
-    }
+      from: newFormData.from,
+    },
   ]
 
   // 收集所有的 to 床位
-  const allToKeys = new Set(allMoves.map(m => m.toKey))
+  const allToKeys = new Set(allMoves.map((m) => m.toKey))
 
   // 找出鏈頭：from 不在任何 to 中的申請
-  const chainHead = allMoves.find(m => !allToKeys.has(m.fromKey))
+  const chainHead = allMoves.find((m) => !allToKeys.has(m.fromKey))
 
   // 如果找不到（可能是環狀），就用第一筆
   return chainHead?.from || exceptions[0]?.from
@@ -628,11 +629,13 @@ function generateMergeMessage(existingExceptions, newFormData) {
 
   if (firstEx.type === 'MOVE') {
     // 列出所有現有調班的路徑
-    const existingPaths = existingExceptions.map((ex) => {
-      const from = formatBed(ex.from?.bedNum, ex.from?.shiftCode)
-      const to = formatBed(ex.to?.bedNum, ex.to?.shiftCode)
-      return `【${from} → ${to}】`
-    }).join('\n')
+    const existingPaths = existingExceptions
+      .map((ex) => {
+        const from = formatBed(ex.from?.bedNum, ex.from?.shiftCode)
+        const to = formatBed(ex.to?.bedNum, ex.to?.shiftCode)
+        return `【${from} → ${to}】`
+      })
+      .join('\n')
 
     // 找出鏈的起點（真正的原始床位）
     const chainHeadFrom = findChainHead(existingExceptions, newFormData)
@@ -646,9 +649,11 @@ function generateMergeMessage(existingExceptions, newFormData) {
       `【${chainHeadText} → ${newTo}】？`
     )
   } else if (firstEx.type === 'ADD_SESSION') {
-    const existingBeds = existingExceptions.map((ex) => {
-      return `【${formatBed(ex.to?.bedNum, ex.to?.shiftCode)}】`
-    }).join('\n')
+    const existingBeds = existingExceptions
+      .map((ex) => {
+        return `【${formatBed(ex.to?.bedNum, ex.to?.shiftCode)}】`
+      })
+      .join('\n')
     const newBed = formatBed(newFormData.to?.bedNum, newFormData.to?.shiftCode)
 
     return (
@@ -658,9 +663,11 @@ function generateMergeMessage(existingExceptions, newFormData) {
       `【${newBed}】？`
     )
   } else if (firstEx.type === 'SUSPEND') {
-    const existingRanges = existingExceptions.map((ex) => {
-      return `【${ex.startDate} ~ ${ex.endDate}】`
-    }).join('\n')
+    const existingRanges = existingExceptions
+      .map((ex) => {
+        return `【${ex.startDate} ~ ${ex.endDate}】`
+      })
+      .join('\n')
 
     return (
       `${firstEx.patientName} 已有 ${count} 筆區間暫停申請：\n` +
