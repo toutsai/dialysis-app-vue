@@ -53,6 +53,7 @@
               <RouterLink to="/exception-manager" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">調班換床</span>
+                  <span class="nav-hint">(單次)</span>
                 </div>
                 <span
                   v-if="conflictCount > 0"
@@ -67,6 +68,7 @@
               <RouterLink to="/update-scheduler" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">預約變更</span>
+                  <span class="nav-hint">(區間)</span>
                 </div>
               </RouterLink>
             </li>
@@ -540,6 +542,9 @@ onUnmounted(() => {
 .bottom-fixed-section {
   flex-shrink: 0;
   border-top: 1px solid #34495e;
+  display: flex;
+  flex-direction: column;
+  max-height: 45vh;
 }
 .notification-area::-webkit-scrollbar {
   width: 6px;
@@ -644,6 +649,22 @@ onUnmounted(() => {
 }
 .management-section {
   padding-top: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.management-section::-webkit-scrollbar {
+  width: 6px;
+}
+.management-section::-webkit-scrollbar-track {
+  background: transparent;
+}
+.management-section::-webkit-scrollbar-thumb {
+  background-color: #5a6a7a;
+  border-radius: 20px;
+}
+.management-section::-webkit-scrollbar-thumb:hover {
+  background-color: #4a5568;
 }
 .section-title {
   font-size: 0.8em;
@@ -668,6 +689,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex-shrink: 0;
+  background-color: #2c3e50;
 }
 .user-info {
   margin-bottom: 0;
@@ -814,26 +837,27 @@ onUnmounted(() => {
   transform: rotate(-90deg);
 }
 .management-section .sidebar-nav {
-  overflow: hidden;
+  padding-bottom: 8px;
 }
 .nav-item-content {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
   line-height: 1.4;
   flex-grow: 1;
 }
 .nav-title {
   font-size: 1.05em;
 }
-.nav-subtitle {
-  font-size: 0.75rem;
+.nav-hint {
+  font-size: 0.7rem;
   color: #95a5a6;
   font-weight: 400;
-  opacity: 0.9;
-  margin-top: 2px;
-  transition: color 0.2s;
+  opacity: 0.85;
+  white-space: nowrap;
 }
-.nav-link.router-link-exact-active .nav-subtitle {
+.nav-link.router-link-exact-active .nav-hint {
   color: #ecf0f1;
   opacity: 1;
 }
