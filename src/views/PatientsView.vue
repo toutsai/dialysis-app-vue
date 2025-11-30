@@ -17,13 +17,19 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import PatientHistoryModal from '@/components/PatientHistoryModal.vue'
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
+import PatientUpdateSchedulerDialog from '@/components/PatientUpdateSchedulerDialog.vue'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { db } from '@/composables/useFirebase'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
+import { formatDateToYYYYMMDD, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 
 // ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務
 const tasksApi = ApiManager('tasks')
+// ✨ 新增 schedulesApi 的實例，用於查詢當日排程
+const schedulesApi = ApiManager('schedules')
+// ✨ 新增 scheduledChangesApi 的實例，用於保存預約變更
+const scheduledChangesApi = ApiManager('scheduled_changes')
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
@@ -72,6 +78,19 @@ const patientToRestoreId = ref(null)
 const isWardDialogVisible = ref(false)
 const currentWardNumber = ref('')
 const editingPatientForWardNumber = ref(null)
+
+// ✨ 新增：預約變更對話框相關狀態
+const isSchedulerDialogVisible = ref(false)
+const schedulerPatient = ref(null)
+const schedulerChangeType = ref('')
+
+// ✨ 新增：當日排程衝突確認相關狀態
+const isScheduleConflictDialogVisible = ref(false)
+const scheduleConflictTitle = ref('')
+const scheduleConflictMessage = ref('')
+const pendingOperationType = ref('') // 'delete' 或 'transfer'
+const pendingPatientId = ref(null)
+const pendingNewStatus = ref(null) // 用於轉移操作
 
 const { createGlobalNotification } = useGlobalNotifier()
 const auth = useAuth()
@@ -351,6 +370,110 @@ function showConfirm(title, message, onConfirm) {
   isConfirmDialogVisible.value = true
 }
 
+// ✨ 新增：檢查病人是否在當日排程中
+async function checkPatientInTodaySchedule(patientId) {
+  try {
+    const today = new Date()
+    const dateStr = today.toISOString().split('T')[0]
+    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+
+    if (dailyRecords.length === 0) return false
+
+    const schedule = dailyRecords[0].schedule || {}
+    // 遍歷排程，檢查是否有這個病人
+    for (const slotData of Object.values(schedule)) {
+      if (slotData && slotData.patientId === patientId) {
+        return true
+      }
+    }
+    return false
+  } catch (error) {
+    console.error('檢查當日排程失敗:', error)
+    return false // 發生錯誤時，默認允許操作
+  }
+}
+
+// ✨ 新增：顯示排程衝突確認對話框
+function showScheduleConflictDialog(title, message, operationType, patientId, newStatus = null) {
+  scheduleConflictTitle.value = title
+  scheduleConflictMessage.value = message
+  pendingOperationType.value = operationType
+  pendingPatientId.value = patientId
+  pendingNewStatus.value = newStatus
+  isScheduleConflictDialogVisible.value = true
+}
+
+// ✨ 新增：處理排程衝突確認 - 用戶選擇「是，繼續操作」
+async function handleScheduleConflictConfirm() {
+  isScheduleConflictDialogVisible.value = false
+
+  if (pendingOperationType.value === 'delete') {
+    // 繼續原本的刪除流程
+    patientToDeleteId.value = pendingPatientId.value
+    isDeleteDialogVisible.value = true
+  } else if (pendingOperationType.value === 'transfer') {
+    // 繼續原本的轉移流程
+    await executeTransferPatient(pendingPatientId.value, pendingNewStatus.value)
+  }
+
+  // 清理狀態
+  pendingOperationType.value = ''
+  pendingPatientId.value = null
+  pendingNewStatus.value = null
+}
+
+// ✨ 新增：處理排程衝突確認 - 用戶選擇「否，使用預約變更」
+function handleScheduleConflictCancel() {
+  isScheduleConflictDialogVisible.value = false
+
+  const patient = allPatients.value.find((p) => p.id === pendingPatientId.value)
+  if (!patient) return
+
+  // 根據操作類型設定預約變更的類型
+  if (pendingOperationType.value === 'delete') {
+    schedulerChangeType.value = 'DELETE_PATIENT'
+  } else if (pendingOperationType.value === 'transfer') {
+    schedulerChangeType.value = 'UPDATE_STATUS'
+  }
+
+  schedulerPatient.value = patient
+  isSchedulerDialogVisible.value = true
+
+  // 清理狀態
+  pendingOperationType.value = ''
+  pendingPatientId.value = null
+  pendingNewStatus.value = null
+}
+
+// ✨ 新增：處理預約變更對話框的提交
+async function handleSchedulerSubmit(dataToSubmit) {
+  try {
+    await scheduledChangesApi.save(dataToSubmit)
+    isSchedulerDialogVisible.value = false
+    schedulerPatient.value = null
+    schedulerChangeType.value = ''
+
+    const changeTypeText = {
+      DELETE_PATIENT: '刪除病人',
+      UPDATE_STATUS: '身分變更',
+      UPDATE_MODE: '透析模式變更',
+      UPDATE_FREQ: '頻率變更',
+    }[dataToSubmit.changeType] || '變更'
+
+    createGlobalNotification(
+      `預約${changeTypeText}：${dataToSubmit.patientName} (${dataToSubmit.effectiveDate} 生效)`,
+      'schedule',
+    )
+    showAlert(
+      '預約成功',
+      `已成功建立預約${changeTypeText}。\n\n病人：${dataToSubmit.patientName}\n生效日期：${dataToSubmit.effectiveDate}`,
+    )
+  } catch (error) {
+    console.error('保存預約變更失敗:', error)
+    showAlert('操作失敗', `保存預約變更失敗：${error.message}`)
+  }
+}
+
 async function handleGlobalSearch(query) {
   if (!query || !query.trim()) {
     showAlert('提示', '請輸入病人姓名或病歷號進行搜尋。')
@@ -614,11 +737,8 @@ async function handleConflictSelected() {
   }
 }
 
-async function transferPatient(patientId, newStatus) {
-  if (isPageLocked.value) {
-    showAlert('操作失敗', '操作被鎖定：權限不足。')
-    return
-  }
+// ✨ 新增：實際執行轉移的函數（不再做排程檢查）
+async function executeTransferPatient(patientId, newStatus) {
   const patient = allPatients.value.find((p) => p.id === patientId)
   if (!patient) return
   const targetStatusText = { ipd: '住院', opd: '門診', er: '急診' }[newStatus] || '未知'
@@ -642,6 +762,33 @@ async function transferPatient(patientId, newStatus) {
       }
     },
   )
+}
+
+// ✨ 修改：轉移身分前先檢查當日排程
+async function transferPatient(patientId, newStatus) {
+  if (isPageLocked.value) {
+    showAlert('操作失敗', '操作被鎖定：權限不足。')
+    return
+  }
+  const patient = allPatients.value.find((p) => p.id === patientId)
+  if (!patient) return
+
+  // 檢查病人是否在當日排程中
+  const isInTodaySchedule = await checkPatientInTodaySchedule(patientId)
+
+  if (isInTodaySchedule) {
+    const targetStatusText = { ipd: '住院', opd: '門診', er: '急診' }[newStatus] || '未知'
+    showScheduleConflictDialog(
+      '當日排程中有此病人',
+      `病人「${patient.name}」今天有排程透析。\n\n若直接轉移身分（至${targetStatusText}），當日排程不會自動更新。\n\n是否仍要繼續操作？\n選擇「否」可使用預約變更，於未來日期生效。`,
+      'transfer',
+      patientId,
+      newStatus,
+    )
+  } else {
+    // 沒有在當日排程中，直接執行轉移
+    await executeTransferPatient(patientId, newStatus)
+  }
 }
 
 // ✨✨✨ [修改] 確認刪除的邏輯檢查 ✨✨✨
@@ -791,13 +938,30 @@ function openHistoryModal(patientId) {
   selectedPatientForHistory.value = { id: patientId }
   isHistoryModalVisible.value = true
 }
-// ✨✨✨ [修改] 刪除前的邏輯檢查，防止有人繞過 UI 呼叫 ✨✨✨
-function deletePatient(patientId) {
+// ✨✨✨ [修改] 刪除前的邏輯檢查，加入當日排程檢查 ✨✨✨
+async function deletePatient(patientId) {
   // 如果被鎖定，直接不反應
   if (isDeleteLocked.value) return
 
-  patientToDeleteId.value = patientId
-  isDeleteDialogVisible.value = true
+  const patient = allPatients.value.find((p) => p.id === patientId)
+  if (!patient) return
+
+  // 檢查病人是否在當日排程中
+  const isInTodaySchedule = await checkPatientInTodaySchedule(patientId)
+
+  if (isInTodaySchedule) {
+    showScheduleConflictDialog(
+      '當日排程中有此病人',
+      `病人「${patient.name}」今天有排程透析。\n\n若直接刪除病人，當日排程不會自動更新。\n\n是否仍要繼續操作？\n選擇「否」可使用預約變更，於未來日期生效。`,
+      'delete',
+      patientId,
+      null,
+    )
+  } else {
+    // 沒有在當日排程中，直接顯示刪除原因選擇
+    patientToDeleteId.value = patientId
+    isDeleteDialogVisible.value = true
+  }
 }
 function restorePatient(patientId) {
   if (isPageLocked.value) {
@@ -827,7 +991,7 @@ function closeModal() {
 function formatDate(dateInput) {
   const date = normalizeDateObject(dateInput)
   if (!date) return ''
-  return date.toISOString().split('T')[0]
+  return formatDateToYYYYMMDD(date)
 }
 function getRowClass(p) {
   if (p.patientStatus?.isPaused?.active) return 'status-discontinued'
@@ -1507,6 +1671,27 @@ watch(
       :current-value="currentWardNumber"
       @confirm="handleWardNumberConfirm"
       @cancel="isWardDialogVisible = false"
+    />
+
+    <!-- ✨ 新增：當日排程衝突確認對話框 -->
+    <ConfirmDialog
+      :is-visible="isScheduleConflictDialogVisible"
+      :title="scheduleConflictTitle"
+      :message="scheduleConflictMessage"
+      confirm-text="是，繼續操作"
+      cancel-text="否，使用預約變更"
+      @confirm="handleScheduleConflictConfirm"
+      @cancel="handleScheduleConflictCancel"
+    />
+
+    <!-- ✨ 新增：預約變更對話框 -->
+    <PatientUpdateSchedulerDialog
+      :is-visible="isSchedulerDialogVisible"
+      :patient="schedulerPatient"
+      :change-type="schedulerChangeType"
+      :all-patients="allPatients"
+      @close="isSchedulerDialogVisible = false"
+      @submit="handleSchedulerSubmit"
     />
   </div>
 </template>

@@ -1,0 +1,206 @@
+[
+  {
+    "version": "2025-11-30",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正 getDailyInjections 無法正確解析 qw3.6 等頻率格式的問題"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "病人清單操作前檢查當日排程"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "優化側邊欄佈局"
+      }
+    ]
+  },
+  {
+    "version": "2025-11-29",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "實現版本更新記錄自動生成功能"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增平台使用說明頁面"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "每週訂單盤點改為箱數輸入"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "盤點功能新增盤點日與區間設定"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "優化品項設定頁面UI"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正 311C 班別在護理分組同步時未被識別為晚班的問題"
+      }
+    ]
+  },
+  {
+    "version": "2025-11-28",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增消耗紀錄「當月總量」子頁籤"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增庫存管理箱數/個數換算功能"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "品項設定新增「每箱數量」欄位"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增預設品項並優化錯誤處理"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增庫存管理 Firestore 安全規則"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增完整庫存管理系統"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "臨床查閱模式中新增病歷號和床號欄位"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "動態生成 autoNote 取代總表中的靜態值"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "刪除病人時同步取消未到期的調班申請"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正多筆調班整併的鏈狀邏輯"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "支援一次整併多筆調班申請"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正調班整併邏輯的欄位名稱錯誤"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正調班整併邏輯 - 只合併當日調班"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "簽核時自動同步排程人數統計"
+      }
+    ]
+  },
+  {
+    "version": "2025-11-27",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增組別修改衝突提示功能"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "移除護理班表內部操作的即時動態通知"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "改善預備75班編輯時的顯示"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "改善非住院組分配邏輯 - 考慮全體平衡"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "住院組分配加入整月平均考量"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "改善住院組分配邏輯 - 避免連續 + 平均分配"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "讓「重新分配剩餘週次」按鈕從第一週就可使用"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正夜班 311 分組邏輯避免與 311C 的 C 組重複"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正 PatientMessagesIcon 支援雙模式"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正刪除調班訊息時 targetDate 計算邏輯"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "撤銷調班申請時同步刪除對應的調班訊息"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "整併調班申請時同步刪除舊的調班訊息"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "新增調班申請自動合併提示功能"
+      }
+    ]
+  }
+]

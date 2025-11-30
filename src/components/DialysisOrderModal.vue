@@ -369,6 +369,7 @@ import {
   deleteDialysisOrderHistory as optimizedDeleteDialysisOrderHistory,
 } from '@/services/optimizedApiService.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { formatDateToYYYYMMDD, parseFirestoreTimestamp, getToday } from '@/utils/dateUtils'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -409,7 +410,7 @@ const needleSizeOptions = ['15G', '16G', '17G']
 // ✅ 1. [核心] 建立一個包含所有新舊欄位的初始狀態產生器
 const createFormState = () => ({
   // 基礎醫囑
-  effectiveDate: new Date().toISOString().slice(0, 10),
+  effectiveDate: getToday(),
   aks: [''], // 改為陣列以支援多個 AK
   dialysateCa: '',
   dryWeight: '',
@@ -458,12 +459,10 @@ const shouldShowNeedleSize = computed(() => {
 
 const getDate = (dateValue) => {
   if (!dateValue) return null
-  if (typeof dateValue.toDate === 'function') return dateValue.toDate()
-  const date = new Date(dateValue)
-  return isNaN(date.getTime()) ? null : date
+  return parseFirestoreTimestamp(dateValue)
 }
 
-const todayStr = computed(() => new Date().toISOString().slice(0, 10))
+const todayStr = computed(() => getToday())
 
 const activeOrder = computed(() => {
   const effectiveOrders = orderHistory.value
@@ -535,7 +534,7 @@ watch(
         ? String(orders.heparinLM).split('/')
         : [orders.heparinInitial || '', orders.heparinMaintenance || '']
 
-      localOrderData.effectiveDate = orders.effectiveDate || new Date().toISOString().slice(0, 10)
+      localOrderData.effectiveDate = orders.effectiveDate || getToday()
       localOrderData.vascAccess = orders.vascAccess || ''
       localOrderData.arterialNeedle = orders.arterialNeedle || ''
       localOrderData.venousNeedle = orders.venousNeedle || ''
@@ -654,7 +653,7 @@ function formatDate(isoString) {
   if (!isoString) return 'N/A'
   const date = getDate(isoString)
   if (!date) return 'N/A'
-  return date.toISOString().slice(0, 10)
+  return formatDateToYYYYMMDD(date)
 }
 
 </script>

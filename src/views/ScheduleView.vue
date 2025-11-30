@@ -883,6 +883,7 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js'
 import * as XLSX from 'xlsx'
+import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 
 // Constants
 import {
@@ -1364,11 +1365,7 @@ function openDetailModalForPatient(patientId) {
 }
 function formatDate(date) {
   if (!date) return ''
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return formatDateToYYYYMMDD(date)
 }
 provide('handleIconClick', (patientId, context) => {
   const patient = patientMap.value.get(patientId)

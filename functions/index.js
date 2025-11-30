@@ -3988,17 +3988,22 @@ exports.getDailyInjections = onCall(
         let shouldAdminister = false
         let reason = ''
 
-        const noteParts = note.split(/[\s,]+/).filter(Boolean)
+        // 使用更寬鬆的分割，保留 QW 規則的完整性
+        // 只用空白字元分割，不用逗號（因為 qw3,6 的逗號是頻率的一部分）
+        const noteParts = note.split(/\s+/).filter(Boolean)
 
         for (const part of noteParts) {
           if (part.toUpperCase().startsWith('QW')) {
-            // 解析 QW 規則（如 QW135 表示週一三五）
+            // 解析 QW 規則（如 QW135, QW3.6, QW3,6, QW3、6 等格式）
             const dayString = part.substring(2)
             if (dayString) {
-              const days = dayString
-                .split('')
-                .map((d) => parseInt(d, 10))
-                .filter((d) => !isNaN(d))
+              // 使用正則表達式提取所有數字（1-7），支援多種分隔符
+              // 支援格式：qw36, qw3.6, qw3,6, qw3、6, qw3，6 等
+              const days = []
+              const matches = dayString.match(/[1-7]/g)
+              if (matches) {
+                matches.forEach((d) => days.push(parseInt(d, 10)))
+              }
 
               // 醫院系統：1=週一, 2=週二, ..., 7=週日
               const hospitalSystemDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek

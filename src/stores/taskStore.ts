@@ -5,6 +5,7 @@ import { defineStore } from 'pinia'
 import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
+import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
 
 export type TaskItem = {
   id?: string
@@ -88,8 +89,7 @@ export const useTaskStore = defineStore('task', () => {
   const getPatientMessageTypesMapForDate = computed(() => {
     return (targetDate?: string) => {
       const dateToCompare = targetDate ? new Date(targetDate) : new Date()
-      dateToCompare.setHours(0, 0, 0, 0)
-      const dateStr = `${dateToCompare.getFullYear()}-${String(dateToCompare.getMonth() + 1).padStart(2, '0')}-${String(dateToCompare.getDate()).padStart(2, '0')}`
+      const dateStr = formatDateToYYYYMMDD(dateToCompare)
       const map = new Map<string, Set<string>>()
       const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
       for (const msg of pendingMessages) {
@@ -152,8 +152,7 @@ export const useTaskStore = defineStore('task', () => {
   const todayRelevantMemosCount = computed(() => {
     return (patientIdArray?: string[]) => {
       if (!patientIdArray || patientIdArray.length === 0) return 0
-      const today = new Date()
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      const todayStr = formatDateToYYYYMMDD()
       const patientIdSet = new Set(patientIdArray)
       return feedMessages.value.filter((item) => {
         const isTargetDateRelevant = !item.targetDate || (item.targetDate as string) <= todayStr

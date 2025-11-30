@@ -257,6 +257,7 @@ import ApiManager from '@/services/api_manager'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 import { useUserDirectory } from '@/composables/useUserDirectory'
+import { getToday } from '@/utils/dateUtils'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -284,7 +285,7 @@ const formData = reactive({
   category: 'message',
   assigneeRole: '',
   assigneeUserId: '',
-  targetDate: new Date().toISOString().slice(0, 10),
+  targetDate: getToday(),
   content: '',
   messageType: '常規',
 })
@@ -425,7 +426,7 @@ watch(
           }
         }
 
-        formData.targetDate = item.targetDate || new Date().toISOString().slice(0, 10)
+        formData.targetDate = item.targetDate || getToday()
         formData.content = item.content
         formData.messageType = item.type || '常規'
         if (item.patientId) {
@@ -470,7 +471,7 @@ function resetForm() {
   formData.category = 'message'
   formData.assigneeRole = ''
   formData.assigneeUserId = ''
-  formData.targetDate = new Date().toISOString().slice(0, 10)
+  formData.targetDate = getToday()
   formData.content = ''
   formData.messageType = '常規'
   selectedPatient.value = props.preselectedPatient || null
@@ -561,7 +562,7 @@ async function handleSubmit() {
         }
       }
 
-      dataToSave.targetDate = new Date().toISOString().slice(0, 10)
+      dataToSave.targetDate = getToday()
     } else {
       dataToSave.type = formData.messageType
       dataToSave.targetDate = formData.targetDate

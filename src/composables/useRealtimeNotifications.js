@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { useRouter } from 'vue-router'
+import { formatDateTimeToLocal } from '@/utils/dateUtils'
 
 const notifications = ref([])
 let unsubscribe = null
@@ -21,11 +22,16 @@ const NOTIFICATION_CONFIG = {
 
 function formatDateTime(date) {
   if (!date || !(date instanceof Date)) return ''
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${month}-${day} ${hours}:${minutes}`
+  return date
+    .toLocaleString('zh-TW', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Taipei',
+    })
+    .replace('/', '-')
 }
 
 const processDoc = (doc, router) => {

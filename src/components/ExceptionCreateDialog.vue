@@ -268,6 +268,7 @@ import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 // 🔥【核心修改 #2】引入 deleteDoc 和 doc
 import { deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
+import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
 
 // Props & Emits
 const props = defineProps({
@@ -514,7 +515,7 @@ watch(
             goalDate:
               props.initialData.to?.goalDate ||
               props.initialData.from?.sourceDate ||
-              new Date().toISOString().split('T')[0],
+              formatDateToYYYYMMDD(),
             bedNum: null,
             shiftCode: null,
           },

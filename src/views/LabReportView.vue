@@ -379,6 +379,8 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 // ✨ 新增：從 constants 引入 LAB_ITEM_DISPLAY_NAMES
 import { LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js'
+// 引入 dateUtils 函數
+import { formatDateToYYYYMM, formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
@@ -395,11 +397,11 @@ const isFindingMissing = ref(false)
 const manualEntryGroup = reactive({
   freq: '一三五',
   shift: 'early',
-  month: new Date().toISOString().slice(0, 7),
+  month: formatDateToYYYYMM(new Date()),
 })
 const missingPatients = ref([])
 const searchedForMissing = ref(false)
-const manualReportDate = ref(new Date().toISOString().slice(0, 10))
+const manualReportDate = ref(formatDateToYYYYMMDD(new Date()))
 
 const manualEntryItems = [
   { key: 'WBC', label: '白血球' },
@@ -423,7 +425,7 @@ const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
   shift: 'early',
-  month: new Date().toISOString().slice(0, 7),
+  month: formatDateToYYYYMM(new Date()),
 })
 const individualSearchQuery = ref('')
 const individualSearchYear = ref(new Date().getFullYear())
@@ -964,7 +966,7 @@ async function generateAndUploadManualData() {
     XLSX.utils.book_append_sheet(wb, ws, 'ManualEntry')
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
     const blob = new Blob([wbout], { type: 'application/octet-stream' })
-    const fileName = `manual_entry_${new Date().toISOString().slice(0, 10)}.xlsx`
+    const fileName = `manual_entry_${formatDateToYYYYMMDD(new Date())}.xlsx`
     const mockFile = new File([blob], fileName, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     })

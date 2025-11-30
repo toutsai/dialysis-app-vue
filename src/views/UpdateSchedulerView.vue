@@ -5,7 +5,7 @@
       <div class="header-toolbar">
         <!-- ✨ 將 toolbar-left 應用到一個新的 div 上 -->
         <div class="toolbar-left">
-          <h1 class="page-title">預約變更總覽</h1>
+          <h1 class="page-title">預約變更(長期變更)</h1>
           <!-- ✨ 將按鈕移動到這裡 -->
           <button class="btn btn-primary" @click="openNewUpdateDialog" :disabled="isPageLocked">
             <i class="fas fa-plus-circle"></i> 新增預約變更
@@ -13,7 +13,7 @@
         </div>
       </div>
       <p class="page-description">
-        顯示所有已排程的病人屬性或總表規則變更。變更將在「生效日期」當天凌晨由系統自動執行。
+        針對身分、頻率與長期床位的變動，顯示所有已排程的病人屬性或總表規則變更。變更將在「生效日期」當天凌晨由系統自動執行。
       </p>
     </div>
 

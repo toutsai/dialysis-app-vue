@@ -127,6 +127,7 @@ import ApiManager from '@/services/api_manager'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { useAuth } from '@/composables/useAuth'
+import { formatDateToYYYYMMDD, getTomorrow } from '@/utils/dateUtils'
 
 // --- Props & Emits ---
 const props = defineProps({
@@ -313,9 +314,7 @@ watch(
         formData.payload = JSON.parse(JSON.stringify(props.initialData.payload))
       } else {
         // 新增模式：重置表單
-        const tomorrow = new Date()
-        tomorrow.setDate(tomorrow.getDate() + 1)
-        formData.effectiveDate = tomorrow.toISOString().split('T')[0]
+        formData.effectiveDate = getTomorrow()
 
         switch (props.changeType) {
           case 'UPDATE_STATUS':
