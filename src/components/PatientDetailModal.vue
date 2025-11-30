@@ -148,29 +148,65 @@
                 </button>
               </div>
 
+              <!-- 日期篩選區塊 -->
+              <div class="date-filter">
+                <div class="filter-mode-selector">
+                  <label>
+                    <input type="radio" v-model="dateFilterMode" value="recent" />
+                    近6個月
+                  </label>
+                  <label>
+                    <input type="radio" v-model="dateFilterMode" value="custom" />
+                    自訂區間
+                  </label>
+                  <label>
+                    <input type="radio" v-model="dateFilterMode" value="all" />
+                    全部
+                  </label>
+                </div>
+                <div v-if="dateFilterMode === 'custom'" class="custom-date-range">
+                  <input type="date" v-model="customStartDate" placeholder="開始日期" />
+                  <span>至</span>
+                  <input type="date" v-model="customEndDate" placeholder="結束日期" />
+                </div>
+                <div v-if="hasSearched && driveFiles.length > 0" class="filter-summary">
+                  顯示 {{ filteredDriveFiles.length }} / {{ driveFiles.length }} 筆影像
+                </div>
+              </div>
+
               <!-- 狀態顯示 -->
               <div v-if="isFetchingFiles" class="loading-state">正在從雲端硬碟讀取資料...</div>
               <div v-else-if="fetchError" class="error-message">{{ fetchError }}</div>
               <div v-else-if="driveFiles.length === 0 && hasSearched" class="empty-state">
                 找不到此病人的相關影像紀錄。
               </div>
+              <div
+                v-else-if="filteredDriveFiles.length === 0 && driveFiles.length > 0"
+                class="empty-state"
+              >
+                在選取的日期區間內沒有影像紀錄。
+              </div>
 
               <!-- 影像列表 -->
-              <div v-else-if="driveFiles.length > 0" class="image-grid">
-                <a
-                  v-for="file in driveFiles"
-                  :key="file.id"
-                  :href="file.webViewLink"
-                  target="_blank"
-                  class="image-card"
-                  title="點擊在新分頁中開啟原始圖片"
-                >
-                  <img :src="file.thumbnailLink" :alt="file.name" class="thumbnail-img" />
+              <div v-else-if="filteredDriveFiles.length > 0" class="image-grid">
+                <div v-for="file in filteredDriveFiles" :key="file.id" class="image-card">
+                  <a :href="file.webViewLink" target="_blank" title="點擊在新分頁中開啟原始圖片">
+                    <img :src="file.thumbnailLink" :alt="file.name" class="thumbnail-img" />
+                  </a>
                   <div class="image-info">
-                    <p class="file-name">{{ file.name }}</p>
+                    <div class="file-name-row">
+                      <p class="file-name" :title="file.name">{{ file.name }}</p>
+                      <button
+                        @click="startEditFileName(file)"
+                        class="btn-edit-name"
+                        title="編輯檔名"
+                      >
+                        <i class="fas fa-pencil-alt"></i>
+                      </button>
+                    </div>
                     <p class="created-time">{{ formatDateTime(file.createdTime) }}</p>
                   </div>
-                </a>
+                </div>
               </div>
             </div>
           </div>
@@ -190,6 +226,36 @@
               :patient="patient"
             />
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 編輯檔名 Modal -->
+    <div v-if="isEditingFileName" class="rename-modal-overlay" @click.self="cancelEditFileName">
+      <div class="rename-modal">
+        <h4>編輯檔案名稱</h4>
+        <div class="rename-input-group">
+          <input
+            v-model="newFileName"
+            type="text"
+            class="rename-input"
+            placeholder="輸入新檔名"
+            @keyup.enter="saveFileName"
+            @keyup.escape="cancelEditFileName"
+          />
+          <span v-if="editingFile?.extension" class="file-extension"
+            >.{{ editingFile.extension }}</span
+          >
+        </div>
+        <div v-if="renameError" class="error-message">{{ renameError }}</div>
+        <div class="rename-actions">
+          <button @click="saveFileName" :disabled="isRenaming" class="btn-success">
+            <i v-if="isRenaming" class="fas fa-spinner fa-spin"></i>
+            {{ isRenaming ? '儲存中...' : '儲存' }}
+          </button>
+          <button @click="cancelEditFileName" :disabled="isRenaming" class="btn-secondary">
+            取消
+          </button>
         </div>
       </div>
     </div>
@@ -353,14 +419,68 @@ const isFetchingFiles = ref(false)
 const fetchError = ref('')
 const hasSearched = ref(false)
 
+// --- Date Filter State ---
+const dateFilterMode = ref('recent') // 'recent' = 近6個月, 'custom' = 自訂區間, 'all' = 全部
+const customStartDate = ref('')
+const customEndDate = ref('')
+
+// --- File Rename State ---
+const isEditingFileName = ref(false)
+const editingFile = ref(null)
+const newFileName = ref('')
+const isRenaming = ref(false)
+const renameError = ref('')
+
+// 計算預設的6個月前日期
+function getDefaultStartDate() {
+  const date = new Date()
+  date.setMonth(date.getMonth() - 6)
+  return date
+}
+
+// 根據篩選條件過濾影像
+const filteredDriveFiles = computed(() => {
+  if (!driveFiles.value || driveFiles.value.length === 0) return []
+
+  if (dateFilterMode.value === 'all') {
+    return driveFiles.value
+  }
+
+  let startDate, endDate
+
+  if (dateFilterMode.value === 'recent') {
+    startDate = getDefaultStartDate()
+    endDate = new Date()
+  } else if (dateFilterMode.value === 'custom') {
+    startDate = customStartDate.value ? new Date(customStartDate.value) : null
+    endDate = customEndDate.value ? new Date(customEndDate.value) : null
+    // 將結束日期設為當天的 23:59:59
+    if (endDate) {
+      endDate.setHours(23, 59, 59, 999)
+    }
+  }
+
+  return driveFiles.value.filter((file) => {
+    const fileDate = new Date(file.createdTime)
+    if (startDate && fileDate < startDate) return false
+    if (endDate && fileDate > endDate) return false
+    return true
+  })
+})
+
 // --- Camera, Upload & Viewer Methods ---
 
 async function startCamera() {
   cameraErrorMessage.value = ''
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     try {
+      // 設定高解析度約束，優先使用後置鏡頭
       cameraStream.value = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1920, min: 1280 },
+          height: { ideal: 1080, min: 720 },
+        },
       })
       cameraState.value = 'streaming'
       await new Promise((resolve) => setTimeout(resolve, 0))
@@ -395,7 +515,8 @@ function captureImage() {
     const context = canvas.getContext('2d')
     context.drawImage(videoPlayer.value, 0, 0, canvas.width, canvas.height)
 
-    capturedImage.value = canvas.toDataURL('image/jpeg')
+    // 設定 JPEG 品質為 0.95（範圍 0-1，數值越高品質越好）
+    capturedImage.value = canvas.toDataURL('image/jpeg', 0.95)
     stopCamera()
     cameraState.value = 'captured'
   }
@@ -490,6 +611,63 @@ async function fetchDriveFiles() {
     fetchError.value = `查詢失敗: ${error.message}`
   } finally {
     isFetchingFiles.value = false
+  }
+}
+
+// --- File Rename Methods ---
+function startEditFileName(file) {
+  editingFile.value = file
+  // 移除副檔名以便編輯
+  const nameParts = file.name.split('.')
+  const extension = nameParts.length > 1 ? nameParts.pop() : ''
+  newFileName.value = nameParts.join('.')
+  editingFile.value.extension = extension
+  isEditingFileName.value = true
+  renameError.value = ''
+}
+
+function cancelEditFileName() {
+  isEditingFileName.value = false
+  editingFile.value = null
+  newFileName.value = ''
+  renameError.value = ''
+}
+
+async function saveFileName() {
+  if (!editingFile.value || !newFileName.value.trim()) {
+    renameError.value = '檔名不能為空白'
+    return
+  }
+
+  isRenaming.value = true
+  renameError.value = ''
+
+  try {
+    // 加回副檔名
+    const fullNewName = editingFile.value.extension
+      ? `${newFileName.value.trim()}.${editingFile.value.extension}`
+      : newFileName.value.trim()
+
+    const renameDriveFile = httpsCallable(functions, 'renameDriveFile')
+    const result = await renameDriveFile({
+      fileId: editingFile.value.id,
+      newName: fullNewName,
+    })
+
+    if (result.data.success) {
+      // 更新本地資料
+      const fileIndex = driveFiles.value.findIndex((f) => f.id === editingFile.value.id)
+      if (fileIndex !== -1) {
+        driveFiles.value[fileIndex].name = fullNewName
+      }
+      addLocalNotification(`檔案已重新命名為 "${fullNewName}"`, 'success')
+      cancelEditFileName()
+    }
+  } catch (error) {
+    console.error('重新命名失敗:', error)
+    renameError.value = `重新命名失敗: ${error.message}`
+  } finally {
+    isRenaming.value = false
   }
 }
 
@@ -887,6 +1065,131 @@ watch(
   font-size: 0.8rem;
   color: #6c757d;
   margin: 0;
+}
+/* --- Date Filter Styles --- */
+.date-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.filter-mode-selector {
+  display: flex;
+  gap: 1rem;
+}
+.filter-mode-selector label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.custom-date-range {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.custom-date-range input[type='date'] {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+.filter-summary {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+/* --- File Name Edit Styles --- */
+.file-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.file-name-row .file-name {
+  flex: 1;
+  min-width: 0;
+}
+.btn-edit-name {
+  background: none;
+  border: none;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0.25rem;
+  font-size: 0.8rem;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+.btn-edit-name:hover {
+  opacity: 1;
+  color: #007bff;
+}
+/* --- Rename Modal Styles --- */
+.rename-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.rename-modal {
+  background-color: white;
+  border-radius: 12px;
+  padding: 1.5rem;
+  width: 90%;
+  max-width: 450px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+.rename-modal h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1.2rem;
+}
+.rename-input-group {
+  display: flex;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.rename-input {
+  flex: 1;
+  padding: 0.75rem;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+.rename-input:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+}
+.file-extension {
+  margin-left: 0.5rem;
+  color: #6c757d;
+  font-size: 0.95rem;
+}
+.rename-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+.rename-actions button {
+  padding: 0.6rem 1.25rem;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 @media (max-width: 992px) {
   .modal-body {
