@@ -104,10 +104,10 @@ const routes = [
         meta: { title: '檢驗報告管理', requiresAuth: true },
       },
       {
-        path: 'consumables',
-        name: 'Consumables',
-        component: () => import('@/views/ConsumablesView.vue'),
-        meta: { title: '每月耗材總表', requiresAuth: true },
+        path: 'inventory',
+        name: 'Inventory',
+        component: () => import('@/views/InventoryView.vue'),
+        meta: { title: '庫存管理', requiresAuth: true },
       },
       {
         path: 'account-settings',
@@ -166,6 +166,15 @@ const routes = [
           requiresAuth: true,
           // 如果您原本的路由有在使用 roles 陣列控制，請加上下面這行
           // roles: ['admin', 'editor']
+        },
+      },
+      {
+        path: 'usage-guide',
+        name: 'UsageGuide',
+        component: () => import('@/views/UsageGuideView.vue'),
+        meta: {
+          title: '平台使用說明',
+          requiresAuth: true,
         },
       },
     ],

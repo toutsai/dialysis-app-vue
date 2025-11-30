@@ -30,7 +30,13 @@ service cloud.firestore {
       // 您的 isViewer() 其實就等於 isAuthenticated()，這裡保持您的定義
       return isAuthenticated();
     }
-    
+
+    // 檢查是否為 admin 或 viewer（用於庫存管理）
+    function isAdminOrViewerRole() {
+      let role = getUserRole();
+      return isAuthenticated() && (role == 'admin' || role == 'viewer');
+    }
+
     // --- 集合規則 ---
     
     // ... 您所有其他的集合規則保持不變 ...
@@ -156,9 +162,25 @@ service cloud.firestore {
 
     match /consumables_reports/{reportId} {
       allow read: if isViewer();
-      allow write: if isViewer(); 
+      allow write: if isViewer();
     }
-    
+
+    // 庫存管理相關 collections
+    match /inventory_items/{itemId} {
+      allow read: if isViewer();
+      allow write: if isAdminOrViewerRole();
+    }
+
+    match /inventory_purchases/{purchaseId} {
+      allow read: if isViewer();
+      allow write: if isAdminOrViewerRole();
+    }
+
+    match /inventory_counts/{countId} {
+      allow read: if isViewer();
+      allow write: if isAdminOrViewerRole();
+    }
+
     match /medication_orders/{orderId} {
       allow read: if isViewer();
       allow create: if isContributor();
