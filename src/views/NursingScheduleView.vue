@@ -279,6 +279,7 @@
               :class="{
                 active: activeWeekTab === index + 1,
                 confirmed: tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`],
+                unscheduled: !tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`],
               }"
               @click="activeWeekTab = index + 1"
             >
@@ -289,6 +290,7 @@
               >
                 ✓
               </span>
+              <span v-else class="unscheduled-badge"> 未安排 </span>
             </button>
           </nav>
 
@@ -2418,6 +2420,15 @@ onMounted(() => {
 .confirmed-badge {
   color: #28a745;
   font-weight: bold;
+  margin-left: 4px;
+}
+/* 未安排週次的樣式 */
+.weekly-tabs-nav button.unscheduled {
+  background-color: #fff3cd;
+}
+.unscheduled-badge {
+  color: #856404;
+  font-size: 0.8em;
   margin-left: 4px;
 }
 .week-confirmed-tag {
