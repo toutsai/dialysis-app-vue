@@ -91,13 +91,6 @@
               </span>
             </RouterLink>
           </li>
-          <li>
-            <RouterLink to="/usage-guide" class="nav-link">
-              <div class="nav-item-content">
-                <span class="nav-title">使用說明</span>
-              </div>
-            </RouterLink>
-          </li>
         </ul>
       </div>
 
@@ -225,6 +218,14 @@
               <RouterLink to="/user-management" class="nav-link">
                 <div class="nav-item-content">
                   <span class="nav-title">使用者管理</span>
+                </div>
+              </RouterLink>
+            </li>
+
+            <li>
+              <RouterLink to="/usage-guide" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">使用說明</span>
                 </div>
               </RouterLink>
             </li>
