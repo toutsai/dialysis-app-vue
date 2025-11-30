@@ -1621,6 +1621,46 @@ exports.getDriveFiles = onCall({ cors: allowedOrigins }, async (request) => {
   }
 })
 
+/**
+ * 【可呼叫函式】重新命名 Google Drive 上的檔案。
+ * 需要傳入 fileId 和新的檔案名稱 newName。
+ */
+exports.renameDriveFile = onCall({ cors: allowedOrigins }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '您必須登入才能重新命名檔案。')
+  }
+
+  const { fileId, newName } = request.data
+
+  if (!fileId || !newName) {
+    throw new HttpsError('invalid-argument', '請求中缺少檔案 ID 或新檔名。')
+  }
+
+  try {
+    const auth = await getGoogleAuthClient()
+    const drive = google.drive({ version: 'v3', auth })
+
+    const response = await drive.files.update({
+      fileId: fileId,
+      requestBody: {
+        name: newName,
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    })
+
+    logger.info(`File renamed successfully: ${fileId} -> ${newName}`)
+
+    return {
+      success: true,
+      file: response.data,
+    }
+  } catch (error) {
+    logger.error(`Error renaming file ${fileId}:`, error)
+    throw new HttpsError('internal', '重新命名檔案時發生錯誤。', error.message)
+  }
+})
+
 // ===================================================================
 // 自動備份輔助函式 v2.2 (使用 dateUtils)
 // ===================================================================
