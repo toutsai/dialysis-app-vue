@@ -170,6 +170,7 @@ import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { httpsCallable } from 'firebase/functions'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
+import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
 
 // --- Store & State ---
 const patientStore = usePatientStore()
@@ -184,7 +185,7 @@ const processedData = ref([])
 const groupSearchParams = reactive({
   freq: 'other', // 將預設改為 'other' 可能更符合使用情境
   shift: 'early',
-  month: new Date().toISOString().slice(0, 7),
+  month: formatDateToYYYYMM(new Date()),
 })
 
 const selectedFile = ref(null)

@@ -4,6 +4,7 @@ import ApiManager from '@/services/api_manager'
 import { where } from 'firebase/firestore'
 import { SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
 import * as XLSX from 'xlsx'
+import { formatDateToYYYYMMDD, formatDateToYYYYMM } from '@/utils/dateUtils.js'
 
 const schedulesApi = ApiManager('schedules')
 const expiredSchedulesApi = ApiManager('expired_schedules')
@@ -17,17 +18,9 @@ const getTaipeiTodayString = () => {
   return formatter.format(today)
 }
 
-const formatDate = (date) => {
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = (d.getMonth() + 1).toString().padStart(2, '0')
-  const day = d.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 const reportType = ref('daily')
-const selectedDate = ref(formatDate(new Date()))
-const selectedMonth = ref(new Date().toISOString().slice(0, 7))
+const selectedDate = ref(formatDateToYYYYMMDD(new Date()))
+const selectedMonth = ref(formatDateToYYYYMM(new Date()))
 const selectedYear = ref(new Date().getFullYear())
 
 const isLoading = ref(false)
@@ -96,15 +89,15 @@ async function generateReport() {
       if (isNaN(firstDay.getTime()) || isNaN(lastDay.getTime())) {
         throw new Error('無法根據您的選擇建立有效的日期。')
       }
-      startDate = formatDate(firstDay)
-      endDate = formatDate(lastDay)
+      startDate = formatDateToYYYYMMDD(firstDay)
+      endDate = formatDateToYYYYMMDD(lastDay)
     } else if (reportType.value === 'yearly') {
       const year = Number(selectedYear.value)
       if (!year || isNaN(year) || year < 1900 || year > 2100) {
         throw new Error('請選擇一個有效的年份。')
       }
-      startDate = formatDate(new Date(year, 0, 1))
-      endDate = formatDate(new Date(year, 11, 31))
+      startDate = formatDateToYYYYMMDD(new Date(year, 0, 1))
+      endDate = formatDateToYYYYMMDD(new Date(year, 11, 31))
     }
 
     // ✨ 最終守門員：在執行任何查詢之前，做最後一次檢查
@@ -372,7 +365,7 @@ function processMonthlyReport(allSchedules, patientMap, monthStartDate) {
   const reportMatrix = {}
   const statusDisplay = { opd: '門診', ipd: '住院', er: '急診', unknown: '未知' }
   for (let day = 1; day <= daysInMonth; day++) {
-    const dateStr = formatDate(new Date(year, month, day))
+    const dateStr = formatDateToYYYYMMDD(new Date(year, month, day))
     const dayData = dailyBreakdown[dateStr] || {}
     for (const comboKey in dayData) {
       if (!reportMatrix[comboKey]) {

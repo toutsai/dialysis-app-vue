@@ -22,6 +22,7 @@ import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { db } from '@/composables/useFirebase'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
+import { formatDateToYYYYMMDD, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 
 // ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務
 const tasksApi = ApiManager('tasks')
@@ -990,7 +991,7 @@ function closeModal() {
 function formatDate(dateInput) {
   const date = normalizeDateObject(dateInput)
   if (!date) return ''
-  return date.toISOString().split('T')[0]
+  return formatDateToYYYYMMDD(date)
 }
 function getRowClass(p) {
   if (p.patientStatus?.isPaused?.active) return 'status-discontinued'

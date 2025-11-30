@@ -201,6 +201,7 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { useMedicationStore } from '@/stores/medicationStore'
+import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
@@ -217,7 +218,7 @@ const searchType = ref('group')
 const groupSearchParams = reactive({
   freq: '一三五',
   shift: 'early',
-  month: new Date().toISOString().slice(0, 7),
+  month: formatDateToYYYYMM(new Date()),
 })
 const individualSearchTerm = ref('')
 const individualSearchYear = ref(new Date().getFullYear())

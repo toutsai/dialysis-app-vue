@@ -58,6 +58,7 @@ import ApiManager from '@/services/api_manager'
 // ✨ 修正 1/2: 從正確的 firebase 設定檔中引入 db 和 doc
 import { db } from '@/composables/useFirebase'
 import { where, orderBy, writeBatch, doc } from 'firebase/firestore'
+import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 
 const draftOrdersApi = ApiManager('medication_drafts')
 const isLoading = ref(true)
@@ -126,14 +127,8 @@ async function confirmDrafts(group) {
 
 function formatDateTime(timestamp) {
   if (!timestamp) return ''
-  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
-  return date.toLocaleString('zh-TW', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  const date = parseFirestoreTimestamp(timestamp)
+  return formatDateTimeToLocal(date)
 }
 </script>
 

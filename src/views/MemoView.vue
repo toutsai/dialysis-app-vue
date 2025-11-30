@@ -88,7 +88,7 @@
             <div class="memo-content">
               <p v-html="getMemoDisplayContent(memo)"></p>
               <div class="memo-meta">
-                <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                <span>建立於: {{ formatDateToChinese(parseFirestoreTimestamp(memo.createdAt)) }}</span>
                 <span v-if="memo.targetDate"
                   >| 到期日: <strong class="date-highlight">{{ memo.targetDate }}</strong></span
                 >
@@ -142,7 +142,7 @@
               <div class="memo-content">
                 <p v-html="getMemoDisplayContent(memo)"></p>
                 <div class="memo-meta">
-                  <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                  <span>建立於: {{ formatDateToChinese(parseFirestoreTimestamp(memo.createdAt)) }}</span>
                   <span v-if="memo.targetDate"
                     >| 到期於: <strong>{{ memo.targetDate }}</strong></span
                   >
@@ -162,7 +162,7 @@
               <div class="memo-content">
                 <p v-html="getMemoDisplayContent(memo)"></p>
                 <div class="memo-meta">
-                  <span>建立於: {{ new Date(memo.createdAt).toLocaleDateString() }}</span>
+                  <span>建立於: {{ formatDateToChinese(parseFirestoreTimestamp(memo.createdAt)) }}</span>
                 </div>
               </div>
               <div class="memo-actions">
@@ -275,6 +275,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { formatDateToChinese, addDays, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
@@ -336,12 +337,11 @@ const pendingList = computed(() =>
 )
 
 const resolvedList = computed(() => {
-  const ninetyDaysAgo = new Date()
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+  const ninetyDaysAgo = addDays(new Date(), -90)
   return memos.value
     .filter((memo) => {
       const isRecentResolved =
-        memo.status === 'resolved' && new Date(memo.createdAt) > ninetyDaysAgo
+        memo.status === 'resolved' && parseFirestoreTimestamp(memo.createdAt) > ninetyDaysAgo
       if (isRecentResolved && !isSystemMemo(memo)) {
         if (filterPatientId.value) {
           return memo.patientId === filterPatientId.value
@@ -350,14 +350,13 @@ const resolvedList = computed(() => {
       }
       return false
     })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .sort((a, b) => parseFirestoreTimestamp(b.createdAt) - parseFirestoreTimestamp(a.createdAt))
 })
 
 // ✨ --- 【核心修改】 --- ✨
 // 只顯示 7 天內的已到期事項
 const expiredList = computed(() => {
-  const sevenDaysAgo = new Date()
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+  const sevenDaysAgo = addDays(new Date(), -7)
   return memos.value
     .filter((memo) => {
       // 條件 1: 狀態是 'expired'
@@ -374,7 +373,7 @@ const expiredList = computed(() => {
       }
       return false
     })
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .sort((a, b) => parseFirestoreTimestamp(b.createdAt) - parseFirestoreTimestamp(a.createdAt))
 })
 
 const memoStats = computed(() => ({

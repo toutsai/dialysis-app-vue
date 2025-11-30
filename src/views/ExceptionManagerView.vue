@@ -154,6 +154,7 @@ import { useBreakpoints } from '@/composables/useBreakpoints.js'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
+import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
@@ -420,14 +421,8 @@ function handleDateSelected(newDate) {
   isMonthPickerVisible.value = false
 }
 function formatTimestamp(ts) {
-  if (!ts || !ts.toDate) return 'N/A'
-  return ts.toDate().toLocaleString('zh-TW', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  if (!ts) return 'N/A'
+  return formatDateTimeToLocal(parseFirestoreTimestamp(ts))
 }
 function formatShiftInfo(shiftData) {
   if (!shiftData) return ''

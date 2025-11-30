@@ -719,6 +719,13 @@ import { useTaskStore } from '@/stores/taskStore'
 import { storeToRefs } from 'pinia'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 import { where } from 'firebase/firestore'
+import {
+  formatDateToYYYYMMDD,
+  formatDateTimeToLocal,
+  addDays,
+  getDayOfWeek,
+  parseFirestoreTimestamp,
+} from '@/utils/dateUtils'
 
 const route = useRoute()
 const { currentUser, isPageLocked, hasPermission } = useAuth()
@@ -805,18 +812,11 @@ const groupedPatients = computed(() => {
   return groups
 })
 
-const getLocalDateString = (date) => {
-  const year = date.getFullYear()
-  const month = (date.getMonth() + 1).toString().padStart(2, '0')
-  const day = date.getDate().toString().padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-const displayDate = computed(() => route.query.date || getLocalDateString(new Date()))
+const displayDate = computed(() => route.query.date || formatDateToYYYYMMDD())
 const weekdayDisplay = computed(() => {
   if (!displayDate.value) return ''
   try {
-    const d = new Date(displayDate.value + 'T00:00:00')
-    return ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+    return ['日', '一', '二', '三', '四', '五', '六'][getDayOfWeek(displayDate.value)]
   } catch {
     return ''
   }
@@ -999,15 +999,9 @@ async function deleteTask(taskId) {
 
 function formatTimestamp(ts) {
   if (!ts) return ''
-  const date = ts.toDate ? ts.toDate() : new Date(ts)
+  const date = parseFirestoreTimestamp(ts)
   if (isNaN(date.getTime())) return ''
-  return date.toLocaleString('zh-TW', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+  return formatDateTimeToLocal(date, { year: undefined, second: undefined })
 }
 
 const roleDisplayNames = {
@@ -1047,15 +1041,9 @@ function listenToBulletinData(dateStr) {
   yesterdaysLogItems.value = []
   todaysAnnouncements.value = []
 
-  const today = new Date(dateStr + 'T00:00:00Z')
-
-  const yesterday = new Date(today)
-  yesterday.setUTCDate(today.getUTCDate() - 1)
-  const dayBeforeYesterday = new Date(today)
-  dayBeforeYesterday.setUTCDate(today.getUTCDate() - 2)
-
-  const yesterdayStr = getLocalDateString(yesterday)
-  const dayBeforeYesterdayStr = getLocalDateString(dayBeforeYesterday)
+  const today = new Date(dateStr + 'T00:00:00')
+  const yesterdayStr = formatDateToYYYYMMDD(addDays(today, -1))
+  const dayBeforeYesterdayStr = formatDateToYYYYMMDD(addDays(today, -2))
 
   async function fetchLastWorkingDayLog() {
     try {

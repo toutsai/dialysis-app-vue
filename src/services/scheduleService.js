@@ -3,6 +3,7 @@
 import { doc, updateDoc, where, limit, collection, getDocs, query } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
+import { formatDateToYYYYMMDD, addMonths } from '@/utils/dateUtils'
 
 // ✨ 整合優化系統
 import { useCache } from '@/composables/useCache.js'
@@ -55,12 +56,11 @@ const createDateRange = (startDate, maxMonths = QUERY_LIMITS.MAX_DATE_RANGE_MONT
   const start = new Date(startDate)
   start.setHours(0, 0, 0, 0)
 
-  const end = new Date(start)
-  end.setMonth(end.getMonth() + maxMonths)
+  const end = addMonths(start, maxMonths)
 
   return {
-    startStr: start.toISOString().split('T')[0],
-    endStr: end.toISOString().split('T')[0],
+    startStr: formatDateToYYYYMMDD(start),
+    endStr: formatDateToYYYYMMDD(end),
     start,
     end,
   }

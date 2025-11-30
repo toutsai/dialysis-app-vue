@@ -8,6 +8,7 @@ import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
+import { formatDateToChinese, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 
 // --- API and State ---
 const usersApi = ApiManager('users')
@@ -50,9 +51,9 @@ const { createGlobalNotification: createGlobalNotifier } = useGlobalNotifier()
 // --- Helper Functions ---
 function formatDate(timestamp) {
   if (!timestamp) return 'N/A'
-  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp)
+  const date = parseFirestoreTimestamp(timestamp)
   if (isNaN(date)) return '無效日期'
-  return date.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return formatDateToChinese(date)
 }
 
 const roleOptions = [
