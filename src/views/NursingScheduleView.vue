@@ -278,14 +278,15 @@
               :key="`tab-${index}`"
               :class="{
                 active: activeWeekTab === index + 1,
-                confirmed: tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`],
-                unscheduled: !tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`],
+                confirmed: (tempScheduleWithGroups?.weekConfirmed ?? monthlySchedule?.weekConfirmed)?.[`week${index + 1}`],
+                unscheduled: !(tempScheduleWithGroups?.weekConfirmed ?? monthlySchedule?.weekConfirmed)?.[`week${index + 1}`],
+
               }"
               @click="activeWeekTab = index + 1"
             >
               第 {{ week.weekNumber }} 週
               <span
-                v-if="tempScheduleWithGroups?.weekConfirmed?.[`week${index + 1}`]"
+                v-if="(tempScheduleWithGroups?.weekConfirmed ?? monthlySchedule?.weekConfirmed)?.[`week${index + 1}`]"
                 class="confirmed-badge"
               >
                 ✓
