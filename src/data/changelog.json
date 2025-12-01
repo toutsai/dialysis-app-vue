@@ -4,6 +4,11 @@
     "title": "功能更新與問題修正",
     "changes": [
       {
+        "type": "fix",
+        "label": "修正",
+        "text": "rename schedule audit functions to avoid naming conflict"
+      },
+      {
         "type": "feat",
         "label": "新增",
         "text": "add schedule change audit logging"
