@@ -857,6 +857,111 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
 })
 
 // ===================================================================
+// ✨ 排程變更稽核日誌 - B 級合規要求
+// ===================================================================
+
+/**
+ * 記錄每日排程變更
+ * 追蹤洗腎排班的任何修改
+ */
+exports.onScheduleChange = onDocumentWritten('schedules/{scheduleId}', async (event) => {
+  const scheduleId = event.params.scheduleId
+  const beforeData = event.data?.before.data()
+  const afterData = event.data?.after.data()
+
+  // 計算變更的床位數量
+  const beforeSlots = beforeData?.schedule ? Object.keys(beforeData.schedule).length : 0
+  const afterSlots = afterData?.schedule ? Object.keys(afterData.schedule).length : 0
+
+  let action = 'SCHEDULE_UPDATE'
+  if (!beforeData && afterData) {
+    action = 'SCHEDULE_CREATE'
+  } else if (beforeData && !afterData) {
+    action = 'SCHEDULE_DELETE'
+  }
+
+  // 嘗試從文件中取得修改者資訊
+  const data = afterData || beforeData
+  const modifiedBy = data?.lastModifiedBy || {}
+
+  await logAuditEvent({
+    action,
+    userId: modifiedBy.uid || 'system',
+    userName: modifiedBy.name || 'System/Trigger',
+    collection: 'schedules',
+    documentId: scheduleId,
+    details: {
+      date: scheduleId,
+      beforeSlotCount: beforeSlots,
+      afterSlotCount: afterSlots,
+      slotDifference: afterSlots - beforeSlots,
+    },
+    success: true,
+  })
+
+  return null
+})
+
+/**
+ * 記錄基礎排程（Master Schedule）變更
+ * 追蹤病人固定班表的設定變更
+ */
+exports.onBaseScheduleChange = onDocumentWritten('base_schedules/{scheduleId}', async (event) => {
+  const scheduleId = event.params.scheduleId
+  const beforeData = event.data?.before.data()
+  const afterData = event.data?.after.data()
+
+  // 計算變更的病人數量
+  const beforePatients = beforeData?.schedule ? Object.keys(beforeData.schedule).length : 0
+  const afterPatients = afterData?.schedule ? Object.keys(afterData.schedule).length : 0
+
+  let action = 'BASE_SCHEDULE_UPDATE'
+  if (!beforeData && afterData) {
+    action = 'BASE_SCHEDULE_CREATE'
+  } else if (beforeData && !afterData) {
+    action = 'BASE_SCHEDULE_DELETE'
+  }
+
+  // 嘗試從文件中取得修改者資訊
+  const data = afterData || beforeData
+  const modifiedBy = data?.lastModifiedBy || {}
+
+  // 找出具體變更的病人 ID（限制記錄前 10 個避免日誌過大）
+  const changedPatientIds = []
+  if (beforeData?.schedule && afterData?.schedule) {
+    const allPatientIds = new Set([
+      ...Object.keys(beforeData.schedule || {}),
+      ...Object.keys(afterData.schedule || {}),
+    ])
+    for (const patientId of allPatientIds) {
+      const before = JSON.stringify(beforeData.schedule[patientId] || null)
+      const after = JSON.stringify(afterData.schedule[patientId] || null)
+      if (before !== after) {
+        changedPatientIds.push(patientId)
+        if (changedPatientIds.length >= 10) break
+      }
+    }
+  }
+
+  await logAuditEvent({
+    action,
+    userId: modifiedBy.uid || 'system',
+    userName: modifiedBy.name || 'System/Trigger',
+    collection: 'base_schedules',
+    documentId: scheduleId,
+    details: {
+      scheduleType: scheduleId === 'MASTER_SCHEDULE' ? 'Master Schedule' : scheduleId,
+      beforePatientCount: beforePatients,
+      afterPatientCount: afterPatients,
+      changedPatientIds: changedPatientIds.length > 0 ? changedPatientIds : undefined,
+    },
+    success: true,
+  })
+
+  return null
+})
+
+// ===================================================================
 // ✨ KIDit Logbook 統一同步函式 (v4.1 - 修正病歷號遺失)
 // ===================================================================
 
