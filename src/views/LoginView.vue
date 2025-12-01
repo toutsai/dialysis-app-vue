@@ -43,7 +43,8 @@
         <p><strong>使用者須知：</strong></p>
         <ul>
           <li>帳號：預設為您的 <strong>HIS 帳號</strong>。</li>
-          <li>密碼：預設為 <strong>123456</strong>。</li>
+          <li>密碼：請使用管理員設定的密碼登入。</li>
+          <li>密碼規則：至少 8 個字元，包含大寫、小寫字母和數字。</li>
         </ul>
         <p class="forgot-password">若忘記密碼，請聯繫系統管理員或護理長重設。</p>
       </div>

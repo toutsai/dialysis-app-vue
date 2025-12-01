@@ -29,6 +29,7 @@ const { getFirestore, FieldValue, FieldPath } = require('firebase-admin/firestor
 const { google } = require('googleapis')
 const stream = require('stream')
 const path = require('path')
+const bcrypt = require('bcryptjs') // ✨ 密碼加密
 
 // --- ✨ 引入統一的日期處理工具 ✨ ---
 const {
@@ -1017,9 +1018,30 @@ exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
     }
     const userDoc = snapshot.docs[0]
     const userData = userDoc.data()
-    if (userData.password !== password) {
+    const storedPassword = userData.password
+
+    // ✨ 檢查密碼是否已經是 bcrypt hash 格式
+    const isHashed = storedPassword && storedPassword.startsWith('$2')
+
+    let isPasswordValid = false
+    if (isHashed) {
+      // 已加密的密碼：使用 bcrypt 比對
+      isPasswordValid = await bcrypt.compare(password, storedPassword)
+    } else {
+      // 舊有明文密碼：直接比對，並在成功後自動遷移
+      isPasswordValid = storedPassword === password
+      if (isPasswordValid) {
+        // ✨ 自動遷移：將明文密碼升級為 bcrypt hash
+        const hashedPassword = await bcrypt.hash(password, 10)
+        await userDoc.ref.update({ password: hashedPassword })
+        logger.info(`[customLogin] 用戶 ${userDoc.id} 的密碼已自動遷移為加密格式。`)
+      }
+    }
+
+    if (!isPasswordValid) {
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
+
     const uid = userDoc.id
     const customToken = await admin.auth().createCustomToken(uid, {
       role: userData.role,
@@ -1039,9 +1061,19 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
     throw new HttpsError('unauthenticated', '使用者未經驗證，無法更改密碼。')
   }
   const { oldPassword, newPassword } = request.data
-  if (!oldPassword || !newPassword || newPassword.length < 6) {
-    throw new HttpsError('invalid-argument', '提供的密碼無效，或新密碼長度不足 6 個字元。')
+
+  // ✨ 強化密碼驗證：至少 8 字元，包含大小寫和數字
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/
+  if (!oldPassword || !newPassword) {
+    throw new HttpsError('invalid-argument', '請提供舊密碼和新密碼。')
   }
+  if (!passwordRegex.test(newPassword)) {
+    throw new HttpsError(
+      'invalid-argument',
+      '新密碼需至少 8 個字元，並包含大寫字母、小寫字母和數字。',
+    )
+  }
+
   const uid = request.auth.uid
   try {
     const userDocRef = db.collection('users').doc(uid)
@@ -1050,10 +1082,25 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
       throw new HttpsError('not-found', '在資料庫中找不到對應的使用者紀錄。')
     }
     const userData = userDoc.data()
-    if (userData.password !== oldPassword) {
+    const storedPassword = userData.password
+
+    // ✨ 檢查舊密碼（支援 bcrypt hash 和舊有明文格式）
+    const isHashed = storedPassword && storedPassword.startsWith('$2')
+    let isOldPasswordValid = false
+    if (isHashed) {
+      isOldPasswordValid = await bcrypt.compare(oldPassword, storedPassword)
+    } else {
+      isOldPasswordValid = storedPassword === oldPassword
+    }
+
+    if (!isOldPasswordValid) {
       throw new HttpsError('unauthenticated', '舊密碼不正確。')
     }
-    await userDocRef.update({ password: newPassword })
+
+    // ✨ 將新密碼加密後儲存
+    const hashedNewPassword = await bcrypt.hash(newPassword, 10)
+    await userDocRef.update({ password: hashedNewPassword })
+
     try {
       await admin.auth().updateUser(uid, { password: newPassword })
     } catch (authError) {
@@ -1070,6 +1117,121 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
       throw error
     }
     throw new HttpsError('internal', '更新密碼時發生未知的伺服器錯誤。')
+  }
+})
+
+/**
+ * ✨ 安全建立用戶（密碼加密儲存）
+ * 只有 admin 角色可以呼叫此函式
+ */
+exports.createUser = onCall({ cors: allowedOrigins }, async (request) => {
+  // 驗證呼叫者是否為 admin
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '使用者未經驗證。')
+  }
+  if (request.auth.token.role !== 'admin') {
+    throw new HttpsError('permission-denied', '只有管理員可以建立新用戶。')
+  }
+
+  const { username, password, name, title, role, email, staffId, phone, clinicHours, defaultSchedules, defaultConsultationSchedules } = request.data
+
+  // 驗證必要欄位
+  if (!username || !password || !name || !title || !role) {
+    throw new HttpsError('invalid-argument', '缺少必要欄位：username, password, name, title, role')
+  }
+
+  try {
+    // 檢查 username 是否已存在
+    const existingUser = await db.collection('users').where('username', '==', username).limit(1).get()
+    if (!existingUser.empty) {
+      throw new HttpsError('already-exists', '此使用者名稱已被使用。')
+    }
+
+    // ✨ 加密密碼
+    const hashedPassword = await bcrypt.hash(password, 10)
+
+    // 建立用戶資料
+    const userData = {
+      username,
+      password: hashedPassword,
+      name,
+      title,
+      role,
+      email: email || '',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }
+
+    // 如果是主治醫師，添加額外欄位
+    if (title === '主治醫師') {
+      userData.staffId = staffId || ''
+      userData.phone = phone || ''
+      userData.clinicHours = clinicHours || []
+      userData.defaultSchedules = defaultSchedules || []
+      userData.defaultConsultationSchedules = defaultConsultationSchedules || []
+    }
+
+    const newUserRef = await db.collection('users').add(userData)
+    logger.info(`[createUser] 管理員 ${request.auth.uid} 成功建立新用戶 ${newUserRef.id}`)
+
+    return {
+      success: true,
+      userId: newUserRef.id,
+      message: '用戶已成功建立。',
+    }
+  } catch (error) {
+    logger.error('[createUser] Error creating user:', error)
+    if (error instanceof HttpsError) throw error
+    throw new HttpsError('internal', '建立用戶時發生錯誤。')
+  }
+})
+
+/**
+ * ✨ 管理員重設用戶密碼
+ * 只有 admin 角色可以呼叫此函式
+ */
+exports.adminResetPassword = onCall({ cors: allowedOrigins }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', '使用者未經驗證。')
+  }
+  if (request.auth.token.role !== 'admin') {
+    throw new HttpsError('permission-denied', '只有管理員可以重設密碼。')
+  }
+
+  const { userId, newPassword } = request.data
+  if (!userId || !newPassword) {
+    throw new HttpsError('invalid-argument', '缺少必要欄位：userId, newPassword')
+  }
+
+  // 檢查新密碼複雜度
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/
+  if (!passwordRegex.test(newPassword)) {
+    throw new HttpsError(
+      'invalid-argument',
+      '新密碼需至少 8 個字元，並包含大寫字母、小寫字母和數字。',
+    )
+  }
+
+  try {
+    const userDocRef = db.collection('users').doc(userId)
+    const userDoc = await userDocRef.get()
+    if (!userDoc.exists) {
+      throw new HttpsError('not-found', '找不到該用戶。')
+    }
+
+    // ✨ 加密新密碼
+    const hashedPassword = await bcrypt.hash(newPassword, 10)
+    await userDocRef.update({
+      password: hashedPassword,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    })
+
+    logger.info(`[adminResetPassword] 管理員 ${request.auth.uid} 重設了用戶 ${userId} 的密碼`)
+    return { success: true, message: '密碼已成功重設。' }
+  } catch (error) {
+    logger.error('[adminResetPassword] Error:', error)
+    if (error instanceof HttpsError) throw error
+    throw new HttpsError('internal', '重設密碼時發生錯誤。')
   }
 })
 
