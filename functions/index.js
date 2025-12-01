@@ -864,7 +864,7 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
  * 記錄每日排程變更
  * 追蹤洗腎排班的任何修改
  */
-exports.onScheduleChange = onDocumentWritten('schedules/{scheduleId}', async (event) => {
+exports.auditScheduleChange = onDocumentWritten('schedules/{scheduleId}', async (event) => {
   const scheduleId = event.params.scheduleId
   const beforeData = event.data?.before.data()
   const afterData = event.data?.after.data()
@@ -906,7 +906,7 @@ exports.onScheduleChange = onDocumentWritten('schedules/{scheduleId}', async (ev
  * 記錄基礎排程（Master Schedule）變更
  * 追蹤病人固定班表的設定變更
  */
-exports.onBaseScheduleChange = onDocumentWritten('base_schedules/{scheduleId}', async (event) => {
+exports.auditBaseScheduleChange = onDocumentWritten('base_schedules/{scheduleId}', async (event) => {
   const scheduleId = event.params.scheduleId
   const beforeData = event.data?.before.data()
   const afterData = event.data?.after.data()
