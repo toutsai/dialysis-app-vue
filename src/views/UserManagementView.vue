@@ -689,7 +689,7 @@ onMounted(() => {
       :is-editing="isEditing"
       :user="userToEdit"
       :is-submitting="isSubmitting"
-      @close="isModalVisible.value = false"
+      @close="isModalVisible = false"
       @save="handleSaveUser"
     />
     <AlertDialog
