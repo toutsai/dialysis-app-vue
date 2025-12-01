@@ -78,6 +78,50 @@ const allowedOrigins = [
 // 輔助函式 (Helper Functions)
 // ===================================================================
 
+/**
+ * ✨ 稽核日誌記錄函式 - B 級合規要求
+ * 記錄系統中的重要操作，確保可追溯性
+ * @param {Object} params - 日誌參數
+ * @param {string} params.action - 操作類型 (LOGIN, LOGOUT, CREATE, UPDATE, DELETE, etc.)
+ * @param {string} params.userId - 執行操作的用戶 ID
+ * @param {string} params.userName - 執行操作的用戶名稱
+ * @param {string} params.collection - 被操作的集合名稱
+ * @param {string} params.documentId - 被操作的文件 ID
+ * @param {Object} params.details - 操作詳情
+ * @param {string} params.ipAddress - 來源 IP (如果可用)
+ * @param {boolean} params.success - 操作是否成功
+ */
+async function logAuditEvent({
+  action,
+  userId = 'system',
+  userName = 'System',
+  collection = null,
+  documentId = null,
+  details = {},
+  ipAddress = null,
+  success = true,
+}) {
+  try {
+    const auditLog = {
+      action,
+      userId,
+      userName,
+      collection,
+      documentId,
+      details,
+      ipAddress,
+      success,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: getTaipeiNow().toISOString(),
+    }
+    await db.collection('audit_logs').add(auditLog)
+    logger.info(`[AuditLog] ${action} by ${userName} (${userId}) - Success: ${success}`)
+  } catch (error) {
+    // 稽核日誌失敗不應該阻擋主要操作，只記錄錯誤
+    logger.error('[AuditLog] Failed to write audit log:', error)
+  }
+}
+
 async function cleanupFuturePatientMetadata(patientId, options = {}) {
   const { clearTeams = false, clearManualNote = false } = options
   if (!clearTeams && !clearManualNote) {
@@ -486,6 +530,24 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
   const afterData = event.data?.after.data()
   const tasks = []
 
+  // ✨ 稽核日誌輔助函式（從文件中嘗試取得修改者資訊）
+  const logPatientAudit = async (action, details) => {
+    const data = afterData || beforeData
+    await logAuditEvent({
+      action,
+      userId: data?.lastModifiedBy?.uid || 'system',
+      userName: data?.lastModifiedBy?.name || 'System/Trigger',
+      collection: 'patients',
+      documentId: patientId,
+      details: {
+        patientName: data?.name || '未知',
+        medicalRecordNumber: data?.medicalRecordNumber || null,
+        ...details,
+      },
+      success: true,
+    })
+  }
+
   // ✅ [新增] 狀態碼的中文對照表
   const STATUS_MAP = {
     opd: '門診',
@@ -562,6 +624,9 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     )
     historyWritten = true
 
+    // ✨ 稽核日誌：新增病人
+    tasks.push(logPatientAudit('PATIENT_CREATE', { status: afterData.status }))
+
     tasks.push(
       addMovementToDailyLog({
         id: `auto_create_${patientId}`, // 使用固定ID
@@ -595,6 +660,14 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
       }),
     )
     historyWritten = true
+
+    // ✨ 稽核日誌：刪除病人
+    tasks.push(
+      logPatientAudit('PATIENT_DELETE', {
+        reason: afterData.deleteReason || '未知',
+        fromStatus: beforeData.status,
+      }),
+    )
 
     tasks.push(
       addMovementToDailyLog({
@@ -685,6 +758,14 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
     )
     historyWritten = true
 
+    // ✨ 稽核日誌：復原病人
+    tasks.push(
+      logPatientAudit('PATIENT_RESTORE', {
+        restoredTo: afterData.status,
+        fromReason: beforeData.deleteReason || '未知',
+      }),
+    )
+
     tasks.push(
       addMovementToDailyLog({
         id: `auto_restore_${patientId}`, // 使用固定ID
@@ -720,6 +801,14 @@ exports.onPatientDataChange = onDocumentWritten('patients/{patientId}', async (e
       }),
     )
     historyWritten = true
+
+    // ✨ 稽核日誌：病人狀態轉換
+    tasks.push(
+      logPatientAudit('PATIENT_TRANSFER', {
+        fromStatus: beforeData.status,
+        toStatus: afterData.status,
+      }),
+    )
 
     tasks.push(
       addMovementToDailyLog({
@@ -1007,6 +1096,9 @@ exports.initializeFutureSchedules = onSchedule(
 // ===================================================================
 exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
   const { username, password } = request.data
+  // 嘗試取得來源 IP（Cloud Functions v2）
+  const ipAddress = request.rawRequest?.ip || request.rawRequest?.headers?.['x-forwarded-for'] || null
+
   if (!username || !password) {
     throw new HttpsError('invalid-argument', '請提供使用者名稱和密碼。')
   }
@@ -1014,6 +1106,13 @@ exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
     const usersRef = db.collection('users')
     const snapshot = await usersRef.where('username', '==', username).limit(1).get()
     if (snapshot.empty) {
+      // ✨ 記錄登入失敗（用戶不存在）
+      await logAuditEvent({
+        action: 'LOGIN_FAILED',
+        details: { username, reason: '使用者名稱不存在' },
+        ipAddress,
+        success: false,
+      })
       throw new HttpsError('not-found', '使用者名稱不存在。')
     }
     const userDoc = snapshot.docs[0]
@@ -1039,6 +1138,15 @@ exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
     }
 
     if (!isPasswordValid) {
+      // ✨ 記錄登入失敗（密碼錯誤）
+      await logAuditEvent({
+        action: 'LOGIN_FAILED',
+        userId: userDoc.id,
+        userName: userData.name,
+        details: { username, reason: '密碼不正確' },
+        ipAddress,
+        success: false,
+      })
       throw new HttpsError('unauthenticated', '密碼不正確。')
     }
 
@@ -1048,6 +1156,17 @@ exports.customLogin = onCall({ cors: allowedOrigins }, async (request) => {
       name: userData.name,
       title: userData.title,
     })
+
+    // ✨ 記錄登入成功
+    await logAuditEvent({
+      action: 'LOGIN_SUCCESS',
+      userId: uid,
+      userName: userData.name,
+      details: { username, role: userData.role, title: userData.title },
+      ipAddress,
+      success: true,
+    })
+
     return { token: customToken }
   } catch (error) {
     logger.error('[customLogin] Login function error:', error)
@@ -1109,6 +1228,18 @@ exports.changeUserPassword = onCall({ cors: allowedOrigins }, async (request) =>
         authError.message,
       )
     }
+
+    // ✨ 記錄密碼變更操作
+    await logAuditEvent({
+      action: 'PASSWORD_CHANGE',
+      userId: uid,
+      userName: userData.name,
+      collection: 'users',
+      documentId: uid,
+      details: { changedByUser: true },
+      success: true,
+    })
+
     logger.info(`User ${uid} successfully changed their password.`)
     return { success: true, message: '密碼已成功更新！' }
   } catch (error) {
@@ -1174,6 +1305,22 @@ exports.createUser = onCall({ cors: allowedOrigins }, async (request) => {
     const newUserRef = await db.collection('users').add(userData)
     logger.info(`[createUser] 管理員 ${request.auth.uid} 成功建立新用戶 ${newUserRef.id}`)
 
+    // ✨ 記錄用戶建立操作
+    await logAuditEvent({
+      action: 'USER_CREATE',
+      userId: request.auth.uid,
+      userName: request.auth.token.name || 'Admin',
+      collection: 'users',
+      documentId: newUserRef.id,
+      details: {
+        newUsername: username,
+        newUserName: name,
+        newUserRole: role,
+        newUserTitle: title,
+      },
+      success: true,
+    })
+
     return {
       success: true,
       userId: newUserRef.id,
@@ -1219,11 +1366,27 @@ exports.adminResetPassword = onCall({ cors: allowedOrigins }, async (request) =>
       throw new HttpsError('not-found', '找不到該用戶。')
     }
 
+    const targetUserData = userDoc.data()
+
     // ✨ 加密新密碼
     const hashedPassword = await bcrypt.hash(newPassword, 10)
     await userDocRef.update({
       password: hashedPassword,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    })
+
+    // ✨ 記錄密碼重設操作
+    await logAuditEvent({
+      action: 'PASSWORD_RESET_BY_ADMIN',
+      userId: request.auth.uid,
+      userName: request.auth.token.name || 'Admin',
+      collection: 'users',
+      documentId: userId,
+      details: {
+        targetUserName: targetUserData.name,
+        targetUsername: targetUserData.username,
+      },
+      success: true,
     })
 
     logger.info(`[adminResetPassword] 管理員 ${request.auth.uid} 重設了用戶 ${userId} 的密碼`)

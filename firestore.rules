@@ -221,10 +221,20 @@ service cloud.firestore {
     match /kidit_logbook/{dateStr} {
       // 允許所有已登入的使用者讀取 (isAnyUser() 是您之前定義的函式)
       allow read: if request.auth != null;
-      
+
       // 只允許護理師或管理員寫入 (更新已登錄狀態等)
       // 假設您的規則中有定義 isEditor() 或 isAdmin()
       allow write: if isEditor() || isAdmin();
+    }
+
+    // ✨ 稽核日誌 - B 級合規要求
+    match /audit_logs/{logId} {
+      // 只有管理員可以讀取稽核日誌
+      allow read: if isAdmin();
+      // 任何已認證用戶可以建立（透過 Cloud Functions）
+      allow create: if isAuthenticated();
+      // 禁止修改和刪除，確保日誌不可竄改
+      allow update, delete: if false;
     }
   }
 }
