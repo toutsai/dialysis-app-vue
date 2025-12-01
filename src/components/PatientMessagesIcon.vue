@@ -5,7 +5,7 @@
       :key="type"
       class="message-icon-wrapper"
       :title="getTooltipText(type)"
-      @click.stop="handleClick"
+      @click.stop="handleClick(type)"
     >
       {{ getMessageTypeIcon(type) }}
     </span>
@@ -67,6 +67,9 @@ function getMessageTypeIcon(type) {
       return '🩸'
     case '衛教':
       return '📢'
+    case 'record':
+      return '📋'
+    case 'memo':
     case '常規':
     default:
       return '📝'
@@ -79,15 +82,18 @@ function getTooltipText(type) {
       return '有抽血提醒'
     case '衛教':
       return '有衛教事項'
+    case 'record':
+      return '有病情紀錄'
+    case 'memo':
     case '常規':
     default:
       return '有交班事項'
   }
 }
 
-function handleClick() {
+function handleClick(type) {
   if (props.patientId) {
-    handleIconClick(props.patientId, props.context)
+    handleIconClick(props.patientId, props.context, type)
   }
 }
 </script>
