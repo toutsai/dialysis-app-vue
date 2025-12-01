@@ -756,7 +756,7 @@
       :is-visible="isConditionRecordDialogVisible"
       :patient-id="patientIdForDialog"
       :patient-name="patientNameForDialog"
-      :target-date="currentDate"
+      :target-date="formatDate(currentDate)"
       @close="isConditionRecordDialogVisible = false"
     />
     <BedAssignmentDialog

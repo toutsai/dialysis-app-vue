@@ -3,7 +3,7 @@
   <dialog ref="dialogRef" class="condition-record-dialog">
     <div v-if="isVisible">
       <header class="dialog-header">
-        <h3>{{ patientName }} 的病情紀錄</h3>
+        <h3>{{ patientName }} 的近期病情紀錄</h3>
         <button class="close-btn" @click="emit('close')" title="關閉">×</button>
       </header>
       <main class="dialog-content">
@@ -17,7 +17,7 @@
             </div>
           </li>
         </ul>
-        <div v-else class="empty-state">該病人沒有病情紀錄。</div>
+        <div v-else class="empty-state">該病人近 7 天內沒有病情紀錄。</div>
       </main>
       <footer class="dialog-footer">
         <button class="btn-primary" @click="emit('close')">關閉</button>
@@ -53,15 +53,15 @@ async function fetchRecords() {
 
   isLoading.value = true
   try {
+    // 查詢近 7 天內建立的病情紀錄（與圖示顯示邏輯一致）
+    const sevenDaysAgo = new Date()
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+
     const queryConstraints = [
       where('patientId', '==', props.patientId),
+      where('createdAt', '>=', sevenDaysAgo),
       orderBy('createdAt', 'desc'),
     ]
-
-    // 如果有指定日期，只取該日期的紀錄
-    if (props.targetDate) {
-      queryConstraints.push(where('recordDate', '==', props.targetDate))
-    }
 
     records.value = await conditionRecordsApi.fetchAll(queryConstraints)
   } catch (err) {
