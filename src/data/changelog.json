@@ -1,5 +1,66 @@
 [
   {
+    "version": "2025-12-01",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add schedule change audit logging"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "implement audit logging system for B-level compliance"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正病情紀錄 dialog 查詢邏輯"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "病情紀錄 icon 區分顯示並支援點擊查看內容"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "訊息保留策略同時考慮 createdAt 和 targetDate"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修正住院趴趴走對話框「來洗腎室方式」儲存後再開啟會消失的問題"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "修復預約刪除病人後排班未同步的問題"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "限制相機預覽畫面最大高度為 40vh，避免遮擋下方內容"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "add XSS protection with DOMPurify sanitization"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "remove .value in template for isModalVisible ref"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "implement bcrypt password hashing for B-level compliance"
+      }
+    ]
+  },
+  {
     "version": "2025-11-30",
     "title": "功能更新與問題修正",
     "changes": [
