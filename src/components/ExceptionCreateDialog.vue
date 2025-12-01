@@ -269,6 +269,7 @@ import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
+import { escapeHtml } from '@/utils/sanitize.js'
 
 // Props & Emits
 const props = defineProps({
@@ -390,14 +391,15 @@ const selectedPatientDisplay = computed(() => {
   if (!formData.patientId) return ''
   const patient = props.allPatients.find((p) => p.id === formData.patientId)
   if (!patient) return ''
-  const nameAndMRN = `${patient.name} (${patient.medicalRecordNumber})`
+  // ✨ XSS 防護：對病人資料進行轉義
+  const nameAndMRN = `${escapeHtml(patient.name)} (${escapeHtml(patient.medicalRecordNumber)})`
   const freqText = patient.freq
-    ? ` <span class="patient-info-tag freq-tag">[${patient.freq}]</span>`
+    ? ` <span class="patient-info-tag freq-tag">[${escapeHtml(patient.freq)}]</span>`
     : ''
   let diseasesText = ''
   if (patient.diseases && patient.diseases.length > 0) {
     diseasesText = patient.diseases
-      .map((d) => `<span class="patient-info-tag disease-tag">${d}</span>`)
+      .map((d) => `<span class="patient-info-tag disease-tag">${escapeHtml(d)}</span>`)
       .join(' ')
   }
   return `${nameAndMRN}${freqText} ${diseasesText}`
