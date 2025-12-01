@@ -33,8 +33,8 @@ const titles = ['主治醫師', '護理長', '護理師', '專科護理師', '�
 const roles = [
   { value: 'admin', text: 'Admin (主任/護理長/管理員)' },
   { value: 'contributor', text: 'Contributor (醫師/專師)' },
-  { value: 'editor', text: 'Editor (護理師組長)' },
-  { value: 'viewer', text: 'Viewer (護理師/書記)' },
+  { value: 'editor', text: 'Editor (護理師)' },
+  { value: 'viewer', text: 'Viewer (書記/白板)' },
 ]
 
 // 查房班表選項 (維持不變)
