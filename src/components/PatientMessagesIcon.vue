@@ -68,7 +68,7 @@ function getMessageTypeIcon(type) {
     case '衛教':
       return '📢'
     case 'record':
-      return '📋'
+      return '🩺'
     case 'memo':
     case '常規':
     default:
