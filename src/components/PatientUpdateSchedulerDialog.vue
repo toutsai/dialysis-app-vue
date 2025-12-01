@@ -128,6 +128,7 @@ import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { useAuth } from '@/composables/useAuth'
 import { formatDateToYYYYMMDD, getTomorrow } from '@/utils/dateUtils'
+import { escapeHtml } from '@/utils/sanitize.js'
 
 // --- Props & Emits ---
 const props = defineProps({
@@ -252,7 +253,8 @@ const dialogTitle = computed(() => {
 
 const selectedPatientDisplay = computed(() => {
   if (!props.patient) return '未選擇病人'
-  return `${props.patient.name} (${props.patient.medicalRecordNumber})`
+  // ✨ XSS 防護：對病人資料進行轉義
+  return `${escapeHtml(props.patient.name)} (${escapeHtml(props.patient.medicalRecordNumber)})`
 })
 
 const baseRuleDisplay = computed(() => {
