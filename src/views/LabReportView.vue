@@ -381,6 +381,7 @@ import { storeToRefs } from 'pinia'
 import { LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js'
 // 引入 dateUtils 函數
 import { formatDateToYYYYMM, formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
+import { escapeHtml } from '@/utils/sanitize.js'
 
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
@@ -548,17 +549,19 @@ function sortAlertItems(items) {
 
 function formatAbnormalityReason(abnormality) {
   if (!abnormality || !abnormality.values || abnormality.values.length < 3) {
-    return abnormality.reason || 'N/A'
+    // ✨ XSS 防護：對原因進行轉義
+    return escapeHtml(abnormality.reason || 'N/A')
   }
 
   // 確保月份是按時間順序排列的
   const sortedValues = [...abnormality.values].sort((a, b) => a.month.localeCompare(b.month))
 
+  // ✨ XSS 防護：對月份和數值進行轉義
   const monthsHtml = sortedValues
     .map((item) => `${parseInt(item.month.split('-')[1], 10)}月`)
     .join(' → ')
 
-  const valuesHtml = sortedValues.map((item) => item.value).join(' → ')
+  const valuesHtml = sortedValues.map((item) => escapeHtml(String(item.value))).join(' → ')
 
   // 趨勢判斷邏輯
   const firstValue = parseFloat(sortedValues[0].value)

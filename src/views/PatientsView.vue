@@ -23,6 +23,7 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { db } from '@/composables/useFirebase'
 import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 import { formatDateToYYYYMMDD, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
+import { escapeHtml } from '@/utils/sanitize.js'
 
 // ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務
 const tasksApi = ApiManager('tasks')
@@ -1002,7 +1003,8 @@ function getRowClass(p) {
 }
 function generateDiseaseTags(diseases) {
   if (!diseases?.length) return ''
-  return diseases.map((tag) => `<span class="disease-tag">${tag}</span>`).join('')
+  // ✨ XSS 防護：對疾病標籤內容進行轉義
+  return diseases.map((tag) => `<span class="disease-tag">${escapeHtml(tag)}</span>`).join('')
 }
 function handleConfirm() {
   if (typeof confirmAction.value === 'function') confirmAction.value()

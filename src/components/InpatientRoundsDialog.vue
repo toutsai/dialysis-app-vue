@@ -154,17 +154,21 @@ const emit = defineEmits(['close', 'save'])
 const isSaving = ref(false) // 新增一個狀態來防止重複點擊
 const localPatients = ref([])
 
+// 只在 dialog 打開時初始化 localPatients，避免在儲存後被錯誤覆蓋
 watch(
-  () => props.patientsOnSchedule,
-  (newVal) => {
-    localPatients.value = JSON.parse(JSON.stringify(newVal)).map((p) => ({
-      ...p,
-      transportMethod: ['推床', '輪椅'].includes(p.transportMethod)
-        ? p.transportMethod
-        : 'unconfirmed',
-    }))
+  () => props.isVisible,
+  (newVisible, oldVisible) => {
+    // 只在 dialog 從關閉變為打開時初始化數據
+    if (newVisible && !oldVisible) {
+      localPatients.value = JSON.parse(JSON.stringify(props.patientsOnSchedule)).map((p) => ({
+        ...p,
+        transportMethod: ['推床', '輪椅'].includes(p.transportMethod)
+          ? p.transportMethod
+          : 'unconfirmed',
+      }))
+    }
   },
-  { deep: true, immediate: true },
+  { immediate: true },
 )
 
 const closeDialog = () => {

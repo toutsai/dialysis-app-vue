@@ -752,6 +752,13 @@
       :patient-name="patientNameForDialog"
       @close="isMemoDialogVisible = false"
     />
+    <ConditionRecordDisplayDialog
+      :is-visible="isConditionRecordDialogVisible"
+      :patient-id="patientIdForDialog"
+      :patient-name="patientNameForDialog"
+      :target-date="formatDate(currentDate)"
+      @close="isConditionRecordDialogVisible = false"
+    />
     <BedAssignmentDialog
       :is-visible="isAssignmentDialogVisible"
       :all-patients="allPatients"
@@ -913,6 +920,7 @@ import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import InpatientRoundsDialog from '@/components/InpatientRoundsDialog.vue'
 import DailyRecordsSummaryDialog from '@/components/DailyRecordsSummaryDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import ConditionRecordDisplayDialog from '@/components/ConditionRecordDisplayDialog.vue'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 import { httpsCallable } from 'firebase/functions'
@@ -1015,6 +1023,7 @@ const isConfirmDialogVisible = ref(false)
 const confirmDialogMessage = ref('')
 const isSimplifiedViewVisible = ref(false)
 const isMemoDialogVisible = ref(false)
+const isConditionRecordDialogVisible = ref(false)
 const isDetailModalVisible = ref(false)
 const isWardDialogVisible = ref(false)
 const isInpatientRoundsDialogVisible = ref(false)
@@ -1367,13 +1376,18 @@ function formatDate(date) {
   if (!date) return ''
   return formatDateToYYYYMMDD(date)
 }
-provide('handleIconClick', (patientId, context) => {
+provide('handleIconClick', (patientId, context, type) => {
   const patient = patientMap.value.get(patientId)
   if (!patient) return
   if (context === 'quick-view') {
     patientIdForDialog.value = patient.id
     patientNameForDialog.value = patient.name
-    isMemoDialogVisible.value = true
+    // 根據類型決定打開哪個 dialog
+    if (type === 'record') {
+      isConditionRecordDialogVisible.value = true
+    } else {
+      isMemoDialogVisible.value = true
+    }
   } else {
     openDetailModalForPatient(patientId)
   }
@@ -2568,6 +2582,16 @@ button:disabled {
 .peripheral-shift-row.status-biweekly,
 .simplified-table td.status-biweekly {
   background-color: #ffcc80;
+}
+
+/* ✨ 已刪除病人樣式（預約刪除後的同步處理） */
+.shift-row.status-deleted,
+.peripheral-shift-row.status-deleted,
+.simplified-table td.status-deleted {
+  background-color: #e0e0e0;
+  color: #9e9e9e;
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 
 .shift-row.tag-chou,

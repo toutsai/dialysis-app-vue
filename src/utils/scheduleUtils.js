@@ -121,6 +121,11 @@ export function getUnifiedCellStyle(slotData, patient, freq = null, messageTypes
     return {}
   }
 
+  // ✨ 2. 檢查病人是否已被刪除（預約刪除後的同步處理）
+  if (patient.isDeleted) {
+    return { 'status-deleted': true }
+  }
+
   // ... (獲取 finalFreq 和 combinedNote 的程式碼保持不變)
   const finalFreq = freq || slotData.freq || patient.freq
   const autoNote = slotData.autoNote || ''
