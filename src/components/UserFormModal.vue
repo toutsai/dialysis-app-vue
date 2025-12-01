@@ -15,7 +15,7 @@ const defaultFormState = {
   id: '',
   name: '',
   username: '',
-  password: '123456',
+  password: '', // ✨ 移除預設密碼，改由管理員設定符合複雜度要求的密碼
   title: '護理師',
   role: 'viewer',
   email: '',
@@ -167,9 +167,10 @@ function handleSubmit() {
                 id="password"
                 type="password"
                 v-model="form.password"
-                :placeholder="isEditing ? '留白表示不更改密碼' : ''"
+                :placeholder="isEditing ? '留白表示不更改密碼' : '至少8字元，含大小寫及數字'"
                 :required="!isEditing"
               />
+              <small v-if="!isEditing" class="password-hint">需包含大寫、小寫字母和數字</small>
             </div>
           </div>
           <div class="form-row">
@@ -324,6 +325,13 @@ function handleSubmit() {
   margin-bottom: 0.5rem;
   font-weight: 600;
   color: #333;
+}
+
+.password-hint {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: #6c757d;
 }
 
 .form-group input,

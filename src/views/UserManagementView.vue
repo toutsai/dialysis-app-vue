@@ -198,8 +198,23 @@ async function handleSaveUser(userData) {
   isSubmitting.value = true
   try {
     if (isEditing.value) {
-      const { id, ...updateData } = userData
+      // 編輯現有用戶
+      const { id, password, ...updateData } = userData
       updateData.updatedAt = new Date()
+
+      // ✨ 如果有提供新密碼，使用 Cloud Function 來重設密碼
+      if (password) {
+        try {
+          const adminResetPassword = httpsCallable(functions, 'adminResetPassword')
+          await adminResetPassword({ userId: id, newPassword: password })
+        } catch (pwError) {
+          console.error('密碼更新失敗:', pwError)
+          showAlert('密碼更新失敗', pwError.message || '密碼需至少 8 個字元，並包含大寫字母、小寫字母和數字。')
+          isSubmitting.value = false
+          return
+        }
+      }
+
       const userIndex = users.value.findIndex((user) => user.id === id)
       let originalUser = null
       if (userIndex !== -1) {
@@ -216,12 +231,24 @@ async function handleSaveUser(userData) {
         throw error
       }
     } else {
+      // ✨ 新增用戶：使用 Cloud Function 確保密碼加密
       const { id, ...dataToSave } = userData
-      dataToSave.createdAt = new Date()
-      dataToSave.updatedAt = new Date()
-      const newUser = await usersApi.save(dataToSave)
-      users.value.unshift(newUser)
-      showAlert('成功', '使用者已新增。')
+      try {
+        const createUser = httpsCallable(functions, 'createUser')
+        const result = await createUser(dataToSave)
+
+        // 取得新建立的用戶資料並加入列表
+        const newUserDoc = await usersApi.fetchById(result.data.userId)
+        if (newUserDoc) {
+          users.value.unshift(newUserDoc)
+        }
+        showAlert('成功', '使用者已新增。密碼已安全加密儲存。')
+      } catch (createError) {
+        console.error('建立用戶失敗:', createError)
+        showAlert('建立失敗', createError.message || '建立使用者時發生錯誤。')
+        isSubmitting.value = false
+        return
+      }
     }
     isModalVisible.value = false
   } catch (error) {
