@@ -898,10 +898,12 @@ watch(
 .video-preview,
 .image-preview {
   max-width: 100%;
+  max-height: 40vh;
   height: auto;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   background-color: #000;
+  object-fit: contain;
 }
 .camera-controls,
 .preview-controls {
