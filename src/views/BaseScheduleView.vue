@@ -254,7 +254,9 @@ const weekScheduleMap = computed(() => {
   if (!masterRecord.value || !masterRecord.value.schedule || !patientMap.value)
     return combinedSchedule
   for (const patientId in masterRecord.value.schedule) {
-    if (patientMap.value.has(patientId)) {
+    const patient = patientMap.value.get(patientId)
+    // ✨ 過濾已刪除的病人（預約刪除後的同步處理）
+    if (patient && !patient.isDeleted) {
       const ruleData = masterRecord.value.schedule[patientId]
       if (ruleData?.freq) {
         const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
@@ -299,7 +301,8 @@ const statsToolbarData = computed(() => {
     const ruleData = masterRecord.value.schedule[patientId]
     if (ruleData?.freq && ruleData.shiftIndex !== undefined) {
       const patient = patientMap.value.get(patientId)
-      if (!patient) continue
+      // ✨ 過濾已刪除的病人（預約刪除後的同步處理）
+      if (!patient || patient.isDeleted) continue
       const shiftCode = SHIFTS[ruleData.shiftIndex]
       const dayIndices = FREQ_MAP_TO_DAY_INDEX[ruleData.freq] || []
       dayIndices.forEach((dayIndex) => {
@@ -1062,6 +1065,13 @@ onUnmounted(() => {
 :deep(.schedule-slot.status-biweekly) {
   background-color: var(--orange-bg, #ffcc80);
 }
+/* ✨ 已刪除病人樣式（預約刪除後的同步處理） */
+:deep(.schedule-slot.status-deleted) {
+  background-color: #e0e0e0;
+  color: #9e9e9e;
+  opacity: 0.5;
+  text-decoration: line-through;
+}
 :deep(.schedule-slot.tag-chou) {
   background-color: #e3f2fd;
 }
@@ -1122,6 +1132,15 @@ onUnmounted(() => {
 :deep(.peripheral-shift-row.status-biweekly),
 :deep(.patient-item.status-biweekly) {
   background-color: #ffcc80;
+}
+/* ✨ 已刪除病人樣式（預約刪除後的同步處理） */
+:deep(.shift-row.status-deleted),
+:deep(.peripheral-shift-row.status-deleted),
+:deep(.patient-item.status-deleted) {
+  background-color: #e0e0e0;
+  color: #9e9e9e;
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 :deep(.shift-row.tag-chou),
 :deep(.peripheral-shift-row.tag-chou),

@@ -2570,6 +2570,16 @@ button:disabled {
   background-color: #ffcc80;
 }
 
+/* ✨ 已刪除病人樣式（預約刪除後的同步處理） */
+.shift-row.status-deleted,
+.peripheral-shift-row.status-deleted,
+.simplified-table td.status-deleted {
+  background-color: #e0e0e0;
+  color: #9e9e9e;
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
 .shift-row.tag-chou,
 .peripheral-shift-row.tag-chou,
 .simplified-table td.tag-chou {
