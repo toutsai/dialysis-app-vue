@@ -1073,6 +1073,13 @@
       :patient-name="selectedPatientForDialog?.name"
       @close=";(isMemoDialogVisible = false), (selectedPatientForDialog = null)"
     />
+    <ConditionRecordDisplayDialog
+      :is-visible="isConditionRecordDialogVisible"
+      :patient-id="selectedPatientForDialog?.id"
+      :patient-name="selectedPatientForDialog?.name"
+      :target-date="formatDate(currentDate)"
+      @close=";(isConditionRecordDialogVisible = false), (selectedPatientForDialog = null)"
+    />
     <AlertDialog
       :is-visible="isAlertDialogVisible"
       :title="alertDialogTitle"
@@ -1159,6 +1166,7 @@ import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssign
 import { createDialysisOrderAndUpdatePatient } from '@/services/optimizedApiService.js'
 import BedChangeDialog from '@/components/BedChangeDialog.vue'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
+import ConditionRecordDisplayDialog from '@/components/ConditionRecordDisplayDialog.vue'
 import PatientMessagesIcon from '@/components/PatientMessagesIcon.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -1280,6 +1288,7 @@ const hasUnsavedTeamChanges = ref(false)
 const isBedChangeDialogVisible = ref(false)
 const editingPatientInfo = ref(null)
 const isMemoDialogVisible = ref(false)
+const isConditionRecordDialogVisible = ref(false)
 const selectedPatientForDialog = ref(null)
 const isAlertDialogVisible = ref(false)
 const alertDialogTitle = ref('')
@@ -2257,12 +2266,17 @@ function removeLateShiftTakeOff() {
   showAlert('操作成功', '夜班收針分組已移除。請記得儲存變更。')
 }
 
-const handleIconClick = (patientId, context) => {
+const handleIconClick = (patientId, context, type) => {
   if (context === 'dialog') {
     const patient = patientMap.value.get(patientId)
     if (patient) {
       selectedPatientForDialog.value = { id: patientId, name: patient.name }
-      isMemoDialogVisible.value = true
+      // 根據類型決定打開哪個 dialog
+      if (type === 'record') {
+        isConditionRecordDialogVisible.value = true
+      } else {
+        isMemoDialogVisible.value = true
+      }
     }
   }
 }

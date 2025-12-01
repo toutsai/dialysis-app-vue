@@ -37,6 +37,7 @@
 import { ref, watch, computed } from 'vue'
 import ApiManager from '@/services/api_manager'
 import { where, orderBy } from 'firebase/firestore'
+import { escapeHtml } from '@/utils/sanitize.js'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -159,7 +160,8 @@ function formatTimestamp(timestampInput) {
 
 function formatEvent(entry) {
   const details = entry.eventDetails
-  const getStatus = (s) => `<strong>${statusMap[s] || s}</strong>`
+  // ✨ XSS 防護：對狀態值進行轉義
+  const getStatus = (s) => `<strong>${escapeHtml(statusMap[s] || s)}</strong>`
 
   switch (entry.eventType) {
     case 'CREATE':
@@ -170,11 +172,12 @@ function formatEvent(entry) {
       }
       return `${getStatus(details.from)} ➝ ${getStatus(details.to)}`
     case 'DELETE':
-      return `<strong>結案 (${details.reason || '未說明'})</strong>`
-    case 'RESTORE_AND_TRANSFER': // ✨ 修正: 處理新的事件類型
+      // ✨ XSS 防護：對原因進行轉義
+      return `<strong>結案 (${escapeHtml(details.reason || '未說明')})</strong>`
+    case 'RESTORE_AND_TRANSFER':
       return `資料復原 ➝ ${getStatus(details.restoredTo)}`
     default:
-      return `未知操作: ${entry.eventType}`
+      return `未知操作: ${escapeHtml(entry.eventType)}`
   }
 }
 

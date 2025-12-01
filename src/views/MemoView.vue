@@ -276,6 +276,7 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { formatDateToChinese, addDays, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
+import { escapeHtml } from '@/utils/sanitize.js'
 
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
@@ -542,10 +543,11 @@ async function retryLoadData() {
   await initializeData()
 }
 function getMemoDisplayContent(memo) {
+  // ✨ XSS 防護：對病人姓名和內容進行轉義
   if (memo.patientName) {
-    return `<span class="memo-patient-name">${memo.patientName}</span> ${memo.content}`
+    return `<span class="memo-patient-name">${escapeHtml(memo.patientName)}</span> ${escapeHtml(memo.content)}`
   }
-  return memo.content
+  return escapeHtml(memo.content)
 }
 function openFormModal() {
   isFormModalVisible.value = true

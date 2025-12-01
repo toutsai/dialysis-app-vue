@@ -51,6 +51,15 @@ export const useTaskStore = defineStore('task', () => {
     return date.getTime() >= sevenDaysAgo.getTime()
   }
 
+  // 檢查 targetDate 字串是否在 7 天內（從 targetDate 往後算 7 天）
+  const isTargetDateWithinSevenDays = (targetDateStr: string | undefined) => {
+    if (!targetDateStr) return false
+    const targetDate = new Date(targetDateStr)
+    if (isNaN(targetDate.getTime())) return false
+    const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_IN_MS)
+    return targetDate.getTime() >= sevenDaysAgo.getTime()
+  }
+
   const applyRetentionPolicy = (items: TaskItem[]) =>
     items
       .map((item) => ({ ...item, type: item.type || '常規' }))
@@ -59,7 +68,8 @@ export const useTaskStore = defineStore('task', () => {
 
         if (item.category === 'message') {
           if (item.type === '衛教') return true
-          return isWithinSevenDays(item.createdAt)
+          // 保留條件：createdAt 在 7 天內，或 targetDate 在 7 天內
+          return isWithinSevenDays(item.createdAt) || isTargetDateWithinSevenDays(item.targetDate)
         }
 
         if (item.category === 'task') {
