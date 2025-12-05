@@ -147,10 +147,15 @@ export async function fetchAllPatients() {
   ])
   const masterRules = masterScheduleDoc?.schedule || {}
   const rulesMap = new Map(Object.entries(masterRules))
-  const patientsWithRules = patients.map((patient) => ({
-    ...patient,
-    scheduleRule: rulesMap.get(patient.id) || null,
-  }))
+  const patientsWithRules = patients.map((patient) => {
+    const rule = rulesMap.get(patient.id) || null
+    return {
+      ...patient,
+      scheduleRule: rule,
+      // 將 freq 直接放到病人物件上，方便元件使用
+      freq: rule?.freq || null,
+    }
+  })
   setCache(cacheKey, patientsWithRules)
   return patientsWithRules
 }
