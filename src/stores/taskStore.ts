@@ -1,16 +1,11 @@
 // 檔案路徑: src/stores/taskStore.ts
-// ✨ 已支援單機模式
+// ✨ Standalone 版本
 
 import { ref, computed, watch, type Ref } from 'vue'
 import { defineStore } from 'pinia'
-import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
-import { isStandaloneMode } from '@/utils/appMode'
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
+import { systemApi } from '@/services/localApiClient'
 
 export type TaskItem = {
   id?: string
@@ -45,7 +40,8 @@ export const useTaskStore = defineStore('task', () => {
   const feedMessages: Ref<TaskItem[]> = ref([])
   const feedMessagesVersion = ref(0)
   const isLoading = ref(true) // 初始為 true
-  let unsubscribes: Unsubscribe[] = []
+  let pollingInterval: ReturnType<typeof setInterval> | null = null
+  let isPolling = false
   const conditionRecordPatientIds: Ref<Set<string>> = ref(new Set())
 
   const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000
@@ -188,133 +184,119 @@ export const useTaskStore = defineStore('task', () => {
     conditionRecordPatientIds.value = patientIdSet
   }
 
+  // 🖥️ 單機模式：使用輪詢從後端取得任務資料
+  async function fetchTasksFromBackend() {
+    if (isPolling) return
+    isPolling = true
+
+    try {
+      const user = currentUser.value
+      if (!user) {
+        isLoading.value = false
+        return
+      }
+
+      // 取得角色對應值
+      const titleToRoleValue: Record<string, string> = {
+        書記: 'clerk',
+        主治醫師: 'doctor',
+        專科護理師: 'np',
+        護理師組長: 'editor',
+      }
+      const myTargetAssigneeValues = new Set<string>()
+      const titleBasedRole = user.title && titleToRoleValue[user.title]
+      if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
+      if (user.role) myTargetAssigneeValues.add(user.role)
+
+      // 從後端取得所有任務
+      const allTasks = await systemApi.fetchTasks({})
+
+      // 過濾分類任務
+      const roleAssignedTasks: TaskItem[] = []
+      const userAssignedTasks: TaskItem[] = []
+      const sentTasks: TaskItem[] = []
+      const messages: TaskItem[] = []
+
+      for (const task of allTasks) {
+        // 根據狀態過濾
+        const isRelevant =
+          task.status === 'pending' ||
+          (task.status === 'completed' && isWithinSevenDays(task.createdAt))
+
+        if (!isRelevant && task.status !== 'pending') continue
+
+        if (task.category === 'message') {
+          // 留言分類
+          if (task.status === 'pending' || isWithinSevenDays(task.createdAt)) {
+            messages.push(task)
+          }
+        } else if (task.category === 'task') {
+          // 任務分類
+          // 1. 依角色指派的任務
+          if (
+            task.assignee?.role &&
+            myTargetAssigneeValues.has(task.assignee.role) &&
+            isRelevant
+          ) {
+            roleAssignedTasks.push(task)
+          }
+
+          // 2. 依特定人員指派的任務
+          if (task.assignee?.value === user.uid && isRelevant) {
+            userAssignedTasks.push(task)
+          }
+
+          // 3. 我寄出的任務
+          if (task.creator?.uid === user.uid && isRelevant) {
+            sentTasks.push(task)
+          }
+        }
+      }
+
+      // 合併並去重 myTasks
+      const allRawTasks = [...roleAssignedTasks, ...userAssignedTasks]
+      const uniqueTasks = Array.from(new Map(allRawTasks.map((item) => [item.id, item])).values())
+      myTasks.value = applyRetentionPolicy(uniqueTasks)
+
+      // 更新其他狀態
+      mySentTasks.value = applyRetentionPolicy(sentTasks)
+      feedMessages.value = applyRetentionPolicy(messages)
+      feedMessagesVersion.value++
+    } catch (err) {
+      console.error('[TaskStore] 取得任務資料失敗:', err)
+    } finally {
+      isLoading.value = false
+      isPolling = false
+    }
+  }
+
   function startRealtimeUpdates(uid?: string) {
-    if (unsubscribes.length > 0) return
+    if (pollingInterval) return
     if (!uid || !currentUser.value) {
       isLoading.value = false
       return
     }
 
-    // 🖥️ 單機模式：跳過即時監聽（待實現 WebSocket 或輪詢）
-    if (_isStandalone) {
-      console.log('[TaskStore] 🖥️ 單機模式：即時監聽功能尚未實現')
-      isLoading.value = false
-      return
-    }
-
     isLoading.value = true
-    let listenersInitialized = 0
-    // 定義我們總共需要幾個 listener 回來才算 ready
-    // myTasksByRole, myTasksByUser, mySentTasks, messages = 4 個
-    const totalListeners = 4
-    let roleAssignedTasks: TaskItem[] = []
-    let userAssignedTasks: TaskItem[] = []
 
-    const refreshMyTasks = () => {
-      // ✨ 修正：合併陣列後，使用 Map 根據 id 進行去重複
-      const allRawTasks = [...roleAssignedTasks, ...userAssignedTasks]
+    // 立即執行一次
+    void fetchTasksFromBackend()
 
-      // 利用 Map 的特性，相同的 key (id) 會被覆蓋，只保留一個
-      const uniqueTasks = Array.from(new Map(allRawTasks.map((item) => [item.id, item])).values())
+    // 設定輪詢（每 30 秒）
+    pollingInterval = setInterval(() => {
+      void fetchTasksFromBackend()
+    }, 30000)
 
-      myTasks.value = applyRetentionPolicy(uniqueTasks)
-    }
-
-    const checkLoadingState = () => {
-      listenersInitialized++
-      if (listenersInitialized >= totalListeners) {
-        isLoading.value = false
-      }
-    }
-
-    const user = currentUser.value
-    const titleToRoleValue: Record<string, string> = {
-      書記: 'clerk',
-      主治醫師: 'doctor',
-      專科護理師: 'np',
-      護理師組長: 'editor',
-    }
-    const myTargetAssigneeValues = new Set<string>()
-    const titleBasedRole = user.title && titleToRoleValue[user.title]
-    if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
-    if (user.role) myTargetAssigneeValues.add(user.role)
-
-    // 1. Role tasks (依角色指派)
-    // 修正：查詢 assignee.role 欄位
-    if (myTargetAssigneeValues.size > 0) {
-      const myTasksQuery = query(
-        collection(db, 'tasks'),
-        where('category', '==', 'task'),
-        where('status', 'in', ['pending', 'completed']),
-        where('assignee.role', 'in', Array.from(myTargetAssigneeValues)),
-      )
-
-      const unsubscribeRoleTasks = onSnapshot(myTasksQuery, (snapshot) => {
-        roleAssignedTasks = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
-        refreshMyTasks()
-        checkLoadingState()
-      })
-      unsubscribes.push(unsubscribeRoleTasks)
-    } else {
-      // 如果沒有 role listener，手動增加計數以免 loading 卡住
-      checkLoadingState()
-    }
-
-    // 2. User specific tasks (依特定人員指派)
-    // 修正：查詢 assignee.value 欄位 (UID)
-    const myTasksQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'task'),
-      where('status', 'in', ['pending', 'completed']),
-      where('assignee.value', '==', user.uid),
-    )
-
-    const unsubscribeUserTasks = onSnapshot(myTasksQuery, (snapshot) => {
-      userAssignedTasks = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
-      refreshMyTasks()
-      checkLoadingState()
-    })
-    unsubscribes.push(unsubscribeUserTasks)
-
-    // 3. Tasks sent by me (我寄出的)
-    // 修正：查詢 creator.uid 欄位 (取代舊的 createdBy.uid)
-    const mySentTasksQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'task'),
-      where('creator.uid', '==', user.uid),
-      where('status', 'in', ['pending', 'completed']),
-    )
-
-    const unsubscribeMySentTasks = onSnapshot(mySentTasksQuery, (snapshot) => {
-      mySentTasks.value = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
-      checkLoadingState()
-    })
-    unsubscribes.push(unsubscribeMySentTasks)
-
-    // 4. Messages (病人留言)
-    const myMessagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
-
-    const unsubscribeMessages = onSnapshot(myMessagesQuery, (snapshot) => {
-      const messages = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((msg) => msg.status === 'pending' || isWithinSevenDays(msg.createdAt))
-      feedMessages.value = applyRetentionPolicy(messages)
-      feedMessagesVersion.value++
-      checkLoadingState()
-    })
-    unsubscribes.push(unsubscribeMessages)
+    console.log('[TaskStore] 🖥️ 已啟動任務輪詢')
   }
 
   function stopRealtimeUpdates() {
-    unsubscribes.forEach((unsub) => unsub())
-    unsubscribes = []
+    if (pollingInterval) {
+      clearInterval(pollingInterval)
+      pollingInterval = null
+    }
     isLoading.value = false
+    console.log('[TaskStore] 🖥️ 已停止任務輪詢')
   }
 
   // 定義 cleanupListeners 作為 stopRealtimeUpdates 的別名

@@ -1,14 +1,14 @@
-// 檔案路徑: src/composables/useRealtimeNotifications.js (已移除刪除功能)
+// 檔案路徑: src/composables/useRealtimeNotifications.js
+// ✨ Standalone 版本 - 使用輪詢取代 Firebase onSnapshot
 
 import { ref } from 'vue'
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { useRouter } from 'vue-router'
-import { formatDateTimeToLocal } from '@/utils/dateUtils'
+import { systemApi } from '@/services/localApiClient'
 
 const notifications = ref([])
-let unsubscribe = null
+let pollingInterval = null
 const MAX_NOTIFICATIONS = 10
+const POLLING_INTERVAL = 30000 // 30 秒
 
 const NOTIFICATION_CONFIG = {
   schedule: { icon: '📅', bgColor: '#3498db', textColor: '#fff' },
@@ -34,19 +34,20 @@ function formatDateTime(date) {
     .replace('/', '-')
 }
 
-const processDoc = (doc, router) => {
-  const data = doc.data()
-  const createdAt = data.createdAt?.toDate() || new Date()
-  const action = data.metadata?.routePath ? () => router.push(data.metadata.routePath) : null
-  const createdByName = data.createdBy?.name || '系統'
+const processNotification = (notification, router) => {
+  const createdAt = notification.createdAt ? new Date(notification.createdAt) : new Date()
+  const action = notification.metadata?.routePath
+    ? () => router.push(notification.metadata.routePath)
+    : null
+  const createdByName = notification.createdBy?.name || '系統'
 
   return {
-    id: doc.id,
-    message: data.message,
-    type: data.type,
+    id: notification.id,
+    message: notification.message,
+    type: notification.type,
     time: formatDateTime(createdAt),
     createdAt,
-    config: NOTIFICATION_CONFIG[data.type] || NOTIFICATION_CONFIG.default,
+    config: NOTIFICATION_CONFIG[notification.type] || NOTIFICATION_CONFIG.default,
     action,
     createdByName,
   }
@@ -55,25 +56,43 @@ const processDoc = (doc, router) => {
 export function useRealtimeNotifications() {
   const router = useRouter()
 
+  const fetchNotifications = async () => {
+    try {
+      const data = await systemApi.fetchNotifications()
+      const serverNotifications = (data || [])
+        .slice(0, MAX_NOTIFICATIONS)
+        .map((n) => processNotification(n, router))
+
+      // 保留本地通知
+      const localNotifications = notifications.value.filter((n) => n.isLocal)
+      const merged = [...localNotifications, ...serverNotifications]
+      notifications.value = merged.slice(0, MAX_NOTIFICATIONS)
+    } catch (error) {
+      console.error('[useRealtimeNotifications] 取得通知失敗:', error)
+    }
+  }
+
   const startListening = () => {
-    if (unsubscribe) return
-    const q = query(
-      collection(db, 'notifications'),
-      orderBy('createdAt', 'desc'),
-      limit(MAX_NOTIFICATIONS),
-    )
-    unsubscribe = onSnapshot(q, (snapshot) => {
-      // [核心修改] onSnapshot 現在是唯一的數據來源，不再需要合併本地通知
-      notifications.value = snapshot.docs.map((doc) => processDoc(doc, router))
-    })
+    if (pollingInterval) return
+
+    // 立即取得一次
+    void fetchNotifications()
+
+    // 設定輪詢
+    pollingInterval = setInterval(() => {
+      void fetchNotifications()
+    }, POLLING_INTERVAL)
+
+    console.log('[useRealtimeNotifications] 🖥️ 已啟動通知輪詢')
   }
 
   const stopListening = () => {
-    if (unsubscribe) {
-      unsubscribe()
-      unsubscribe = null
-      notifications.value = []
+    if (pollingInterval) {
+      clearInterval(pollingInterval)
+      pollingInterval = null
     }
+    notifications.value = []
+    console.log('[useRealtimeNotifications] 🖥️ 已停止通知輪詢')
   }
 
   // 本地通知仍然保留，用於即時的操作反饋
@@ -88,7 +107,7 @@ export function useRealtimeNotifications() {
       createdAt: now,
       config: NOTIFICATION_CONFIG[type] || NOTIFICATION_CONFIG.default,
       action: options.action || null,
-      isLocal: true, // 標記為本地通知
+      isLocal: true,
       createdByName: '您',
     }
     // 插入到列表頂部，並保持總數不超過上限
@@ -102,6 +121,5 @@ export function useRealtimeNotifications() {
     startListening,
     stopListening,
     addLocalNotification,
-    // [核心修改] 移除了 removeNotification 和 deleteNotification
   }
 }

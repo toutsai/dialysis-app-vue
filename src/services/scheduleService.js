@@ -1,10 +1,8 @@
-// src/services/scheduleService.js (修正版 - 支援單機模式)
+// src/services/scheduleService.js
+// ✨ Standalone 版本
 
-import { doc, updateDoc, where, limit, collection, getDocs, query } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { formatDateToYYYYMMDD, addMonths } from '@/utils/dateUtils'
-import { isStandaloneMode } from '@/utils/appMode'
 import { schedulesApi } from '@/services/localApiClient'
 
 // ✨ 整合優化系統
@@ -15,49 +13,6 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 const { getCachedData, invalidateCache } = useCache()
 const { handleApiCall, validateInput, validationRules, performanceMonitor } = useErrorHandler()
 const { createGlobalNotification } = useGlobalNotifier()
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
-
-// ✨ 直接使用 Firestore 操作，替代 ApiManager (僅 Firebase 模式)
-const schedulesCollection = _isStandalone ? null : collection(db, 'schedules')
-
-// 簡化的資料獲取函式 (支援單機模式)
-const fetchScheduleDocuments = async (constraints = []) => {
-  try {
-    // 🖥️ 單機模式：使用本地 API
-    if (_isStandalone) {
-      console.log('🖥️ [scheduleService] 使用本地 API 獲取排程')
-      // 從 constraints 中提取日期範圍
-      let startDate, endDate
-      for (const constraint of constraints) {
-        if (constraint?.type === 'where') {
-          // Mock where constraints have type property
-        }
-      }
-      // 如果無法解析 constraints，獲取所有排程
-      const schedules = await schedulesApi.fetchAll({ startDate, endDate })
-      return schedules || []
-    }
-
-    // ☁️ Firebase 模式：使用 Firestore
-    const q = query(schedulesCollection, ...constraints)
-    const querySnapshot = await getDocs(q)
-
-    const documents = []
-    querySnapshot.forEach((doc) => {
-      documents.push({
-        id: doc.id,
-        ...doc.data(),
-      })
-    })
-
-    return documents
-  } catch (error) {
-    console.error('❌ 獲取排程失敗:', error)
-    throw error
-  }
-}
 
 // ✨ 常數設定
 const CACHE_DURATIONS = {
@@ -70,6 +25,18 @@ const QUERY_LIMITS = {
   FUTURE_SCHEDULES: 100, // 最多查詢100個未來排程
   BATCH_SIZE: 20, // 批量處理大小
   MAX_DATE_RANGE_MONTHS: 6, // 最大查詢範圍6個月
+}
+
+// 🖥️ 使用本地 API 獲取排程資料
+const fetchScheduleDocuments = async (startDate, endDate) => {
+  try {
+    console.log('🖥️ [scheduleService] 使用本地 API 獲取排程')
+    const schedules = await schedulesApi.fetchAll({ startDate, endDate })
+    return schedules || []
+  } catch (error) {
+    console.error('❌ 獲取排程失敗:', error)
+    throw error
+  }
 }
 
 // ✨ 輔助函式：建立安全的日期範圍
@@ -87,15 +54,11 @@ const createDateRange = (startDate, maxMonths = QUERY_LIMITS.MAX_DATE_RANGE_MONT
   }
 }
 
-// 🔧 修正後的輔助函式：驗證病人ID（移除格式驗證）
+// 🔧 輔助函式：驗證病人ID（只檢查必填）
 const validatePatientId = (patientId) => {
   console.log('🔧 [scheduleService] 驗證病人ID:', patientId, '(只檢查必填，無格式限制)')
 
-  // 🔧 只檢查必填，移除格式驗證
-  const validation = validateInput(patientId, [
-    validationRules.required('病人ID為必填'),
-    // ❌ 移除這行：validationRules.patientId('病人ID格式錯誤 (應為6-12位英數字)'),
-  ])
+  const validation = validateInput(patientId, [validationRules.required('病人ID為必填')])
 
   if (!validation.isValid) {
     console.log('❌ [scheduleService] 病人ID驗證失敗:', validation.errors)
@@ -113,13 +76,7 @@ const getFutureSchedulesCached = async (startDate, endDate) => {
     cacheKey,
     async () => {
       console.log(`📅 Fetching schedules from ${startDate} to ${endDate}`)
-
-      const schedules = await fetchScheduleDocuments([
-        where('date', '>=', startDate),
-        where('date', '<=', endDate),
-        limit(QUERY_LIMITS.FUTURE_SCHEDULES),
-      ])
-
+      const schedules = await fetchScheduleDocuments(startDate, endDate)
       console.log(`📊 Found ${schedules.length} schedule documents`)
       return schedules
     },
@@ -133,13 +90,9 @@ const getFutureSchedulesCached = async (startDate, endDate) => {
 export const clearFutureSchedulesForPatient = performanceMonitor(
   'clearFutureSchedulesForPatient',
   async (patientId, startDate = new Date(), options = {}) => {
-    const {
-      showNotifications = true,
-      batchSize = QUERY_LIMITS.BATCH_SIZE,
-      maxRetries = 3,
-    } = options
+    const { showNotifications = true } = options
 
-    // 🔍 修正後的輸入驗證（無格式限制）
+    // 🔍 輸入驗證
     console.log('🔧 [clearFutureSchedules] 開始驗證病人ID...')
     validatePatientId(patientId)
 
@@ -217,51 +170,20 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
             console.log(`  ✂️ 移除 ${docData.date} 的排程槽位 ${slotId}`)
           }
 
-          // 加入更新 Promise - 🖥️ 支援單機模式
-          if (_isStandalone) {
-            // 單機模式：使用本地 API
-            updatePromises.push(
-              schedulesApi.updateByDate(docData.date, newScheduleMap)
-                .then(() => {
-                  successCount++
-                  return { success: true, date: docData.date }
-                })
-                .catch((error) => {
-                  failureCount++
-                  console.error(`❌ 更新 ${docData.date} 失敗:`, error)
-                  return { success: false, date: docData.date, error: error.message }
-                }),
-            )
-          } else {
-            // Firebase 模式：使用 Firestore
-            const docRef = doc(db, 'schedules', docData.id)
-            updatePromises.push(
-              handleApiCall(
-                () =>
-                  updateDoc(docRef, {
-                    schedule: newScheduleMap,
-                    updatedAt: new Date(),
-                    lastModifiedBy: 'clearFutureSchedules',
-                    modificationReason: `清除病人 ${patientId} 的排程`,
-                  }),
-                {
-                  showNotification: false,
-                  retryCount: maxRetries,
-                  errorPrefix: `更新 ${docData.date} 排程失敗`,
-                },
-              ).then(
-                () => {
-                  successCount++
-                  return { success: true, date: docData.date }
-                },
-                (error) => {
-                  failureCount++
-                  console.error(`❌ 更新 ${docData.date} 失敗:`, error)
-                  return { success: false, date: docData.date, error: error.message }
-                },
-              ),
-            )
-          }
+          // 🖥️ 使用本地 API 更新
+          updatePromises.push(
+            schedulesApi
+              .updateByDate(docData.date, newScheduleMap)
+              .then(() => {
+                successCount++
+                return { success: true, date: docData.date }
+              })
+              .catch((error) => {
+                failureCount++
+                console.error(`❌ 更新 ${docData.date} 失敗:`, error)
+                return { success: false, date: docData.date, error: error.message }
+              }),
+          )
         }
 
         // 🚀 執行所有更新
@@ -319,10 +241,9 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
     const {
       showNotifications = true,
       cleanFields = ['manualNote', 'nurseTeam', 'nurseTeamIn', 'nurseTeamOut'],
-      maxRetries = 2,
     } = options
 
-    // 🔍 修正後的輸入驗證（無格式限制）
+    // 🔍 輸入驗證
     console.log('🔧 [cleanTemporaryData] 開始驗證病人ID...')
     validatePatientId(patientId)
 
@@ -418,44 +339,17 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
             }
           }
 
-          // 只有實際有變更才進行更新 - 🖥️ 支援單機模式
+          // 只有實際有變更才進行更新
           if (hasChanges) {
-            if (_isStandalone) {
-              // 單機模式：使用本地 API
-              updatePromises.push(
-                schedulesApi.updateByDate(docData.date, newScheduleMap)
-                  .then(() => ({ success: true, date: docData.date }))
-                  .catch((error) => {
-                    console.error(`❌ 清理 ${docData.date} 失敗:`, error)
-                    return { success: false, date: docData.date, error: error.message }
-                  }),
-              )
-            } else {
-              // Firebase 模式：使用 Firestore
-              const docRef = doc(db, 'schedules', docData.id)
-              updatePromises.push(
-                handleApiCall(
-                  () =>
-                    updateDoc(docRef, {
-                      schedule: newScheduleMap,
-                      updatedAt: new Date(),
-                      lastModifiedBy: 'cleanTemporaryData',
-                      modificationReason: `清理病人 ${patientId} 的臨時資料`,
-                    }),
-                  {
-                    showNotification: false,
-                    retryCount: maxRetries,
-                    errorPrefix: `清理 ${docData.date} 臨時資料失敗`,
-                  },
-                ).then(
-                  () => ({ success: true, date: docData.date }),
-                  (error) => {
-                    console.error(`❌ 清理 ${docData.date} 失敗:`, error)
-                    return { success: false, date: docData.date, error: error.message }
-                  },
-                ),
-              )
-            }
+            updatePromises.push(
+              schedulesApi
+                .updateByDate(docData.date, newScheduleMap)
+                .then(() => ({ success: true, date: docData.date }))
+                .catch((error) => {
+                  console.error(`❌ 清理 ${docData.date} 失敗:`, error)
+                  return { success: false, date: docData.date, error: error.message }
+                }),
+            )
           }
         }
 
@@ -508,7 +402,7 @@ export const getPatientSchedules = performanceMonitor(
   async (patientId, startDate, endDate, options = {}) => {
     const { useCache: enableCache = true } = options
 
-    // 🔧 修正後的驗證（無格式限制）
+    // 🔧 驗證
     console.log('🔧 [getPatientSchedules] 開始驗證病人ID...')
     validatePatientId(patientId)
 
@@ -526,10 +420,7 @@ export const getPatientSchedules = performanceMonitor(
     const cacheKey = `patient-schedules-${patientId}-${startDate}-${endDate}`
 
     const fetchFunction = async () => {
-      const schedules = await fetchScheduleDocuments([
-        where('date', '>=', startDate),
-        where('date', '<=', endDate),
-      ])
+      const schedules = await fetchScheduleDocuments(startDate, endDate)
 
       // 篩選出包含該病人的排程
       return schedules.filter((schedule) => {

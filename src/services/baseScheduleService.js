@@ -1,23 +1,11 @@
 // 檔案路徑: src/services/baseScheduleService.js
-// (已根據 { [patientId]: ruleData } 的正確資料結構進行重構)
-// ✨ 已支援單機模式
+// ✨ Standalone 版本
 
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
-import { isStandaloneMode } from '@/utils/appMode'
 import { schedulesApi } from '@/services/localApiClient'
 
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
-
-// 直接獲取 Firestore 文件引用 (僅 Firebase 模式)
-const masterScheduleRef = _isStandalone ? null : doc(db, 'base_schedules', 'MASTER_SCHEDULE')
-
 /**
- * 【已棄用 - 建議】從總床位表中移除指定病人的所有規則。
- * 註：Pinia Store 中的 `removeRuleFromMasterSchedule` 是更優的選擇，
- * 因為它還包含了取消未來調班的原子化操作。此函式作為備用。
+ * 【重構版】從總床位表中移除指定病人的所有規則。
  * @param {string} patientId - 病人ID
  * @returns {Promise<boolean>} 操作是否成功
  */
@@ -25,30 +13,14 @@ export async function removePatientFromBaseSchedule(patientId) {
   console.log(`🗑️ [BaseScheduleService] 開始從總床位表移除病人: ${patientId}`)
 
   try {
-    // 🖥️ 單機模式：使用本地 API
-    if (_isStandalone) {
-      const masterSchedule = await schedulesApi.fetchMasterSchedule()
-      if (masterSchedule?.schedule?.[patientId]) {
-        delete masterSchedule.schedule[patientId]
-        await schedulesApi.updateMasterSchedule(masterSchedule.schedule)
-      }
-      console.log(`✅ [BaseScheduleService] 已移除病人 ${patientId} 規則。`)
-      return true
+    const masterSchedule = await schedulesApi.fetchMasterSchedule()
+    if (masterSchedule?.schedule?.[patientId]) {
+      delete masterSchedule.schedule[patientId]
+      await schedulesApi.updateMasterSchedule(masterSchedule.schedule)
     }
-
-    // ☁️ Firebase 模式：使用 Firestore
-    // 直接使用 Firestore 的 FieldValue.delete() 來原子性地刪除一個 key
-    await updateDoc(masterScheduleRef, {
-      [`schedule.${patientId}`]: 'DELETE', // 假設 ApiManager 將 'DELETE' 轉為 FieldValue.delete()
-      // 如果直接用 updateDoc，應該是 FieldValue.delete()
-      updatedAt: new Date(),
-      lastModifiedBy: 'system_remove_rule',
-    })
-
-    console.log(`✅ [BaseScheduleService] 已發送刪除病人 ${patientId} 規則的請求。`)
+    console.log(`✅ [BaseScheduleService] 已移除病人 ${patientId} 規則。`)
     return true
   } catch (error) {
-    // 即使文件或欄位不存在，updateDoc 也不會報錯，但其他網路等問題會
     console.error(`❌ [BaseScheduleService] 移除病人 ${patientId} 規則失敗:`, error)
     throw new Error(`移除病人規則失敗: ${error.message}`)
   }
@@ -65,38 +37,15 @@ export async function updatePatientFreqInBaseSchedule(patientId, newFreq, patien
   console.log(`🔄 [BaseScheduleService] 開始更新病人頻率: ${patientId} → ${newFreq}`)
 
   try {
-    // 🖥️ 單機模式：使用本地 API
-    if (_isStandalone) {
-      const masterSchedule = await schedulesApi.fetchMasterSchedule()
-      if (!masterSchedule?.schedule?.[patientId]) {
-        console.log(`ℹ️ [BaseScheduleService] 病人 ${patientId} 在總表中沒有規則，無需更新頻率。`)
-        return
-      }
-      // 更新頻率和自動備註
-      masterSchedule.schedule[patientId].freq = newFreq
-      masterSchedule.schedule[patientId].autoNote = generateAutoNote(patientData)
-      await schedulesApi.updateMasterSchedule(masterSchedule.schedule)
-      console.log(`✅ [BaseScheduleService] 成功更新病人 ${patientId} 的頻率為 ${newFreq}`)
-      return
-    }
-
-    // ☁️ Firebase 模式：使用 Firestore
-    // 檢查病人規則是否存在，如果不存在則不進行任何操作
-    const docSnap = await getDoc(masterScheduleRef)
-    if (!docSnap.exists() || !docSnap.data().schedule?.[patientId]) {
+    const masterSchedule = await schedulesApi.fetchMasterSchedule()
+    if (!masterSchedule?.schedule?.[patientId]) {
       console.log(`ℹ️ [BaseScheduleService] 病人 ${patientId} 在總表中沒有規則，無需更新頻率。`)
       return
     }
-
-    // 使用 "點" 表示法直接更新巢狀物件的欄位
-    // 這是最高效且最正確的方式
-    await updateDoc(masterScheduleRef, {
-      [`schedule.${patientId}.freq`]: newFreq,
-      [`schedule.${patientId}.autoNote`]: generateAutoNote(patientData), // 同時更新自動備註
-      updatedAt: new Date(),
-      lastModifiedBy: 'system_freq_update',
-    })
-
+    // 更新頻率和自動備註
+    masterSchedule.schedule[patientId].freq = newFreq
+    masterSchedule.schedule[patientId].autoNote = generateAutoNote(patientData)
+    await schedulesApi.updateMasterSchedule(masterSchedule.schedule)
     console.log(`✅ [BaseScheduleService] 成功更新病人 ${patientId} 的頻率為 ${newFreq}`)
   } catch (error) {
     console.error(`❌ [BaseScheduleService] 更新病人 ${patientId} 頻率失敗:`, error)
@@ -111,22 +60,8 @@ export async function updatePatientFreqInBaseSchedule(patientId, newFreq, patien
  */
 export async function hasPatientInBaseSchedule(patientId) {
   try {
-    // 🖥️ 單機模式：使用本地 API
-    if (_isStandalone) {
-      const masterSchedule = await schedulesApi.fetchMasterSchedule()
-      return !!masterSchedule?.schedule?.[patientId]
-    }
-
-    // ☁️ Firebase 模式：使用 Firestore
-    const docSnap = await getDoc(masterScheduleRef)
-
-    // 文件不存在，或者 schedule 物件中沒有這個 patientId 的 key
-    if (!docSnap.exists() || !docSnap.data().schedule?.[patientId]) {
-      return false
-    }
-
-    // 直接透過 key 查找，最高效
-    return true
+    const masterSchedule = await schedulesApi.fetchMasterSchedule()
+    return !!masterSchedule?.schedule?.[patientId]
   } catch (error) {
     console.error(`❌ [BaseScheduleService] 檢查病人 ${patientId} 規則失敗:`, error)
     // 在發生錯誤時，保守地返回 false

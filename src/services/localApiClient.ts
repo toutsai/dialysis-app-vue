@@ -390,6 +390,13 @@ export const schedulesApi = {
   },
 
   /**
+   * 取得已歸檔排程
+   */
+  async fetchExpiredSchedule(date: string) {
+    return apiRequest<any>(`/schedules/expired/${date}`)
+  },
+
+  /**
    * 取得護理分配
    */
   async fetchNurseAssignments(date: string) {
@@ -534,6 +541,58 @@ export const ordersApi = {
     return apiRequest<any>('/orders/condition-records', {
       method: 'POST',
       body: JSON.stringify(data),
+    })
+  },
+}
+
+// ========================================
+// 用藥 API
+// ========================================
+
+export const medicationsApi = {
+  /**
+   * 取得每日針劑清單
+   */
+  async getDailyInjections(targetDate: string, patientIds: string[]) {
+    return apiRequest<any[]>('/medications/daily-injections', {
+      method: 'POST',
+      body: JSON.stringify({ targetDate, patientIds }),
+    })
+  },
+
+  /**
+   * 取得病人用藥列表
+   */
+  async fetchByPatient(patientId: string) {
+    return apiRequest<any[]>(`/medications/patient/${patientId}`)
+  },
+
+  /**
+   * 新增用藥記錄
+   */
+  async create(data: any) {
+    return apiRequest<any>('/medications', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 更新用藥記錄
+   */
+  async update(id: string, data: any) {
+    return apiRequest<any>(`/medications/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 刪除用藥記錄
+   */
+  async delete(id: string) {
+    return apiRequest<{ success: boolean }>(`/medications/${id}`, {
+      method: 'DELETE',
     })
   },
 }
@@ -696,6 +755,22 @@ export const systemApi = {
   },
 
   /**
+   * 建立通知
+   */
+  async createNotification(data: {
+    message: string
+    type: string
+    createdBy?: { uid: string; name: string }
+    expireAt?: string
+    metadata?: any
+  }) {
+    return apiRequest<any>('/system/notifications', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
    * 取得庫存
    */
   async fetchInventory() {
@@ -854,6 +929,7 @@ export const localApi = {
   schedules: schedulesApi,
   memos: memosApi,
   orders: ordersApi,
+  medications: medicationsApi,
   nursing: nursingApi,
   system: systemApi,
 }

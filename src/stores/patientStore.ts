@@ -1,16 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, type Ref } from 'vue'
 import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimizedApiService'
-// 從 firebase/firestore 引入 writeBatch
-import { doc, getDoc, updateDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import { isStandaloneMode } from '@/utils/appMode'
 import { schedulesApi } from '@/services/localApiClient'
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
-
-// 引入 ApiManager 以便操作多個集合
 
 interface Patient {
   id: string
@@ -117,9 +108,8 @@ export const usePatientStore = defineStore('patient', () => {
   }
 
   /**
-   * 🔥【架構修正版】🔥
-   * 職責簡化：只負責從後端總表中移除規則。
-   * 後端的 syncMasterScheduleToFuture 將會自動處理後續的排程重建。
+   * 從總表中移除規則。
+   * 後端會自動處理後續的排程重建。
    * @param {string} patientId - 病人 ID。
    * @returns {Promise<boolean>} 操作是否成功。
    */
@@ -132,51 +122,19 @@ export const usePatientStore = defineStore('patient', () => {
     console.log(`[Store] Sending request to remove rule for patient ${patientId}...`)
 
     try {
-      // 🖥️ 單機模式：使用本地 API
-      if (_isStandalone) {
-        const masterSchedule = await schedulesApi.fetchMasterSchedule()
-        if (!masterSchedule) {
-          console.warn('[Store] MASTER_SCHEDULE document does not exist.')
-          return true
-        }
-        const schedule = (masterSchedule.schedule || {}) as Record<string, unknown>
-        if (schedule[patientId]) {
-          delete schedule[patientId]
-          await schedulesApi.updateMasterSchedule(schedule)
-          console.log(`[Store] Successfully removed rule from local database.`)
-        } else {
-          console.log(`[Store] Rule for patient ${patientId} already absent.`)
-        }
-        console.log(`✅ [Store] Rule removal request for patient ${patientId} completed.`)
+      const masterSchedule = await schedulesApi.fetchMasterSchedule()
+      if (!masterSchedule) {
+        console.warn('[Store] MASTER_SCHEDULE document does not exist.')
         return true
       }
-
-      // ☁️ Firebase 模式：使用 Firestore
-      // --- ✨ 核心修改：移除所有關於 schedule_exceptions 的操作 ---
-      // 讓後端 Cloud Function 自己去處理資料一致性
-
-      // --- 只保留對總表文件的操作 ---
-      const masterScheduleRef = doc(db, 'base_schedules', 'MASTER_SCHEDULE')
-      const docSnap = await getDoc(masterScheduleRef)
-
-      if (!docSnap.exists()) {
-        console.warn('[Store] MASTER_SCHEDULE document does not exist.')
-        return true // 文件不存在，視為成功
-      }
-
-      const schedule = (docSnap.data().schedule || {}) as Record<string, unknown>
-
+      const schedule = (masterSchedule.schedule || {}) as Record<string, unknown>
       if (schedule[patientId]) {
         delete schedule[patientId]
-        await updateDoc(masterScheduleRef, {
-          schedule: schedule,
-          updatedAt: new Date(),
-        })
-        console.log(`[Store] Successfully sent update to remove rule from Firestore.`)
+        await schedulesApi.updateMasterSchedule(schedule)
+        console.log(`[Store] Successfully removed rule from database.`)
       } else {
         console.log(`[Store] Rule for patient ${patientId} already absent.`)
       }
-
       console.log(`✅ [Store] Rule removal request for patient ${patientId} completed.`)
       return true
     } catch (error) {
