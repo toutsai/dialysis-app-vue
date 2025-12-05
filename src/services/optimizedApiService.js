@@ -152,8 +152,9 @@ export async function fetchAllPatients() {
     return {
       ...patient,
       scheduleRule: rule,
-      // 將 freq 直接放到病人物件上，方便元件使用
-      freq: rule?.freq || null,
+      // ✅ [修正] 優先使用病人資料中的 freq/mode，若無則從排班規則取得
+      freq: patient.freq || rule?.freq || null,
+      mode: patient.mode || rule?.mode || null,
     }
   })
   setCache(cacheKey, patientsWithRules)
