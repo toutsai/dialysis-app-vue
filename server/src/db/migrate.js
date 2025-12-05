@@ -82,6 +82,9 @@ export function runMigrations() {
       // 新增病人狀態欄位
       if (addColumnIfNotExists(db, 'patients', 'patient_status', "TEXT DEFAULT '{}'")) migrationsApplied++
       if (addColumnIfNotExists(db, 'patients', 'is_hepatitis', "INTEGER DEFAULT 0")) migrationsApplied++
+      // 新增病人分類與疾病欄位
+      if (addColumnIfNotExists(db, 'patients', 'patient_category', "TEXT DEFAULT 'opd_regular'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'patients', 'diseases', "TEXT DEFAULT '[]'")) migrationsApplied++
     }
 
     // ========================================

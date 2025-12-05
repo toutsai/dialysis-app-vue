@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS patients (
     dialysis_reason TEXT,
     notes TEXT,
 
+    -- 病人分類與狀態
+    patient_category TEXT DEFAULT 'opd_regular',  -- opd_regular/non_regular
+    diseases TEXT DEFAULT '[]',       -- JSON array: 須注意疾病列表
+
     -- 病人狀態 (JSON 格式)
     patient_status TEXT DEFAULT '{}',  -- JSON: {isFirstDialysis, isPaused, hasBloodDraw}
     is_hepatitis INTEGER DEFAULT 0,    -- 是否為肝炎病人

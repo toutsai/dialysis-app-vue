@@ -39,6 +39,9 @@ function formatPatient(row) {
     inpatientReason: row.inpatient_reason,
     dialysisReason: row.dialysis_reason,
     notes: row.notes,
+    remarks: row.notes,  // 前端用 remarks，對應到 notes
+    patientCategory: row.patient_category || 'opd_regular',
+    diseases: JSON.parse(row.diseases || '[]'),
     patientStatus: JSON.parse(row.patient_status || '{}'),
     isHepatitis: row.is_hepatitis === 1,
     scheduleRule: JSON.parse(row.schedule_rule || '{}'),
@@ -84,7 +87,12 @@ function toDbFormat(data) {
   if (data.hospitalInfo !== undefined) result.hospital_info = JSON.stringify(data.hospitalInfo)
   if (data.inpatientReason !== undefined) result.inpatient_reason = data.inpatientReason
   if (data.dialysisReason !== undefined) result.dialysis_reason = data.dialysisReason
+  // 處理 notes/remarks (前端用 remarks，後端存 notes)
   if (data.notes !== undefined) result.notes = data.notes
+  if (data.remarks !== undefined) result.notes = data.remarks
+  // 病人分類與疾病
+  if (data.patientCategory !== undefined) result.patient_category = data.patientCategory
+  if (data.diseases !== undefined) result.diseases = JSON.stringify(data.diseases)
   if (data.patientStatus !== undefined) result.patient_status = JSON.stringify(data.patientStatus)
   if (data.isHepatitis !== undefined) result.is_hepatitis = data.isHepatitis ? 1 : 0
   if (data.scheduleRule !== undefined) result.schedule_rule = JSON.stringify(data.scheduleRule)
