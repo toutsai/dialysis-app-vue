@@ -251,9 +251,8 @@
 
 <script setup>
 import { ref, reactive, computed, watch, onMounted } from 'vue'
-import { serverTimestamp } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth'
-import ApiManager from '@/services/api_manager'
+import { systemApi } from '@/services/localApiClient'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 import { useUserDirectory } from '@/composables/useUserDirectory'
@@ -271,7 +270,6 @@ const props = defineProps({
 const emit = defineEmits(['close', 'submit'])
 
 const { currentUser } = useAuth()
-const tasksApi = ApiManager('tasks')
 const { createGlobalNotification } = useGlobalNotifier()
 const { ensureUsersLoaded, users: directoryUsers } = useUserDirectory()
 
@@ -526,7 +524,7 @@ async function handleSubmit() {
       },
       patientId: selectedPatient.value?.id || null,
       patientName: selectedPatient.value?.name || null,
-      createdAt: serverTimestamp(),
+      createdAt: new Date().toISOString(),
       expireAt: expireAtDate,
     }
 
@@ -570,7 +568,7 @@ async function handleSubmit() {
     }
 
     try {
-      const savedDoc = await tasksApi.save(dataToSave)
+      const savedDoc = await systemApi.saveTask(dataToSave)
       let notifMessage = ''
       let notifType = 'info'
       if (dataToSave.category === 'message') {
@@ -607,7 +605,7 @@ async function handleSubmit() {
         uid: currentUser.value.uid,
         name: currentUser.value.name,
       },
-      lastEditedAt: serverTimestamp(),
+      lastEditedAt: new Date().toISOString(),
     }
     emit('submit', { id: formData.id, ...dataToUpdate })
     isSubmitting.value = false

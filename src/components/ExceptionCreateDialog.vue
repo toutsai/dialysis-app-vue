@@ -265,15 +265,9 @@ import ApiManager from '@/services/api_manager'
 import PatientSelectDialog from '@/components/PatientSelectDialog.vue'
 import BedAssignmentDialog from '@/components/BedAssignmentDialog.vue'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants.js'
-// 🔥【核心修改 #2】引入 deleteDoc 和 doc
-import { deleteDoc, doc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
 import { escapeHtml } from '@/utils/sanitize.js'
-import { isStandaloneMode } from '@/utils/appMode'
 
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
 const exceptionsApi = ApiManager('schedule_exceptions')
 
 // Props & Emits
@@ -675,21 +669,14 @@ function submitForm() {
   emit('submit', dataToSubmit)
 }
 
-// 🔥【核心修改 #4】新增 handleDelete 函式
 async function handleDelete() {
   if (!isEditingMode.value || !props.initialData?.id) return
   isSubmitting.value = true
   try {
-    if (_isStandalone) {
-      // 在 standalone 模式下，使用 ApiManager 刪除
-      await exceptionsApi.delete(props.initialData.id)
-    } else {
-      await deleteDoc(doc(db, 'schedule_exceptions', props.initialData.id))
-    }
-    emit('delete', props.initialData.id) // 發送 delete 事件給父元件
+    await exceptionsApi.delete(props.initialData.id)
+    emit('delete', props.initialData.id)
   } catch (error) {
     console.error('撤銷申請失敗:', error)
-    // 可以在此處加入錯誤提示
   } finally {
     isSubmitting.value = false
     close()

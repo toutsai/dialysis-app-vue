@@ -27,14 +27,8 @@
 
 <script setup>
 import { ref, watch } from 'vue'
-import { doc, setDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
-import { isStandaloneMode } from '@/utils/appMode'
 import { nursingApi } from '@/services/localApiClient'
-
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
 
 const props = defineProps({
   isVisible: Boolean,
@@ -76,18 +70,12 @@ async function handleSave() {
         uid: currentUser.value.uid,
         name: currentUser.value.name,
       },
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
       sourceDate: props.targetDate, // 記錄是從哪一天的日誌發起的更新
     }
 
-    if (_isStandalone) {
-      // 在 standalone 模式下，使用 local API 儲存
-      await nursingApi.saveHandoverLog(handoverData)
-    } else {
-      // ✨ 核心修改：儲存目標改為獨立的 handover_logs/latest 文件
-      const handoverLogRef = doc(db, 'handover_logs', 'latest')
-      await setDoc(handoverLogRef, handoverData)
-    }
+    // 使用 local API 儲存
+    await nursingApi.saveHandoverLog(handoverData)
 
     // 觸發事件，將更新後的內容即時傳回給 DailyLogView
     emit('notes-updated', handoverContent)

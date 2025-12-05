@@ -242,6 +242,223 @@ router.post('/medications', ...isContributor, async (req, res) => {
   }
 })
 
+/**
+ * PUT /api/orders/medications/:id
+ * 更新藥物訂單
+ */
+router.put('/medications/:id', ...isContributor, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { medications, status, orderDate } = req.body
+    const db = getDatabase()
+
+    const updates = []
+    const params = []
+
+    if (medications !== undefined) {
+      updates.push('medications = ?')
+      params.push(JSON.stringify(medications))
+    }
+
+    if (status !== undefined) {
+      updates.push('status = ?')
+      params.push(status)
+    }
+
+    if (orderDate !== undefined) {
+      updates.push('order_date = ?')
+      params.push(orderDate)
+    }
+
+    updates.push("updated_at = datetime('now', 'localtime')")
+    params.push(id)
+
+    const query = `UPDATE medication_orders SET ${updates.join(', ')} WHERE id = ?`
+    const result = db.prepare(query).run(...params)
+    db.close()
+
+    if (result.changes === 0) {
+      return res.status(404).json({
+        error: true,
+        message: '藥物訂單不存在'
+      })
+    }
+
+    res.json({
+      success: true,
+      message: '藥物訂單已更新'
+    })
+
+  } catch (error) {
+    console.error('更新藥物訂單錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '更新藥物訂單失敗'
+    })
+  }
+})
+
+/**
+ * DELETE /api/orders/medications/:id
+ * 刪除藥物訂單
+ */
+router.delete('/medications/:id', ...isEditor, async (req, res) => {
+  try {
+    const { id } = req.params
+    const db = getDatabase()
+
+    const result = db.prepare(`DELETE FROM medication_orders WHERE id = ?`).run(id)
+    db.close()
+
+    if (result.changes === 0) {
+      return res.status(404).json({
+        error: true,
+        message: '藥物訂單不存在'
+      })
+    }
+
+    res.json({
+      success: true,
+      message: '藥物訂單已刪除'
+    })
+
+  } catch (error) {
+    console.error('刪除藥物訂單錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '刪除藥物訂單失敗'
+    })
+  }
+})
+
+// ========================================
+// 藥物草稿 API
+// ========================================
+
+/**
+ * GET /api/orders/medication-drafts
+ * 取得藥物草稿列表
+ */
+router.get('/medication-drafts', authenticate, (req, res) => {
+  try {
+    const { patientId, authorId } = req.query
+    const db = getDatabase()
+
+    let query = 'SELECT * FROM medication_drafts WHERE 1=1'
+    const params = []
+
+    if (patientId) {
+      query += ' AND patient_id = ?'
+      params.push(patientId)
+    }
+
+    if (authorId) {
+      query += ' AND author_id = ?'
+      params.push(authorId)
+    }
+
+    query += ' ORDER BY created_at DESC'
+
+    const drafts = db.prepare(query).all(...params)
+    db.close()
+
+    res.json(drafts.map(d => ({
+      id: d.id,
+      authorId: d.author_id,
+      patientId: d.patient_id,
+      ...JSON.parse(d.draft_data || '{}'),
+      createdAt: d.created_at,
+      updatedAt: d.updated_at
+    })))
+
+  } catch (error) {
+    console.error('取得藥物草稿錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得藥物草稿失敗'
+    })
+  }
+})
+
+/**
+ * POST /api/orders/medication-drafts
+ * 新增藥物草稿
+ */
+router.post('/medication-drafts', ...isContributor, async (req, res) => {
+  try {
+    const draftData = req.body
+    const { patientId } = draftData
+
+    if (!patientId) {
+      return res.status(400).json({
+        error: true,
+        message: '病人 ID 為必填'
+      })
+    }
+
+    const id = uuidv4()
+    const db = getDatabase()
+
+    db.prepare(`
+      INSERT INTO medication_drafts (id, author_id, patient_id, draft_data)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      id,
+      req.user.id,
+      patientId,
+      JSON.stringify(draftData)
+    )
+
+    db.close()
+
+    res.status(201).json({
+      success: true,
+      id,
+      ...draftData
+    })
+
+  } catch (error) {
+    console.error('新增藥物草稿錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '新增藥物草稿失敗'
+    })
+  }
+})
+
+/**
+ * DELETE /api/orders/medication-drafts/:id
+ * 刪除藥物草稿
+ */
+router.delete('/medication-drafts/:id', ...isContributor, async (req, res) => {
+  try {
+    const { id } = req.params
+    const db = getDatabase()
+
+    const result = db.prepare(`DELETE FROM medication_drafts WHERE id = ?`).run(id)
+    db.close()
+
+    if (result.changes === 0) {
+      return res.status(404).json({
+        error: true,
+        message: '藥物草稿不存在'
+      })
+    }
+
+    res.json({
+      success: true,
+      message: '藥物草稿已刪除'
+    })
+
+  } catch (error) {
+    console.error('刪除藥物草稿錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '刪除藥物草稿失敗'
+    })
+  }
+})
+
 // ========================================
 // 檢驗報告 API
 // ========================================

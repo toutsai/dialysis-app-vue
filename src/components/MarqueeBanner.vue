@@ -13,42 +13,32 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { doc, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import { isStandaloneMode } from '@/utils/appMode'
 import { systemApi } from '@/services/localApiClient'
 
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
-
 const htmlContent = ref('')
-let unsubscribe = null
+let pollingInterval = null
+
+async function fetchMarqueeContent() {
+  try {
+    const config = await systemApi.fetchSiteConfig('marquee_announcements')
+    htmlContent.value = config?.configData?.content || config?.content || ''
+  } catch (error) {
+    console.error('載入跑馬燈內容失敗:', error)
+    htmlContent.value = ''
+  }
+}
 
 onMounted(async () => {
-  if (_isStandalone) {
-    // 在 standalone 模式下，直接獲取公告內容
-    try {
-      const config = await systemApi.fetchSiteConfig('marquee_announcements')
-      htmlContent.value = config?.configData?.content || config?.content || ''
-    } catch (error) {
-      console.error('載入跑馬燈內容失敗:', error)
-      htmlContent.value = ''
-    }
-  } else {
-    const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-    unsubscribe = onSnapshot(marqueeRef, (docSnap) => {
-      if (docSnap.exists() && docSnap.data().content) {
-        htmlContent.value = docSnap.data().content
-      } else {
-        htmlContent.value = ''
-      }
-    })
-  }
+  // Initial fetch
+  await fetchMarqueeContent()
+
+  // Set up polling every 30 seconds
+  pollingInterval = setInterval(fetchMarqueeContent, 30000)
 })
 
 onUnmounted(() => {
-  if (unsubscribe) {
-    unsubscribe()
+  if (pollingInterval) {
+    clearInterval(pollingInterval)
   }
 })
 </script>

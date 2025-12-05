@@ -543,6 +543,81 @@ export const ordersApi = {
       body: JSON.stringify(data),
     })
   },
+
+  /**
+   * 取得藥物訂單
+   */
+  async fetchMedicationOrders(params?: {
+    patientId?: string
+    startDate?: string
+    endDate?: string
+  }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/medications${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 新增藥物訂單
+   */
+  async createMedicationOrder(data: any) {
+    return apiRequest<any>('/orders/medications', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 更新藥物訂單
+   */
+  async updateMedicationOrder(id: string, data: any) {
+    return apiRequest<any>(`/orders/medications/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 刪除藥物訂單
+   */
+  async deleteMedicationOrder(id: string) {
+    return apiRequest<{ success: boolean }>(`/orders/medications/${id}`, {
+      method: 'DELETE',
+    })
+  },
+
+  /**
+   * 取得藥物草稿
+   */
+  async fetchMedicationDrafts(params?: { patientId?: string; authorId?: string }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.authorId) query.set('authorId', params.authorId)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/medication-drafts${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 新增藥物草稿
+   */
+  async createMedicationDraft(data: any) {
+    return apiRequest<any>('/orders/medication-drafts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 刪除藥物草稿
+   */
+  async deleteMedicationDraft(id: string) {
+    return apiRequest<{ success: boolean }>(`/orders/medication-drafts/${id}`, {
+      method: 'DELETE',
+    })
+  },
 }
 
 // ========================================

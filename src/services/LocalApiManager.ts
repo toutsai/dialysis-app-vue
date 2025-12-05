@@ -35,6 +35,10 @@ const resourceApiMap: Record<string, any> = {
   schedules: schedulesApi,
   base_schedules: {
     fetchAll: () => schedulesApi.fetchMasterSchedule().then(s => s ? [s] : []),
+    fetchById: (id: string) => {
+      // For base_schedules, the ID is always 'MASTER_SCHEDULE'
+      return schedulesApi.fetchMasterSchedule()
+    },
     save: (_id: string, data: any) => schedulesApi.updateMasterSchedule(data),
   },
   schedule_exceptions: {
@@ -79,6 +83,17 @@ const resourceApiMap: Record<string, any> = {
   condition_records: {
     fetchAll: (patientId?: string) => ordersApi.fetchConditionRecords(patientId),
     create: (data: any) => ordersApi.createConditionRecord(data),
+  },
+  medication_orders: {
+    fetchAll: (params?: any) => ordersApi.fetchMedicationOrders(params),
+    create: (data: any) => ordersApi.createMedicationOrder(data),
+    update: (id: string, data: any) => ordersApi.updateMedicationOrder(id, data),
+    delete: (id: string) => ordersApi.deleteMedicationOrder(id),
+  },
+  medication_drafts: {
+    fetchAll: (params?: any) => ordersApi.fetchMedicationDrafts(params),
+    create: (data: any) => ordersApi.createMedicationDraft(data),
+    delete: (id: string) => ordersApi.deleteMedicationDraft(id),
   },
 
   // 護理相關

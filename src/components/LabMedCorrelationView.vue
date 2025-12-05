@@ -159,13 +159,7 @@
 <script setup>
 import { ref, computed, watch, reactive } from 'vue'
 import ApiManager from '@/services/api_manager'
-import { db } from '@/composables/useFirebase'
-import { where, orderBy, writeBatch, query, collection, getDocs, doc } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth'
-import { isStandaloneMode } from '@/utils/appMode'
-
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
 
 const props = defineProps({
   patient: Object,
@@ -408,29 +402,52 @@ async function fetchData() {
   try {
     const twoYearsAgo = new Date()
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2)
-    const [reports, orders, drafts] = await Promise.all([
-      labReportsApi.fetchAll([
-        where('patientId', '==', props.patient.id),
-        where('reportDate', '>=', twoYearsAgo),
-        orderBy('reportDate', 'desc'),
-      ]),
-      ordersApi.fetchAll([
-        where('patientId', '==', props.patient.id),
-        where('uploadTimestamp', '>=', twoYearsAgo),
-        orderBy('uploadTimestamp', 'desc'),
-      ]),
-      draftOrdersApi.fetchAll([
-        where('patientId', '==', props.patient.id),
-        where('status', '==', 'pending'),
-      ]),
+    const twoYearsAgoStr = twoYearsAgo.toISOString().split('T')[0]
+
+    const [allReports, allOrders, allDrafts] = await Promise.all([
+      labReportsApi.fetchAll(),
+      ordersApi.fetchAll(),
+      draftOrdersApi.fetchAll(),
     ])
+
+    // Client-side filtering for lab reports
+    const reports = allReports
+      .filter((r) => r.patientId === props.patient.id)
+      .filter((r) => {
+        const reportDate = r.reportDate
+        if (typeof reportDate === 'string') {
+          return reportDate >= twoYearsAgoStr
+        }
+        return true
+      })
+      .sort((a, b) => {
+        const dateA = typeof a.reportDate === 'string' ? a.reportDate : ''
+        const dateB = typeof b.reportDate === 'string' ? b.reportDate : ''
+        return dateB.localeCompare(dateA)
+      })
+
     rawLabReports.value = reports.map((r) => ({
       ...r,
       reportDate: formatDateFromTimestamp(r.reportDate),
     }))
 
+    // Client-side filtering for medication orders
+    const orders = allOrders
+      .filter((o) => o.patientId === props.patient.id)
+      .filter((o) => {
+        const uploadTimestamp = o.uploadTimestamp
+        if (!uploadTimestamp) return false
+        const uploadDate = typeof uploadTimestamp === 'string' ? new Date(uploadTimestamp) : (uploadTimestamp.toDate ? uploadTimestamp.toDate() : new Date(uploadTimestamp))
+        return uploadDate >= twoYearsAgo
+      })
+      .sort((a, b) => {
+        const dateA = a.uploadTimestamp ? (a.uploadTimestamp.toDate ? a.uploadTimestamp.toDate() : new Date(a.uploadTimestamp)) : new Date(0)
+        const dateB = b.uploadTimestamp ? (b.uploadTimestamp.toDate ? b.uploadTimestamp.toDate() : new Date(b.uploadTimestamp)) : new Date(0)
+        return dateB - dateA
+      })
+
     rawMedOrders.value = orders.map((order) => {
-      const uploadDate = order.uploadTimestamp?.toDate()
+      const uploadDate = order.uploadTimestamp?.toDate ? order.uploadTimestamp.toDate() : (order.uploadTimestamp ? new Date(order.uploadTimestamp) : null)
       if (uploadDate) {
         const year = uploadDate.getFullYear()
         const month = (uploadDate.getMonth() + 1).toString().padStart(2, '0')
@@ -438,6 +455,11 @@ async function fetchData() {
       }
       return order
     })
+
+    // Client-side filtering for medication drafts
+    const drafts = allDrafts.filter(
+      (d) => d.patientId === props.patient.id && d.status === 'pending'
+    )
 
     rawMedDrafts.value = drafts
   } catch (err) {
@@ -456,60 +478,22 @@ async function saveDraftOrders() {
   isSubmitting.value = true
 
   try {
-    if (_isStandalone) {
-      // 在 standalone 模式下，使用 ApiManager 進行操作
-      // 1. 獲取並刪除舊草稿
-      const oldDrafts = await draftOrdersApi.fetchAll([
-        where('patientId', '==', props.patient.id),
-        where('targetMonth', '==', draftTargetMonth.value),
-      ])
-      const deletePromises = oldDrafts.map((draft) => draftOrdersApi.delete(draft.id))
-      await Promise.all(deletePromises)
+    // 1. 獲取並刪除舊草稿
+    const allDrafts = await draftOrdersApi.fetchAll()
+    const oldDrafts = allDrafts.filter(
+      (d) => d.patientId === props.patient.id && d.targetMonth === draftTargetMonth.value
+    )
+    const deletePromises = oldDrafts.map((draft) => draftOrdersApi.delete(draft.id))
+    await Promise.all(deletePromises)
 
-      // 2. 創建新草稿
-      const createPromises = []
-      for (const medCode in orderDraft) {
-        const draft = orderDraft[medCode]
-        if (draft.dose || draft.frequency) {
-          const medInfo = allMedsMaster.value.find((m) => m.code === medCode)
-          createPromises.push(
-            draftOrdersApi.create({
-              patientId: props.patient.id,
-              patientName: props.patient.name,
-              medicalRecordNumber: props.patient.medicalRecordNumber,
-              targetMonth: draftTargetMonth.value,
-              status: 'pending',
-              createdAt: new Date(),
-              authorId: currentUser.value.uid,
-              authorName: currentUser.value.name,
-              orderCode: medInfo.code,
-              orderName: medInfo.tradeName,
-              orderType: medInfo.type,
-              dose: draft.dose,
-              unit: medInfo.unit,
-              frequency: medInfo.type === 'oral' ? draft.frequency : '',
-              note: medInfo.type === 'injection' ? draft.frequency : '',
-            })
-          )
-        }
-      }
-      await Promise.all(createPromises)
-    } else {
-      const batch = writeBatch(db)
-      const oldDraftsQuery = query(
-        collection(db, 'medication_drafts'),
-        where('patientId', '==', props.patient.id),
-        where('targetMonth', '==', draftTargetMonth.value),
-      )
-      const oldDraftsSnapshot = await getDocs(oldDraftsQuery)
-      oldDraftsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref))
-
-      for (const medCode in orderDraft) {
-        const draft = orderDraft[medCode]
-        if (draft.dose || draft.frequency) {
-          const medInfo = allMedsMaster.value.find((m) => m.code === medCode)
-          const newDraftRef = doc(collection(db, 'medication_drafts'))
-          batch.set(newDraftRef, {
+    // 2. 創建新草稿
+    const createPromises = []
+    for (const medCode in orderDraft) {
+      const draft = orderDraft[medCode]
+      if (draft.dose || draft.frequency) {
+        const medInfo = allMedsMaster.value.find((m) => m.code === medCode)
+        createPromises.push(
+          draftOrdersApi.create({
             patientId: props.patient.id,
             patientName: props.patient.name,
             medicalRecordNumber: props.patient.medicalRecordNumber,
@@ -526,10 +510,11 @@ async function saveDraftOrders() {
             frequency: medInfo.type === 'oral' ? draft.frequency : '',
             note: medInfo.type === 'injection' ? draft.frequency : '',
           })
-        }
+        )
       }
-      await batch.commit()
     }
+    await Promise.all(createPromises)
+
     alert('藥囑草稿儲存成功！')
     await fetchData()
   } catch (error) {

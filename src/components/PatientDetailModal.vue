@@ -265,16 +265,10 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
-import ApiManager from '@/services/api_manager'
+import { patientsApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { useTaskStore } from '@/stores/taskStore'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
 import { getShiftDisplayName as getShiftName } from '@/constants/scheduleConstants.js'
-import { isStandaloneMode } from '@/utils/appMode'
-
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
 
 // 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
@@ -301,7 +295,6 @@ const emit = defineEmits(['close', 'record-updated', 'switch-patient'])
 // --- Component State ---
 const activeTab = ref('records')
 const { addLocalNotification } = useRealtimeNotifications()
-const conditionRecordsApi = ApiManager('condition_records')
 const auth = useAuth()
 const taskStore = useTaskStore()
 
@@ -348,7 +341,12 @@ function handleClose() {
 
 async function handleSaveConditionRecord(recordData) {
   try {
-    await conditionRecordsApi.save(recordData)
+    const recordWithTimestamp = {
+      ...recordData,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    await patientsApi.saveConditionRecord(recordWithTimestamp)
     addLocalNotification(`已為 ${recordData.patientName} 新增病情紀錄`, 'schedule')
     emit('record-updated')
   } catch (error) {
@@ -358,7 +356,11 @@ async function handleSaveConditionRecord(recordData) {
 
 async function handleUpdateConditionRecord({ id, content }) {
   try {
-    await conditionRecordsApi.update(id, { content })
+    const updateData = {
+      content,
+      updatedAt: new Date().toISOString(),
+    }
+    await patientsApi.updateConditionRecord(id, updateData)
     addLocalNotification('病情紀錄已更新', 'schedule')
     emit('record-updated')
   } catch (error) {
@@ -369,7 +371,7 @@ async function handleUpdateConditionRecord({ id, content }) {
 async function handleDeleteConditionRecord(recordId) {
   if (confirm('您確定要永久刪除這筆病情紀錄嗎？')) {
     try {
-      await conditionRecordsApi.delete(recordId)
+      await patientsApi.deleteConditionRecord(recordId)
       addLocalNotification('病情紀錄已刪除', 'schedule')
       emit('record-updated')
     } catch (error) {
@@ -394,9 +396,10 @@ async function handleSaveLabSummaryAsRecord({ patient, content }) {
       content: content,
       authorId: auth.currentUser.value.uid,
       authorName: auth.currentUser.value.name,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }
-    await conditionRecordsApi.save(recordData)
+    await patientsApi.saveConditionRecord(recordData)
     addLocalNotification(`已為 ${patient.name} 新增檢驗報告處置紀錄`, 'schedule')
     emit('record-updated')
     activeTab.value = 'records'
@@ -534,52 +537,9 @@ function retakePhoto() {
 async function uploadToDrive() {
   if (!capturedImage.value || !props.patient) return
 
-  if (_isStandalone) {
-    // 在 standalone 模式下，暫時不支援上傳到 Google Drive
-    cameraErrorMessage.value = '離線模式下暫不支援上傳圖片功能，請使用線上模式。'
-    return
-  }
-
-  isUploading.value = true
-  cameraState.value = 'uploading'
-  cameraErrorMessage.value = ''
-
-  try {
-    const base64String = capturedImage.value.split(',')[1]
-
-    const date = new Date()
-    const dateStr = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
-    const timeStr = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`
-
-    const fileName = `[${props.patient.medicalRecordNumber}]_${props.patient.name}_${dateStr}_${timeStr}.jpg`
-
-    const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
-    const targetPath = ['影像', patientFolderName]
-
-    const payload = {
-      fileName: fileName,
-      fileContentBase64: base64String,
-      mimeType: 'image/jpeg',
-      targetPath: targetPath,
-    }
-
-    const uploadFile = httpsCallable(functions, 'uploadFile')
-    const result = await uploadFile(payload)
-
-    console.log('上傳成功:', result.data)
-    addLocalNotification(`影像 "${result.data.file.name}" 上傳成功！`, 'success')
-
-    cameraState.value = 'idle'
-    capturedImage.value = null
-
-    await fetchDriveFiles()
-  } catch (error) {
-    console.error('上傳失敗:', error)
-    cameraErrorMessage.value = `上傳失敗: ${error.message}`
-    cameraState.value = 'captured'
-  } finally {
-    isUploading.value = false
-  }
+  // Google Drive 上傳功能在 standalone 模式下不可用
+  cameraErrorMessage.value = 'standalone 模式下暫不支援上傳圖片功能。'
+  return
 }
 
 function formatDateTime(isoString) {
@@ -599,36 +559,10 @@ async function fetchDriveFiles() {
     return
   }
 
-  if (_isStandalone) {
-    // 在 standalone 模式下，暫時不支援查詢 Google Drive 檔案
-    fetchError.value = '離線模式下暫不支援查詢雲端檔案功能，請使用線上模式。'
-    hasSearched.value = true
-    return
-  }
-
-  isFetchingFiles.value = true
+  // Google Drive 查詢功能在 standalone 模式下不可用
+  fetchError.value = 'standalone 模式下暫不支援查詢雲端檔案功能。'
   hasSearched.value = true
-  fetchError.value = ''
-  driveFiles.value = []
-
-  try {
-    const patientFolderName = `[${props.patient.medicalRecordNumber}] ${props.patient.name}`
-    const targetPath = ['影像', patientFolderName]
-
-    const getFiles = httpsCallable(functions, 'getDriveFiles')
-    const result = await getFiles({ targetPath: targetPath })
-
-    if (result.data.success) {
-      driveFiles.value = result.data.files
-    } else {
-      throw new Error('後端回傳查詢失敗。')
-    }
-  } catch (error) {
-    console.error('查詢雲端檔案失敗:', error)
-    fetchError.value = `查詢失敗: ${error.message}`
-  } finally {
-    isFetchingFiles.value = false
-  }
+  return
 }
 
 // --- File Rename Methods ---
@@ -656,42 +590,9 @@ async function saveFileName() {
     return
   }
 
-  if (_isStandalone) {
-    // 在 standalone 模式下，暫時不支援重新命名 Google Drive 檔案
-    renameError.value = '離線模式下暫不支援重新命名雲端檔案功能，請使用線上模式。'
-    return
-  }
-
-  isRenaming.value = true
-  renameError.value = ''
-
-  try {
-    // 加回副檔名
-    const fullNewName = editingFile.value.extension
-      ? `${newFileName.value.trim()}.${editingFile.value.extension}`
-      : newFileName.value.trim()
-
-    const renameDriveFile = httpsCallable(functions, 'renameDriveFile')
-    const result = await renameDriveFile({
-      fileId: editingFile.value.id,
-      newName: fullNewName,
-    })
-
-    if (result.data.success) {
-      // 更新本地資料
-      const fileIndex = driveFiles.value.findIndex((f) => f.id === editingFile.value.id)
-      if (fileIndex !== -1) {
-        driveFiles.value[fileIndex].name = fullNewName
-      }
-      addLocalNotification(`檔案已重新命名為 "${fullNewName}"`, 'success')
-      cancelEditFileName()
-    }
-  } catch (error) {
-    console.error('重新命名失敗:', error)
-    renameError.value = `重新命名失敗: ${error.message}`
-  } finally {
-    isRenaming.value = false
-  }
+  // Google Drive 檔案重新命名功能在 standalone 模式下不可用
+  renameError.value = 'standalone 模式下暫不支援重新命名雲端檔案功能。'
+  return
 }
 
 // --- Watcher ---

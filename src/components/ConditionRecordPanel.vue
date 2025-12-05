@@ -54,7 +54,6 @@
 <script setup>
 import { ref, watch, toRefs } from 'vue'
 import ApiManager from '@/services/api_manager'
-import { where, orderBy } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 
@@ -87,11 +86,15 @@ async function fetchHistory() {
   error.value = null
   history.value = []
   try {
-    const queryConstraints = [
-      where('patientId', '==', patient.value.id),
-      orderBy('createdAt', 'desc'),
-    ]
-    history.value = await conditionRecordsApi.fetchAll(queryConstraints)
+    const allRecords = await conditionRecordsApi.fetchAll()
+    // Filter by patientId and sort by createdAt descending
+    history.value = allRecords
+      .filter((record) => record.patientId === patient.value.id)
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt)
+        return dateB - dateA
+      })
   } catch (err) {
     console.error('讀取歷史病情紀錄失敗:', err)
     error.value = '讀取歷史紀錄失敗。'
