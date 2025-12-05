@@ -273,23 +273,19 @@
 </template>
 
 <script setup>
+// ✨ Standalone 版本
 import { ref, computed, watch, onUnmounted, provide } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
 import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
-import { where, onSnapshot, collection, query } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
 import { getToday } from '@/utils/dateUtils'
-import { isStandaloneMode } from '@/utils/appMode'
 
 import { storeToRefs } from 'pinia'
 import { usePatientStore } from '@/stores/patientStore'
 import { useTaskStore } from '@/stores/taskStore'
 
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
 const memosApi = ApiManager('memos')
 const exceptionsApi = ApiManager('schedule_exceptions')
 
@@ -316,7 +312,6 @@ const todayMyPatientIds = ref([])
 const assignmentsApi = ApiManager('nurse_assignments')
 
 const conflictCount = ref(0)
-let conflictUnsubscribe = null
 
 const notificationCount = computed(() => {
   if (!currentUser.value) return 0
@@ -386,8 +381,8 @@ async function fetchTodayAssignedPatients() {
   }
   const today = getToday()
   try {
-    const assignmentsSnapshot = await assignmentsApi.fetchAll([where('date', '==', today)])
-    if (assignmentsSnapshot.length === 0) {
+    const assignmentsSnapshot = await assignmentsApi.fetchAll({ date: today })
+    if (!assignmentsSnapshot || assignmentsSnapshot.length === 0) {
       todayMyPatientIds.value = []
       return
     }
@@ -417,85 +412,41 @@ async function fetchTodayAssignedPatients() {
   }
 }
 
-let memoUnsubscribe = null
 async function startSharedDataListeners() {
-  if (memoUnsubscribe) return
-
-  // ✨ 單機模式支援
-  if (_isStandalone) {
-    try {
-      const memos = await memosApi.fetchAll()
-      activeMemos.value = memos.filter((m) => m.status === 'pending')
-    } catch (error) {
-      console.error('[MainLayout] 獲取備忘錄失敗:', error)
-      activeMemos.value = []
-    }
-  } else {
-    const memoQuery = query(collection(db, 'memos'), where('status', '==', 'pending'))
-    memoUnsubscribe = onSnapshot(memoQuery, (snapshot) => {
-      activeMemos.value = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-    })
+  try {
+    const memos = await memosApi.fetchAll()
+    activeMemos.value = memos.filter((m) => m.status === 'pending')
+  } catch (error) {
+    console.error('[MainLayout] 獲取備忘錄失敗:', error)
+    activeMemos.value = []
   }
 }
 function stopSharedDataListeners() {
-  if (memoUnsubscribe) {
-    memoUnsubscribe()
-    memoUnsubscribe = null
-  }
+  activeMemos.value = []
 }
 
 async function startConflictListener() {
   if (!(isAdmin.value || isEditor.value)) return
 
-  if (conflictUnsubscribe) return
-
-  // ✨ 單機模式支援
-  if (_isStandalone) {
-    try {
-      const exceptions = await exceptionsApi.fetchAll()
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-
-      const conflicts = exceptions.filter((ex) => {
-        if (ex.status !== 'conflict_requires_resolution') return false
-        const expireAt = ex.expireAt ? new Date(ex.expireAt) : null
-        return !expireAt || expireAt >= today
-      })
-      conflictCount.value = conflicts.length
-    } catch (error) {
-      console.error('[MainLayout] 獲取衝突數量失敗:', error)
-      conflictCount.value = 0
-    }
-  } else {
-    const exceptionsRef = collection(db, 'schedule_exceptions')
+  try {
+    const exceptions = await exceptionsApi.fetchAll()
     const today = new Date()
     today.setHours(0, 0, 0, 0)
 
-    const q = query(
-      exceptionsRef,
-      where('status', '==', 'conflict_requires_resolution'),
-      where('expireAt', '>=', today),
-    )
-
-    conflictUnsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        conflictCount.value = snapshot.size
-      },
-      (error) => {
-        console.error('Conflict listener error:', error)
-        conflictCount.value = 0
-      },
-    )
+    const conflicts = exceptions.filter((ex) => {
+      if (ex.status !== 'conflict_requires_resolution') return false
+      const expireAt = ex.expireAt ? new Date(ex.expireAt) : null
+      return !expireAt || expireAt >= today
+    })
+    conflictCount.value = conflicts.length
+  } catch (error) {
+    console.error('[MainLayout] 獲取衝突數量失敗:', error)
+    conflictCount.value = 0
   }
 }
 
 function stopConflictListener() {
-  if (conflictUnsubscribe) {
-    conflictUnsubscribe()
-    conflictUnsubscribe = null
-    conflictCount.value = 0
-  }
+  conflictCount.value = 0
 }
 
 watch(
