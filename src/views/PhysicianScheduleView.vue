@@ -1092,8 +1092,8 @@
 </template>
 
 <script setup>
+// ✨ Standalone 版本
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
-import { where } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth' // ✨ 1. 引入 useAuth
 import ApiManager from '@/services/api_manager'
 import AlertDialog from '@/components/AlertDialog.vue'

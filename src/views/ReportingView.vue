@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
 import ApiManager from '@/services/api_manager'
-import { where } from 'firebase/firestore'
 import { SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
 import * as XLSX from 'xlsx'
 import { formatDateToYYYYMMDD, formatDateToYYYYMM } from '@/utils/dateUtils.js'
@@ -112,10 +111,7 @@ async function generateReport() {
     // ✨ ========================================================== ✨
 
     if (reportType.value === 'staffing_monthly') {
-      const dailyLogsData = await dailyLogsApi.fetchAll([
-        where('date', '>=', startDate),
-        where('date', '<=', endDate),
-      ])
+      const dailyLogsData = await dailyLogsApi.fetchAll({ startDate, endDate })
       processStaffingReport(dailyLogsData)
     } else {
       // 人次報表的查詢邏輯
@@ -127,24 +123,24 @@ async function generateReport() {
       if (endDate < todayStr) {
         fetchPromises.push(
           expiredSchedulesApi
-            .fetchAll([where('date', '>=', startDate), where('date', '<=', endDate)])
+            .fetchAll({ startDate, endDate })
             .then((data) => (expiredSchedulesData = data)),
         )
       } else if (startDate >= todayStr) {
         fetchPromises.push(
           schedulesApi
-            .fetchAll([where('date', '>=', startDate), where('date', '<=', endDate)])
+            .fetchAll({ startDate, endDate })
             .then((data) => (schedulesData = data)),
         )
       } else {
         fetchPromises.push(
           expiredSchedulesApi
-            .fetchAll([where('date', '>=', startDate), where('date', '<', todayStr)])
+            .fetchAll({ startDate, endDate: todayStr })
             .then((data) => (expiredSchedulesData = data)),
         )
         fetchPromises.push(
           schedulesApi
-            .fetchAll([where('date', '>=', todayStr), where('date', '<=', endDate)])
+            .fetchAll({ startDate: todayStr, endDate })
             .then((data) => (schedulesData = data)),
         )
       }

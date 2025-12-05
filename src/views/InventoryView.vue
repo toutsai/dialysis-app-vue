@@ -1,4 +1,5 @@
 <!-- 檔案路徑: src/views/InventoryView.vue -->
+<!-- ✨ Standalone 版本 -->
 <template>
   <div class="page-container">
     <header class="page-header">
@@ -670,27 +671,10 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { db, functions } from '@/composables/useFirebase'
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  Timestamp,
-  documentId,
-  setDoc,
-  getDoc,
-} from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
+import { systemApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
-import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import * as XLSX from 'xlsx'
 
 // --- 常數 ---
@@ -736,10 +720,7 @@ const isItemFormValid = computed(() => {
 async function fetchInventoryItems() {
   itemsLoading.value = true
   try {
-    let q = query(collection(db, 'inventory_items'), orderBy('category'), orderBy('name'))
-
-    const snapshot = await getDocs(q)
-    let results = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    let results = await systemApi.fetchInventory()
 
     if (itemFilter.category) {
       results = results.filter((item) => item.category === itemFilter.category)
@@ -838,16 +819,16 @@ async function saveInventoryItem() {
       hospitalCode: itemForm.hospitalCode || null,
       brand: itemForm.brand || null,
       vendorPhone: itemForm.vendorPhone || null,
-      updatedAt: Timestamp.now(),
+      updatedAt: new Date().toISOString(),
       updatedBy: currentUser.value?.name || '未知',
     }
 
     if (editingItem.value) {
-      await updateDoc(doc(db, 'inventory_items', editingItem.value.id), data)
+      await systemApi.updateInventoryItem(editingItem.value.id, data)
     } else {
-      data.createdAt = Timestamp.now()
+      data.createdAt = new Date().toISOString()
       data.createdBy = currentUser.value?.name || '未知'
-      await addDoc(collection(db, 'inventory_items'), data)
+      await systemApi.createInventoryItem(data)
     }
 
     // 更新 knownItems
@@ -866,15 +847,8 @@ async function saveInventoryItem() {
 
 async function deleteInventoryItem(id) {
   if (!confirm('確定要刪除此品項嗎？此操作不會影響已有的進貨和消耗紀錄。')) return
-
-  try {
-    await deleteDoc(doc(db, 'inventory_items', id))
-    await fetchInventoryItems()
-    alert('刪除成功')
-  } catch (error) {
-    console.error('刪除品項失敗:', error)
-    alert('刪除失敗: ' + error.message)
-  }
+  alert('離線模式下暫不支援此功能')
+  return
 }
 
 // --- 已知品項列表 (從資料庫動態載入) ---
@@ -894,39 +868,7 @@ const DEFAULT_ITEMS = {
 // 初始化預設品項（如果資料庫是空的）
 async function initializeDefaultItems() {
   try {
-    // 檢查是否已有品項
-    const snapshot = await getDocs(collection(db, 'inventory_items'))
-    if (snapshot.docs.length > 0) {
-      console.log('品項已存在，跳過初始化')
-      return
-    }
-
-    console.log('初始化預設品項...')
-    const batch = []
-
-    for (const [category, items] of Object.entries(DEFAULT_ITEMS)) {
-      for (const itemName of items) {
-        batch.push(
-          addDoc(collection(db, 'inventory_items'), {
-            category,
-            name: itemName,
-            unitsPerBox: null,
-            hospitalCode: null,
-            vendorPhone: null,
-            createdAt: Timestamp.now(),
-            createdBy: '系統預設',
-            updatedAt: Timestamp.now(),
-            updatedBy: '系統預設',
-          })
-        )
-      }
-    }
-
-    await Promise.all(batch)
-    console.log('預設品項初始化完成')
-  } catch (error) {
-    console.error('初始化預設品項失敗（可能是權限問題，將使用備援品項）:', error)
-    // 即使寫入失敗，也先用預設品項填充 knownItems
+    // 使用預設品項填充 knownItems
     for (const [category, items] of Object.entries(DEFAULT_ITEMS)) {
       items.forEach((itemName) => {
         if (!knownItems[category].includes(itemName)) {
@@ -934,6 +876,9 @@ async function initializeDefaultItems() {
         }
       })
     }
+    console.log('預設品項已載入')
+  } catch (error) {
+    console.error('初始化預設品項失敗:', error)
   }
 }
 
@@ -986,31 +931,8 @@ function calculateBoxesRounded(category, itemName, units) {
 async function fetchPurchases() {
   purchaseLoading.value = true
   try {
-    const startDate = new Date(`${purchaseFilter.month}-01`)
-    const endDate = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0, 23, 59, 59)
-
-    let q = query(
-      collection(db, 'inventory_purchases'),
-      where('date', '>=', Timestamp.fromDate(startDate)),
-      where('date', '<=', Timestamp.fromDate(endDate)),
-      orderBy('date', 'desc')
-    )
-
-    const snapshot = await getDocs(q)
-    let results = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
-
-    if (purchaseFilter.category) {
-      results = results.filter((item) => item.category === purchaseFilter.category)
-    }
-
-    purchases.value = results
-
-    // 更新已知品項
-    results.forEach((p) => {
-      if (!knownItems[p.category].includes(p.item)) {
-        knownItems[p.category].push(p.item)
-      }
-    })
+    // Offline mode: no purchases data available
+    purchases.value = []
   } catch (error) {
     console.error('載入進貨紀錄失敗:', error)
     alert('載入進貨紀錄失敗')
@@ -1043,55 +965,14 @@ function closePurchaseModal() {
 
 async function savePurchase() {
   if (!isPurchaseFormValid.value) return
-
-  try {
-    // 計算個數 = 箱數 × 每箱數量
-    const unitsPerBox = getUnitsPerBox(purchaseForm.category, purchaseForm.item)
-    const quantity = purchaseForm.boxQuantity * unitsPerBox
-
-    const data = {
-      date: Timestamp.fromDate(new Date(purchaseForm.date)),
-      category: purchaseForm.category,
-      item: purchaseForm.item,
-      boxQuantity: purchaseForm.boxQuantity, // 儲存箱數
-      quantity: quantity, // 儲存個數（換算後）
-      unitsPerBox: unitsPerBox, // 儲存換算比例（方便日後查閱）
-      createdBy: currentUser.value?.name || '未知',
-      updatedAt: Timestamp.now(),
-    }
-
-    if (editingPurchase.value) {
-      await updateDoc(doc(db, 'inventory_purchases', editingPurchase.value.id), data)
-    } else {
-      data.createdAt = Timestamp.now()
-      await addDoc(collection(db, 'inventory_purchases'), data)
-    }
-
-    // 更新已知品項
-    if (!knownItems[purchaseForm.category].includes(purchaseForm.item)) {
-      knownItems[purchaseForm.category].push(purchaseForm.item)
-    }
-
-    closePurchaseModal()
-    await fetchPurchases()
-    alert(editingPurchase.value ? '更新成功' : '新增成功')
-  } catch (error) {
-    console.error('儲存進貨紀錄失敗:', error)
-    alert('儲存失敗: ' + error.message)
-  }
+  alert('離線模式下暫不支援此功能')
+  return
 }
 
 async function deletePurchase(id) {
   if (!confirm('確定要刪除此筆進貨紀錄嗎？')) return
-
-  try {
-    await deleteDoc(doc(db, 'inventory_purchases', id))
-    await fetchPurchases()
-    alert('刪除成功')
-  } catch (error) {
-    console.error('刪除進貨紀錄失敗:', error)
-    alert('刪除失敗: ' + error.message)
-  }
+  alert('離線模式下暫不支援此功能')
+  return
 }
 
 function getItemSuggestions(category) {
@@ -1151,94 +1032,10 @@ async function handleConsumptionSearch() {
   dynamicHeaders.value = { artificialKidney: [], dialysateCa: [], bicarbonateType: [] }
 
   try {
-    const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
-    const regularFreqs = ['一三五', '二四六']
-
-    const patientsInGroup = opdPatients.value.filter((p) => {
-      const rule = p.scheduleRule
-      if (!rule) return false
-      const matchesShift = rule.shiftIndex === shiftIndex
-      if (!matchesShift) return false
-      if (groupSearchParams.freq === 'other') {
-        return !regularFreqs.includes(rule.freq)
-      }
-      return rule.freq === groupSearchParams.freq
-    })
-
-    const allPatientIdsInGroup = patientsInGroup.map((p) => p.id)
-
-    if (allPatientIdsInGroup.length === 0) {
-      consumptionLoading.value = false
-      return
-    }
-
-    const reportMonth = groupSearchParams.month
-    const reportIdsForMonth = allPatientIdsInGroup.map((id) => `${reportMonth}_${id}`)
-    const monthlyReports = await queryWithInChunks('consumables_reports', documentId(), reportIdsForMonth)
-    rawConsumptionData.value = monthlyReports
-
-    const reportsMap = new Map(rawConsumptionData.value.map((r) => [r.patientId, r]))
-    const headers = {
-      artificialKidney: new Set(),
-      dialysateCa: new Set(),
-      bicarbonateType: new Set(),
-    }
-
-    for (const report of reportsMap.values()) {
-      const data = report.data || {}
-      for (const category in headers) {
-        if (data[category] && Array.isArray(data[category])) {
-          data[category].forEach((item) => headers[category].add(item.item))
-        }
-      }
-    }
-
-    dynamicHeaders.value.artificialKidney = [...headers.artificialKidney].sort()
-    dynamicHeaders.value.dialysateCa = [...headers.dialysateCa].sort()
-    dynamicHeaders.value.bicarbonateType = [...headers.bicarbonateType].sort()
-
-    // 更新已知品項
-    for (const category of Object.keys(headers)) {
-      headers[category].forEach((item) => {
-        if (!knownItems[category].includes(item)) {
-          knownItems[category].push(item)
-        }
-      })
-    }
-
-    processedConsumptionData.value = allPatientIdsInGroup
-      .map((patientId) => {
-        const patient = patientMap.value.get(patientId)
-        const report = reportsMap.get(patientId)
-        const consumables = report?.data || {}
-
-        const consumableCounts = {}
-        for (const header of flattenedHeaders.value) {
-          for (const category in dynamicHeaders.value) {
-            if (consumables[category] && Array.isArray(consumables[category])) {
-              const foundItem = consumables[category].find((c) => c.item === header)
-              if (foundItem) {
-                consumableCounts[header] = foundItem.count
-                break
-              }
-            }
-          }
-        }
-
-        return {
-          patientId,
-          patientName: patient?.name || report?.patientName || '未知病人',
-          medicalRecordNumber: patient?.medicalRecordNumber || report?.medicalRecordNumber || 'N/A',
-          bedNum: patient?.scheduleRule?.bedNum || 'N/A',
-          freq: patient?.scheduleRule?.freq || 'N/A',
-          shiftIndex: patient?.scheduleRule?.shiftIndex,
-          consumableCounts,
-        }
-      })
-      .sort((a, b) => String(a.bedNum).localeCompare(String(b.bedNum), undefined, { numeric: true }))
+    // Offline mode: no consumption data available
+    alert('離線模式下暫不支援此功能')
   } catch (error) {
     console.error('查詢耗材資料失敗:', error)
-    alert('查詢耗材資料時發生錯誤')
   } finally {
     consumptionLoading.value = false
   }
@@ -1355,22 +1152,9 @@ async function handleUpload() {
     alert('請先選擇一個檔案！')
     return
   }
-  isUploading.value = true
-  uploadResult.value = null
-  try {
-    const fileContentBase64 = await toBase64(selectedFile.value)
-    const processConsumables = httpsCallable(functions, 'processConsumables')
-    const result = await processConsumables({
-      fileName: selectedFile.value.name,
-      fileContent: fileContentBase64,
-    })
-    uploadResult.value = result.data
-  } catch (error) {
-    console.error('上傳處理失敗:', error)
-    uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1 }
-  } finally {
-    isUploading.value = false
-  }
+  // Show offline message
+  alert('離線模式下暫不支援此功能')
+  return
 }
 
 // 當月總量查詢
@@ -1479,72 +1263,10 @@ async function calculateMonthlyInventory() {
   }
 
   try {
-    // 使用自訂區間
-    const startDate = new Date(monthlyFilter.startDate)
-    startDate.setHours(0, 0, 0, 0)
-    const endDate = new Date(monthlyFilter.endDate)
-    endDate.setHours(23, 59, 59, 999)
-
-    // 計算期初結存的查詢 key（使用 startDate 的前一天）
-    const prevDate = new Date(startDate)
-    prevDate.setDate(prevDate.getDate() - 1)
-    const prevCountKey = prevDate.toISOString().slice(0, 7) // 用月份作為 key
-
-    // 1. 取得期初盤點結果（查詢最近一次的盤點）
-    const prevCountDoc = await getDoc(doc(db, 'inventory_counts', prevCountKey))
-    const prevCounts = prevCountDoc.exists() ? prevCountDoc.data().counts || {} : {}
-
-    // 2. 取得區間進貨
-    const purchaseQuery = query(
-      collection(db, 'inventory_purchases'),
-      where('date', '>=', Timestamp.fromDate(startDate)),
-      where('date', '<=', Timestamp.fromDate(endDate))
-    )
-    const purchaseSnapshot = await getDocs(purchaseQuery)
-    const purchaseData = {}
-    purchaseSnapshot.docs.forEach((docSnap) => {
-      const p = docSnap.data()
-      if (!purchaseData[p.category]) purchaseData[p.category] = {}
-      purchaseData[p.category][p.item] = (purchaseData[p.category][p.item] || 0) + p.quantity
-    })
-
-    // 3. 取得區間消耗 (使用區間內的月份查詢)
-    const consumptionData = await getConsumptionByDateRange(startDate, endDate)
-
-    // 4. 合併所有品項
-    const allItems = new Set()
-    for (const category of Object.keys(CATEGORY_NAMES)) {
-      const sources = [
-        Object.keys(prevCounts[category] || {}),
-        Object.keys(purchaseData[category] || {}),
-        Object.keys(consumptionData[category] || {}),
-        knownItems[category],
-      ]
-      sources.forEach((items) => items.forEach((item) => allItems.add(`${category}:${item}`)))
-    }
-
-    // 5. 計算每個品項的庫存
-    allItems.forEach((key) => {
-      const [category, item] = key.split(':')
-      const previousStock = prevCounts[category]?.[item] || 0
-      const purchased = purchaseData[category]?.[item] || 0
-      const consumed = consumptionData[category]?.[item] || 0
-      const currentStock = previousStock + purchased - consumed
-
-      if (!monthlyInventory[category]) monthlyInventory[category] = {}
-      monthlyInventory[category][item] = {
-        previousStock,
-        purchased,
-        consumed,
-        currentStock,
-        adjustment: 0,
-      }
-    })
-
-    monthlyCalculated.value = true
+    // Offline mode: not supported
+    alert('離線模式下暫不支援此功能')
   } catch (error) {
     console.error('計算庫存失敗:', error)
-    alert('計算失敗: ' + error.message)
   } finally {
     monthlyLoading.value = false
   }
@@ -1557,27 +1279,7 @@ async function getMonthlyConsumption(month) {
     bicarbonateType: {},
   }
 
-  try {
-    // 查詢該月所有消耗報告
-    const q = query(collection(db, 'consumables_reports'), where('reportMonth', '==', month))
-    const snapshot = await getDocs(q)
-
-    snapshot.docs.forEach((docSnap) => {
-      const report = docSnap.data()
-      const data = report.data || {}
-
-      for (const category of Object.keys(result)) {
-        if (data[category] && Array.isArray(data[category])) {
-          data[category].forEach((item) => {
-            result[category][item.item] = (result[category][item.item] || 0) + (item.count || 0)
-          })
-        }
-      }
-    })
-  } catch (error) {
-    console.error('取得月消耗資料失敗:', error)
-  }
-
+  // Offline mode: no data available
   return result
 }
 
@@ -1589,73 +1291,14 @@ async function getConsumptionByDateRange(startDate, endDate) {
     bicarbonateType: {},
   }
 
-  try {
-    // 找出區間內涵蓋的月份
-    const months = []
-    const current = new Date(startDate.getFullYear(), startDate.getMonth(), 1)
-    const end = new Date(endDate.getFullYear(), endDate.getMonth(), 1)
-
-    while (current <= end) {
-      months.push(`${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`)
-      current.setMonth(current.getMonth() + 1)
-    }
-
-    // 查詢這些月份的消耗報告
-    for (const month of months) {
-      const q = query(collection(db, 'consumables_reports'), where('reportMonth', '==', month))
-      const snapshot = await getDocs(q)
-
-      snapshot.docs.forEach((docSnap) => {
-        const report = docSnap.data()
-        const data = report.data || {}
-
-        for (const category of Object.keys(result)) {
-          if (data[category] && Array.isArray(data[category])) {
-            data[category].forEach((item) => {
-              result[category][item.item] = (result[category][item.item] || 0) + (item.count || 0)
-            })
-          }
-        }
-      })
-    }
-  } catch (error) {
-    console.error('取得區間消耗資料失敗:', error)
-  }
-
+  // Offline mode: no data available
   return result
 }
 
 async function saveMonthlyCount() {
   if (!monthlyCalculated.value) return
-
-  try {
-    const counts = {}
-    for (const category of Object.keys(monthlyInventory)) {
-      counts[category] = {}
-      for (const [item, data] of Object.entries(monthlyInventory[category])) {
-        // 最終庫存 = 計算結果 + 調整值
-        counts[category][item] = data.currentStock + (data.adjustment || 0)
-      }
-    }
-
-    // 使用盤點日作為文件 ID
-    const countKey = monthlyFilter.countDate.slice(0, 7) // YYYY-MM 格式
-
-    await setDoc(doc(db, 'inventory_counts', countKey), {
-      type: 'monthly',
-      countDate: monthlyFilter.countDate,
-      startDate: monthlyFilter.startDate,
-      endDate: monthlyFilter.endDate,
-      counts,
-      createdBy: currentUser.value?.name || '未知',
-      createdAt: Timestamp.now(),
-    })
-
-    alert('盤點結果已儲存')
-  } catch (error) {
-    console.error('儲存盤點結果失敗:', error)
-    alert('儲存失敗: ' + error.message)
-  }
+  alert('離線模式下暫不支援此功能')
+  return
 }
 
 // ==================== Tab 4: 每週訂單 ====================
@@ -1750,84 +1393,18 @@ async function loadWeeklyData() {
   }
 
   try {
-    // 1. 載入該週的盤點紀錄 (如果有)
-    const weeklyCountDoc = await getDoc(doc(db, 'inventory_counts', weeklyFilter.week))
-    if (weeklyCountDoc.exists()) {
-      const docData = weeklyCountDoc.data()
-      const data = docData.counts || {}
-      const boxData = docData.countBoxes || {}
-
-      for (const category of Object.keys(weeklyCount)) {
-        weeklyCount[category] = { ...data[category] }
-        // 如果有儲存箱數，使用它；否則從個數反算
-        if (boxData[category]) {
-          weeklyCountBoxes[category] = { ...boxData[category] }
-        } else {
-          // 從個數反算箱數
-          for (const [item, units] of Object.entries(data[category] || {})) {
-            const unitsPerBox = getUnitsPerBox(category, item)
-            weeklyCountBoxes[category][item] = unitsPerBox > 1 ? Math.round(units / unitsPerBox) : units
-          }
-        }
-      }
-    }
-
-    // 2. 載入當月消耗資料 (用於推估週消耗)
-    const actualMonth = new Date().toISOString().slice(0, 7)
-    const consumption = await getMonthlyConsumption(actualMonth)
-
-    for (const category of Object.keys(monthlyConsumptionForWeekly)) {
-      monthlyConsumptionForWeekly[category] = consumption[category] || {}
-    }
-
-    // 3. 確保所有已知品項都有初始值
-    for (const category of Object.keys(knownItems)) {
-      knownItems[category].forEach((item) => {
-        if (weeklyCount[category][item] === undefined) {
-          weeklyCount[category][item] = 0
-        }
-        if (weeklyCountBoxes[category][item] === undefined) {
-          weeklyCountBoxes[category][item] = 0
-        }
-      })
-    }
-
-    weeklyDataLoaded.value = true
+    // Offline mode: not supported
+    alert('離線模式下暫不支援此功能')
   } catch (error) {
     console.error('載入週資料失敗:', error)
-    alert('載入失敗: ' + error.message)
   } finally {
     weeklyLoading.value = false
   }
 }
 
 async function saveWeeklyCount() {
-  // 先同步計算個數
-  syncWeeklyCount()
-
-  try {
-    await setDoc(doc(db, 'inventory_counts', weeklyFilter.week), {
-      type: 'weekly',
-      week: weeklyFilter.week,
-      countDate: weeklyFilter.countDate,
-      counts: {
-        artificialKidney: { ...weeklyCount.artificialKidney },
-        dialysateCa: { ...weeklyCount.dialysateCa },
-        bicarbonateType: { ...weeklyCount.bicarbonateType },
-      },
-      countBoxes: {
-        artificialKidney: { ...weeklyCountBoxes.artificialKidney },
-        dialysateCa: { ...weeklyCountBoxes.dialysateCa },
-        bicarbonateType: { ...weeklyCountBoxes.bicarbonateType },
-      },
-      createdBy: currentUser.value?.name || '未知',
-      createdAt: Timestamp.now(),
-    })
-    alert('週盤點已儲存')
-  } catch (error) {
-    console.error('儲存週盤點失敗:', error)
-    alert('儲存失敗: ' + error.message)
-  }
+  alert('離線模式下暫不支援此功能')
+  return
 }
 
 function getWeeklyConsumption(category, item) {
@@ -1918,30 +1495,8 @@ onMounted(async () => {
 
 async function loadKnownItems() {
   try {
-    // 從消耗報告中取得所有已知品項
-    const q = query(collection(db, 'consumables_reports'), orderBy('createdAt', 'desc'))
-    const snapshot = await getDocs(q)
-
-    snapshot.docs.slice(0, 50).forEach((doc) => {
-      // 只取最近 50 筆
-      const report = doc.data()
-      const data = report.data || {}
-
-      for (const category of Object.keys(knownItems)) {
-        if (data[category] && Array.isArray(data[category])) {
-          data[category].forEach((item) => {
-            if (!knownItems[category].includes(item.item)) {
-              knownItems[category].push(item.item)
-            }
-          })
-        }
-      }
-    })
-
-    // 排序
-    for (const category of Object.keys(knownItems)) {
-      knownItems[category].sort()
-    }
+    // Offline mode: use default items
+    // Items will be populated from DEFAULT_ITEMS via initializeDefaultItems
   } catch (error) {
     console.error('載入已知品項失敗:', error)
   }

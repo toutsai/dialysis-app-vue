@@ -53,16 +53,10 @@
 </template>
 
 <script setup>
+// ✨ Standalone 版本
 import { ref, onMounted, computed } from 'vue'
 import ApiManager from '@/services/api_manager'
-// ✨ 修正 1/2: 從正確的 firebase 設定檔中引入 db 和 doc
-import { db } from '@/composables/useFirebase'
-import { where, orderBy, writeBatch, doc } from 'firebase/firestore'
 import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
-import { isStandaloneMode } from '@/utils/appMode'
-
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
 
 const draftOrdersApi = ApiManager('medication_drafts')
 const isLoading = ref(true)
@@ -113,21 +107,11 @@ async function confirmDrafts(group) {
   confirmingState.value[key] = true
 
   try {
-    if (_isStandalone) {
-      // 在 standalone 模式下，逐一更新草稿狀態
-      const updatePromises = group.drafts.map((draft) =>
-        draftOrdersApi.update(draft.id, { status: 'completed' })
-      )
-      await Promise.all(updatePromises)
-    } else {
-      const batch = writeBatch(db)
-      group.drafts.forEach((draft) => {
-        // ✨ 修正 2/2: 使用 firestore 的 doc 函式來建立文件引用
-        const docRef = doc(db, 'medication_drafts', draft.id)
-        batch.update(docRef, { status: 'completed' })
-      })
-      await batch.commit()
-    }
+    // 逐一更新草稿狀態
+    const updatePromises = group.drafts.map((draft) =>
+      draftOrdersApi.update(draft.id, { status: 'completed' })
+    )
+    await Promise.all(updatePromises)
     await fetchDrafts()
   } catch (error) {
     console.error('歸檔藥囑失敗:', error)

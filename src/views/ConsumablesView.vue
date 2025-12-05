@@ -163,19 +163,12 @@
 
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
-import { documentId } from 'firebase/firestore'
-import { functions } from '@/composables/useFirebase'
 import * as XLSX from 'xlsx'
-import { queryWithInChunks } from '@/utils/firestoreUtils.js'
-import { httpsCallable } from 'firebase/functions'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
-import { isStandaloneMode } from '@/utils/appMode'
 import ApiManager from '@/services/api_manager'
 
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
 const consumablesReportsApi = ApiManager('consumables_reports')
 
 // --- Store & State ---
@@ -264,21 +257,11 @@ async function handleSearch() {
     const reportMonth = groupSearchParams.month
     const reportIdsForMonth = allPatientIdsInGroup.map((id) => `${reportMonth}_${id}`)
 
-    let monthlyReports
-    if (_isStandalone) {
-      // 在 standalone 模式下，使用 API 批次獲取報告
-      const reportPromises = reportIdsForMonth.map((id) =>
-        consumablesReportsApi.fetchById(id).catch(() => null)
-      )
-      const results = await Promise.all(reportPromises)
-      monthlyReports = results.filter(Boolean)
-    } else {
-      monthlyReports = await queryWithInChunks(
-        'consumables_reports',
-        documentId(),
-        reportIdsForMonth,
-      )
-    }
+    const reportPromises = reportIdsForMonth.map((id) =>
+      consumablesReportsApi.fetchById(id).catch(() => null)
+    )
+    const results = await Promise.all(reportPromises)
+    const monthlyReports = results.filter(Boolean)
     rawConsumablesData.value = monthlyReports
 
     // 3. 資料預處理 (邏輯不變)
@@ -468,30 +451,9 @@ async function handleUpload() {
     return
   }
 
-  if (_isStandalone) {
-    // 在 standalone 模式下，暫時不支援上傳功能
-    uploadResult.value = {
-      message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
-      errorCount: 1,
-    }
-    return
-  }
-
-  isUploading.value = true
-  uploadResult.value = null
-  try {
-    const fileContentBase64 = await toBase64(selectedFile.value)
-    const processConsumables = httpsCallable(functions, 'processConsumables')
-    const result = await processConsumables({
-      fileName: selectedFile.value.name,
-      fileContent: fileContentBase64,
-    })
-    uploadResult.value = result.data
-  } catch (error) {
-    console.error('上傳處理失敗:', error)
-    uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1 }
-  } finally {
-    isUploading.value = false
+  uploadResult.value = {
+    message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
+    errorCount: 1,
   }
 }
 </script>

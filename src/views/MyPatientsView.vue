@@ -173,15 +173,9 @@ import { useMyPatientList } from '@/composables/useMyPatientList.js'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
-import { doc, updateDoc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore' // ✨ getDocs
-import { db } from '@/composables/useFirebase'
 import { useUserDirectory } from '@/composables/useUserDirectory'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils' // ✨ 1. 引入您的日期工具函式
-import { isStandaloneMode } from '@/utils/appMode'
 import { systemApi, patientsApi, ordersApi } from '@/services/localApiClient'
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
 
 // Component Imports
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
@@ -301,23 +295,15 @@ function closeCreateModal() {
 
 async function handleTaskSubmit(data) {
   if (data.id) {
-    // 編輯模式
     const { id, ...updateData } = data
     try {
-      // ✨ 單機模式支援
-      if (_isStandalone) {
-        await systemApi.updateTask(id, updateData)
-      } else {
-        const taskRef = doc(db, 'tasks', id)
-        await updateDoc(taskRef, updateData)
-      }
+      await systemApi.updateTask(id, updateData)
       createGlobalNotification('備忘已更新', 'success')
     } catch (error) {
       console.error('更新項目失敗:', error)
       createGlobalNotification('更新失敗，請稍後再試', 'error')
     }
   } else {
-    // 新增模式
     try {
       await handleTaskCreated(data, currentUser.value)
       createGlobalNotification('交辦/留言已成功新增！', 'success')
@@ -337,17 +323,7 @@ async function updateTaskStatus(task, newStatus) {
       resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
       resolvedAt: new Date().toISOString(),
     }
-
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await systemApi.updateTask(task.id, updateData)
-    } else {
-      const taskRef = doc(db, 'tasks', task.id)
-      await updateDoc(taskRef, {
-        ...updateData,
-        resolvedAt: new Date(),
-      })
-    }
+    await systemApi.updateTask(task.id, updateData)
     createGlobalNotification(
       newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
       'success',
@@ -366,13 +342,7 @@ function confirmDeleteTask(item) {
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
   try {
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await systemApi.deleteTask(itemToDelete.value.id)
-    } else {
-      const taskRef = doc(db, 'tasks', itemToDelete.value.id)
-      await deleteDoc(taskRef)
-    }
+    await systemApi.deleteTask(itemToDelete.value.id)
     createGlobalNotification('訊息已刪除', 'info')
   } catch (error) {
     console.error('刪除任務失敗:', error)
@@ -406,36 +376,16 @@ async function handleOrderSave(updatedOrders) {
   if (!selectedPatientForOrder.value) return
 
   try {
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      // 更新病人醫囑
-      await patientsApi.update(selectedPatientForOrder.value.id, {
-        dialysisOrders: updatedOrders,
-      })
+    await patientsApi.update(selectedPatientForOrder.value.id, {
+      dialysisOrders: updatedOrders,
+    })
 
-      // 新增歷史記錄
-      await ordersApi.createHistory({
-        patientId: selectedPatientForOrder.value.id,
-        patientName: selectedPatientForOrder.value.name,
-        orders: updatedOrders,
-        operationType: 'UPDATE',
-      })
-    } else {
-      const patientRef = doc(db, 'patients', selectedPatientForOrder.value.id)
-      const historyRef = collection(db, 'dialysis_order_history')
-
-      await updateDoc(patientRef, {
-        dialysisOrders: updatedOrders,
-      })
-
-      await addDoc(historyRef, {
-        patientId: selectedPatientForOrder.value.id,
-        patientName: selectedPatientForOrder.value.name,
-        orders: updatedOrders,
-        updatedBy: currentUser.value?.name || '未知使用者',
-        updatedAt: serverTimestamp(),
-      })
-    }
+    await ordersApi.createHistory({
+      patientId: selectedPatientForOrder.value.id,
+      patientName: selectedPatientForOrder.value.name,
+      orders: updatedOrders,
+      operationType: 'UPDATE',
+    })
 
     createGlobalNotification(`${selectedPatientForOrder.value.name} 的醫囑已更新`, 'success')
     patientStore.updatePatientOrders(selectedPatientForOrder.value.id, updatedOrders)

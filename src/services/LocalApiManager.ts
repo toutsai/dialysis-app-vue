@@ -32,7 +32,17 @@ const resourceApiMap: Record<string, any> = {
   },
 
   // 排程相關
-  schedules: schedulesApi,
+  schedules: {
+    fetchAll: (params?: any) => {
+      // Convert params object to API format if needed
+      if (params && typeof params === 'object' && !Array.isArray(params)) {
+        return schedulesApi.fetchAll(params)
+      }
+      return schedulesApi.fetchAll()
+    },
+    fetchByDate: (date: string) => schedulesApi.fetchByDate(date),
+    updateByDate: (date: string, schedule: any) => schedulesApi.updateByDate(date, schedule),
+  },
   base_schedules: {
     fetchAll: () => schedulesApi.fetchMasterSchedule().then(s => s ? [s] : []),
     fetchById: (id: string) => {
@@ -54,8 +64,13 @@ const resourceApiMap: Record<string, any> = {
   },
   // 已歸檔排程（歷史排程）
   expired_schedules: {
-    fetchAll: async () => {
-      console.log('[LocalApiManager] expired_schedules: 返回空陣列（歷史排程功能待實現）')
+    fetchAll: async (params?: any) => {
+      // Use schedules API with date range for historical data
+      // Note: This assumes schedules in the past are considered "expired"
+      if (params?.startDate && params?.endDate) {
+        return schedulesApi.fetchAll(params)
+      }
+      console.log('[LocalApiManager] expired_schedules.fetchAll called without date range, returning empty array')
       return []
     },
   },
@@ -107,6 +122,12 @@ const resourceApiMap: Record<string, any> = {
     update: (id: string, data: any) => nursingApi.updateHandoverLog(id, data),
   },
   daily_logs: {
+    fetchAll: async (params?: any) => {
+      // Note: Backend doesn't support date range queries yet for daily_logs
+      // This is a temporary implementation that returns empty array
+      console.warn('[LocalApiManager] daily_logs.fetchAll with date range is not yet implemented in backend')
+      return []
+    },
     fetchById: (date: string) => nursingApi.fetchDailyLog(date),
     save: (date: string, data: any) => nursingApi.updateDailyLog(date, data),
   },
@@ -154,10 +175,17 @@ const LocalApiManager = <T extends FirestoreRecord>(resourceType: string): ApiMa
     console.warn(`[LocalApiManager] 未知的資源類型: ${resourceType}，使用預設空實作`)
   }
 
-  const fetchAll = async (_queryConstraints: any[] = []): Promise<T[]> => {
+  const fetchAll = async (queryConstraints: any = []): Promise<T[]> => {
     try {
       if (api?.fetchAll) {
-        const result = await api.fetchAll()
+        // Handle both array (old Firestore style) and object (new API style) params
+        let params = queryConstraints
+        if (Array.isArray(queryConstraints)) {
+          // For array params (old Firestore where clauses), pass to API as-is
+          // The resource-specific handler will deal with conversion if needed
+          params = queryConstraints
+        }
+        const result = await api.fetchAll(params)
         return Array.isArray(result) ? result : []
       }
       console.warn(`[LocalApiManager] ${resourceType} 不支援 fetchAll`)
