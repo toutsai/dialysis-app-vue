@@ -4,6 +4,11 @@ import { fetchAllPatients as optimizedFetchAllPatients } from '@/services/optimi
 // 從 firebase/firestore 引入 writeBatch
 import { doc, getDoc, updateDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
+import { isStandaloneMode } from '@/utils/appMode'
+import { schedulesApi } from '@/services/localApiClient'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 // 引入 ApiManager 以便操作多個集合
 
@@ -127,6 +132,26 @@ export const usePatientStore = defineStore('patient', () => {
     console.log(`[Store] Sending request to remove rule for patient ${patientId}...`)
 
     try {
+      // 🖥️ 單機模式：使用本地 API
+      if (_isStandalone) {
+        const masterSchedule = await schedulesApi.fetchMasterSchedule()
+        if (!masterSchedule) {
+          console.warn('[Store] MASTER_SCHEDULE document does not exist.')
+          return true
+        }
+        const schedule = (masterSchedule.schedule || {}) as Record<string, unknown>
+        if (schedule[patientId]) {
+          delete schedule[patientId]
+          await schedulesApi.updateMasterSchedule(schedule)
+          console.log(`[Store] Successfully removed rule from local database.`)
+        } else {
+          console.log(`[Store] Rule for patient ${patientId} already absent.`)
+        }
+        console.log(`✅ [Store] Rule removal request for patient ${patientId} completed.`)
+        return true
+      }
+
+      // ☁️ Firebase 模式：使用 Firestore
       // --- ✨ 核心修改：移除所有關於 schedule_exceptions 的操作 ---
       // 讓後端 Cloud Function 自己去處理資料一致性
 
