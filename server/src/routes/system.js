@@ -16,11 +16,11 @@ const router = Router()
  */
 router.get('/tasks', authenticate, (req, res) => {
   try {
-    const { status, assignedTo } = req.query
+    const { status, assignedTo, category, patientId } = req.query
     const db = getDatabase()
 
-    let query = 'SELECT * FROM tasks WHERE 1=1'
-    const params = []
+    let query = 'SELECT * FROM tasks WHERE status != ?'
+    const params = ['deleted']
 
     if (status) {
       query += ' AND status = ?'
@@ -32,6 +32,16 @@ router.get('/tasks', authenticate, (req, res) => {
       params.push(assignedTo)
     }
 
+    if (category) {
+      query += ' AND category = ?'
+      params.push(category)
+    }
+
+    if (patientId) {
+      query += ' AND patient_id = ?'
+      params.push(patientId)
+    }
+
     query += ' ORDER BY created_at DESC'
 
     const tasks = db.prepare(query).all(...params)
@@ -41,10 +51,20 @@ router.get('/tasks', authenticate, (req, res) => {
       id: t.id,
       title: t.title,
       description: t.description,
+      content: t.content,
       status: t.status,
       priority: t.priority,
+      category: t.category,
+      type: t.type,
+      patientId: t.patient_id,
+      patientName: t.patient_name,
+      targetDate: t.target_date,
       assignedTo: t.assigned_to,
+      assignee: JSON.parse(t.assignee || '{}'),
+      creator: JSON.parse(t.creator || t.created_by || '{}'),
       createdBy: JSON.parse(t.created_by || '{}'),
+      resolvedBy: JSON.parse(t.resolved_by || '{}'),
+      resolvedAt: t.resolved_at,
       dueDate: t.due_date,
       completedAt: t.completed_at,
       createdAt: t.created_at,
@@ -66,29 +86,51 @@ router.get('/tasks', authenticate, (req, res) => {
  */
 router.post('/tasks', authenticate, async (req, res) => {
   try {
-    const { title, description, priority, assignedTo, dueDate } = req.body
-
-    if (!title) {
-      return res.status(400).json({
-        error: true,
-        message: '任務標題為必填'
-      })
-    }
-
-    const id = uuidv4()
-    const db = getDatabase()
-
-    db.prepare(`
-      INSERT INTO tasks (id, title, description, priority, assigned_to, due_date, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
+    const {
+      id: providedId,
       title,
       description,
-      priority || 'normal',
+      content,
+      priority,
+      category,
+      type,
+      patientId,
+      patientName,
+      targetDate,
       assignedTo,
-      dueDate,
-      JSON.stringify({ uid: req.user.id, name: req.user.name })
+      assignee,
+      dueDate
+    } = req.body
+
+    // 允許沒有 title，但內容相關的 task/message 需要有 content
+    const id = providedId || uuidv4()
+    const db = getDatabase()
+
+    const creator = JSON.stringify({ uid: req.user.id, name: req.user.name })
+
+    db.prepare(`
+      INSERT INTO tasks (
+        id, title, description, content, priority, category, type,
+        patient_id, patient_name, target_date, assigned_to, assignee,
+        due_date, creator, created_by
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      title || '',
+      description || '',
+      content || '',
+      priority || 'normal',
+      category || 'task',
+      type || '常規',
+      patientId || null,
+      patientName || null,
+      targetDate || null,
+      assignedTo || null,
+      assignee ? JSON.stringify(assignee) : '{}',
+      dueDate || null,
+      creator,
+      creator
     )
 
     db.close()
@@ -114,39 +156,76 @@ router.post('/tasks', authenticate, async (req, res) => {
 router.put('/tasks/:id', authenticate, async (req, res) => {
   try {
     const { id } = req.params
-    const { title, description, status, priority, assignedTo, dueDate } = req.body
+    const updateData = req.body
 
     const db = getDatabase()
 
     const updates = ["updated_at = datetime('now', 'localtime')"]
     const params = []
 
-    if (title !== undefined) {
+    // 支援所有可能的欄位更新
+    if (updateData.title !== undefined) {
       updates.push('title = ?')
-      params.push(title)
+      params.push(updateData.title)
     }
-    if (description !== undefined) {
+    if (updateData.description !== undefined) {
       updates.push('description = ?')
-      params.push(description)
+      params.push(updateData.description)
     }
-    if (status !== undefined) {
+    if (updateData.content !== undefined) {
+      updates.push('content = ?')
+      params.push(updateData.content)
+    }
+    if (updateData.status !== undefined) {
       updates.push('status = ?')
-      params.push(status)
-      if (status === 'completed') {
+      params.push(updateData.status)
+      if (updateData.status === 'completed') {
         updates.push("completed_at = datetime('now', 'localtime')")
       }
     }
-    if (priority !== undefined) {
+    if (updateData.priority !== undefined) {
       updates.push('priority = ?')
-      params.push(priority)
+      params.push(updateData.priority)
     }
-    if (assignedTo !== undefined) {
+    if (updateData.assignedTo !== undefined) {
       updates.push('assigned_to = ?')
-      params.push(assignedTo)
+      params.push(typeof updateData.assignedTo === 'object' ? JSON.stringify(updateData.assignedTo) : updateData.assignedTo)
     }
-    if (dueDate !== undefined) {
+    if (updateData.assignee !== undefined) {
+      updates.push('assignee = ?')
+      params.push(JSON.stringify(updateData.assignee))
+    }
+    if (updateData.dueDate !== undefined) {
       updates.push('due_date = ?')
-      params.push(dueDate)
+      params.push(updateData.dueDate)
+    }
+    if (updateData.targetDate !== undefined) {
+      updates.push('target_date = ?')
+      params.push(updateData.targetDate)
+    }
+    if (updateData.resolvedBy !== undefined) {
+      updates.push('resolved_by = ?')
+      params.push(JSON.stringify(updateData.resolvedBy))
+    }
+    if (updateData.resolvedAt !== undefined) {
+      updates.push('resolved_at = ?')
+      params.push(updateData.resolvedAt)
+    }
+    if (updateData.patientId !== undefined) {
+      updates.push('patient_id = ?')
+      params.push(updateData.patientId)
+    }
+    if (updateData.patientName !== undefined) {
+      updates.push('patient_name = ?')
+      params.push(updateData.patientName)
+    }
+    if (updateData.category !== undefined) {
+      updates.push('category = ?')
+      params.push(updateData.category)
+    }
+    if (updateData.type !== undefined) {
+      updates.push('type = ?')
+      params.push(updateData.type)
     }
 
     params.push(id)
@@ -164,6 +243,38 @@ router.put('/tasks/:id', authenticate, async (req, res) => {
     res.status(500).json({
       error: true,
       message: '更新任務失敗'
+    })
+  }
+})
+
+/**
+ * DELETE /api/system/tasks/:id
+ * 刪除任務
+ */
+router.delete('/tasks/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params
+    const db = getDatabase()
+
+    // 使用軟刪除：將狀態設為 deleted
+    db.prepare(`
+      UPDATE tasks
+      SET status = 'deleted', updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `).run(id)
+
+    db.close()
+
+    res.json({
+      success: true,
+      message: '任務已刪除'
+    })
+
+  } catch (error) {
+    console.error('刪除任務錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '刪除任務失敗'
     })
   }
 })

@@ -291,12 +291,22 @@ CREATE INDEX IF NOT EXISTS idx_daily_logs_date ON daily_logs(date);
 
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
+    title TEXT,
     description TEXT,
+    content TEXT,  -- 任務/留言內容
     status TEXT DEFAULT 'pending',
     priority TEXT DEFAULT 'normal',
+    category TEXT DEFAULT 'task',  -- task 或 message
+    type TEXT DEFAULT '常規',  -- 常規, 抽血, 衛教 等
+    patient_id TEXT,
+    patient_name TEXT,
+    target_date TEXT,  -- 目標日期
     assigned_to TEXT,
-    created_by TEXT DEFAULT '{}',
+    assignee TEXT DEFAULT '{}',  -- JSON: {type, value, name, title, role}
+    creator TEXT DEFAULT '{}',  -- JSON: {uid, name}
+    created_by TEXT DEFAULT '{}',  -- 向後相容
+    resolved_by TEXT DEFAULT '{}',  -- JSON: {uid, name}
+    resolved_at TEXT,
     due_date TEXT,
     completed_at TEXT,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
@@ -304,6 +314,8 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_category ON tasks(category);
+CREATE INDEX IF NOT EXISTS idx_tasks_patient ON tasks(patient_id);
 
 CREATE TABLE IF NOT EXISTS notifications (
     id TEXT PRIMARY KEY,

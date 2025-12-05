@@ -726,6 +726,11 @@ import {
   getDayOfWeek,
   parseFirestoreTimestamp,
 } from '@/utils/dateUtils'
+import { isStandaloneMode } from '@/utils/appMode'
+import { systemApi, nursingApi } from '@/services/localApiClient'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 const route = useRoute()
 const { currentUser, isPageLocked, hasPermission } = useAuth()
@@ -919,11 +924,16 @@ async function handleTaskSubmit(data) {
 }
 
 async function updateTask(data) {
-  const taskRef = doc(db, 'tasks', data.id)
   const { id, ...updateData } = data
 
   try {
-    await updateDoc(taskRef, updateData)
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await systemApi.updateTask(id, updateData)
+    } else {
+      const taskRef = doc(db, 'tasks', id)
+      await updateDoc(taskRef, updateData)
+    }
     console.log(`[CollaborationView] Task/Memo ${id} updated successfully.`)
   } catch (error) {
     console.error('更新項目失敗:', error)
@@ -970,12 +980,22 @@ function closeCreateModal() {
 async function updateTaskStatus(taskId, newStatus) {
   if (!currentUser.value) return
   try {
-    const taskRef = doc(db, 'tasks', taskId)
-    await updateDoc(taskRef, {
+    const updateData = {
       status: newStatus,
       resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
-      resolvedAt: new Date(),
-    })
+      resolvedAt: new Date().toISOString(),
+    }
+
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await systemApi.updateTask(taskId, updateData)
+    } else {
+      const taskRef = doc(db, 'tasks', taskId)
+      await updateDoc(taskRef, {
+        ...updateData,
+        resolvedAt: new Date(), // Firebase 使用原生 Date
+      })
+    }
     createGlobalNotification(
       newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
       'success',
@@ -988,8 +1008,13 @@ async function updateTaskStatus(taskId, newStatus) {
 
 async function deleteTask(taskId) {
   try {
-    const taskRef = doc(db, 'tasks', taskId)
-    await deleteDoc(taskRef)
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await systemApi.deleteTask(taskId)
+    } else {
+      const taskRef = doc(db, 'tasks', taskId)
+      await deleteDoc(taskRef)
+    }
     createGlobalNotification('訊息已刪除', 'info')
   } catch (error) {
     console.error('刪除任務失敗:', error)
@@ -1083,29 +1108,51 @@ function listenToBulletinData(dateStr) {
     }
   }
 
-  Promise.all([
-    fetchLastWorkingDayLog(),
-    new Promise((resolve, reject) => {
-      const todayLogRef = doc(db, 'daily_logs', dateStr)
-      bulletinUnsubscribe = onSnapshot(
-        todayLogRef,
-        (docSnap) => {
-          if (docSnap.exists() && docSnap.data().announcements) {
-            todaysAnnouncements.value = docSnap
-              .data()
-              .announcements.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
-          } else {
-            todaysAnnouncements.value = []
-          }
-          resolve()
-        },
-        (error) => {
-          console.error('監聽本日公告失敗:', error)
-          reject(error)
-        },
-      )
-    }),
-  ]).finally(() => {
+  // ✨ 單機模式：直接獲取資料，不使用即時監聽
+  async function fetchTodayAnnouncements() {
+    try {
+      if (_isStandalone) {
+        // 單機模式：直接獲取日誌
+        const todayLog = await nursingApi.fetchDailyLog(dateStr)
+        if (todayLog && todayLog.announcements) {
+          todaysAnnouncements.value = todayLog.announcements.sort((a, b) => {
+            const dateA = new Date(a.createdAt).getTime()
+            const dateB = new Date(b.createdAt).getTime()
+            return dateB - dateA
+          })
+        } else {
+          todaysAnnouncements.value = []
+        }
+      } else {
+        // Firebase 模式：使用即時監聽
+        await new Promise((resolve, reject) => {
+          const todayLogRef = doc(db, 'daily_logs', dateStr)
+          bulletinUnsubscribe = onSnapshot(
+            todayLogRef,
+            (docSnap) => {
+              if (docSnap.exists() && docSnap.data().announcements) {
+                todaysAnnouncements.value = docSnap
+                  .data()
+                  .announcements.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
+              } else {
+                todaysAnnouncements.value = []
+              }
+              resolve()
+            },
+            (error) => {
+              console.error('監聽本日公告失敗:', error)
+              reject(error)
+            },
+          )
+        })
+      }
+    } catch (err) {
+      console.error('獲取本日公告失敗:', err)
+      todaysAnnouncements.value = []
+    }
+  }
+
+  Promise.all([fetchLastWorkingDayLog(), fetchTodayAnnouncements()]).finally(() => {
     isLoading.value.bulletin = false
   })
 }
@@ -1113,7 +1160,6 @@ function listenToBulletinData(dateStr) {
 async function handleSaveAnnouncement() {
   if (!newAnnouncementText.value.trim() || !currentUser.value) return
   const dateStr = displayDate.value
-  const logDocRef = doc(db, 'daily_logs', dateStr)
   const newAnnouncement = {
     id: Date.now().toString(),
     content: newAnnouncementText.value.trim(),
@@ -1121,10 +1167,28 @@ async function handleSaveAnnouncement() {
       uid: currentUser.value.uid,
       name: currentUser.value.name,
     },
-    createdAt: new Date(),
+    createdAt: new Date().toISOString(),
   }
   try {
-    await setDoc(logDocRef, { announcements: arrayUnion(newAnnouncement) }, { merge: true })
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      // 先獲取現有日誌
+      let existingLog = null
+      try {
+        existingLog = await nursingApi.fetchDailyLog(dateStr)
+      } catch {
+        existingLog = null
+      }
+
+      const existingAnnouncements = existingLog?.announcements || []
+      await nursingApi.updateDailyLog(dateStr, {
+        ...existingLog,
+        announcements: [...existingAnnouncements, newAnnouncement],
+      })
+    } else {
+      const logDocRef = doc(db, 'daily_logs', dateStr)
+      await setDoc(logDocRef, { announcements: arrayUnion(newAnnouncement) }, { merge: true })
+    }
     newAnnouncementText.value = ''
   } catch (error) {
     console.error('發布公告失敗:', error)

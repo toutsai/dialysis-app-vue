@@ -982,6 +982,11 @@ import { storeToRefs } from 'pinia'
 import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import { isStandaloneMode } from '@/utils/appMode'
+import { systemApi, nursingApi } from '@/services/localApiClient'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 // Component Imports
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
@@ -1237,16 +1242,34 @@ async function loadDailyLog(dateStr) {
 
     await patientFetchPromise
 
-    const [logResult, handoverLogSnap, scheduleData] = await Promise.all([
-      dailyLogsApi.fetchById(dateStr),
-      getDoc(doc(db, 'handover_logs', 'latest')),
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
-    ])
+    // ✨ 單機模式支援
+    let logResult, handoverLogContent, scheduleData
 
-    if (handoverLogSnap.exists()) {
-      handoverNotes.value = handoverLogSnap.data().content || ''
+    if (_isStandalone) {
+      const results = await Promise.all([
+        dailyLogsApi.fetchById(dateStr),
+        nursingApi.fetchHandoverLogs({ limit: 1 }).then((logs) => logs[0]?.content || ''),
+        schedulesApi.fetchAll([where('date', '==', dateStr)]),
+      ])
+      logResult = results[0]
+      handoverLogContent = results[1]
+      scheduleData = results[2]
+      handoverNotes.value = handoverLogContent
     } else {
-      handoverNotes.value = ''
+      const results = await Promise.all([
+        dailyLogsApi.fetchById(dateStr),
+        getDoc(doc(db, 'handover_logs', 'latest')),
+        schedulesApi.fetchAll([where('date', '==', dateStr)]),
+      ])
+      logResult = results[0]
+      const handoverLogSnap = results[1]
+      scheduleData = results[2]
+
+      if (handoverLogSnap.exists()) {
+        handoverNotes.value = handoverLogSnap.data().content || ''
+      } else {
+        handoverNotes.value = ''
+      }
     }
 
     if (logResult) {
@@ -1372,15 +1395,28 @@ async function handleMarqueeSave(newContent) {
   }
 
   try {
-    const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-    await setDoc(marqueeRef, {
-      content: newContent,
-      updatedAt: new Date(),
-      updatedBy: {
-        uid: currentUser.value.uid,
-        name: currentUser.value.name,
-      },
-    })
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await systemApi.updateSiteConfig('marquee_announcements', {
+        content: newContent,
+        updatedAt: new Date().toISOString(),
+        updatedBy: {
+          uid: currentUser.value.uid,
+          name: currentUser.value.name,
+        },
+      })
+      marqueeHtmlContent.value = newContent
+    } else {
+      const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
+      await setDoc(marqueeRef, {
+        content: newContent,
+        updatedAt: new Date(),
+        updatedBy: {
+          uid: currentUser.value.uid,
+          name: currentUser.value.name,
+        },
+      })
+    }
     isMarqueeDialogVisible.value = false
     showAlert('儲存成功', '全域跑馬燈公告已更新！')
   } catch (error) {
@@ -2022,10 +2058,23 @@ function handleTextareaInput() {
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 
-  const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-  marqueeUnsubscribe = onSnapshot(marqueeRef, (docSnap) => {
-    marqueeHtmlContent.value = docSnap.exists() ? docSnap.data().content || '' : ''
-  })
+  // ✨ 單機模式支援
+  if (_isStandalone) {
+    // 單機模式：直接獲取跑馬燈內容
+    try {
+      const config = await systemApi.fetchSiteConfig('marquee_announcements')
+      marqueeHtmlContent.value = config?.configData?.content || config?.content || ''
+    } catch (error) {
+      console.warn('[DailyLogView] 獲取跑馬燈內容失敗:', error)
+      marqueeHtmlContent.value = ''
+    }
+  } else {
+    // Firebase 模式：使用即時監聽
+    const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
+    marqueeUnsubscribe = onSnapshot(marqueeRef, (docSnap) => {
+      marqueeHtmlContent.value = docSnap.exists() ? docSnap.data().content || '' : ''
+    })
+  }
 })
 
 onUnmounted(() => {

@@ -122,7 +122,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
+import { ref, onUnmounted, watch, computed, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   collection,
@@ -155,6 +155,11 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
+import { isStandaloneMode } from '@/utils/appMode'
+import { schedulesApi as localSchedulesApi, systemApi } from '@/services/localApiClient'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
@@ -481,8 +486,12 @@ async function handleDelete() {
     // 先刪除對應的調班訊息
     await deleteOldExceptionMessages(exceptionData)
 
-    // 再刪除調班申請
-    await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await localSchedulesApi.deleteException(exceptionId)
+    } else {
+      await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
+    }
 
     let message = ''
     if (exceptionData.type === 'SWAP') {
@@ -930,18 +939,32 @@ async function initializePageData() {
   isLoading.value = true
   try {
     await patientStore.fetchPatientsIfNeeded()
-    const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-    unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-        isLoading.value = false
-      },
-      (error) => {
-        console.error('❌ Firestore 監聽器發生錯誤:', error)
-        isLoading.value = false
-      },
-    )
+
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      // 單機模式：直接獲取資料
+      const data = await exceptionsApi.fetchAll()
+      exceptions.value = data.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime()
+        const dateB = new Date(b.createdAt).getTime()
+        return dateB - dateA
+      })
+      isLoading.value = false
+    } else {
+      // Firebase 模式：使用即時監聽
+      const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
+      unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+          isLoading.value = false
+        },
+        (error) => {
+          console.error('❌ Firestore 監聽器發生錯誤:', error)
+          isLoading.value = false
+        },
+      )
+    }
   } catch (error) {
     console.error('載入資料失敗:', error)
     isLoading.value = false

@@ -638,6 +638,15 @@ export const systemApi = {
   },
 
   /**
+   * 刪除任務
+   */
+  async deleteTask(id: string) {
+    return apiRequest<{ success: boolean }>(`/system/tasks/${id}`, {
+      method: 'DELETE',
+    })
+  },
+
+  /**
    * 取得通知列表
    */
   async fetchNotifications() {
