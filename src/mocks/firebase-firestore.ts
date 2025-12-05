@@ -57,17 +57,18 @@ class MockDocumentSnapshot {
   ref: MockDocumentReference
   metadata = { fromCache: false, hasPendingWrites: false }
   private _data: any
-  private _exists: boolean
+  private _existsValue: boolean
 
   constructor(id: string, data: any = null) {
     this.id = id
     this._data = data
-    this._exists = data !== null
+    this._existsValue = data !== null
     this.ref = new MockDocumentReference('', id)
   }
 
-  exists() {
-    return this._exists
+  // 支援 docSnap.exists() 方法呼叫
+  exists(): boolean {
+    return this._existsValue
   }
 
   data() {
@@ -77,6 +78,22 @@ class MockDocumentSnapshot {
   get(field: string) {
     return this._data?.[field]
   }
+}
+
+// 創建支援 .exists 屬性存取的 DocumentSnapshot
+function createDocumentSnapshot(id: string, data: any = null) {
+  const snapshot = new MockDocumentSnapshot(id, data)
+  // 讓 exists 同時支援屬性存取和方法呼叫
+  const existsValue = data !== null
+  Object.defineProperty(snapshot, 'exists', {
+    value: Object.assign(() => existsValue, {
+      valueOf: () => existsValue,
+      toString: () => String(existsValue),
+    }),
+    writable: false,
+    configurable: true,
+  })
+  return snapshot
 }
 
 // Mock Timestamp
@@ -139,9 +156,9 @@ export async function getDocs(_query: any): Promise<MockQuerySnapshot> {
   return new MockQuerySnapshot()
 }
 
-export async function getDoc(_docRef: any): Promise<MockDocumentSnapshot> {
+export async function getDoc(_docRef: any): Promise<any> {
   console.log('🔇 [Mock Firestore] getDoc() - returning empty')
-  return new MockDocumentSnapshot('mock-id', null)
+  return createDocumentSnapshot('mock-id', null)
 }
 
 export async function setDoc(_docRef: any, _data: any, _options?: any): Promise<void> {
@@ -227,7 +244,7 @@ export function writeBatch(_db: any) {
 export async function runTransaction(_db: any, updateFunction: (transaction: any) => Promise<any>) {
   console.log('🔇 [Mock Firestore] runTransaction()')
   const mockTransaction = {
-    get: async (_ref: any) => new MockDocumentSnapshot('mock-id', null),
+    get: async (_ref: any) => createDocumentSnapshot('mock-id', null),
     set: (_ref: any, _data: any, _options?: any) => {},
     update: (_ref: any, _data: any) => {},
     delete: (_ref: any) => {},
