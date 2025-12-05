@@ -217,34 +217,51 @@ export const clearFutureSchedulesForPatient = performanceMonitor(
             console.log(`  ✂️ 移除 ${docData.date} 的排程槽位 ${slotId}`)
           }
 
-          // 加入更新 Promise
-          const docRef = doc(db, 'schedules', docData.id)
-          updatePromises.push(
-            handleApiCall(
-              () =>
-                updateDoc(docRef, {
-                  schedule: newScheduleMap,
-                  updatedAt: new Date(),
-                  lastModifiedBy: 'clearFutureSchedules',
-                  modificationReason: `清除病人 ${patientId} 的排程`,
+          // 加入更新 Promise - 🖥️ 支援單機模式
+          if (_isStandalone) {
+            // 單機模式：使用本地 API
+            updatePromises.push(
+              schedulesApi.updateByDate(docData.date, newScheduleMap)
+                .then(() => {
+                  successCount++
+                  return { success: true, date: docData.date }
+                })
+                .catch((error) => {
+                  failureCount++
+                  console.error(`❌ 更新 ${docData.date} 失敗:`, error)
+                  return { success: false, date: docData.date, error: error.message }
                 }),
-              {
-                showNotification: false,
-                retryCount: maxRetries,
-                errorPrefix: `更新 ${docData.date} 排程失敗`,
-              },
-            ).then(
-              () => {
-                successCount++
-                return { success: true, date: docData.date }
-              },
-              (error) => {
-                failureCount++
-                console.error(`❌ 更新 ${docData.date} 失敗:`, error)
-                return { success: false, date: docData.date, error: error.message }
-              },
-            ),
-          )
+            )
+          } else {
+            // Firebase 模式：使用 Firestore
+            const docRef = doc(db, 'schedules', docData.id)
+            updatePromises.push(
+              handleApiCall(
+                () =>
+                  updateDoc(docRef, {
+                    schedule: newScheduleMap,
+                    updatedAt: new Date(),
+                    lastModifiedBy: 'clearFutureSchedules',
+                    modificationReason: `清除病人 ${patientId} 的排程`,
+                  }),
+                {
+                  showNotification: false,
+                  retryCount: maxRetries,
+                  errorPrefix: `更新 ${docData.date} 排程失敗`,
+                },
+              ).then(
+                () => {
+                  successCount++
+                  return { success: true, date: docData.date }
+                },
+                (error) => {
+                  failureCount++
+                  console.error(`❌ 更新 ${docData.date} 失敗:`, error)
+                  return { success: false, date: docData.date, error: error.message }
+                },
+              ),
+            )
+          }
         }
 
         // 🚀 執行所有更新
@@ -401,31 +418,44 @@ export const cleanTemporaryDataInFutureSchedules = performanceMonitor(
             }
           }
 
-          // 只有實際有變更才進行更新
+          // 只有實際有變更才進行更新 - 🖥️ 支援單機模式
           if (hasChanges) {
-            const docRef = doc(db, 'schedules', docData.id)
-            updatePromises.push(
-              handleApiCall(
-                () =>
-                  updateDoc(docRef, {
-                    schedule: newScheduleMap,
-                    updatedAt: new Date(),
-                    lastModifiedBy: 'cleanTemporaryData',
-                    modificationReason: `清理病人 ${patientId} 的臨時資料`,
+            if (_isStandalone) {
+              // 單機模式：使用本地 API
+              updatePromises.push(
+                schedulesApi.updateByDate(docData.date, newScheduleMap)
+                  .then(() => ({ success: true, date: docData.date }))
+                  .catch((error) => {
+                    console.error(`❌ 清理 ${docData.date} 失敗:`, error)
+                    return { success: false, date: docData.date, error: error.message }
                   }),
-                {
-                  showNotification: false,
-                  retryCount: maxRetries,
-                  errorPrefix: `清理 ${docData.date} 臨時資料失敗`,
-                },
-              ).then(
-                () => ({ success: true, date: docData.date }),
-                (error) => {
-                  console.error(`❌ 清理 ${docData.date} 失敗:`, error)
-                  return { success: false, date: docData.date, error: error.message }
-                },
-              ),
-            )
+              )
+            } else {
+              // Firebase 模式：使用 Firestore
+              const docRef = doc(db, 'schedules', docData.id)
+              updatePromises.push(
+                handleApiCall(
+                  () =>
+                    updateDoc(docRef, {
+                      schedule: newScheduleMap,
+                      updatedAt: new Date(),
+                      lastModifiedBy: 'cleanTemporaryData',
+                      modificationReason: `清理病人 ${patientId} 的臨時資料`,
+                    }),
+                  {
+                    showNotification: false,
+                    retryCount: maxRetries,
+                    errorPrefix: `清理 ${docData.date} 臨時資料失敗`,
+                  },
+                ).then(
+                  () => ({ success: true, date: docData.date }),
+                  (error) => {
+                    console.error(`❌ 清理 ${docData.date} 失敗:`, error)
+                    return { success: false, date: docData.date, error: error.message }
+                  },
+                ),
+              )
+            }
           }
         }
 
