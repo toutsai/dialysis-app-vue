@@ -1,6 +1,6 @@
 // 資料庫初始化腳本
 import Database from 'better-sqlite3'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync, mkdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
@@ -13,13 +13,12 @@ export function initDatabase() {
   console.log('🔧 正在初始化資料庫...')
   console.log(`📂 資料庫路徑: ${DB_PATH}`)
 
-  // 確保資料目錄存在
+  // 確保資料目錄存在 (同步建立)
   const dataDir = dirname(DB_PATH)
-  import('fs').then(fs => {
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true })
-    }
-  })
+  if (!existsSync(dataDir)) {
+    mkdirSync(dataDir, { recursive: true })
+    console.log(`📁 已建立資料目錄: ${dataDir}`)
+  }
 
   const db = new Database(DB_PATH)
 
