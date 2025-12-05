@@ -15,7 +15,8 @@ import nursingRoutes from './routes/nursing.js'
 import systemRoutes from './routes/system.js'
 
 // 資料庫初始化
-import { initDatabase } from './db/init.js'
+import { initDatabase, getDatabase } from './db/init.js'
+import { v4 as uuidv4 } from 'uuid'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -92,8 +93,6 @@ app.use((err, req, res, next) => {
 
   // 記錄錯誤到稽核日誌
   try {
-    const { getDatabase } = await import('./db/init.js')
-    const { v4: uuidv4 } = await import('uuid')
     const db = getDatabase()
 
     db.prepare(`

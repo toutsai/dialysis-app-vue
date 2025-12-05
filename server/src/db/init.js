@@ -48,7 +48,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const db = initDatabase()
 
   // 建立預設管理員帳號
-  import('bcryptjs').then(async bcrypt => {
+  import('bcryptjs').then(async (bcryptModule) => {
+    const bcrypt = bcryptModule.default || bcryptModule
     const hashedPassword = bcrypt.hashSync('admin123', 10)
     const { v4: uuidv4 } = await import('uuid')
 
