@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, logAudit } from '../middleware/auth.js'
+import { syncMasterScheduleToFuture, initializeFutureSchedules } from '../services/scheduleSync.js'
 
 const router = Router()
 
@@ -257,7 +258,7 @@ router.get('/base/master', authenticate, (req, res) => {
 
 /**
  * PUT /api/schedules/base/master
- * 更新主要排班總表
+ * 更新主要排班總表（並自動同步到未來 60 天排程）
  */
 router.put('/base/master', ...isEditor, async (req, res) => {
   try {
@@ -265,6 +266,13 @@ router.put('/base/master', ...isEditor, async (req, res) => {
 
     const db = getDatabase()
 
+    // 先取得變更前的總表
+    const beforeDoc = db.prepare(`
+      SELECT schedule FROM base_schedules WHERE id = 'MASTER_SCHEDULE'
+    `).get()
+    const beforeRules = beforeDoc ? JSON.parse(beforeDoc.schedule || '{}') : {}
+
+    // 更新總表
     db.prepare(`
       INSERT INTO base_schedules (id, schedule, updated_at)
       VALUES ('MASTER_SCHEDULE', ?, datetime('now', 'localtime'))
@@ -283,6 +291,16 @@ router.put('/base/master', ...isEditor, async (req, res) => {
       patientCount: Object.keys(schedule).length
     })
 
+    // 🔥 同步到未來 60 天排程（非同步執行，不阻塞回應）
+    const modifiedBy = { uid: req.user.id, name: req.user.name }
+    syncMasterScheduleToFuture(beforeRules, schedule, modifiedBy)
+      .then(result => {
+        console.log('📅 [MasterSchedule] 同步完成:', result.message)
+      })
+      .catch(err => {
+        console.error('❌ [MasterSchedule] 同步失敗:', err.message)
+      })
+
     res.json({
       id: updated.id,
       schedule: JSON.parse(updated.schedule || '{}'),
@@ -300,7 +318,7 @@ router.put('/base/master', ...isEditor, async (req, res) => {
 
 /**
  * PATCH /api/schedules/base/master/patient/:patientId
- * 更新單一病人的排班規則
+ * 更新單一病人的排班規則（並自動同步到未來 60 天排程）
  */
 router.patch('/base/master/patient/:patientId', ...isEditor, async (req, res) => {
   try {
@@ -309,12 +327,13 @@ router.patch('/base/master/patient/:patientId', ...isEditor, async (req, res) =>
 
     const db = getDatabase()
 
-    // 取得目前的總表
+    // 取得目前的總表（變更前）
     const current = db.prepare(`
       SELECT schedule FROM base_schedules WHERE id = 'MASTER_SCHEDULE'
     `).get()
 
-    const schedule = current ? JSON.parse(current.schedule || '{}') : {}
+    const beforeRules = current ? JSON.parse(current.schedule || '{}') : {}
+    const schedule = { ...beforeRules }
 
     // 更新或刪除規則
     if (rule && Object.keys(rule).length > 0) {
@@ -334,6 +353,16 @@ router.patch('/base/master/patient/:patientId', ...isEditor, async (req, res) =>
 
     await logAudit('PATIENT_SCHEDULE_RULE_UPDATE', req.user.id, req.user.name, 'base_schedules', patientId, rule)
 
+    // 🔥 同步到未來 60 天排程（非同步執行）
+    const modifiedBy = { uid: req.user.id, name: req.user.name }
+    syncMasterScheduleToFuture(beforeRules, schedule, modifiedBy)
+      .then(result => {
+        console.log('📅 [PatientRule] 同步完成:', result.message)
+      })
+      .catch(err => {
+        console.error('❌ [PatientRule] 同步失敗:', err.message)
+      })
+
     res.json({
       success: true,
       patientId,
@@ -345,6 +374,30 @@ router.patch('/base/master/patient/:patientId', ...isEditor, async (req, res) =>
     res.status(500).json({
       error: true,
       message: '更新病人排班規則失敗'
+    })
+  }
+})
+
+/**
+ * POST /api/schedules/sync/initialize
+ * 手動初始化未來 60 天排程（用於首次設定或重建）
+ */
+router.post('/sync/initialize', ...isEditor, async (req, res) => {
+  try {
+    const modifiedBy = { uid: req.user.id, name: req.user.name }
+    const result = await initializeFutureSchedules(modifiedBy)
+
+    await logAudit('SCHEDULE_INITIALIZE', req.user.id, req.user.name, 'schedules', 'future_60_days', {
+      createdCount: result.createdCount
+    })
+
+    res.json(result)
+
+  } catch (error) {
+    console.error('初始化排程錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '初始化排程失敗'
     })
   }
 })
