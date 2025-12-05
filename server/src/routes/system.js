@@ -321,6 +321,45 @@ router.get('/notifications', authenticate, (req, res) => {
 })
 
 /**
+ * POST /api/system/notifications
+ * 建立通知
+ */
+router.post('/notifications', authenticate, async (req, res) => {
+  try {
+    const { type, title, message, recipientId, data } = req.body
+
+    const id = uuidv4()
+    const db = getDatabase()
+
+    db.prepare(`
+      INSERT INTO notifications (id, type, title, message, recipient_id, data)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      type || 'info',
+      title || '',
+      message || '',
+      recipientId || null,
+      JSON.stringify(data || {})
+    )
+
+    db.close()
+
+    res.status(201).json({
+      success: true,
+      id
+    })
+
+  } catch (error) {
+    console.error('建立通知錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '建立通知失敗'
+    })
+  }
+})
+
+/**
  * PATCH /api/system/notifications/:id/read
  * 標記通知為已讀
  */

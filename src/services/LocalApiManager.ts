@@ -144,6 +144,7 @@ const resourceApiMap: Record<string, any> = {
   },
   notifications: {
     fetchAll: () => systemApi.fetchNotifications(),
+    create: (data: any) => systemApi.createNotification(data),
     update: (id: string) => systemApi.markNotificationRead(id),
   },
   inventory_items: {
