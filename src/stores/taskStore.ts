@@ -1,4 +1,5 @@
 // 檔案路徑: src/stores/taskStore.ts
+// ✨ 已支援單機模式
 
 import { ref, computed, watch, type Ref } from 'vue'
 import { defineStore } from 'pinia'
@@ -6,6 +7,10 @@ import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase
 import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 export type TaskItem = {
   id?: string
@@ -186,6 +191,13 @@ export const useTaskStore = defineStore('task', () => {
   function startRealtimeUpdates(uid?: string) {
     if (unsubscribes.length > 0) return
     if (!uid || !currentUser.value) {
+      isLoading.value = false
+      return
+    }
+
+    // 🖥️ 單機模式：跳過即時監聽（待實現 WebSocket 或輪詢）
+    if (_isStandalone) {
+      console.log('[TaskStore] 🖥️ 單機模式：即時監聽功能尚未實現')
       isLoading.value = false
       return
     }
