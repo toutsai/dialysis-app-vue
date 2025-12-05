@@ -8,6 +8,7 @@ class MockDocumentReference {
   id: string
   path: string
   parent: any
+  readonly _isDocumentRef = true  // 標記這是文件引用
 
   constructor(path: string, id: string = '') {
     this.path = path
@@ -213,23 +214,23 @@ export function endBefore(..._args: any[]) {
 
 // Realtime Listeners
 export function onSnapshot(reference: any, optionsOrCallback: any, callbackOrError?: any, _errorCallback?: any): () => void {
-  console.log('🔇 [Mock Firestore] onSnapshot() - returning empty')
   const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callbackOrError
 
   // 判斷是文件引用還是查詢/集合引用
-  // 文件路徑有奇數個段 (collection/doc/collection/doc...)
-  const isDocumentRef = reference instanceof MockDocumentReference ||
-    (reference?.path && reference.path.split('/').length % 2 === 0)
+  // 使用 _isDocumentRef 標記或路徑長度判斷
+  const isDocumentRef = reference?._isDocumentRef === true ||
+    reference instanceof MockDocumentReference ||
+    (reference?.path && typeof reference.path === 'string' && reference.path.split('/').length % 2 === 0)
+
+  console.log(`🔇 [Mock Firestore] onSnapshot(${isDocumentRef ? 'doc' : 'query'}) - path: ${reference?.path || 'unknown'}`)
 
   setTimeout(() => {
     if (callback) {
       if (isDocumentRef) {
         // 文件引用 - 返回 DocumentSnapshot
-        console.log('🔇 [Mock Firestore] onSnapshot (doc) - returning empty DocumentSnapshot')
-        callback(createDocumentSnapshot('mock-id', null))
+        callback(createDocumentSnapshot(reference?.id || 'mock-id', null))
       } else {
         // 查詢/集合引用 - 返回 QuerySnapshot
-        console.log('🔇 [Mock Firestore] onSnapshot (query) - returning empty QuerySnapshot')
         callback(new MockQuerySnapshot())
       }
     }

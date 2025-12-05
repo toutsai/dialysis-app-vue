@@ -404,8 +404,43 @@ router.post('/:id/restore', ...isEditor, async (req, res) => {
 })
 
 /**
+ * GET /api/patients/history
+ * 取得所有病人歷史記錄
+ */
+router.get('/history', authenticate, (req, res) => {
+  try {
+    const db = getDatabase()
+
+    const history = db.prepare(`
+      SELECT * FROM patient_history
+      ORDER BY timestamp DESC
+      LIMIT 100
+    `).all()
+
+    db.close()
+
+    res.json(history.map(h => ({
+      id: h.id,
+      patientId: h.patient_id,
+      patientName: h.patient_name,
+      eventType: h.event_type,
+      eventDetails: JSON.parse(h.event_details || '{}'),
+      snapshot: JSON.parse(h.snapshot || '{}'),
+      timestamp: h.timestamp
+    })))
+
+  } catch (error) {
+    console.error('取得所有病人歷史錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得病人歷史失敗'
+    })
+  }
+})
+
+/**
  * GET /api/patients/history/:patientId
- * 取得病人歷史記錄
+ * 取得特定病人歷史記錄
  */
 router.get('/history/:patientId', authenticate, (req, res) => {
   try {
