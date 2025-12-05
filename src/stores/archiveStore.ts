@@ -1,9 +1,14 @@
 // 檔案路徑: src/stores/archiveStore.ts
+// ✨ 已支援單機模式 (透過 ApiManager 自動處理)
 
 import { defineStore } from 'pinia'
 import { ref, type Ref } from 'vue'
 import ApiManager from '@/services/api_manager'
 import { where } from 'firebase/firestore'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 interface ScheduleRecord {
   id?: string
@@ -31,8 +36,8 @@ export const useArchiveStore = defineStore('archive', () => {
       return schedulesCache.value.get(dateStr) ?? null
     }
 
-    // 2. 如果快取未命中，則從 Firestore 獲取
-    console.log(`[ArchiveStore] Cache miss for ${dateStr}. Fetching from Firestore...`)
+    // 2. 如果快取未命中，則從資料庫獲取
+    console.log(`[ArchiveStore] Cache miss for ${dateStr}. Fetching from ${_isStandalone ? 'local database' : 'Firestore'}...`)
     isLoading.value = true
     try {
       const api = ApiManager<ScheduleRecord>('expired_schedules')
