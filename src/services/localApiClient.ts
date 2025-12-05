@@ -271,6 +271,21 @@ export const patientsApi = {
     // 如果沒有指定 patientId，返回所有病人的歷史（或空陣列）
     return apiRequest<any[]>(`/patients/history`)
   },
+
+  /**
+   * 建立病人歷史記錄
+   */
+  async createHistory(data: {
+    patientId: string
+    changeType: string
+    changeData?: any
+    notes?: string
+  }) {
+    return apiRequest<any>('/patients/history', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
 }
 
 // ========================================

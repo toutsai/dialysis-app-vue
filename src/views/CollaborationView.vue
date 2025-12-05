@@ -709,16 +709,12 @@
 import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
-import { doc, updateDoc, setDoc, arrayUnion, deleteDoc, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import ApiManager from '@/services/api_manager'
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue' // ✨ [新增] 引入 ConfirmDialog 元件
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { usePatientStore } from '@/stores/patientStore'
 import { useTaskStore } from '@/stores/taskStore'
 import { storeToRefs } from 'pinia'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
-import { where } from 'firebase/firestore'
 import {
   formatDateToYYYYMMDD,
   formatDateTimeToLocal,
@@ -726,11 +722,7 @@ import {
   getDayOfWeek,
   parseFirestoreTimestamp,
 } from '@/utils/dateUtils'
-import { isStandaloneMode } from '@/utils/appMode'
-import { systemApi, nursingApi } from '@/services/localApiClient'
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
+import { systemApi, nursingApi, schedulesApi } from '@/services/localApiClient'
 
 const route = useRoute()
 const { currentUser, isPageLocked, hasPermission } = useAuth()
@@ -744,10 +736,6 @@ const { createGlobalNotification } = useGlobalNotifier()
 const { myTasks, mySentTasks, sortedFeedMessages } = storeToRefs(taskStore)
 const { allPatients: allPatientsFromStore } = storeToRefs(patientStore)
 const patientMap = computed(() => patientStore.patientMap)
-
-const schedulesApi = ApiManager('schedules')
-const assignmentsApi = ApiManager('nurse_assignments')
-const logsApi = ApiManager('daily_logs')
 
 const isLoading = ref({
   patients: true,
@@ -927,13 +915,7 @@ async function updateTask(data) {
   const { id, ...updateData } = data
 
   try {
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await systemApi.updateTask(id, updateData)
-    } else {
-      const taskRef = doc(db, 'tasks', id)
-      await updateDoc(taskRef, updateData)
-    }
+    await systemApi.updateTask(id, updateData)
     console.log(`[CollaborationView] Task/Memo ${id} updated successfully.`)
   } catch (error) {
     console.error('更新項目失敗:', error)
@@ -986,16 +968,7 @@ async function updateTaskStatus(taskId, newStatus) {
       resolvedAt: new Date().toISOString(),
     }
 
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await systemApi.updateTask(taskId, updateData)
-    } else {
-      const taskRef = doc(db, 'tasks', taskId)
-      await updateDoc(taskRef, {
-        ...updateData,
-        resolvedAt: new Date(), // Firebase 使用原生 Date
-      })
-    }
+    await systemApi.updateTask(taskId, updateData)
     createGlobalNotification(
       newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
       'success',
@@ -1008,13 +981,7 @@ async function updateTaskStatus(taskId, newStatus) {
 
 async function deleteTask(taskId) {
   try {
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await systemApi.deleteTask(taskId)
-    } else {
-      const taskRef = doc(db, 'tasks', taskId)
-      await deleteDoc(taskRef)
-    }
+    await systemApi.deleteTask(taskId)
     createGlobalNotification('訊息已刪除', 'info')
   } catch (error) {
     console.error('刪除任務失敗:', error)
@@ -1073,12 +1040,16 @@ function listenToBulletinData(dateStr) {
   async function fetchLastWorkingDayLog() {
     try {
       // 嘗試獲取昨天的日誌
-      const yesterdayLog = await logsApi.fetchById(yesterdayStr)
+      let yesterdayLog = null
+      try {
+        yesterdayLog = await nursingApi.fetchDailyLog(yesterdayStr)
+      } catch {
+        yesterdayLog = null
+      }
+
       if (yesterdayLog && yesterdayLog.otherNotes) {
-        // ✨ 核心修正：將原本複雜的 .split(/[\d]+\.\s*/)
-        // 改為直接根據換行符 (\n) 來分割字串。
         const notes = yesterdayLog.otherNotes
-          .split('\n') // <--- 修改的就是這一行
+          .split('\n')
           .map((item) => item.trim())
           .filter((item) => item)
 
@@ -1090,11 +1061,16 @@ function listenToBulletinData(dateStr) {
       }
 
       // 嘗試獲取前天的日誌
-      const dayBeforeLog = await logsApi.fetchById(dayBeforeYesterdayStr)
+      let dayBeforeLog = null
+      try {
+        dayBeforeLog = await nursingApi.fetchDailyLog(dayBeforeYesterdayStr)
+      } catch {
+        dayBeforeLog = null
+      }
+
       if (dayBeforeLog && dayBeforeLog.otherNotes) {
-        // ✨ 核心修正：這裡也要同步修改
         const notes = dayBeforeLog.otherNotes
-          .split('\n') // <--- 修改的就是這一行
+          .split('\n')
           .map((item) => item.trim())
           .filter((item) => item)
 
@@ -1108,43 +1084,17 @@ function listenToBulletinData(dateStr) {
     }
   }
 
-  // ✨ 單機模式：直接獲取資料，不使用即時監聽
   async function fetchTodayAnnouncements() {
     try {
-      if (_isStandalone) {
-        // 單機模式：直接獲取日誌
-        const todayLog = await nursingApi.fetchDailyLog(dateStr)
-        if (todayLog && todayLog.announcements) {
-          todaysAnnouncements.value = todayLog.announcements.sort((a, b) => {
-            const dateA = new Date(a.createdAt).getTime()
-            const dateB = new Date(b.createdAt).getTime()
-            return dateB - dateA
-          })
-        } else {
-          todaysAnnouncements.value = []
-        }
-      } else {
-        // Firebase 模式：使用即時監聽
-        await new Promise((resolve, reject) => {
-          const todayLogRef = doc(db, 'daily_logs', dateStr)
-          bulletinUnsubscribe = onSnapshot(
-            todayLogRef,
-            (docSnap) => {
-              if (docSnap.exists() && docSnap.data().announcements) {
-                todaysAnnouncements.value = docSnap
-                  .data()
-                  .announcements.sort((a, b) => b.createdAt.toMillis() - a.createdAt.toMillis())
-              } else {
-                todaysAnnouncements.value = []
-              }
-              resolve()
-            },
-            (error) => {
-              console.error('監聽本日公告失敗:', error)
-              reject(error)
-            },
-          )
+      const todayLog = await nursingApi.fetchDailyLog(dateStr)
+      if (todayLog && todayLog.announcements) {
+        todaysAnnouncements.value = todayLog.announcements.sort((a, b) => {
+          const dateA = new Date(a.createdAt).getTime()
+          const dateB = new Date(b.createdAt).getTime()
+          return dateB - dateA
         })
+      } else {
+        todaysAnnouncements.value = []
       }
     } catch (err) {
       console.error('獲取本日公告失敗:', err)
@@ -1170,25 +1120,19 @@ async function handleSaveAnnouncement() {
     createdAt: new Date().toISOString(),
   }
   try {
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      // 先獲取現有日誌
-      let existingLog = null
-      try {
-        existingLog = await nursingApi.fetchDailyLog(dateStr)
-      } catch {
-        existingLog = null
-      }
-
-      const existingAnnouncements = existingLog?.announcements || []
-      await nursingApi.updateDailyLog(dateStr, {
-        ...existingLog,
-        announcements: [...existingAnnouncements, newAnnouncement],
-      })
-    } else {
-      const logDocRef = doc(db, 'daily_logs', dateStr)
-      await setDoc(logDocRef, { announcements: arrayUnion(newAnnouncement) }, { merge: true })
+    // 先獲取現有日誌
+    let existingLog = null
+    try {
+      existingLog = await nursingApi.fetchDailyLog(dateStr)
+    } catch {
+      existingLog = null
     }
+
+    const existingAnnouncements = existingLog?.announcements || []
+    await nursingApi.updateDailyLog(dateStr, {
+      ...existingLog,
+      announcements: [...existingAnnouncements, newAnnouncement],
+    })
     newAnnouncementText.value = ''
   } catch (error) {
     console.error('發布公告失敗:', error)
@@ -1209,14 +1153,22 @@ async function loadDailyPatientData(date) {
   try {
     await patientStore.fetchPatientsIfNeeded()
 
-    const schedules = await schedulesApi.fetchAll([where('date', '==', date)])
-    if (schedules.length === 0 || !schedules[0].schedule) {
+    // 使用本地 API 獲取排程
+    const scheduleData = await schedulesApi.fetchByDate(date)
+    if (!scheduleData || !scheduleData.schedule) {
       isLoading.value.patients = false
       return
     }
 
-    const scheduleData = schedules[0].schedule
-    const assignments = await assignmentsApi.fetchAll([where('date', '==', date)])
+    const schedule = scheduleData.schedule
+    // 使用本地 API 獲取護理分配
+    let assignments = null
+    try {
+      assignments = await schedulesApi.fetchNurseAssignments(date)
+    } catch {
+      assignments = null
+    }
+
     const localPatientMap = patientStore.patientMap
 
     const getBedNumber = (shiftId) => {
@@ -1225,8 +1177,8 @@ async function loadDailyPatientData(date) {
     }
 
     const tempAllDaily = []
-    for (const shiftId in scheduleData) {
-      const slot = scheduleData[shiftId]
+    for (const shiftId in schedule) {
+      const slot = schedule[shiftId]
       if (slot?.patientId && localPatientMap.has(slot.patientId)) {
         const patientDetail = localPatientMap.get(slot.patientId)
         tempAllDaily.push({
@@ -1244,8 +1196,8 @@ async function loadDailyPatientData(date) {
     }
     allDailyPatients.value = tempAllDaily.sort(sortLogic)
 
-    if (assignments.length > 0 && assignments[0].teams) {
-      const { names, teams } = assignments[0]
+    if (assignments && assignments.teams) {
+      const { names, teams } = assignments
       const myAssignedIds = new Set()
       if (names && teams) {
         for (const teamName in names) {

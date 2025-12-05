@@ -156,12 +156,12 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted, nextTick, provide } from 'vue'
-import { where } from 'firebase/firestore'
 import * as XLSX from 'xlsx'
 import {
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
 } from '@/services/optimizedApiService.js'
+import { schedulesApi as localSchedulesApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
@@ -184,7 +184,6 @@ import { usePatientStore } from '@/stores/patientStore'
 import { useTaskStore } from '@/stores/taskStore'
 import { useArchiveStore } from '@/stores/archiveStore'
 import { storeToRefs } from 'pinia'
-import ApiManager from '@/services/api_manager'
 
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
@@ -449,9 +448,15 @@ async function fetchArchivedSchedulesForWeek(dateStrings) {
 }
 
 async function fetchLiveSchedulesForWeek(dateStrings) {
-  const schedulesApi = ApiManager('schedules')
-  const records = await schedulesApi.fetchAll([where('date', 'in', dateStrings)])
-  records.forEach((record) => {
+  // 使用本地 API 取得排程
+  const startDate = dateStrings[0]
+  const endDate = dateStrings[dateStrings.length - 1]
+  const records = await localSchedulesApi.fetchAll({ startDate, endDate })
+
+  // 確保 records 是陣列
+  const recordsList = Array.isArray(records) ? records : []
+
+  recordsList.forEach((record) => {
     if (record.schedule) {
       for (const shiftId in record.schedule) {
         const slot = record.schedule[shiftId]
@@ -462,7 +467,7 @@ async function fetchLiveSchedulesForWeek(dateStrings) {
       }
     }
   })
-  return records
+  return recordsList
 }
 
 async function loadDataForWeek() {

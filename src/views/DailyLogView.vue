@@ -972,21 +972,14 @@
 // 1. Imports
 // ===================================================================
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import ApiManager from '@/services/api_manager'
 import { useAuth } from '@/composables/useAuth'
-import { where, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
-import { isStandaloneMode } from '@/utils/appMode'
-import { systemApi, nursingApi } from '@/services/localApiClient'
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
+import { systemApi, nursingApi, schedulesApi } from '@/services/localApiClient'
 
 // Component Imports
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
@@ -1001,8 +994,6 @@ import MarqueeEditDialog from '@/components/MarqueeEditDialog.vue'
 const { currentUser, canEditSchedules } = useAuth()
 const patientStore = usePatientStore()
 const { allPatients, patientMap, hasFetched } = storeToRefs(patientStore)
-const dailyLogsApi = ApiManager('daily_logs')
-const schedulesApi = ApiManager('schedules')
 
 // ===================================================================
 // 3. Core Component State
@@ -1242,35 +1233,19 @@ async function loadDailyLog(dateStr) {
 
     await patientFetchPromise
 
-    // ✨ 單機模式支援
-    let logResult, handoverLogContent, scheduleData
+    // 使用本地 API 獲取資料
+    let logResult = null
+    let scheduleData = null
 
-    if (_isStandalone) {
-      const results = await Promise.all([
-        dailyLogsApi.fetchById(dateStr),
-        nursingApi.fetchHandoverLogs({ limit: 1 }).then((logs) => logs[0]?.content || ''),
-        schedulesApi.fetchAll([where('date', '==', dateStr)]),
-      ])
-      logResult = results[0]
-      handoverLogContent = results[1]
-      scheduleData = results[2]
-      handoverNotes.value = handoverLogContent
-    } else {
-      const results = await Promise.all([
-        dailyLogsApi.fetchById(dateStr),
-        getDoc(doc(db, 'handover_logs', 'latest')),
-        schedulesApi.fetchAll([where('date', '==', dateStr)]),
-      ])
-      logResult = results[0]
-      const handoverLogSnap = results[1]
-      scheduleData = results[2]
+    const results = await Promise.all([
+      nursingApi.fetchDailyLog(dateStr).catch(() => null),
+      nursingApi.fetchHandoverLogs({ limit: 1 }).then((logs) => logs?.[0]?.content || '').catch(() => ''),
+      schedulesApi.fetchByDate(dateStr).catch(() => null),
+    ])
 
-      if (handoverLogSnap.exists()) {
-        handoverNotes.value = handoverLogSnap.data().content || ''
-      } else {
-        handoverNotes.value = ''
-      }
-    }
+    logResult = results[0]
+    handoverNotes.value = results[1]
+    scheduleData = results[2] ? [results[2]] : []
 
     if (logResult) {
       const mergedLog = { ...initialLogState(), ...logResult }
@@ -1368,11 +1343,10 @@ async function saveLog(options = {}) {
       delete dataToSave.handoverNotes
     }
 
-    if (dailyLog.id) {
-      await dailyLogsApi.update(dailyLog.id, dataToSave)
-    } else {
-      const docId = selectedDate.value
-      await dailyLogsApi.save(docId, dataToSave)
+    // 使用本地 API 儲存日誌
+    const docId = dailyLog.id || selectedDate.value
+    await nursingApi.updateDailyLog(docId, dataToSave)
+    if (!dailyLog.id) {
       dailyLog.id = docId
     }
     hasUnsavedChanges.value = false
@@ -1395,28 +1369,15 @@ async function handleMarqueeSave(newContent) {
   }
 
   try {
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await systemApi.updateSiteConfig('marquee_announcements', {
-        content: newContent,
-        updatedAt: new Date().toISOString(),
-        updatedBy: {
-          uid: currentUser.value.uid,
-          name: currentUser.value.name,
-        },
-      })
-      marqueeHtmlContent.value = newContent
-    } else {
-      const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-      await setDoc(marqueeRef, {
-        content: newContent,
-        updatedAt: new Date(),
-        updatedBy: {
-          uid: currentUser.value.uid,
-          name: currentUser.value.name,
-        },
-      })
-    }
+    await systemApi.updateSiteConfig('marquee_announcements', {
+      content: newContent,
+      updatedAt: new Date().toISOString(),
+      updatedBy: {
+        uid: currentUser.value.uid,
+        name: currentUser.value.name,
+      },
+    })
+    marqueeHtmlContent.value = newContent
     isMarqueeDialogVisible.value = false
     showAlert('儲存成功', '全域跑馬燈公告已更新！')
   } catch (error) {
@@ -1585,16 +1546,16 @@ function formatDifferencesMessage(differences) {
 async function checkAndSyncBeforeSave(onComplete) {
   try {
     // 獲取最新的 schedule 資料
-    const scheduleData = await schedulesApi.fetchAll([where('date', '==', selectedDate.value)])
+    const scheduleResult = await schedulesApi.fetchByDate(selectedDate.value).catch(() => null)
 
-    if (scheduleData.length === 0) {
+    if (!scheduleResult) {
       // 沒有排程資料，直接存檔
       await onComplete()
       return
     }
 
     // 計算 schedule 的人數統計
-    const scheduleStats = getStatsFromSchedule(scheduleData[0])
+    const scheduleStats = getStatsFromSchedule(scheduleResult)
 
     // 比較差異
     const differences = compareStats(dailyLog.stats, scheduleStats)
@@ -1828,10 +1789,9 @@ async function saveJustMovements() {
       patientMovements: JSON.parse(JSON.stringify(dailyLog.patientMovements)),
     }
 
-    if (dailyLog.id) {
-      await dailyLogsApi.update(docId, dataToUpdate)
-    } else {
-      await dailyLogsApi.save(docId, dataToUpdate)
+    // 使用本地 API 儲存日誌
+    await nursingApi.updateDailyLog(docId, dataToUpdate)
+    if (!dailyLog.id) {
       dailyLog.id = docId
     }
     hasUnsavedChanges.value = false
@@ -2058,22 +2018,13 @@ function handleTextareaInput() {
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 
-  // ✨ 單機模式支援
-  if (_isStandalone) {
-    // 單機模式：直接獲取跑馬燈內容
-    try {
-      const config = await systemApi.fetchSiteConfig('marquee_announcements')
-      marqueeHtmlContent.value = config?.configData?.content || config?.content || ''
-    } catch (error) {
-      console.warn('[DailyLogView] 獲取跑馬燈內容失敗:', error)
-      marqueeHtmlContent.value = ''
-    }
-  } else {
-    // Firebase 模式：使用即時監聽
-    const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-    marqueeUnsubscribe = onSnapshot(marqueeRef, (docSnap) => {
-      marqueeHtmlContent.value = docSnap.exists() ? docSnap.data().content || '' : ''
-    })
+  // 獲取跑馬燈內容
+  try {
+    const config = await systemApi.fetchSiteConfig('marquee_announcements')
+    marqueeHtmlContent.value = config?.configData?.content || config?.content || ''
+  } catch (error) {
+    console.warn('[DailyLogView] 獲取跑馬燈內容失敗:', error)
+    marqueeHtmlContent.value = ''
   }
 })
 

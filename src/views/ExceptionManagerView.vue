@@ -124,21 +124,6 @@
 <script setup>
 import { ref, onUnmounted, watch, computed, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  setDoc,
-  addDoc,
-  where,
-  getDocs,
-} from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import ApiManager from '@/services/api_manager'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
@@ -155,18 +140,11 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
-import { isStandaloneMode } from '@/utils/appMode'
-import { schedulesApi as localSchedulesApi, systemApi } from '@/services/localApiClient'
-
-// ✨ 檢查是否為單機模式
-const _isStandalone = isStandaloneMode()
+import { schedulesApi, systemApi } from '@/services/localApiClient'
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const { isMobile } = useBreakpoints()
-
-const exceptionsApi = ApiManager('schedule_exceptions')
-const tasksApi = ApiManager('tasks')
 const router = useRouter()
 const route = useRoute()
 const { createGlobalNotification } = useGlobalNotifier()
@@ -486,12 +464,8 @@ async function handleDelete() {
     // 先刪除對應的調班訊息
     await deleteOldExceptionMessages(exceptionData)
 
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      await localSchedulesApi.deleteException(exceptionId)
-    } else {
-      await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
-    }
+    // 使用本地 API 刪除
+    await schedulesApi.deleteException(exceptionId)
 
     let message = ''
     if (exceptionData.type === 'SWAP') {
@@ -721,7 +695,7 @@ async function handleCreateException(formData) {
 async function processExceptionSubmission(formData, isUpdating) {
   try {
     if (isUpdating) {
-      await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
+      await schedulesApi.deleteException(formData.id)
     }
     const dataToSave = {
       patientId: formData.patientId,
@@ -733,14 +707,14 @@ async function processExceptionSubmission(formData, isUpdating) {
       from: formData.from,
       to: formData.to,
       status: 'pending',
-      createdAt: serverTimestamp(),
+      createdAt: new Date().toISOString(),
     }
     if (formData.type === 'SWAP') {
       dataToSave.date = formData.date
       dataToSave.patient1 = formData.patient1
       dataToSave.patient2 = formData.patient2
     }
-    await exceptionsApi.save(dataToSave)
+    await schedulesApi.createException(dataToSave)
     closeCreateDialog()
     const actionText = isUpdating ? '重新提交' : '新增'
     let message = ''
@@ -790,8 +764,8 @@ async function processExceptionSubmission(formData, isUpdating) {
           name: currentUser.value.name,
           title: currentUser.value.title,
         },
-        createdAt: serverTimestamp(),
-        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdAt: new Date().toISOString(),
+        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         assignee: null,
       })
       if (formData.type === 'SWAP') {
@@ -803,10 +777,10 @@ async function processExceptionSubmission(formData, isUpdating) {
           id: formData.patient2.patientId,
           name: formData.patient2.patientName,
         })
-        await Promise.all([tasksApi.save(task1), tasksApi.save(task2)])
+        await Promise.all([systemApi.createTask(task1), systemApi.createTask(task2)])
       } else {
         const task = createMessageTask({ id: formData.patientId, name: formData.patientName })
-        await tasksApi.save(task)
+        await systemApi.createTask(task)
       }
     }
   } catch (error) {
@@ -822,21 +796,16 @@ async function processExceptionSubmission(formData, isUpdating) {
 async function deleteOldExceptionMessages(existingEx) {
   try {
     // 取得要刪除的 targetDate
-    // 注意：訊息產生時用的是 formData.date || formData.startDate
-    // 所以這裡要用相同的邏輯
     const targetDate = existingEx.date || existingEx.startDate
 
     if (!targetDate) return
 
-    // 查詢符合條件的 task 訊息
-    const tasksQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'message'),
-      where('patientId', '==', existingEx.patientId),
-      where('targetDate', '==', targetDate),
-    )
-
-    const snapshot = await getDocs(tasksQuery)
+    // 使用本地 API 查詢符合條件的 task 訊息
+    const tasks = await systemApi.fetchTasks({
+      category: 'message',
+      patientId: existingEx.patientId,
+      targetDate: targetDate,
+    }).catch(() => [])
 
     // 調班類型對應的關鍵字
     const typeKeywords = {
@@ -849,12 +818,11 @@ async function deleteOldExceptionMessages(existingEx) {
 
     // 過濾並刪除包含對應關鍵字的訊息
     const deletePromises = []
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data()
-      if (data.content && keyword && data.content.includes(keyword)) {
-        deletePromises.push(deleteDoc(doc(db, 'tasks', docSnap.id)))
+    for (const task of (tasks || [])) {
+      if (task.content && keyword && task.content.includes(keyword)) {
+        deletePromises.push(systemApi.deleteTask(task.id))
       }
-    })
+    }
 
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises)
@@ -888,7 +856,7 @@ async function handleMergeConfirm() {
 
     // 刪除除了第一筆之外的所有現有申請
     for (let i = 1; i < existingExceptions.length; i++) {
-      await deleteDoc(doc(db, 'schedule_exceptions', existingExceptions[i].id))
+      await schedulesApi.deleteException(existingExceptions[i].id)
     }
 
     // 建立合併後的資料：保留鏈頭的 from，更新 to
@@ -940,31 +908,14 @@ async function initializePageData() {
   try {
     await patientStore.fetchPatientsIfNeeded()
 
-    // ✨ 單機模式支援
-    if (_isStandalone) {
-      // 單機模式：直接獲取資料
-      const data = await exceptionsApi.fetchAll()
-      exceptions.value = data.sort((a, b) => {
-        const dateA = new Date(a.createdAt).getTime()
-        const dateB = new Date(b.createdAt).getTime()
-        return dateB - dateA
-      })
-      isLoading.value = false
-    } else {
-      // Firebase 模式：使用即時監聽
-      const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-      unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-          isLoading.value = false
-        },
-        (error) => {
-          console.error('❌ Firestore 監聽器發生錯誤:', error)
-          isLoading.value = false
-        },
-      )
-    }
+    // 使用本地 API 獲取資料
+    const data = await schedulesApi.fetchExceptions()
+    exceptions.value = (data || []).sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateB - dateA
+    })
+    isLoading.value = false
   } catch (error) {
     console.error('載入資料失敗:', error)
     isLoading.value = false
