@@ -739,6 +739,152 @@ router.put('/physician-schedules/:date', ...isEditor, async (req, res) => {
 })
 
 // ========================================
+// 預約變更 API
+// ========================================
+
+/**
+ * GET /api/system/scheduled-updates
+ * 取得預約變更列表
+ */
+router.get('/scheduled-updates', authenticate, (req, res) => {
+  try {
+    const { status, patientId } = req.query
+    const db = getDatabase()
+
+    let query = 'SELECT * FROM scheduled_patient_updates WHERE 1=1'
+    const params = []
+
+    if (status) {
+      query += ' AND status = ?'
+      params.push(status)
+    }
+
+    if (patientId) {
+      query += ' AND patient_id = ?'
+      params.push(patientId)
+    }
+
+    query += ' ORDER BY effective_date ASC, created_at DESC'
+
+    const updates = db.prepare(query).all(...params)
+    db.close()
+
+    res.json(updates.map(u => ({
+      id: u.id,
+      patientId: u.patient_id,
+      patientName: u.patient_name,
+      changeType: u.change_type,
+      changeData: JSON.parse(u.change_data || '{}'),
+      effectiveDate: u.effective_date,
+      status: u.status,
+      createdBy: JSON.parse(u.created_by || '{}'),
+      createdAt: u.created_at,
+      processedAt: u.processed_at
+    })))
+
+  } catch (error) {
+    console.error('取得預約變更列表錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得預約變更列表失敗'
+    })
+  }
+})
+
+/**
+ * POST /api/system/scheduled-updates
+ * 建立預約變更
+ */
+router.post('/scheduled-updates', ...isContributor, async (req, res) => {
+  try {
+    const {
+      patientId,
+      patientName,
+      changeType,
+      changeData,
+      effectiveDate,
+      notes
+    } = req.body
+
+    const id = uuidv4()
+    const db = getDatabase()
+
+    const createdBy = JSON.stringify({
+      id: req.user.id,
+      name: req.user.name
+    })
+
+    db.prepare(`
+      INSERT INTO scheduled_patient_updates (
+        id, patient_id, patient_name, change_type, change_data,
+        effective_date, notes, status, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(
+      id, patientId, patientName, changeType,
+      JSON.stringify(changeData || {}), effectiveDate, notes || '',
+      createdBy
+    )
+
+    db.close()
+
+    await logAudit('SCHEDULED_UPDATE_CREATE', req.user.id, req.user.name, 'scheduled_patient_updates', id, {
+      patientId,
+      changeType,
+      effectiveDate
+    })
+
+    res.status(201).json({
+      success: true,
+      id
+    })
+
+  } catch (error) {
+    console.error('建立預約變更錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '建立預約變更失敗'
+    })
+  }
+})
+
+/**
+ * DELETE /api/system/scheduled-updates/:id
+ * 取消預約變更
+ */
+router.delete('/scheduled-updates/:id', ...isEditor, async (req, res) => {
+  try {
+    const { id } = req.params
+    const db = getDatabase()
+
+    const result = db.prepare(`
+      UPDATE scheduled_patient_updates
+      SET status = 'cancelled'
+      WHERE id = ? AND status = 'pending'
+    `).run(id)
+
+    db.close()
+
+    if (result.changes === 0) {
+      return res.status(404).json({
+        error: true,
+        message: '找不到該預約變更或已被處理'
+      })
+    }
+
+    await logAudit('SCHEDULED_UPDATE_CANCEL', req.user.id, req.user.name, 'scheduled_patient_updates', id, {})
+
+    res.json({ success: true })
+
+  } catch (error) {
+    console.error('取消預約變更錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取消預約變更失敗'
+    })
+  }
+})
+
+// ========================================
 // 資料備份 API
 // ========================================
 

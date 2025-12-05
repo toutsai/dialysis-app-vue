@@ -1154,15 +1154,12 @@
 
 <script setup>
 import { ref, onMounted, computed, reactive, watch, onUnmounted, provide } from 'vue'
-import { serverTimestamp, addDoc, collection } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import ApiManager from '@/services/api_manager'
-import { where, orderBy, limit } from 'firebase/firestore'
-import { isStandaloneMode } from '@/utils/appMode'
-
-// Standalone mode detection
-const _isStandalone = isStandaloneMode()
-const scheduledUpdatesApi = ApiManager('scheduled_patient_updates')
+import {
+  schedulesApi as localSchedulesApi,
+  ordersApi,
+  authApi,
+  systemApi,
+} from '@/services/localApiClient'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth'
@@ -1182,8 +1179,6 @@ import { useTaskStore } from '@/stores/taskStore'
 import { useMedicationStore } from '@/stores/medicationStore'
 import { useArchiveStore } from '@/stores/archiveStore'
 import { storeToRefs } from 'pinia'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import * as XLSX from 'xlsx'
@@ -1201,11 +1196,6 @@ const medicationStore = useMedicationStore()
 const { patientMap, allPatients } = storeToRefs(patientStore)
 const { currentUser, hasPermission, canEditSchedules } = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
-
-// --- API 實例 ---
-const schedulesApi = ApiManager('schedules')
-const ordersHistoryApi = ApiManager('dialysis_orders_history')
-const usersApi = ApiManager('users')
 
 const nurseNameList = [
   '陳素秋',
@@ -1262,18 +1252,16 @@ const dutyAssignments = {
   },
 }
 
-// --- 輔助函式 (保持不變) ---
+// --- 輔助函式 ---
 async function getEffectiveOrdersForDate(patientId, targetDate) {
   if (!patientId || !targetDate) return {}
   const dateStr = targetDate.toISOString().slice(0, 10)
   try {
-    const results = await ordersHistoryApi.fetchAll([
-      where('patientId', '==', patientId),
-      where('orders.effectiveDate', '<=', dateStr),
-      orderBy('orders.effectiveDate', 'desc'),
-      orderBy('updatedAt', 'desc'),
-      limit(1),
-    ])
+    const results = await ordersApi.fetchHistory({
+      patientId,
+      effectiveDateBefore: dateStr,
+      limit: 1
+    })
     return results.length > 0 ? results[0].orders : {}
   } catch (error) {
     console.error(`獲取病人 ${patientId} 的醫囑失敗:`, error)
@@ -1555,21 +1543,24 @@ function setTeamChange() {
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
-    const physicianSchedulesApi = ApiManager('physician_schedules')
-    const [monthScheduleDoc, usersSnapshot] = await Promise.all([
-      physicianSchedulesApi.fetchById(dateStr),
-      usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
+    const [monthScheduleDoc, allUsers] = await Promise.all([
+      systemApi.fetchPhysicianSchedule(dateStr),
+      authApi.getUsers(),
     ])
-    const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
+    // 過濾出醫師和專科護理師
+    const physicians = allUsers.filter(u =>
+      u.title === '主治醫師' || u.title === '專科護理師'
+    )
+    const userMap = new Map(physicians.map((u) => [u.id, u]))
 
     const dialysisPhysiciansData = { early: null, noon: null, late: null }
     const consultPhysiciansData = { morning: null, afternoon: null, night: null }
 
-    if (monthScheduleDoc) {
+    if (monthScheduleDoc?.scheduleData) {
       const dayOfMonth = date.getDate()
 
       // 獲取查房醫師
-      const daySchedule = monthScheduleDoc.schedule?.[dayOfMonth]
+      const daySchedule = monthScheduleDoc.scheduleData?.[dayOfMonth]
       if (daySchedule) {
         dialysisPhysiciansData.early = userMap.get(daySchedule.early?.physicianId) || null
         dialysisPhysiciansData.noon = userMap.get(daySchedule.noon?.physicianId) || null
@@ -1577,7 +1568,7 @@ async function loadDailyStaffInfo(date) {
       }
 
       // 獲取會診醫師
-      const consultationDaySchedule = monthScheduleDoc.consultationSchedule?.[dayOfMonth]
+      const consultationDaySchedule = monthScheduleDoc.scheduleData?.consultationSchedule?.[dayOfMonth]
       if (consultationDaySchedule) {
         consultPhysiciansData.morning =
           userMap.get(consultationDaySchedule.morning?.physicianId) || null
@@ -1602,9 +1593,10 @@ async function fetchArchivedSchedule(dateStr) {
 }
 
 async function fetchLiveSchedule(dateStr) {
-  const schedulesApi = ApiManager('schedules')
-  const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
-  const record = dailyRecords.length > 0 ? dailyRecords[0] : { date: dateStr, schedule: {} }
+  const record = await localSchedulesApi.fetchByDate(dateStr)
+  if (!record || !record.schedule) {
+    return { date: dateStr, schedule: {} }
+  }
 
   if (record.schedule) {
     for (const shiftId in record.schedule) {
@@ -1719,14 +1711,13 @@ async function saveChangesToCloud() {
         delete scheduleToSave[key].nurseTeamTakeOff
         delete scheduleToSave[key].autoNote
       }
-      const scheduleData = { date: currentRecord.date, schedule: scheduleToSave }
-      if (currentRecord.id) {
-        promises.push(schedulesApi.update(currentRecord.id, scheduleData))
-      } else if (Object.keys(scheduleData.schedule).length > 0) {
-        promises.push(
-          schedulesApi.save(scheduleData).then((saved) => (currentRecord.id = saved.id)),
-        )
-      }
+      // 使用本地 API 更新排程
+      promises.push(
+        localSchedulesApi.updateByDate(currentRecord.date, scheduleToSave)
+          .then((saved) => {
+            if (saved?.id) currentRecord.id = saved.id
+          })
+      )
     }
     if (hasUnsavedTeamChanges.value) {
       const teamsData = {
@@ -2317,11 +2308,9 @@ const openOrderModalFromPopover = (patient) => {
   }
 }
 
-// ✨ 新增：處理調班申請
+// ✨ 處理調班申請
 async function handleCreateException(formData) {
   try {
-    // 複製 ExceptionManagerView 的邏輯
-    const exceptionsApi = ApiManager('schedule_exceptions')
     const dataToSave = {
       patientId: formData.patientId,
       patientName: formData.patientName,
@@ -2332,7 +2321,6 @@ async function handleCreateException(formData) {
       from: formData.from,
       to: formData.to,
       status: 'pending',
-      createdAt: serverTimestamp(),
     }
 
     if (formData.type === 'SWAP') {
@@ -2341,7 +2329,7 @@ async function handleCreateException(formData) {
       dataToSave.patient2 = formData.patient2
     }
 
-    await exceptionsApi.save(dataToSave)
+    await localSchedulesApi.createException(dataToSave)
     isExceptionDialogVisible.value = false
     createGlobalNotification(`成功新增調班申請: ${formData.patientName}`, 'success')
   } catch (error) {
@@ -2360,16 +2348,11 @@ function handleNewUpdateTypeSelected({ patient, changeType }) {
   }, 150)
 }
 
-// ✨ 新增：處理預約變更提交
+// ✨ 處理預約變更提交
 async function handleScheduledUpdate(dataToSubmit) {
   isSchedulerDialogVisible.value = false
   try {
-    if (_isStandalone) {
-      // 在 standalone 模式下，使用 ApiManager 創建預約變更
-      await scheduledUpdatesApi.create(dataToSubmit)
-    } else {
-      await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
-    }
+    await systemApi.createScheduledUpdate(dataToSubmit)
     createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
   } catch (error) {
     console.error('提交預約失敗:', error)

@@ -16,18 +16,29 @@ const router = Router()
  */
 router.get('/history', authenticate, (req, res) => {
   try {
-    const { patientId } = req.query
+    const { patientId, effectiveDateBefore, limit: queryLimit } = req.query
     const db = getDatabase()
 
-    let query = 'SELECT * FROM dialysis_orders_history'
+    let query = 'SELECT * FROM dialysis_orders_history WHERE 1=1'
     const params = []
 
     if (patientId) {
-      query += ' WHERE patient_id = ?'
+      query += ' AND patient_id = ?'
       params.push(patientId)
     }
 
+    // 支援篩選 effectiveDate <= 指定日期
+    if (effectiveDateBefore) {
+      query += ` AND json_extract(orders, '$.effectiveDate') <= ?`
+      params.push(effectiveDateBefore)
+    }
+
     query += ' ORDER BY created_at DESC'
+
+    if (queryLimit) {
+      query += ' LIMIT ?'
+      params.push(parseInt(queryLimit))
+    }
 
     const history = db.prepare(query).all(...params)
     db.close()

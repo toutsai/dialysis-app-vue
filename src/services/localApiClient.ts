@@ -435,9 +435,17 @@ export const ordersApi = {
   /**
    * 取得透析醫囑歷史
    */
-  async fetchHistory(patientId?: string) {
-    const query = patientId ? `?patientId=${patientId}` : ''
-    return apiRequest<any[]>(`/orders/history${query}`)
+  async fetchHistory(params?: {
+    patientId?: string
+    effectiveDateBefore?: string
+    limit?: number
+  }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.effectiveDateBefore) query.set('effectiveDateBefore', params.effectiveDateBefore)
+    if (params?.limit) query.set('limit', params.limit.toString())
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/history${queryStr ? `?${queryStr}` : ''}`)
   },
 
   /**
@@ -780,6 +788,43 @@ export const systemApi = {
     return apiRequest<any>(`/system/physician-schedules/${date}`, {
       method: 'PUT',
       body: JSON.stringify(scheduleData),
+    })
+  },
+
+  /**
+   * 取得預約變更列表
+   */
+  async fetchScheduledUpdates(params?: { status?: string; patientId?: string }) {
+    const query = new URLSearchParams()
+    if (params?.status) query.set('status', params.status)
+    if (params?.patientId) query.set('patientId', params.patientId)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/system/scheduled-updates${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 建立預約變更
+   */
+  async createScheduledUpdate(data: {
+    patientId: string
+    patientName?: string
+    changeType: string
+    changeData?: any
+    effectiveDate: string
+    notes?: string
+  }) {
+    return apiRequest<{ success: boolean; id: string }>('/system/scheduled-updates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 取消預約變更
+   */
+  async cancelScheduledUpdate(id: string) {
+    return apiRequest<{ success: boolean }>(`/system/scheduled-updates/${id}`, {
+      method: 'DELETE',
     })
   },
 }
