@@ -214,13 +214,25 @@ router.get('/users', ...isAdmin, (req, res) => {
   const db = getDatabase()
 
   const users = db.prepare(`
-    SELECT id, username, name, title, role, email, is_active, last_login, created_at
+    SELECT id, username, name, title, role, email, is_active, last_login, created_at, updated_at
     FROM users ORDER BY created_at DESC
   `).all()
 
   db.close()
 
-  res.json(users)
+  // 轉換為 camelCase 格式
+  res.json(users.map(u => ({
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    title: u.title,
+    role: u.role,
+    email: u.email,
+    isActive: u.is_active === 1,
+    lastLogin: u.last_login,
+    createdAt: u.created_at,
+    updatedAt: u.updated_at
+  })))
 })
 
 /**

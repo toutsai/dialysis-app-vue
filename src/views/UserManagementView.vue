@@ -231,10 +231,8 @@ async function handleSaveUser(userData) {
       const { id, ...dataToSave } = userData
       try {
         const result = await authApi.createUser(dataToSave)
-        const newUserDoc = await usersApi.fetchById(result.userId)
-        if (newUserDoc) {
-          users.value.unshift(newUserDoc)
-        }
+        // 重新載入整個使用者列表以確保資料同步
+        await fetchUsers()
         showAlert('成功', '使用者已新增。')
       } catch (createError) {
         console.error('建立用戶失敗:', createError)
