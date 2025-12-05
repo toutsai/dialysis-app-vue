@@ -1,9 +1,14 @@
 // 檔案路徑: src/stores/medicationStore.ts (v2 - 修正快取累加問題)
+// ✨ 已支援單機模式
 
 import { defineStore } from 'pinia'
 import { ref, computed, type Ref } from 'vue'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 export interface InjectionRecord {
   patientId: string
@@ -24,6 +29,12 @@ export const useMedicationStore = defineStore('medication', () => {
     console.log(`[Store] 接到請求: 日期=${targetDate}, 病人數=${patientIds.length}`)
 
     if (!patientIds || patientIds.length === 0) {
+      return [] as InjectionRecord[]
+    }
+
+    // 🖥️ 單機模式：目前返回空資料（待後端實現 getDailyInjections API）
+    if (_isStandalone) {
+      console.log('[Store] 🖥️ 單機模式：getDailyInjections 功能尚未實現，返回空資料')
       return [] as InjectionRecord[]
     }
 
@@ -49,7 +60,7 @@ export const useMedicationStore = defineStore('medication', () => {
         const getDailyInjections = httpsCallable<
           { targetDate: string; patientIds: string[] },
           { success: boolean; injections: InjectionRecord[] }
-        >(functions, 'getDailyInjections')
+        >(functions!, 'getDailyInjections')
         const CHUNK_SIZE = 30
         const promises: Array<Promise<{ data: { success: boolean; injections: InjectionRecord[] } }>> = []
         for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
