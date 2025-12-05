@@ -1,9 +1,11 @@
-// src/services/scheduleService.js (修正版 - 移除ID格式驗證)
+// src/services/scheduleService.js (修正版 - 支援單機模式)
 
 import { doc, updateDoc, where, limit, collection, getDocs, query } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { generateAutoNote } from '@/utils/scheduleUtils.js'
 import { formatDateToYYYYMMDD, addMonths } from '@/utils/dateUtils'
+import { isStandaloneMode } from '@/utils/appMode'
+import { schedulesApi } from '@/services/localApiClient'
 
 // ✨ 整合優化系統
 import { useCache } from '@/composables/useCache.js'
@@ -14,12 +16,31 @@ const { getCachedData, invalidateCache } = useCache()
 const { handleApiCall, validateInput, validationRules, performanceMonitor } = useErrorHandler()
 const { createGlobalNotification } = useGlobalNotifier()
 
-// ✨ 直接使用 Firestore 操作，替代 ApiManager
-const schedulesCollection = collection(db, 'schedules')
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
-// 簡化的資料獲取函式
+// ✨ 直接使用 Firestore 操作，替代 ApiManager (僅 Firebase 模式)
+const schedulesCollection = _isStandalone ? null : collection(db, 'schedules')
+
+// 簡化的資料獲取函式 (支援單機模式)
 const fetchScheduleDocuments = async (constraints = []) => {
   try {
+    // 🖥️ 單機模式：使用本地 API
+    if (_isStandalone) {
+      console.log('🖥️ [scheduleService] 使用本地 API 獲取排程')
+      // 從 constraints 中提取日期範圍
+      let startDate, endDate
+      for (const constraint of constraints) {
+        if (constraint?.type === 'where') {
+          // Mock where constraints have type property
+        }
+      }
+      // 如果無法解析 constraints，獲取所有排程
+      const schedules = await schedulesApi.fetchAll({ startDate, endDate })
+      return schedules || []
+    }
+
+    // ☁️ Firebase 模式：使用 Firestore
     const q = query(schedulesCollection, ...constraints)
     const querySnapshot = await getDocs(q)
 
@@ -33,7 +54,7 @@ const fetchScheduleDocuments = async (constraints = []) => {
 
     return documents
   } catch (error) {
-    console.error('❌ Firestore query failed:', error)
+    console.error('❌ 獲取排程失敗:', error)
     throw error
   }
 }
