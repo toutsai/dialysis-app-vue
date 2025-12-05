@@ -339,6 +339,11 @@ export class FieldPath {
   }
 }
 
+// documentId as standalone function (Firebase exports this separately)
+export function documentId() {
+  return FieldPath.documentId()
+}
+
 // GeoPoint class
 export class GeoPoint {
   latitude: number
