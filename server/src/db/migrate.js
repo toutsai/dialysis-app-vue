@@ -73,6 +73,18 @@ export function runMigrations() {
     }
 
     // ========================================
+    // Patients 表格遷移
+    // ========================================
+    const patientsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='patients'").get()
+    if (patientsExists) {
+      console.log('📋 檢查 patients 表格...')
+
+      // 新增病人狀態欄位
+      if (addColumnIfNotExists(db, 'patients', 'patient_status', "TEXT DEFAULT '{}'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'patients', 'is_hepatitis', "INTEGER DEFAULT 0")) migrationsApplied++
+    }
+
+    // ========================================
     // 其他可能需要遷移的表格
     // ========================================
 

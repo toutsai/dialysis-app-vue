@@ -35,6 +35,8 @@ function formatPatient(row) {
     inpatientReason: row.inpatient_reason,
     dialysisReason: row.dialysis_reason,
     notes: row.notes,
+    patientStatus: JSON.parse(row.patient_status || '{}'),
+    isHepatitis: row.is_hepatitis === 1,
     scheduleRule: JSON.parse(row.schedule_rule || '{}'),
     lastModifiedBy: JSON.parse(row.last_modified_by || '{}'),
     createdAt: row.created_at,
@@ -71,6 +73,8 @@ function toDbFormat(data) {
   if (data.inpatientReason !== undefined) result.inpatient_reason = data.inpatientReason
   if (data.dialysisReason !== undefined) result.dialysis_reason = data.dialysisReason
   if (data.notes !== undefined) result.notes = data.notes
+  if (data.patientStatus !== undefined) result.patient_status = JSON.stringify(data.patientStatus)
+  if (data.isHepatitis !== undefined) result.is_hepatitis = data.isHepatitis ? 1 : 0
   if (data.scheduleRule !== undefined) result.schedule_rule = JSON.stringify(data.scheduleRule)
   if (data.lastModifiedBy !== undefined) result.last_modified_by = JSON.stringify(data.lastModifiedBy)
 

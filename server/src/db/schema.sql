@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS patients (
     dialysis_reason TEXT,
     notes TEXT,
 
+    -- 病人狀態 (JSON 格式)
+    patient_status TEXT DEFAULT '{}',  -- JSON: {isFirstDialysis, isPaused, hasBloodDraw}
+    is_hepatitis INTEGER DEFAULT 0,    -- 是否為肝炎病人
+
     -- 排程規則關聯
     schedule_rule TEXT DEFAULT '{}',   -- JSON: 排程規則
 
