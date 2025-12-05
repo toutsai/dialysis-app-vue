@@ -652,6 +652,93 @@ router.post('/physicians', ...isAdmin, async (req, res) => {
 })
 
 // ========================================
+// 醫師班表 API
+// ========================================
+
+/**
+ * GET /api/system/physician-schedules/:date
+ * 取得特定日期的醫師班表
+ */
+router.get('/physician-schedules/:date', authenticate, (req, res) => {
+  try {
+    const { date } = req.params
+    const db = getDatabase()
+
+    const schedule = db.prepare(`
+      SELECT * FROM physician_schedules WHERE id = ?
+    `).get(date)
+
+    db.close()
+
+    if (!schedule) {
+      return res.json({
+        id: date,
+        scheduleData: {},
+        createdAt: null,
+        updatedAt: null
+      })
+    }
+
+    res.json({
+      id: schedule.id,
+      scheduleData: JSON.parse(schedule.schedule_data || '{}'),
+      createdAt: schedule.created_at,
+      updatedAt: schedule.updated_at
+    })
+
+  } catch (error) {
+    console.error('取得醫師班表錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得醫師班表失敗'
+    })
+  }
+})
+
+/**
+ * PUT /api/system/physician-schedules/:date
+ * 更新特定日期的醫師班表
+ */
+router.put('/physician-schedules/:date', ...isEditor, async (req, res) => {
+  try {
+    const { date } = req.params
+    const scheduleData = req.body
+
+    const db = getDatabase()
+
+    db.prepare(`
+      INSERT INTO physician_schedules (id, schedule_data, updated_at)
+      VALUES (?, ?, datetime('now', 'localtime'))
+      ON CONFLICT(id) DO UPDATE SET
+        schedule_data = excluded.schedule_data,
+        updated_at = datetime('now', 'localtime')
+    `).run(date, JSON.stringify(scheduleData))
+
+    const updated = db.prepare(`
+      SELECT * FROM physician_schedules WHERE id = ?
+    `).get(date)
+
+    db.close()
+
+    await logAudit('PHYSICIAN_SCHEDULE_UPDATE', req.user.id, req.user.name, 'physician_schedules', date, scheduleData)
+
+    res.json({
+      success: true,
+      id: updated.id,
+      scheduleData: JSON.parse(updated.schedule_data || '{}'),
+      updatedAt: updated.updated_at
+    })
+
+  } catch (error) {
+    console.error('更新醫師班表錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '更新醫師班表失敗'
+    })
+  }
+})
+
+// ========================================
 // 資料備份 API
 // ========================================
 

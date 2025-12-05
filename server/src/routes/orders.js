@@ -337,18 +337,33 @@ router.post('/lab-reports', authenticate, async (req, res) => {
  */
 router.get('/condition-records', authenticate, (req, res) => {
   try {
-    const { patientId } = req.query
+    const { patientId, startDate, endDate, limit: queryLimit } = req.query
     const db = getDatabase()
 
-    let query = 'SELECT * FROM condition_records'
+    let query = 'SELECT * FROM condition_records WHERE 1=1'
     const params = []
 
     if (patientId) {
-      query += ' WHERE patient_id = ?'
+      query += ' AND patient_id = ?'
       params.push(patientId)
     }
 
+    if (startDate) {
+      query += ' AND created_at >= ?'
+      params.push(startDate)
+    }
+
+    if (endDate) {
+      query += ' AND created_at <= ?'
+      params.push(endDate)
+    }
+
     query += ' ORDER BY record_date DESC, created_at DESC'
+
+    if (queryLimit) {
+      query += ' LIMIT ?'
+      params.push(parseInt(queryLimit))
+    }
 
     const records = db.prepare(query).all(...params)
     db.close()

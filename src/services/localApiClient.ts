@@ -489,9 +489,19 @@ export const ordersApi = {
   /**
    * 取得病情記錄
    */
-  async fetchConditionRecords(patientId?: string) {
-    const query = patientId ? `?patientId=${patientId}` : ''
-    return apiRequest<any[]>(`/orders/condition-records${query}`)
+  async fetchConditionRecords(params?: {
+    patientId?: string
+    startDate?: string
+    endDate?: string
+    limit?: number
+  }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    if (params?.limit) query.set('limit', params.limit.toString())
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/condition-records${queryStr ? `?${queryStr}` : ''}`)
   },
 
   /**
@@ -748,6 +758,28 @@ export const systemApi = {
     return apiRequest<any>('/system/physicians', {
       method: 'POST',
       body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 取得醫師班表
+   */
+  async fetchPhysicianSchedule(date: string) {
+    return apiRequest<{
+      id: string
+      scheduleData: any
+      createdAt: string | null
+      updatedAt: string | null
+    }>(`/system/physician-schedules/${date}`)
+  },
+
+  /**
+   * 更新醫師班表
+   */
+  async updatePhysicianSchedule(date: string, scheduleData: any) {
+    return apiRequest<any>(`/system/physician-schedules/${date}`, {
+      method: 'PUT',
+      body: JSON.stringify(scheduleData),
     })
   },
 }
