@@ -171,6 +171,12 @@ import { httpsCallable } from 'firebase/functions'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
+import { isStandaloneMode } from '@/utils/appMode'
+import ApiManager from '@/services/api_manager'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
+const consumablesReportsApi = ApiManager('consumables_reports')
 
 // --- Store & State ---
 const patientStore = usePatientStore()
@@ -254,14 +260,25 @@ async function handleSearch() {
       return
     }
 
-    // 2. 獲取原始耗材資料 (邏輯不變)
+    // 2. 獲取原始耗材資料
     const reportMonth = groupSearchParams.month
     const reportIdsForMonth = allPatientIdsInGroup.map((id) => `${reportMonth}_${id}`)
-    const monthlyReports = await queryWithInChunks(
-      'consumables_reports',
-      documentId(),
-      reportIdsForMonth,
-    )
+
+    let monthlyReports
+    if (_isStandalone) {
+      // 在 standalone 模式下，使用 API 批次獲取報告
+      const reportPromises = reportIdsForMonth.map((id) =>
+        consumablesReportsApi.fetchById(id).catch(() => null)
+      )
+      const results = await Promise.all(reportPromises)
+      monthlyReports = results.filter(Boolean)
+    } else {
+      monthlyReports = await queryWithInChunks(
+        'consumables_reports',
+        documentId(),
+        reportIdsForMonth,
+      )
+    }
     rawConsumablesData.value = monthlyReports
 
     // 3. 資料預處理 (邏輯不變)
@@ -450,6 +467,16 @@ async function handleUpload() {
     alert('請先選擇一個檔案！')
     return
   }
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援上傳功能
+    uploadResult.value = {
+      message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
+      errorCount: 1,
+    }
+    return
+  }
+
   isUploading.value = true
   uploadResult.value = null
   try {

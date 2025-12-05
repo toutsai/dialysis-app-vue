@@ -202,6 +202,10 @@ import { storeToRefs } from 'pinia'
 import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { useMedicationStore } from '@/stores/medicationStore'
 import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
@@ -539,6 +543,17 @@ async function handleUpload() {
     alert('請先選擇一個檔案！')
     return
   }
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援上傳功能
+    uploadResult.value = {
+      message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
+      errorCount: 1,
+      errors: [],
+    }
+    return
+  }
+
   isUploading.value = true
   uploadResult.value = null
   try {

@@ -271,6 +271,10 @@ import { useTaskStore } from '@/stores/taskStore'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import { getShiftDisplayName as getShiftName } from '@/constants/scheduleConstants.js'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
 
 // 引入 "內容面板" 元件
 import ConditionRecordPanel from './ConditionRecordPanel.vue'
@@ -530,6 +534,12 @@ function retakePhoto() {
 async function uploadToDrive() {
   if (!capturedImage.value || !props.patient) return
 
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援上傳到 Google Drive
+    cameraErrorMessage.value = '離線模式下暫不支援上傳圖片功能，請使用線上模式。'
+    return
+  }
+
   isUploading.value = true
   cameraState.value = 'uploading'
   cameraErrorMessage.value = ''
@@ -589,6 +599,13 @@ async function fetchDriveFiles() {
     return
   }
 
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援查詢 Google Drive 檔案
+    fetchError.value = '離線模式下暫不支援查詢雲端檔案功能，請使用線上模式。'
+    hasSearched.value = true
+    return
+  }
+
   isFetchingFiles.value = true
   hasSearched.value = true
   fetchError.value = ''
@@ -636,6 +653,12 @@ function cancelEditFileName() {
 async function saveFileName() {
   if (!editingFile.value || !newFileName.value.trim()) {
     renameError.value = '檔名不能為空白'
+    return
+  }
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援重新命名 Google Drive 檔案
+    renameError.value = '離線模式下暫不支援重新命名雲端檔案功能，請使用線上模式。'
     return
   }
 

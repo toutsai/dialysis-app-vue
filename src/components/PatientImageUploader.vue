@@ -39,6 +39,10 @@
 import { ref } from 'vue'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
 
 const props = defineProps({
   patient: {
@@ -123,6 +127,12 @@ function retakePhoto() {
  */
 async function uploadToDrive() {
   if (!capturedImage.value || !props.patient) return
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援上傳到 Google Drive
+    errorMessage.value = '離線模式下暫不支援上傳圖片功能，請使用線上模式。'
+    return
+  }
 
   isUploading.value = true
   currentState.value = 'uploading'

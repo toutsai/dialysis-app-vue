@@ -1158,6 +1158,11 @@ import { serverTimestamp, addDoc, collection } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import ApiManager from '@/services/api_manager'
 import { where, orderBy, limit } from 'firebase/firestore'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
+const scheduledUpdatesApi = ApiManager('scheduled_patient_updates')
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js'
 import { useAuth } from '@/composables/useAuth'
@@ -2359,7 +2364,12 @@ function handleNewUpdateTypeSelected({ patient, changeType }) {
 async function handleScheduledUpdate(dataToSubmit) {
   isSchedulerDialogVisible.value = false
   try {
-    await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
+    if (_isStandalone) {
+      // 在 standalone 模式下，使用 ApiManager 創建預約變更
+      await scheduledUpdatesApi.create(dataToSubmit)
+    } else {
+      await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
+    }
     createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
   } catch (error) {
     console.error('提交預約失敗:', error)

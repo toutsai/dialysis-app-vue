@@ -270,6 +270,11 @@ import { deleteDoc, doc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
 import { escapeHtml } from '@/utils/sanitize.js'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
+const exceptionsApi = ApiManager('schedule_exceptions')
 
 // Props & Emits
 const props = defineProps({
@@ -675,7 +680,12 @@ async function handleDelete() {
   if (!isEditingMode.value || !props.initialData?.id) return
   isSubmitting.value = true
   try {
-    await deleteDoc(doc(db, 'schedule_exceptions', props.initialData.id))
+    if (_isStandalone) {
+      // 在 standalone 模式下，使用 ApiManager 刪除
+      await exceptionsApi.delete(props.initialData.id)
+    } else {
+      await deleteDoc(doc(db, 'schedule_exceptions', props.initialData.id))
+    }
     emit('delete', props.initialData.id) // 發送 delete 事件給父元件
   } catch (error) {
     console.error('撤銷申請失敗:', error)

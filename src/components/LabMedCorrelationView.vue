@@ -162,6 +162,10 @@ import ApiManager from '@/services/api_manager'
 import { db } from '@/composables/useFirebase'
 import { where, orderBy, writeBatch, query, collection, getDocs, doc } from 'firebase/firestore'
 import { useAuth } from '@/composables/useAuth'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
 
 const props = defineProps({
   patient: Object,
@@ -450,41 +454,82 @@ async function saveDraftOrders() {
     return
   }
   isSubmitting.value = true
-  const batch = writeBatch(db)
-  try {
-    const oldDraftsQuery = query(
-      collection(db, 'medication_drafts'),
-      where('patientId', '==', props.patient.id),
-      where('targetMonth', '==', draftTargetMonth.value),
-    )
-    const oldDraftsSnapshot = await getDocs(oldDraftsQuery)
-    oldDraftsSnapshot.forEach((doc) => batch.delete(doc.ref))
 
-    for (const medCode in orderDraft) {
-      const draft = orderDraft[medCode]
-      if (draft.dose || draft.frequency) {
-        const medInfo = allMedsMaster.value.find((m) => m.code === medCode)
-        const newDraftRef = doc(collection(db, 'medication_drafts'))
-        batch.set(newDraftRef, {
-          patientId: props.patient.id,
-          patientName: props.patient.name,
-          medicalRecordNumber: props.patient.medicalRecordNumber,
-          targetMonth: draftTargetMonth.value,
-          status: 'pending',
-          createdAt: new Date(),
-          authorId: currentUser.value.uid,
-          authorName: currentUser.value.name,
-          orderCode: medInfo.code,
-          orderName: medInfo.tradeName,
-          orderType: medInfo.type,
-          dose: draft.dose,
-          unit: medInfo.unit,
-          frequency: medInfo.type === 'oral' ? draft.frequency : '',
-          note: medInfo.type === 'injection' ? draft.frequency : '',
-        })
+  try {
+    if (_isStandalone) {
+      // 在 standalone 模式下，使用 ApiManager 進行操作
+      // 1. 獲取並刪除舊草稿
+      const oldDrafts = await draftOrdersApi.fetchAll([
+        where('patientId', '==', props.patient.id),
+        where('targetMonth', '==', draftTargetMonth.value),
+      ])
+      const deletePromises = oldDrafts.map((draft) => draftOrdersApi.delete(draft.id))
+      await Promise.all(deletePromises)
+
+      // 2. 創建新草稿
+      const createPromises = []
+      for (const medCode in orderDraft) {
+        const draft = orderDraft[medCode]
+        if (draft.dose || draft.frequency) {
+          const medInfo = allMedsMaster.value.find((m) => m.code === medCode)
+          createPromises.push(
+            draftOrdersApi.create({
+              patientId: props.patient.id,
+              patientName: props.patient.name,
+              medicalRecordNumber: props.patient.medicalRecordNumber,
+              targetMonth: draftTargetMonth.value,
+              status: 'pending',
+              createdAt: new Date(),
+              authorId: currentUser.value.uid,
+              authorName: currentUser.value.name,
+              orderCode: medInfo.code,
+              orderName: medInfo.tradeName,
+              orderType: medInfo.type,
+              dose: draft.dose,
+              unit: medInfo.unit,
+              frequency: medInfo.type === 'oral' ? draft.frequency : '',
+              note: medInfo.type === 'injection' ? draft.frequency : '',
+            })
+          )
+        }
       }
+      await Promise.all(createPromises)
+    } else {
+      const batch = writeBatch(db)
+      const oldDraftsQuery = query(
+        collection(db, 'medication_drafts'),
+        where('patientId', '==', props.patient.id),
+        where('targetMonth', '==', draftTargetMonth.value),
+      )
+      const oldDraftsSnapshot = await getDocs(oldDraftsQuery)
+      oldDraftsSnapshot.forEach((docSnapshot) => batch.delete(docSnapshot.ref))
+
+      for (const medCode in orderDraft) {
+        const draft = orderDraft[medCode]
+        if (draft.dose || draft.frequency) {
+          const medInfo = allMedsMaster.value.find((m) => m.code === medCode)
+          const newDraftRef = doc(collection(db, 'medication_drafts'))
+          batch.set(newDraftRef, {
+            patientId: props.patient.id,
+            patientName: props.patient.name,
+            medicalRecordNumber: props.patient.medicalRecordNumber,
+            targetMonth: draftTargetMonth.value,
+            status: 'pending',
+            createdAt: new Date(),
+            authorId: currentUser.value.uid,
+            authorName: currentUser.value.name,
+            orderCode: medInfo.code,
+            orderName: medInfo.tradeName,
+            orderType: medInfo.type,
+            dose: draft.dose,
+            unit: medInfo.unit,
+            frequency: medInfo.type === 'oral' ? draft.frequency : '',
+            note: medInfo.type === 'injection' ? draft.frequency : '',
+          })
+        }
+      }
+      await batch.commit()
     }
-    await batch.commit()
     alert('藥囑草稿儲存成功！')
     await fetchData()
   } catch (error) {

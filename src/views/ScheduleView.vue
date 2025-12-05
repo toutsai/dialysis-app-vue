@@ -926,6 +926,10 @@ import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/composables/useFirebase'
 import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
 import IcuOrdersDialog from '@/components/IcuOrdersDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
 import CRRTOrderModal from '@/components/CRRTOrderModal.vue'
@@ -1583,6 +1587,15 @@ async function showShiftMedicationDrafts(shiftCode) {
     isDraftLoading.value = false
     return
   }
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援此功能
+    showAlert('功能提示', '離線模式下暫不支援藥囑草稿查詢功能，請使用線上模式。')
+    isDraftDialogVisible.value = false
+    isDraftLoading.value = false
+    return
+  }
+
   try {
     const getDailyMedicationDrafts = httpsCallable(functions, 'getDailyMedicationDrafts')
     const CHUNK_SIZE = 30

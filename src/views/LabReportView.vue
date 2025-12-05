@@ -382,6 +382,10 @@ import { LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js'
 // 引入 dateUtils 函數
 import { formatDateToYYYYMM, formatDateToYYYYMMDD } from '@/utils/dateUtils.js'
 import { escapeHtml } from '@/utils/sanitize.js'
+import { isStandaloneMode } from '@/utils/appMode'
+
+// Standalone mode detection
+const _isStandalone = isStandaloneMode()
 
 const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
@@ -1015,6 +1019,16 @@ async function handleUpload() {
     alert('請先選擇一個檔案！')
     return
   }
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，暫時不支援上傳功能
+    uploadResult.value = {
+      message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
+      errorCount: 1,
+    }
+    return
+  }
+
   isUploading.value = true
   uploadResult.value = null
   missingPatients.value = []
@@ -1183,22 +1197,42 @@ async function searchIndividualReports() {
   const year = individualSearchYear.value
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year + 1, 0, 1)
-  const reportsRaw = []
-  const reportsRef = collection(db, 'lab_reports')
-  const q = firestoreQuery(
-    reportsRef,
-    where('patientId', '==', foundPatient.id),
-    where('reportDate', '>=', startDate),
-    where('reportDate', '<', endDate),
-    orderBy('reportDate', 'desc'),
-  )
-  const querySnapshot = await getDocs(q)
-  querySnapshot.forEach((doc) => {
-    const data = doc.data()
-    if (data.reportDate?.toDate)
-      data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
-    reportsRaw.push({ id: doc.id, ...data })
-  })
+  let reportsRaw = []
+
+  if (_isStandalone) {
+    // 在 standalone 模式下，使用 ApiManager 獲取報告
+    const reports = await labReportsApi.fetchAll([
+      where('patientId', '==', foundPatient.id),
+      where('reportDate', '>=', startDate),
+      where('reportDate', '<', endDate),
+      orderBy('reportDate', 'desc'),
+    ])
+    reportsRaw = reports.map((report) => {
+      if (report.reportDate && typeof report.reportDate === 'string') {
+        // 確保日期格式正確
+        report.reportDate = report.reportDate.slice(0, 10)
+      } else if (report.reportDate?.toDate) {
+        report.reportDate = report.reportDate.toDate().toISOString().slice(0, 10)
+      }
+      return report
+    })
+  } else {
+    const reportsRef = collection(db, 'lab_reports')
+    const q = firestoreQuery(
+      reportsRef,
+      where('patientId', '==', foundPatient.id),
+      where('reportDate', '>=', startDate),
+      where('reportDate', '<', endDate),
+      orderBy('reportDate', 'desc'),
+    )
+    const querySnapshot = await getDocs(q)
+    querySnapshot.forEach((doc) => {
+      const data = doc.data()
+      if (data.reportDate?.toDate)
+        data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
+      reportsRaw.push({ id: doc.id, ...data })
+    })
+  }
 
   const processedData = {}
   const monthSet = new Set()
