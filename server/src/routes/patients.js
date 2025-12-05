@@ -10,6 +10,7 @@ const router = Router()
  * 將資料庫記錄轉換為 API 回應格式
  */
 function formatPatient(row) {
+  const dialysisOrders = JSON.parse(row.dialysis_orders || '{}')
   return {
     id: row.id,
     medicalRecordNumber: row.medical_record_number,
@@ -17,7 +18,10 @@ function formatPatient(row) {
     status: row.status,
     isDeleted: row.is_deleted === 1,
     deleteReason: row.delete_reason,
-    dialysisOrders: JSON.parse(row.dialysis_orders || '{}'),
+    dialysisOrders: dialysisOrders,
+    // 將 freq 和 mode 也放在頂層，方便前端使用
+    freq: dialysisOrders.freq || null,
+    mode: dialysisOrders.mode || null,
     birthDate: row.birth_date,
     gender: row.gender,
     idNumber: row.id_number,
@@ -55,7 +59,15 @@ function toDbFormat(data) {
   if (data.status !== undefined) result.status = data.status
   if (data.isDeleted !== undefined) result.is_deleted = data.isDeleted ? 1 : 0
   if (data.deleteReason !== undefined) result.delete_reason = data.deleteReason
-  if (data.dialysisOrders !== undefined) result.dialysis_orders = JSON.stringify(data.dialysisOrders)
+
+  // 處理透析醫囑 - 合併 dialysisOrders, freq, mode
+  const dialysisOrders = data.dialysisOrders || {}
+  if (data.freq !== undefined) dialysisOrders.freq = data.freq
+  if (data.mode !== undefined) dialysisOrders.mode = data.mode
+  if (Object.keys(dialysisOrders).length > 0 || data.dialysisOrders !== undefined) {
+    result.dialysis_orders = JSON.stringify(dialysisOrders)
+  }
+
   if (data.birthDate !== undefined) result.birth_date = data.birthDate
   if (data.gender !== undefined) result.gender = data.gender
   if (data.idNumber !== undefined) result.id_number = data.idNumber
