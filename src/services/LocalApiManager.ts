@@ -3,7 +3,7 @@
  * 提供與 ApiManager 相同的介面，但使用本地 REST API
  */
 
-import { patientsApi, schedulesApi, memosApi, ordersApi, nursingApi, systemApi } from './localApiClient'
+import { patientsApi, schedulesApi, memosApi, ordersApi, nursingApi, systemApi, authApi } from './localApiClient'
 
 type FirestoreRecord = { id?: string; [key: string]: unknown }
 
@@ -161,6 +161,18 @@ const resourceApiMap: Record<string, any> = {
   physicians: {
     fetchAll: () => systemApi.fetchPhysicians(),
     create: (data: any) => systemApi.createPhysician(data),
+  },
+
+  // 使用者相關
+  users: {
+    fetchAll: () => authApi.getUsers(),
+    fetchById: async (id: string) => {
+      const users = await authApi.getUsers()
+      return users.find((u: any) => u.id === id) || null
+    },
+    create: (data: any) => authApi.createUser(data),
+    update: (id: string, data: any) => authApi.updateUser(id, data),
+    delete: (id: string) => authApi.deleteUser(id),
   },
 }
 
