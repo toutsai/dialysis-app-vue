@@ -1,8 +1,14 @@
 // 檔案路徑: src/services/nursingDutyService.js
+// ✨ 已支援單機模式
 
 import ApiManager from './api_manager' // 確保您有這個共用的 ApiManager
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '@/composables/useFirebase'
+import { isStandaloneMode } from '@/utils/appMode'
+import { nursingApi } from '@/services/localApiClient'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
 
 const dutiesApi = ApiManager('nursing_duties')
 const DUTY_DOC_ID = 'main' // 我們使用一個固定的文件 ID
@@ -23,6 +29,19 @@ const getDefaultData = () => ({
  */
 export async function fetchDuties() {
   try {
+    // 🖥️ 單機模式：使用本地 API
+    if (_isStandalone) {
+      const data = await nursingApi.fetchDuties()
+      if (data) {
+        console.log('✅ 從本地 API 成功獲取護理職責資料')
+        return data
+      } else {
+        console.log('⚠️ 在本地資料庫中找不到護理職責，回傳預設值。')
+        return getDefaultData()
+      }
+    }
+
+    // ☁️ Firebase 模式：使用 Firestore
     const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
     const docSnap = await getDoc(docRef)
 
@@ -46,6 +65,14 @@ export async function fetchDuties() {
  */
 export async function saveDuties(data) {
   try {
+    // 🖥️ 單機模式：使用本地 API
+    if (_isStandalone) {
+      await nursingApi.saveDuties(data)
+      console.log('✅ 護理職責資料已成功儲存到本地資料庫')
+      return
+    }
+
+    // ☁️ Firebase 模式：使用 Firestore
     const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
     // 使用 setDoc 搭配 { merge: true }，如果文件不存在會建立，如果存在則會更新
     await setDoc(docRef, data, { merge: true })
