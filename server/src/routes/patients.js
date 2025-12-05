@@ -147,6 +147,78 @@ router.get('/with-rules', authenticate, (req, res) => {
 })
 
 /**
+ * GET /api/patients/history
+ * 取得所有病人歷史記錄
+ * 注意：此路由必須在 /:id 之前，否則會被 /:id 攔截
+ */
+router.get('/history', authenticate, (req, res) => {
+  try {
+    const db = getDatabase()
+
+    const history = db.prepare(`
+      SELECT * FROM patient_history
+      ORDER BY timestamp DESC
+      LIMIT 100
+    `).all()
+
+    db.close()
+
+    res.json(history.map(h => ({
+      id: h.id,
+      patientId: h.patient_id,
+      patientName: h.patient_name,
+      eventType: h.event_type,
+      eventDetails: JSON.parse(h.event_details || '{}'),
+      snapshot: JSON.parse(h.snapshot || '{}'),
+      timestamp: h.timestamp
+    })))
+
+  } catch (error) {
+    console.error('取得所有病人歷史錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得病人歷史失敗'
+    })
+  }
+})
+
+/**
+ * GET /api/patients/history/:patientId
+ * 取得特定病人歷史記錄
+ */
+router.get('/history/:patientId', authenticate, (req, res) => {
+  try {
+    const { patientId } = req.params
+    const db = getDatabase()
+
+    const history = db.prepare(`
+      SELECT * FROM patient_history
+      WHERE patient_id = ?
+      ORDER BY timestamp DESC
+    `).all(patientId)
+
+    db.close()
+
+    res.json(history.map(h => ({
+      id: h.id,
+      patientId: h.patient_id,
+      patientName: h.patient_name,
+      eventType: h.event_type,
+      eventDetails: JSON.parse(h.event_details || '{}'),
+      snapshot: JSON.parse(h.snapshot || '{}'),
+      timestamp: h.timestamp
+    })))
+
+  } catch (error) {
+    console.error('取得病人歷史錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得病人歷史失敗'
+    })
+  }
+})
+
+/**
  * GET /api/patients/:id
  * 取得單一病人
  */
@@ -399,77 +471,6 @@ router.post('/:id/restore', ...isEditor, async (req, res) => {
     res.status(500).json({
       error: true,
       message: '復原病人失敗'
-    })
-  }
-})
-
-/**
- * GET /api/patients/history
- * 取得所有病人歷史記錄
- */
-router.get('/history', authenticate, (req, res) => {
-  try {
-    const db = getDatabase()
-
-    const history = db.prepare(`
-      SELECT * FROM patient_history
-      ORDER BY timestamp DESC
-      LIMIT 100
-    `).all()
-
-    db.close()
-
-    res.json(history.map(h => ({
-      id: h.id,
-      patientId: h.patient_id,
-      patientName: h.patient_name,
-      eventType: h.event_type,
-      eventDetails: JSON.parse(h.event_details || '{}'),
-      snapshot: JSON.parse(h.snapshot || '{}'),
-      timestamp: h.timestamp
-    })))
-
-  } catch (error) {
-    console.error('取得所有病人歷史錯誤:', error)
-    res.status(500).json({
-      error: true,
-      message: '取得病人歷史失敗'
-    })
-  }
-})
-
-/**
- * GET /api/patients/history/:patientId
- * 取得特定病人歷史記錄
- */
-router.get('/history/:patientId', authenticate, (req, res) => {
-  try {
-    const { patientId } = req.params
-    const db = getDatabase()
-
-    const history = db.prepare(`
-      SELECT * FROM patient_history
-      WHERE patient_id = ?
-      ORDER BY timestamp DESC
-    `).all(patientId)
-
-    db.close()
-
-    res.json(history.map(h => ({
-      id: h.id,
-      patientId: h.patient_id,
-      patientName: h.patient_name,
-      eventType: h.event_type,
-      eventDetails: JSON.parse(h.event_details || '{}'),
-      snapshot: JSON.parse(h.snapshot || '{}'),
-      timestamp: h.timestamp
-    })))
-
-  } catch (error) {
-    console.error('取得病人歷史錯誤:', error)
-    res.status(500).json({
-      error: true,
-      message: '取得病人歷史失敗'
     })
   }
 })

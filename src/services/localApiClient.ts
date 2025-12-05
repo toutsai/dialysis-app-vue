@@ -264,8 +264,12 @@ export const patientsApi = {
   /**
    * 取得病人歷史
    */
-  async fetchHistory(patientId: string) {
-    return apiRequest<any[]>(`/patients/history/${patientId}`)
+  async fetchHistory(patientId?: string) {
+    if (patientId) {
+      return apiRequest<any[]>(`/patients/history/${patientId}`)
+    }
+    // 如果沒有指定 patientId，返回所有病人的歷史（或空陣列）
+    return apiRequest<any[]>(`/patients/history`)
   },
 }
 

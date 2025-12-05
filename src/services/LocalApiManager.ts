@@ -21,7 +21,14 @@ const resourceApiMap: Record<string, any> = {
   // 病人相關
   patients: patientsApi,
   patient_history: {
-    fetchAll: (patientId?: string) => patientsApi.fetchHistory(patientId || ''),
+    fetchAll: async () => {
+      try {
+        return await patientsApi.fetchHistory()
+      } catch {
+        console.log('[LocalApiManager] patient_history: 返回空陣列')
+        return []
+      }
+    },
   },
 
   // 排程相關
@@ -40,6 +47,20 @@ const resourceApiMap: Record<string, any> = {
     fetchAll: () => Promise.resolve([]),
     fetchById: (date: string) => schedulesApi.fetchNurseAssignments(date),
     save: (date: string, data: any) => schedulesApi.updateNurseAssignments(date, data),
+  },
+  // 已歸檔排程（歷史排程）
+  expired_schedules: {
+    fetchAll: async () => {
+      console.log('[LocalApiManager] expired_schedules: 返回空陣列（歷史排程功能待實現）')
+      return []
+    },
+  },
+  // 排程病人更新
+  scheduled_patient_updates: {
+    fetchAll: async () => {
+      console.log('[LocalApiManager] scheduled_patient_updates: 返回空陣列')
+      return []
+    },
   },
 
   // 備忘錄
