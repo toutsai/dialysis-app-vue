@@ -212,11 +212,27 @@ export function endBefore(..._args: any[]) {
 }
 
 // Realtime Listeners
-export function onSnapshot(_query: any, optionsOrCallback: any, callbackOrError?: any, _errorCallback?: any): () => void {
+export function onSnapshot(reference: any, optionsOrCallback: any, callbackOrError?: any, _errorCallback?: any): () => void {
   console.log('🔇 [Mock Firestore] onSnapshot() - returning empty')
   const callback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callbackOrError
+
+  // 判斷是文件引用還是查詢/集合引用
+  // 文件路徑有奇數個段 (collection/doc/collection/doc...)
+  const isDocumentRef = reference instanceof MockDocumentReference ||
+    (reference?.path && reference.path.split('/').length % 2 === 0)
+
   setTimeout(() => {
-    if (callback) callback(new MockQuerySnapshot())
+    if (callback) {
+      if (isDocumentRef) {
+        // 文件引用 - 返回 DocumentSnapshot
+        console.log('🔇 [Mock Firestore] onSnapshot (doc) - returning empty DocumentSnapshot')
+        callback(createDocumentSnapshot('mock-id', null))
+      } else {
+        // 查詢/集合引用 - 返回 QuerySnapshot
+        console.log('🔇 [Mock Firestore] onSnapshot (query) - returning empty QuerySnapshot')
+        callback(new MockQuerySnapshot())
+      }
+    }
   }, 0)
   return () => {}
 }
