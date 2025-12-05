@@ -219,6 +219,63 @@ router.get('/history/:patientId', authenticate, (req, res) => {
 })
 
 /**
+ * POST /api/patients/history
+ * 建立病人歷史記錄
+ */
+router.post('/history', ...isContributor, async (req, res) => {
+  try {
+    const { patientId, changeType, changeData, notes, patientName } = req.body
+
+    if (!patientId || !changeType) {
+      return res.status(400).json({
+        error: true,
+        message: '缺少必要欄位：patientId, changeType'
+      })
+    }
+
+    const db = getDatabase()
+
+    // 取得病人名稱（如果沒有提供）
+    let actualPatientName = patientName
+    if (!actualPatientName) {
+      const patient = db.prepare('SELECT name FROM patients WHERE id = ?').get(patientId)
+      actualPatientName = patient?.name || '未知'
+    }
+
+    const id = `ph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const now = new Date().toISOString()
+
+    db.prepare(`
+      INSERT INTO patient_history (id, patient_id, patient_name, event_type, event_details, snapshot, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      patientId,
+      actualPatientName,
+      changeType,
+      JSON.stringify(changeData || {}),
+      JSON.stringify({ notes: notes || '' }),
+      now
+    )
+
+    db.close()
+
+    res.json({
+      success: true,
+      id,
+      message: '病人歷史記錄已建立'
+    })
+
+  } catch (error) {
+    console.error('建立病人歷史記錄錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '建立病人歷史記錄失敗'
+    })
+  }
+})
+
+/**
  * GET /api/patients/:id
  * 取得單一病人
  */
