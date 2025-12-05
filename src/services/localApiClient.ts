@@ -795,6 +795,16 @@ export const systemApi = {
   },
 
   /**
+   * 儲存任務 (createTask 的別名，保持相容性)
+   */
+  async saveTask(data: any) {
+    return apiRequest<any>('/system/tasks', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
    * 更新任務
    */
   async updateTask(id: string, data: any) {
