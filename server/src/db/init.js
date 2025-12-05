@@ -42,6 +42,48 @@ export function getDatabase() {
   return db
 }
 
+/**
+ * 確保預設管理員帳號存在
+ * 在伺服器啟動時呼叫，如果沒有任何使用者則建立預設管理員
+ */
+export async function ensureDefaultAdmin() {
+  const db = getDatabase()
+
+  try {
+    // 檢查是否有任何使用者
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get()
+
+    if (userCount.count === 0) {
+      console.log('📝 未找到任何使用者，正在建立預設管理員帳號...')
+
+      const bcryptModule = await import('bcryptjs')
+      const bcrypt = bcryptModule.default || bcryptModule
+      const { v4: uuidv4 } = await import('uuid')
+
+      const hashedPassword = bcrypt.hashSync('admin123', 10)
+
+      db.prepare(`
+        INSERT INTO users (id, username, password_hash, name, title, role)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        uuidv4(),
+        'admin',
+        hashedPassword,
+        '系統管理員',
+        '管理員',
+        'admin'
+      )
+
+      console.log('✅ 預設管理員帳號已建立')
+      console.log('   使用者名稱: admin')
+      console.log('   預設密碼: admin123')
+      console.log('   ⚠️  請在首次登入後立即修改密碼！')
+    }
+  } finally {
+    db.close()
+  }
+}
+
 // 如果直接執行此檔案，則初始化資料庫
 if (import.meta.url === `file://${process.argv[1]}`) {
   const db = initDatabase()

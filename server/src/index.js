@@ -15,14 +15,17 @@ import nursingRoutes from './routes/nursing.js'
 import systemRoutes from './routes/system.js'
 
 // 資料庫初始化
-import { initDatabase, getDatabase } from './db/init.js'
+import { initDatabase, getDatabase, ensureDefaultAdmin } from './db/init.js'
 import { v4 as uuidv4 } from 'uuid'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-// 初始化資料庫
+// 初始化資料庫並確保有預設管理員
 initDatabase()
+ensureDefaultAdmin().catch(err => {
+  console.error('❌ 建立預設管理員失敗:', err)
+})
 
 const app = express()
 const PORT = process.env.PORT || 3000
