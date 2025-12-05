@@ -91,6 +91,25 @@ export function runMigrations() {
     // 其他可能需要遷移的表格
     // ========================================
 
+    // archived_schedules 表格 (用於周排班檢視歷史紀錄)
+    const archivedSchedulesExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='archived_schedules'").get()
+    if (!archivedSchedulesExists) {
+      console.log('📋 建立 archived_schedules 表格...')
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS archived_schedules (
+          id TEXT PRIMARY KEY,
+          date TEXT UNIQUE NOT NULL,
+          schedule TEXT DEFAULT '{}',
+          last_modified_by TEXT DEFAULT '{}',
+          archived_at TEXT DEFAULT (datetime('now', 'localtime')),
+          created_at TEXT DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+      `)
+      db.exec('CREATE INDEX IF NOT EXISTS idx_archived_schedules_date ON archived_schedules(date)')
+      migrationsApplied++
+    }
+
     // handover_logs 表格
     const handoverLogsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='handover_logs'").get()
     if (!handoverLogsExists) {

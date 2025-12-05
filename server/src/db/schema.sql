@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS schedules (
 
 CREATE INDEX IF NOT EXISTS idx_schedules_date ON schedules(date);
 
+-- 歸檔排程表 (用於周排班檢視歷史紀錄)
+CREATE TABLE IF NOT EXISTS archived_schedules (
+    id TEXT PRIMARY KEY,
+    date TEXT UNIQUE NOT NULL,
+    schedule TEXT DEFAULT '{}',
+    last_modified_by TEXT DEFAULT '{}',
+    archived_at TEXT DEFAULT (datetime('now', 'localtime')),
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_archived_schedules_date ON archived_schedules(date);
+
 -- 基礎排班總表
 CREATE TABLE IF NOT EXISTS base_schedules (
     id TEXT PRIMARY KEY DEFAULT 'MASTER_SCHEDULE',

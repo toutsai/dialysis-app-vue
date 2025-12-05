@@ -58,6 +58,68 @@ router.get('/', authenticate, (req, res) => {
 })
 
 /**
+ * GET /api/schedules/expired/:date
+ * 取得特定日期的歸檔排程（用於周排班檢視）
+ * 注意：此路由必須放在 /:date 之前
+ */
+router.get('/expired/:date', authenticate, (req, res) => {
+  try {
+    const { date } = req.params
+    const db = getDatabase()
+
+    // 嘗試從歸檔排程表取得資料
+    const archived = db.prepare(`
+      SELECT * FROM archived_schedules WHERE date = ?
+    `).get(date)
+
+    // 如果歸檔表沒有，嘗試從一般排程表取得
+    if (!archived) {
+      const schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(date)
+      db.close()
+
+      // 不管有沒有資料都回傳成功，避免 404 錯誤
+      if (!schedule) {
+        return res.json({
+          id: date,
+          date,
+          schedule: {},
+          createdAt: null,
+          updatedAt: null
+        })
+      }
+
+      return res.json({
+        id: schedule.id,
+        date: schedule.date,
+        schedule: JSON.parse(schedule.schedule || '{}'),
+        syncMethod: schedule.sync_method,
+        lastModifiedBy: JSON.parse(schedule.last_modified_by || '{}'),
+        createdAt: schedule.created_at,
+        updatedAt: schedule.updated_at
+      })
+    }
+
+    db.close()
+
+    res.json({
+      id: archived.id,
+      date: archived.date,
+      schedule: JSON.parse(archived.schedule || '{}'),
+      lastModifiedBy: JSON.parse(archived.last_modified_by || '{}'),
+      createdAt: archived.created_at,
+      updatedAt: archived.updated_at
+    })
+
+  } catch (error) {
+    console.error('取得歸檔排程錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得歸檔排程失敗'
+    })
+  }
+})
+
+/**
  * GET /api/schedules/:date
  * 取得特定日期的排程
  */
