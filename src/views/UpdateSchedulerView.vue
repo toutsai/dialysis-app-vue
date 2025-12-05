@@ -130,6 +130,12 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import NewUpdateTypeDialog from '@/components/NewUpdateTypeDialog.vue'
 import PatientUpdateSchedulerDialog from '@/components/PatientUpdateSchedulerDialog.vue'
+import { isStandaloneMode } from '@/utils/appMode'
+import ApiManager from '@/services/api_manager'
+
+// ✨ 檢查是否為單機模式
+const _isStandalone = isStandaloneMode()
+const scheduledUpdatesApi = ApiManager('scheduled_patient_updates')
 
 // --- Composables & Constants ---
 const { canEditSchedules } = useAuth()
@@ -287,7 +293,12 @@ async function handleDelete() {
   isConfirmDialogVisible.value = false // 先關閉對話框
 
   try {
-    await deleteDoc(doc(db, 'scheduled_patient_updates', updateIdToDelete))
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await scheduledUpdatesApi.delete(updateIdToDelete)
+    } else {
+      await deleteDoc(doc(db, 'scheduled_patient_updates', updateIdToDelete))
+    }
     const typeText = TYPE_MAP[updateData.changeType] || '預約'
     createGlobalNotification(`成功撤銷 ${updateData.patientName} 的 ${typeText}`, 'success')
   } catch (error) {
@@ -308,7 +319,12 @@ function executeConfirmAction() {
 async function executeDelete(updateId) {
   if (!updateId) return
   try {
-    await deleteDoc(doc(db, 'scheduled_patient_updates', updateId))
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      await scheduledUpdatesApi.delete(updateId)
+    } else {
+      await deleteDoc(doc(db, 'scheduled_patient_updates', updateId))
+    }
     createGlobalNotification('預約變更已成功撤銷', 'success')
   } catch (error) {
     console.error('撤銷預約失敗:', error)
@@ -323,23 +339,38 @@ function closeSchedulerDialogs() {
   // 未來如果還有其他需要重置的狀態，可以一併加在這裡
 }
 
-function initializeListener() {
+async function initializeListener() {
   if (unsubscribe) unsubscribe()
   isLoading.value = true
 
-  const q = query(collection(db, 'scheduled_patient_updates'), orderBy('createdAt', 'desc'))
+  // ✨ 單機模式支援
+  if (_isStandalone) {
+    try {
+      const data = await scheduledUpdatesApi.fetchAll()
+      scheduledUpdates.value = data.sort((a, b) => {
+        const dateA = new Date(a.createdAt).getTime()
+        const dateB = new Date(b.createdAt).getTime()
+        return dateB - dateA
+      })
+    } catch (error) {
+      console.error('獲取預約變更失敗:', error)
+    }
+    isLoading.value = false
+  } else {
+    const q = query(collection(db, 'scheduled_patient_updates'), orderBy('createdAt', 'desc'))
 
-  unsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
-      scheduledUpdates.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-      isLoading.value = false
-    },
-    (error) => {
-      console.error('監聽預約變更時發生錯誤:', error)
-      isLoading.value = false
-    },
-  )
+    unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        scheduledUpdates.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
+        isLoading.value = false
+      },
+      (error) => {
+        console.error('監聽預約變更時發生錯誤:', error)
+        isLoading.value = false
+      },
+    )
+  }
 }
 
 function handlePrev() {
@@ -372,15 +403,30 @@ function handleNewTypeSelected({ patient, changeType }) {
 async function handleScheduledUpdate(dataToSubmit) {
   isSchedulerDialogVisible.value = false
   try {
-    if (isEditingUpdate.value && currentUpdateForAction.value?.id) {
-      // 編輯模式：更新現有文件
-      const docRef = doc(db, 'scheduled_patient_updates', currentUpdateForAction.value.id)
-      await setDoc(docRef, dataToSubmit, { merge: true }) // 使用 setDoc + merge 更新
-      createGlobalNotification('預約變更已成功更新', 'success')
+    // ✨ 單機模式支援
+    if (_isStandalone) {
+      if (isEditingUpdate.value && currentUpdateForAction.value?.id) {
+        // 編輯模式：更新現有文件
+        await scheduledUpdatesApi.update(currentUpdateForAction.value.id, dataToSubmit)
+        createGlobalNotification('預約變更已成功更新', 'success')
+      } else {
+        // 新增模式：建立新文件
+        await scheduledUpdatesApi.create(dataToSubmit)
+        createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
+      }
+      // 重新獲取資料
+      await initializeListener()
     } else {
-      // 新增模式：建立新文件
-      await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
-      createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
+      if (isEditingUpdate.value && currentUpdateForAction.value?.id) {
+        // 編輯模式：更新現有文件
+        const docRef = doc(db, 'scheduled_patient_updates', currentUpdateForAction.value.id)
+        await setDoc(docRef, dataToSubmit, { merge: true }) // 使用 setDoc + merge 更新
+        createGlobalNotification('預約變更已成功更新', 'success')
+      } else {
+        // 新增模式：建立新文件
+        await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
+        createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
+      }
     }
   } catch (error) {
     console.error('提交預約失敗:', error)
