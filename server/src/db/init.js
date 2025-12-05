@@ -3,6 +3,7 @@ import Database from 'better-sqlite3'
 import { readFileSync, existsSync, mkdirSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { runMigrations } from './migrate.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -18,6 +19,11 @@ export function initDatabase() {
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true })
     console.log(`📁 已建立資料目錄: ${dataDir}`)
+  }
+
+  // 如果資料庫已存在，先執行遷移
+  if (existsSync(DB_PATH)) {
+    runMigrations()
   }
 
   const db = new Database(DB_PATH)
