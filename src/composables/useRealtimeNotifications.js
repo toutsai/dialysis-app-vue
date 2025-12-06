@@ -8,7 +8,7 @@ import { systemApi } from '@/services/localApiClient'
 const notifications = ref([])
 let pollingInterval = null
 const MAX_NOTIFICATIONS = 10
-const POLLING_INTERVAL = 30000 // 30 秒
+const POLLING_INTERVAL = 10000 // 10 秒（從 30 秒改為 10 秒）
 
 const NOTIFICATION_CONFIG = {
   schedule: { icon: '📅', bgColor: '#3498db', textColor: '#fff' },
@@ -53,6 +53,9 @@ const processNotification = (notification, router) => {
   }
 }
 
+// 全局刷新函式，供其他模組呼叫
+let globalRefreshFn = null
+
 export function useRealtimeNotifications() {
   const router = useRouter()
 
@@ -71,6 +74,9 @@ export function useRealtimeNotifications() {
       console.error('[useRealtimeNotifications] 取得通知失敗:', error)
     }
   }
+
+  // 設置全局刷新函式
+  globalRefreshFn = fetchNotifications
 
   const startListening = () => {
     if (pollingInterval) return
@@ -116,10 +122,23 @@ export function useRealtimeNotifications() {
     notifications.value = newNotifications.slice(0, MAX_NOTIFICATIONS)
   }
 
+  // 手動刷新通知（供外部呼叫）
+  const refreshNotifications = () => {
+    return fetchNotifications()
+  }
+
   return {
     notifications,
     startListening,
     stopListening,
     addLocalNotification,
+    refreshNotifications,
+  }
+}
+
+// 導出全局刷新函式，供非 composable 環境使用
+export function triggerNotificationRefresh() {
+  if (globalRefreshFn) {
+    return globalRefreshFn()
   }
 }

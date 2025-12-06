@@ -148,7 +148,7 @@ const { isMobile } = useBreakpoints()
 const router = useRouter()
 const route = useRoute()
 const { createGlobalNotification } = useGlobalNotifier()
-const { addLocalNotification } = useRealtimeNotifications()
+const { addLocalNotification, refreshNotifications } = useRealtimeNotifications()
 const { currentUser, canEditSchedules } = useAuth()
 
 const isPageLocked = computed(() => !canEditSchedules.value)
@@ -235,6 +235,9 @@ function startPollingExceptionStatus(exceptionId, patientName, type) {
         } else if (updatedException.status === 'conflict_requires_resolution') {
           addLocalNotification(`⚠ ${patientName} ${typeText}申請有衝突，需要處理`)
         }
+
+        // 🔥 立即刷新側邊欄通知
+        refreshNotifications()
         return
       }
 
