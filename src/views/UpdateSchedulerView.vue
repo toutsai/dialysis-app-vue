@@ -283,6 +283,8 @@ async function handleDelete() {
     await scheduledUpdatesApi.delete(updateIdToDelete)
     const typeText = TYPE_MAP[updateData.changeType] || '預約'
     createGlobalNotification(`成功撤銷 ${updateData.patientName} 的 ${typeText}`, 'success')
+    // 立即刷新列表
+    await initializeListener()
   } catch (error) {
     console.error('撤銷預約失敗:', error)
     createGlobalNotification(`撤銷失敗: ${error.message}`, 'error')
