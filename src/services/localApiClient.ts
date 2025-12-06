@@ -406,7 +406,9 @@ export const schedulesApi = {
   /**
    * 更新護理分配
    */
-  async updateNurseAssignments(date: string, teams: any) {
+  async updateNurseAssignments(date: string, data: any) {
+    // 兼容兩種呼叫方式：傳入 { teams } 或 傳入完整 { date, teams }
+    const teams = data.teams || data
     return apiRequest<any>(`/schedules/nurse-assignments/${date}`, {
       method: 'PUT',
       body: JSON.stringify({ teams }),
