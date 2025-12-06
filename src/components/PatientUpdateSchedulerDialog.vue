@@ -313,7 +313,9 @@ watch(
       if (props.isEditing && props.initialData) {
         // 編輯模式：用 initialData 填充表單
         formData.effectiveDate = props.initialData.effectiveDate
-        formData.payload = JSON.parse(JSON.stringify(props.initialData.payload))
+        // 相容 changeData (後端) 和 payload (舊格式)
+        const payloadData = props.initialData.changeData || props.initialData.payload || {}
+        formData.payload = JSON.parse(JSON.stringify(payloadData))
       } else {
         // 新增模式：重置表單
         formData.effectiveDate = getTomorrow()
