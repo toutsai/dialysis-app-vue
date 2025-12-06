@@ -657,7 +657,7 @@
             <div class="leader-title">組長簽核</div>
             <div class="signature-slot">
               <span class="shift-label">第一班：</span>
-              <div v-if="dailyLog.leader.early.name" class="signature-display">
+              <div v-if="dailyLog.leader?.early?.name" class="signature-display">
                 <div class="signature-info">
                   <span class="leader-name leader-stamp">{{ dailyLog.leader.early.name }}</span>
                   <span class="signature-time">{{
@@ -689,7 +689,7 @@
             </div>
             <div class="signature-slot">
               <span class="shift-label">第二班：</span>
-              <div v-if="dailyLog.leader.noon.name" class="signature-display">
+              <div v-if="dailyLog.leader?.noon?.name" class="signature-display">
                 <div class="signature-info">
                   <span class="leader-name leader-stamp">{{ dailyLog.leader.noon.name }}</span>
                   <span class="signature-time">{{
@@ -719,7 +719,7 @@
             </div>
             <div class="signature-slot">
               <span class="shift-label">第三班：</span>
-              <div v-if="dailyLog.leader.late.name" class="signature-display">
+              <div v-if="dailyLog.leader?.late?.name" class="signature-display">
                 <span class="leader-name leader-stamp">{{ dailyLog.leader.late.name }}</span>
                 <span class="signature-time">{{
                   formatSignTime(dailyLog.leader.late.signedAt)
@@ -1286,6 +1286,14 @@ async function loadDailyLog(dateStr) {
         if (!logResult.stats.staffing.adjustments) {
           logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
         }
+      }
+
+      // Ensure leader object has correct nested structure to prevent undefined errors
+      const defaultLeader = initialLogState().leader
+      mergedLog.leader = {
+        early: { ...defaultLeader.early, ...(mergedLog.leader?.early || {}) },
+        noon: { ...defaultLeader.noon, ...(mergedLog.leader?.noon || {}) },
+        late: { ...defaultLeader.late, ...(mergedLog.leader?.late || {}) },
       }
 
       Object.assign(dailyLog, mergedLog)
