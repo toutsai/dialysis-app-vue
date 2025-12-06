@@ -206,25 +206,27 @@ const calendarOptions = computed(() => ({
 
 // --- Functions ---
 function formatPayload(update) {
-  const { changeType, payload } = update
+  const { changeType } = update
+  // 相容 changeData (後端) 和 payload (舊格式)
+  const payload = update.changeData || update.payload || {}
   switch (changeType) {
     case 'UPDATE_STATUS':
-      return `新身分: ${payload.status.toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
+      return `新身分: ${(payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
     case 'UPDATE_MODE':
-      return `新模式: ${payload.mode}`
+      return `新模式: ${payload.mode || ''}`
     case 'UPDATE_FREQ':
-      return `新頻率: ${payload.freq}`
+      return `新頻率: ${payload.freq || ''}`
     case 'UPDATE_BASE_SCHEDULE_RULE':
       const shiftMap = { 0: '早', 1: '午', 2: '晚' }
-      const bed = String(payload.bedNum).startsWith('p')
+      const bed = String(payload.bedNum || '').startsWith('p')
         ? `外圍${String(payload.bedNum).slice(-1)}`
         : `${payload.bedNum}床`
-      return `新規則: ${bed} / ${shiftMap[payload.shiftIndex]}班 / ${payload.freq}`
+      return `新規則: ${bed} / ${shiftMap[payload.shiftIndex]}班 / ${payload.freq || ''}`
     case 'DELETE_PATIENT':
-      return `原因: ${payload.deleteReason}${payload.remarks ? ` (${payload.remarks})` : ''}`
+      return `原因: ${payload.deleteReason || ''}${payload.remarks ? ` (${payload.remarks})` : ''}`
     case 'RESTORE_PATIENT':
       const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
-      return `復原至: ${statusMap[payload.status] || payload.status.toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
+      return `復原至: ${statusMap[payload.status] || (payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
 
     default:
       return JSON.stringify(payload)
