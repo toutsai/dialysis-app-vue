@@ -2545,6 +2545,30 @@ h1 {
 .save-btn:hover {
   background-color: #0056b3;
 }
+
+/* 組長簽核區塊的文字按鈕樣式 */
+.action-text-btn {
+  background: none;
+  border: none;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+.action-text-btn.edit-btn {
+  color: #0d6efd;
+}
+.action-text-btn.edit-btn:hover {
+  background-color: rgba(13, 110, 253, 0.1);
+}
+.action-text-btn.unsign-btn {
+  color: #dc3545;
+}
+.action-text-btn.unsign-btn:hover {
+  background-color: rgba(220, 53, 69, 0.1);
+}
+
 .action-buttons-group {
   display: flex;
   gap: 0.5rem; /* 按鈕之間的間距 */

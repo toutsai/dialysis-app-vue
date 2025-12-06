@@ -452,6 +452,10 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
         date,
         patientMovements: [],
         announcements: [],
+        vascularAccessLog: [],
+        stats: {},
+        leader: {},
+        otherNotes: null,
         notes: null
       })
     }
@@ -461,6 +465,10 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       date: log.date,
       patientMovements: JSON.parse(log.patient_movements || '[]'),
       announcements: JSON.parse(log.announcements || '[]'),
+      vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
+      stats: JSON.parse(log.stats || '{}'),
+      leader: JSON.parse(log.leader || '{}'),
+      otherNotes: log.other_notes,
       notes: log.notes,
       createdAt: log.created_at,
       updatedAt: log.updated_at
@@ -482,18 +490,21 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
 router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
   try {
     const { date } = req.params
-    const { patientMovements, announcements, notes, vascularAccessLog } = req.body
+    const { patientMovements, announcements, notes, vascularAccessLog, stats, leader, otherNotes } = req.body
 
     const db = getDatabase()
 
     db.prepare(`
-      INSERT INTO daily_logs (id, date, patient_movements, announcements, notes, vascular_access_log, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+      INSERT INTO daily_logs (id, date, patient_movements, announcements, notes, vascular_access_log, stats, leader, other_notes, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(date) DO UPDATE SET
         patient_movements = excluded.patient_movements,
         announcements = excluded.announcements,
         notes = excluded.notes,
         vascular_access_log = excluded.vascular_access_log,
+        stats = excluded.stats,
+        leader = excluded.leader,
+        other_notes = excluded.other_notes,
         updated_at = datetime('now', 'localtime')
     `).run(
       date,
@@ -501,7 +512,10 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
       JSON.stringify(patientMovements || []),
       JSON.stringify(announcements || []),
       notes,
-      JSON.stringify(vascularAccessLog || [])
+      JSON.stringify(vascularAccessLog || []),
+      JSON.stringify(stats || {}),
+      JSON.stringify(leader || {}),
+      otherNotes || null
     )
 
     db.close()
