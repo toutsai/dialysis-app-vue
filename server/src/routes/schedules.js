@@ -413,11 +413,17 @@ router.post('/sync/initialize', ...isEditor, async (req, res) => {
  */
 router.get('/exceptions/list', authenticate, (req, res) => {
   try {
-    const { status, patientId, startDate, endDate } = req.query
+    const { status, patientId, startDate, endDate, id } = req.query
     const db = getDatabase()
 
     let query = 'SELECT * FROM schedule_exceptions WHERE 1=1'
     const params = []
+
+    // 支援單一 ID 查詢
+    if (id) {
+      query += ' AND id = ?'
+      params.push(id)
+    }
 
     if (status) {
       const statuses = status.split(',')

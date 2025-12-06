@@ -390,6 +390,14 @@ export const schedulesApi = {
   },
 
   /**
+   * 取得單一調班申請（用於輪詢狀態更新）
+   */
+  async fetchExceptionById(id: string) {
+    const list = await apiRequest<any[]>(`/schedules/exceptions/list?id=${id}`)
+    return list?.[0] || null
+  },
+
+  /**
    * 取得已歸檔排程
    */
   async fetchExpiredSchedule(date: string) {

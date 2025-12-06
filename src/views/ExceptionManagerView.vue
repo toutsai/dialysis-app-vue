@@ -185,6 +185,102 @@ const statusMap = {
   conflict_requires_resolution: '衝突待解決',
   cancelled: '已撤銷',
 }
+
+// 輪詢檢查調班狀態更新
+const pollingIntervals = ref(new Map())
+
+/**
+ * 開始輪詢某個調班申請的狀態
+ * @param {string} exceptionId - 調班申請 ID
+ * @param {string} patientName - 病患名稱（用於通知）
+ * @param {string} type - 調班類型
+ */
+function startPollingExceptionStatus(exceptionId, patientName, type) {
+  // 如果已經在輪詢，不重複啟動
+  if (pollingIntervals.value.has(exceptionId)) return
+
+  let attempts = 0
+  const maxAttempts = 10 // 最多輪詢 10 次（約 10 秒）
+
+  const intervalId = setInterval(async () => {
+    attempts++
+
+    try {
+      const updatedException = await schedulesApi.fetchExceptionById(exceptionId)
+
+      if (!updatedException) {
+        // 申請可能被刪除了
+        stopPollingExceptionStatus(exceptionId)
+        return
+      }
+
+      // 檢查狀態是否已更新
+      if (updatedException.status !== 'pending' && updatedException.status !== 'processing') {
+        stopPollingExceptionStatus(exceptionId)
+
+        // 更新本地列表
+        const index = exceptions.value.findIndex(ex => ex.id === exceptionId)
+        if (index !== -1) {
+          exceptions.value[index] = updatedException
+        } else {
+          exceptions.value.unshift(updatedException)
+        }
+
+        // 顯示結果通知
+        const typeText = typeMap[type] || '調班'
+        if (updatedException.status === 'applied') {
+          createGlobalNotification(`✓ ${patientName} ${typeText}申請已生效`, 'success')
+        } else if (updatedException.status === 'error') {
+          addLocalNotification(`✗ ${patientName} ${typeText}申請失敗: ${updatedException.errorMessage || '處理錯誤'}`)
+        } else if (updatedException.status === 'conflict_requires_resolution') {
+          addLocalNotification(`⚠ ${patientName} ${typeText}申請有衝突，需要處理`)
+        }
+        return
+      }
+
+      // 達到最大嘗試次數，停止輪詢
+      if (attempts >= maxAttempts) {
+        stopPollingExceptionStatus(exceptionId)
+        // 重新載入整個列表以確保同步
+        await refreshExceptionsList()
+      }
+    } catch (error) {
+      console.error('輪詢調班狀態失敗:', error)
+      if (attempts >= maxAttempts) {
+        stopPollingExceptionStatus(exceptionId)
+      }
+    }
+  }, 1000) // 每秒輪詢一次
+
+  pollingIntervals.value.set(exceptionId, intervalId)
+}
+
+/**
+ * 停止輪詢某個調班申請
+ */
+function stopPollingExceptionStatus(exceptionId) {
+  const intervalId = pollingIntervals.value.get(exceptionId)
+  if (intervalId) {
+    clearInterval(intervalId)
+    pollingIntervals.value.delete(exceptionId)
+  }
+}
+
+/**
+ * 重新載入調班列表
+ */
+async function refreshExceptionsList() {
+  try {
+    const data = await schedulesApi.fetchExceptions()
+    exceptions.value = (data || []).sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateB - dateA
+    })
+  } catch (error) {
+    console.error('重新載入調班列表失敗:', error)
+  }
+}
 const typeMap = {
   MOVE: '臨時調班',
   SUSPEND: '區間暫停',
@@ -714,8 +810,17 @@ async function processExceptionSubmission(formData, isUpdating) {
       dataToSave.patient1 = formData.patient1
       dataToSave.patient2 = formData.patient2
     }
-    await schedulesApi.createException(dataToSave)
+    const result = await schedulesApi.createException(dataToSave)
     closeCreateDialog()
+
+    // 🔥 開始輪詢，等待後端處理完成後即時更新
+    if (result?.id) {
+      const displayName = formData.type === 'SWAP'
+        ? `${formData.patient1.patientName} & ${formData.patient2.patientName}`
+        : formData.patientName
+      startPollingExceptionStatus(result.id, displayName, formData.type)
+    }
+
     const actionText = isUpdating ? '重新提交' : '新增'
     let message = ''
     if (formData.type === 'SWAP') {
@@ -991,6 +1096,11 @@ onUnmounted(() => {
   if (unsubscribe) {
     unsubscribe()
   }
+  // 清理所有輪詢
+  pollingIntervals.value.forEach((intervalId) => {
+    clearInterval(intervalId)
+  })
+  pollingIntervals.value.clear()
 })
 </script>
 
