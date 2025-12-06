@@ -1330,11 +1330,13 @@ const isPageLocked = computed(() => {
 const weekdayDisplay = computed(
   () => ['日', '一', '二', '三', '四', '五', '六'][new Date(currentDate.value).getDay()],
 )
-const lateShiftTakeOffExists = computed(() =>
-  Object.values(currentTeamsRecord.value.teams || {}).some(
+const lateShiftTakeOffExists = computed(() => {
+  // 檢查是否有啟用標記或任何已分配的收針分組
+  if (currentTeamsRecord.value.takeoffEnabled) return true
+  return Object.values(currentTeamsRecord.value.teams || {}).some(
     (team) => team && typeof team.nurseTeamTakeOff !== 'undefined',
-  ),
-)
+  )
+})
 const sortedEarlyTeams = computed(() => {
   if (!effectiveStatsData.value || !effectiveStatsData.value.early) return []
   const teams = Object.keys(effectiveStatsData.value.early)
@@ -1724,6 +1726,7 @@ async function saveChangesToCloud() {
         date: currentTeamsRecord.value.date,
         teams: currentTeamsRecord.value.teams || {},
         names: currentTeamsRecord.value.names || {},
+        takeoffEnabled: currentTeamsRecord.value.takeoffEnabled || false,
       }
       if (currentTeamsRecord.value.id) {
         promises.push(updateTeams(currentTeamsRecord.value.id, teamsData))
@@ -2183,6 +2186,10 @@ function promptDuplicateLateShift() {
 }
 function duplicateLateShiftForTakeOff() {
   if (isPageLocked.value) return
+
+  // 設定啟用標記，即使晚班沒有病人也會顯示收針區塊
+  currentTeamsRecord.value.takeoffEnabled = true
+
   for (const shiftId in currentRecord.schedule) {
     const slot = currentRecord.schedule[shiftId]
     if (!slot) continue
@@ -2226,6 +2233,9 @@ function promptRemoveLateShiftTakeOff() {
 // 【✨ 新增修改 ✨】: 實際執行移除的方法
 function removeLateShiftTakeOff() {
   if (isPageLocked.value) return
+
+  // 0. 移除啟用標記
+  delete currentTeamsRecord.value.takeoffEnabled
 
   // 1. 移除 schedule 中的 nurseTeamTakeOff 屬性
   for (const shiftId in currentRecord.schedule) {

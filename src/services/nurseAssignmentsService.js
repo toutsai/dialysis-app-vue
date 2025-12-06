@@ -33,6 +33,7 @@ export async function saveTeams(data) {
     const saveData = {
       teams: data.teams || {},
       names: data.names || {},
+      takeoffEnabled: data.takeoffEnabled || false,
     }
 
     await schedulesApi.updateNurseAssignments(data.date, saveData)

@@ -407,11 +407,15 @@ export const schedulesApi = {
    * 更新護理分配
    */
   async updateNurseAssignments(date: string, data: any) {
-    // 兼容兩種呼叫方式：傳入 { teams } 或 傳入完整 { date, teams }
-    const teams = data.teams || data
+    // 傳送完整資料：teams, names, takeoffEnabled
+    const payload = {
+      teams: data.teams || {},
+      names: data.names || {},
+      takeoffEnabled: data.takeoffEnabled || false,
+    }
     return apiRequest<any>(`/schedules/nurse-assignments/${date}`, {
       method: 'PUT',
-      body: JSON.stringify({ teams }),
+      body: JSON.stringify(payload),
     })
   },
 }

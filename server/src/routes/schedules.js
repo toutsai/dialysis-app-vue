@@ -657,14 +657,21 @@ router.get('/nurse-assignments/:date', authenticate, (req, res) => {
       return res.json({
         id: date,
         date,
-        teams: {}
+        teams: {},
+        names: {},
+        takeoffEnabled: false
       })
     }
+
+    // teams 欄位儲存完整的資料結構 (teams, names, takeoffEnabled)
+    const data = JSON.parse(assignment.teams || '{}')
 
     res.json({
       id: assignment.id,
       date: assignment.date,
-      teams: JSON.parse(assignment.teams || '{}'),
+      teams: data.teams || data,  // 兼容舊格式
+      names: data.names || {},
+      takeoffEnabled: data.takeoffEnabled || false,
       createdAt: assignment.created_at,
       updatedAt: assignment.updated_at
     })
@@ -685,7 +692,14 @@ router.get('/nurse-assignments/:date', authenticate, (req, res) => {
 router.put('/nurse-assignments/:date', ...isEditor, async (req, res) => {
   try {
     const { date } = req.params
-    const { teams } = req.body
+    const { teams, names, takeoffEnabled } = req.body
+
+    // 儲存完整的資料結構
+    const dataToSave = {
+      teams: teams || {},
+      names: names || {},
+      takeoffEnabled: takeoffEnabled || false
+    }
 
     const db = getDatabase()
 
@@ -695,14 +709,14 @@ router.put('/nurse-assignments/:date', ...isEditor, async (req, res) => {
       ON CONFLICT(date) DO UPDATE SET
         teams = excluded.teams,
         updated_at = datetime('now', 'localtime')
-    `).run(date, date, JSON.stringify(teams))
+    `).run(date, date, JSON.stringify(dataToSave))
 
     db.close()
 
     res.json({
       success: true,
       date,
-      teams
+      ...dataToSave
     })
 
   } catch (error) {
