@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS archived_schedules (
     schedule TEXT DEFAULT '{}',
     last_modified_by TEXT DEFAULT '{}',
     archived_at TEXT DEFAULT (datetime('now', 'localtime')),
+    archive_method TEXT,
+    patient_count INTEGER DEFAULT 0,
+    missing_patient_count INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
@@ -495,14 +498,25 @@ CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_date ON audit_logs(created_at);
 
--- 排程病人更新 (內部使用)
+-- 排程病人更新 (用於預約生效的變更)
 CREATE TABLE IF NOT EXISTS scheduled_patient_updates (
     id TEXT PRIMARY KEY,
-    update_data TEXT DEFAULT '{}',  -- JSON
-    status TEXT DEFAULT 'pending',
+    patient_id TEXT,
+    patient_name TEXT,
+    change_type TEXT,  -- UPDATE_STATUS, UPDATE_MODE, UPDATE_FREQ, UPDATE_BASE_SCHEDULE_RULE, DELETE_PATIENT
+    change_data TEXT DEFAULT '{}',  -- JSON: 變更內容
+    effective_date TEXT,  -- 生效日期
+    notes TEXT,
+    status TEXT DEFAULT 'pending',  -- pending, processed, failed, cancelled
+    error_message TEXT,
+    created_by TEXT DEFAULT '{}',
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     processed_at TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_updates_date ON scheduled_patient_updates(effective_date);
+CREATE INDEX IF NOT EXISTS idx_scheduled_updates_status ON scheduled_patient_updates(status);
+CREATE INDEX IF NOT EXISTS idx_scheduled_updates_patient ON scheduled_patient_updates(patient_id);
 
 -- ========================================
 -- 資料備份追蹤

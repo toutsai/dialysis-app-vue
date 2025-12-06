@@ -102,12 +102,54 @@ export function runMigrations() {
           schedule TEXT DEFAULT '{}',
           last_modified_by TEXT DEFAULT '{}',
           archived_at TEXT DEFAULT (datetime('now', 'localtime')),
+          archive_method TEXT,
+          patient_count INTEGER DEFAULT 0,
+          missing_patient_count INTEGER DEFAULT 0,
           created_at TEXT DEFAULT (datetime('now', 'localtime')),
           updated_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
       `)
       db.exec('CREATE INDEX IF NOT EXISTS idx_archived_schedules_date ON archived_schedules(date)')
       migrationsApplied++
+    } else {
+      // 為已存在的表添加新欄位
+      if (addColumnIfNotExists(db, 'archived_schedules', 'archive_method', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'archived_schedules', 'patient_count', "INTEGER DEFAULT 0")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'archived_schedules', 'missing_patient_count', "INTEGER DEFAULT 0")) migrationsApplied++
+    }
+
+    // ========================================
+    // scheduled_patient_updates 表格遷移
+    // ========================================
+    const scheduledUpdatesExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scheduled_patient_updates'").get()
+    if (scheduledUpdatesExists) {
+      console.log('📋 檢查 scheduled_patient_updates 表格...')
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'patient_id', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'patient_name', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'change_type', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'change_data', "TEXT DEFAULT '{}'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'effective_date', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'notes', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'created_by', "TEXT DEFAULT '{}'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'scheduled_patient_updates', 'error_message', "TEXT")) migrationsApplied++
+    }
+
+    // ========================================
+    // kidit_logbook 表格遷移
+    // ========================================
+    const kiditExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='kidit_logbook'").get()
+    if (kiditExists) {
+      console.log('📋 檢查 kidit_logbook 表格...')
+      if (addColumnIfNotExists(db, 'kidit_logbook', 'events', "TEXT DEFAULT '[]'")) migrationsApplied++
+    }
+
+    // ========================================
+    // daily_logs 表格遷移
+    // ========================================
+    const dailyLogsExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_logs'").get()
+    if (dailyLogsExists) {
+      console.log('📋 檢查 daily_logs 表格...')
+      if (addColumnIfNotExists(db, 'daily_logs', 'vascular_access_log', "TEXT DEFAULT '[]'")) migrationsApplied++
     }
 
     // handover_logs 表格

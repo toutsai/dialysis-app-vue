@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, isAdmin, logAudit } from '../middleware/auth.js'
+import { syncEventsToKiditLogbook, getKiditLogbook, updateKiditEvent } from '../services/kiditSync.js'
 
 const router = Router()
 
@@ -402,27 +403,41 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
 router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
   try {
     const { date } = req.params
-    const { patientMovements, announcements, notes } = req.body
+    const { patientMovements, announcements, notes, vascularAccessLog } = req.body
 
     const db = getDatabase()
 
     db.prepare(`
-      INSERT INTO daily_logs (id, date, patient_movements, announcements, notes, updated_at)
-      VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'))
+      INSERT INTO daily_logs (id, date, patient_movements, announcements, notes, vascular_access_log, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(date) DO UPDATE SET
         patient_movements = excluded.patient_movements,
         announcements = excluded.announcements,
         notes = excluded.notes,
+        vascular_access_log = excluded.vascular_access_log,
         updated_at = datetime('now', 'localtime')
     `).run(
       date,
       date,
       JSON.stringify(patientMovements || []),
       JSON.stringify(announcements || []),
-      notes
+      notes,
+      JSON.stringify(vascularAccessLog || [])
     )
 
     db.close()
+
+    // 同步到 Kidit 日誌本
+    try {
+      await syncEventsToKiditLogbook(date, {
+        patientMovements: patientMovements || [],
+        vascularAccessLog: vascularAccessLog || [],
+        createdAt: new Date().toISOString(),
+      })
+    } catch (syncError) {
+      console.error('Kidit 同步失敗 (非致命錯誤):', syncError)
+      // 不阻擋主要操作
+    }
 
     res.json({
       success: true,
@@ -434,6 +449,97 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
     res.status(500).json({
       error: true,
       message: '更新工作日誌失敗'
+    })
+  }
+})
+
+// ========================================
+// Kidit 日誌本 API
+// ========================================
+
+/**
+ * GET /api/nursing/kidit-logbook/:date
+ * 取得特定日期的 Kidit 日誌本
+ */
+router.get('/kidit-logbook/:date', authenticate, (req, res) => {
+  try {
+    const { date } = req.params
+    const logbook = getKiditLogbook(date)
+
+    res.json(logbook)
+
+  } catch (error) {
+    console.error('取得 Kidit 日誌本錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得 Kidit 日誌本失敗'
+    })
+  }
+})
+
+/**
+ * PUT /api/nursing/kidit-logbook/:date/events/:eventId
+ * 更新 Kidit 事件狀態 (勾選登記/轉出院所)
+ */
+router.put('/kidit-logbook/:date/events/:eventId', ...isEditor, async (req, res) => {
+  try {
+    const { date, eventId } = req.params
+    const { isRegistered, transferOutHospital } = req.body
+
+    const result = updateKiditEvent(date, eventId, {
+      isRegistered,
+      transferOutHospital
+    })
+
+    res.json({
+      success: true,
+      message: '事件狀態已更新'
+    })
+
+  } catch (error) {
+    console.error('更新 Kidit 事件錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: error.message || '更新 Kidit 事件失敗'
+    })
+  }
+})
+
+/**
+ * POST /api/nursing/kidit-logbook/:date/sync
+ * 手動同步 Kidit 日誌本
+ */
+router.post('/kidit-logbook/:date/sync', ...isEditor, async (req, res) => {
+  try {
+    const { date } = req.params
+
+    const db = getDatabase()
+    const log = db.prepare(`SELECT * FROM daily_logs WHERE date = ?`).get(date)
+    db.close()
+
+    if (!log) {
+      return res.status(404).json({
+        error: true,
+        message: '找不到該日期的工作日誌'
+      })
+    }
+
+    const result = await syncEventsToKiditLogbook(date, {
+      patientMovements: JSON.parse(log.patient_movements || '[]'),
+      vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
+      createdAt: log.created_at,
+    })
+
+    res.json({
+      success: true,
+      ...result
+    })
+
+  } catch (error) {
+    console.error('同步 Kidit 日誌本錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '同步 Kidit 日誌本失敗'
     })
   }
 })

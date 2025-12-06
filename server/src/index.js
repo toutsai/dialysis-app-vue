@@ -18,6 +18,9 @@ import systemRoutes from './routes/system.js'
 import { initDatabase, getDatabase, ensureDefaultAdmin } from './db/init.js'
 import { v4 as uuidv4 } from 'uuid'
 
+// 定時任務調度器
+import { startScheduler } from './services/scheduler.js'
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -141,6 +144,9 @@ app.listen(PORT, '0.0.0.0', () => {
       }
     }
     console.log('========================================\n')
+
+    // 啟動定時任務調度器
+    startScheduler()
   })
 })
 
