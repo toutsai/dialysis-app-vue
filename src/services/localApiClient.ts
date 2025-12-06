@@ -618,6 +618,22 @@ export const ordersApi = {
       method: 'DELETE',
     })
   },
+
+  /**
+   * 取得透析醫囑歷史 (DialysisOrderModal 用)
+   */
+  async getDialysisOrderHistory(patientId: string) {
+    return apiRequest<any[]>(`/orders/history?patientId=${patientId}`)
+  },
+
+  /**
+   * 刪除透析醫囑歷史 (DialysisOrderModal 用)
+   */
+  async deleteDialysisOrderHistory(id: string) {
+    return apiRequest<{ success: boolean }>(`/orders/history/${id}`, {
+      method: 'DELETE',
+    })
+  },
 }
 
 // ========================================
