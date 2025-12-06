@@ -319,6 +319,85 @@ router.post('/handover-logs', ...isEditor, async (req, res) => {
 })
 
 /**
+ * GET /api/nursing/handover-logs/latest
+ * 取得最新交班日誌 (對應 Firebase 的 handover_logs/latest)
+ */
+router.get('/handover-logs/latest', authenticate, (req, res) => {
+  try {
+    const db = getDatabase()
+
+    const log = db.prepare(`SELECT * FROM handover_logs WHERE id = 'latest'`).get()
+    db.close()
+
+    if (!log) {
+      return res.json({
+        id: 'latest',
+        content: '',
+        updatedBy: null,
+        updatedAt: null,
+        sourceDate: null
+      })
+    }
+
+    res.json({
+      id: log.id,
+      content: log.content,
+      updatedBy: JSON.parse(log.created_by || '{}'),  // 使用 created_by 欄位儲存 updatedBy
+      updatedAt: log.updated_at,
+      sourceDate: log.date  // 使用 date 欄位儲存 sourceDate
+    })
+
+  } catch (error) {
+    console.error('取得最新交班日誌錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得最新交班日誌失敗'
+    })
+  }
+})
+
+/**
+ * PUT /api/nursing/handover-logs/latest
+ * 儲存/更新最新交班日誌 (對應 Firebase 的 handover_logs/latest)
+ */
+router.put('/handover-logs/latest', ...isEditor, async (req, res) => {
+  try {
+    const { content, updatedBy, updatedAt, sourceDate } = req.body
+
+    const db = getDatabase()
+
+    // 使用現有欄位：created_by 存 updatedBy，date 存 sourceDate
+    db.prepare(`
+      INSERT INTO handover_logs (id, date, content, created_by, updated_at)
+      VALUES ('latest', ?, ?, ?, datetime('now', 'localtime'))
+      ON CONFLICT(id) DO UPDATE SET
+        date = excluded.date,
+        content = excluded.content,
+        created_by = excluded.created_by,
+        updated_at = datetime('now', 'localtime')
+    `).run(
+      sourceDate || new Date().toISOString().split('T')[0],
+      content || '',
+      JSON.stringify(updatedBy || {})
+    )
+
+    db.close()
+
+    res.json({
+      success: true,
+      message: '交班日誌已儲存'
+    })
+
+  } catch (error) {
+    console.error('儲存最新交班日誌錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '儲存最新交班日誌失敗'
+    })
+  }
+})
+
+/**
  * PUT /api/nursing/handover-logs/:id
  * 更新交班日誌
  */
