@@ -758,6 +758,16 @@ export const nursingApi = {
   },
 
   /**
+   * 儲存交班日誌 (新增或更新最新一筆)
+   */
+  async saveHandoverLog(data: any) {
+    return apiRequest<any>('/nursing/handover-logs', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
    * 取得每日工作日誌
    */
   async fetchDailyLog(date: string) {

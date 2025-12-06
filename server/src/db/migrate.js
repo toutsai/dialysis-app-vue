@@ -150,6 +150,9 @@ export function runMigrations() {
     if (dailyLogsExists) {
       console.log('📋 檢查 daily_logs 表格...')
       if (addColumnIfNotExists(db, 'daily_logs', 'vascular_access_log', "TEXT DEFAULT '[]'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'daily_logs', 'other_notes', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'daily_logs', 'stats', "TEXT DEFAULT '{}'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'daily_logs', 'leader', "TEXT DEFAULT '{}'")) migrationsApplied++
     }
 
     // handover_logs 表格
@@ -167,6 +170,13 @@ export function runMigrations() {
         )
       `)
       migrationsApplied++
+    } else {
+      // 為已存在的表添加新欄位（處理舊版 schema）
+      console.log('📋 檢查 handover_logs 表格...')
+      if (addColumnIfNotExists(db, 'handover_logs', 'content', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'handover_logs', 'updated_by', "TEXT DEFAULT '{}'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'handover_logs', 'updated_at', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'handover_logs', 'source_date', "TEXT")) migrationsApplied++
     }
 
     if (migrationsApplied > 0) {
