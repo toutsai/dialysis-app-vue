@@ -757,6 +757,24 @@ export const nursingApi = {
   },
 
   /**
+   * 儲存最新交班日誌 (覆蓋 'latest' 文件)
+   * 對應 Firebase 版本的 handover_logs/latest
+   */
+  async saveHandoverLog(data: any) {
+    return apiRequest<any>('/nursing/handover-logs/latest', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 取得最新交班日誌
+   */
+  async fetchLatestHandoverLog() {
+    return apiRequest<any>('/nursing/handover-logs/latest')
+  },
+
+  /**
    * 取得每日工作日誌
    */
   async fetchDailyLog(date: string) {

@@ -657,7 +657,7 @@
             <div class="leader-title">組長簽核</div>
             <div class="signature-slot">
               <span class="shift-label">第一班：</span>
-              <div v-if="dailyLog.leader.early.name" class="signature-display">
+              <div v-if="dailyLog.leader?.early?.name" class="signature-display">
                 <div class="signature-info">
                   <span class="leader-name leader-stamp">{{ dailyLog.leader.early.name }}</span>
                   <span class="signature-time">{{
@@ -689,7 +689,7 @@
             </div>
             <div class="signature-slot">
               <span class="shift-label">第二班：</span>
-              <div v-if="dailyLog.leader.noon.name" class="signature-display">
+              <div v-if="dailyLog.leader?.noon?.name" class="signature-display">
                 <div class="signature-info">
                   <span class="leader-name leader-stamp">{{ dailyLog.leader.noon.name }}</span>
                   <span class="signature-time">{{
@@ -719,7 +719,7 @@
             </div>
             <div class="signature-slot">
               <span class="shift-label">第三班：</span>
-              <div v-if="dailyLog.leader.late.name" class="signature-display">
+              <div v-if="dailyLog.leader?.late?.name" class="signature-display">
                 <span class="leader-name leader-stamp">{{ dailyLog.leader.late.name }}</span>
                 <span class="signature-time">{{
                   formatSignTime(dailyLog.leader.late.signedAt)
@@ -1239,7 +1239,7 @@ async function loadDailyLog(dateStr) {
 
     const results = await Promise.all([
       nursingApi.fetchDailyLog(dateStr).catch(() => null),
-      nursingApi.fetchHandoverLogs({ limit: 1 }).then((logs) => logs?.[0]?.content || '').catch(() => ''),
+      nursingApi.fetchLatestHandoverLog().then((log) => log?.content || '').catch(() => ''),
       schedulesApi.fetchByDate(dateStr).catch(() => null),
     ])
 
@@ -1254,7 +1254,8 @@ async function loadDailyLog(dateStr) {
       }
       delete mergedLog.handoverNotes
 
-      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
+      // Check if staffing.details is missing OR empty array - if so, use defaults
+      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details || logResult.stats.staffing.details.length === 0)) {
         const oldStaffingData = logResult.stats.staffing || {}
         const newStaffingStructure = initialLogState().stats.staffing
         const oldTotal =
@@ -1284,6 +1285,14 @@ async function loadDailyLog(dateStr) {
         if (!logResult.stats.staffing.adjustments) {
           logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
         }
+      }
+
+      // Ensure leader object has correct nested structure to prevent undefined errors
+      const defaultLeader = initialLogState().leader
+      mergedLog.leader = {
+        early: { ...defaultLeader.early, ...(mergedLog.leader?.early || {}) },
+        noon: { ...defaultLeader.noon, ...(mergedLog.leader?.noon || {}) },
+        late: { ...defaultLeader.late, ...(mergedLog.leader?.late || {}) },
       }
 
       Object.assign(dailyLog, mergedLog)
