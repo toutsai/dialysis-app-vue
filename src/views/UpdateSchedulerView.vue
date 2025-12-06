@@ -209,9 +209,10 @@ function formatPayload(update) {
   const { changeType } = update
   // 相容 changeData (後端) 和 payload (舊格式)
   const payload = update.changeData || update.payload || {}
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
   switch (changeType) {
     case 'UPDATE_STATUS':
-      return `新身分: ${(payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
+      return `新身分: ${statusMap[payload.status] || (payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
     case 'UPDATE_MODE':
       return `新模式: ${payload.mode || ''}`
     case 'UPDATE_FREQ':

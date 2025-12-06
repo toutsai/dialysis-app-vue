@@ -409,7 +409,8 @@ async function submitForm() {
     patientName: props.patient.name,
     effectiveDate: formData.effectiveDate,
     changeType: props.changeType,
-    payload: JSON.parse(JSON.stringify(formData.payload)),
+    // 後端使用 changeData 欄位名稱
+    changeData: JSON.parse(JSON.stringify(formData.payload)),
     status: 'pending',
     createdBy: {
       uid: currentUser.value.uid,
