@@ -1256,7 +1256,8 @@ async function loadDailyLog(dateStr) {
       }
       delete mergedLog.handoverNotes
 
-      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
+      // Check if staffing.details is missing OR empty array - if so, use defaults
+      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details || logResult.stats.staffing.details.length === 0)) {
         const oldStaffingData = logResult.stats.staffing || {}
         const newStaffingStructure = initialLogState().stats.staffing
         const oldTotal =
