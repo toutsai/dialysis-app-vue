@@ -1239,7 +1239,7 @@ async function loadDailyLog(dateStr) {
 
     const results = await Promise.all([
       nursingApi.fetchDailyLog(dateStr).catch(() => null),
-      nursingApi.fetchHandoverLogs({ limit: 1 }).then((logs) => logs?.[0]?.content || '').catch(() => ''),
+      nursingApi.fetchLatestHandoverLog().then((log) => log?.content || '').catch(() => ''),
       schedulesApi.fetchByDate(dateStr).catch(() => null),
     ])
 

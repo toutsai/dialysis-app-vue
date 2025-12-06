@@ -42,10 +42,7 @@ export function clearAuthToken() {
 /**
  * 通用 API 請求函式
  */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
   const token = getAuthToken()
 
@@ -171,14 +168,17 @@ export const authApi = {
   /**
    * 更新使用者 (管理員)
    */
-  async updateUser(id: string, userData: Partial<{
-    name: string
-    title: string
-    role: string
-    email: string
-    is_active: boolean
-    password: string
-  }>) {
+  async updateUser(
+    id: string,
+    userData: Partial<{
+      name: string
+      title: string
+      role: string
+      email: string
+      is_active: boolean
+      password: string
+    }>,
+  ) {
     return apiRequest<{ success: boolean }>(`/auth/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(userData),
@@ -758,13 +758,21 @@ export const nursingApi = {
   },
 
   /**
-   * 儲存交班日誌 (新增或更新最新一筆)
+   * 儲存最新交班日誌 (覆蓋 'latest' 文件)
+   * 對應 Firebase 版本的 handover_logs/latest
    */
   async saveHandoverLog(data: any) {
-    return apiRequest<any>('/nursing/handover-logs', {
-      method: 'POST',
+    return apiRequest<any>('/nursing/handover-logs/latest', {
+      method: 'PUT',
       body: JSON.stringify(data),
     })
+  },
+
+  /**
+   * 取得最新交班日誌
+   */
+  async fetchLatestHandoverLog() {
+    return apiRequest<any>('/nursing/handover-logs/latest')
   },
 
   /**
@@ -1038,11 +1046,14 @@ export const systemApi = {
   /**
    * 更新預約變更
    */
-  async updateScheduledUpdate(id: string, data: {
-    changeData?: any
-    effectiveDate?: string
-    notes?: string
-  }) {
+  async updateScheduledUpdate(
+    id: string,
+    data: {
+      changeData?: any
+      effectiveDate?: string
+      notes?: string
+    },
+  ) {
     return apiRequest<{ success: boolean; id: string }>(`/system/scheduled-updates/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
