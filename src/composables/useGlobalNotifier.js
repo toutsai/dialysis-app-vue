@@ -4,6 +4,7 @@
 import { useAuth } from '@/composables/useAuth'
 import { systemApi } from '@/services/localApiClient'
 import { addDays } from '@/utils/dateUtils'
+import { triggerNotificationRefresh } from '@/composables/useRealtimeNotifications.js'
 
 // 導出一個可複用的函式
 export function useGlobalNotifier() {
@@ -37,6 +38,9 @@ export function useGlobalNotifier() {
           routePath: options.routePath || null,
         },
       })
+
+      // 🔥 建立通知後立即刷新側邊欄
+      triggerNotificationRefresh()
     } catch (error) {
       console.error('❌ [GlobalNotifier] Failed to create global notification:', error)
     }
