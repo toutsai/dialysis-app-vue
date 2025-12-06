@@ -3,7 +3,8 @@
  * 用於單機離線模式，取代 Firebase SDK
  */
 
-const API_BASE_URL = import.meta.env.VITE_LOCAL_API_URL || 'http://localhost:3000/api'
+// 使用相對路徑，讓 vite dev server 代理處理
+const API_BASE_URL = import.meta.env.VITE_LOCAL_API_URL || '/api'
 
 // Token 儲存
 let authToken: string | null = null

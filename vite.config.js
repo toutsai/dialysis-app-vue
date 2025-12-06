@@ -7,6 +7,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const isStandalone = mode === 'standalone'
+  const isEmulator = mode === 'emulator'
 
   return {
     plugins: [vue(), vueDevTools()],
@@ -19,6 +20,15 @@ export default defineConfig(({ mode }) => {
         }),
       },
     },
+    // 單機/模擬器模式：代理 API 請求到本地後端
+    server: (isStandalone || isEmulator) ? {
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+        },
+      },
+    } : {},
     build: {
       chunkSizeWarningLimit: 1000, // 調整為1000kb
       rollupOptions: {
