@@ -226,7 +226,6 @@ function formatPayload(update) {
     case 'DELETE_PATIENT':
       return `原因: ${payload.deleteReason || ''}${payload.remarks ? ` (${payload.remarks})` : ''}`
     case 'RESTORE_PATIENT':
-      const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
       return `復原至: ${statusMap[payload.status] || (payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
 
     default:
