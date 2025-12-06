@@ -368,12 +368,44 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
     db.close()
 
     if (!log) {
+      // 返回預設結構
       return res.json({
         id: date,
         date,
         patientMovements: [],
+        vascularAccessLog: [],
         announcements: [],
-        notes: null
+        notes: null,
+        otherNotes: null,
+        stats: {
+          main_beds: {
+            early: { opd: 0, ipd: 0, er: 0, total: 0 },
+            noon: { opd: 0, ipd: 0, er: 0, total: 0 },
+            late: { opd: 0, ipd: 0, er: 0, total: 0 },
+          },
+          peripheral_beds: {
+            early: { ipd: 0, er: 0, total: 0 },
+            noon: { ipd: 0, er: 0, total: 0 },
+            late: { ipd: 0, er: 0, total: 0 },
+          },
+          patient_care: {
+            onDL: { early: '', noon: '', late: '' },
+            akChange: { early: '', noon: '', late: '' },
+            noShow: { early: '', noon: '', late: '' },
+          },
+          staffing: {
+            details: [],
+            adjustments: { shift1: null, shift2: null, shift3: null },
+            early: 0,
+            noon: 0,
+            late: 0,
+          },
+        },
+        leader: {
+          early: { userId: null, name: null, signedAt: null },
+          noon: { userId: null, name: null, signedAt: null },
+          late: { userId: null, name: null, signedAt: null },
+        },
       })
     }
 
@@ -381,8 +413,12 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       id: log.id,
       date: log.date,
       patientMovements: JSON.parse(log.patient_movements || '[]'),
+      vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       announcements: JSON.parse(log.announcements || '[]'),
       notes: log.notes,
+      otherNotes: log.other_notes,
+      stats: JSON.parse(log.stats || '{}'),
+      leader: JSON.parse(log.leader || '{}'),
       createdAt: log.created_at,
       updatedAt: log.updated_at
     })
@@ -403,26 +439,43 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
 router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
   try {
     const { date } = req.params
-    const { patientMovements, announcements, notes, vascularAccessLog } = req.body
+    const {
+      patientMovements,
+      vascularAccessLog,
+      announcements,
+      notes,
+      otherNotes,
+      stats,
+      leader
+    } = req.body
 
     const db = getDatabase()
 
     db.prepare(`
-      INSERT INTO daily_logs (id, date, patient_movements, announcements, notes, vascular_access_log, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+      INSERT INTO daily_logs (
+        id, date, patient_movements, vascular_access_log, announcements,
+        notes, other_notes, stats, leader, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(date) DO UPDATE SET
         patient_movements = excluded.patient_movements,
+        vascular_access_log = excluded.vascular_access_log,
         announcements = excluded.announcements,
         notes = excluded.notes,
-        vascular_access_log = excluded.vascular_access_log,
+        other_notes = excluded.other_notes,
+        stats = excluded.stats,
+        leader = excluded.leader,
         updated_at = datetime('now', 'localtime')
     `).run(
       date,
       date,
       JSON.stringify(patientMovements || []),
+      JSON.stringify(vascularAccessLog || []),
       JSON.stringify(announcements || []),
-      notes,
-      JSON.stringify(vascularAccessLog || [])
+      notes || null,
+      otherNotes || null,
+      JSON.stringify(stats || {}),
+      JSON.stringify(leader || {})
     )
 
     db.close()

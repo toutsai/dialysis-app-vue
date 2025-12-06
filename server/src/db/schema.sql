@@ -301,8 +301,12 @@ CREATE TABLE IF NOT EXISTS daily_logs (
     id TEXT PRIMARY KEY,  -- 使用日期作為 ID: YYYY-MM-DD
     date TEXT UNIQUE NOT NULL,
     patient_movements TEXT DEFAULT '[]',  -- JSON array
+    vascular_access_log TEXT DEFAULT '[]',  -- JSON array: 血管通路事件
     announcements TEXT DEFAULT '[]',  -- JSON array
     notes TEXT,
+    other_notes TEXT,  -- 其他備註
+    stats TEXT DEFAULT '{}',  -- JSON: 統計資料 (main_beds, peripheral_beds, patient_care, staffing)
+    leader TEXT DEFAULT '{}',  -- JSON: 簽核資訊 (early, noon, late)
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
