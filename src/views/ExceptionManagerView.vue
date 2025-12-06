@@ -574,6 +574,8 @@ async function handleDelete() {
       message = `成功撤銷調班申請: ${exceptionData.patientName} (${typeText})`
     }
     createGlobalNotification(message, 'success')
+    // 立即刷新列表
+    await refreshExceptionsList()
   } catch (error) {
     console.error('撤銷失敗:', error)
     alertDialogTitle.value = '撤銷失敗'
@@ -584,8 +586,10 @@ async function handleDelete() {
   }
 }
 
-function handleDeleteFromChild(id) {
+async function handleDeleteFromChild(id) {
   createGlobalNotification('成功撤銷衝突的調班申請', 'success')
+  // 立即刷新列表
+  await refreshExceptionsList()
 }
 
 /**
@@ -815,6 +819,9 @@ async function processExceptionSubmission(formData, isUpdating) {
     }
     const result = await schedulesApi.createException(dataToSave)
     closeCreateDialog()
+
+    // 立即刷新列表顯示新申請
+    await refreshExceptionsList()
 
     // 🔥 開始輪詢，等待後端處理完成後即時更新
     if (result?.id) {

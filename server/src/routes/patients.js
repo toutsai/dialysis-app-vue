@@ -6,6 +6,114 @@ import { authenticate, isContributor, isEditor, logAudit } from '../middleware/a
 
 const router = Router()
 
+// 狀態碼的中文對照表
+const STATUS_MAP = {
+  opd: '門診',
+  ipd: '住院',
+  er: '急診',
+}
+
+/**
+ * 取得台北時區的今天日期字串 (YYYY-MM-DD)
+ */
+function getTaipeiTodayString() {
+  return new Date().toLocaleDateString('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).replace(/\//g, '-')
+}
+
+/**
+ * 自動記錄病人歷史
+ */
+function recordPatientHistory(db, patientId, patientName, eventType, eventDetails, snapshot = {}) {
+  const id = `ph_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  const now = new Date().toISOString()
+
+  try {
+    db.prepare(`
+      INSERT INTO patient_history (id, patient_id, patient_name, event_type, event_details, snapshot, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      patientId,
+      patientName,
+      eventType,
+      JSON.stringify(eventDetails),
+      JSON.stringify(snapshot),
+      now
+    )
+    console.log(`[PatientHistory] 記錄 ${eventType} 事件: ${patientName}`)
+  } catch (error) {
+    console.error('[PatientHistory] 記錄失敗:', error)
+  }
+}
+
+/**
+ * 將病人動態加入當日工作日誌
+ */
+function addMovementToDailyLog(db, movementData) {
+  const todayStr = getTaipeiTodayString()
+
+  try {
+    // 取得現有日誌
+    const dailyLog = db.prepare(`SELECT * FROM daily_logs WHERE date = ?`).get(todayStr)
+
+    if (dailyLog) {
+      const movements = JSON.parse(dailyLog.patient_movements || '[]')
+
+      // 檢查是否已存在相同 ID 的記錄（避免重複）
+      const existingIndex = movements.findIndex(m => m.id === movementData.id)
+      if (existingIndex >= 0) {
+        // 如果有 originalAutoId 表示已被手動編輯，跳過
+        if (movements[existingIndex].originalAutoId) {
+          console.log(`[DailyLog] 動態 ${movementData.id} 已被手動編輯，跳過`)
+          return
+        }
+        // 更新現有記錄
+        movements[existingIndex] = movementData
+      } else {
+        // 新增記錄
+        movements.push(movementData)
+      }
+
+      db.prepare(`
+        UPDATE daily_logs
+        SET patient_movements = ?, updated_at = datetime('now', 'localtime')
+        WHERE date = ?
+      `).run(JSON.stringify(movements), todayStr)
+    } else {
+      // 建立新的日誌
+      db.prepare(`
+        INSERT INTO daily_logs (id, date, patient_movements, announcements, created_at, updated_at)
+        VALUES (?, ?, ?, '[]', datetime('now', 'localtime'), datetime('now', 'localtime'))
+      `).run(todayStr, todayStr, JSON.stringify([movementData]))
+    }
+
+    console.log(`[DailyLog] 已記錄動態: ${movementData.type} - ${movementData.name}`)
+  } catch (error) {
+    console.error('[DailyLog] 記錄失敗:', error)
+  }
+}
+
+/**
+ * 建立病人快照（用於歷史記錄）
+ */
+function createPatientSnapshot(patient) {
+  return {
+    medicalRecordNumber: patient.medical_record_number || null,
+    status: patient.status || null,
+    firstDialysisDate: patient.first_dialysis_date || null,
+    vascAccess: patient.vasc_access || null,
+    accessCreationDate: patient.access_creation_date || null,
+    hospitalInfo: JSON.parse(patient.hospital_info || '{}'),
+    inpatientReason: patient.inpatient_reason || null,
+    dialysisReason: patient.dialysis_reason || null,
+  }
+}
+
 /**
  * 將資料庫記錄轉換為 API 回應格式
  */
@@ -374,6 +482,24 @@ router.post('/', ...isContributor, async (req, res) => {
     `).run(...values)
 
     const newPatient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(id)
+
+    // 🔥 自動記錄病人歷史
+    recordPatientHistory(db, id, data.name, 'CREATE', {
+      status: data.status || 'opd'
+    }, createPatientSnapshot(newPatient))
+
+    // 🔥 自動加入當日動態
+    addMovementToDailyLog(db, {
+      id: `auto_create_${id}`,
+      type: '新增',
+      name: data.name,
+      patientId: id,
+      medicalRecordNumber: data.medicalRecordNumber,
+      physician: data.physician || '',
+      reason: data.inpatientReason || data.dialysisReason || '',
+      remarks: `新增至「${STATUS_MAP[data.status] || STATUS_MAP.opd}」`,
+    })
+
     db.close()
 
     await logAudit('PATIENT_CREATE', req.user.id, req.user.name, 'patients', id, {
@@ -430,6 +556,57 @@ router.put('/:id', ...isContributor, async (req, res) => {
     db.prepare(`UPDATE patients SET ${updates} WHERE id = ?`).run(...values, id)
 
     const updated = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(id)
+
+    // 🔥 檢查狀態變更，自動記錄歷史和動態
+    if (data.status && existing.status !== data.status) {
+      const fromStatus = existing.status
+      const toStatus = data.status
+
+      // 記錄歷史
+      if (fromStatus === 'opd' && (toStatus === 'ipd' || toStatus === 'er')) {
+        // 門診 → 住院/急診 (轉入)
+        recordPatientHistory(db, id, existing.name, 'TRANSFER', {
+          fromStatus,
+          toStatus,
+          reason: data.inpatientReason || ''
+        }, createPatientSnapshot(updated))
+
+        addMovementToDailyLog(db, {
+          id: `auto_transfer_in_${id}_${Date.now()}`,
+          type: '轉入',
+          name: existing.name,
+          patientId: id,
+          medicalRecordNumber: existing.medical_record_number,
+          physician: updated.physician || '',
+          reason: data.inpatientReason || '',
+          remarks: `從「${STATUS_MAP[fromStatus]}」轉入「${STATUS_MAP[toStatus]}」`,
+        })
+      } else if ((fromStatus === 'ipd' || fromStatus === 'er') && toStatus === 'opd') {
+        // 住院/急診 → 門診 (轉出)
+        recordPatientHistory(db, id, existing.name, 'TRANSFER', {
+          fromStatus,
+          toStatus,
+        }, createPatientSnapshot(updated))
+
+        addMovementToDailyLog(db, {
+          id: `auto_transfer_out_${id}_${Date.now()}`,
+          type: '轉出',
+          name: existing.name,
+          patientId: id,
+          medicalRecordNumber: existing.medical_record_number,
+          physician: updated.physician || '',
+          reason: '',
+          remarks: `從「${STATUS_MAP[fromStatus]}」轉回「${STATUS_MAP[toStatus]}」`,
+        })
+      } else {
+        // 其他狀態變更
+        recordPatientHistory(db, id, existing.name, 'STATUS_CHANGE', {
+          fromStatus,
+          toStatus,
+        }, createPatientSnapshot(updated))
+      }
+    }
+
     db.close()
 
     await logAudit('PATIENT_UPDATE', req.user.id, req.user.name, 'patients', id, {
@@ -480,6 +657,24 @@ router.delete('/:id', ...isEditor, async (req, res) => {
       JSON.stringify({ uid: req.user.id, name: req.user.name }),
       id
     )
+
+    // 🔥 自動記錄病人歷史
+    recordPatientHistory(db, id, existing.name, 'DELETE', {
+      reason: reason || '未提供原因',
+      fromStatus: existing.status
+    }, createPatientSnapshot(existing))
+
+    // 🔥 自動加入當日動態
+    addMovementToDailyLog(db, {
+      id: `auto_delete_${id}_${Date.now()}`,
+      type: '刪除',
+      name: existing.name,
+      patientId: id,
+      medicalRecordNumber: existing.medical_record_number,
+      physician: existing.physician || '',
+      reason: reason || '',
+      remarks: `從「${STATUS_MAP[existing.status] || existing.status}」刪除`,
+    })
 
     db.close()
 
@@ -538,11 +733,30 @@ router.post('/:id/restore', ...isEditor, async (req, res) => {
     )
 
     const restored = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(id)
+    const restoreStatus = status || 'opd'
+
+    // 🔥 自動記錄病人歷史
+    recordPatientHistory(db, id, existing.name, 'RESTORE_AND_TRANSFER', {
+      restoredTo: restoreStatus
+    }, createPatientSnapshot(restored))
+
+    // 🔥 自動加入當日動態
+    addMovementToDailyLog(db, {
+      id: `auto_restore_${id}_${Date.now()}`,
+      type: '復原',
+      name: existing.name,
+      patientId: id,
+      medicalRecordNumber: existing.medical_record_number,
+      physician: restored.physician || '',
+      reason: '',
+      remarks: `復原至「${STATUS_MAP[restoreStatus]}」`,
+    })
+
     db.close()
 
     await logAudit('PATIENT_RESTORE', req.user.id, req.user.name, 'patients', id, {
       name: existing.name,
-      restoredTo: status || 'opd'
+      restoredTo: restoreStatus
     })
 
     res.json(formatPatient(restored))

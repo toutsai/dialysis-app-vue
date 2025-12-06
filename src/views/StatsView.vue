@@ -1959,9 +1959,11 @@ function showAlert(title, message) {
   alertDialogMessage.value = message
   isAlertDialogVisible.value = true
 }
-function handleTaskCreated() {
+async function handleTaskCreated() {
   showAlert('操作成功', '交辦/留言已成功新增！')
   isCreateTaskModalVisible.value = false
+  // 立即刷新任務列表，讓新任務馬上顯示
+  await taskStore.refreshTasks()
 }
 
 async function showInjectionList(teamData, shiftType = null) {

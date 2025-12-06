@@ -909,6 +909,8 @@ async function handleTaskSubmit(data) {
     await handleTaskCreated()
   }
   closeCreateModal()
+  // 立即刷新任務列表，讓新任務馬上顯示
+  await taskStore.refreshTasks()
 }
 
 async function updateTask(data) {
@@ -973,6 +975,8 @@ async function updateTaskStatus(taskId, newStatus) {
       newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
       'success',
     )
+    // 立即刷新任務列表
+    await taskStore.refreshTasks()
   } catch (error) {
     console.error('更新任務狀態失敗:', error)
     alert('更新失敗，請稍後再試。')
@@ -983,6 +987,8 @@ async function deleteTask(taskId) {
   try {
     await systemApi.deleteTask(taskId)
     createGlobalNotification('訊息已刪除', 'info')
+    // 立即刷新任務列表
+    await taskStore.refreshTasks()
   } catch (error) {
     console.error('刪除任務失敗:', error)
     alert('刪除失敗，請稍後再試。')

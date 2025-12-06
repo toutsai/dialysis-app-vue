@@ -3,7 +3,8 @@
  * 用於單機離線模式，取代 Firebase SDK
  */
 
-const API_BASE_URL = import.meta.env.VITE_LOCAL_API_URL || 'http://localhost:3000/api'
+// 使用相對路徑，讓 vite dev server 代理處理
+const API_BASE_URL = import.meta.env.VITE_LOCAL_API_URL || '/api'
 
 // Token 儲存
 let authToken: string | null = null
@@ -41,10 +42,7 @@ export function clearAuthToken() {
 /**
  * 通用 API 請求函式
  */
-async function apiRequest<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE_URL}${endpoint}`
   const token = getAuthToken()
 
@@ -170,14 +168,17 @@ export const authApi = {
   /**
    * 更新使用者 (管理員)
    */
-  async updateUser(id: string, userData: Partial<{
-    name: string
-    title: string
-    role: string
-    email: string
-    is_active: boolean
-    password: string
-  }>) {
+  async updateUser(
+    id: string,
+    userData: Partial<{
+      name: string
+      title: string
+      role: string
+      email: string
+      is_active: boolean
+      password: string
+    }>,
+  ) {
     return apiRequest<{ success: boolean }>(`/auth/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(userData),
@@ -1038,6 +1039,23 @@ export const systemApi = {
   }) {
     return apiRequest<{ success: boolean; id: string }>('/system/scheduled-updates', {
       method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 更新預約變更
+   */
+  async updateScheduledUpdate(
+    id: string,
+    data: {
+      changeData?: any
+      effectiveDate?: string
+      notes?: string
+    },
+  ) {
+    return apiRequest<{ success: boolean; id: string }>(`/system/scheduled-updates/${id}`, {
+      method: 'PUT',
       body: JSON.stringify(data),
     })
   },

@@ -172,6 +172,7 @@ import { ref, computed, watch } from 'vue'
 import { useMyPatientList } from '@/composables/useMyPatientList.js'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
 import { useUserDirectory } from '@/composables/useUserDirectory'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils' // ✨ 1. 引入您的日期工具函式
@@ -189,6 +190,7 @@ import { handleTaskCreated } from '@/utils/taskHandlers.js'
 // --- 初始化 Composables 和 Stores ---
 const { currentUser, hasPermission } = useAuth()
 const patientStore = usePatientStore()
+const taskStore = useTaskStore()
 const { createGlobalNotification } = useGlobalNotifier()
 const { ensureUsersLoaded, users: userDirectoryUsers, clearCachedUsers } = useUserDirectory()
 
@@ -313,6 +315,8 @@ async function handleTaskSubmit(data) {
     }
   }
   closeCreateModal()
+  // 立即刷新任務列表，讓新任務馬上顯示
+  await taskStore.refreshTasks()
 }
 
 async function updateTaskStatus(task, newStatus) {
@@ -328,6 +332,8 @@ async function updateTaskStatus(task, newStatus) {
       newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
       'success',
     )
+    // 立即刷新任務列表
+    await taskStore.refreshTasks()
   } catch (error) {
     console.error('更新任務狀態失敗:', error)
     createGlobalNotification('更新失敗，請稍後再試', 'error')
@@ -344,6 +350,8 @@ async function executeDeleteTask() {
   try {
     await systemApi.deleteTask(itemToDelete.value.id)
     createGlobalNotification('訊息已刪除', 'info')
+    // 立即刷新任務列表
+    await taskStore.refreshTasks()
   } catch (error) {
     console.error('刪除任務失敗:', error)
     createGlobalNotification('刪除失敗，請稍後再試', 'error')

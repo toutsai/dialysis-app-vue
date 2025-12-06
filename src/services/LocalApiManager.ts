@@ -76,10 +76,10 @@ const resourceApiMap: Record<string, any> = {
   },
   // 排程病人更新
   scheduled_patient_updates: {
-    fetchAll: async () => {
-      console.log('[LocalApiManager] scheduled_patient_updates: 返回空陣列')
-      return []
-    },
+    fetchAll: async (params?: any) => systemApi.fetchScheduledUpdates(params),
+    create: async (data: any) => systemApi.createScheduledUpdate(data),
+    update: async (id: string, data: any) => systemApi.updateScheduledUpdate(id, data),
+    delete: async (id: string) => systemApi.cancelScheduledUpdate(id),
   },
 
   // 備忘錄

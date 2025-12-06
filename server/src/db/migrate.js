@@ -170,6 +170,13 @@ export function runMigrations() {
         )
       `)
       migrationsApplied++
+    } else {
+      // 為已存在的表添加新欄位（處理舊版 schema）
+      console.log('📋 檢查 handover_logs 表格...')
+      if (addColumnIfNotExists(db, 'handover_logs', 'content', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'handover_logs', 'updated_by', "TEXT DEFAULT '{}'")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'handover_logs', 'updated_at', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'handover_logs', 'source_date', "TEXT")) migrationsApplied++
     }
 
     if (migrationsApplied > 0) {

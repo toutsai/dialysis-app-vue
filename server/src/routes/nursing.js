@@ -236,38 +236,28 @@ router.put('/group-config/:id', ...isAdmin, async (req, res) => {
 
 /**
  * GET /api/nursing/handover-logs
- * 取得交班日誌
+ * 取得交班日誌 (返回最新一筆或指定條件)
  */
 router.get('/handover-logs', authenticate, (req, res) => {
   try {
-    const { date, startDate, endDate } = req.query
+    const { limit } = req.query
     const db = getDatabase()
 
-    let query = 'SELECT * FROM handover_logs'
-    const params = []
-
-    if (date) {
-      query += ' WHERE date = ?'
-      params.push(date)
-    } else if (startDate && endDate) {
-      query += ' WHERE date >= ? AND date <= ?'
-      params.push(startDate, endDate)
+    let query = 'SELECT * FROM handover_logs ORDER BY updated_at DESC, created_at DESC'
+    if (limit) {
+      query += ` LIMIT ${parseInt(limit, 10)}`
     }
 
-    query += ' ORDER BY date DESC, created_at DESC'
-
-    const logs = db.prepare(query).all(...params)
+    const logs = db.prepare(query).all()
     db.close()
 
     res.json(logs.map(l => ({
       id: l.id,
-      date: l.date,
-      shift: l.shift,
       content: l.content,
-      items: JSON.parse(l.items || '[]'),
-      createdBy: JSON.parse(l.created_by || '{}'),
-      createdAt: l.created_at,
-      updatedAt: l.updated_at
+      updatedBy: JSON.parse(l.updated_by || '{}'),
+      updatedAt: l.updated_at,
+      sourceDate: l.source_date,
+      createdAt: l.created_at
     })))
 
   } catch (error) {
@@ -281,39 +271,56 @@ router.get('/handover-logs', authenticate, (req, res) => {
 
 /**
  * POST /api/nursing/handover-logs
- * 新增交班日誌
+ * 儲存交班日誌 (使用 upsert 邏輯 - 只保留最新一筆)
  */
 router.post('/handover-logs', ...isEditor, async (req, res) => {
   try {
-    const { date, shift, content, items } = req.body
+    const { content, updatedBy, updatedAt, sourceDate } = req.body
 
-    const id = uuidv4()
     const db = getDatabase()
 
-    db.prepare(`
-      INSERT INTO handover_logs (id, date, shift, content, items, created_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      date,
-      shift,
-      content,
-      JSON.stringify(items || []),
-      JSON.stringify({ uid: req.user.id, name: req.user.name })
-    )
+    // 使用固定 ID 'latest' 來實現只保留一筆最新記錄
+    const existingLog = db.prepare(`SELECT id FROM handover_logs LIMIT 1`).get()
+
+    if (existingLog) {
+      // 更新現有記錄
+      db.prepare(`
+        UPDATE handover_logs
+        SET content = ?, updated_by = ?, updated_at = ?, source_date = ?
+        WHERE id = ?
+      `).run(
+        content,
+        JSON.stringify(updatedBy || { uid: req.user.id, name: req.user.name }),
+        updatedAt || new Date().toISOString(),
+        sourceDate,
+        existingLog.id
+      )
+    } else {
+      // 新增記錄
+      const id = uuidv4()
+      db.prepare(`
+        INSERT INTO handover_logs (id, content, updated_by, updated_at, source_date)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
+        id,
+        content,
+        JSON.stringify(updatedBy || { uid: req.user.id, name: req.user.name }),
+        updatedAt || new Date().toISOString(),
+        sourceDate
+      )
+    }
 
     db.close()
 
     res.status(201).json({
-      success: true,
-      id
+      success: true
     })
 
   } catch (error) {
-    console.error('新增交班日誌錯誤:', error)
+    console.error('儲存交班日誌錯誤:', error)
     res.status(500).json({
       error: true,
-      message: '新增交班日誌失敗'
+      message: '儲存交班日誌失敗'
     })
   }
 })
@@ -447,10 +454,13 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
     db.close()
 
     if (!log) {
+      // 返回預設結構，標記為新建
       return res.json({
         id: date,
         date,
+        isNew: true,  // 標記這是新的日誌，前端應該從排程計算統計
         patientMovements: [],
+        vascularAccessLog: [],
         announcements: [],
         vascularAccessLog: [],
         stats: {},
@@ -464,12 +474,16 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       id: log.id,
       date: log.date,
       patientMovements: JSON.parse(log.patient_movements || '[]'),
+      vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       announcements: JSON.parse(log.announcements || '[]'),
       vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       stats: JSON.parse(log.stats || '{}'),
       leader: JSON.parse(log.leader || '{}'),
       otherNotes: log.other_notes,
       notes: log.notes,
+      otherNotes: log.other_notes,
+      stats: JSON.parse(log.stats || '{}'),
+      leader: JSON.parse(log.leader || '{}'),
       createdAt: log.created_at,
       updatedAt: log.updated_at
     })
@@ -499,6 +513,7 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
       ON CONFLICT(date) DO UPDATE SET
         patient_movements = excluded.patient_movements,
+        vascular_access_log = excluded.vascular_access_log,
         announcements = excluded.announcements,
         notes = excluded.notes,
         vascular_access_log = excluded.vascular_access_log,
@@ -510,6 +525,7 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
       date,
       date,
       JSON.stringify(patientMovements || []),
+      JSON.stringify(vascularAccessLog || []),
       JSON.stringify(announcements || []),
       notes,
       JSON.stringify(vascularAccessLog || []),
