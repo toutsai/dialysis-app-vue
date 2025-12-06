@@ -1248,15 +1248,36 @@ async function loadDailyLog(dateStr) {
     scheduleData = results[2] ? [results[2]] : []
 
     if (logResult) {
-      const mergedLog = { ...initialLogState(), ...logResult }
+      const defaultState = initialLogState()
+      // 深度合併 stats 物件，確保所有巢狀結構都存在
+      const mergedStats = {
+        main_beds: {
+          early: { ...defaultState.stats.main_beds.early, ...logResult.stats?.main_beds?.early },
+          noon: { ...defaultState.stats.main_beds.noon, ...logResult.stats?.main_beds?.noon },
+          late: { ...defaultState.stats.main_beds.late, ...logResult.stats?.main_beds?.late },
+        },
+        peripheral_beds: {
+          early: { ...defaultState.stats.peripheral_beds.early, ...logResult.stats?.peripheral_beds?.early },
+          noon: { ...defaultState.stats.peripheral_beds.noon, ...logResult.stats?.peripheral_beds?.noon },
+          late: { ...defaultState.stats.peripheral_beds.late, ...logResult.stats?.peripheral_beds?.late },
+        },
+        patient_care: {
+          onDL: { ...defaultState.stats.patient_care.onDL, ...logResult.stats?.patient_care?.onDL },
+          akChange: { ...defaultState.stats.patient_care.akChange, ...logResult.stats?.patient_care?.akChange },
+          noShow: { ...defaultState.stats.patient_care.noShow, ...logResult.stats?.patient_care?.noShow },
+        },
+        staffing: logResult.stats?.staffing || defaultState.stats.staffing,
+      }
+      const mergedLog = { ...defaultState, ...logResult, stats: mergedStats }
       if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
         mergedLog.otherNotes = mergedLog.handoverNotes
       }
       delete mergedLog.handoverNotes
 
-      if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
-        const oldStaffingData = logResult.stats.staffing || {}
-        const newStaffingStructure = initialLogState().stats.staffing
+      // 處理舊版 staffing 資料格式
+      if (!mergedStats.staffing?.details) {
+        const oldStaffingData = mergedStats.staffing || {}
+        const newStaffingStructure = { ...defaultState.stats.staffing }
         const oldTotal =
           (oldStaffingData.early || 0) + (oldStaffingData.noon || 0) + (oldStaffingData.late || 0)
 
@@ -1271,22 +1292,21 @@ async function loadDailyLog(dateStr) {
               ratio3: oldStaffingData.late || 0,
             },
           ]
-        } else {
-          newStaffingStructure.details = initialLogState().stats.staffing.details
         }
-        logResult.stats.staffing = newStaffingStructure
+        mergedStats.staffing = newStaffingStructure
       }
 
-      if (logResult.stats?.staffing) {
-        if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
-          logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions
+      // 確保 adjustments 欄位存在
+      if (mergedStats.staffing) {
+        if (mergedStats.staffing.deductions && !mergedStats.staffing.adjustments) {
+          mergedStats.staffing.adjustments = mergedStats.staffing.deductions
         }
-        if (!logResult.stats.staffing.adjustments) {
-          logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
+        if (!mergedStats.staffing.adjustments) {
+          mergedStats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
         }
       }
 
-      Object.assign(dailyLog, mergedLog)
+      Object.assign(dailyLog, { ...mergedLog, stats: mergedStats })
     } else {
       dailyLog.otherNotes = ''
     }
@@ -2090,7 +2110,31 @@ function cloneData(data) {
 }
 
 function applyLoadedData(logData, scheduleData, handoverContent) {
-  Object.assign(dailyLog, initialLogState(), logData || { date: selectedDate.value })
+  const defaultState = initialLogState()
+  if (logData?.stats) {
+    // 深度合併 stats 物件
+    const mergedStats = {
+      main_beds: {
+        early: { ...defaultState.stats.main_beds.early, ...logData.stats.main_beds?.early },
+        noon: { ...defaultState.stats.main_beds.noon, ...logData.stats.main_beds?.noon },
+        late: { ...defaultState.stats.main_beds.late, ...logData.stats.main_beds?.late },
+      },
+      peripheral_beds: {
+        early: { ...defaultState.stats.peripheral_beds.early, ...logData.stats.peripheral_beds?.early },
+        noon: { ...defaultState.stats.peripheral_beds.noon, ...logData.stats.peripheral_beds?.noon },
+        late: { ...defaultState.stats.peripheral_beds.late, ...logData.stats.peripheral_beds?.late },
+      },
+      patient_care: {
+        onDL: { ...defaultState.stats.patient_care.onDL, ...logData.stats.patient_care?.onDL },
+        akChange: { ...defaultState.stats.patient_care.akChange, ...logData.stats.patient_care?.akChange },
+        noShow: { ...defaultState.stats.patient_care.noShow, ...logData.stats.patient_care?.noShow },
+      },
+      staffing: logData.stats.staffing || defaultState.stats.staffing,
+    }
+    Object.assign(dailyLog, defaultState, logData, { stats: mergedStats })
+  } else {
+    Object.assign(dailyLog, defaultState, logData || { date: selectedDate.value })
+  }
   currentSchedule.value = scheduleData || {}
   handoverNotes.value = handoverContent || ''
   hasUnsavedChanges.value = false
