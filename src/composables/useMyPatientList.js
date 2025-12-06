@@ -1,13 +1,12 @@
+// 檔案路徑: src/composables/useMyPatientList.js
+// ✨ Standalone 版本
+
 import { ref, watch, computed } from 'vue'
 import { useTaskStore } from '@/stores/taskStore'
 import { usePatientStore } from '@/stores/patientStore'
 import { useMedicationStore } from '@/stores/medicationStore'
-import ApiManager from '@/services/api_manager'
-import { where } from 'firebase/firestore'
+import { schedulesApi } from '@/services/localApiClient'
 import { useUserDirectory } from '@/composables/useUserDirectory.js'
-
-const assignmentsApi = ApiManager('nurse_assignments')
-const schedulesApi = ApiManager('schedules')
 
 export function useMyPatientList(userIdRef, dateRef) {
   const taskStore = useTaskStore()
@@ -41,15 +40,16 @@ export function useMyPatientList(userIdRef, dateRef) {
       }
       const targetUserName = targetUser.name
 
-      const [assignmentsSnapshot, schedulesSnapshot] = await Promise.all([
-        assignmentsApi.fetchAll([where('date', '==', targetDate)]),
-        schedulesApi.fetchAll([where('date', '==', targetDate)]),
+      // 🖥️ 使用本地 API 取得護理分配與排班資料
+      const [assignmentsData, scheduleData] = await Promise.all([
+        schedulesApi.fetchNurseAssignments(targetDate),
+        schedulesApi.fetchByDate(targetDate),
       ])
 
       const myAssignedIds = new Set()
       const myAssignments = new Map()
-      if (assignmentsSnapshot.length > 0) {
-        const { names, teams } = assignmentsSnapshot[0]
+      if (assignmentsData) {
+        const { names, teams } = assignmentsData
         if (names && teams) {
           const myTeamCodes = Object.keys(names).filter(
             (teamCode) => names[teamCode]?.trim() === targetUserName,
@@ -81,10 +81,10 @@ export function useMyPatientList(userIdRef, dateRef) {
       }
 
       const myFinalListWithBedInfo = []
-      if (schedulesSnapshot.length > 0 && schedulesSnapshot[0].schedule) {
-        const scheduleData = schedulesSnapshot[0].schedule
-        for (const shiftKey in scheduleData) {
-          const slot = scheduleData[shiftKey]
+      if (scheduleData?.schedule) {
+        const schedule = scheduleData.schedule
+        for (const shiftKey in schedule) {
+          const slot = schedule[shiftKey]
           if (slot?.patientId && myAssignedIds.has(slot.patientId)) {
             myFinalListWithBedInfo.push({ patientId: slot.patientId, shiftKey: shiftKey })
           }

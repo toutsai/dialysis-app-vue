@@ -1,5 +1,121 @@
 [
   {
+    "version": "2025-12-05",
+    "title": "功能更新與問題修正",
+    "changes": [
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "add POST /api/patients/history route for patient history creation"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add migration system for schema updates"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add standalone mode for remaining files"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add standalone mode for UpdateScheduler and MainLayout"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add standalone mode support for key views"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "resolve LocalApiManager resource type errors"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add standalone mode detection"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add standalone mode support"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "complete standalone mode support"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add standalone mode support for data fetching"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "add patient history list route and improve doc ref detection"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "improve onSnapshot to detect doc vs query reference"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "add documentId as standalone export"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "make docSnap.exists work as both property and method"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add mock Firestore for standalone mode"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "add unified API manager for standalone mode"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "auto-create default admin on startup"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "avoid Firebase auth in standalone mode"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "create data directory synchronously before database init"
+      },
+      {
+        "type": "fix",
+        "label": "修正",
+        "text": "resolve ES module import errors for bcrypt and uuid"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "前端支援單機離線模式"
+      },
+      {
+        "type": "feat",
+        "label": "新增",
+        "text": "建立本地後端 API 框架 (階段 1+2)"
+      }
+    ]
+  },
+  {
     "version": "2025-12-01",
     "title": "功能更新與問題修正",
     "changes": [

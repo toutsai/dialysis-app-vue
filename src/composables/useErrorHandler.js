@@ -1,4 +1,5 @@
-// 檔案路徑: src/composables/useErrorHandler.js (最終修正版 - 確保 error.code 被傳遞)
+// 檔案路徑: src/composables/useErrorHandler.js
+// ✨ Standalone 版本
 
 import { ref } from 'vue'
 import { useRealtimeNotifications } from './useRealtimeNotifications.js'
@@ -43,15 +44,11 @@ export function useErrorHandler() {
 
           logError(error, { apiCall: apiCall.name, attempts: attempt })
 
-          // =========================================================
-          // 【核心修正】
-          // 1. 建立一個新的錯誤物件
+          // 建立一個新的錯誤物件，保留原始錯誤的屬性
           const customError = new Error(errorMessage)
-          // 2. 將原始 Firebase 錯誤的 .code 屬性複製過來
           customError.code = error.code
-          // 3. 拋出這個帶有 .code 的新錯誤物件
+          customError.status = error.status
           throw customError
-          // =========================================================
         }
         await new Promise((resolve) => setTimeout(resolve, retryDelay * attempt))
       }
@@ -61,24 +58,40 @@ export function useErrorHandler() {
   const getErrorMessage = (error, prefix = '錯誤') => {
     if (typeof error === 'string') return `${prefix}: ${error}`
 
-    // 優化：直接從 error.code 映射，更精確
-    const firebaseErrors = {
-      'auth/user-not-found': '找不到此使用者。',
-      'auth/wrong-password': '密碼不正確。',
-      'auth/invalid-email': '電子郵件格式無效。',
-      'auth/email-already-in-use': '此電子郵件已被註冊。',
-      'auth/requires-recent-login': '此操作需要重新登入以確保安全。',
+    // HTTP 狀態碼與錯誤訊息映射
+    const httpErrors = {
+      400: '請求格式錯誤',
+      401: '未授權，請重新登入',
+      403: '權限不足',
+      404: '找不到資料',
+      409: '資料衝突或已存在',
+      422: '輸入參數有誤',
+      500: '伺服器內部錯誤',
+      502: '閘道錯誤',
+      503: '服務暫時無法使用',
+      504: '請求逾時',
+    }
+
+    // 通用錯誤碼映射
+    const errorCodes = {
       'permission-denied': '權限不足',
       'not-found': '找不到資料',
       'already-exists': '資料已存在',
       'invalid-argument': '輸入參數有誤',
       'deadline-exceeded': '請求逾時',
       unavailable: '服務暫時無法使用',
+      'invalid-credentials': '帳號或密碼錯誤',
+      'user-not-found': '找不到此使用者',
+    }
+
+    // 優先檢查 HTTP 狀態碼
+    if (error.status && httpErrors[error.status]) {
+      return `${prefix}: ${httpErrors[error.status]}`
     }
 
     // 如果 error.code 能直接對應到我們的列表，就優先使用它
-    if (error.code && firebaseErrors[error.code]) {
-      return `${prefix}: ${firebaseErrors[error.code]}`
+    if (error.code && errorCodes[error.code]) {
+      return `${prefix}: ${errorCodes[error.code]}`
     }
 
     // 否則，使用原始的 message 或 code

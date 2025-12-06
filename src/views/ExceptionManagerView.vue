@@ -122,23 +122,8 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch, computed, nextTick } from 'vue'
+import { ref, onUnmounted, watch, computed, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  serverTimestamp,
-  setDoc,
-  addDoc,
-  where,
-  getDocs,
-} from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import ApiManager from '@/services/api_manager'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useRealtimeNotifications } from '@/composables/useRealtimeNotifications.js'
@@ -155,17 +140,15 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import ExceptionCreateDialog from '@/components/ExceptionCreateDialog.vue'
 import { formatDateTimeToLocal, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
+import { schedulesApi, systemApi } from '@/services/localApiClient'
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const { isMobile } = useBreakpoints()
-
-const exceptionsApi = ApiManager('schedule_exceptions')
-const tasksApi = ApiManager('tasks')
 const router = useRouter()
 const route = useRoute()
 const { createGlobalNotification } = useGlobalNotifier()
-const { addLocalNotification } = useRealtimeNotifications()
+const { addLocalNotification, refreshNotifications } = useRealtimeNotifications()
 const { currentUser, canEditSchedules } = useAuth()
 
 const isPageLocked = computed(() => !canEditSchedules.value)
@@ -201,6 +184,105 @@ const statusMap = {
   expired: '已過期',
   conflict_requires_resolution: '衝突待解決',
   cancelled: '已撤銷',
+}
+
+// 輪詢檢查調班狀態更新
+const pollingIntervals = ref(new Map())
+
+/**
+ * 開始輪詢某個調班申請的狀態
+ * @param {string} exceptionId - 調班申請 ID
+ * @param {string} patientName - 病患名稱（用於通知）
+ * @param {string} type - 調班類型
+ */
+function startPollingExceptionStatus(exceptionId, patientName, type) {
+  // 如果已經在輪詢，不重複啟動
+  if (pollingIntervals.value.has(exceptionId)) return
+
+  let attempts = 0
+  const maxAttempts = 10 // 最多輪詢 10 次（約 10 秒）
+
+  const intervalId = setInterval(async () => {
+    attempts++
+
+    try {
+      const updatedException = await schedulesApi.fetchExceptionById(exceptionId)
+
+      if (!updatedException) {
+        // 申請可能被刪除了
+        stopPollingExceptionStatus(exceptionId)
+        return
+      }
+
+      // 檢查狀態是否已更新
+      if (updatedException.status !== 'pending' && updatedException.status !== 'processing') {
+        stopPollingExceptionStatus(exceptionId)
+
+        // 更新本地列表
+        const index = exceptions.value.findIndex(ex => ex.id === exceptionId)
+        if (index !== -1) {
+          exceptions.value[index] = updatedException
+        } else {
+          exceptions.value.unshift(updatedException)
+        }
+
+        // 顯示結果通知
+        const typeText = typeMap[type] || '調班'
+        if (updatedException.status === 'applied') {
+          createGlobalNotification(`✓ ${patientName} ${typeText}申請已生效`, 'success')
+        } else if (updatedException.status === 'error') {
+          addLocalNotification(`✗ ${patientName} ${typeText}申請失敗: ${updatedException.errorMessage || '處理錯誤'}`)
+        } else if (updatedException.status === 'conflict_requires_resolution') {
+          addLocalNotification(`⚠ ${patientName} ${typeText}申請有衝突，需要處理`)
+        }
+
+        // 🔥 立即刷新側邊欄通知
+        refreshNotifications()
+        return
+      }
+
+      // 達到最大嘗試次數，停止輪詢
+      if (attempts >= maxAttempts) {
+        stopPollingExceptionStatus(exceptionId)
+        // 重新載入整個列表以確保同步
+        await refreshExceptionsList()
+      }
+    } catch (error) {
+      console.error('輪詢調班狀態失敗:', error)
+      if (attempts >= maxAttempts) {
+        stopPollingExceptionStatus(exceptionId)
+      }
+    }
+  }, 1000) // 每秒輪詢一次
+
+  pollingIntervals.value.set(exceptionId, intervalId)
+}
+
+/**
+ * 停止輪詢某個調班申請
+ */
+function stopPollingExceptionStatus(exceptionId) {
+  const intervalId = pollingIntervals.value.get(exceptionId)
+  if (intervalId) {
+    clearInterval(intervalId)
+    pollingIntervals.value.delete(exceptionId)
+  }
+}
+
+/**
+ * 重新載入調班列表
+ */
+async function refreshExceptionsList() {
+  try {
+    const data = await schedulesApi.fetchExceptions()
+    exceptions.value = (data || []).sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateB - dateA
+    })
+  } catch (error) {
+    console.error('重新載入調班列表失敗:', error)
+  }
 }
 const typeMap = {
   MOVE: '臨時調班',
@@ -481,8 +563,8 @@ async function handleDelete() {
     // 先刪除對應的調班訊息
     await deleteOldExceptionMessages(exceptionData)
 
-    // 再刪除調班申請
-    await deleteDoc(doc(db, 'schedule_exceptions', exceptionId))
+    // 使用本地 API 刪除
+    await schedulesApi.deleteException(exceptionId)
 
     let message = ''
     if (exceptionData.type === 'SWAP') {
@@ -492,6 +574,8 @@ async function handleDelete() {
       message = `成功撤銷調班申請: ${exceptionData.patientName} (${typeText})`
     }
     createGlobalNotification(message, 'success')
+    // 立即刷新列表
+    await refreshExceptionsList()
   } catch (error) {
     console.error('撤銷失敗:', error)
     alertDialogTitle.value = '撤銷失敗'
@@ -502,8 +586,10 @@ async function handleDelete() {
   }
 }
 
-function handleDeleteFromChild(id) {
+async function handleDeleteFromChild(id) {
   createGlobalNotification('成功撤銷衝突的調班申請', 'success')
+  // 立即刷新列表
+  await refreshExceptionsList()
 }
 
 /**
@@ -712,7 +798,7 @@ async function handleCreateException(formData) {
 async function processExceptionSubmission(formData, isUpdating) {
   try {
     if (isUpdating) {
-      await deleteDoc(doc(db, 'schedule_exceptions', formData.id))
+      await schedulesApi.deleteException(formData.id)
     }
     const dataToSave = {
       patientId: formData.patientId,
@@ -724,15 +810,27 @@ async function processExceptionSubmission(formData, isUpdating) {
       from: formData.from,
       to: formData.to,
       status: 'pending',
-      createdAt: serverTimestamp(),
+      createdAt: new Date().toISOString(),
     }
     if (formData.type === 'SWAP') {
       dataToSave.date = formData.date
       dataToSave.patient1 = formData.patient1
       dataToSave.patient2 = formData.patient2
     }
-    await exceptionsApi.save(dataToSave)
+    const result = await schedulesApi.createException(dataToSave)
     closeCreateDialog()
+
+    // 立即刷新列表顯示新申請
+    await refreshExceptionsList()
+
+    // 🔥 開始輪詢，等待後端處理完成後即時更新
+    if (result?.id) {
+      const displayName = formData.type === 'SWAP'
+        ? `${formData.patient1.patientName} & ${formData.patient2.patientName}`
+        : formData.patientName
+      startPollingExceptionStatus(result.id, displayName, formData.type)
+    }
+
     const actionText = isUpdating ? '重新提交' : '新增'
     let message = ''
     if (formData.type === 'SWAP') {
@@ -781,8 +879,8 @@ async function processExceptionSubmission(formData, isUpdating) {
           name: currentUser.value.name,
           title: currentUser.value.title,
         },
-        createdAt: serverTimestamp(),
-        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        createdAt: new Date().toISOString(),
+        expireAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         assignee: null,
       })
       if (formData.type === 'SWAP') {
@@ -794,10 +892,10 @@ async function processExceptionSubmission(formData, isUpdating) {
           id: formData.patient2.patientId,
           name: formData.patient2.patientName,
         })
-        await Promise.all([tasksApi.save(task1), tasksApi.save(task2)])
+        await Promise.all([systemApi.createTask(task1), systemApi.createTask(task2)])
       } else {
         const task = createMessageTask({ id: formData.patientId, name: formData.patientName })
-        await tasksApi.save(task)
+        await systemApi.createTask(task)
       }
     }
   } catch (error) {
@@ -813,21 +911,16 @@ async function processExceptionSubmission(formData, isUpdating) {
 async function deleteOldExceptionMessages(existingEx) {
   try {
     // 取得要刪除的 targetDate
-    // 注意：訊息產生時用的是 formData.date || formData.startDate
-    // 所以這裡要用相同的邏輯
     const targetDate = existingEx.date || existingEx.startDate
 
     if (!targetDate) return
 
-    // 查詢符合條件的 task 訊息
-    const tasksQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'message'),
-      where('patientId', '==', existingEx.patientId),
-      where('targetDate', '==', targetDate),
-    )
-
-    const snapshot = await getDocs(tasksQuery)
+    // 使用本地 API 查詢符合條件的 task 訊息
+    const tasks = await systemApi.fetchTasks({
+      category: 'message',
+      patientId: existingEx.patientId,
+      targetDate: targetDate,
+    }).catch(() => [])
 
     // 調班類型對應的關鍵字
     const typeKeywords = {
@@ -840,12 +933,11 @@ async function deleteOldExceptionMessages(existingEx) {
 
     // 過濾並刪除包含對應關鍵字的訊息
     const deletePromises = []
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data()
-      if (data.content && keyword && data.content.includes(keyword)) {
-        deletePromises.push(deleteDoc(doc(db, 'tasks', docSnap.id)))
+    for (const task of (tasks || [])) {
+      if (task.content && keyword && task.content.includes(keyword)) {
+        deletePromises.push(systemApi.deleteTask(task.id))
       }
-    })
+    }
 
     if (deletePromises.length > 0) {
       await Promise.all(deletePromises)
@@ -879,7 +971,7 @@ async function handleMergeConfirm() {
 
     // 刪除除了第一筆之外的所有現有申請
     for (let i = 1; i < existingExceptions.length; i++) {
-      await deleteDoc(doc(db, 'schedule_exceptions', existingExceptions[i].id))
+      await schedulesApi.deleteException(existingExceptions[i].id)
     }
 
     // 建立合併後的資料：保留鏈頭的 from，更新 to
@@ -930,18 +1022,15 @@ async function initializePageData() {
   isLoading.value = true
   try {
     await patientStore.fetchPatientsIfNeeded()
-    const q = query(collection(db, 'schedule_exceptions'), orderBy('createdAt', 'desc'))
-    unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        exceptions.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-        isLoading.value = false
-      },
-      (error) => {
-        console.error('❌ Firestore 監聽器發生錯誤:', error)
-        isLoading.value = false
-      },
-    )
+
+    // 使用本地 API 獲取資料
+    const data = await schedulesApi.fetchExceptions()
+    exceptions.value = (data || []).sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateB - dateA
+    })
+    isLoading.value = false
   } catch (error) {
     console.error('載入資料失敗:', error)
     isLoading.value = false
@@ -1017,6 +1106,11 @@ onUnmounted(() => {
   if (unsubscribe) {
     unsubscribe()
   }
+  // 清理所有輪詢
+  pollingIntervals.value.forEach((intervalId) => {
+    clearInterval(intervalId)
+  })
+  pollingIntervals.value.clear()
 })
 </script>
 

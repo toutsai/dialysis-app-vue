@@ -1,11 +1,7 @@
 // 檔案路徑: src/services/nursingDutyService.js
+// 🖥️ 純單機版本 - 使用本地 Express.js + SQLite 後端
 
-import ApiManager from './api_manager' // 確保您有這個共用的 ApiManager
-import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-
-const dutiesApi = ApiManager('nursing_duties')
-const DUTY_DOC_ID = 'main' // 我們使用一個固定的文件 ID
+import { nursingApi } from '@/services/localApiClient'
 
 // 預設的空資料結構
 const getDefaultData = () => ({
@@ -18,19 +14,17 @@ const getDefaultData = () => ({
 })
 
 /**
- * 從 Firestore 獲取護理工作職責
+ * 從本地資料庫獲取護理工作職責
  * @returns {Promise<object>}
  */
 export async function fetchDuties() {
   try {
-    const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
-    const docSnap = await getDoc(docRef)
-
-    if (docSnap.exists()) {
-      console.log('✅ 從 Firestore 成功獲取護理職責資料')
-      return docSnap.data()
+    const data = await nursingApi.fetchDuties()
+    if (data) {
+      console.log('✅ 從本地 API 成功獲取護理職責資料')
+      return data
     } else {
-      console.log('⚠️ 在 Firestore 中找不到護理職責文件，回傳預設值。')
+      console.log('⚠️ 在本地資料庫中找不到護理職責，回傳預設值。')
       return getDefaultData()
     }
   } catch (error) {
@@ -40,16 +34,14 @@ export async function fetchDuties() {
 }
 
 /**
- * 將護理工作職責儲存到 Firestore
+ * 將護理工作職責儲存到本地資料庫
  * @param {object} data - 要儲存的完整資料物件
  * @returns {Promise<void>}
  */
 export async function saveDuties(data) {
   try {
-    const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
-    // 使用 setDoc 搭配 { merge: true }，如果文件不存在會建立，如果存在則會更新
-    await setDoc(docRef, data, { merge: true })
-    console.log('✅ 護理職責資料已成功儲存到 Firestore')
+    await nursingApi.saveDuties(data)
+    console.log('✅ 護理職責資料已成功儲存到本地資料庫')
   } catch (error) {
     console.error('❌ 儲存護理職責失敗:', error)
     throw new Error('儲存護理職責到資料庫時發生錯誤。')

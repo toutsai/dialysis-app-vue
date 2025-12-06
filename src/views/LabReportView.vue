@@ -361,20 +361,9 @@
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiManager from '@/services/api_manager'
-import {
-  where,
-  orderBy,
-  documentId,
-  collection,
-  getDocs,
-  query as firestoreQuery,
-} from 'firebase/firestore'
-import { db, functions } from '@/composables/useFirebase'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
-import { queryWithInChunks } from '@/utils/firestoreUtils.js'
-import { httpsCallable } from 'firebase/functions'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 // ✨ 新增：從 constants 引入 LAB_ITEM_DISPLAY_NAMES
@@ -671,14 +660,14 @@ async function generateAlertReport() {
     const patientIdsInList = alertList.value.map((item) => item.patient.id)
     if (patientIdsInList.length > 0) {
       const monthRangeKey = `${alertMonthRange.value.start}_${alertMonthRange.value.end}`
-      const savedAnalyses = await queryWithInChunks(
-        'lab_alert_analyses',
-        'patientId',
-        patientIdsInList,
-        [where('monthRange', '==', monthRangeKey)],
+      const savedAnalyses = await labAnalysesApi.fetchAll([where('monthRange', '==', monthRangeKey)])
+
+      // 過濾出屬於當前病人列表的分析
+      const relevantAnalyses = savedAnalyses.filter((analysis) =>
+        patientIdsInList.includes(analysis.patientId),
       )
 
-      savedAnalyses.forEach((analysis) => {
+      relevantAnalyses.forEach((analysis) => {
         const targetItem = alertList.value.find((item) => item.patient.id === analysis.patientId)
         if (targetItem) {
           targetItem.analysisTexts[analysis.abnormalityKey] = analysis.analysis
@@ -907,18 +896,28 @@ async function findMissingPatients() {
     const [year, month] = manualEntryGroup.month.split('-').map(Number)
     const startDate = new Date(year, month - 1, 1)
     const endDate = new Date(year, month, 1)
-    const reportsInMonth = await queryWithInChunks(
-      'lab_reports',
-      'patientId',
-      allPatientIdsInGroup,
-      [where('reportDate', '>=', startDate), where('reportDate', '<', endDate)],
+
+    // 獲取該月份的所有相關報告
+    const reportsInMonth = await labReportsApi.fetchAll([
+      where('reportDate', '>=', startDate),
+      where('reportDate', '<', endDate),
+    ])
+    // 過濾出屬於該群組病人的報告
+    const relevantReports = reportsInMonth.filter((report) =>
+      allPatientIdsInGroup.includes(report.patientId),
     )
-    const patientIdsWithReport = new Set(reportsInMonth.map((report) => report.patientId))
+
+    const patientIdsWithReport = new Set(relevantReports.map((report) => report.patientId))
     const missingIds = allPatientIdsInGroup.filter((id) => !patientIdsWithReport.has(id))
     if (missingIds.length === 0) {
       return
     }
-    const missingPatientDetails = await queryWithInChunks('patients', documentId(), missingIds)
+
+    // 從 patientStore 獲取缺漏病人的詳細資料
+    const missingPatientDetails = missingIds
+      .map((id) => patientMap.value.get(id))
+      .filter(Boolean)
+      .map((p) => ({ id: p.id, name: p.name, medicalRecordNumber: p.medicalRecordNumber }))
     missingPatients.value = missingPatientDetails.map((patientData) => {
       const labData = {}
       manualEntryItems.forEach((item) => {
@@ -1015,33 +1014,12 @@ async function handleUpload() {
     alert('請先選擇一個檔案！')
     return
   }
-  isUploading.value = true
-  uploadResult.value = null
-  missingPatients.value = []
-  searchedForMissing.value = false
-  try {
-    const fileContentBase64 = await toBase64(selectedFile.value)
-    const processLabReport = httpsCallable(functions, 'processLabReport')
-    const result = await processLabReport({
-      fileName: selectedFile.value.name,
-      fileContent: fileContentBase64,
-    })
-    uploadResult.value = result.data
-  } catch (error) {
-    console.error('上傳處理失敗:', error)
-    uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1 }
-  } finally {
-    isUploading.value = false
-  }
-}
 
-function toBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.readAsDataURL(file)
-    reader.onload = () => resolve(reader.result.toString().replace(/^data:(.*,)?/, ''))
-    reader.onerror = (error) => reject(error)
-  })
+  // 離線模式不支援上傳功能
+  uploadResult.value = {
+    message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
+    errorCount: 1,
+  }
 }
 
 async function handleSearch() {
@@ -1127,10 +1105,16 @@ async function searchGroupReports() {
   const [year, month] = groupSearchParams.month.split('-').map(Number)
   const startDate = new Date(year, month - 1, 1)
   const endDate = new Date(year, month, 1)
-  const allReportsInMonth = await queryWithInChunks('lab_reports', 'patientId', patientIdsInGroup, [
+
+  // 獲取該月份的所有報告
+  const allReports = await labReportsApi.fetchAll([
     where('reportDate', '>=', startDate),
     where('reportDate', '<', endDate),
   ])
+  // 過濾出屬於該群組病人的報告
+  const allReportsInMonth = allReports.filter((report) =>
+    patientIdsInGroup.includes(report.patientId),
+  )
 
   // 4. 將報告聚合到每個病人底下
   const aggregatedReports = new Map()
@@ -1183,21 +1167,22 @@ async function searchIndividualReports() {
   const year = individualSearchYear.value
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year + 1, 0, 1)
-  const reportsRaw = []
-  const reportsRef = collection(db, 'lab_reports')
-  const q = firestoreQuery(
-    reportsRef,
+
+  // 使用 ApiManager 獲取報告
+  const reports = await labReportsApi.fetchAll([
     where('patientId', '==', foundPatient.id),
     where('reportDate', '>=', startDate),
     where('reportDate', '<', endDate),
     orderBy('reportDate', 'desc'),
-  )
-  const querySnapshot = await getDocs(q)
-  querySnapshot.forEach((doc) => {
-    const data = doc.data()
-    if (data.reportDate?.toDate)
-      data.reportDate = data.reportDate.toDate().toISOString().slice(0, 10)
-    reportsRaw.push({ id: doc.id, ...data })
+  ])
+  const reportsRaw = reports.map((report) => {
+    if (report.reportDate && typeof report.reportDate === 'string') {
+      // 確保日期格式正確
+      report.reportDate = report.reportDate.slice(0, 10)
+    } else if (report.reportDate?.toDate) {
+      report.reportDate = report.reportDate.toDate().toISOString().slice(0, 10)
+    }
+    return report
   })
 
   const processedData = {}

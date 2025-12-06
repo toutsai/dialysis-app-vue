@@ -883,8 +883,7 @@ import {
   updatePatient as optimizedUpdatePatient,
   createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
-import ApiManager from '@/services/api_manager'
-import { where, orderBy, limit } from 'firebase/firestore'
+import { ordersApi, authApi, systemApi, schedulesApi as localSchedulesApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useTeamAssigner } from '@/composables/useTeamAssigner.js'
@@ -923,8 +922,6 @@ import MemoDisplayDialog from '@/components/MemoDisplayDialog.vue'
 import ConditionRecordDisplayDialog from '@/components/ConditionRecordDisplayDialog.vue'
 import DailyInjectionListDialog from '@/components/DailyInjectionListDialog.vue'
 import DailyStaffDisplay from '@/components/DailyStaffDisplay.vue'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
 import DailyDraftListDialog from '@/components/DailyDraftListDialog.vue'
 import IcuOrdersDialog from '@/components/IcuOrdersDialog.vue'
 import DialysisOrderModal from '@/components/DialysisOrderModal.vue'
@@ -949,9 +946,6 @@ const auth = useAuth()
 const { createGlobalNotification } = useGlobalNotifier()
 const router = useRouter()
 const { distributePatients } = useTeamAssigner()
-const conditionRecordsApi = ApiManager('condition_records')
-const usersApi = ApiManager('users')
-const ordersHistoryApi = ApiManager('dialysis_orders_history')
 
 // Helper Functions
 function getSafeDate(timestamp) {
@@ -1402,10 +1396,10 @@ async function fetchArchivedSchedule(dateStr) {
   return await archiveStore.fetchScheduleByDate(dateStr)
 }
 async function fetchLiveSchedule(dateStr) {
-  const schedulesApi = ApiManager('schedules')
-  const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
-  if (dailyRecords.length === 0) return { date: dateStr, schedule: {} }
-  const record = dailyRecords[0]
+  const record = await localSchedulesApi.fetchByDate(dateStr)
+  if (!record || !record.schedule || Object.keys(record.schedule).length === 0) {
+    return { date: dateStr, schedule: {} }
+  }
   const finalSchedule = {}
   if (record.schedule) {
     for (const shiftId in record.schedule) {
@@ -1516,23 +1510,26 @@ async function saveDataToCloud() {
 async function loadDailyStaffInfo(date) {
   try {
     const dateStr = formatDate(date).substring(0, 7)
-    const physicianSchedulesApi = ApiManager('physician_schedules')
-    const [monthScheduleDoc, usersSnapshot] = await Promise.all([
-      physicianSchedulesApi.fetchById(dateStr),
-      usersApi.fetchAll([where('title', 'in', ['主治醫師', '專科護理師'])]),
+    const [monthScheduleDoc, allUsers] = await Promise.all([
+      systemApi.fetchPhysicianSchedule(dateStr),
+      authApi.getUsers(),
     ])
-    const userMap = new Map(usersSnapshot.map((u) => [u.id, u]))
+    // 過濾出醫師和專科護理師
+    const physicians = allUsers.filter(u =>
+      u.title === '主治醫師' || u.title === '專科護理師'
+    )
+    const userMap = new Map(physicians.map((u) => [u.id, u]))
     const dialysisPhysiciansData = { early: null, noon: null, late: null }
     const consultPhysiciansData = { morning: null, afternoon: null, night: null }
-    if (monthScheduleDoc) {
+    if (monthScheduleDoc?.scheduleData) {
       const dayOfMonth = date.getDate()
-      const daySchedule = monthScheduleDoc.schedule?.[dayOfMonth]
+      const daySchedule = monthScheduleDoc.scheduleData?.[dayOfMonth]
       if (daySchedule) {
         dialysisPhysiciansData.early = userMap.get(daySchedule.early?.physicianId) || null
         dialysisPhysiciansData.noon = userMap.get(daySchedule.noon?.physicianId) || null
         dialysisPhysiciansData.late = userMap.get(daySchedule.late?.physicianId) || null
       }
-      const consultationDaySchedule = monthScheduleDoc.consultationSchedule?.[dayOfMonth]
+      const consultationDaySchedule = monthScheduleDoc.scheduleData?.consultationSchedule?.[dayOfMonth]
       if (consultationDaySchedule) {
         consultPhysiciansData.morning =
           userMap.get(consultationDaySchedule.morning?.physicianId) || null
@@ -1551,65 +1548,8 @@ async function loadDailyStaffInfo(date) {
   }
 }
 async function showShiftMedicationDrafts(shiftCode) {
-  if (!shiftCode) return
-  const patientsInShift = Object.entries(currentRecord.schedule)
-    .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(`-${shiftCode}`))
-    .map(([shiftId, slot]) => {
-      const patientData = patientMap.value.get(slot.patientId)
-      if (!patientData) return null
-      const bedNum = shiftId.startsWith('peripheral')
-        ? `外${shiftId.split('-')[1]}`
-        : shiftId.split('-')[1]
-      const shift = shiftId.split('-')[2]
-      return { ...patientData, bedNum, shift }
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      const bedA = String(a.bedNum).startsWith('外')
-        ? 1000 + parseInt(String(a.bedNum).substring(1))
-        : parseInt(a.bedNum)
-      const bedB = String(b.bedNum).startsWith('外')
-        ? 1000 + parseInt(String(b.bedNum).substring(1))
-        : parseInt(b.bedNum)
-      return bedA - bedB
-    })
-  patientsForDraftDialog.value = patientsInShift
-  const patientIds = patientsInShift.map((p) => p.id)
-  draftDialogDate.value = formatDate(currentDate.value)
-  isDraftDialogVisible.value = true
-  isDraftLoading.value = true
-  dailyDrafts.value = []
-  if (patientIds.length === 0) {
-    isDraftLoading.value = false
-    return
-  }
-  try {
-    const getDailyMedicationDrafts = httpsCallable(functions, 'getDailyMedicationDrafts')
-    const CHUNK_SIZE = 30
-    const promises = []
-    for (let i = 0; i < patientIds.length; i += CHUNK_SIZE) {
-      const chunk = patientIds.slice(i, i + CHUNK_SIZE)
-      const payload = { targetDate: draftDialogDate.value, patientIds: chunk }
-      promises.push(getDailyMedicationDrafts(payload))
-    }
-    const results = await Promise.all(promises)
-    let combinedDrafts = []
-    for (const result of results) {
-      if (result.data && result.data.success) {
-        combinedDrafts = combinedDrafts.concat(result.data.drafts)
-      } else {
-        throw new Error(result.data?.message || '從後端獲取部分藥囑草稿失敗')
-      }
-    }
-    dailyDrafts.value = combinedDrafts
-  } catch (error) {
-    console.error(`獲取 ${shiftCode} 班藥囑草稿失敗:`, error)
-    const errorMessage = error.details?.message || error.message || '獲取藥囑草稿時發生未知錯誤'
-    showAlert('查詢失敗', `獲取藥囑草稿清單時發生錯誤: ${errorMessage}`)
-    isDraftDialogVisible.value = false
-  } finally {
-    isDraftLoading.value = false
-  }
+  // 🖥️ 單機版本：此功能需要連接醫療資訊系統，離線模式不支援
+  showAlert('功能提示', '藥囑草稿查詢功能需要連接醫療資訊系統，單機離線版本暫不支援此功能。')
 }
 function updateTaskStoreWithRecords() {
   const recentRecordsPatientIds = new Set()
@@ -1635,7 +1575,8 @@ async function fetchRecentRecords() {
   try {
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const records = await conditionRecordsApi.fetchAll([where('createdAt', '>=', sevenDaysAgo)])
+    const startDate = sevenDaysAgo.toISOString()
+    const records = await ordersApi.fetchConditionRecords({ startDate })
     recentConditionRecords.value = records || []
     updateTaskStoreWithRecords()
     return records

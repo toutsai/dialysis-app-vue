@@ -193,13 +193,9 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import * as XLSX from 'xlsx' // ✨ 核心修改 2: 引入 xlsx 函式庫
-import { functions } from '@/composables/useFirebase'
-import { httpsCallable } from 'firebase/functions'
 import ApiManager from '@/services/api_manager'
-import { where } from 'firebase/firestore'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
-import { queryWithInChunks } from '@/utils/firestoreUtils.js'
 import { useMedicationStore } from '@/stores/medicationStore'
 import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
 
@@ -299,7 +295,6 @@ async function handleSearch() {
 }
 
 async function searchGroupOrders() {
-  // ... 此函式內部邏輯不變 ...
   const masterScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
   const masterRules = masterScheduleDoc?.schedule || {}
   const shiftIndex = SHIFT_MAP[groupSearchParams.shift]
@@ -331,10 +326,11 @@ async function searchGroupOrders() {
   const endDate = new Date(year, month, 1)
   const patientIds = patientList.map((p) => p.patientId)
 
-  const allOrders = await queryWithInChunks('medication_orders', 'patientId', patientIds, [
-    where('uploadTimestamp', '>=', startDate),
-    where('uploadTimestamp', '<', endDate),
-  ])
+  const allOrders = await ordersApi.fetchAll({
+    patientId: patientIds,
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+  })
 
   const patientOrdersMap = new Map()
   patientList.forEach((p) => patientOrdersMap.set(p.patientId, { ...p, orders: {} }))
@@ -355,7 +351,6 @@ async function searchGroupOrders() {
 }
 
 async function searchIndividualOrders() {
-  // ... 此函式內部邏輯不變 ...
   const term = individualSearchTerm.value.trim().toLowerCase()
   if (!term) {
     alert('請輸入姓名或病歷號')
@@ -374,11 +369,11 @@ async function searchIndividualOrders() {
   const startDate = new Date(year, 0, 1)
   const endDate = new Date(year + 1, 0, 1)
 
-  const allYearlyOrders = await ordersApi.fetchAll([
-    where('patientId', '==', foundPatient.id),
-    where('uploadTimestamp', '>=', startDate),
-    where('uploadTimestamp', '<', endDate),
-  ])
+  const allYearlyOrders = await ordersApi.fetchAll({
+    patientId: foundPatient.id,
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+  })
 
   const monthlyOrdersMap = new Map()
   for (let i = 1; i <= 12; i++) {
@@ -387,7 +382,7 @@ async function searchIndividualOrders() {
   }
 
   allYearlyOrders.forEach((order) => {
-    const uploadDate = order.uploadTimestamp.toDate()
+    const uploadDate = new Date(order.uploadTimestamp)
     const monthKey = `${uploadDate.getFullYear()}-${String(uploadDate.getMonth() + 1).padStart(
       2,
       '0',
@@ -539,26 +534,11 @@ async function handleUpload() {
     alert('請先選擇一個檔案！')
     return
   }
-  isUploading.value = true
-  uploadResult.value = null
-  try {
-    const fileContentBase64 = await toBase64(selectedFile.value)
-    const processOrders = httpsCallable(functions, 'processOrders')
-    const result = await processOrders({
-      fileName: selectedFile.value.name,
-      fileContent: fileContentBase64,
-    })
-    uploadResult.value = result.data
 
-    if (result.data && result.data.success && result.data.processedCount > 0) {
-      console.log('[OrdersView] 藥囑上傳成功，正在清除針劑快取...')
-      medicationStore.clearCache()
-    }
-  } catch (error) {
-    console.error('上傳處理失敗:', error)
-    uploadResult.value = { message: `上傳失敗: ${error.message}`, errorCount: 1, errors: [] }
-  } finally {
-    isUploading.value = false
+  uploadResult.value = {
+    message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
+    errorCount: 1,
+    errors: [],
   }
 }
 </script>

@@ -784,6 +784,7 @@
 </template>
 
 <script setup>
+// ✨ Standalone 版本
 // ========================================
 // 1. 引入 (Imports)
 // ========================================
@@ -792,8 +793,6 @@ import * as XLSX from 'xlsx'
 import ApiManager from '@/services/api_manager'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
 import {
   fetchNursingGroupConfig,
@@ -1678,29 +1677,9 @@ async function processAndUpload() {
     uploadStatus.value = '請先選擇一個 Excel 檔案'
     return
   }
-  isUploading.value = true
-  uploadStatus.value = '正在上傳檔案...'
-  try {
-    const fileContentBase64 = await fileToBase64(selectedFile.value)
-    const payload = {
-      fileName: selectedFile.value.name,
-      fileContentBase64: fileContentBase64,
-    }
-    const saveScheduleFunction = httpsCallable(functions, 'saveNursingSchedule')
-    const result = await saveScheduleFunction(payload)
-    if (!result.data.success) throw new Error(result.data.message || '處理失敗')
-    uploadStatus.value = `成功！${result.data.message}`
-    selectedFile.value = null
-    if (result.data.stats?.month) {
-      selectedMonth.value = result.data.stats.month
-    }
-    await loadMonthlySchedule()
-  } catch (error) {
-    console.error('上傳失敗:', error)
-    uploadStatus.value = `失敗：${error.message || '發生未知錯誤'}`
-  } finally {
-    isUploading.value = false
-  }
+  // Standalone 版本：上傳功能暫不支援
+  alert('離線模式下暫不支援此功能')
+  uploadStatus.value = '離線模式下暫不支援上傳功能'
 }
 
 // 計算相鄰月份的輔助函式

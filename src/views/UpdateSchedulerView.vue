@@ -107,17 +107,6 @@
 
 <script setup>
 import { ref, onUnmounted, onMounted, watch, computed, nextTick } from 'vue'
-import {
-  collection,
-  query,
-  orderBy,
-  onSnapshot,
-  deleteDoc,
-  doc,
-  addDoc,
-  setDoc,
-} from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -130,6 +119,9 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import NewUpdateTypeDialog from '@/components/NewUpdateTypeDialog.vue'
 import PatientUpdateSchedulerDialog from '@/components/PatientUpdateSchedulerDialog.vue'
+import ApiManager from '@/services/api_manager'
+
+const scheduledUpdatesApi = ApiManager('scheduled_patient_updates')
 
 // --- Composables & Constants ---
 const { canEditSchedules } = useAuth()
@@ -157,7 +149,6 @@ const STATUS_MAP = {
 // --- Reactive State ---
 const scheduledUpdates = ref([])
 const isLoading = ref(true)
-let unsubscribe = null
 
 const isConfirmDialogVisible = ref(false)
 const confirmDialogTitle = ref('')
@@ -215,25 +206,27 @@ const calendarOptions = computed(() => ({
 
 // --- Functions ---
 function formatPayload(update) {
-  const { changeType, payload } = update
+  const { changeType } = update
+  // 相容 changeData (後端) 和 payload (舊格式)
+  const payload = update.changeData || update.payload || {}
+  const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
   switch (changeType) {
     case 'UPDATE_STATUS':
-      return `新身分: ${payload.status.toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
+      return `新身分: ${statusMap[payload.status] || (payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
     case 'UPDATE_MODE':
-      return `新模式: ${payload.mode}`
+      return `新模式: ${payload.mode || ''}`
     case 'UPDATE_FREQ':
-      return `新頻率: ${payload.freq}`
+      return `新頻率: ${payload.freq || ''}`
     case 'UPDATE_BASE_SCHEDULE_RULE':
       const shiftMap = { 0: '早', 1: '午', 2: '晚' }
-      const bed = String(payload.bedNum).startsWith('p')
+      const bed = String(payload.bedNum || '').startsWith('p')
         ? `外圍${String(payload.bedNum).slice(-1)}`
         : `${payload.bedNum}床`
-      return `新規則: ${bed} / ${shiftMap[payload.shiftIndex]}班 / ${payload.freq}`
+      return `新規則: ${bed} / ${shiftMap[payload.shiftIndex]}班 / ${payload.freq || ''}`
     case 'DELETE_PATIENT':
-      return `原因: ${payload.deleteReason}${payload.remarks ? ` (${payload.remarks})` : ''}`
+      return `原因: ${payload.deleteReason || ''}${payload.remarks ? ` (${payload.remarks})` : ''}`
     case 'RESTORE_PATIENT':
-      const statusMap = { opd: '門診', ipd: '住院', er: '急診' }
-      return `復原至: ${statusMap[payload.status] || payload.status.toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
+      return `復原至: ${statusMap[payload.status] || (payload.status || '').toUpperCase()}${payload.wardNumber ? ` (${payload.wardNumber})` : ''}`
 
     default:
       return JSON.stringify(payload)
@@ -282,14 +275,16 @@ function handleEdit() {
 async function handleDelete() {
   if (!currentUpdateForAction.value?.id) return
   const updateIdToDelete = currentUpdateForAction.value.id
-  const updateData = currentUpdateForAction.value // 保存一份資料用於通知
+  const updateData = currentUpdateForAction.value
 
-  isConfirmDialogVisible.value = false // 先關閉對話框
+  isConfirmDialogVisible.value = false
 
   try {
-    await deleteDoc(doc(db, 'scheduled_patient_updates', updateIdToDelete))
+    await scheduledUpdatesApi.delete(updateIdToDelete)
     const typeText = TYPE_MAP[updateData.changeType] || '預約'
     createGlobalNotification(`成功撤銷 ${updateData.patientName} 的 ${typeText}`, 'success')
+    // 立即刷新列表
+    await initializeListener()
   } catch (error) {
     console.error('撤銷預約失敗:', error)
     createGlobalNotification(`撤銷失敗: ${error.message}`, 'error')
@@ -305,17 +300,6 @@ function executeConfirmAction() {
   isConfirmDialogVisible.value = false
 }
 
-async function executeDelete(updateId) {
-  if (!updateId) return
-  try {
-    await deleteDoc(doc(db, 'scheduled_patient_updates', updateId))
-    createGlobalNotification('預約變更已成功撤銷', 'success')
-  } catch (error) {
-    console.error('撤銷預約失敗:', error)
-    createGlobalNotification(`撤銷失敗: ${error.message}`, 'error')
-  }
-}
-
 // ✨ 1. 新增這個函式，專門用來處理關閉 Dialog 後的清理工作
 function closeSchedulerDialogs() {
   isSchedulerDialogVisible.value = false
@@ -323,23 +307,20 @@ function closeSchedulerDialogs() {
   // 未來如果還有其他需要重置的狀態，可以一併加在這裡
 }
 
-function initializeListener() {
-  if (unsubscribe) unsubscribe()
+async function initializeListener() {
   isLoading.value = true
 
-  const q = query(collection(db, 'scheduled_patient_updates'), orderBy('createdAt', 'desc'))
-
-  unsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
-      scheduledUpdates.value = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
-      isLoading.value = false
-    },
-    (error) => {
-      console.error('監聽預約變更時發生錯誤:', error)
-      isLoading.value = false
-    },
-  )
+  try {
+    const data = await scheduledUpdatesApi.fetchAll()
+    scheduledUpdates.value = data.sort((a, b) => {
+      const dateA = new Date(a.createdAt).getTime()
+      const dateB = new Date(b.createdAt).getTime()
+      return dateB - dateA
+    })
+  } catch (error) {
+    console.error('獲取預約變更失敗:', error)
+  }
+  isLoading.value = false
 }
 
 function handlePrev() {
@@ -373,20 +354,17 @@ async function handleScheduledUpdate(dataToSubmit) {
   isSchedulerDialogVisible.value = false
   try {
     if (isEditingUpdate.value && currentUpdateForAction.value?.id) {
-      // 編輯模式：更新現有文件
-      const docRef = doc(db, 'scheduled_patient_updates', currentUpdateForAction.value.id)
-      await setDoc(docRef, dataToSubmit, { merge: true }) // 使用 setDoc + merge 更新
+      await scheduledUpdatesApi.update(currentUpdateForAction.value.id, dataToSubmit)
       createGlobalNotification('預約變更已成功更新', 'success')
     } else {
-      // 新增模式：建立新文件
-      await addDoc(collection(db, 'scheduled_patient_updates'), dataToSubmit)
+      await scheduledUpdatesApi.create(dataToSubmit)
       createGlobalNotification('預約成功！變更將在指定日期自動生效。', 'success')
     }
+    await initializeListener()
   } catch (error) {
     console.error('提交預約失敗:', error)
     createGlobalNotification(`操作失敗: ${error.message}`, 'error')
   } finally {
-    // 重置狀態
     isEditingUpdate.value = false
     currentUpdateForAction.value = null
   }
@@ -401,7 +379,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  if (unsubscribe) unsubscribe()
+  // Cleanup if needed
 })
 
 watch(isLoading, (newIsLoading) => {

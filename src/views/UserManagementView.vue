@@ -6,9 +6,8 @@ import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import UserFormModal from '@/components/UserFormModal.vue'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
 import { formatDateToChinese, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
+import { authApi } from '@/services/localApiClient'
 
 // --- API and State ---
 const usersApi = ApiManager('users')
@@ -198,18 +197,16 @@ async function handleSaveUser(userData) {
   isSubmitting.value = true
   try {
     if (isEditing.value) {
-      // 編輯現有用戶
       const { id, password, ...updateData } = userData
       updateData.updatedAt = new Date()
 
-      // ✨ 如果有提供新密碼，使用 Cloud Function 來重設密碼
       if (password) {
         try {
-          const adminResetPassword = httpsCallable(functions, 'adminResetPassword')
-          await adminResetPassword({ userId: id, newPassword: password })
+          // Use local API for password reset
+          await authApi.resetPassword(id, password)
         } catch (pwError) {
           console.error('密碼更新失敗:', pwError)
-          showAlert('密碼更新失敗', pwError.message || '密碼需至少 8 個字元，並包含大寫字母、小寫字母和數字。')
+          showAlert('密碼更新失敗', pwError.message || '密碼更新時發生錯誤。')
           isSubmitting.value = false
           return
         }
@@ -231,18 +228,12 @@ async function handleSaveUser(userData) {
         throw error
       }
     } else {
-      // ✨ 新增用戶：使用 Cloud Function 確保密碼加密
       const { id, ...dataToSave } = userData
       try {
-        const createUser = httpsCallable(functions, 'createUser')
-        const result = await createUser(dataToSave)
-
-        // 取得新建立的用戶資料並加入列表
-        const newUserDoc = await usersApi.fetchById(result.data.userId)
-        if (newUserDoc) {
-          users.value.unshift(newUserDoc)
-        }
-        showAlert('成功', '使用者已新增。密碼已安全加密儲存。')
+        const result = await authApi.createUser(dataToSave)
+        // 重新載入整個使用者列表以確保資料同步
+        await fetchUsers()
+        showAlert('成功', '使用者已新增。')
       } catch (createError) {
         console.error('建立用戶失敗:', createError)
         showAlert('建立失敗', createError.message || '建立使用者時發生錯誤。')
@@ -269,115 +260,16 @@ async function copyEmail(email) {
 
 // --- Admin Tools Functions ---
 
-// ✨ --- 新增: 觸發強制同步排程的完整函式 --- ✨
 async function triggerForceResync() {
-  const callCloudFunction = async (isDryRun) => {
-    isResyncLoading.value = true
-    const logPrefix = isDryRun ? '模擬運行' : '正式執行'
-    createGlobalNotifier(
-      'info',
-      `${logPrefix}：已發送強制同步請求，此過程可能需要數分鐘，請稍候...`,
-    )
-
-    try {
-      const forceResync = httpsCallable(functions, 'forceResyncAllSchedules')
-      const result = await forceResync({ dryRun: isDryRun })
-      showAlert(`同步請求成功 (${logPrefix})`, result.data.message)
-    } catch (error) {
-      console.error('強制同步失敗:', error)
-      showAlert('同步請求失敗', `發生錯誤: ${error.message}`)
-    } finally {
-      isResyncLoading.value = false
-    }
-  }
-
-  showConfirm(
-    '⚠️ 高風險操作：強制同步排程',
-    '此操作將完全覆蓋未來60天的排程，用於修復資料錯亂。<strong>此操作不可逆，請謹慎使用！</strong><br><br>您要如何執行？',
-    () => {
-      // 這個確認按鈕會觸發第二次選擇
-      showConfirm(
-        '最終確認：選擇執行模式',
-        '<strong>模擬運行 (Dry Run)</strong> 不會寫入資料庫，只會在後端日誌顯示操作過程，推薦先執行此項檢查。<br><br><strong>正式執行</strong>將會實際修改資料庫。',
-        () => callCloudFunction(false), // "正式執行" 按鈕的行為
-        {
-          confirmText: '🔴 正式執行',
-          cancelText: '🟡 模擬運行 (Dry Run)',
-        },
-      )
-    },
-    {
-      confirmText: '我了解風險，繼續',
-      cancelText: '取消',
-    },
-  )
-
-  // 覆寫第二次彈窗的 "取消" (模擬運行) 按鈕行為
-  confirmInfo.value.onCancel = () => {
-    // 檢查是否是第二次彈窗
-    if (confirmInfo.value.confirmText === '🔴 正式執行') {
-      confirmInfo.value.isVisible = false
-      callCloudFunction(true) // 執行 Dry Run
-    } else {
-      confirmInfo.value.isVisible = false // 第一次彈窗的正常取消
-    }
-  }
+  showAlert('功能不可用', '此管理功能僅在線上模式下可用。')
 }
 
 async function triggerMigration() {
-  const today = new Date()
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-  const startDateStr = '2024-01-01'
-  const endDateStr = yesterday.toISOString().split('T')[0]
-
-  if (endDateStr < startDateStr) {
-    showAlert('無需操作', '所有歷史排班資料似乎都已完成歸檔，無需執行手動遷移。')
-    return
-  }
-
-  showConfirm(
-    '⚠️ 高風險操作確認',
-    `此操作將會遷移從 ${startDateStr} 到 ${endDateStr} (昨天) 的所有歷史排班資料到歸檔區。您確定要繼續嗎？`,
-    () => {
-      showConfirm(
-        '最終確認',
-        `請再次確認，即將開始遷移 ${startDateStr} 至 ${endDateStr} 的排班資料。`,
-        async () => {
-          isMigrationLoading.value = true
-          const migrate = httpsCallable(functions, 'migrateSchedulesToArchive')
-          try {
-            const result = await migrate({
-              startDate: startDateStr,
-              endDate: endDateStr,
-            })
-            showAlert('遷移成功', `操作已完成！\n${result.data.message}`)
-          } catch (error) {
-            console.error('遷移失敗:', error)
-            showAlert('遷移失敗', `發生錯誤: ${error.message}`)
-          } finally {
-            isMigrationLoading.value = false
-          }
-        },
-      )
-    },
-  )
+  showAlert('功能不可用', '此管理功能僅在線上模式下可用。')
 }
 
 async function triggerManualExpire() {
-  showConfirm('確認操作', '您確定要立即將所有過期的留言標記為「已過期」嗎？', async () => {
-    isExpireLoading.value = true
-    try {
-      const manuallyExpireTasks = httpsCallable(functions, 'manuallyExpireTasks')
-      const result = await manuallyExpireTasks()
-      showAlert('操作成功', result.data.message)
-    } catch (error) {
-      console.error('手動更新失敗:', error)
-      showAlert('操作失敗', `發生錯誤: ${error.message}`)
-    } finally {
-      isExpireLoading.value = false
-    }
-  })
+  showAlert('功能不可用', '此管理功能僅在線上模式下可用。')
 }
 
 function handleFileSelectForDrive(event) {
@@ -397,32 +289,7 @@ function fileToBase64(file) {
 }
 
 async function triggerUploadToDrive() {
-  if (!selectedFileForDrive.value) {
-    showAlert('提示', '請先選擇一個要上傳的檔案！')
-    return
-  }
-  isUploadingToDrive.value = true
-  try {
-    const fileContentBase64 = await fileToBase64(selectedFileForDrive.value)
-    const payload = {
-      fileName: selectedFileForDrive.value.name,
-      fileContentBase64: fileContentBase64,
-      mimeType: selectedFileForDrive.value.type,
-      targetPath: ['測試上傳'],
-    }
-    const uploadFile = httpsCallable(functions, 'uploadFile') // ✨ 修正: 確保函式名稱為 'uploadFile'
-    const result = await uploadFile(payload)
-    showAlert(
-      '上傳成功',
-      `${result.data.message}\n檔案名稱: ${result.data.file.name}\n檔案ID: ${result.data.file.id}`,
-    )
-    selectedFileForDrive.value = null
-  } catch (error) {
-    console.error('上傳失敗:', error)
-    showAlert('上傳失敗', `發生錯誤: ${error.message}`)
-  } finally {
-    isUploadingToDrive.value = false
-  }
+  showAlert('功能不可用', 'Google Drive 上傳功能僅在線上模式下可用。')
 }
 
 onMounted(() => {

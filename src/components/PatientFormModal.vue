@@ -319,12 +319,18 @@ watch(
         data.patientCategory = 'opd_regular'
       }
 
-      // ✅ [修正] 將遺失的初始化程式碼加回來
+      // ✅ [修正] 確保 patientStatus 和其子屬性都有正確的預設值
       data.diseases = data.diseases || []
-      data.patientStatus = data.patientStatus || {
+      const defaultPatientStatus = {
         isFirstDialysis: { active: false, date: null },
         isPaused: { active: false, date: null },
         hasBloodDraw: { active: false, date: null },
+      }
+      // 深度合併，確保即使 patientStatus 是空物件，子屬性也會被初始化
+      data.patientStatus = {
+        isFirstDialysis: { ...defaultPatientStatus.isFirstDialysis, ...(data.patientStatus?.isFirstDialysis || {}) },
+        isPaused: { ...defaultPatientStatus.isPaused, ...(data.patientStatus?.isPaused || {}) },
+        hasBloodDraw: { ...defaultPatientStatus.hasBloodDraw, ...(data.patientStatus?.hasBloodDraw || {}) },
       }
       data.hospitalInfo = data.hospitalInfo || { source: '', transferOut: '' }
 

@@ -37,8 +37,6 @@
 
 <script setup>
 import { ref } from 'vue'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
 
 const props = defineProps({
   patient: {
@@ -119,48 +117,15 @@ function retakePhoto() {
 }
 
 /**
- * 將 Base64 格式的圖片上傳到 Google Drive
+ * 上傳圖片功能 (standalone 模式下不支援 Google Drive)
  */
 async function uploadToDrive() {
   if (!capturedImage.value || !props.patient) return
 
-  isUploading.value = true
-  currentState.value = 'uploading'
-  errorMessage.value = ''
-
-  try {
-    const base64String = capturedImage.value.split(',')[1]
-
-    const date = new Date()
-    const dateStr = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
-    const timeStr = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`
-
-    // 產生有意義的檔名
-    const fileName = `[${props.patient.medicalRecordNumber}]_${props.patient.name}_${dateStr}_${timeStr}.jpg`
-
-    const payload = {
-      fileName: fileName,
-      fileContentBase64: base64String,
-      mimeType: 'image/jpeg',
-    }
-
-    const uploadFileToDrive = httpsCallable(functions, 'uploadFileToDrive')
-    const result = await uploadFileToDrive(payload)
-
-    console.log('上傳成功:', result.data)
-    emit('upload-success', result.data)
-    // 成功後回到初始狀態
-    currentState.value = 'idle'
-    capturedImage.value = null
-  } catch (error) {
-    console.error('上傳失敗:', error)
-    errorMessage.value = `上傳失敗: ${error.message}`
-    emit('upload-error', error)
-    // 失敗後回到預覽狀態，讓使用者可以重試
-    currentState.value = 'captured'
-  } finally {
-    isUploading.value = false
-  }
+  // Google Drive 上傳功能在 standalone 模式下不可用
+  errorMessage.value = 'standalone 模式下暫不支援上傳圖片功能。'
+  emit('upload-error', new Error('standalone 模式下暫不支援上傳圖片功能'))
+  return
 }
 </script>
 

@@ -1,25 +1,19 @@
-// 檔案路徑: src/main.ts (整合 Pinia 後的最終版本)
+// 檔案路徑: src/main.ts
+// ✨ Standalone 版本
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
-import { auth } from '@/composables/useFirebase'
-import { onAuthStateChanged } from 'firebase/auth'
 import overlayCloseDirective from '@/directives/overlayClose.js'
-// ✨✨✨ 在這裡加入，將 Quill 的樣式變成全域 ✨✨✨
+// Quill 編輯器全域樣式
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
 
-let app: ReturnType<typeof createApp> | undefined
+const app = createApp(App)
 
-onAuthStateChanged(auth, () => {
-  if (!app) {
-    app = createApp(App)
+app.use(createPinia())
+app.directive('overlay-close', overlayCloseDirective)
+app.use(router)
 
-    app.use(createPinia())
-    app.directive('overlay-close', overlayCloseDirective)
-
-    app.use(router)
-    app.mount('#app')
-  }
-})
+console.log('🖥️ [Main] 單機模式啟動')
+app.mount('#app')

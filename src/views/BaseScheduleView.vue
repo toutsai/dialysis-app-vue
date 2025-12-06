@@ -122,7 +122,7 @@
 import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
 import * as XLSX from 'xlsx'
 import { updatePatient } from '@/services/optimizedApiService.js'
-import ApiManager from '@/services/api_manager'
+import { schedulesApi as localSchedulesApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { ORDERED_SHIFT_CODES } from '@/constants/scheduleConstants'
 import {
@@ -146,7 +146,6 @@ const patientStore = usePatientStore()
 const { allPatients, patientMap } = storeToRefs(patientStore)
 const { removeRuleFromMasterSchedule } = patientStore
 
-const baseSchedulesApi = ApiManager('base_schedules')
 const SHIFTS = ORDERED_SHIFT_CODES
 const WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
 const bedLayout = [
@@ -337,7 +336,7 @@ const searchResults = computed(() => {
 // --- Functions ---
 
 /**
- * 🔥【全新】將單一規則的變更原子性地更新到 Firestore。
+ * 將單一規則的變更原子性地更新到本地資料庫。
  * @param {string} patientId - 病人 ID
  * @param {object} newRuleData - 新的規則物件
  */
@@ -348,12 +347,8 @@ async function updateRuleInCloud(patientId, newRuleData) {
   }
   statusText.value = '儲存中...'
   try {
-    // 🔥【核心修正】將 updateField 改為 update
-    await baseSchedulesApi.update('MASTER_SCHEDULE', {
-      [`schedule.${patientId}`]: newRuleData,
-      updatedAt: new Date(), // 同時更新時間戳
-      lastModifiedBy: auth?.user?.value?.uid || 'system_user',
-    })
+    // 使用本地 API 更新病人規則
+    await localSchedulesApi.updatePatientRule(patientId, newRuleData)
     statusText.value = '總表已更新'
     await loadAllData()
   } catch (error) {
@@ -840,9 +835,9 @@ async function loadAllData() {
   statusText.value = '讀取中...'
   try {
     await patientStore.fetchPatientsIfNeeded()
-    const baseScheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
+    const baseScheduleDoc = await localSchedulesApi.fetchMasterSchedule()
     if (baseScheduleDoc && baseScheduleDoc.schedule) {
-      masterRecord.value = { id: baseScheduleDoc.id, schedule: baseScheduleDoc.schedule }
+      masterRecord.value = { id: baseScheduleDoc.id || 'MASTER_SCHEDULE', schedule: baseScheduleDoc.schedule }
     } else {
       masterRecord.value = { id: 'MASTER_SCHEDULE', schedule: {} }
     }

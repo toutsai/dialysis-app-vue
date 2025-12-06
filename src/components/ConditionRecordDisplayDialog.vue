@@ -29,7 +29,6 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import ApiManager from '@/services/api_manager'
-import { where, orderBy } from 'firebase/firestore'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -57,13 +56,19 @@ async function fetchRecords() {
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-    const queryConstraints = [
-      where('patientId', '==', props.patientId),
-      where('createdAt', '>=', sevenDaysAgo),
-      orderBy('createdAt', 'desc'),
-    ]
-
-    records.value = await conditionRecordsApi.fetchAll(queryConstraints)
+    const allRecords = await conditionRecordsApi.fetchAll()
+    // Filter by patientId, date range, and sort by createdAt descending
+    records.value = allRecords
+      .filter((record) => {
+        if (record.patientId !== props.patientId) return false
+        const createdAt = record.createdAt?.toDate ? record.createdAt.toDate() : new Date(record.createdAt)
+        return createdAt >= sevenDaysAgo
+      })
+      .sort((a, b) => {
+        const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt)
+        const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt)
+        return dateB - dateA
+      })
   } catch (err) {
     console.error('讀取病情紀錄失敗:', err)
     records.value = []

@@ -30,6 +30,12 @@
     "// --- 一鍵部署套餐 ---": "",
     "deploy:dev": "npm-run-all build:dev deploy:hosting:dev deploy:functions:dev deploy:rules:dev",
     "deploy:prod": "npm-run-all build deploy:hosting:prod deploy:functions:prod deploy:rules:prod",
+    "// --- 單機離線模式 ---": "",
+    "dev:standalone": "vite --mode standalone",
+    "build:standalone": "vite build --mode standalone",
+    "server:start": "cd server && npm start",
+    "server:init": "cd server && npm install && npm run init-db",
+    "standalone": "npm-run-all --parallel server:start dev:standalone",
     "// --- 其他工具 ---": "",
     "run:init-schedules": "firebase functions:scheduler:run initializefutureschedules --project develop"
   },

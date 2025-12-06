@@ -1,7 +1,11 @@
-// 檔案路徑: src/services/optimizedApiService.js (✨ 最終功能增強版 ✨)
-import ApiManager from '@/services/api_manager'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+// 檔案路徑: src/services/optimizedApiService.js (✨ Standalone 版本 ✨)
+import {
+  schedulesApi,
+  patientsApi,
+  memosApi,
+  ordersApi,
+  nursingApi,
+} from '@/services/localApiClient'
 import { getNowISO, formatDateToYYYYMMDD } from '@/utils/dateUtils'
 
 // 快取系統... (保持不變)
@@ -52,16 +56,34 @@ function addToBatch(operation, collection, id, data) {
   }, BATCH_DELAY)
 }
 async function processBatch(operation, collection, items) {
-  const api = ApiManager(collection)
   const startTime = performance.now()
   try {
     console.log(`🚀 [Batch] 開始處理 ${operation} 批次操作 (${items.length} 項目)`)
+
+    // 依據 collection 取得對應的 API
+    const getApiForCollection = (col) => {
+      switch (col) {
+        case 'schedules': return schedulesApi
+        case 'patients': return patientsApi
+        case 'memos': return memosApi
+        default: throw new Error(`不支援的 collection: ${col}`)
+      }
+    }
+
     if (operation === 'update') {
-      await Promise.all(items.map((item) => api.update(item.id, item.data)))
+      if (collection === 'schedules') {
+        await Promise.all(items.map((item) => schedulesApi.updateByDate(item.id, item.data.schedule)))
+      } else if (collection === 'patients') {
+        await Promise.all(items.map((item) => patientsApi.update(item.id, item.data)))
+      }
     } else if (operation === 'save') {
-      await Promise.all(items.map((item) => api.save(item.data)))
+      if (collection === 'memos') {
+        await Promise.all(items.map((item) => memosApi.create(item.data)))
+      }
     } else if (operation === 'delete') {
-      await Promise.all(items.map((item) => api.delete(item.id)))
+      if (collection === 'memos') {
+        await Promise.all(items.map((item) => memosApi.delete(item.id)))
+      }
     }
     const endTime = performance.now()
     console.log(`✅ [Batch] ${operation} 批次操作完成，耗時 ${(endTime - startTime).toFixed(2)}ms`)
@@ -96,49 +118,52 @@ function validatePatientData(patientData) {
   }
 }
 
-// 排程相關函式... (保持不變)
-export async function fetchAllSchedules(queries = []) {
-  const api = ApiManager('schedules')
-  return api.fetchAll(queries)
+// 排程相關函式 (Standalone 版本)
+export async function fetchAllSchedules(params = {}) {
+  // params 可包含 { startDate, endDate, date }
+  return schedulesApi.fetchAll(params)
 }
 export async function saveSchedule(scheduleData) {
-  const api = ApiManager('schedules')
-  const result = await api.save(scheduleData)
+  // 使用 updateByDate 取代 save，因為 standalone 使用日期作為主鍵
+  const result = await schedulesApi.updateByDate(scheduleData.date, scheduleData.schedule)
   clearCacheByPattern('schedules')
   return result
 }
 export async function updateSchedule(scheduleId, updateData) {
-  const api = ApiManager('schedules')
-  await api.update(scheduleId, updateData)
+  // scheduleId 在 standalone 模式下就是日期
+  await schedulesApi.updateByDate(scheduleId, updateData.schedule)
   clearCacheByPattern('schedules')
 }
 
-// 患者相關函式... (保持不變)
+// 患者相關函式 (Standalone 版本)
 export async function fetchAllPatients() {
   const cacheKey = getCacheKey('fetchAll', 'patients_with_rules')
   const cached = getCache(cacheKey)
   if (cached) return cached
 
-  const patientsApi = ApiManager('patients')
-  const schedulesApi = ApiManager('base_schedules')
   const [patients, masterScheduleDoc] = await Promise.all([
     patientsApi.fetchAll(),
-    schedulesApi.fetchById('MASTER_SCHEDULE'),
+    schedulesApi.fetchMasterSchedule(),
   ])
   const masterRules = masterScheduleDoc?.schedule || {}
   const rulesMap = new Map(Object.entries(masterRules))
-  const patientsWithRules = patients.map((patient) => ({
-    ...patient,
-    scheduleRule: rulesMap.get(patient.id) || null,
-  }))
+  const patientsWithRules = patients.map((patient) => {
+    const rule = rulesMap.get(patient.id) || null
+    return {
+      ...patient,
+      scheduleRule: rule,
+      // ✅ [修正] 優先使用病人資料中的 freq/mode，若無則從排班規則取得
+      freq: patient.freq || rule?.freq || null,
+      mode: patient.mode || rule?.mode || null,
+    }
+  })
   setCache(cacheKey, patientsWithRules)
   return patientsWithRules
 }
 export async function savePatient(patientData) {
   const cleanedData = sanitizePatientData(patientData)
   validatePatientData(cleanedData)
-  const api = ApiManager('patients')
-  const result = await api.save(cleanedData)
+  const result = await patientsApi.create(cleanedData)
   clearCacheByPattern('patients')
   return result
 }
@@ -147,20 +172,18 @@ export async function updatePatient(patientId, updateData) {
   if (cleanedData.medicalRecordNumber) {
     cleanedData.medicalRecordNumber = cleanedData.medicalRecordNumber.toString().trim()
   }
-  const api = ApiManager('patients')
-  await api.update(patientId, cleanedData)
+  await patientsApi.update(patientId, cleanedData)
   clearCacheByPattern('patients')
 }
 
-// === 護理職責 (Nursing Duties) 相關函式
-const DUTY_DOC_ID = 'main' // 使用一個固定的文件 ID
+// === 護理職責 (Nursing Duties) 相關函式 (Standalone 版本)
 
 /**
- * 從 Firestore 獲取護理工作職責
+ * 從本地資料庫獲取護理工作職責
  * @returns {Promise<object>}
  */
 export async function fetchDuties() {
-  const cacheKey = getCacheKey('fetch', 'nursing_duties', DUTY_DOC_ID)
+  const cacheKey = getCacheKey('fetch', 'nursing_duties', 'main')
   const cached = getCache(cacheKey)
   if (cached) {
     console.log('✅ [API] 從快取獲取護理職責資料')
@@ -168,17 +191,14 @@ export async function fetchDuties() {
   }
 
   try {
-    const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
-    const docSnap = await getDoc(docRef)
-
-    if (docSnap.exists()) {
-      const data = docSnap.data()
-      console.log('✅ [API] 從 Firestore 成功獲取護理職責資料')
-      setCache(cacheKey, data) // 存入快取
+    const data = await nursingApi.fetchDuties()
+    if (data) {
+      console.log('✅ [API] 從本地資料庫成功獲取護理職責資料')
+      setCache(cacheKey, data)
       return data
     } else {
-      console.log('⚠️ [API] 在 Firestore 中找不到護理職責文件，回傳空值。')
-      return null // 回傳 null，讓前端處理預設值
+      console.log('⚠️ [API] 找不到護理職責文件，回傳空值。')
+      return null
     }
   } catch (error) {
     console.error('❌ [API] 獲取護理職責失敗:', error)
@@ -187,16 +207,14 @@ export async function fetchDuties() {
 }
 
 /**
- * 將護理工作職責儲存到 Firestore
+ * 將護理工作職責儲存到本地資料庫
  * @param {object} data - 要儲存的完整資料物件
  * @returns {Promise<void>}
  */
 export async function saveDuties(data) {
   try {
-    const docRef = doc(db, 'nursing_duties', DUTY_DOC_ID)
-    await setDoc(docRef, data, { merge: true })
-    console.log('✅ [API] 護理職責資料已成功儲存到 Firestore')
-    // 清除相關快取
+    await nursingApi.saveDuties(data)
+    console.log('✅ [API] 護理職責資料已成功儲存')
     clearCacheByPattern('nursing_duties')
   } catch (error) {
     console.error('❌ [API] 儲存護理職責失敗:', error)
@@ -204,43 +222,40 @@ export async function saveDuties(data) {
   }
 }
 
-// 備忘錄相關函式... (保持不變)
-export async function fetchAllMemos(queryConstraints = null) {
-  const api = ApiManager('memos')
-  return queryConstraints ? api.fetchAll(queryConstraints) : api.fetchAll()
+// 備忘錄相關函式 (Standalone 版本)
+export async function fetchAllMemos(params = null) {
+  // params 可包含 { date, startDate, endDate }
+  return memosApi.fetchAll(params || {})
 }
-// (saveMemo, updateMemo, deleteMemo 保持不變)
 export async function saveMemo(memoData) {
-  const api = ApiManager('memos')
-  const result = await api.save(memoData)
+  const result = await memosApi.create(memoData)
   clearCacheByPattern('memos')
   return result
 }
 export async function updateMemo(memoId, updateData) {
-  const api = ApiManager('memos')
-  await api.update(memoId, updateData)
+  await memosApi.update(memoId, updateData)
   clearCacheByPattern('memos')
 }
 export async function deleteMemo(memoId) {
-  const api = ApiManager('memos')
-  await api.delete(memoId)
+  await memosApi.delete(memoId)
   clearCacheByPattern('memos')
 }
 
-// 透析醫囑歷史相關函式
-export async function fetchDialysisOrderHistory(queryConstraints = null) {
-  const api = ApiManager('dialysis_orders_history')
-  return queryConstraints ? api.fetchAll(queryConstraints) : api.fetchAll()
+// 透析醫囑歷史相關函式 (Standalone 版本)
+export async function fetchDialysisOrderHistory(params = null) {
+  // params 可包含 { patientId, effectiveDateBefore, limit }
+  return ordersApi.fetchHistory(params || {})
 }
 export async function saveDialysisOrderHistory(historyData) {
-  const api = ApiManager('dialysis_orders_history')
   const completeData = {
-    ...historyData,
+    patientId: historyData.patientId,
+    patientName: historyData.patientName,
+    operationType: historyData.operationType || 'CREATE',
+    orders: historyData.orders,
     createdAt: historyData.createdAt || getNowISO(),
     updatedAt: historyData.updatedAt || getNowISO(),
-    operationType: historyData.operationType || 'CREATE',
   }
-  return api.save(completeData)
+  return ordersApi.createHistory(completeData)
 }
 
 // ✨ [這是最重要的修改！] ✨
@@ -312,27 +327,20 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
 
 export async function deleteDialysisOrderHistory(historyId) {
   try {
-    const api = ApiManager('dialysis_orders_history')
-    await api.delete(historyId)
+    await ordersApi.deleteHistory(historyId)
   } catch (error) {
-    if (error.code === 'permission-denied') {
-      throw new Error('權限不足：無法刪除此透析醫囑歷史記錄')
-    } else if (error.code === 'not-found') {
-      throw new Error('記錄不存在：此透析醫囑歷史記錄可能已被刪除')
-    } else {
-      throw new Error(`刪除失敗：${error.message}`)
-    }
+    throw new Error(`刪除失敗：${error.message}`)
   }
 }
 
-// 患者歷史相關函式... (保持不變)
-export async function fetchPatientHistory(queryConstraints = null) {
-  const api = ApiManager('patient_history')
-  return queryConstraints ? await api.fetchAll(queryConstraints) : await api.fetchAll()
+// 患者歷史相關函式 (Standalone 版本)
+// 注意：此功能在 standalone 模式下可能需要後端支援
+export async function fetchPatientHistory(params = null) {
+  // 目前 standalone 模式使用 patientsApi.fetchHistory
+  return patientsApi.fetchHistory(params || {})
 }
 export async function savePatientHistory(historyData) {
-  const api = ApiManager('patient_history')
-  return api.save(historyData)
+  return patientsApi.createHistory(historyData)
 }
 
 // 快取與批次處理函式... (保持不變)

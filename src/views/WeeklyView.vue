@@ -156,12 +156,12 @@
 
 <script setup>
 import { ref, onMounted, computed, watch, onUnmounted, nextTick, provide } from 'vue'
-import { where } from 'firebase/firestore'
 import * as XLSX from 'xlsx'
 import {
   saveSchedule as optimizedSaveSchedule,
   updateSchedule as optimizedUpdateSchedule,
 } from '@/services/optimizedApiService.js'
+import { schedulesApi as localSchedulesApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { useScheduleAnalysis } from '@/composables/useScheduleAnalysis.js'
 import { ORDERED_SHIFT_CODES, getShiftDisplayName } from '@/constants/scheduleConstants.js'
@@ -184,7 +184,6 @@ import { usePatientStore } from '@/stores/patientStore'
 import { useTaskStore } from '@/stores/taskStore'
 import { useArchiveStore } from '@/stores/archiveStore'
 import { storeToRefs } from 'pinia'
-import ApiManager from '@/services/api_manager'
 
 const patientStore = usePatientStore()
 const taskStore = useTaskStore()
@@ -449,20 +448,33 @@ async function fetchArchivedSchedulesForWeek(dateStrings) {
 }
 
 async function fetchLiveSchedulesForWeek(dateStrings) {
-  const schedulesApi = ApiManager('schedules')
-  const records = await schedulesApi.fetchAll([where('date', 'in', dateStrings)])
-  records.forEach((record) => {
+  // 使用本地 API 取得排程
+  const startDate = dateStrings[0]
+  const endDate = dateStrings[dateStrings.length - 1]
+  const records = await localSchedulesApi.fetchAll({ startDate, endDate })
+
+  // 確保 records 是陣列
+  const recordsList = Array.isArray(records) ? records : []
+
+  recordsList.forEach((record) => {
     if (record.schedule) {
-      for (const shiftId in record.schedule) {
-        const slot = record.schedule[shiftId]
-        if (slot?.patientId && patientMap.value.has(slot.patientId)) {
-          const patient = patientMap.value.get(slot.patientId)
-          slot.autoNote = patient ? generateAutoNote(patient) : ''
+      for (const slotKey in record.schedule) {
+        const slot = record.schedule[slotKey]
+        if (slot) {
+          // ✨ 確保 shiftId 永遠存在，從 key 的最後部分提取 (如 bed-32-early -> early)
+          if (slot.shiftId === undefined || slot.shiftId === null) {
+            slot.shiftId = slotKey.split('-').pop()
+          }
+          // 更新 autoNote
+          if (slot.patientId && patientMap.value.has(slot.patientId)) {
+            const patient = patientMap.value.get(slot.patientId)
+            slot.autoNote = patient ? generateAutoNote(patient) : ''
+          }
         }
       }
     }
   })
-  return records
+  return recordsList
 }
 
 async function loadDataForWeek() {
@@ -493,6 +505,15 @@ async function loadDataForWeek() {
       newWeekRecords.set(day.queryDate, { id: null, date: day.queryDate, schedule: {} })
     })
     fetchedRecords.forEach((record) => {
+      // ✨ 確保每個 slot 都有 shiftId (修復存檔資料可能缺少 shiftId 的問題)
+      if (record.schedule) {
+        for (const slotKey in record.schedule) {
+          const slot = record.schedule[slotKey]
+          if (slot && (slot.shiftId === undefined || slot.shiftId === null)) {
+            slot.shiftId = slotKey.split('-').pop()
+          }
+        }
+      }
       newWeekRecords.set(record.date, record)
     })
 

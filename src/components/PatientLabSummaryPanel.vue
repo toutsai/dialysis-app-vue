@@ -127,7 +127,6 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import ApiManager from '@/services/api_manager'
-import { where, orderBy } from 'firebase/firestore'
 
 // --- Props & Emits ---
 const props = defineProps({
@@ -323,11 +322,28 @@ async function fetchLabData() {
   try {
     const oneYearAgo = new Date()
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1)
-    const reports = await labReportsApi.fetchAll([
-      where('patientId', '==', props.patient.id),
-      where('reportDate', '>=', oneYearAgo),
-      orderBy('reportDate', 'desc'),
-    ])
+    const oneYearAgoStr = oneYearAgo.toISOString().split('T')[0]
+
+    // Fetch all reports and filter client-side
+    const allReports = await labReportsApi.fetchAll()
+    const reports = allReports
+      .filter((r) => r.patientId === props.patient.id)
+      .filter((r) => {
+        const reportDate = r.reportDate
+        if (typeof reportDate === 'string') {
+          return reportDate >= oneYearAgoStr
+        }
+        if (reportDate && reportDate.toDate) {
+          return reportDate.toDate() >= oneYearAgo
+        }
+        return true
+      })
+      .sort((a, b) => {
+        const dateA = typeof a.reportDate === 'string' ? a.reportDate : (a.reportDate?.toDate ? a.reportDate.toDate().toISOString().slice(0, 10) : '')
+        const dateB = typeof b.reportDate === 'string' ? b.reportDate : (b.reportDate?.toDate ? b.reportDate.toDate().toISOString().slice(0, 10) : '')
+        return dateB.localeCompare(dateA)
+      })
+
     rawReports.value = reports.map((r) => ({
       ...r,
       reportDate: r.reportDate.toDate

@@ -1,6 +1,6 @@
 <!-- src/components/ConfirmDialog.vue (升級版，支援自訂 footer) -->
 <template>
-  <dialog :open="isVisible" class="confirm-dialog" @close="onCancel">
+  <dialog ref="dialogRef" class="confirm-dialog" @close="onCancel">
     <header class="dialog-header" v-if="title">
       <h3>{{ title }}</h3>
     </header>
@@ -23,7 +23,9 @@
 </template>
 
 <script setup>
-defineProps({
+import { ref, watch } from 'vue'
+
+const props = defineProps({
   isVisible: Boolean,
   title: String,
   message: String,
@@ -45,6 +47,17 @@ defineProps({
   },
 })
 const emit = defineEmits(['confirm', 'cancel'])
+
+const dialogRef = ref(null)
+
+// 使用 watch 來正確控制 dialog 的顯示/隱藏
+watch(() => props.isVisible, (newValue) => {
+  if (newValue) {
+    dialogRef.value?.showModal()
+  } else {
+    dialogRef.value?.close()
+  }
+})
 
 function onConfirm() {
   emit('confirm')
@@ -68,16 +81,12 @@ function onCancel() {
 .confirm-dialog {
   border: 1px solid #dee2e6;
   border-radius: 12px;
-  padding: 0; /* ✨ 建議移除 padding，讓子元素控制 */
+  padding: 0;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   width: 90%;
   max-width: 500px;
   z-index: 1001;
   animation: fadeIn 0.3s ease-out;
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
 }
 @keyframes fadeIn {
   from {

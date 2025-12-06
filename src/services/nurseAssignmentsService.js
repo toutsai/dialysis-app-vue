@@ -1,18 +1,7 @@
 // 檔案路徑: src/services/nurseAssignmentsService.js
-import {
-  collection,
-  deleteDoc,
-  doc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  query,
-  where,
-  serverTimestamp,
-} from 'firebase/firestore'
-import { db } from '@/composables/useFirebase' // ← 修正這裡！
+// ✨ Standalone 版本
 
-const COLLECTION_NAME = 'nurse_assignments'
+import { schedulesApi } from '@/services/localApiClient'
 
 /**
  * 根據日期獲取護理分組
@@ -21,17 +10,12 @@ const COLLECTION_NAME = 'nurse_assignments'
  */
 export async function fetchTeamsByDate(dateStr) {
   try {
-    const q = query(collection(db, COLLECTION_NAME), where('date', '==', dateStr))
-    const querySnapshot = await getDocs(q)
-
-    if (querySnapshot.empty) {
-      return null
-    }
-
-    const doc = querySnapshot.docs[0]
+    const data = await schedulesApi.fetchNurseAssignments(dateStr)
+    if (!data) return null
     return {
-      id: doc.id,
-      ...doc.data(),
+      id: dateStr,
+      date: dateStr,
+      ...data,
     }
   } catch (error) {
     console.error('獲取護理分組失敗:', error)
@@ -46,19 +30,14 @@ export async function fetchTeamsByDate(dateStr) {
  */
 export async function saveTeams(data) {
   try {
-    const docRef = doc(db, 'nurse_assignments', data.date)
-
-    // 新建時確保結構完整
     const saveData = {
-      date: data.date,
       teams: data.teams || {},
       names: data.names || {},
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      takeoffEnabled: data.takeoffEnabled || false,
     }
 
-    await setDoc(docRef, saveData)
-    return { id: data.date, ...saveData }
+    await schedulesApi.updateNurseAssignments(data.date, saveData)
+    return { id: data.date, date: data.date, ...saveData }
   } catch (error) {
     console.error('儲存護理師分組失敗:', error)
     throw error
@@ -67,21 +46,13 @@ export async function saveTeams(data) {
 
 /**
  * 更新現有的護理分組
- * @param {string} docId - 文件 ID
+ * @param {string} docId - 文件 ID (日期)
  * @param {Object} data - 更新的資料
  * @returns {Promise<void>}
  */
 export async function updateTeams(docId, data) {
   try {
-    const docRef = doc(db, 'nurse_assignments', docId)
-
-    // 確保更新時包含所有必要欄位
-    const updateData = {
-      ...data,
-      updatedAt: serverTimestamp(),
-    }
-
-    await updateDoc(docRef, updateData)
+    await schedulesApi.updateNurseAssignments(docId, data)
     return { success: true }
   } catch (error) {
     console.error('更新護理師分組失敗:', error)
@@ -97,17 +68,24 @@ export async function updateTeams(docId, data) {
  */
 export async function fetchTeamsInRange(startDate, endDate) {
   try {
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where('date', '>=', startDate),
-      where('date', '<=', endDate),
-    )
-    const querySnapshot = await getDocs(q)
+    // 逐日取得（後端可擴展批量 API）
+    const results = []
+    const start = new Date(startDate)
+    const end = new Date(endDate)
 
-    return querySnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }))
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0]
+      try {
+        const data = await schedulesApi.fetchNurseAssignments(dateStr)
+        if (data) {
+          results.push({ id: dateStr, date: dateStr, ...data })
+        }
+      } catch {
+        // 該日期無資料，略過
+      }
+    }
+
+    return results
   } catch (error) {
     console.error('批量獲取護理分組失敗:', error)
     throw error
@@ -127,21 +105,12 @@ export async function copyTeamsToDate(sourceDate, targetDate) {
       throw new Error(`找不到 ${sourceDate} 的護理分組資料`)
     }
 
-    // 檢查目標日期是否已有資料
-    const existingData = await fetchTeamsByDate(targetDate)
-    if (existingData) {
-      // 更新現有資料
-      return await updateTeams(existingData.id, {
-        teams: sourceData.teams,
-        date: targetDate,
-      })
-    } else {
-      // 建立新資料
-      return await saveTeams({
-        date: targetDate,
-        teams: sourceData.teams,
-      })
-    }
+    // 更新目標日期
+    return await saveTeams({
+      date: targetDate,
+      teams: sourceData.teams,
+      names: sourceData.names,
+    })
   } catch (error) {
     console.error('複製護理分組失敗:', error)
     throw error
@@ -155,13 +124,9 @@ export async function copyTeamsToDate(sourceDate, targetDate) {
  */
 export async function deleteTeamsByDate(dateStr) {
   try {
-    const data = await fetchTeamsByDate(dateStr)
-    if (data && data.id) {
-      const docRef = doc(db, COLLECTION_NAME, data.id)
-      await deleteDoc(docRef)
-      return true
-    }
-    return false
+    // 清空該日期的分組（設為空物件）
+    await schedulesApi.updateNurseAssignments(dateStr, { teams: {}, names: {} })
+    return true
   } catch (error) {
     console.error('刪除護理分組失敗:', error)
     throw error
@@ -175,13 +140,7 @@ export async function deleteTeamsByDate(dateStr) {
  */
 export async function clearTeamsByDate(dateStr) {
   try {
-    const data = await fetchTeamsByDate(dateStr)
-    if (data && data.id) {
-      await updateTeams(data.id, {
-        teams: {},
-        date: dateStr,
-      })
-    }
+    await schedulesApi.updateNurseAssignments(dateStr, { teams: {}, names: {} })
   } catch (error) {
     console.error('清空護理分組失敗:', error)
     throw error

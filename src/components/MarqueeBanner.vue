@@ -13,26 +13,32 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { doc, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+import { systemApi } from '@/services/localApiClient'
 
 const htmlContent = ref('')
-let unsubscribe = null
+let pollingInterval = null
 
-onMounted(() => {
-  const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-  unsubscribe = onSnapshot(marqueeRef, (docSnap) => {
-    if (docSnap.exists() && docSnap.data().content) {
-      htmlContent.value = docSnap.data().content
-    } else {
-      htmlContent.value = ''
-    }
-  })
+async function fetchMarqueeContent() {
+  try {
+    const config = await systemApi.fetchSiteConfig('marquee_announcements')
+    htmlContent.value = config?.configData?.content || config?.content || ''
+  } catch (error) {
+    console.error('載入跑馬燈內容失敗:', error)
+    htmlContent.value = ''
+  }
+}
+
+onMounted(async () => {
+  // Initial fetch
+  await fetchMarqueeContent()
+
+  // Set up polling every 30 seconds
+  pollingInterval = setInterval(fetchMarqueeContent, 30000)
 })
 
 onUnmounted(() => {
-  if (unsubscribe) {
-    unsubscribe()
+  if (pollingInterval) {
+    clearInterval(pollingInterval)
   }
 })
 </script>

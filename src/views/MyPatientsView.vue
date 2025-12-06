@@ -172,11 +172,11 @@ import { ref, computed, watch } from 'vue'
 import { useMyPatientList } from '@/composables/useMyPatientList.js'
 import { useAuth } from '@/composables/useAuth'
 import { usePatientStore } from '@/stores/patientStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier'
-import { doc, updateDoc, deleteDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore' // ✨ getDocs
-import { db } from '@/composables/useFirebase'
 import { useUserDirectory } from '@/composables/useUserDirectory'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils' // ✨ 1. 引入您的日期工具函式
+import { systemApi, patientsApi, ordersApi } from '@/services/localApiClient'
 
 // Component Imports
 import TaskCreateDialog from '@/components/TaskCreateDialog.vue'
@@ -190,6 +190,7 @@ import { handleTaskCreated } from '@/utils/taskHandlers.js'
 // --- 初始化 Composables 和 Stores ---
 const { currentUser, hasPermission } = useAuth()
 const patientStore = usePatientStore()
+const taskStore = useTaskStore()
 const { createGlobalNotification } = useGlobalNotifier()
 const { ensureUsersLoaded, users: userDirectoryUsers, clearCachedUsers } = useUserDirectory()
 
@@ -296,18 +297,15 @@ function closeCreateModal() {
 
 async function handleTaskSubmit(data) {
   if (data.id) {
-    // 編輯模式
-    const taskRef = doc(db, 'tasks', data.id)
     const { id, ...updateData } = data
     try {
-      await updateDoc(taskRef, updateData)
+      await systemApi.updateTask(id, updateData)
       createGlobalNotification('備忘已更新', 'success')
     } catch (error) {
       console.error('更新項目失敗:', error)
       createGlobalNotification('更新失敗，請稍後再試', 'error')
     }
   } else {
-    // 新增模式
     try {
       await handleTaskCreated(data, currentUser.value)
       createGlobalNotification('交辦/留言已成功新增！', 'success')
@@ -317,21 +315,25 @@ async function handleTaskSubmit(data) {
     }
   }
   closeCreateModal()
+  // 立即刷新任務列表，讓新任務馬上顯示
+  await taskStore.refreshTasks()
 }
 
 async function updateTaskStatus(task, newStatus) {
   if (!currentUser.value) return
   try {
-    const taskRef = doc(db, 'tasks', task.id)
-    await updateDoc(taskRef, {
+    const updateData = {
       status: newStatus,
       resolvedBy: { uid: currentUser.value.uid, name: currentUser.value.name },
-      resolvedAt: new Date(),
-    })
+      resolvedAt: new Date().toISOString(),
+    }
+    await systemApi.updateTask(task.id, updateData)
     createGlobalNotification(
       newStatus === 'completed' ? '狀態已更新為已讀' : '狀態已移回待辦',
       'success',
     )
+    // 立即刷新任務列表
+    await taskStore.refreshTasks()
   } catch (error) {
     console.error('更新任務狀態失敗:', error)
     createGlobalNotification('更新失敗，請稍後再試', 'error')
@@ -345,10 +347,11 @@ function confirmDeleteTask(item) {
 
 async function executeDeleteTask() {
   if (!itemToDelete.value) return
-  const taskRef = doc(db, 'tasks', itemToDelete.value.id)
   try {
-    await deleteDoc(taskRef)
+    await systemApi.deleteTask(itemToDelete.value.id)
     createGlobalNotification('訊息已刪除', 'info')
+    // 立即刷新任務列表
+    await taskStore.refreshTasks()
   } catch (error) {
     console.error('刪除任務失敗:', error)
     createGlobalNotification('刪除失敗，請稍後再試', 'error')
@@ -380,20 +383,16 @@ function closeOrderModal() {
 async function handleOrderSave(updatedOrders) {
   if (!selectedPatientForOrder.value) return
 
-  const patientRef = doc(db, 'patients', selectedPatientForOrder.value.id)
-  const historyRef = collection(db, 'dialysis_order_history')
-
   try {
-    await updateDoc(patientRef, {
+    await patientsApi.update(selectedPatientForOrder.value.id, {
       dialysisOrders: updatedOrders,
     })
 
-    await addDoc(historyRef, {
+    await ordersApi.createHistory({
       patientId: selectedPatientForOrder.value.id,
       patientName: selectedPatientForOrder.value.name,
       orders: updatedOrders,
-      updatedBy: currentUser.value?.name || '未知使用者',
-      updatedAt: serverTimestamp(),
+      operationType: 'UPDATE',
     })
 
     createGlobalNotification(`${selectedPatientForOrder.value.name} 的醫囑已更新`, 'success')

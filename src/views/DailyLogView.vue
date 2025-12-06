@@ -972,16 +972,14 @@
 // 1. Imports
 // ===================================================================
 import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import ApiManager from '@/services/api_manager'
 import { useAuth } from '@/composables/useAuth'
-import { where, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
 import { SHIFT_CODES } from '@/constants/scheduleConstants.js'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { updatePatient as optimizedUpdatePatient } from '@/services/optimizedApiService.js'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
+import { systemApi, nursingApi, schedulesApi } from '@/services/localApiClient'
 
 // Component Imports
 import WardNumberDialog from '@/components/WardNumberDialog.vue'
@@ -996,8 +994,6 @@ import MarqueeEditDialog from '@/components/MarqueeEditDialog.vue'
 const { currentUser, canEditSchedules } = useAuth()
 const patientStore = usePatientStore()
 const { allPatients, patientMap, hasFetched } = storeToRefs(patientStore)
-const dailyLogsApi = ApiManager('daily_logs')
-const schedulesApi = ApiManager('schedules')
 
 // ===================================================================
 // 3. Core Component State
@@ -1237,20 +1233,48 @@ async function loadDailyLog(dateStr) {
 
     await patientFetchPromise
 
-    const [logResult, handoverLogSnap, scheduleData] = await Promise.all([
-      dailyLogsApi.fetchById(dateStr),
-      getDoc(doc(db, 'handover_logs', 'latest')),
-      schedulesApi.fetchAll([where('date', '==', dateStr)]),
+    // 使用本地 API 獲取資料
+    let logResult = null
+    let scheduleData = null
+
+    const results = await Promise.all([
+      nursingApi.fetchDailyLog(dateStr).catch(() => null),
+      nursingApi.fetchHandoverLogs({ limit: 1 }).then((logs) => logs?.[0]?.content || '').catch(() => ''),
+      schedulesApi.fetchByDate(dateStr).catch(() => null),
     ])
 
-    if (handoverLogSnap.exists()) {
-      handoverNotes.value = handoverLogSnap.data().content || ''
-    } else {
-      handoverNotes.value = ''
-    }
+    logResult = results[0]
+    handoverNotes.value = results[1]
+    scheduleData = results[2] ? [results[2]] : []
 
     if (logResult) {
-      const mergedLog = { ...initialLogState(), ...logResult }
+      const defaultState = initialLogState()
+      // 深度合併 stats 物件，確保所有巢狀結構都存在
+      const mergedStats = {
+        main_beds: {
+          early: { ...defaultState.stats.main_beds.early, ...logResult.stats?.main_beds?.early },
+          noon: { ...defaultState.stats.main_beds.noon, ...logResult.stats?.main_beds?.noon },
+          late: { ...defaultState.stats.main_beds.late, ...logResult.stats?.main_beds?.late },
+        },
+        peripheral_beds: {
+          early: { ...defaultState.stats.peripheral_beds.early, ...logResult.stats?.peripheral_beds?.early },
+          noon: { ...defaultState.stats.peripheral_beds.noon, ...logResult.stats?.peripheral_beds?.noon },
+          late: { ...defaultState.stats.peripheral_beds.late, ...logResult.stats?.peripheral_beds?.late },
+        },
+        patient_care: {
+          onDL: { ...defaultState.stats.patient_care.onDL, ...logResult.stats?.patient_care?.onDL },
+          akChange: { ...defaultState.stats.patient_care.akChange, ...logResult.stats?.patient_care?.akChange },
+          noShow: { ...defaultState.stats.patient_care.noShow, ...logResult.stats?.patient_care?.noShow },
+        },
+        staffing: logResult.stats?.staffing || defaultState.stats.staffing,
+      }
+      // 深度合併 leader 物件
+      const mergedLeader = {
+        early: { ...defaultState.leader.early, ...logResult.leader?.early },
+        noon: { ...defaultState.leader.noon, ...logResult.leader?.noon },
+        late: { ...defaultState.leader.late, ...logResult.leader?.late },
+      }
+      const mergedLog = { ...defaultState, ...logResult, stats: mergedStats, leader: mergedLeader }
       if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
         mergedLog.otherNotes = mergedLog.handoverNotes
       }
@@ -1274,18 +1298,17 @@ async function loadDailyLog(dateStr) {
               ratio3: oldStaffingData.late || 0,
             },
           ]
-        } else {
-          newStaffingStructure.details = initialLogState().stats.staffing.details
         }
-        logResult.stats.staffing = newStaffingStructure
+        mergedStats.staffing = newStaffingStructure
       }
 
-      if (logResult.stats?.staffing) {
-        if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
-          logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions
+      // 確保 adjustments 欄位存在
+      if (mergedStats.staffing) {
+        if (mergedStats.staffing.deductions && !mergedStats.staffing.adjustments) {
+          mergedStats.staffing.adjustments = mergedStats.staffing.deductions
         }
-        if (!logResult.stats.staffing.adjustments) {
-          logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
+        if (!mergedStats.staffing.adjustments) {
+          mergedStats.staffing.adjustments = { shift1: null, shift2: null, shift3: null }
         }
       }
 
@@ -1305,7 +1328,8 @@ async function loadDailyLog(dateStr) {
     if (scheduleData.length > 0) {
       const scheduleRecord = scheduleData[0]
       currentSchedule.value = scheduleRecord.schedule || {}
-      if (!logResult) {
+      // 如果是新的日誌（資料庫中沒有），從排程計算人次統計
+      if (!logResult || logResult.isNew) {
         calculateStatsFromSchedule(scheduleRecord)
       }
     }
@@ -1354,14 +1378,20 @@ async function saveLog(options = {}) {
       delete dataToSave.handoverNotes
     }
 
-    if (dailyLog.id) {
-      await dailyLogsApi.update(dailyLog.id, dataToSave)
-    } else {
-      const docId = selectedDate.value
-      await dailyLogsApi.save(docId, dataToSave)
+    // 使用本地 API 儲存日誌
+    const docId = dailyLog.id || selectedDate.value
+    await nursingApi.updateDailyLog(docId, dataToSave)
+    if (!dailyLog.id) {
       dailyLog.id = docId
     }
     hasUnsavedChanges.value = false
+
+    // 更新快取，避免切換頁面後返回時顯示舊資料
+    dailyLogCache.set(selectedDate.value, {
+      dailyLog: cloneData(dailyLog),
+      schedule: cloneData(currentSchedule.value),
+      handoverNotes: handoverNotes.value,
+    })
 
     if (showSuccessAlert) {
       showAlert('操作成功', successMessage)
@@ -1381,15 +1411,15 @@ async function handleMarqueeSave(newContent) {
   }
 
   try {
-    const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-    await setDoc(marqueeRef, {
+    await systemApi.updateSiteConfig('marquee_announcements', {
       content: newContent,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
       updatedBy: {
         uid: currentUser.value.uid,
         name: currentUser.value.name,
       },
     })
+    marqueeHtmlContent.value = newContent
     isMarqueeDialogVisible.value = false
     showAlert('儲存成功', '全域跑馬燈公告已更新！')
   } catch (error) {
@@ -1558,16 +1588,16 @@ function formatDifferencesMessage(differences) {
 async function checkAndSyncBeforeSave(onComplete) {
   try {
     // 獲取最新的 schedule 資料
-    const scheduleData = await schedulesApi.fetchAll([where('date', '==', selectedDate.value)])
+    const scheduleResult = await schedulesApi.fetchByDate(selectedDate.value).catch(() => null)
 
-    if (scheduleData.length === 0) {
+    if (!scheduleResult) {
       // 沒有排程資料，直接存檔
       await onComplete()
       return
     }
 
     // 計算 schedule 的人數統計
-    const scheduleStats = getStatsFromSchedule(scheduleData[0])
+    const scheduleStats = getStatsFromSchedule(scheduleResult)
 
     // 比較差異
     const differences = compareStats(dailyLog.stats, scheduleStats)
@@ -1801,13 +1831,20 @@ async function saveJustMovements() {
       patientMovements: JSON.parse(JSON.stringify(dailyLog.patientMovements)),
     }
 
-    if (dailyLog.id) {
-      await dailyLogsApi.update(docId, dataToUpdate)
-    } else {
-      await dailyLogsApi.save(docId, dataToUpdate)
+    // 使用本地 API 儲存日誌
+    await nursingApi.updateDailyLog(docId, dataToUpdate)
+    if (!dailyLog.id) {
       dailyLog.id = docId
     }
     hasUnsavedChanges.value = false
+
+    // 更新快取
+    dailyLogCache.set(selectedDate.value, {
+      dailyLog: cloneData(dailyLog),
+      schedule: cloneData(currentSchedule.value),
+      handoverNotes: handoverNotes.value,
+    })
+
     showAlert('操作成功', '病人動態已更新！')
   } catch (error) {
     console.error('儲存病人動態失敗:', error)
@@ -2031,10 +2068,14 @@ function handleTextareaInput() {
 onMounted(async () => {
   await loadDailyLog(selectedDate.value)
 
-  const marqueeRef = doc(db, 'site_config', 'marquee_announcements')
-  marqueeUnsubscribe = onSnapshot(marqueeRef, (docSnap) => {
-    marqueeHtmlContent.value = docSnap.exists() ? docSnap.data().content || '' : ''
-  })
+  // 獲取跑馬燈內容
+  try {
+    const config = await systemApi.fetchSiteConfig('marquee_announcements')
+    marqueeHtmlContent.value = config?.configData?.content || config?.content || ''
+  } catch (error) {
+    console.warn('[DailyLogView] 獲取跑馬燈內容失敗:', error)
+    marqueeHtmlContent.value = ''
+  }
 })
 
 onUnmounted(() => {
@@ -2083,7 +2124,37 @@ function cloneData(data) {
 }
 
 function applyLoadedData(logData, scheduleData, handoverContent) {
-  Object.assign(dailyLog, initialLogState(), logData || { date: selectedDate.value })
+  const defaultState = initialLogState()
+  if (logData?.stats || logData?.leader) {
+    // 深度合併 stats 物件
+    const mergedStats = {
+      main_beds: {
+        early: { ...defaultState.stats.main_beds.early, ...logData.stats?.main_beds?.early },
+        noon: { ...defaultState.stats.main_beds.noon, ...logData.stats?.main_beds?.noon },
+        late: { ...defaultState.stats.main_beds.late, ...logData.stats?.main_beds?.late },
+      },
+      peripheral_beds: {
+        early: { ...defaultState.stats.peripheral_beds.early, ...logData.stats?.peripheral_beds?.early },
+        noon: { ...defaultState.stats.peripheral_beds.noon, ...logData.stats?.peripheral_beds?.noon },
+        late: { ...defaultState.stats.peripheral_beds.late, ...logData.stats?.peripheral_beds?.late },
+      },
+      patient_care: {
+        onDL: { ...defaultState.stats.patient_care.onDL, ...logData.stats?.patient_care?.onDL },
+        akChange: { ...defaultState.stats.patient_care.akChange, ...logData.stats?.patient_care?.akChange },
+        noShow: { ...defaultState.stats.patient_care.noShow, ...logData.stats?.patient_care?.noShow },
+      },
+      staffing: logData.stats?.staffing || defaultState.stats.staffing,
+    }
+    // 深度合併 leader 物件
+    const mergedLeader = {
+      early: { ...defaultState.leader.early, ...logData.leader?.early },
+      noon: { ...defaultState.leader.noon, ...logData.leader?.noon },
+      late: { ...defaultState.leader.late, ...logData.leader?.late },
+    }
+    Object.assign(dailyLog, defaultState, logData, { stats: mergedStats, leader: mergedLeader })
+  } else {
+    Object.assign(dailyLog, defaultState, logData || { date: selectedDate.value })
+  }
   currentSchedule.value = scheduleData || {}
   handoverNotes.value = handoverContent || ''
   hasUnsavedChanges.value = false

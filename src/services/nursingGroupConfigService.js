@@ -1,9 +1,7 @@
 // 檔案路徑: src/services/nursingGroupConfigService.js
+// ✨ Standalone 版本
 
-import { doc, getDoc, setDoc, getDocs, collection, query, orderBy, limit, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-
-const CONFIG_COLLECTION = 'nursing_group_config'
+import { nursingApi } from '@/services/localApiClient'
 
 // 早班組別字母（B-J，A組保留給74/L）
 const DAY_SHIFT_LETTERS = ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
@@ -121,22 +119,22 @@ function getPreviousMonth(yearMonth) {
 }
 
 /**
- * 從 Firestore 獲取指定月份的護理組別配置
+ * 從本地資料庫獲取指定月份的護理組別配置
  * 如果該月份不存在，會嘗試載入最近的配置
  * @param {string} yearMonth - 月份 (YYYY-MM 格式)
  * @returns {Promise<{config: object, sourceMonth: string|null}>}
  */
 export async function fetchNursingGroupConfig(yearMonth) {
   try {
+    const configs = await nursingApi.fetchGroupConfig()
+
     // 1. 先嘗試載入指定月份的配置
     if (yearMonth) {
-      const docRef = doc(db, CONFIG_COLLECTION, yearMonth)
-      const docSnap = await getDoc(docRef)
-
-      if (docSnap.exists()) {
-        console.log(`✅ 從 Firestore 成功獲取 ${yearMonth} 的護理組別配置`)
+      const targetConfig = configs.find((c) => c.id === yearMonth || c.yearMonth === yearMonth)
+      if (targetConfig) {
+        console.log(`✅ 從本地資料庫成功獲取 ${yearMonth} 的護理組別配置`)
         return {
-          config: docSnap.data(),
+          config: targetConfig,
           sourceMonth: yearMonth,
         }
       }
@@ -146,13 +144,13 @@ export async function fetchNursingGroupConfig(yearMonth) {
     if (yearMonth) {
       let searchMonth = getPreviousMonth(yearMonth)
       for (let i = 0; i < 12; i++) {
-        const docRef = doc(db, CONFIG_COLLECTION, searchMonth)
-        const docSnap = await getDoc(docRef)
-
-        if (docSnap.exists()) {
+        const foundConfig = configs.find(
+          (c) => c.id === searchMonth || c.yearMonth === searchMonth,
+        )
+        if (foundConfig) {
           console.log(`⚠️ ${yearMonth} 無配置，使用 ${searchMonth} 的配置`)
           return {
-            config: docSnap.data(),
+            config: foundConfig,
             sourceMonth: searchMonth,
           }
         }
@@ -160,20 +158,18 @@ export async function fetchNursingGroupConfig(yearMonth) {
       }
     }
 
-    // 3. 嘗試載入舊的 'default' 文件（向後相容）
-    const defaultDocRef = doc(db, CONFIG_COLLECTION, 'default')
-    const defaultDocSnap = await getDoc(defaultDocRef)
-
-    if (defaultDocSnap.exists()) {
+    // 3. 嘗試載入舊的 'default' 配置（向後相容）
+    const defaultConfig = configs.find((c) => c.id === 'default')
+    if (defaultConfig) {
       console.log('⚠️ 使用舊的 default 配置')
       return {
-        config: defaultDocSnap.data(),
+        config: defaultConfig,
         sourceMonth: 'default',
       }
     }
 
     // 4. 都找不到，回傳預設值
-    console.log('⚠️ 在 Firestore 中找不到任何護理組別配置，回傳預設值。')
+    console.log('⚠️ 在資料庫中找不到任何護理組別配置，回傳預設值。')
     return {
       config: getDefaultConfig(),
       sourceMonth: null,
@@ -185,7 +181,7 @@ export async function fetchNursingGroupConfig(yearMonth) {
 }
 
 /**
- * 將護理組別配置儲存到 Firestore（按月份儲存）
+ * 將護理組別配置儲存到本地資料庫（按月份儲存）
  * @param {object} config - 要儲存的配置物件
  * @param {string} yearMonth - 月份 (YYYY-MM 格式)
  * @param {object} currentUser - 當前使用者資訊
@@ -197,21 +193,18 @@ export async function saveNursingGroupConfig(config, yearMonth, currentUser) {
   }
 
   try {
-    const docRef = doc(db, CONFIG_COLLECTION, yearMonth)
-
     const dataToSave = {
       ...config,
       yearMonth, // 記錄這份配置對應的月份
       lastModified: {
-        date: serverTimestamp(),
+        date: new Date().toISOString(),
         userId: currentUser?.uid || null,
         userName: currentUser?.displayName || currentUser?.name || '未知',
       },
     }
 
-    // 不使用 merge: true，直接覆寫整份文件，確保刪除的欄位會被移除
-    await setDoc(docRef, dataToSave)
-    console.log(`✅ 護理組別配置已成功儲存到 Firestore (${yearMonth})`)
+    await nursingApi.updateGroupConfig(yearMonth, dataToSave)
+    console.log(`✅ 護理組別配置已成功儲存到本地資料庫 (${yearMonth})`)
   } catch (error) {
     console.error('❌ 儲存護理組別配置失敗:', error)
     throw new Error('儲存護理組別配置到資料庫時發生錯誤。')
@@ -247,7 +240,9 @@ export function validateConfig(config) {
   // 檢查75班組別是否在早班可用組別內
   const invalid75_135 = shift75Groups135.filter((g) => !dayGroups135.includes(g))
   if (invalid75_135.length > 0) {
-    errors.push(`一三五 75班組別 ${invalid75_135.join(', ')} 超出早班可用範圍 (${dayGroups135.join(', ')})`)
+    errors.push(
+      `一三五 75班組別 ${invalid75_135.join(', ')} 超出早班可用範圍 (${dayGroups135.join(', ')})`,
+    )
   }
 
   // 驗證二四六
@@ -269,7 +264,9 @@ export function validateConfig(config) {
   // 檢查75班組別是否在早班可用組別內
   const invalid75_246 = shift75Groups246.filter((g) => !dayGroups246.includes(g))
   if (invalid75_246.length > 0) {
-    errors.push(`二四六 75班組別 ${invalid75_246.join(', ')} 超出早班可用範圍 (${dayGroups246.join(', ')})`)
+    errors.push(
+      `二四六 75班組別 ${invalid75_246.join(', ')} 超出早班可用範圍 (${dayGroups246.join(', ')})`,
+    )
   }
 
   return {

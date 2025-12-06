@@ -56,8 +56,6 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import ApiManager from '@/services/api_manager'
-// ✨ 步驟 1: 引入 'in' 查詢運算子
-import { where } from 'firebase/firestore'
 
 const props = defineProps({
   isVisible: Boolean,
@@ -164,7 +162,6 @@ const sortedRecords = computed(() => {
   })
 })
 
-// ✨✨✨ 核心修正點：重構 fetchRecords 函式以支援分批查詢 ✨✨✨
 async function fetchRecords(date, patientIdList) {
   isLoading.value = true
   allRecords.value = []
@@ -175,40 +172,30 @@ async function fetchRecords(date, patientIdList) {
   }
 
   try {
-    // 1. 將 patientIdList 切割成多個小於等於 30 的陣列
-    const chunks = []
-    for (let i = 0; i < patientIdList.length; i += 30) {
-      chunks.push(patientIdList.slice(i, i + 30))
-    }
+    // Fetch all records and filter client-side
+    const allConditionRecords = await conditionRecordsApi.fetchAll()
 
-    console.log(`[Records] 病人總數 ${patientIdList.length} 人，將分 ${chunks.length} 批次查詢。`)
+    // Convert patientIdList to a Set for faster lookups
+    const patientIdSet = new Set(patientIdList)
 
-    // 2. 為每一個小陣列建立一個查詢 Promise
-    const promises = chunks.map((chunk) => {
-      // 確保即使只有一個小陣列，查詢邏輯也一樣
-      return conditionRecordsApi.fetchAll([
-        where('recordDate', '==', date),
-        where('patientId', 'in', chunk),
-      ])
+    // Filter by date and patient IDs
+    const filteredRecords = allConditionRecords.filter((record) => {
+      const recordDate = record.recordDate
+      const matchesDate = recordDate === date
+      const matchesPatient = patientIdSet.has(record.patientId)
+      return matchesDate && matchesPatient
     })
 
-    // 3. 使用 Promise.all 等待所有的查詢都完成
-    const chunkResults = await Promise.all(promises)
-
-    // 4. 將所有批次的查詢結果合併成一個陣列
-    const combinedRecords = chunkResults.flat()
-
-    // 5. 對合併後的結果進行排序
-    combinedRecords.sort((a, b) => {
-      const timeA = a.createdAt?.toDate() || 0
-      const timeB = b.createdAt?.toDate() || 0
+    // Sort by createdAt
+    filteredRecords.sort((a, b) => {
+      const timeA = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : (a.createdAt ? new Date(a.createdAt).getTime() : 0)
+      const timeB = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : (b.createdAt ? new Date(b.createdAt).getTime() : 0)
       return timeA - timeB
     })
 
-    allRecords.value = combinedRecords
+    allRecords.value = filteredRecords
   } catch (error) {
-    console.error(`讀取 ${date} 的病情紀錄失敗 (可能是分批查詢錯誤):`, error)
-    // 這裡可以加上更友善的錯誤提示給使用者
+    console.error(`讀取 ${date} 的病情紀錄失敗:`, error)
   } finally {
     isLoading.value = false
   }

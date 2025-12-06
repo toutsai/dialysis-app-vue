@@ -1,9 +1,9 @@
 // 檔案路徑: src/stores/medicationStore.ts (v2 - 修正快取累加問題)
+// ✨ Standalone 版本
 
 import { defineStore } from 'pinia'
 import { ref, computed, type Ref } from 'vue'
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
+import { medicationsApi } from '@/services/localApiClient'
 
 export interface InjectionRecord {
   patientId: string
@@ -46,22 +46,19 @@ export const useMedicationStore = defineStore('medication', () => {
           idsToFetch,
         )
 
-        const getDailyInjections = httpsCallable<
-          { targetDate: string; patientIds: string[] },
-          { success: boolean; injections: InjectionRecord[] }
-        >(functions, 'getDailyInjections')
+        // 🖥️ 使用本地 API 取得每日針劑資料
         const CHUNK_SIZE = 30
-        const promises: Array<Promise<{ data: { success: boolean; injections: InjectionRecord[] } }>> = []
+        const promises: Promise<InjectionRecord[]>[] = []
         for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
           const chunk = idsToFetch.slice(i, i + CHUNK_SIZE)
-          promises.push(getDailyInjections({ targetDate, patientIds: chunk }))
+          promises.push(medicationsApi.getDailyInjections(targetDate, chunk))
         }
 
         const results = await Promise.all(promises)
         let newlyFetchedInjections: InjectionRecord[] = []
-        for (const result of results) {
-          if (result.data && result.data.success) {
-            newlyFetchedInjections = newlyFetchedInjections.concat(result.data.injections)
+        for (const injections of results) {
+          if (injections && Array.isArray(injections)) {
+            newlyFetchedInjections = newlyFetchedInjections.concat(injections)
           }
         }
 

@@ -363,11 +363,7 @@
 
 <script setup>
 import { ref, reactive, watch, computed } from 'vue'
-import { where, orderBy, limit } from 'firebase/firestore'
-import {
-  fetchDialysisOrderHistory as optimizedFetchDialysisOrderHistory,
-  deleteDialysisOrderHistory as optimizedDeleteDialysisOrderHistory,
-} from '@/services/optimizedApiService.js'
+import { ordersApi } from '@/services/localApiClient'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { formatDateToYYYYMMDD, parseFirestoreTimestamp, getToday } from '@/utils/dateUtils'
 
@@ -491,12 +487,7 @@ async function fetchOrderHistory(patientId) {
   isLoadingHistory.value = true
   orderHistory.value = []
   try {
-    const queryConstraints = [
-      where('patientId', '==', patientId),
-      orderBy('updatedAt', 'desc'),
-      limit(20),
-    ]
-    const historyData = await optimizedFetchDialysisOrderHistory(queryConstraints)
+    const historyData = await ordersApi.getDialysisOrderHistory(patientId)
 
     // 加入這行來檢查資料
     console.log('讀取到的歷史資料:', historyData)
@@ -637,7 +628,7 @@ async function confirmDelete() {
   const recordId = orderToDelete.value.id
   const patientName = orderToDelete.value.patientName || '未知患者'
   try {
-    await optimizedDeleteDialysisOrderHistory(recordId)
+    await ordersApi.deleteDialysisOrderHistory(recordId)
     orderHistory.value = orderHistory.value.filter((item) => item.id !== recordId)
     alert(`成功刪除 ${patientName} 的醫囑歷史記錄`)
   } catch (error) {

@@ -6,7 +6,11 @@ import {
   updatePatient as optimizedUpdatePatient,
   createDialysisOrderAndUpdatePatient,
 } from '@/services/optimizedApiService.js'
-import ApiManager from '@/services/api_manager'
+import {
+  systemApi,
+  schedulesApi as localSchedulesApi,
+  patientsApi,
+} from '@/services/localApiClient'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import * as XLSX from 'xlsx'
@@ -20,23 +24,12 @@ import WardNumberDialog from '@/components/WardNumberDialog.vue'
 import PatientUpdateSchedulerDialog from '@/components/PatientUpdateSchedulerDialog.vue'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
-import { db } from '@/composables/useFirebase'
-import { doc, getDoc, updateDoc, where, orderBy } from 'firebase/firestore'
 import { formatDateToYYYYMMDD, parseFirestoreTimestamp } from '@/utils/dateUtils.js'
 import { escapeHtml } from '@/utils/sanitize.js'
-
-// ✨ 1. 新增 tasksApi 的實例，用於建立自動化任務
-const tasksApi = ApiManager('tasks')
-// ✨ 新增 schedulesApi 的實例，用於查詢當日排程
-const schedulesApi = ApiManager('schedules')
-// ✨ 新增 scheduledChangesApi 的實例，用於保存預約變更
-const scheduledChangesApi = ApiManager('scheduled_changes')
 
 const patientStore = usePatientStore()
 const { allPatients } = storeToRefs(patientStore)
 const { forceRefreshPatients, removeRuleFromMasterSchedule } = patientStore
-
-const patientHistoryApi = ApiManager('patient_history')
 
 const activeTab = ref('opd')
 const currentSort = ref({ column: 'updatedAt', order: 'desc' })
@@ -235,10 +228,8 @@ const sortedFreqStats = computed(() => {
 
 async function fetchPatientHistoryForStats() {
   try {
-    const twoMonthsAgo = new Date()
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2)
-    twoMonthsAgo.setDate(1)
-    return await patientHistoryApi.fetchAll([where('timestamp', '>=', twoMonthsAgo.toISOString())])
+    // 使用本地 API 獲取病人歷史
+    return await patientsApi.fetchHistory()
   } catch (error) {
     console.error('讀取病人歷史紀錄失敗:', error)
     showAlert('讀取失敗', '讀取病人歷史統計資料失敗！')
@@ -371,16 +362,16 @@ function showConfirm(title, message, onConfirm) {
   isConfirmDialogVisible.value = true
 }
 
-// ✨ 新增：檢查病人是否在當日排程中
+// ✨ 檢查病人是否在當日排程中
 async function checkPatientInTodaySchedule(patientId) {
   try {
     const today = new Date()
     const dateStr = today.toISOString().split('T')[0]
-    const dailyRecords = await schedulesApi.fetchAll([where('date', '==', dateStr)])
+    const record = await localSchedulesApi.fetchByDate(dateStr)
 
-    if (dailyRecords.length === 0) return false
+    if (!record?.schedule) return false
 
-    const schedule = dailyRecords[0].schedule || {}
+    const schedule = record.schedule || {}
     // 遍歷排程，檢查是否有這個病人
     for (const slotData of Object.values(schedule)) {
       if (slotData && slotData.patientId === patientId) {
@@ -446,10 +437,10 @@ function handleScheduleConflictCancel() {
   pendingNewStatus.value = null
 }
 
-// ✨ 新增：處理預約變更對話框的提交
+// ✨ 處理預約變更對話框的提交
 async function handleSchedulerSubmit(dataToSubmit) {
   try {
-    await scheduledChangesApi.save(dataToSubmit)
+    await systemApi.createScheduledUpdate(dataToSubmit)
     isSchedulerDialogVisible.value = false
     schedulerPatient.value = null
     schedulerChangeType.value = ''
@@ -564,7 +555,7 @@ async function createAutomatedTask(patientData, taskType, creatorInfo) {
   }
 
   if (taskPayload) {
-    return tasksApi.save(taskPayload)
+    return systemApi.createTask(taskPayload)
   }
   return Promise.resolve() // 如果沒有任務要建立，回傳一個 resolved promise
 }

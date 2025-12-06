@@ -36,7 +36,6 @@
 <script setup>
 import { ref, watch, computed } from 'vue'
 import ApiManager from '@/services/api_manager'
-import { where, orderBy } from 'firebase/firestore'
 import { escapeHtml } from '@/utils/sanitize.js'
 
 const props = defineProps({
@@ -111,11 +110,16 @@ const groupedHistory = computed(() => {
 async function fetchHistory() {
   isLoading.value = true
   try {
-    const queryConstraints = [
-      where('patientId', '==', props.patientId),
-      orderBy('timestamp', 'asc'),
-    ]
-    history.value = await historyApi.fetchAll(queryConstraints)
+    // Fetch all history and filter client-side
+    const allHistory = await historyApi.fetchAll()
+    const filteredHistory = allHistory
+      .filter((h) => h.patientId === props.patientId)
+      .sort((a, b) => {
+        const timeA = a.timestamp?.toDate ? a.timestamp.toDate().getTime() : (a.timestamp ? new Date(a.timestamp).getTime() : 0)
+        const timeB = b.timestamp?.toDate ? b.timestamp.toDate().getTime() : (b.timestamp ? new Date(b.timestamp).getTime() : 0)
+        return timeA - timeB
+      })
+    history.value = filteredHistory
   } catch (error) {
     console.error('讀取歷史紀錄失敗:', error)
     history.value = []
