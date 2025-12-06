@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, logAudit } from '../middleware/auth.js'
 import { syncMasterScheduleToFuture, initializeFutureSchedules } from '../services/scheduleSync.js'
+import { processScheduleException } from '../services/exceptionHandler.js'
 
 const router = Router()
 
@@ -515,6 +516,33 @@ router.post('/exceptions', ...isEditor, async (req, res) => {
       type: data.type,
       patientName: data.patientName
     })
+
+    // 🔥 自動處理調班申請（非同步執行，不阻塞回應）
+    const exceptionData = {
+      type: data.type,
+      status: 'pending',
+      patientId: data.patientId,
+      patientName: data.patientName,
+      from: data.from,
+      to: data.to,
+      patient1: data.patient1,
+      patient2: data.patient2,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      date: data.date
+    }
+
+    processScheduleException(id, exceptionData)
+      .then(result => {
+        if (result.success) {
+          console.log(`✅ [Schedules] 調班 ${id} 自動處理完成`)
+        } else {
+          console.log(`⚠️ [Schedules] 調班 ${id} 處理失敗: ${result.error || result.message}`)
+        }
+      })
+      .catch(err => {
+        console.error(`❌ [Schedules] 調班 ${id} 處理異常:`, err.message)
+      })
 
     res.status(201).json({
       id: created.id,
