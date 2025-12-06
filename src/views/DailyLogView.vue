@@ -1268,7 +1268,13 @@ async function loadDailyLog(dateStr) {
         },
         staffing: logResult.stats?.staffing || defaultState.stats.staffing,
       }
-      const mergedLog = { ...defaultState, ...logResult, stats: mergedStats }
+      // 深度合併 leader 物件
+      const mergedLeader = {
+        early: { ...defaultState.leader.early, ...logResult.leader?.early },
+        noon: { ...defaultState.leader.noon, ...logResult.leader?.noon },
+        late: { ...defaultState.leader.late, ...logResult.leader?.late },
+      }
+      const mergedLog = { ...defaultState, ...logResult, stats: mergedStats, leader: mergedLeader }
       if (mergedLog.handoverNotes && typeof mergedLog.otherNotes === 'undefined') {
         mergedLog.otherNotes = mergedLog.handoverNotes
       }
@@ -1306,7 +1312,7 @@ async function loadDailyLog(dateStr) {
         }
       }
 
-      Object.assign(dailyLog, { ...mergedLog, stats: mergedStats })
+      Object.assign(dailyLog, { ...mergedLog, stats: mergedStats, leader: mergedLeader })
     } else {
       dailyLog.otherNotes = ''
     }
@@ -2111,27 +2117,33 @@ function cloneData(data) {
 
 function applyLoadedData(logData, scheduleData, handoverContent) {
   const defaultState = initialLogState()
-  if (logData?.stats) {
+  if (logData?.stats || logData?.leader) {
     // 深度合併 stats 物件
     const mergedStats = {
       main_beds: {
-        early: { ...defaultState.stats.main_beds.early, ...logData.stats.main_beds?.early },
-        noon: { ...defaultState.stats.main_beds.noon, ...logData.stats.main_beds?.noon },
-        late: { ...defaultState.stats.main_beds.late, ...logData.stats.main_beds?.late },
+        early: { ...defaultState.stats.main_beds.early, ...logData.stats?.main_beds?.early },
+        noon: { ...defaultState.stats.main_beds.noon, ...logData.stats?.main_beds?.noon },
+        late: { ...defaultState.stats.main_beds.late, ...logData.stats?.main_beds?.late },
       },
       peripheral_beds: {
-        early: { ...defaultState.stats.peripheral_beds.early, ...logData.stats.peripheral_beds?.early },
-        noon: { ...defaultState.stats.peripheral_beds.noon, ...logData.stats.peripheral_beds?.noon },
-        late: { ...defaultState.stats.peripheral_beds.late, ...logData.stats.peripheral_beds?.late },
+        early: { ...defaultState.stats.peripheral_beds.early, ...logData.stats?.peripheral_beds?.early },
+        noon: { ...defaultState.stats.peripheral_beds.noon, ...logData.stats?.peripheral_beds?.noon },
+        late: { ...defaultState.stats.peripheral_beds.late, ...logData.stats?.peripheral_beds?.late },
       },
       patient_care: {
-        onDL: { ...defaultState.stats.patient_care.onDL, ...logData.stats.patient_care?.onDL },
-        akChange: { ...defaultState.stats.patient_care.akChange, ...logData.stats.patient_care?.akChange },
-        noShow: { ...defaultState.stats.patient_care.noShow, ...logData.stats.patient_care?.noShow },
+        onDL: { ...defaultState.stats.patient_care.onDL, ...logData.stats?.patient_care?.onDL },
+        akChange: { ...defaultState.stats.patient_care.akChange, ...logData.stats?.patient_care?.akChange },
+        noShow: { ...defaultState.stats.patient_care.noShow, ...logData.stats?.patient_care?.noShow },
       },
-      staffing: logData.stats.staffing || defaultState.stats.staffing,
+      staffing: logData.stats?.staffing || defaultState.stats.staffing,
     }
-    Object.assign(dailyLog, defaultState, logData, { stats: mergedStats })
+    // 深度合併 leader 物件
+    const mergedLeader = {
+      early: { ...defaultState.leader.early, ...logData.leader?.early },
+      noon: { ...defaultState.leader.noon, ...logData.leader?.noon },
+      late: { ...defaultState.leader.late, ...logData.leader?.late },
+    }
+    Object.assign(dailyLog, defaultState, logData, { stats: mergedStats, leader: mergedLeader })
   } else {
     Object.assign(dailyLog, defaultState, logData || { date: selectedDate.value })
   }
