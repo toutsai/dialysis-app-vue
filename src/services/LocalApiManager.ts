@@ -78,6 +78,7 @@ const resourceApiMap: Record<string, any> = {
   scheduled_patient_updates: {
     fetchAll: async (params?: any) => systemApi.fetchScheduledUpdates(params),
     create: async (data: any) => systemApi.createScheduledUpdate(data),
+    update: async (id: string, data: any) => systemApi.updateScheduledUpdate(id, data),
     delete: async (id: string) => systemApi.cancelScheduledUpdate(id),
   },
 

@@ -887,6 +887,54 @@ router.post('/scheduled-updates', ...isContributor, async (req, res) => {
 })
 
 /**
+ * PUT /api/system/scheduled-updates/:id
+ * 更新預約變更
+ */
+router.put('/scheduled-updates/:id', ...isEditor, async (req, res) => {
+  try {
+    const { id } = req.params
+    const {
+      changeData,
+      effectiveDate,
+      notes
+    } = req.body
+
+    const db = getDatabase()
+
+    const result = db.prepare(`
+      UPDATE scheduled_patient_updates
+      SET change_data = ?, effective_date = ?, notes = ?
+      WHERE id = ? AND status = 'pending'
+    `).run(
+      JSON.stringify(changeData || {}),
+      effectiveDate,
+      notes || '',
+      id
+    )
+
+    db.close()
+
+    if (result.changes === 0) {
+      return res.status(404).json({
+        error: true,
+        message: '找不到該預約變更或已被處理'
+      })
+    }
+
+    await logAudit('SCHEDULED_UPDATE_MODIFY', req.user.id, req.user.name, 'scheduled_patient_updates', id, { changeData, effectiveDate })
+
+    res.json({ success: true, id })
+
+  } catch (error) {
+    console.error('更新預約變更錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '更新預約變更失敗'
+    })
+  }
+})
+
+/**
  * DELETE /api/system/scheduled-updates/:id
  * 取消預約變更
  */

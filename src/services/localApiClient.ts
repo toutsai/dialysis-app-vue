@@ -1026,6 +1026,20 @@ export const systemApi = {
   },
 
   /**
+   * 更新預約變更
+   */
+  async updateScheduledUpdate(id: string, data: {
+    changeData?: any
+    effectiveDate?: string
+    notes?: string
+  }) {
+    return apiRequest<{ success: boolean; id: string }>(`/system/scheduled-updates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
    * 取消預約變更
    */
   async cancelScheduledUpdate(id: string) {
