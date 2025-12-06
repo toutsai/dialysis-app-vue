@@ -312,6 +312,11 @@ export const useTaskStore = defineStore('task', () => {
     },
   )
 
+  // 立即刷新任務資料（用於新增/更新後立即顯示）
+  async function refreshTasks() {
+    await fetchTasksFromBackend()
+  }
+
   return {
     // State
     myTasks,
@@ -333,5 +338,6 @@ export const useTaskStore = defineStore('task', () => {
     stopRealtimeUpdates,
     updateTasksFromConditionRecords,
     cleanupListeners,
+    refreshTasks,
   }
 })
