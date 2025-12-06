@@ -1351,6 +1351,13 @@ async function saveLog(options = {}) {
     }
     hasUnsavedChanges.value = false
 
+    // 更新快取，避免切換頁面後返回時顯示舊資料
+    dailyLogCache.set(selectedDate.value, {
+      dailyLog: cloneData(dailyLog),
+      schedule: cloneData(currentSchedule.value),
+      handoverNotes: handoverNotes.value,
+    })
+
     if (showSuccessAlert) {
       showAlert('操作成功', successMessage)
     }
@@ -1795,6 +1802,14 @@ async function saveJustMovements() {
       dailyLog.id = docId
     }
     hasUnsavedChanges.value = false
+
+    // 更新快取
+    dailyLogCache.set(selectedDate.value, {
+      dailyLog: cloneData(dailyLog),
+      schedule: cloneData(currentSchedule.value),
+      handoverNotes: handoverNotes.value,
+    })
+
     showAlert('操作成功', '病人動態已更新！')
   } catch (error) {
     console.error('儲存病人動態失敗:', error)
