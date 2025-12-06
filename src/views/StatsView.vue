@@ -2175,17 +2175,11 @@ function exportAssignmentsToExcel() {
   XLSX.writeFile(wb, fileName)
 }
 function promptDuplicateLateShift() {
-  console.log('[StatsView] promptDuplicateLateShift 被呼叫')
-  console.log('[StatsView] isPageLocked:', isPageLocked.value)
-  if (isPageLocked.value) {
-    console.log('[StatsView] 頁面已鎖定，取消操作')
-    return
-  }
+  if (isPageLocked.value) return
   confirmDialogMessage.value =
     '您確定要為夜班建立一個獨立的「收針」分組嗎？\n這將會複製目前的夜班病人分配，讓您可以單獨調整。'
   onConfirmAction.value = duplicateLateShiftForTakeOff
   isConfirmDialogVisible.value = true
-  console.log('[StatsView] 確認對話框已顯示')
 }
 function duplicateLateShiftForTakeOff() {
   if (isPageLocked.value) return
