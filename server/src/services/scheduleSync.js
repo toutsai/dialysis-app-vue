@@ -337,13 +337,18 @@ export async function syncMasterScheduleToFuture(beforeRules, afterRules, modifi
 
     db.close()
 
-    console.log(`✅ [ScheduleSync] 同步完成！創建 ${createdCount} 份，更新 ${updatedCount} 份排程`)
+    console.log(`✅ [ScheduleSync] 第一階段同步完成！創建 ${createdCount} 份，更新 ${updatedCount} 份排程`)
+
+    // 🔥 第二階段：整合現有的調班申請到受影響的日期
+    console.log('🔄 [ScheduleSync] 第二階段：開始整合調班申請...')
+    const mergeResult = await mergeExceptionsIntoSchedules(afterRules, futureDates, patientsMap, modifiedBy)
 
     return {
       success: true,
-      message: `同步完成：創建 ${createdCount} 份，更新 ${updatedCount} 份排程`,
+      message: `同步完成：創建 ${createdCount} 份，更新 ${updatedCount} 份排程，整合 ${mergeResult.mergedCount} 天調班`,
       createdCount,
       updatedCount,
+      mergedCount: mergeResult.mergedCount,
     }
 
   } catch (error) {
@@ -429,7 +434,305 @@ export async function initializeFutureSchedules(modifiedBy = {}) {
   }
 }
 
+// ===================================================================
+// 調班整合功能
+// ===================================================================
+
+/**
+ * 將單一調班申請應用到排程物件上
+ * @param {object} schedule - 正在被修改的排程物件
+ * @param {object} ex - 調班申請資料
+ * @param {string} dateStr - 處理的目標日期
+ * @returns {boolean} - 如果發生衝突返回 true
+ */
+function applySingleException(schedule, ex, dateStr) {
+  try {
+    switch (ex.type) {
+      case 'MOVE':
+      case 'ADD_SESSION': {
+        const targetDate = ex.to?.goalDate
+        if (targetDate !== dateStr) {
+          // MOVE 類型需要處理「來源」在今天的情況
+          if (ex.type === 'MOVE' && ex.from?.sourceDate === dateStr) {
+            const sourceKey = getScheduleKey(ex.from.bedNum, ex.from.shiftCode)
+            if (schedule[sourceKey]?.patientId === ex.patientId) {
+              delete schedule[sourceKey]
+            }
+          }
+          return false
+        }
+
+        const targetKey = getScheduleKey(ex.to.bedNum, ex.to.shiftCode)
+
+        // 目標床位已被佔用（且不是自己）視為衝突
+        if (schedule[targetKey] && schedule[targetKey].patientId !== ex.patientId) {
+          console.log(`[Engine] 衝突！調班 ${ex.id} 的目標床位 ${targetKey} 已被佔據`)
+          return true
+        }
+
+        // 正常執行操作
+        if (ex.type === 'MOVE' && ex.from?.sourceDate === dateStr) {
+          const sourceKey = getScheduleKey(ex.from.bedNum, ex.from.shiftCode)
+          if (schedule[sourceKey]?.patientId === ex.patientId) {
+            delete schedule[sourceKey]
+          }
+        }
+
+        schedule[targetKey] = {
+          patientId: ex.patientId,
+          patientName: ex.patientName,
+          exceptionId: ex.id,
+          manualNote: ex.type === 'MOVE' ? '(換班)' : '(臨時加洗)',
+        }
+        return false
+      }
+
+      case 'SWAP': {
+        if (ex.date === dateStr) {
+          const key1 = getScheduleKey(ex.patient1.fromBedNum, ex.patient1.fromShiftCode)
+          const key2 = getScheduleKey(ex.patient2.fromBedNum, ex.patient2.fromShiftCode)
+
+          const slot1Data = schedule[key1]
+            ? { ...schedule[key1] }
+            : { patientId: ex.patient1.patientId, patientName: ex.patient1.patientName }
+          const slot2Data = schedule[key2]
+            ? { ...schedule[key2] }
+            : { patientId: ex.patient2.patientId, patientName: ex.patient2.patientName }
+
+          schedule[key1] = {
+            ...slot2Data,
+            exceptionId: ex.id,
+            manualNote: `(與${ex.patient1.patientName}互調)`,
+          }
+          schedule[key2] = {
+            ...slot1Data,
+            exceptionId: ex.id,
+            manualNote: `(與${ex.patient2.patientName}互調)`,
+          }
+        }
+        return false
+      }
+
+      case 'SUSPEND': {
+        const start = new Date(ex.startDate + 'T00:00:00Z')
+        const end = new Date(ex.endDate + 'T00:00:00Z')
+        const current = new Date(dateStr + 'T00:00:00Z')
+        if (current >= start && current <= end) {
+          Object.keys(schedule).forEach((key) => {
+            if (schedule[key].patientId === ex.patientId) {
+              delete schedule[key]
+            }
+          })
+        }
+        return false
+      }
+    }
+  } catch (error) {
+    console.error(`[Engine] 套用調班 ${ex.id} 時錯誤:`, error)
+  }
+  return false
+}
+
+/**
+ * 重新計算某一天的排程（含調班整合）
+ * @param {string} dateStr - 目標日期
+ * @param {object} masterRules - 總表規則
+ * @param {Array} todaysExceptions - 當天的調班列表
+ * @param {Map} patientsMap - 病人資料
+ * @returns {object} - { finalSchedule, conflictingExceptions }
+ */
+function recalculateDailySchedule(dateStr, masterRules, todaysExceptions, patientsMap = null) {
+  let finalSchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
+  const conflictingExceptions = []
+
+  for (const ex of todaysExceptions) {
+    const hasConflict = applySingleException(finalSchedule, ex, dateStr)
+    if (hasConflict) {
+      conflictingExceptions.push(ex)
+    }
+  }
+
+  return { finalSchedule, conflictingExceptions }
+}
+
+/**
+ * 重建單一天的排程（含調班整合）
+ * @param {string} dateStr - 目標日期
+ * @param {object} masterRules - 總表規則
+ * @param {Map} patientsMap - 病人資料
+ * @param {object} db - 資料庫連線
+ * @returns {object} - 最終排程
+ */
+function rebuildSingleDaySchedule(dateStr, masterRules, patientsMap, db) {
+  // 取得所有已生效的調班申請
+  const allExceptions = db.prepare(`
+    SELECT * FROM schedule_exceptions
+    WHERE status IN ('applied', 'conflict_requires_resolution')
+  `).all()
+
+  const todaysExceptions = []
+  allExceptions.forEach((row) => {
+    const ex = {
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      patientId: row.patient_id,
+      patientName: row.patient_name,
+      from: JSON.parse(row.from_data || '{}'),
+      to: JSON.parse(row.to_data || '{}'),
+      patient1: JSON.parse(row.patient1 || '{}'),
+      patient2: JSON.parse(row.patient2 || '{}'),
+      startDate: row.start_date,
+      endDate: row.end_date,
+      date: row.date,
+      createdAt: row.created_at,
+    }
+
+    // 判斷此調班是否影響這一天
+    if (ex.type === 'SUSPEND' && ex.startDate && ex.endDate) {
+      const start = new Date(ex.startDate + 'T00:00:00Z')
+      const end = new Date(ex.endDate + 'T00:00:00Z')
+      const current = new Date(dateStr + 'T00:00:00Z')
+      if (current >= start && current <= end) todaysExceptions.push(ex)
+    } else {
+      const exDates = [ex.date, ex.startDate, ex.from?.sourceDate, ex.to?.goalDate].filter(Boolean)
+      if (exDates.includes(dateStr)) todaysExceptions.push(ex)
+    }
+  })
+
+  // 按創建時間排序
+  todaysExceptions.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+
+  // 計算最終排程
+  const { finalSchedule, conflictingExceptions } = recalculateDailySchedule(
+    dateStr,
+    masterRules,
+    todaysExceptions,
+    patientsMap
+  )
+
+  // 標記衝突的調班
+  if (conflictingExceptions.length > 0) {
+    const updateStmt = db.prepare(`
+      UPDATE schedule_exceptions
+      SET status = 'conflict_requires_resolution',
+          error_message = '系統重建排程時發現目標床位已被佔用，請重新安排。',
+          updated_at = datetime('now', 'localtime')
+      WHERE id = ?
+    `)
+
+    conflictingExceptions.forEach((ex) => {
+      console.log(`[Engine] 將調班 ${ex.id} 標記為衝突`)
+      updateStmt.run(ex.id)
+    })
+  }
+
+  return finalSchedule
+}
+
+/**
+ * 整合調班申請到受影響的日期
+ * @param {object} masterRules - 總表規則
+ * @param {Array<string>} futureDates - 未來日期列表
+ * @param {Map} patientsMap - 病人資料
+ * @param {object} modifiedBy - 修改者資訊
+ * @returns {object} - 合併結果
+ */
+export async function mergeExceptionsIntoSchedules(masterRules, futureDates, patientsMap, modifiedBy = {}) {
+  console.log('🔄 [ScheduleSync] 開始整合調班申請...')
+
+  const db = getDatabase()
+
+  try {
+    // 取得所有已生效的調班申請
+    const allExceptions = db.prepare(`
+      SELECT * FROM schedule_exceptions
+      WHERE status IN ('applied', 'conflict_requires_resolution')
+    `).all()
+
+    if (allExceptions.length === 0) {
+      console.log('✅ [ScheduleSync] 沒有需要整合的調班申請')
+      db.close()
+      return { success: true, mergedCount: 0 }
+    }
+
+    // 計算哪些日期需要重新整合
+    const datesToMerge = new Set()
+    const tomorrowStr = futureDates[0] // 明天的日期
+
+    allExceptions.forEach((row) => {
+      const ex = {
+        type: row.type,
+        startDate: row.start_date,
+        endDate: row.end_date,
+        date: row.date,
+        from: JSON.parse(row.from_data || '{}'),
+        to: JSON.parse(row.to_data || '{}'),
+      }
+
+      if (ex.type === 'SUSPEND' && ex.startDate && ex.endDate) {
+        // 暫停類型：區間內的每一天
+        const start = new Date(ex.startDate + 'T00:00:00Z')
+        const end = new Date(ex.endDate + 'T00:00:00Z')
+        futureDates.forEach((dateStr) => {
+          const current = new Date(dateStr + 'T00:00:00Z')
+          if (current >= start && current <= end) {
+            datesToMerge.add(dateStr)
+          }
+        })
+      } else {
+        // 其他類型：相關日期
+        const relevantDates = [ex.date, ex.startDate, ex.from?.sourceDate, ex.to?.goalDate].filter(Boolean)
+        relevantDates.forEach((d) => {
+          if (futureDates.includes(d) && d >= tomorrowStr) {
+            datesToMerge.add(d)
+          }
+        })
+      }
+    })
+
+    if (datesToMerge.size === 0) {
+      console.log('✅ [ScheduleSync] 沒有需要重新整合的日期')
+      db.close()
+      return { success: true, mergedCount: 0 }
+    }
+
+    console.log(`📅 [ScheduleSync] 需要重新整合 ${datesToMerge.size} 個日期的排程`)
+
+    // 對每個需要整合的日期重新計算排程
+    let mergedCount = 0
+    for (const dateStr of datesToMerge) {
+      const finalSchedule = rebuildSingleDaySchedule(dateStr, masterRules, patientsMap, db)
+
+      db.prepare(`
+        UPDATE schedules
+        SET schedule = ?,
+            sync_method = 'merge_exceptions',
+            last_modified_by = ?,
+            updated_at = datetime('now', 'localtime')
+        WHERE date = ?
+      `).run(
+        JSON.stringify(finalSchedule),
+        JSON.stringify(modifiedBy),
+        dateStr
+      )
+      mergedCount++
+    }
+
+    db.close()
+    console.log(`✅ [ScheduleSync] 整合完成！已重新整合 ${mergedCount} 天的調班申請`)
+
+    return { success: true, mergedCount }
+
+  } catch (error) {
+    console.error('❌ [ScheduleSync] 整合調班申請失敗:', error)
+    db.close()
+    throw error
+  }
+}
+
 export default {
   syncMasterScheduleToFuture,
   initializeFutureSchedules,
+  mergeExceptionsIntoSchedules,
 }
