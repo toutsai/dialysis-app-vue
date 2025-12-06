@@ -1294,7 +1294,8 @@ async function loadDailyLog(dateStr) {
     if (scheduleData.length > 0) {
       const scheduleRecord = scheduleData[0]
       currentSchedule.value = scheduleRecord.schedule || {}
-      if (!logResult) {
+      // 如果是新的日誌（資料庫中沒有），從排程計算人次統計
+      if (!logResult || logResult.isNew) {
         calculateStatsFromSchedule(scheduleRecord)
       }
     }
