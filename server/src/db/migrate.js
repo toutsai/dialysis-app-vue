@@ -162,13 +162,39 @@ export function runMigrations() {
       db.exec(`
         CREATE TABLE IF NOT EXISTS handover_logs (
           id TEXT PRIMARY KEY,
+          date TEXT NOT NULL,
+          shift TEXT,
           content TEXT,
-          updated_by TEXT DEFAULT '{}',
-          updated_at TEXT,
-          source_date TEXT,
-          created_at TEXT DEFAULT (datetime('now', 'localtime'))
+          items TEXT DEFAULT '[]',
+          created_by TEXT DEFAULT '{}',
+          created_at TEXT DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT DEFAULT (datetime('now', 'localtime'))
         )
       `)
+      db.exec('CREATE INDEX IF NOT EXISTS idx_handover_date ON handover_logs(date)')
+      migrationsApplied++
+    }
+
+    // 確保 daily_logs 表格存在
+    const dailyLogsTableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='daily_logs'").get()
+    if (!dailyLogsTableExists) {
+      console.log('📋 建立 daily_logs 表格...')
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS daily_logs (
+          id TEXT PRIMARY KEY,
+          date TEXT UNIQUE NOT NULL,
+          patient_movements TEXT DEFAULT '[]',
+          announcements TEXT DEFAULT '[]',
+          notes TEXT,
+          vascular_access_log TEXT DEFAULT '[]',
+          stats TEXT DEFAULT '{}',
+          leader TEXT DEFAULT '{}',
+          other_notes TEXT,
+          created_at TEXT DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+        )
+      `)
+      db.exec('CREATE INDEX IF NOT EXISTS idx_daily_logs_date ON daily_logs(date)')
       migrationsApplied++
     } else {
       // 為已存在的表添加新欄位（處理舊版 schema）
