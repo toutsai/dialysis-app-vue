@@ -3,10 +3,254 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, logAudit } from '../middleware/auth.js'
-import { syncMasterScheduleToFuture, initializeFutureSchedules } from '../services/scheduleSync.js'
+import { syncMasterScheduleToFuture, initializeFutureSchedules, mergeExceptionsIntoSchedules } from '../services/scheduleSync.js'
 import { processScheduleException } from '../services/exceptionHandler.js'
 
 const router = Router()
+
+// ========================================
+// 輔助函式
+// ========================================
+
+/**
+ * 取得台北時區的今天日期字串 (YYYY-MM-DD)
+ */
+function getTaipeiTodayString() {
+  return new Date().toLocaleDateString('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).replace(/\//g, '-')
+}
+
+/**
+ * 格式化日期為 YYYY-MM-DD
+ */
+function formatDateToYYYYMMDD(date) {
+  const year = date.getUTCFullYear()
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * 根據日期取得台北時區的星期索引 (0=週一, 6=週日)
+ */
+function getTaipeiDayIndex(date) {
+  const taipeiDateStr = date.toLocaleDateString('zh-TW', {
+    timeZone: 'Asia/Taipei',
+    weekday: 'short',
+  })
+  const dayMap = { '週一': 0, '週二': 1, '週三': 2, '週四': 3, '週五': 4, '週六': 5, '週日': 6 }
+  return dayMap[taipeiDateStr] ?? date.getDay()
+}
+
+const SHIFTS = ['early', 'noon', 'late']
+const FREQ_MAP_TO_DAY_INDEX = {
+  '一三五': [0, 2, 4],
+  '二四六': [1, 3, 5],
+  '一四': [0, 3],
+  '二五': [1, 4],
+  '三六': [2, 5],
+  '一五': [0, 4],
+  '二六': [1, 5],
+  '每日': [0, 1, 2, 3, 4, 5],
+  '每周一': [0],
+  '每周二': [1],
+  '每周三': [2],
+  '每周四': [3],
+  '每周五': [4],
+  '每周六': [5],
+}
+
+/**
+ * 產生排程的 key
+ */
+function getScheduleKey(bedNum, shiftCode) {
+  const prefix = String(bedNum).startsWith('peripheral') ? '' : 'bed-'
+  return `${prefix}${bedNum}-${shiftCode}`
+}
+
+/**
+ * 根據總表規則產生當日排程
+ */
+function generateDailyScheduleFromRules(masterRules, dateStr, patientsMap = null) {
+  const dailySchedule = {}
+  const targetDate = new Date(dateStr + 'T00:00:00Z')
+
+  if (isNaN(targetDate.getTime())) {
+    return {}
+  }
+
+  const dayIndex = getTaipeiDayIndex(targetDate)
+
+  for (const patientId in masterRules) {
+    const rule = masterRules[patientId]
+    if (!rule || !rule.freq) continue
+
+    const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
+    if (freqDays.includes(dayIndex)) {
+      const { bedNum, shiftIndex } = rule
+      if (bedNum === undefined || shiftIndex === undefined) continue
+
+      const shiftCode = SHIFTS[shiftIndex]
+      if (!shiftCode) continue
+
+      const key = getScheduleKey(bedNum, shiftCode)
+
+      dailySchedule[key] = {
+        patientId: patientId,
+        patientName: rule.patientName || '',
+        shiftId: shiftCode,
+        autoNote: rule.autoNote || '',
+        manualNote: rule.manualNote || '',
+        baseRuleId: patientId,
+      }
+    }
+  }
+  return dailySchedule
+}
+
+/**
+ * 將單一調班應用到排程
+ */
+function applySingleException(schedule, ex, dateStr) {
+  try {
+    switch (ex.type) {
+      case 'MOVE':
+      case 'ADD_SESSION': {
+        const targetDate = ex.to?.goalDate
+        if (targetDate !== dateStr) {
+          if (ex.type === 'MOVE' && ex.from?.sourceDate === dateStr) {
+            const sourceKey = getScheduleKey(ex.from.bedNum, ex.from.shiftCode)
+            if (schedule[sourceKey]?.patientId === ex.patientId) {
+              delete schedule[sourceKey]
+            }
+          }
+          return false
+        }
+
+        const targetKey = getScheduleKey(ex.to.bedNum, ex.to.shiftCode)
+        if (schedule[targetKey] && schedule[targetKey].patientId !== ex.patientId) {
+          return true // 衝突
+        }
+
+        if (ex.type === 'MOVE' && ex.from?.sourceDate === dateStr) {
+          const sourceKey = getScheduleKey(ex.from.bedNum, ex.from.shiftCode)
+          if (schedule[sourceKey]?.patientId === ex.patientId) {
+            delete schedule[sourceKey]
+          }
+        }
+
+        schedule[targetKey] = {
+          patientId: ex.patientId,
+          patientName: ex.patientName,
+          exceptionId: ex.id,
+          manualNote: ex.type === 'MOVE' ? '(換班)' : '(臨時加洗)',
+        }
+        return false
+      }
+
+      case 'SWAP': {
+        if (ex.date === dateStr) {
+          const key1 = getScheduleKey(ex.patient1.fromBedNum, ex.patient1.fromShiftCode)
+          const key2 = getScheduleKey(ex.patient2.fromBedNum, ex.patient2.fromShiftCode)
+
+          const slot1Data = schedule[key1]
+            ? { ...schedule[key1] }
+            : { patientId: ex.patient1.patientId, patientName: ex.patient1.patientName }
+          const slot2Data = schedule[key2]
+            ? { ...schedule[key2] }
+            : { patientId: ex.patient2.patientId, patientName: ex.patient2.patientName }
+
+          schedule[key1] = {
+            ...slot2Data,
+            exceptionId: ex.id,
+            manualNote: `(與${ex.patient1.patientName}互調)`,
+          }
+          schedule[key2] = {
+            ...slot1Data,
+            exceptionId: ex.id,
+            manualNote: `(與${ex.patient2.patientName}互調)`,
+          }
+        }
+        return false
+      }
+
+      case 'SUSPEND': {
+        const start = new Date(ex.startDate + 'T00:00:00Z')
+        const end = new Date(ex.endDate + 'T00:00:00Z')
+        const current = new Date(dateStr + 'T00:00:00Z')
+        if (current >= start && current <= end) {
+          Object.keys(schedule).forEach((key) => {
+            if (schedule[key].patientId === ex.patientId) {
+              delete schedule[key]
+            }
+          })
+        }
+        return false
+      }
+    }
+  } catch (error) {
+    console.error(`[Schedule] 套用調班 ${ex.id} 時錯誤:`, error)
+  }
+  return false
+}
+
+/**
+ * 重建單一天的排程（含調班整合）
+ */
+function rebuildSingleDaySchedule(dateStr, masterRules, patientsMap, db) {
+  // 取得所有已生效的調班申請
+  const allExceptions = db.prepare(`
+    SELECT * FROM schedule_exceptions
+    WHERE status IN ('applied', 'conflict_requires_resolution')
+  `).all()
+
+  const todaysExceptions = []
+  allExceptions.forEach((row) => {
+    const ex = {
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      patientId: row.patient_id,
+      patientName: row.patient_name,
+      from: JSON.parse(row.from_data || '{}'),
+      to: JSON.parse(row.to_data || '{}'),
+      patient1: JSON.parse(row.patient1 || '{}'),
+      patient2: JSON.parse(row.patient2 || '{}'),
+      startDate: row.start_date,
+      endDate: row.end_date,
+      date: row.date,
+      createdAt: row.created_at,
+    }
+
+    // 判斷此調班是否影響這一天
+    if (ex.type === 'SUSPEND' && ex.startDate && ex.endDate) {
+      const start = new Date(ex.startDate + 'T00:00:00Z')
+      const end = new Date(ex.endDate + 'T00:00:00Z')
+      const current = new Date(dateStr + 'T00:00:00Z')
+      if (current >= start && current <= end) todaysExceptions.push(ex)
+    } else {
+      const exDates = [ex.date, ex.startDate, ex.from?.sourceDate, ex.to?.goalDate].filter(Boolean)
+      if (exDates.includes(dateStr)) todaysExceptions.push(ex)
+    }
+  })
+
+  // 按創建時間排序
+  todaysExceptions.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+
+  // 產生基礎排程
+  let finalSchedule = generateDailyScheduleFromRules(masterRules, dateStr, patientsMap)
+
+  // 套用調班
+  for (const ex of todaysExceptions) {
+    applySingleException(finalSchedule, ex, dateStr)
+  }
+
+  return finalSchedule
+}
 
 // ========================================
 // 每日排程 API
@@ -635,24 +879,117 @@ router.patch('/exceptions/:id', ...isEditor, async (req, res) => {
 
 /**
  * DELETE /api/schedules/exceptions/:id
- * 刪除調班申請
+ * 刪除調班申請（含排程清理）
  */
 router.delete('/exceptions/:id', ...isEditor, async (req, res) => {
   try {
     const { id } = req.params
     const db = getDatabase()
 
-    const result = db.prepare(`DELETE FROM schedule_exceptions WHERE id = ?`).run(id)
-    db.close()
+    // 🔥 先取得調班資料，用於後續清理
+    const exception = db.prepare(`SELECT * FROM schedule_exceptions WHERE id = ?`).get(id)
 
-    if (result.changes === 0) {
+    if (!exception) {
+      db.close()
       return res.status(404).json({
         error: true,
         message: '調班申請不存在'
       })
     }
 
-    await logAudit('EXCEPTION_DELETE', req.user.id, req.user.name, 'schedule_exceptions', id, {})
+    // 解析調班資料
+    const exData = {
+      type: exception.type,
+      date: exception.date,
+      startDate: exception.start_date,
+      endDate: exception.end_date,
+      from: JSON.parse(exception.from_data || '{}'),
+      to: JSON.parse(exception.to_data || '{}'),
+      status: exception.status,
+    }
+
+    // 刪除調班記錄
+    db.prepare(`DELETE FROM schedule_exceptions WHERE id = ?`).run(id)
+    console.log(`[ExceptionDelete] 已刪除調班 ${id}`)
+
+    // 🔥 如果是已生效的調班，需要重建受影響的排程
+    if (exData.status === 'applied' || exData.status === 'conflict_requires_resolution') {
+      const todayStr = getTaipeiTodayString()
+
+      // 找出受影響的日期
+      const datesToRebuild = new Set()
+
+      if (exData.type === 'SUSPEND' && exData.startDate && exData.endDate) {
+        // 暫停類型：區間內所有日期
+        const start = new Date(exData.startDate + 'T00:00:00Z')
+        const end = new Date(exData.endDate + 'T00:00:00Z')
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dateStr = formatDateToYYYYMMDD(d)
+          if (dateStr >= todayStr) {
+            datesToRebuild.add(dateStr)
+          }
+        }
+      } else {
+        // 其他類型：相關日期
+        const relevantDates = [
+          exData.date,
+          exData.startDate,
+          exData.from?.sourceDate,
+          exData.to?.goalDate
+        ].filter(Boolean)
+
+        relevantDates.forEach(d => {
+          if (d >= todayStr) {
+            datesToRebuild.add(d)
+          }
+        })
+      }
+
+      if (datesToRebuild.size > 0) {
+        console.log(`[ExceptionDelete] 需要重建 ${datesToRebuild.size} 個日期的排程`)
+
+        // 取得總表規則
+        const masterDoc = db.prepare(`
+          SELECT schedule FROM base_schedules WHERE id = 'MASTER_SCHEDULE'
+        `).get()
+        const masterRules = masterDoc ? JSON.parse(masterDoc.schedule || '{}') : {}
+
+        // 載入病人資料
+        const patients = db.prepare(`SELECT * FROM patients WHERE is_deleted = 0`).all()
+        const patientsMap = new Map()
+        patients.forEach(p => patientsMap.set(p.id, p))
+
+        // 重建每個受影響日期的排程
+        for (const dateStr of datesToRebuild) {
+          try {
+            const finalSchedule = rebuildSingleDaySchedule(dateStr, masterRules, patientsMap, db)
+
+            db.prepare(`
+              UPDATE schedules
+              SET schedule = ?,
+                  sync_method = 'rebuild_on_delete',
+                  last_modified_by = ?,
+                  updated_at = datetime('now', 'localtime')
+              WHERE date = ?
+            `).run(
+              JSON.stringify(finalSchedule),
+              JSON.stringify({ uid: req.user.id, name: req.user.name }),
+              dateStr
+            )
+            console.log(`[ExceptionDelete] 已重建 ${dateStr} 的排程`)
+          } catch (rebuildError) {
+            console.error(`[ExceptionDelete] 重建 ${dateStr} 失敗:`, rebuildError)
+          }
+        }
+      }
+    }
+
+    db.close()
+
+    await logAudit('EXCEPTION_DELETE', req.user.id, req.user.name, 'schedule_exceptions', id, {
+      type: exData.type,
+      status: exData.status
+    })
 
     res.json({
       success: true,
@@ -758,6 +1095,206 @@ router.put('/nurse-assignments/:date', ...isEditor, async (req, res) => {
     res.status(500).json({
       error: true,
       message: '更新護理分配失敗'
+    })
+  }
+})
+
+// ========================================
+// 管理工具 API
+// ========================================
+
+/**
+ * POST /api/schedules/admin/force-resync
+ * 強制重新同步所有未來排程
+ */
+router.post('/admin/force-resync', ...isEditor, async (req, res) => {
+  try {
+    console.log('[Admin] 🔄 開始強制重新同步所有排程...')
+
+    const db = getDatabase()
+
+    // 取得總表規則
+    const masterDoc = db.prepare(`
+      SELECT schedule FROM base_schedules WHERE id = 'MASTER_SCHEDULE'
+    `).get()
+    const masterRules = masterDoc ? JSON.parse(masterDoc.schedule || '{}') : {}
+
+    if (Object.keys(masterRules).length === 0) {
+      db.close()
+      return res.status(400).json({
+        error: true,
+        message: '總表沒有任何規則'
+      })
+    }
+
+    // 載入病人資料
+    const patients = db.prepare(`SELECT * FROM patients WHERE is_deleted = 0`).all()
+    const patientsMap = new Map()
+    patients.forEach(p => patientsMap.set(p.id, p))
+
+    // 計算未來 60 天
+    const todayStr = getTaipeiTodayString()
+    const futureDates = Array.from({ length: 60 }, (_, i) => {
+      const date = new Date(todayStr + 'T00:00:00Z')
+      date.setUTCDate(date.getUTCDate() + i)
+      return formatDateToYYYYMMDD(date)
+    })
+
+    let syncedCount = 0
+
+    for (const dateStr of futureDates) {
+      const finalSchedule = rebuildSingleDaySchedule(dateStr, masterRules, patientsMap, db)
+
+      db.prepare(`
+        INSERT INTO schedules (id, date, schedule, sync_method, last_modified_by, created_at, updated_at)
+        VALUES (?, ?, ?, 'force_resync', ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+        ON CONFLICT(date) DO UPDATE SET
+          schedule = excluded.schedule,
+          sync_method = 'force_resync',
+          last_modified_by = excluded.last_modified_by,
+          updated_at = datetime('now', 'localtime')
+      `).run(
+        dateStr,
+        dateStr,
+        JSON.stringify(finalSchedule),
+        JSON.stringify({ uid: req.user.id, name: req.user.name })
+      )
+      syncedCount++
+    }
+
+    db.close()
+
+    console.log(`[Admin] ✅ 強制重新同步完成，共處理 ${syncedCount} 天`)
+
+    await logAudit('FORCE_RESYNC', req.user.id, req.user.name, 'schedules', null, {
+      daysProcessed: syncedCount
+    })
+
+    res.json({
+      success: true,
+      message: `強制重新同步完成，共處理 ${syncedCount} 天`,
+      syncedCount
+    })
+
+  } catch (error) {
+    console.error('[Admin] 強制重新同步失敗:', error)
+    res.status(500).json({
+      error: true,
+      message: '強制重新同步失敗'
+    })
+  }
+})
+
+/**
+ * POST /api/schedules/admin/migrate-to-archive
+ * 批次將過去排程遷移到歸檔
+ */
+router.post('/admin/migrate-to-archive', ...isEditor, async (req, res) => {
+  try {
+    const { beforeDate } = req.body
+    const todayStr = getTaipeiTodayString()
+    const targetDate = beforeDate || todayStr
+
+    console.log(`[Admin] 📁 開始遷移 ${targetDate} 之前的排程到歸檔...`)
+
+    const db = getDatabase()
+
+    // 找出需要遷移的排程
+    const schedulesToMigrate = db.prepare(`
+      SELECT * FROM schedules WHERE date < ?
+    `).all(targetDate)
+
+    if (schedulesToMigrate.length === 0) {
+      db.close()
+      return res.json({
+        success: true,
+        message: '沒有需要遷移的排程',
+        migratedCount: 0
+      })
+    }
+
+    let migratedCount = 0
+    let skippedCount = 0
+
+    for (const schedule of schedulesToMigrate) {
+      // 檢查是否已歸檔
+      const existing = db.prepare(`
+        SELECT id FROM archived_schedules WHERE date = ?
+      `).get(schedule.date)
+
+      if (existing) {
+        // 已存在歸檔，只刪除原排程
+        db.prepare(`DELETE FROM schedules WHERE date = ?`).run(schedule.date)
+        skippedCount++
+        continue
+      }
+
+      const scheduleData = JSON.parse(schedule.schedule || '{}')
+
+      // 收集病人 ID
+      const patientIds = [...new Set(
+        Object.values(scheduleData)
+          .map(slot => slot.patientId)
+          .filter(Boolean)
+      )]
+
+      // 查詢病人資料
+      let missingCount = 0
+      if (patientIds.length > 0) {
+        const placeholders = patientIds.map(() => '?').join(',')
+        const patients = db.prepare(`
+          SELECT id FROM patients WHERE id IN (${placeholders})
+        `).all(...patientIds)
+
+        const foundIds = new Set(patients.map(p => p.id))
+        missingCount = patientIds.filter(id => !foundIds.has(id)).length
+      }
+
+      // 插入歸檔
+      db.prepare(`
+        INSERT INTO archived_schedules (
+          id, date, schedule, last_modified_by,
+          archived_at, archive_method, patient_count, missing_patient_count,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, datetime('now', 'localtime'), 'manual_migrate', ?, ?, ?, ?)
+      `).run(
+        schedule.date,
+        schedule.date,
+        schedule.schedule,
+        schedule.last_modified_by || '{}',
+        patientIds.length,
+        missingCount,
+        schedule.created_at,
+        schedule.updated_at
+      )
+
+      // 刪除原排程
+      db.prepare(`DELETE FROM schedules WHERE date = ?`).run(schedule.date)
+      migratedCount++
+    }
+
+    db.close()
+
+    console.log(`[Admin] ✅ 遷移完成：${migratedCount} 份歸檔，${skippedCount} 份跳過`)
+
+    await logAudit('MIGRATE_TO_ARCHIVE', req.user.id, req.user.name, 'schedules', null, {
+      migratedCount,
+      skippedCount,
+      beforeDate: targetDate
+    })
+
+    res.json({
+      success: true,
+      message: `遷移完成：${migratedCount} 份歸檔，${skippedCount} 份跳過`,
+      migratedCount,
+      skippedCount
+    })
+
+  } catch (error) {
+    console.error('[Admin] 遷移歸檔失敗:', error)
+    res.status(500).json({
+      error: true,
+      message: '遷移歸檔失敗'
     })
   }
 })
