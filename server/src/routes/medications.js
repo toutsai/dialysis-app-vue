@@ -7,22 +7,35 @@ import { authenticate, isEditor, logAudit } from '../middleware/auth.js'
 const router = Router()
 
 /**
- * 解析彈性日期格式
+ * 解析彈性日期格式（參考 Firebase 版本）
+ * 支援：YYYY-MM-DD, YYYY/MM/DD, MM/DD, MMDD
  */
-function parseFlexibleDate(part, refDate) {
-  // 嘗試解析 MM/DD 或 M/D 格式
-  const slashMatch = part.match(/^(\d{1,2})\/(\d{1,2})$/)
-  if (slashMatch) {
-    const month = parseInt(slashMatch[1], 10)
-    const day = parseInt(slashMatch[2], 10)
-    const year = refDate.getFullYear()
-    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    return dateStr
+function parseFlexibleDate(dateStr, targetDate) {
+  if (!dateStr || typeof dateStr !== 'string') return null
+
+  const str = dateStr.trim()
+  const year = targetDate.getUTCFullYear()
+
+  // 支援 YYYY-MM-DD 或 YYYY/MM/DD
+  let match = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
+  if (match) {
+    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
   }
 
-  // 嘗試解析 YYYY-MM-DD 格式
-  if (/^\d{4}-\d{2}-\d{2}$/.test(part)) {
-    return part
+  // 支援 MM/DD
+  match = str.match(/^(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    return `${year}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`
+  }
+
+  // 支援 MMDD (4位數)
+  match = str.match(/^(\d{2})(\d{2})$/)
+  if (match && str.length === 4) {
+    const month = parseInt(match[1], 10)
+    const day = parseInt(match[2], 10)
+    if (month > 0 && month <= 12 && day > 0 && day <= 31) {
+      return `${year}-${match[1]}-${match[2]}`
+    }
   }
 
   return null
@@ -30,8 +43,8 @@ function parseFlexibleDate(part, refDate) {
 
 /**
  * POST /api/medications/daily-injections
- * 計算每日應打針劑
- * 邏輯：從當月上傳的針劑中，依 QW 頻率規則篩選今日應施打的藥物
+ * 計算每日應打針劑（參考 Firebase 版本邏輯）
+ * 支援：QW規則 (QW135, QW3.6, QW3,6, QW3、6) 和日期規則 (MM/DD, MMDD, YYYY-MM-DD)
  */
 router.post('/daily-injections', authenticate, async (req, res) => {
   try {
@@ -61,30 +74,51 @@ router.post('/daily-injections', authenticate, async (req, res) => {
       return res.json([])
     }
 
-    // 計算今天是星期幾 (1=週一 ~ 7=週日)
+    // 計算今天是星期幾 (醫院系統：1=週一 ~ 7=週日)
     const dateObj = new Date(targetDate + 'T00:00:00Z')
     const dayOfWeek = dateObj.getUTCDay() || 7
 
-    // 依 QW 頻率規則篩選
+    // 依備註中的規則篩選
     const result = []
     for (const order of injectionOrders) {
-      const note = (order.note || '').trim().toUpperCase()
+      const note = (order.note || '').trim()
+      let shouldAdminister = false
 
-      // 解析 QW 規則 (QW1, QW135, QW3.6 等)
-      const qwMatch = note.match(/QW([1-7.,]+)/)
-      if (!qwMatch) continue
+      // 用空白分割備註（保留 QW3,6 的逗號）
+      const noteParts = note.split(/\s+/).filter(Boolean)
 
-      const days = qwMatch[1].match(/[1-7]/g)?.map(Number) || []
-      if (!days.includes(dayOfWeek)) continue
+      for (const part of noteParts) {
+        if (part.toUpperCase().startsWith('QW')) {
+          // 解析 QW 規則（QW135, QW3.6, QW3,6, QW3、6 等）
+          const dayString = part.substring(2)
+          const matches = dayString.match(/[1-7]/g)
+          if (matches) {
+            const days = matches.map(d => parseInt(d, 10))
+            if (days.includes(dayOfWeek)) {
+              shouldAdminister = true
+              break
+            }
+          }
+        } else {
+          // 檢查是否為日期 (MM/DD, MMDD, YYYY-MM-DD)
+          const parsedDate = parseFlexibleDate(part, dateObj)
+          if (parsedDate === targetDate) {
+            shouldAdminister = true
+            break
+          }
+        }
+      }
 
-      result.push({
-        patientId: order.patient_id,
-        patientName: order.patient_name,
-        orderCode: order.order_code,
-        orderName: order.order_name,
-        dose: order.dose,
-        note: order.note
-      })
+      if (shouldAdminister) {
+        result.push({
+          patientId: order.patient_id,
+          patientName: order.patient_name,
+          orderCode: order.order_code,
+          orderName: order.order_name,
+          dose: order.dose,
+          note: order.note
+        })
+      }
     }
 
     db.close()
