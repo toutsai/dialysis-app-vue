@@ -446,6 +446,30 @@ CREATE TABLE IF NOT EXISTS medication_orders (
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 
+-- 針劑藥囑訂單 (Excel 匯入的藥囑記錄)
+CREATE TABLE IF NOT EXISTS injection_orders (
+    id TEXT PRIMARY KEY,
+    patient_id TEXT,
+    patient_name TEXT,
+    medical_record_number TEXT,
+    order_code TEXT,
+    order_name TEXT,
+    change_date TEXT,
+    upload_month TEXT,
+    dose TEXT,
+    frequency TEXT,
+    note TEXT,
+    action TEXT DEFAULT 'MODIFY',
+    order_type TEXT,
+    source_file TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_injection_orders_patient ON injection_orders(patient_id);
+CREATE INDEX IF NOT EXISTS idx_injection_orders_month ON injection_orders(upload_month);
+CREATE INDEX IF NOT EXISTS idx_injection_orders_type ON injection_orders(order_type);
+
 CREATE TABLE IF NOT EXISTS medication_drafts (
     id TEXT PRIMARY KEY,
     author_id TEXT NOT NULL,
