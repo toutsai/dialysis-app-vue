@@ -241,7 +241,7 @@ router.get('/users', ...isAdmin, (req, res) => {
  */
 router.post('/users', ...isAdmin, async (req, res) => {
   try {
-    const { username, password, name, title, role, email } = req.body
+    const { username, password, name, title, role, email, staffId, phone, clinicHours, defaultSchedules, defaultConsultationSchedules } = req.body
 
     if (!username || !password || !name || !role) {
       return res.status(400).json({
@@ -279,6 +279,32 @@ router.post('/users', ...isAdmin, async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(id, username, passwordHash, name, title || '', role, email || null)
 
+    // 如果是主治醫師，同步到 physicians 表
+    if (title === '主治醫師') {
+      db.prepare(`
+        INSERT INTO physicians (id, name, specialty, staff_id, phone, clinic_hours, default_schedules, default_consultation_schedules)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          specialty = excluded.specialty,
+          staff_id = excluded.staff_id,
+          phone = excluded.phone,
+          clinic_hours = excluded.clinic_hours,
+          default_schedules = excluded.default_schedules,
+          default_consultation_schedules = excluded.default_consultation_schedules,
+          updated_at = datetime('now', 'localtime')
+      `).run(
+        id,
+        name,
+        title,
+        staffId || null,
+        phone || null,
+        JSON.stringify(clinicHours || []),
+        JSON.stringify(defaultSchedules || []),
+        JSON.stringify(defaultConsultationSchedules || [])
+      )
+    }
+
     db.close()
 
     await logAudit('USER_CREATE', req.user.id, req.user.name, 'users', id, { username, name, role })
@@ -305,12 +331,12 @@ router.post('/users', ...isAdmin, async (req, res) => {
 router.put('/users/:id', ...isAdmin, async (req, res) => {
   try {
     const { id } = req.params
-    const { name, title, role, email, is_active, password } = req.body
+    const { name, title, role, email, is_active, password, staffId, phone, clinicHours, defaultSchedules, defaultConsultationSchedules } = req.body
 
     const db = getDatabase()
 
     // 檢查使用者是否存在
-    const existing = db.prepare(`SELECT id FROM users WHERE id = ?`).get(id)
+    const existing = db.prepare(`SELECT * FROM users WHERE id = ?`).get(id)
 
     if (!existing) {
       db.close()
@@ -358,7 +384,7 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
       params.push(passwordHash)
     }
 
-    if (updates.length === 0) {
+    if (updates.length === 0 && title !== '主治醫師') {
       db.close()
       return res.status(400).json({
         error: true,
@@ -366,10 +392,44 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
       })
     }
 
-    updates.push("updated_at = datetime('now', 'localtime')")
-    params.push(id)
+    if (updates.length > 0) {
+      updates.push("updated_at = datetime('now', 'localtime')")
+      params.push(id)
+      db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    }
 
-    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params)
+    // 同步醫師資料到 physicians 表
+    const finalTitle = title !== undefined ? title : existing.title
+    const finalName = name !== undefined ? name : existing.name
+
+    if (finalTitle === '主治醫師') {
+      // 新增或更新 physicians 記錄
+      db.prepare(`
+        INSERT INTO physicians (id, name, specialty, staff_id, phone, clinic_hours, default_schedules, default_consultation_schedules)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          specialty = excluded.specialty,
+          staff_id = excluded.staff_id,
+          phone = excluded.phone,
+          clinic_hours = excluded.clinic_hours,
+          default_schedules = excluded.default_schedules,
+          default_consultation_schedules = excluded.default_consultation_schedules,
+          updated_at = datetime('now', 'localtime')
+      `).run(
+        id,
+        finalName,
+        finalTitle,
+        staffId || null,
+        phone || null,
+        JSON.stringify(clinicHours || []),
+        JSON.stringify(defaultSchedules || []),
+        JSON.stringify(defaultConsultationSchedules || [])
+      )
+    } else if (existing.title === '主治醫師' && finalTitle !== '主治醫師') {
+      // 如果從主治醫師改成其他職稱，設為非啟用
+      db.prepare(`UPDATE physicians SET is_active = 0, updated_at = datetime('now', 'localtime') WHERE id = ?`).run(id)
+    }
 
     db.close()
 

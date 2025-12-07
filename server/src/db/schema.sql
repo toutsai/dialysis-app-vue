@@ -253,6 +253,11 @@ CREATE TABLE IF NOT EXISTS physicians (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     specialty TEXT,
+    staff_id TEXT,
+    phone TEXT,
+    clinic_hours TEXT DEFAULT '[]',  -- JSON array
+    default_schedules TEXT DEFAULT '[]',  -- JSON array
+    default_consultation_schedules TEXT DEFAULT '[]',  -- JSON array
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
