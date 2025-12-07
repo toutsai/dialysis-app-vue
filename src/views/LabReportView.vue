@@ -360,8 +360,7 @@
 
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import ApiManager from '@/services/api_manager'
-import { ordersApi } from '@/services/localApiClient'
+import { ordersApi, labReportsApi } from '@/services/localApiClient'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
@@ -483,7 +482,7 @@ const prioritizedLabItems = [
 ]
 const labItemDisplayNames = ref(LAB_ITEM_DISPLAY_NAMES)
 
-const labReportsApi = ApiManager('lab_reports')
+// labReportsApi 已從 localApiClient import
 const baseSchedulesApi = ApiManager('base_schedules')
 // ✨ 新增：儲存分析用的 API Manager
 const labAnalysesApi = ApiManager('lab_alert_analyses')
@@ -606,19 +605,19 @@ async function generateAlertReport() {
     const allOpdPatients = patientStore.opdPatients
 
     const range = alertMonthRange.value
-    const startDate = new Date(range.start + '-01')
+    const startDateStr = range.start + '-01'
     const endDate = new Date(range.end + '-01')
     endDate.setMonth(endDate.getMonth() + 1)
+    const endDateStr = endDate.toISOString().slice(0, 10)
     const scheduleDoc = await baseSchedulesApi.fetchById('MASTER_SCHEDULE')
     const scheduleRules = scheduleDoc?.schedule || {}
 
     for (const patient of allOpdPatients) {
-      const reports = await labReportsApi.fetchAll([
-        where('patientId', '==', patient.id),
-        where('reportDate', '>=', startDate),
-        where('reportDate', '<', endDate),
-        orderBy('reportDate', 'desc'),
-      ])
+      const reports = await labReportsApi.fetchAll({
+        patientId: patient.id,
+        startDate: startDateStr,
+        endDate: endDateStr,
+      })
       if (reports.length < 3) continue
       const cleanedReports = reports.map((r) => ({
         ...r,
@@ -895,14 +894,15 @@ async function findMissingPatients() {
       return
     }
     const [year, month] = manualEntryGroup.month.split('-').map(Number)
-    const startDate = new Date(year, month - 1, 1)
+    const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`
     const endDate = new Date(year, month, 1)
+    const endDateStr = endDate.toISOString().slice(0, 10)
 
     // 獲取該月份的所有相關報告
-    const reportsInMonth = await labReportsApi.fetchAll([
-      where('reportDate', '>=', startDate),
-      where('reportDate', '<', endDate),
-    ])
+    const reportsInMonth = await labReportsApi.fetchAll({
+      startDate: startDateStr,
+      endDate: endDateStr,
+    })
     // 過濾出屬於該群組病人的報告
     const relevantReports = reportsInMonth.filter((report) =>
       allPatientIdsInGroup.includes(report.patientId),
@@ -1137,14 +1137,15 @@ async function searchGroupReports() {
 
   // 3. 獲取該月份的所有相關報告
   const [year, month] = groupSearchParams.month.split('-').map(Number)
-  const startDate = new Date(year, month - 1, 1)
+  const startDateStr = `${year}-${String(month).padStart(2, '0')}-01`
   const endDate = new Date(year, month, 1)
+  const endDateStr = endDate.toISOString().slice(0, 10)
 
   // 獲取該月份的所有報告
-  const allReports = await labReportsApi.fetchAll([
-    where('reportDate', '>=', startDate),
-    where('reportDate', '<', endDate),
-  ])
+  const allReports = await labReportsApi.fetchAll({
+    startDate: startDateStr,
+    endDate: endDateStr,
+  })
   // 過濾出屬於該群組病人的報告
   const allReportsInMonth = allReports.filter((report) =>
     patientIdsInGroup.includes(report.patientId),
@@ -1199,16 +1200,15 @@ async function searchIndividualReports() {
   if (!foundPatient) throw new Error(`找不到病人: ${individualSearchQuery.value}`)
 
   const year = individualSearchYear.value
-  const startDate = new Date(year, 0, 1)
-  const endDate = new Date(year + 1, 0, 1)
+  const startDateStr = `${year}-01-01`
+  const endDateStr = `${year + 1}-01-01`
 
-  // 使用 ApiManager 獲取報告
-  const reports = await labReportsApi.fetchAll([
-    where('patientId', '==', foundPatient.id),
-    where('reportDate', '>=', startDate),
-    where('reportDate', '<', endDate),
-    orderBy('reportDate', 'desc'),
-  ])
+  // 使用本地 API 獲取報告
+  const reports = await labReportsApi.fetchAll({
+    patientId: foundPatient.id,
+    startDate: startDateStr,
+    endDate: endDateStr,
+  })
   const reportsRaw = reports.map((report) => {
     if (report.reportDate && typeof report.reportDate === 'string') {
       // 確保日期格式正確
