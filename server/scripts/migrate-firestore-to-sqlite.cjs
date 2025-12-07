@@ -1169,11 +1169,20 @@ async function migrateConsumablesReports() {
   let count = 0
   for (const doc of snapshot.docs) {
     const data = doc.data()
+    // 處理 reportDate - 可能是 Timestamp 或字串
+    let reportDate = doc.id
+    if (data.reportDate) {
+      if (data.reportDate.toDate) {
+        reportDate = data.reportDate.toDate().toISOString().substring(0, 10)
+      } else if (typeof data.reportDate === 'string') {
+        reportDate = data.reportDate
+      }
+    }
     stmt.run(
       doc.id,
-      data.reportDate || doc.id,
+      reportDate,
       toJson(data.reportData || data),
-      toJson(data.createdBy),
+      toJson(data.createdBy || {}),
       toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
       toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
     )
