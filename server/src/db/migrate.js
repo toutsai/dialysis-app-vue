@@ -213,6 +213,22 @@ export function runMigrations() {
     if (addColumnIfNotExists(db, 'physicians', 'default_schedules', "TEXT DEFAULT '[]'")) migrationsApplied++
     if (addColumnIfNotExists(db, 'physicians', 'default_consultation_schedules', "TEXT DEFAULT '[]'")) migrationsApplied++
 
+    // ========================================
+    // lab_alert_analyses 表格遷移
+    // ========================================
+    const labAlertAnalysesExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='lab_alert_analyses'").get()
+    if (labAlertAnalysesExists) {
+      console.log('📋 檢查 lab_alert_analyses 表格...')
+      if (addColumnIfNotExists(db, 'lab_alert_analyses', 'month_range', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'lab_alert_analyses', 'abnormality_key', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'lab_alert_analyses', 'analysis', "TEXT")) migrationsApplied++
+      if (addColumnIfNotExists(db, 'lab_alert_analyses', 'suggestion', "TEXT")) migrationsApplied++
+
+      // 建立索引
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lab_alert_analyses_patient ON lab_alert_analyses(patient_id)')
+      db.exec('CREATE INDEX IF NOT EXISTS idx_lab_alert_analyses_month ON lab_alert_analyses(month_range)')
+    }
+
     if (migrationsApplied > 0) {
       console.log(`✅ 已完成 ${migrationsApplied} 項遷移`)
     } else {
