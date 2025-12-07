@@ -1557,6 +1557,12 @@ async function fetchPhysicians() {
   try {
     // 使用 systemApi.fetchPhysicians() 從 physicians 表讀取
     const physicians = await systemApi.fetchPhysicians()
+    console.log('[PhysicianSchedule] 從 API 取得的醫師資料:', physicians.map(p => ({
+      id: p.id,
+      name: p.name,
+      defaultSchedules: p.defaultSchedules,
+      defaultConsultationSchedules: p.defaultConsultationSchedules
+    })))
     const desiredOrder = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政', '林天佑']
     physicians.sort((a, b) => {
       const indexA = desiredOrder.indexOf(a.name)
@@ -1580,6 +1586,10 @@ async function fetchPhysicians() {
 }
 
 function generateBlankSchedule(year, month, physicians) {
+  console.log('[PhysicianSchedule] generateBlankSchedule 收到的醫師:', physicians.map(p => ({
+    name: p.name,
+    defaultSchedules: p.defaultSchedules
+  })))
   const blankSchedule = {}
   const daysCount = new Date(year, month, 0).getDate()
   for (let i = 1; i <= daysCount; i++) {
@@ -1591,6 +1601,7 @@ function generateBlankSchedule(year, month, physicians) {
   }
   physicians.forEach((physician) => {
     if (Array.isArray(physician.defaultSchedules) && physician.defaultSchedules.length > 0) {
+      console.log(`[PhysicianSchedule] 套用 ${physician.name} 的預設班表:`, physician.defaultSchedules)
       physician.defaultSchedules.forEach((rule) => {
         const [ruleDayOfWeek, ruleShift] = rule.split('-')
         for (let day = 1; day <= daysCount; day++) {

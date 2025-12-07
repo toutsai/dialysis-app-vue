@@ -1523,12 +1523,14 @@ async function loadDailyStaffInfo(date) {
     const consultPhysiciansData = { morning: null, afternoon: null, night: null }
     if (monthScheduleDoc?.scheduleData) {
       const dayOfMonth = date.getDate()
-      const daySchedule = monthScheduleDoc.scheduleData?.[dayOfMonth]
+      // 查房班表在 scheduleData.schedule 內
+      const daySchedule = monthScheduleDoc.scheduleData?.schedule?.[dayOfMonth]
       if (daySchedule) {
         dialysisPhysiciansData.early = userMap.get(daySchedule.early?.physicianId) || null
         dialysisPhysiciansData.noon = userMap.get(daySchedule.noon?.physicianId) || null
         dialysisPhysiciansData.late = userMap.get(daySchedule.late?.physicianId) || null
       }
+      // 會診班表在 scheduleData.consultationSchedule 內
       const consultationDaySchedule = monthScheduleDoc.scheduleData?.consultationSchedule?.[dayOfMonth]
       if (consultationDaySchedule) {
         consultPhysiciansData.morning =
