@@ -1,6 +1,6 @@
 /**
  * 密碼重設腳本
- * 將所有使用者密碼重設為 admin123
+ * 將所有使用者密碼重設為預設密碼
  *
  * 使用方式: cd server && node scripts/reset-passwords.cjs
  */
@@ -10,7 +10,7 @@ const Database = require('better-sqlite3')
 const path = require('path')
 
 const DB_PATH = path.resolve(__dirname, '../data/dialysis.db')
-const NEW_PASSWORD = 'admin123'
+const NEW_PASSWORD = '!#%246qsc'
 
 try {
   const db = new Database(DB_PATH)
@@ -31,7 +31,7 @@ try {
   })
 
   db.close()
-  console.log('\n🎉 完成！現在可以使用任何帳號搭配密碼 "admin123" 登入')
+  console.log(`\n🎉 完成！現在可以使用任何帳號搭配密碼 "${NEW_PASSWORD}" 登入`)
 } catch (error) {
   console.error('❌ 錯誤:', error.message)
   process.exit(1)
