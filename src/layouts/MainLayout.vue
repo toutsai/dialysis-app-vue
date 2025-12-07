@@ -351,7 +351,9 @@ function showPatientMemos(patientId) {
 }
 
 const environmentTag = computed(() => {
-  if (import.meta.env.MODE === 'development') {
+  if (import.meta.env.MODE === 'standalone') {
+    return { text: '(單機版)', class: 'env-tag-standalone' }
+  } else if (import.meta.env.MODE === 'development') {
     return { text: '(開發版)', class: 'env-tag-dev' }
   } else if (import.meta.env.MODE === 'production') {
     return { text: '(正式版)', class: 'env-tag-prod' }
@@ -576,6 +578,10 @@ onUnmounted(() => {
 }
 .env-tag-prod {
   background-color: #28a745;
+  color: white;
+}
+.env-tag-standalone {
+  background-color: #17a2b8;
   color: white;
 }
 .sidebar-nav {
