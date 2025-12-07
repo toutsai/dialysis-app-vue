@@ -90,6 +90,22 @@ function toJsonArray(arr) {
   return JSON.stringify(arr)
 }
 
+function normalizeStatus(status) {
+  const validStatuses = ['opd', 'ipd', 'er']
+  if (!status) return 'opd'
+  const normalized = String(status).toLowerCase()
+  if (validStatuses.includes(normalized)) {
+    return normalized
+  }
+  // 嘗試映射常見的變體
+  if (normalized === 'outpatient' || normalized === '門診') return 'opd'
+  if (normalized === 'inpatient' || normalized === '住院') return 'ipd'
+  if (normalized === 'emergency' || normalized === '急診') return 'er'
+  // 預設為 opd
+  console.log(`   ⚠️ 未知的 status 值: "${status}"，設為 opd`)
+  return 'opd'
+}
+
 // ========================================
 // 遷移函式
 // ========================================
@@ -162,7 +178,7 @@ async function migratePatients() {
         doc.id,
         data.medicalRecordNumber || '',
         data.name || '',
-        data.status || 'opd',
+        normalizeStatus(data.status),
         data.isDeleted ? 1 : 0,
         data.deleteReason || null,
         toJson(data.dialysisOrders),
