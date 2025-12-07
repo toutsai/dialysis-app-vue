@@ -665,6 +665,38 @@ export const ordersApi = {
       method: 'DELETE',
     })
   },
+
+  /**
+   * 上傳藥囑 Excel (針劑/口服藥)
+   */
+  async uploadMedications(base64Data: string, fileName: string) {
+    return apiRequest<{
+      success: boolean
+      message: string
+      processedCount: number
+      errorCount: number
+      errors?: Array<{ rowNumber: number; reason: string }>
+    }>('/orders/medications/upload', {
+      method: 'POST',
+      body: JSON.stringify({ fileContent: base64Data, fileName }),
+    })
+  },
+
+  /**
+   * 取得注射藥囑訂單 (Excel 匯入的)
+   */
+  async fetchInjectionOrders(params?: {
+    patientId?: string
+    uploadMonth?: string
+    orderType?: string
+  }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.uploadMonth) query.set('uploadMonth', params.uploadMonth)
+    if (params?.orderType) query.set('orderType', params.orderType)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/injection-orders${queryStr ? `?${queryStr}` : ''}`)
+  },
 }
 
 // ========================================
