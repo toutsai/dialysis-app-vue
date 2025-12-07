@@ -403,6 +403,18 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
     const finalName = name !== undefined ? name : existing.name
 
     if (finalTitle === '主治醫師') {
+      // 先讀取現有的 physician 資料
+      const existingPhysician = db.prepare(`SELECT * FROM physicians WHERE id = ?`).get(id)
+
+      // 合併現有資料與新資料（只更新有傳送的欄位）
+      const mergedData = {
+        staffId: staffId !== undefined ? staffId : (existingPhysician?.staff_id || null),
+        phone: phone !== undefined ? phone : (existingPhysician?.phone || null),
+        clinicHours: clinicHours !== undefined ? clinicHours : (existingPhysician ? JSON.parse(existingPhysician.clinic_hours || '[]') : []),
+        defaultSchedules: defaultSchedules !== undefined ? defaultSchedules : (existingPhysician ? JSON.parse(existingPhysician.default_schedules || '[]') : []),
+        defaultConsultationSchedules: defaultConsultationSchedules !== undefined ? defaultConsultationSchedules : (existingPhysician ? JSON.parse(existingPhysician.default_consultation_schedules || '[]') : [])
+      }
+
       // 新增或更新 physicians 記錄
       db.prepare(`
         INSERT INTO physicians (id, name, specialty, staff_id, phone, clinic_hours, default_schedules, default_consultation_schedules)
@@ -420,11 +432,11 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
         id,
         finalName,
         finalTitle,
-        staffId || null,
-        phone || null,
-        JSON.stringify(clinicHours || []),
-        JSON.stringify(defaultSchedules || []),
-        JSON.stringify(defaultConsultationSchedules || [])
+        mergedData.staffId,
+        mergedData.phone,
+        JSON.stringify(mergedData.clinicHours),
+        JSON.stringify(mergedData.defaultSchedules),
+        JSON.stringify(mergedData.defaultConsultationSchedules)
       )
     } else if (existing.title === '主治醫師' && finalTitle !== '主治醫師') {
       // 如果從主治醫師改成其他職稱，設為非啟用
