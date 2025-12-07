@@ -793,6 +793,42 @@ export const labReportsApi = {
 }
 
 // ========================================
+// 檢驗警示分析 API
+// ========================================
+
+export const labAnalysesApi = {
+  /**
+   * 取得檢驗警示分析列表
+   */
+  async fetchAll(params?: { patientId?: string; monthRange?: string }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.monthRange) query.set('monthRange', params.monthRange)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/lab-alert-analyses${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 新增或更新檢驗警示分析 (upsert)
+   */
+  async save(
+    id: string,
+    data: {
+      patientId: string
+      monthRange: string
+      abnormalityKey: string
+      analysis?: string
+      suggestion?: string
+    },
+  ) {
+    return apiRequest<{ success: boolean; id: string }>(`/orders/lab-alert-analyses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+}
+
+// ========================================
 // 護理 API
 // ========================================
 
@@ -1264,6 +1300,7 @@ export const localApi = {
   orders: ordersApi,
   medications: medicationsApi,
   labReports: labReportsApi,
+  labAnalyses: labAnalysesApi,
   nursing: nursingApi,
   kidit: kiditApi,
   system: systemApi,

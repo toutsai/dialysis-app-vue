@@ -360,7 +360,7 @@
 
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ordersApi, labReportsApi } from '@/services/localApiClient'
+import { ordersApi, labReportsApi, labAnalysesApi } from '@/services/localApiClient'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
@@ -482,10 +482,8 @@ const prioritizedLabItems = [
 ]
 const labItemDisplayNames = ref(LAB_ITEM_DISPLAY_NAMES)
 
-// labReportsApi 已從 localApiClient import
+// labReportsApi, labAnalysesApi 已從 localApiClient import
 const baseSchedulesApi = ApiManager('base_schedules')
-// ✨ 新增：儲存分析用的 API Manager
-const labAnalysesApi = ApiManager('lab_alert_analyses')
 
 const alertMonthRange = computed(() => {
   const end = new Date(alertCurrentMonth.value)
@@ -660,7 +658,7 @@ async function generateAlertReport() {
     const patientIdsInList = alertList.value.map((item) => item.patient.id)
     if (patientIdsInList.length > 0) {
       const monthRangeKey = `${alertMonthRange.value.start}_${alertMonthRange.value.end}`
-      const savedAnalyses = await labAnalysesApi.fetchAll([where('monthRange', '==', monthRangeKey)])
+      const savedAnalyses = await labAnalysesApi.fetchAll({ monthRange: monthRangeKey })
 
       // 過濾出屬於當前病人列表的分析
       const relevantAnalyses = savedAnalyses.filter((analysis) =>

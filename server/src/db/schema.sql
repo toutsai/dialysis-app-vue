@@ -385,10 +385,17 @@ CREATE INDEX IF NOT EXISTS idx_lab_reports_date ON lab_reports(report_date);
 CREATE TABLE IF NOT EXISTS lab_alert_analyses (
     id TEXT PRIMARY KEY,
     patient_id TEXT,
-    analysis_data TEXT DEFAULT '{}',  -- JSON
+    month_range TEXT,
+    abnormality_key TEXT,
+    analysis TEXT,
+    suggestion TEXT,
+    analysis_data TEXT DEFAULT '{}',  -- JSON (legacy)
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_lab_alert_analyses_patient ON lab_alert_analyses(patient_id);
+CREATE INDEX IF NOT EXISTS idx_lab_alert_analyses_month ON lab_alert_analyses(month_range);
 
 -- ========================================
 -- 庫存管理
