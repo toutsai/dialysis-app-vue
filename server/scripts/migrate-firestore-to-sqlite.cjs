@@ -873,6 +873,460 @@ async function migrateLabAlertAnalyses() {
 }
 
 // ========================================
+// 新增的遷移函式
+// ========================================
+
+async function migrateNurseAssignments() {
+  console.log('\n📦 遷移 nurse_assignments 集合...')
+  const snapshot = await firestore.collection('nurse_assignments').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ nurse_assignments 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO nurse_assignments (id, date, teams, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      doc.id,
+      toJson(data.teams || data),
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆護理人員分配`)
+  return count
+}
+
+async function migrateNursingGroupConfig() {
+  console.log('\n📦 遷移 nursing_group_config 集合...')
+  const snapshot = await firestore.collection('nursing_group_config').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ nursing_group_config 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO nursing_group_config (id, config, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      toJson(data),
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆護理組別配置`)
+  return count
+}
+
+async function migratePatientHistory() {
+  console.log('\n📦 遷移 patient_history 集合...')
+  const snapshot = await firestore.collection('patient_history').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ patient_history 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO patient_history (id, patient_id, patient_name, event_type, event_details, snapshot, timestamp)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  const insertMany = db.transaction((docs) => {
+    for (const doc of docs) {
+      const data = doc.data()
+      stmt.run(
+        doc.id,
+        data.patientId || null,
+        data.patientName || null,
+        data.eventType || data.type || 'UNKNOWN',
+        toJson(data.eventDetails || data.details),
+        toJson(data.snapshot),
+        toSqliteDate(data.timestamp || data.createdAt) || toSqliteDate(new Date())
+      )
+      count++
+    }
+  })
+
+  insertMany(snapshot.docs)
+  console.log(`   ✅ 已遷移 ${count} 筆病人歷史記錄`)
+  return count
+}
+
+async function migrateDialysisOrdersHistory() {
+  console.log('\n📦 遷移 dialysis_orders_history 集合...')
+  const snapshot = await firestore.collection('dialysis_orders_history').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ dialysis_orders_history 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO dialysis_orders_history (id, patient_id, patient_name, operation_type, orders, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  const insertMany = db.transaction((docs) => {
+    for (const doc of docs) {
+      const data = doc.data()
+      stmt.run(
+        doc.id,
+        data.patientId || null,
+        data.patientName || null,
+        data.operationType || 'CREATE',
+        toJson(data.orders || data),
+        toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+        toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+      )
+      count++
+    }
+  })
+
+  insertMany(snapshot.docs)
+  console.log(`   ✅ 已遷移 ${count} 筆透析醫囑歷史`)
+  return count
+}
+
+async function migrateNotifications() {
+  console.log('\n📦 遷移 notifications 集合...')
+  const snapshot = await firestore.collection('notifications').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ notifications 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO notifications (id, type, title, message, recipient_id, is_read, data, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  const insertMany = db.transaction((docs) => {
+    for (const doc of docs) {
+      const data = doc.data()
+      stmt.run(
+        doc.id,
+        data.type || 'info',
+        data.title || null,
+        data.message || null,
+        data.recipientId || data.userId || null,
+        data.isRead ? 1 : 0,
+        toJson(data.data),
+        toSqliteDate(data.createdAt) || toSqliteDate(new Date())
+      )
+      count++
+    }
+  })
+
+  insertMany(snapshot.docs)
+  console.log(`   ✅ 已遷移 ${count} 筆通知`)
+  return count
+}
+
+async function migrateInventoryItems() {
+  console.log('\n📦 遷移 inventory_items 集合...')
+  const snapshot = await firestore.collection('inventory_items').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ inventory_items 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO inventory_items (id, name, category, unit, current_quantity, min_quantity, location, notes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      data.name || '',
+      data.category || null,
+      data.unit || null,
+      data.currentQuantity || data.quantity || 0,
+      data.minQuantity || 0,
+      data.location || null,
+      data.notes || null,
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆庫存項目`)
+  return count
+}
+
+async function migrateMedicationOrders() {
+  console.log('\n📦 遷移 medication_orders 集合...')
+  const snapshot = await firestore.collection('medication_orders').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ medication_orders 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO medication_orders (id, patient_id, patient_name, medications, status, order_date, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  const insertMany = db.transaction((docs) => {
+    for (const doc of docs) {
+      const data = doc.data()
+      stmt.run(
+        doc.id,
+        data.patientId || null,
+        data.patientName || null,
+        toJsonArray(data.medications),
+        data.status || 'pending',
+        data.orderDate || null,
+        toJson(data.createdBy),
+        toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+        toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+      )
+      count++
+    }
+  })
+
+  insertMany(snapshot.docs)
+  console.log(`   ✅ 已遷移 ${count} 筆藥物訂單`)
+  return count
+}
+
+async function migrateMedicationDrafts() {
+  console.log('\n📦 遷移 medication_drafts 集合...')
+  const snapshot = await firestore.collection('medication_drafts').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ medication_drafts 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO medication_drafts (id, author_id, patient_id, draft_data, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      data.authorId || null,
+      data.patientId || null,
+      toJson(data.draftData || data),
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆藥物草稿`)
+  return count
+}
+
+async function migrateConsumablesReports() {
+  console.log('\n📦 遷移 consumables_reports 集合...')
+  const snapshot = await firestore.collection('consumables_reports').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ consumables_reports 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO consumables_reports (id, report_date, report_data, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      data.reportDate || doc.id,
+      toJson(data.reportData || data),
+      toJson(data.createdBy),
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆耗材報告`)
+  return count
+}
+
+async function migrateSiteConfig() {
+  console.log('\n📦 遷移 site_config 集合...')
+  const snapshot = await firestore.collection('site_config').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ site_config 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO site_config (id, config_data, created_at, updated_at)
+    VALUES (?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      toJson(data),
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆站點配置`)
+  return count
+}
+
+async function migrateKiditLogbook() {
+  console.log('\n📦 遷移 kidit_logbook 集合...')
+  const snapshot = await firestore.collection('kidit_logbook').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ kidit_logbook 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO kidit_logbook (id, date, log_data, events, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  for (const doc of snapshot.docs) {
+    const data = doc.data()
+    stmt.run(
+      doc.id,
+      doc.id,
+      toJson(data.logData || data),
+      toJsonArray(data.events),
+      toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+      toSqliteDate(data.updatedAt) || toSqliteDate(new Date())
+    )
+    count++
+  }
+
+  console.log(`   ✅ 已遷移 ${count} 筆 KiDit 日誌`)
+  return count
+}
+
+async function migrateAuditLogs() {
+  console.log('\n📦 遷移 audit_logs 集合...')
+  const snapshot = await firestore.collection('audit_logs').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ audit_logs 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO audit_logs (id, action, user_id, user_name, collection_name, document_id, details, ip_address, success, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  const insertMany = db.transaction((docs) => {
+    for (const doc of docs) {
+      const data = doc.data()
+      stmt.run(
+        doc.id,
+        data.action || 'UNKNOWN',
+        data.userId || null,
+        data.userName || null,
+        data.collectionName || data.collection || null,
+        data.documentId || data.docId || null,
+        toJson(data.details),
+        data.ipAddress || null,
+        data.success !== false ? 1 : 0,
+        toSqliteDate(data.createdAt || data.timestamp) || toSqliteDate(new Date())
+      )
+      count++
+    }
+  })
+
+  insertMany(snapshot.docs)
+  console.log(`   ✅ 已遷移 ${count} 筆稽核日誌`)
+  return count
+}
+
+async function migrateScheduledPatientUpdates() {
+  console.log('\n📦 遷移 scheduled_patient_updates 集合...')
+  const snapshot = await firestore.collection('scheduled_patient_updates').get()
+
+  if (snapshot.empty) {
+    console.log('   ⚠️ scheduled_patient_updates 集合為空')
+    return 0
+  }
+
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO scheduled_patient_updates (id, patient_id, patient_name, change_type, change_data, effective_date, notes, status, error_message, created_by, created_at, processed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let count = 0
+  const insertMany = db.transaction((docs) => {
+    for (const doc of docs) {
+      const data = doc.data()
+      stmt.run(
+        doc.id,
+        data.patientId || null,
+        data.patientName || null,
+        data.changeType || data.type || null,
+        toJson(data.changeData || data.changes),
+        data.effectiveDate || null,
+        data.notes || null,
+        data.status || 'pending',
+        data.errorMessage || null,
+        toJson(data.createdBy),
+        toSqliteDate(data.createdAt) || toSqliteDate(new Date()),
+        toSqliteDate(data.processedAt)
+      )
+      count++
+    }
+  })
+
+  insertMany(snapshot.docs)
+  console.log(`   ✅ 已遷移 ${count} 筆排程病人更新`)
+  return count
+}
+
+// ========================================
 // 主執行函式
 // ========================================
 
@@ -905,6 +1359,21 @@ async function runMigration() {
     results.physicianSchedules = await migratePhysicianSchedules()
     results.conditionRecords = await migrateConditionRecords()
     results.handoverLogs = await migrateHandoverLogs()
+
+    // 新增的遷移
+    results.nurseAssignments = await migrateNurseAssignments()
+    results.nursingGroupConfig = await migrateNursingGroupConfig()
+    results.patientHistory = await migratePatientHistory()
+    results.dialysisOrdersHistory = await migrateDialysisOrdersHistory()
+    results.notifications = await migrateNotifications()
+    results.inventoryItems = await migrateInventoryItems()
+    results.medicationOrders = await migrateMedicationOrders()
+    results.medicationDrafts = await migrateMedicationDrafts()
+    results.consumablesReports = await migrateConsumablesReports()
+    results.siteConfig = await migrateSiteConfig()
+    results.kiditLogbook = await migrateKiditLogbook()
+    results.auditLogs = await migrateAuditLogs()
+    results.scheduledPatientUpdates = await migrateScheduledPatientUpdates()
 
     // 輸出統計
     console.log('\n╔════════════════════════════════════════════════════════════╗')
