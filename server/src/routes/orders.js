@@ -826,15 +826,35 @@ router.post('/lab-reports/upload', ...isContributor, async (req, res) => {
 
     // 預先載入所有病人
     const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE is_deleted = 0`).all()
+    console.log(`[LabReport] 載入 ${allPatients.length} 位病人`)
+
+    // 顯示前 5 位病人的病歷號作為參考
+    if (allPatients.length > 0) {
+      const sampleMrns = allPatients.slice(0, 5).map(p => p.medical_record_number)
+      console.log(`[LabReport] 病歷號範例 (資料庫): ${JSON.stringify(sampleMrns)}`)
+    }
+
     allPatients.forEach(p => {
       if (p.medical_record_number) {
         const normalizedMrn = String(p.medical_record_number).replace(/^0+/, '')
         patientCache.set(normalizedMrn, p)
+        // 同時保存原始病歷號作為備用匹配
+        patientCache.set(String(p.medical_record_number), p)
       }
     })
 
+    // 記錄第一筆 Excel 資料的病歷號
+    let firstExcelMrn = null
+
     for (const rowArray of dataRows) {
       let medicalRecordNumber = String(rowArray[headerToIndex['病歷號']] || '').trim()
+
+      // 記錄第一筆非空病歷號
+      if (!firstExcelMrn && medicalRecordNumber) {
+        firstExcelMrn = medicalRecordNumber
+        console.log(`[LabReport] 病歷號範例 (Excel): "${medicalRecordNumber}"`)
+      }
+
       if (medicalRecordNumber) {
         medicalRecordNumber = medicalRecordNumber.replace(/^0+/, '')
       }
