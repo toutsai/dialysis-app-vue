@@ -361,6 +361,7 @@
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ApiManager from '@/services/api_manager'
+import { ordersApi } from '@/services/localApiClient'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
@@ -1015,10 +1016,43 @@ async function handleUpload() {
     return
   }
 
-  // 離線模式不支援上傳功能
-  uploadResult.value = {
-    message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
-    errorCount: 1,
+  isUploading.value = true
+  uploadResult.value = null
+
+  try {
+    // 將檔案轉換為 Base64
+    const base64Data = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        const base64 = reader.result.split(',')[1]
+        resolve(base64)
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(selectedFile.value)
+    })
+
+    // 呼叫本地 API 上傳
+    const result = await ordersApi.uploadLabReports(base64Data, selectedFile.value.name)
+
+    uploadResult.value = {
+      message: result.message,
+      errorCount: result.errorCount || 0,
+      processedCount: result.processedCount || 0,
+      errors: result.errors || [],
+    }
+
+    // 清除已選檔案
+    if (result.processedCount > 0) {
+      selectedFile.value = null
+    }
+  } catch (error) {
+    console.error('上傳檢驗報告失敗:', error)
+    uploadResult.value = {
+      message: `上傳失敗: ${error.message || '未知錯誤'}`,
+      errorCount: 1,
+    }
+  } finally {
+    isUploading.value = false
   }
 }
 
