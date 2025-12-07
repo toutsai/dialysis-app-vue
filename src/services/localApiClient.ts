@@ -835,7 +835,15 @@ export const nursingApi = {
    * 取得單一護理班表
    */
   async fetchScheduleById(id: string) {
-    return apiRequest<any>(`/nursing/schedules?id=${id}`)
+    try {
+      return await apiRequest<any>(`/nursing/schedules?id=${id}`)
+    } catch (error: any) {
+      // 404 表示排班不存在，返回 null 而非拋出錯誤
+      if (error.status === 404) {
+        return null
+      }
+      throw error
+    }
   },
 
   /**
