@@ -47,10 +47,11 @@ router.post('/daily-injections', authenticate, async (req, res) => {
       return res.json([])
     }
 
+    console.log(`[Medications] 查詢每日針劑: targetDate=${targetDate}, patientIds=${patientIds.length}人`)
+
     const db = getDatabase()
 
     // 步驟 1: 查詢這些病人的針劑藥囑
-    // 使用 injection_orders 表（如果存在），否則使用 medication_orders
     let injectionOrders = []
 
     try {
@@ -59,9 +60,12 @@ router.post('/daily-injections', authenticate, async (req, res) => {
       injectionOrders = db.prepare(`
         SELECT * FROM injection_orders
         WHERE patient_id IN (${placeholders})
+          AND order_type = 'injection'
         ORDER BY upload_month DESC, change_date DESC
       `).all(...patientIds)
+      console.log(`[Medications] 從 injection_orders 查到 ${injectionOrders.length} 筆針劑記錄`)
     } catch (e) {
+      console.log('[Medications] injection_orders 表查詢失敗，嘗試 medication_orders:', e.message)
       // 如果表不存在，嘗試 medication_orders
       try {
         const placeholders = patientIds.map(() => '?').join(',')
@@ -94,6 +98,7 @@ router.post('/daily-injections', authenticate, async (req, res) => {
     }
 
     if (injectionOrders.length === 0) {
+      console.log('[Medications] 未找到任何針劑記錄')
       db.close()
       return res.json([])
     }
@@ -111,6 +116,7 @@ router.post('/daily-injections', authenticate, async (req, res) => {
     }
 
     const patientHistory = Array.from(patientLatestOrders.values())
+    console.log(`[Medications] 聚合後共 ${patientHistory.length} 筆不重複的針劑記錄`)
 
     // 步驟 3: 取得排班資料
     const schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(targetDate)
@@ -136,6 +142,10 @@ router.post('/daily-injections', authenticate, async (req, res) => {
     const finalInjectionList = []
     const dateObj = new Date(targetDate + 'T00:00:00Z')
     const targetDayOfWeek = dateObj.getUTCDay()
+    // 醫院系統：1=週一, 2=週二, ..., 7=週日
+    const hospitalSystemDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek
+
+    console.log(`[Medications] 目標日期 ${targetDate} 是星期${hospitalSystemDayOfWeek}`)
 
     for (const order of patientHistory) {
       const slotInfo = patientSlotMap.get(order.patient_id) || { bedNum: 'N/A', shift: 'N/A' }
@@ -157,9 +167,6 @@ router.post('/daily-injections', authenticate, async (req, res) => {
               matches.forEach(d => days.push(parseInt(d, 10)))
             }
 
-            // 醫院系統：1=週一, 2=週二, ..., 7=週日
-            const hospitalSystemDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek
-
             if (days.includes(hospitalSystemDayOfWeek)) {
               shouldAdminister = true
               reason = `規則匹配: ${part}`
@@ -175,6 +182,12 @@ router.post('/daily-injections', authenticate, async (req, res) => {
             break
           }
         }
+      }
+
+      // ✨ 如果備註欄位為空或無法解析，仍然顯示但標記為「需確認施打日」
+      if (!shouldAdminister && !note) {
+        shouldAdminister = true
+        reason = '無頻率規則，請確認是否需施打'
       }
 
       if (shouldAdminister) {
