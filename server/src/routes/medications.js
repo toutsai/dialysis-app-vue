@@ -7,22 +7,35 @@ import { authenticate, isEditor, logAudit } from '../middleware/auth.js'
 const router = Router()
 
 /**
- * 解析彈性日期格式
+ * 解析彈性日期格式（參考 Firebase 版本）
+ * 支援：YYYY-MM-DD, YYYY/MM/DD, MM/DD, MMDD
  */
-function parseFlexibleDate(part, refDate) {
-  // 嘗試解析 MM/DD 或 M/D 格式
-  const slashMatch = part.match(/^(\d{1,2})\/(\d{1,2})$/)
-  if (slashMatch) {
-    const month = parseInt(slashMatch[1], 10)
-    const day = parseInt(slashMatch[2], 10)
-    const year = refDate.getFullYear()
-    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    return dateStr
+function parseFlexibleDate(dateStr, targetDate) {
+  if (!dateStr || typeof dateStr !== 'string') return null
+
+  const str = dateStr.trim()
+  const year = targetDate.getUTCFullYear()
+
+  // 支援 YYYY-MM-DD 或 YYYY/MM/DD
+  let match = str.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/)
+  if (match) {
+    return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
   }
 
-  // 嘗試解析 YYYY-MM-DD 格式
-  if (/^\d{4}-\d{2}-\d{2}$/.test(part)) {
-    return part
+  // 支援 MM/DD
+  match = str.match(/^(\d{1,2})\/(\d{1,2})$/)
+  if (match) {
+    return `${year}-${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}`
+  }
+
+  // 支援 MMDD (4位數)
+  match = str.match(/^(\d{2})(\d{2})$/)
+  if (match && str.length === 4) {
+    const month = parseInt(match[1], 10)
+    const day = parseInt(match[2], 10)
+    if (month > 0 && month <= 12 && day > 0 && day <= 31) {
+      return `${year}-${match[1]}-${match[2]}`
+    }
   }
 
   return null
@@ -30,212 +43,90 @@ function parseFlexibleDate(part, refDate) {
 
 /**
  * POST /api/medications/daily-injections
- * 計算每日應打針劑
+ * 計算每日應打針劑（參考 Firebase 版本邏輯）
+ * 支援：QW規則 (QW135, QW3.6, QW3,6, QW3、6) 和日期規則 (MM/DD, MMDD, YYYY-MM-DD)
  */
 router.post('/daily-injections', authenticate, async (req, res) => {
   try {
     const { targetDate, patientIds } = req.body
 
     if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) {
-      return res.status(400).json({
-        error: true,
-        message: '請提供有效的目標日期 (格式 YYYY-MM-DD)'
-      })
+      return res.status(400).json({ error: true, message: '請提供有效的目標日期 (YYYY-MM-DD)' })
     }
 
-    if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
-      return res.json([])
-    }
+    if (!patientIds?.length) return res.json([])
 
-    console.log(`[Medications] 查詢每日針劑: targetDate=${targetDate}, patientIds=${patientIds.length}人`)
-
+    const targetMonth = targetDate.substring(0, 7)
     const db = getDatabase()
 
-    // 步驟 1: 查詢這些病人的針劑藥囑
-    let injectionOrders = []
-
-    try {
-      // 嘗試從 injection_orders 表查詢
-      const placeholders = patientIds.map(() => '?').join(',')
-      injectionOrders = db.prepare(`
-        SELECT * FROM injection_orders
-        WHERE patient_id IN (${placeholders})
-          AND order_type = 'injection'
-        ORDER BY upload_month DESC, change_date DESC
-      `).all(...patientIds)
-      console.log(`[Medications] 從 injection_orders 查到 ${injectionOrders.length} 筆針劑記錄`)
-    } catch (e) {
-      console.log('[Medications] injection_orders 表查詢失敗，嘗試 medication_orders:', e.message)
-      // 如果表不存在，嘗試 medication_orders
-      try {
-        const placeholders = patientIds.map(() => '?').join(',')
-        const orders = db.prepare(`
-          SELECT * FROM medication_orders
-          WHERE patient_id IN (${placeholders})
-        `).all(...patientIds)
-
-        // 將 medications JSON 展開
-        for (const order of orders) {
-          const meds = JSON.parse(order.medications || '[]')
-          for (const med of meds) {
-            if (med.orderType === 'injection') {
-              injectionOrders.push({
-                patient_id: order.patient_id,
-                patient_name: order.patient_name,
-                order_code: med.orderCode,
-                order_name: med.orderName,
-                dose: med.dose,
-                note: med.note || '',
-                change_date: med.changeDate || order.order_date,
-                upload_month: med.uploadMonth
-              })
-            }
-          }
-        }
-      } catch (e2) {
-        console.log('[Medications] 無法找到針劑資料表')
-      }
-    }
+    // 查詢當月針劑藥囑
+    const placeholders = patientIds.map(() => '?').join(',')
+    const injectionOrders = db.prepare(`
+      SELECT * FROM injection_orders
+      WHERE patient_id IN (${placeholders})
+        AND order_type = 'injection'
+        AND upload_month = ?
+      ORDER BY patient_id, order_code
+    `).all(...patientIds, targetMonth)
 
     if (injectionOrders.length === 0) {
-      console.log('[Medications] 未找到任何針劑記錄')
       db.close()
       return res.json([])
     }
 
-    // 步驟 2: 聚合每個病人每個藥物的最新紀錄
-    const patientLatestOrders = new Map()
-
-    for (const order of injectionOrders) {
-      const key = `${order.patient_id}-${order.order_code}`
-      const existing = patientLatestOrders.get(key)
-
-      if (!existing || new Date(order.change_date) > new Date(existing.change_date)) {
-        patientLatestOrders.set(key, order)
-      }
-    }
-
-    const patientHistory = Array.from(patientLatestOrders.values())
-    console.log(`[Medications] 聚合後共 ${patientHistory.length} 筆不重複的針劑記錄`)
-
-    // 步驟 3: 取得排班資料
-    const schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(targetDate)
-    const scheduleData = schedule ? JSON.parse(schedule.schedule || '{}') : {}
-
-    // 建立病人到床位/班次的映射
-    const patientSlotMap = new Map()
-    for (const shiftId in scheduleData) {
-      const slot = scheduleData[shiftId]
-      if (slot.patientId) {
-        patientSlotMap.set(slot.patientId, {
-          bedNum: shiftId.startsWith('peripheral')
-            ? `外${shiftId.split('-')[1]}`
-            : shiftId.split('-')[1],
-          shift: shiftId.split('-')[2]
-        })
-      }
-    }
-
-    db.close()
-
-    // 步驟 4: 計算應打針劑
-    const finalInjectionList = []
+    // 計算今天是星期幾 (醫院系統：1=週一 ~ 7=週日)
     const dateObj = new Date(targetDate + 'T00:00:00Z')
-    const targetDayOfWeek = dateObj.getUTCDay()
-    // 醫院系統：1=週一, 2=週二, ..., 7=週日
-    const hospitalSystemDayOfWeek = targetDayOfWeek === 0 ? 7 : targetDayOfWeek
+    const dayOfWeek = dateObj.getUTCDay() || 7
 
-    console.log(`[Medications] 目標日期 ${targetDate} 是星期${hospitalSystemDayOfWeek}`)
-
-    for (const order of patientHistory) {
-      const slotInfo = patientSlotMap.get(order.patient_id) || { bedNum: 'N/A', shift: 'N/A' }
+    // 依備註中的規則篩選
+    const result = []
+    for (const order of injectionOrders) {
       const note = (order.note || '').trim()
       let shouldAdminister = false
-      let reason = ''
 
-      // 解析備註中的頻率規則
+      // 用空白分割備註（保留 QW3,6 的逗號）
       const noteParts = note.split(/\s+/).filter(Boolean)
 
       for (const part of noteParts) {
         if (part.toUpperCase().startsWith('QW')) {
-          // 解析 QW 規則（如 QW135, QW3.6, QW3,6 等格式）
+          // 解析 QW 規則（QW135, QW3.6, QW3,6, QW3、6 等）
           const dayString = part.substring(2)
-          if (dayString) {
-            const days = []
-            const matches = dayString.match(/[1-7]/g)
-            if (matches) {
-              matches.forEach(d => days.push(parseInt(d, 10)))
-            }
-
-            if (days.includes(hospitalSystemDayOfWeek)) {
+          const matches = dayString.match(/[1-7]/g)
+          if (matches) {
+            const days = matches.map(d => parseInt(d, 10))
+            if (days.includes(dayOfWeek)) {
               shouldAdminister = true
-              reason = `規則匹配: ${part}`
               break
             }
           }
         } else {
-          // 檢查是否為日期
+          // 檢查是否為日期 (MM/DD, MMDD, YYYY-MM-DD)
           const parsedDate = parseFlexibleDate(part, dateObj)
-          if (parsedDate && parsedDate === targetDate) {
+          if (parsedDate === targetDate) {
             shouldAdminister = true
-            reason = `日期匹配: ${part}`
             break
           }
         }
       }
 
-      // ✨ 如果備註欄位為空或無法解析，仍然顯示但標記為「需確認施打日」
-      if (!shouldAdminister && !note) {
-        shouldAdminister = true
-        reason = '無頻率規則，請確認是否需施打'
-      }
-
       if (shouldAdminister) {
-        finalInjectionList.push({
+        result.push({
           patientId: order.patient_id,
           patientName: order.patient_name,
-          medicalRecordNumber: order.medical_record_number,
-          bedNum: slotInfo.bedNum,
-          shift: slotInfo.shift,
           orderCode: order.order_code,
           orderName: order.order_name,
           dose: order.dose,
-          note: order.note,
-          reason: reason,
-          changeDate: order.change_date
+          note: order.note
         })
       }
     }
 
-    // 步驟 5: 排序結果
-    finalInjectionList.sort((a, b) => {
-      const shiftOrder = { early: 1, noon: 2, late: 3, N: 98, A: 99 }
-      const shiftA = a.shift || 'A'
-      const shiftB = b.shift || 'A'
-
-      if (shiftA !== shiftB) {
-        return (shiftOrder[shiftA] || 99) - (shiftOrder[shiftB] || 99)
-      }
-
-      const bedA = String(a.bedNum).startsWith('外')
-        ? 1000 + parseInt(String(a.bedNum).substring(1))
-        : parseInt(a.bedNum)
-      const bedB = String(b.bedNum).startsWith('外')
-        ? 1000 + parseInt(String(b.bedNum).substring(1))
-        : parseInt(b.bedNum)
-
-      return bedA - bedB
-    })
-
-    console.log(`[Medications] 計算完成，找到 ${finalInjectionList.length} 筆應打針劑`)
-    res.json(finalInjectionList)
+    db.close()
+    res.json(result)
 
   } catch (error) {
     console.error('計算每日應打針劑錯誤:', error)
-    res.status(500).json({
-      error: true,
-      message: '計算每日應打針劑失敗'
-    })
+    res.status(500).json({ error: true, message: '計算每日應打針劑失敗' })
   }
 })
 
