@@ -791,6 +791,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import ApiManager from '@/services/api_manager'
+import { nursingApi } from '@/services/localApiClient'
 import { useAuth } from '@/composables/useAuth'
 import { useGlobalNotifier } from '@/composables/useGlobalNotifier.js'
 import { useGroupAssigner } from '@/composables/useGroupAssigner.js'
@@ -1677,9 +1678,33 @@ async function processAndUpload() {
     uploadStatus.value = '請先選擇一個 Excel 檔案'
     return
   }
-  // Standalone 版本：上傳功能暫不支援
-  alert('離線模式下暫不支援此功能')
-  uploadStatus.value = '離線模式下暫不支援上傳功能'
+
+  isUploading.value = true
+  uploadStatus.value = '正在上傳並解析班表...'
+
+  try {
+    // 將檔案轉換為 Base64
+    const base64Data = await fileToBase64(selectedFile.value)
+    const fileName = selectedFile.value.name
+
+    // 呼叫本地 API 上傳
+    const result = await nursingApi.uploadSchedule(base64Data, fileName)
+
+    if (result.success) {
+      uploadStatus.value = `班表上傳成功！(${result.title}, ${result.nurseCount} 位護理師)`
+      // 重新載入班表
+      selectedMonth.value = result.documentId
+      await loadMonthlySchedule()
+      selectedFile.value = null
+    } else {
+      uploadStatus.value = '上傳失敗：伺服器回應錯誤'
+    }
+  } catch (error) {
+    console.error('上傳班表失敗:', error)
+    uploadStatus.value = `上傳失敗：${error.message || '未知錯誤'}`
+  } finally {
+    isUploading.value = false
+  }
 }
 
 // 計算相鄰月份的輔助函式

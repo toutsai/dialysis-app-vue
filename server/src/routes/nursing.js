@@ -1,6 +1,7 @@
 // 護理相關路由
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
+import XLSX from 'xlsx'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, isAdmin, logAudit } from '../middleware/auth.js'
 import {
@@ -166,6 +167,260 @@ router.put('/schedules/:id', ...isAdmin, async (req, res) => {
     res.status(500).json({
       error: true,
       message: '更新護理排班失敗'
+    })
+  }
+})
+
+/**
+ * POST /api/nursing/schedules/upload
+ * 上傳並解析護理班表 Excel
+ */
+router.post('/schedules/upload', ...isAdmin, async (req, res) => {
+  try {
+    const { fileContentBase64, fileName } = req.body
+
+    if (!fileContentBase64 || !fileName) {
+      return res.status(400).json({
+        error: true,
+        message: '缺少檔案內容或檔名'
+      })
+    }
+
+    console.log(`📤 開始處理班表檔案: ${fileName}`)
+
+    // 1. 解析 Excel
+    const fileBuffer = Buffer.from(fileContentBase64, 'base64')
+    const workbook = XLSX.read(fileBuffer, { type: 'buffer' })
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
+
+    console.log(`📊 Excel 解析完成，共 ${jsonData.length} 行資料`)
+
+    if (!jsonData || jsonData.length < 1) {
+      return res.status(400).json({
+        error: true,
+        message: 'Excel 檔案內容不足，請確認檔案格式正確'
+      })
+    }
+
+    // 2. 提取年月標題
+    let title = ''
+    let year, month, yearMonth
+    let titleFound = false
+
+    for (let rowIndex = 0; rowIndex < Math.min(jsonData.length, 10); rowIndex++) {
+      const row = jsonData[rowIndex]
+      if (!row) continue
+
+      for (let cellIndex = 0; cellIndex < Math.min(row.length, 10); cellIndex++) {
+        const cell = row[cellIndex]
+
+        if (cell && typeof cell === 'string') {
+          const match = cell.match(/(\d{3,4})\s*年\s*(\d{1,2})\s*月(份)?/)
+          if (match) {
+            title = cell.trim()
+            let rawYear = parseInt(match[1], 10)
+            year = rawYear < 1911 ? rawYear + 1911 : rawYear
+            month = String(match[2]).padStart(2, '0')
+            yearMonth = `${year}-${month}`
+            console.log(`📅 找到年月標題: ${title} => ${yearMonth}`)
+            titleFound = true
+            break
+          }
+        }
+      }
+      if (titleFound) break
+    }
+
+    if (!yearMonth) {
+      return res.status(400).json({
+        error: true,
+        message: '無法在 Excel 檔案的前 10 行中找到有效的年月標題 (格式應包含 "XXX年YY月" 或 "XXX年YY月份")'
+      })
+    }
+
+    const maxDaysInMonth = new Date(year, parseInt(month, 10), 0).getDate()
+    console.log(`📆 ${yearMonth} 共有 ${maxDaysInMonth} 天`)
+
+    // 3. 取得護理師列表
+    const db = getDatabase()
+    const users = db.prepare(`SELECT * FROM users WHERE title = '護理師'`).all()
+
+    const nurseMap = new Map()
+    const nurseDataMap = new Map()
+
+    users.forEach(user => {
+      nurseMap.set(user.name, user.id)
+      nurseDataMap.set(user.id, {
+        name: user.name,
+        username: user.username || ''
+      })
+    })
+    console.log(`👩‍⚕️ 資料庫中有 ${nurseMap.size} 位護理師`)
+
+    // 4. 找到護理師資料起始行
+    let nurseStartRow = -1
+    for (let i = 2; i < Math.min(jsonData.length, 20); i++) {
+      const firstCell = String(jsonData[i]?.[0] || '').trim()
+      if (!firstCell) continue
+      for (const fullName of nurseMap.keys()) {
+        if (fullName.endsWith(firstCell)) {
+          nurseStartRow = i
+          console.log(`📍 找到第一位護理師 "${firstCell}" 在第 ${i} 行`)
+          break
+        }
+      }
+      if (nurseStartRow !== -1) break
+    }
+
+    if (nurseStartRow === -1) {
+      db.close()
+      return res.status(400).json({
+        error: true,
+        message: '找不到護理師資料，請確認 Excel 格式或確認資料庫中有護理師資料'
+      })
+    }
+
+    // 5. 解析班表資料
+    const scheduleByNurse = {}
+    const scheduleByWeek = {}
+    const processedNurses = new Set()
+    const processingOrder = []
+    const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815', '7-3', '8-4', '7-5']
+    const LATE_SHIFTS = ['3-11', '311']
+
+    for (let rowIndex = nurseStartRow; rowIndex < jsonData.length; rowIndex++) {
+      const row = jsonData[rowIndex]
+      if (!row || !row[0]) continue
+
+      const nurseFirstName = String(row[0]).trim()
+      if (!nurseFirstName ||
+          ['COUNT', '合計', '總計', '例假', '備註'].some(kw => nurseFirstName.includes(kw))) {
+        continue
+      }
+
+      let matchedFullName = null, matchedId = null
+      for (const [fullName, id] of nurseMap.entries()) {
+        if (fullName && fullName.endsWith(nurseFirstName)) {
+          matchedFullName = fullName
+          matchedId = id
+          break
+        }
+      }
+
+      if (!matchedFullName) {
+        console.log(`⚠️ 第 ${rowIndex} 行: 未匹配的名字 "${nurseFirstName}"`)
+        continue
+      }
+
+      if (processedNurses.has(matchedId)) {
+        console.log(`⚠️ 第 ${rowIndex} 行: 護理師 "${matchedFullName}" 已處理過，跳過`)
+        continue
+      }
+
+      const shifts = new Array(maxDaysInMonth).fill('')
+      for (let day = 1; day <= maxDaysInMonth; day++) {
+        const columnIndex = day
+        if (columnIndex < row.length) {
+          const shift = String(row[columnIndex] || '').trim()
+          if (shift) shifts[day - 1] = shift
+        }
+      }
+
+      const nurseData = nurseDataMap.get(matchedId)
+      scheduleByNurse[matchedId] = {
+        nurseName: matchedFullName,
+        nurseUsername: nurseData?.username || '',
+        orderIndex: processingOrder.length,
+        shifts: shifts
+      }
+      processingOrder.push(matchedId)
+      processedNurses.add(matchedId)
+
+      // 建立按週分組的資料
+      shifts.forEach((shift, index) => {
+        if (!shift) return
+        const day = index + 1
+        let type = null
+        if (EARLY_SHIFTS.some(s => shift.includes(s))) type = 'early'
+        else if (LATE_SHIFTS.some(s => shift.includes(s))) type = 'late'
+
+        if (type) {
+          const date = new Date(year, parseInt(month, 10) - 1, day)
+          const dayOfWeek = (date.getDay() + 6) % 7
+          const weekNumber = Math.ceil(day / 7)
+          if (!scheduleByWeek[weekNumber]) scheduleByWeek[weekNumber] = {}
+          if (!scheduleByWeek[weekNumber][dayOfWeek]) {
+            scheduleByWeek[weekNumber][dayOfWeek] = { early: [], late: [] }
+          }
+          scheduleByWeek[weekNumber][dayOfWeek][type].push({
+            id: matchedId,
+            name: matchedFullName,
+            username: nurseData?.username || '',
+            shift: shift
+          })
+        }
+      })
+    }
+
+    if (processedNurses.size === 0) {
+      db.close()
+      return res.status(400).json({
+        error: true,
+        message: '沒有找到任何可處理的護理師資料'
+      })
+    }
+
+    // 6. 儲存到資料庫
+    const dataToSave = {
+      title,
+      yearMonth,
+      maxDaysInMonth,
+      scheduleByNurse,
+      scheduleByWeek,
+      processingOrder,
+      lastUpdatedAt: new Date().toISOString(),
+      updatedBy: { uid: req.user.id, name: req.user.name }
+    }
+
+    db.prepare(`
+      INSERT INTO nursing_schedules (id, schedule_data, updated_at)
+      VALUES (?, ?, datetime('now', 'localtime'))
+      ON CONFLICT(id) DO UPDATE SET
+        schedule_data = excluded.schedule_data,
+        updated_at = datetime('now', 'localtime')
+    `).run(yearMonth, JSON.stringify(dataToSave))
+
+    db.close()
+
+    const nurseList = Object.values(scheduleByNurse)
+      .sort((a, b) => a.orderIndex - b.orderIndex)
+      .map(n => n.nurseName)
+      .join(', ')
+
+    console.log(`✅ 班表 ${yearMonth} 已成功儲存，共 ${processedNurses.size} 位護理師`)
+
+    await logAudit('NURSING_SCHEDULE_UPLOAD', req.user.id, req.user.name, 'nursing_schedules', yearMonth, {
+      fileName,
+      nurseCount: processedNurses.size
+    })
+
+    res.json({
+      success: true,
+      message: `班表 ${yearMonth} 已成功儲存，包含 ${processedNurses.size} 位護理師的完整資料。`,
+      stats: {
+        month: yearMonth,
+        nurseCount: processedNurses.size,
+        daysInMonth: maxDaysInMonth,
+        nurses: nurseList
+      }
+    })
+
+  } catch (error) {
+    console.error('上傳護理班表錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: error.message || '上傳班表時發生錯誤'
     })
   }
 })
