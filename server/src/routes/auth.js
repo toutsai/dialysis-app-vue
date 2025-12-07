@@ -405,7 +405,13 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
       params.push(passwordHash)
     }
 
-    if (updates.length === 0 && title !== '主治醫師') {
+    // 檢查是否有醫師專屬欄位需要更新
+    const hasPhysicianFields = staffId !== undefined || phone !== undefined ||
+      clinicHours !== undefined || defaultSchedules !== undefined ||
+      defaultConsultationSchedules !== undefined
+
+    // 如果沒有 users 表欄位要更新，也沒有醫師欄位，才報錯
+    if (updates.length === 0 && !hasPhysicianFields) {
       db.close()
       return res.status(400).json({
         error: true,
