@@ -326,15 +326,26 @@ async function searchGroupOrders() {
   if (patientList.length === 0) return
 
   const [year, month] = groupSearchParams.month.split('-').map(Number)
-  const startDate = new Date(year, month - 1, 1)
-  const endDate = new Date(year, month, 1)
   const patientIds = patientList.map((p) => p.patientId)
 
-  const allOrders = await ordersApi.fetchAll({
-    patientId: patientIds,
-    startDate: startDate.toISOString(),
-    endDate: endDate.toISOString(),
-  })
+  let allOrders = []
+
+  if (isStandaloneMode) {
+    // 單機版：從 injection_orders 表查詢
+    const uploadMonth = groupSearchParams.month // 格式: YYYY-MM
+    allOrders = await localOrdersApi.fetchInjectionOrders({ uploadMonth })
+    // 過濾出符合病人清單的訂單
+    allOrders = allOrders.filter((order) => patientIds.includes(order.patientId))
+  } else {
+    // 線上版：使用原有的 Firebase 查詢
+    const startDate = new Date(year, month - 1, 1)
+    const endDate = new Date(year, month, 1)
+    allOrders = await ordersApi.fetchAll({
+      patientId: patientIds,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    })
+  }
 
   const patientOrdersMap = new Map()
   patientList.forEach((p) => patientOrdersMap.set(p.patientId, { ...p, orders: {} }))
@@ -370,14 +381,28 @@ async function searchIndividualOrders() {
   }
 
   const year = individualSearchYear.value
-  const startDate = new Date(year, 0, 1)
-  const endDate = new Date(year + 1, 0, 1)
+  let allYearlyOrders = []
 
-  const allYearlyOrders = await ordersApi.fetchAll({
-    patientId: foundPatient.id,
-    startDate: startDate.toISOString(),
-    endDate: endDate.toISOString(),
-  })
+  if (isStandaloneMode) {
+    // 單機版：從 injection_orders 表查詢該病人整年的資料
+    allYearlyOrders = await localOrdersApi.fetchInjectionOrders({
+      patientId: foundPatient.id,
+    })
+    // 過濾出該年度的資料
+    allYearlyOrders = allYearlyOrders.filter((order) => {
+      const orderMonth = order.uploadMonth // 格式: YYYY-MM
+      return orderMonth && orderMonth.startsWith(String(year))
+    })
+  } else {
+    // 線上版：使用原有的 Firebase 查詢
+    const startDate = new Date(year, 0, 1)
+    const endDate = new Date(year + 1, 0, 1)
+    allYearlyOrders = await ordersApi.fetchAll({
+      patientId: foundPatient.id,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString(),
+    })
+  }
 
   const monthlyOrdersMap = new Map()
   for (let i = 1; i <= 12; i++) {
@@ -386,11 +411,14 @@ async function searchIndividualOrders() {
   }
 
   allYearlyOrders.forEach((order) => {
-    const uploadDate = new Date(order.uploadTimestamp)
-    const monthKey = `${uploadDate.getFullYear()}-${String(uploadDate.getMonth() + 1).padStart(
-      2,
-      '0',
-    )}`
+    // 單機版使用 uploadMonth，線上版使用 uploadTimestamp
+    let monthKey
+    if (isStandaloneMode) {
+      monthKey = order.uploadMonth // 格式: YYYY-MM
+    } else {
+      const uploadDate = new Date(order.uploadTimestamp)
+      monthKey = `${uploadDate.getFullYear()}-${String(uploadDate.getMonth() + 1).padStart(2, '0')}`
+    }
 
     const monthData = monthlyOrdersMap.get(monthKey)
     if (monthData) {

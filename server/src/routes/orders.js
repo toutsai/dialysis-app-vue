@@ -24,6 +24,75 @@ function getTaipeiMonthString() {
 }
 
 /**
+ * 從檔名中解析民國年月，轉換為西元 YYYY-MM 格式
+ * 支援格式：
+ *   - YYYMM (5位數): 民國年3位 + 月份2位，如 11311 = 2024-11
+ *   - YYMM (4位數): 民國年2位 + 月份2位，如 1311 = 2024-11 (假設為 113 年)
+ *   - YYYYMM (6位數): 西元年4位 + 月份2位，如 202411 = 2024-11
+ *   - YYY + 單一數字 (4位數): 民國年3位 + 月份1位，如 1139 = 2024-09
+ *
+ * @param {string} fileName - 檔案名稱
+ * @returns {string|null} - 西元 YYYY-MM 格式，或 null 表示無法解析
+ */
+function parseMonthFromFileName(fileName) {
+  if (!fileName) return null
+
+  // 移除副檔名
+  const nameWithoutExt = fileName.replace(/\.(xlsx?|csv)$/i, '')
+
+  // 尋找檔名中的數字序列 (從後往前找，因為日期通常在檔名結尾)
+  const digitMatches = nameWithoutExt.match(/\d+/g)
+  if (!digitMatches || digitMatches.length === 0) return null
+
+  // 從後往前嘗試解析
+  for (let i = digitMatches.length - 1; i >= 0; i--) {
+    const digits = digitMatches[i]
+
+    // 嘗試 5 位數格式: YYYMM (民國年3位 + 月份2位)
+    if (digits.length === 5) {
+      const rocYear = parseInt(digits.substring(0, 3), 10)
+      const month = parseInt(digits.substring(3, 5), 10)
+      if (rocYear >= 100 && rocYear <= 150 && month >= 1 && month <= 12) {
+        const westernYear = rocYear + 1911
+        return `${westernYear}-${String(month).padStart(2, '0')}`
+      }
+    }
+
+    // 嘗試 4 位數格式 - 情況1: YYMM (民國年2位 + 月份2位)
+    if (digits.length === 4) {
+      const first2 = parseInt(digits.substring(0, 2), 10)
+      const last2 = parseInt(digits.substring(2, 4), 10)
+
+      // 情況1: YYMM - 民國年2位 + 月份2位 (例如 1311 = 113年11月)
+      if (first2 >= 10 && first2 <= 15 && last2 >= 1 && last2 <= 12) {
+        const rocYear = 100 + first2 // 例如 13 -> 113
+        const westernYear = rocYear + 1911
+        return `${westernYear}-${String(last2).padStart(2, '0')}`
+      }
+
+      // 情況2: YYYM - 民國年3位 + 月份1位 (例如 1139 = 113年9月, 1131 = 113年1月)
+      const rocYear3 = parseInt(digits.substring(0, 3), 10)
+      const month1 = parseInt(digits.substring(3, 4), 10)
+      if (rocYear3 >= 100 && rocYear3 <= 150 && month1 >= 1 && month1 <= 9) {
+        const westernYear = rocYear3 + 1911
+        return `${westernYear}-${String(month1).padStart(2, '0')}`
+      }
+    }
+
+    // 嘗試 6 位數格式: YYYYMM (西元年4位 + 月份2位)
+    if (digits.length === 6) {
+      const year = parseInt(digits.substring(0, 4), 10)
+      const month = parseInt(digits.substring(4, 6), 10)
+      if (year >= 2020 && year <= 2050 && month >= 1 && month <= 12) {
+        return `${year}-${String(month).padStart(2, '0')}`
+      }
+    }
+  }
+
+  return null
+}
+
+/**
  * 檢驗報告項目對應表
  */
 const LAB_ITEM_MAPPING = {
@@ -1184,9 +1253,6 @@ router.post('/medications/upload', ...isContributor, async (req, res) => {
 
     console.log(`[ProcessOrders] 接收到檔案 ${fileName}，開始解析...`)
 
-    const uploadMonth = getTaipeiMonthString()
-    console.log(`[ProcessOrders] 本次上傳將歸檔至月份: ${uploadMonth}`)
-
     const buffer = Buffer.from(fileContent, 'base64')
     const workbook = XLSX.read(buffer, { type: 'buffer' })
     const sheetName = workbook.SheetNames[0]
@@ -1229,6 +1295,50 @@ router.post('/medications/upload', ...isContributor, async (req, res) => {
         error: true,
         message: `Excel 檔案缺少必要的欄位: ${missingHeaders.join(', ')}`
       })
+    }
+
+    // 決定 uploadMonth：優先從檔名解析，否則從 Excel 異動日期推斷
+    let uploadMonth = parseMonthFromFileName(fileName)
+    if (uploadMonth) {
+      console.log(`[ProcessOrders] 從檔名解析到月份: ${uploadMonth}`)
+    } else {
+      // 從 Excel 資料的「異動日期」推斷月份 (取第一筆有效日期)
+      for (let i = headerRowIndex + 1; i < Math.min(headerRowIndex + 20, dataRows.length); i++) {
+        const row = dataRows[i]
+        if (!row || row.every(cell => String(cell).trim() === '')) continue
+
+        const rawDate = row[headerToIndex['異動日期']]
+        if (!rawDate) continue
+
+        const dateStr = String(rawDate).trim()
+        // 嘗試解析 YYYYMMDD 格式
+        if (/^\d{8,}/.test(dateStr)) {
+          const year = dateStr.substring(0, 4)
+          const month = dateStr.substring(4, 6)
+          if (parseInt(year) >= 2020 && parseInt(month) >= 1 && parseInt(month) <= 12) {
+            uploadMonth = `${year}-${month}`
+            console.log(`[ProcessOrders] 從 Excel 異動日期推斷月份: ${uploadMonth}`)
+            break
+          }
+        }
+        // 嘗試解析其他日期格式
+        try {
+          const dateObj = new Date(rawDate)
+          if (!isNaN(dateObj.getTime())) {
+            const year = dateObj.getUTCFullYear()
+            const month = (dateObj.getUTCMonth() + 1).toString().padStart(2, '0')
+            uploadMonth = `${year}-${month}`
+            console.log(`[ProcessOrders] 從 Excel 異動日期推斷月份: ${uploadMonth}`)
+            break
+          }
+        } catch (e) { /* 忽略解析錯誤 */ }
+      }
+
+      // 如果仍無法解析，使用當前月份
+      if (!uploadMonth) {
+        uploadMonth = getTaipeiMonthString()
+        console.log(`[ProcessOrders] 無法解析月份，使用當前月份: ${uploadMonth}`)
+      }
     }
 
     const db = getDatabase()
@@ -1371,8 +1481,9 @@ router.post('/medications/upload', ...isContributor, async (req, res) => {
 
     res.json({
       success: true,
-      message: `處理完成！成功匯入 ${processedCount} 筆藥囑紀錄，發現 ${errors.length} 個問題行。`,
+      message: `處理完成！成功匯入 ${processedCount} 筆藥囑紀錄至 ${uploadMonth}，發現 ${errors.length} 個問題行。`,
       processedCount,
+      uploadMonth,
       errorCount: errors.length,
       errors: errors.slice(0, 50)
     })
