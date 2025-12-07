@@ -407,6 +407,9 @@ router.post('/schedules/upload', ...isAdmin, async (req, res) => {
 
     res.json({
       success: true,
+      documentId: yearMonth,
+      title: title,
+      nurseCount: processedNurses.size,
       message: `班表 ${yearMonth} 已成功儲存，包含 ${processedNurses.size} 位護理師的完整資料。`,
       stats: {
         month: yearMonth,
