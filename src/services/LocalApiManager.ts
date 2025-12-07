@@ -168,6 +168,16 @@ const resourceApiMap: Record<string, any> = {
     fetchAll: () => systemApi.fetchPhysicians(),
     create: (data: any) => systemApi.createPhysician(data),
   },
+  physician_schedules: {
+    fetchAll: async () => {
+      // 醫師班表沒有 fetchAll，返回空陣列
+      console.log('[LocalApiManager] physician_schedules.fetchAll: 返回空陣列')
+      return []
+    },
+    fetchById: (id: string) => systemApi.fetchPhysicianSchedule(id),
+    save: (id: string, data: any) => systemApi.updatePhysicianSchedule(id, data),
+    update: (id: string, data: any) => systemApi.updatePhysicianSchedule(id, data),
+  },
 
   // 使用者相關
   users: {
