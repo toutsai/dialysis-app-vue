@@ -103,10 +103,8 @@ router.get('/schedules', ...isEditor, (req, res) => {
       db.close()
 
       if (!schedule) {
-        return res.status(404).json({
-          error: true,
-          message: '排班不存在'
-        })
+        // 返回 null 而不是 404，避免前端出現錯誤訊息
+        return res.json(null)
       }
 
       const scheduleData = JSON.parse(schedule.schedule_data || '{}')
