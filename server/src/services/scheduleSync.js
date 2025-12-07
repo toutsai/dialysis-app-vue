@@ -731,8 +731,13 @@ export async function mergeExceptionsIntoSchedules(masterRules, futureDates, pat
   }
 }
 
+// 導出用於自動生成排程的輔助函數
+export { generateDailyScheduleFromRules, generateAutoNote }
+
 export default {
   syncMasterScheduleToFuture,
   initializeFutureSchedules,
   mergeExceptionsIntoSchedules,
+  generateDailyScheduleFromRules,
+  generateAutoNote,
 }

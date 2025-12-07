@@ -140,15 +140,16 @@ router.get('/schedules', ...isEditor, (req, res) => {
 
 /**
  * PUT /api/nursing/schedules/:id
- * 更新護理排班
+ * 更新護理排班，並同步護理師姓名到 nurse_assignments
  */
 router.put('/schedules/:id', ...isAdmin, async (req, res) => {
   try {
-    const { id } = req.params
+    const { id } = req.params // id 格式: YYYY-MM
     const scheduleData = req.body
 
     const db = getDatabase()
 
+    // 儲存護理班表
     db.prepare(`
       INSERT INTO nursing_schedules (id, schedule_data, updated_at)
       VALUES (?, ?, datetime('now', 'localtime'))
@@ -156,6 +157,13 @@ router.put('/schedules/:id', ...isAdmin, async (req, res) => {
         schedule_data = excluded.schedule_data,
         updated_at = datetime('now', 'localtime')
     `).run(id, JSON.stringify(scheduleData))
+
+    // 🔄 同步護理師姓名到 nurse_assignments
+    if (scheduleData.scheduleByNurse) {
+      console.log(`🔄 [NursingSync] 開始同步護理師姓名到 nurse_assignments...`)
+      const syncResult = syncNurseNamesToAssignments(db, id, scheduleData.scheduleByNurse)
+      console.log(`✅ [NursingSync] 同步完成: 更新 ${syncResult.updatedCount} 天，創建 ${syncResult.createdCount} 天`)
+    }
 
     db.close()
 
@@ -172,6 +180,112 @@ router.put('/schedules/:id', ...isAdmin, async (req, res) => {
     })
   }
 })
+
+/**
+ * 同步護理師姓名從 nursing_schedules 到 nurse_assignments
+ * @param {Database} db - 資料庫連線
+ * @param {string} yearMonth - 年月 (YYYY-MM)
+ * @param {Object} scheduleByNurse - 護理師班表資料
+ * @returns {Object} - { updatedCount, createdCount }
+ */
+function syncNurseNamesToAssignments(db, yearMonth, scheduleByNurse) {
+  const [year, month] = yearMonth.split('-').map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+
+  // 取得今天日期（只同步今天及以後）
+  const today = new Date()
+  const todayStr = today.toISOString().split('T')[0]
+
+  let updatedCount = 0
+  let createdCount = 0
+
+  // 早班班別
+  const EARLY_SHIFTS = ['74', '75', '816', '74/L', '84', '815', '7-3', '8-4', '7-5']
+  // 晚班班別
+  const LATE_SHIFTS = ['311', '3-11', '311C']
+  // 非工作班別
+  const NON_WORK_SHIFTS = ['休', '例', '國定', '休息', '例假', '']
+
+  // 對每一天進行處理
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${yearMonth}-${String(day).padStart(2, '0')}`
+    const dateIndex = day - 1
+
+    // 跳過過去的日期
+    if (dateStr < todayStr) {
+      continue
+    }
+
+    // 產生新的 names 對應
+    const newNames = {}
+    for (const nurseId in scheduleByNurse) {
+      const nurseData = scheduleByNurse[nurseId]
+      const shift = String(nurseData.shifts?.[dateIndex] || '').trim()
+      const group = String(nurseData.groups?.[dateIndex] || '').trim()
+
+      // 跳過非工作班別或沒有組別
+      if (!shift || NON_WORK_SHIFTS.includes(shift) || !group) {
+        continue
+      }
+
+      // 判斷班別前綴
+      let prefix = '早' // 預設早班
+      if (LATE_SHIFTS.includes(shift)) {
+        prefix = '晚'
+      }
+
+      const teamName = `${prefix}${group}`
+      newNames[teamName] = nurseData.nurseName
+    }
+
+    // 如果沒有任何護理師分配，跳過
+    if (Object.keys(newNames).length === 0) {
+      continue
+    }
+
+    // 檢查是否已存在 nurse_assignments 記錄
+    const existing = db.prepare(`
+      SELECT * FROM nurse_assignments WHERE date = ?
+    `).get(dateStr)
+
+    if (existing) {
+      // 更新現有記錄的 names，保留 teams
+      const existingData = JSON.parse(existing.teams || '{}')
+      const existingTeams = existingData.teams || existingData // 兼容舊格式
+      const existingTakeoffEnabled = existingData.takeoffEnabled || false
+
+      const updatedData = {
+        teams: existingTeams,
+        names: newNames,
+        takeoffEnabled: existingTakeoffEnabled
+      }
+
+      db.prepare(`
+        UPDATE nurse_assignments
+        SET teams = ?, updated_at = datetime('now', 'localtime')
+        WHERE date = ?
+      `).run(JSON.stringify(updatedData), dateStr)
+
+      updatedCount++
+    } else {
+      // 創建新記錄
+      const newData = {
+        teams: {},
+        names: newNames,
+        takeoffEnabled: false
+      }
+
+      db.prepare(`
+        INSERT INTO nurse_assignments (id, date, teams, created_at, updated_at)
+        VALUES (?, ?, ?, datetime('now', 'localtime'), datetime('now', 'localtime'))
+      `).run(dateStr, dateStr, JSON.stringify(newData))
+
+      createdCount++
+    }
+  }
+
+  return { updatedCount, createdCount }
+}
 
 /**
  * POST /api/nursing/schedules/upload
@@ -393,6 +507,11 @@ router.post('/schedules/upload', ...isAdmin, async (req, res) => {
         updated_at = datetime('now', 'localtime')
     `).run(yearMonth, JSON.stringify(dataToSave))
 
+    // 🔄 同步護理師姓名到 nurse_assignments
+    console.log(`🔄 [NursingSync] 開始同步護理師姓名到 nurse_assignments...`)
+    const syncResult = syncNurseNamesToAssignments(db, yearMonth, scheduleByNurse)
+    console.log(`✅ [NursingSync] 同步完成: 更新 ${syncResult.updatedCount} 天，創建 ${syncResult.createdCount} 天`)
+
     db.close()
 
     const nurseList = Object.values(scheduleByNurse)
@@ -426,6 +545,68 @@ router.post('/schedules/upload', ...isAdmin, async (req, res) => {
     res.status(500).json({
       error: true,
       message: error.message || '上傳班表時發生錯誤'
+    })
+  }
+})
+
+/**
+ * POST /api/nursing/schedules/sync-names
+ * 手動同步所有護理班表的護理師姓名到 nurse_assignments
+ * 用於初始化或修復同步
+ */
+router.post('/schedules/sync-names', ...isAdmin, async (req, res) => {
+  try {
+    const db = getDatabase()
+
+    // 取得所有護理班表
+    const schedules = db.prepare(`SELECT * FROM nursing_schedules`).all()
+
+    if (schedules.length === 0) {
+      db.close()
+      return res.json({
+        success: true,
+        message: '沒有護理班表需要同步',
+        totalUpdated: 0,
+        totalCreated: 0
+      })
+    }
+
+    let totalUpdated = 0
+    let totalCreated = 0
+
+    for (const schedule of schedules) {
+      const scheduleData = JSON.parse(schedule.schedule_data || '{}')
+      if (scheduleData.scheduleByNurse) {
+        console.log(`🔄 [NursingSync] 同步 ${schedule.id} 的護理師姓名...`)
+        const result = syncNurseNamesToAssignments(db, schedule.id, scheduleData.scheduleByNurse)
+        totalUpdated += result.updatedCount
+        totalCreated += result.createdCount
+      }
+    }
+
+    db.close()
+
+    console.log(`✅ [NursingSync] 全部同步完成: 更新 ${totalUpdated} 天，創建 ${totalCreated} 天`)
+
+    await logAudit('NURSING_SCHEDULE_SYNC', req.user.id, req.user.name, 'nursing_schedules', 'all', {
+      schedulesCount: schedules.length,
+      totalUpdated,
+      totalCreated
+    })
+
+    res.json({
+      success: true,
+      message: `已同步 ${schedules.length} 份護理班表`,
+      schedulesCount: schedules.length,
+      totalUpdated,
+      totalCreated
+    })
+
+  } catch (error) {
+    console.error('同步護理師姓名錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: error.message || '同步失敗'
     })
   }
 })

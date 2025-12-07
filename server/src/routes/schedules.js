@@ -3,7 +3,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, logAudit } from '../middleware/auth.js'
-import { syncMasterScheduleToFuture, initializeFutureSchedules, mergeExceptionsIntoSchedules } from '../services/scheduleSync.js'
+import { syncMasterScheduleToFuture, initializeFutureSchedules, mergeExceptionsIntoSchedules, generateDailyScheduleFromRules } from '../services/scheduleSync.js'
 import { processScheduleException } from '../services/exceptionHandler.js'
 
 const router = Router()
@@ -368,13 +368,62 @@ router.get('/expired/:date', authenticate, (req, res) => {
 /**
  * GET /api/schedules/:date
  * 取得特定日期的排程
+ * 如果排程不存在或為空，自動從總表生成
  */
 router.get('/:date', authenticate, (req, res) => {
   try {
     const { date } = req.params
     const db = getDatabase()
 
-    const schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(date)
+    let schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(date)
+    let scheduleData = schedule ? JSON.parse(schedule.schedule || '{}') : {}
+
+    // 如果排程不存在或為空，從總表自動生成
+    if (!schedule || Object.keys(scheduleData).length === 0) {
+      console.log(`[Schedules] 排程 ${date} 不存在或為空，從總表自動生成...`)
+
+      // 取得總表
+      const masterDoc = db.prepare(`
+        SELECT schedule FROM base_schedules WHERE id = 'MASTER_SCHEDULE'
+      `).get()
+
+      if (masterDoc) {
+        const masterRules = JSON.parse(masterDoc.schedule || '{}')
+
+        // 載入病人資料用於生成 autoNote
+        const patients = db.prepare(`
+          SELECT * FROM patients WHERE is_deleted = 0
+        `).all()
+        const patientsMap = new Map()
+        patients.forEach(p => patientsMap.set(p.id, p))
+
+        // 生成排程
+        scheduleData = generateDailyScheduleFromRules(masterRules, date, patientsMap)
+
+        if (Object.keys(scheduleData).length > 0) {
+          // 儲存生成的排程
+          if (schedule) {
+            // 更新現有的空排程
+            db.prepare(`
+              UPDATE schedules
+              SET schedule = ?, sync_method = 'auto_generate', updated_at = datetime('now', 'localtime')
+              WHERE date = ?
+            `).run(JSON.stringify(scheduleData), date)
+          } else {
+            // 創建新排程
+            db.prepare(`
+              INSERT INTO schedules (id, date, schedule, sync_method, created_at, updated_at)
+              VALUES (?, ?, ?, 'auto_generate', datetime('now', 'localtime'), datetime('now', 'localtime'))
+            `).run(date, date, JSON.stringify(scheduleData))
+          }
+          console.log(`[Schedules] 已自動生成 ${date} 排程，共 ${Object.keys(scheduleData).length} 個床位`)
+
+          // 重新讀取更新後的記錄
+          schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(date)
+        }
+      }
+    }
+
     db.close()
 
     if (!schedule) {
