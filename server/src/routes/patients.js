@@ -563,8 +563,47 @@ router.put('/:id', ...isContributor, async (req, res) => {
 
     const updated = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(id)
 
-    // 🔥 檢查狀態變更，自動記錄歷史和動態
-    if (data.status && existing.status !== data.status) {
+    // 🔥 檢查刪除/復原狀態變更
+    const wasDeleted = existing.is_deleted === 1
+    const isNowDeleted = data.isDeleted === true || updated.is_deleted === 1
+
+    if (!wasDeleted && isNowDeleted) {
+      // 刪除操作：從正常狀態 → 已刪除
+      recordPatientHistory(db, id, existing.name, 'DELETE', {
+        reason: data.deleteReason || '未提供原因',
+        fromStatus: existing.status
+      }, createPatientSnapshot(existing))
+
+      addMovementToDailyLog(db, {
+        id: `auto_delete_${id}_${Date.now()}`,
+        type: '刪除',
+        name: existing.name,
+        patientId: id,
+        medicalRecordNumber: existing.medical_record_number,
+        physician: existing.physician || '',
+        reason: data.deleteReason || '',
+        remarks: `從「${STATUS_MAP[existing.status] || existing.status}」刪除`,
+      })
+    } else if (wasDeleted && !isNowDeleted) {
+      // 復原操作：從已刪除 → 正常狀態
+      const restoreStatus = data.status || updated.status || 'opd'
+
+      recordPatientHistory(db, id, existing.name, 'RESTORE_AND_TRANSFER', {
+        restoredTo: restoreStatus
+      }, createPatientSnapshot(updated))
+
+      addMovementToDailyLog(db, {
+        id: `auto_restore_${id}_${Date.now()}`,
+        type: '復原',
+        name: existing.name,
+        patientId: id,
+        medicalRecordNumber: existing.medical_record_number,
+        physician: updated.physician || '',
+        reason: '',
+        remarks: `復原至「${STATUS_MAP[restoreStatus] || restoreStatus}」`,
+      })
+    } else if (!wasDeleted && !isNowDeleted && data.status && existing.status !== data.status) {
+      // 🔥 檢查狀態變更，自動記錄歷史和動態（只在非刪除/復原情況下）
       const fromStatus = existing.status
       const toStatus = data.status
 
