@@ -825,7 +825,7 @@ router.post('/lab-reports/upload', ...isContributor, async (req, res) => {
     const patientCache = new Map()
 
     // 預先載入所有病人
-    const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE deleted_at IS NULL`).all()
+    const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE is_deleted = 0`).all()
     allPatients.forEach(p => {
       if (p.medical_record_number) {
         const normalizedMrn = String(p.medical_record_number).replace(/^0+/, '')
@@ -1039,7 +1039,7 @@ router.post('/consumables/upload', ...isContributor, async (req, res) => {
     let processedRowCount = 0
 
     // 預先載入所有病人
-    const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE deleted_at IS NULL`).all()
+    const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE is_deleted = 0`).all()
     allPatients.forEach(p => {
       if (p.medical_record_number) {
         const normalizedMrn = String(p.medical_record_number).replace(/^0+/, '')
@@ -1219,7 +1219,7 @@ router.post('/medications/upload', ...isContributor, async (req, res) => {
     let processedCount = 0
 
     // 預先載入所有病人
-    const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE deleted_at IS NULL`).all()
+    const allPatients = db.prepare(`SELECT id, name, medical_record_number FROM patients WHERE is_deleted = 0`).all()
     allPatients.forEach(p => {
       if (p.medical_record_number) {
         const normalizedMrn = String(p.medical_record_number).replace(/^0+/, '')
