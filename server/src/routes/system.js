@@ -631,19 +631,27 @@ router.get('/audit-logs', ...isAdmin, (req, res) => {
 
 /**
  * GET /api/system/physicians
- * 取得醫師列表
+ * 取得醫師列表 (從 users 表取 role='doctor' 的使用者)
  */
 router.get('/physicians', authenticate, (req, res) => {
   try {
     const db = getDatabase()
 
-    const physicians = db.prepare(`SELECT * FROM physicians WHERE is_active = 1 ORDER BY name`).all()
+    // 從 users 表取得 role 為 doctor 的使用者
+    const physicians = db.prepare(`
+      SELECT id, uid, username, name, title, role, email, is_active, created_at, updated_at
+      FROM users
+      WHERE role = 'doctor' AND is_active = 1
+      ORDER BY name
+    `).all()
     db.close()
 
     res.json(physicians.map(p => ({
       id: p.id,
+      uid: p.uid,
       name: p.name,
-      specialty: p.specialty,
+      title: p.title || '醫師',
+      specialty: p.title, // 用 title 作為專科
       isActive: p.is_active === 1,
       createdAt: p.created_at,
       updatedAt: p.updated_at
