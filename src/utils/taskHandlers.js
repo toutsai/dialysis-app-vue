@@ -1,7 +1,8 @@
 // 檔案路徑: src/utils/taskHandlers.js
+// ✨ Standalone 版本 - 使用本地 API
 
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+import { systemApi, memosApi } from '@/services/localApiClient'
+import { getNowISO } from '@/utils/dateUtils'
 
 /**
  * 處理新增交辦/留言的通用函式
@@ -13,7 +14,6 @@ export async function handleTaskCreated(data, currentUser) {
   // 1. 安全檢查：確保有使用者資料
   if (!currentUser) {
     console.error('[handleTaskCreated] Error: currentUser is not available.')
-    // 可以在這裡拋出錯誤或顯示通知
     throw new Error('使用者未登入，無法新增項目。')
   }
 
@@ -25,25 +25,31 @@ export async function handleTaskCreated(data, currentUser) {
       name: currentUser.name,
     },
     status: 'pending',
-    createdAt: serverTimestamp(), // 使用 Firestore 伺服器時間，確保時間一致性
+    createdAt: getNowISO(), // 使用本地時間
     resolvedAt: null,
     resolvedBy: null,
   }
 
-  // 3. 根據 data.category 決定要寫入哪個集合 (collection)
-  //    'task' -> 交辦事項
-  //    'message' -> 留言
-  const collectionName = data.category === 'task' ? 'tasks' : 'memos'
+  // 3. 根據 data.category 決定要寫入哪個集合
+  //    'task' -> 交辦事項 (使用 systemApi.createTask)
+  //    'message' -> 留言 (使用 memosApi.create)
+  const isTask = data.category === 'task'
 
   try {
-    // 4. 使用 addDoc 將資料寫入指定的集合
-    const docRef = await addDoc(collection(db, collectionName), payload)
-    console.log(
-      `[handleTaskCreated] Document written with ID: ${docRef.id} to collection: ${collectionName}`,
-    )
+    // 4. 使用對應的 API 寫入資料
+    if (isTask) {
+      const result = await systemApi.createTask(payload)
+      console.log(`[handleTaskCreated] Task created with ID: ${result.id}`)
+    } else {
+      const result = await memosApi.create({
+        ...payload,
+        date: data.targetDate || payload.createdAt.split('T')[0],
+        content: data.content,
+      })
+      console.log(`[handleTaskCreated] Memo created with ID: ${result.id}`)
+    }
   } catch (error) {
-    console.error(`[handleTaskCreated] Error adding document to ${collectionName}:`, error)
-    // 拋出錯誤，讓呼叫它的元件可以捕捉並處理 (例如顯示錯誤訊息)
+    console.error(`[handleTaskCreated] Error adding ${isTask ? 'task' : 'memo'}:`, error)
     throw error
   }
 }
