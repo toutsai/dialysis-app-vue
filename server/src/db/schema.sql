@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS patients (
     id TEXT PRIMARY KEY,
     medical_record_number TEXT NOT NULL,
     name TEXT NOT NULL,
-    status TEXT DEFAULT 'opd' CHECK (status IN ('opd', 'ipd', 'er')),
+    status TEXT DEFAULT 'opd' CHECK (status IN ('opd', 'ipd', 'er', 'deleted')),
     is_deleted INTEGER DEFAULT 0,
     delete_reason TEXT,
 
