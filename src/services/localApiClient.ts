@@ -820,7 +820,7 @@ export const nursingApi = {
       nurseCount: number
     }>('/nursing/schedules/upload', {
       method: 'POST',
-      body: JSON.stringify({ base64Data, fileName }),
+      body: JSON.stringify({ fileContentBase64: base64Data, fileName }),
     })
   },
 }
