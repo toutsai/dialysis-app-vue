@@ -626,12 +626,16 @@ router.get('/group-config', authenticate, (req, res) => {
     const configs = db.prepare(`SELECT * FROM nursing_group_config`).all()
     db.close()
 
-    res.json(configs.map(c => ({
-      id: c.id,
-      config: JSON.parse(c.config || '{}'),
-      createdAt: c.created_at,
-      updatedAt: c.updated_at
-    })))
+    // 回傳格式：將 config 內容展開到頂層，保留 id 和時間戳記
+    res.json(configs.map(c => {
+      const configData = JSON.parse(c.config || '{}')
+      return {
+        id: c.id,
+        ...configData,  // 展開配置內容到頂層
+        createdAt: c.created_at,
+        updatedAt: c.updated_at
+      }
+    }))
 
   } catch (error) {
     console.error('取得組別配置錯誤:', error)
@@ -651,6 +655,8 @@ router.put('/group-config/:id', ...isAdmin, async (req, res) => {
     const { id } = req.params
     const config = req.body
 
+    console.log(`📝 [GroupConfig] 收到更新請求: ${id}`)
+
     const db = getDatabase()
 
     db.prepare(`
@@ -662,6 +668,8 @@ router.put('/group-config/:id', ...isAdmin, async (req, res) => {
     `).run(id, JSON.stringify(config))
 
     db.close()
+
+    console.log(`✅ [GroupConfig] 已儲存配置: ${id}`)
 
     res.json({
       success: true,
