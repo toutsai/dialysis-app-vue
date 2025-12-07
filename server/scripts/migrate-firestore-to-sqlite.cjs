@@ -107,7 +107,7 @@ function normalizeStatus(status) {
 }
 
 function normalizeExceptionStatus(status) {
-  const validStatuses = ['pending', 'applied', 'cancelled', 'conflict_requires_resolution', 'processing']
+  const validStatuses = ['pending', 'applied', 'cancelled', 'conflict_requires_resolution', 'processing', 'expired']
   if (!status) return 'pending'
   const normalized = String(status).toLowerCase()
   if (validStatuses.includes(normalized)) {
@@ -356,6 +356,36 @@ async function migrateScheduleExceptions() {
     console.log('   ⚠️ schedule_exceptions 集合為空')
     return 0
   }
+
+  // 重建 schedule_exceptions 表以支援 'expired' status
+  console.log('   🔧 重建 schedule_exceptions 表以支援 expired 狀態...')
+  db.exec(`
+    DROP TABLE IF EXISTS schedule_exceptions;
+    CREATE TABLE schedule_exceptions (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL CHECK (type IN ('MOVE', 'ADD_SESSION', 'SWAP', 'SUSPEND')),
+      status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'applied', 'cancelled', 'conflict_requires_resolution', 'processing', 'expired')),
+      patient_id TEXT,
+      patient_name TEXT,
+      from_data TEXT DEFAULT '{}',
+      to_data TEXT DEFAULT '{}',
+      patient1 TEXT DEFAULT '{}',
+      patient2 TEXT DEFAULT '{}',
+      start_date TEXT,
+      end_date TEXT,
+      date TEXT,
+      reason TEXT,
+      cancel_reason TEXT,
+      error_message TEXT,
+      created_by TEXT DEFAULT '{}',
+      cancelled_at TEXT,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_exceptions_status ON schedule_exceptions(status);
+    CREATE INDEX IF NOT EXISTS idx_exceptions_patient ON schedule_exceptions(patient_id);
+    CREATE INDEX IF NOT EXISTS idx_exceptions_date ON schedule_exceptions(date);
+  `)
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO schedule_exceptions (
@@ -738,12 +768,19 @@ async function migrateHandoverLogs() {
   `)
 
   let count = 0
+  let skipped = 0
   const insertMany = db.transaction((docs) => {
     for (const doc of docs) {
       const data = doc.data()
+      // date 是必填欄位，如果沒有 date 則嘗試用 doc.id 或跳過
+      const dateValue = data.date || doc.id
+      if (!dateValue || !/^\d{4}-\d{2}-\d{2}/.test(dateValue)) {
+        skipped++
+        continue
+      }
       stmt.run(
         doc.id,
-        data.date || null,
+        dateValue,
         data.shift || null,
         data.content || null,
         toJsonArray(data.items),
@@ -756,6 +793,9 @@ async function migrateHandoverLogs() {
   })
 
   insertMany(snapshot.docs)
+  if (skipped > 0) {
+    console.log(`   ⚠️ 跳過 ${skipped} 筆缺少日期的記錄`)
+  }
   console.log(`   ✅ 已遷移 ${count} 筆交班日誌`)
   return count
 }
