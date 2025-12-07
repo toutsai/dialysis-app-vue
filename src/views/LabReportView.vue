@@ -360,7 +360,7 @@
 
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ordersApi, labReportsApi, labAnalysesApi } from '@/services/localApiClient'
+import { ordersApi, labReportsApi, labAnalysesApi, baseSchedulesApi } from '@/services/localApiClient'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
@@ -482,8 +482,7 @@ const prioritizedLabItems = [
 ]
 const labItemDisplayNames = ref(LAB_ITEM_DISPLAY_NAMES)
 
-// labReportsApi, labAnalysesApi 已從 localApiClient import
-const baseSchedulesApi = ApiManager('base_schedules')
+// labReportsApi, labAnalysesApi, baseSchedulesApi 已從 localApiClient import
 
 const alertMonthRange = computed(() => {
   const end = new Date(alertCurrentMonth.value)

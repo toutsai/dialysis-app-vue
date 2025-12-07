@@ -829,6 +829,35 @@ export const labAnalysesApi = {
 }
 
 // ========================================
+// 基礎排班總表 API (兼容 ApiManager 的 fetchById 介面)
+// ========================================
+
+export const baseSchedulesApi = {
+  /**
+   * 取得排班總表 (兼容 ApiManager.fetchById 介面)
+   * @param id - 文件 ID，目前只支援 'MASTER_SCHEDULE'
+   */
+  async fetchById(id: string) {
+    if (id === 'MASTER_SCHEDULE') {
+      return schedulesApi.fetchMasterSchedule()
+    }
+    console.warn(`[baseSchedulesApi] 不支援的 ID: ${id}`)
+    return null
+  },
+
+  /**
+   * 更新排班總表 (兼容 ApiManager.update 介面)
+   */
+  async update(id: string, data: { schedule: any }) {
+    if (id === 'MASTER_SCHEDULE') {
+      return schedulesApi.updateMasterSchedule(data.schedule)
+    }
+    console.warn(`[baseSchedulesApi] 不支援更新 ID: ${id}`)
+    return null
+  },
+}
+
+// ========================================
 // 護理 API
 // ========================================
 
@@ -1296,6 +1325,7 @@ export const localApi = {
   auth: authApi,
   patients: patientsApi,
   schedules: schedulesApi,
+  baseSchedules: baseSchedulesApi,
   memos: memosApi,
   orders: ordersApi,
   medications: medicationsApi,
