@@ -811,6 +811,52 @@ export const nursingApi = {
 }
 
 // ========================================
+// Kidit 日誌本 API
+// ========================================
+
+export const kiditApi = {
+  /**
+   * 取得指定日期範圍的 Kidit 日誌本
+   */
+  async fetchLogbooks(params: { year?: number; month?: number; startDate?: string; endDate?: string }) {
+    const query = new URLSearchParams()
+    if (params.year) query.set('year', String(params.year))
+    if (params.month) query.set('month', String(params.month))
+    if (params.startDate) query.set('startDate', params.startDate)
+    if (params.endDate) query.set('endDate', params.endDate)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/nursing/kidit-logbook${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 取得單日 Kidit 日誌本
+   */
+  async fetchLogbookByDate(date: string) {
+    return apiRequest<any>(`/nursing/kidit-logbook/${date}`)
+  },
+
+  /**
+   * 取代整個事件列表
+   */
+  async replaceEvents(date: string, events: any[]) {
+    return apiRequest<any>(`/nursing/kidit-logbook/${date}/events`, {
+      method: 'PUT',
+      body: JSON.stringify({ events }),
+    })
+  },
+
+  /**
+   * 更新單筆事件
+   */
+  async updateEvent(date: string, eventId: string, updates: Record<string, unknown>) {
+    return apiRequest<any>(`/nursing/kidit-logbook/${date}/events/${eventId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    })
+  },
+}
+
+// ========================================
 // 系統 API
 // ========================================
 
@@ -1082,6 +1128,7 @@ export const localApi = {
   orders: ordersApi,
   medications: medicationsApi,
   nursing: nursingApi,
+  kidit: kiditApi,
   system: systemApi,
 }
 

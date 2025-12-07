@@ -142,7 +142,7 @@ export async function fetchAllPatients() {
   if (cached) return cached
 
   const [patients, masterScheduleDoc] = await Promise.all([
-    patientsApi.fetchAll(),
+    patientsApi.fetchAll(true),
     schedulesApi.fetchMasterSchedule(),
   ])
   const masterRules = masterScheduleDoc?.schedule || {}
