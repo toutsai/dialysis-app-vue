@@ -181,3 +181,4 @@ my-dialysis-app-develop-key.json
 
 # Custom credentials
 gdrive-credentials.json
+*.db
