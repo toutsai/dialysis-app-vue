@@ -80,12 +80,6 @@ const routes = [
         meta: { title: '護理分組檢視' },
       },
       {
-        path: 'memo',
-        name: 'Memo',
-        component: () => import('@/views/MemoView.vue'),
-        meta: { title: '交班備忘錄' },
-      },
-      {
         path: 'reporting',
         name: 'Reporting',
         component: () => import('@/views/ReportingView.vue'),
