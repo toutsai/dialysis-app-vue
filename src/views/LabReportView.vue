@@ -361,6 +361,7 @@
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ordersApi, labReportsApi, labAnalysesApi } from '@/services/localApiClient'
+import ApiManager from '@/services/api_manager'
 import * as XLSX from 'xlsx'
 // ✨ 修改：引入新的 Modal
 import LabAlertDetailModal from '@/components/LabAlertDetailModal.vue'
