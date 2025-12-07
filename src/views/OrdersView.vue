@@ -193,22 +193,16 @@
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
 import * as XLSX from 'xlsx' // ✨ 核心修改 2: 引入 xlsx 函式庫
-import ApiManager from '@/services/api_manager'
 import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { useMedicationStore } from '@/stores/medicationStore'
 import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
-import { ordersApi as localOrdersApi } from '@/services/localApiClient'
+import { ordersApi as localOrdersApi, baseSchedulesApi } from '@/services/localApiClient'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
 const { opdPatients } = storeToRefs(patientStore)
 const medicationStore = useMedicationStore()
-const baseSchedulesApi = ApiManager('base_schedules')
-const ordersApi = ApiManager('medication_orders')
-
-// 判斷是否為單機版模式
-const isStandaloneMode = import.meta.env.MODE === 'standalone'
 
 // --- Component State & Parameters ---
 const activeTab = ref('query')
@@ -330,22 +324,11 @@ async function searchGroupOrders() {
 
   let allOrders = []
 
-  if (isStandaloneMode) {
-    // 單機版：從 injection_orders 表查詢
-    const uploadMonth = groupSearchParams.month // 格式: YYYY-MM
-    allOrders = await localOrdersApi.fetchInjectionOrders({ uploadMonth })
-    // 過濾出符合病人清單的訂單
-    allOrders = allOrders.filter((order) => patientIds.includes(order.patientId))
-  } else {
-    // 線上版：使用原有的 Firebase 查詢
-    const startDate = new Date(year, month - 1, 1)
-    const endDate = new Date(year, month, 1)
-    allOrders = await ordersApi.fetchAll({
-      patientId: patientIds,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    })
-  }
+  // 從 injection_orders 表查詢
+  const uploadMonth = groupSearchParams.month // 格式: YYYY-MM
+  allOrders = await localOrdersApi.fetchInjectionOrders({ uploadMonth })
+  // 過濾出符合病人清單的訂單
+  allOrders = allOrders.filter((order) => patientIds.includes(order.patientId))
 
   const patientOrdersMap = new Map()
   patientList.forEach((p) => patientOrdersMap.set(p.patientId, { ...p, orders: {} }))
@@ -383,26 +366,15 @@ async function searchIndividualOrders() {
   const year = individualSearchYear.value
   let allYearlyOrders = []
 
-  if (isStandaloneMode) {
-    // 單機版：從 injection_orders 表查詢該病人整年的資料
-    allYearlyOrders = await localOrdersApi.fetchInjectionOrders({
-      patientId: foundPatient.id,
-    })
-    // 過濾出該年度的資料
-    allYearlyOrders = allYearlyOrders.filter((order) => {
-      const orderMonth = order.uploadMonth // 格式: YYYY-MM
-      return orderMonth && orderMonth.startsWith(String(year))
-    })
-  } else {
-    // 線上版：使用原有的 Firebase 查詢
-    const startDate = new Date(year, 0, 1)
-    const endDate = new Date(year + 1, 0, 1)
-    allYearlyOrders = await ordersApi.fetchAll({
-      patientId: foundPatient.id,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString(),
-    })
-  }
+  // 從 injection_orders 表查詢該病人整年的資料
+  allYearlyOrders = await localOrdersApi.fetchInjectionOrders({
+    patientId: foundPatient.id,
+  })
+  // 過濾出該年度的資料
+  allYearlyOrders = allYearlyOrders.filter((order) => {
+    const orderMonth = order.uploadMonth // 格式: YYYY-MM
+    return orderMonth && orderMonth.startsWith(String(year))
+  })
 
   const monthlyOrdersMap = new Map()
   for (let i = 1; i <= 12; i++) {
@@ -411,15 +383,7 @@ async function searchIndividualOrders() {
   }
 
   allYearlyOrders.forEach((order) => {
-    // 單機版使用 uploadMonth，線上版使用 uploadTimestamp
-    let monthKey
-    if (isStandaloneMode) {
-      monthKey = order.uploadMonth // 格式: YYYY-MM
-    } else {
-      const uploadDate = new Date(order.uploadTimestamp)
-      monthKey = `${uploadDate.getFullYear()}-${String(uploadDate.getMonth() + 1).padStart(2, '0')}`
-    }
-
+    const monthKey = order.uploadMonth // 格式: YYYY-MM
     const monthData = monthlyOrdersMap.get(monthKey)
     if (monthData) {
       const existingOrder = monthData.orders[order.orderCode]
@@ -574,20 +538,8 @@ async function handleUpload() {
     const base64Data = await toBase64(selectedFile.value)
     const fileName = selectedFile.value.name
 
-    let result
-
-    if (isStandaloneMode) {
-      // 單機版：呼叫本地 API
-      result = await localOrdersApi.uploadMedications(base64Data, fileName)
-    } else {
-      // 線上版：呼叫 Firebase Cloud Functions
-      uploadResult.value = {
-        message: '線上模式請使用 Firebase Cloud Functions 上傳功能。',
-        errorCount: 1,
-        errors: [],
-      }
-      return
-    }
+    // 呼叫本地 API
+    const result = await localOrdersApi.uploadMedications(base64Data, fileName)
 
     uploadResult.value = {
       message: result.message,
