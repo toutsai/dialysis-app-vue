@@ -532,6 +532,22 @@ export const ordersApi = {
   },
 
   /**
+   * 上傳檢驗報告 Excel
+   */
+  async uploadLabReports(base64Data: string, fileName: string) {
+    return apiRequest<{
+      success: boolean
+      message: string
+      processedCount: number
+      errorCount: number
+      errors?: Array<{ rowData: string; reason: string }>
+    }>('/orders/lab-reports/upload', {
+      method: 'POST',
+      body: JSON.stringify({ fileContent: base64Data, fileName }),
+    })
+  },
+
+  /**
    * 取得病情記錄
    */
   async fetchConditionRecords(params?: {
