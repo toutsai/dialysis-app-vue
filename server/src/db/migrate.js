@@ -205,6 +205,14 @@ export function runMigrations() {
       if (addColumnIfNotExists(db, 'handover_logs', 'source_date', "TEXT")) migrationsApplied++
     }
 
+    // 醫師表擴充欄位
+    console.log('📋 檢查 physicians 表格...')
+    if (addColumnIfNotExists(db, 'physicians', 'staff_id', "TEXT")) migrationsApplied++
+    if (addColumnIfNotExists(db, 'physicians', 'phone', "TEXT")) migrationsApplied++
+    if (addColumnIfNotExists(db, 'physicians', 'clinic_hours', "TEXT DEFAULT '[]'")) migrationsApplied++
+    if (addColumnIfNotExists(db, 'physicians', 'default_schedules', "TEXT DEFAULT '[]'")) migrationsApplied++
+    if (addColumnIfNotExists(db, 'physicians', 'default_consultation_schedules', "TEXT DEFAULT '[]'")) migrationsApplied++
+
     if (migrationsApplied > 0) {
       console.log(`✅ 已完成 ${migrationsApplied} 項遷移`)
     } else {

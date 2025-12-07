@@ -631,7 +631,7 @@ router.get('/audit-logs', ...isAdmin, (req, res) => {
 
 /**
  * GET /api/system/physicians
- * 取得醫師列表
+ * 取得醫師列表 (從 physicians 表)
  */
 router.get('/physicians', authenticate, (req, res) => {
   try {
@@ -644,6 +644,11 @@ router.get('/physicians', authenticate, (req, res) => {
       id: p.id,
       name: p.name,
       specialty: p.specialty,
+      staffId: p.staff_id,
+      phone: p.phone,
+      clinicHours: JSON.parse(p.clinic_hours || '[]'),
+      defaultSchedules: JSON.parse(p.default_schedules || '[]'),
+      defaultConsultationSchedules: JSON.parse(p.default_consultation_schedules || '[]'),
       isActive: p.is_active === 1,
       createdAt: p.created_at,
       updatedAt: p.updated_at
