@@ -109,9 +109,10 @@ router.get('/schedules', ...isEditor, (req, res) => {
         })
       }
 
+      const scheduleData = JSON.parse(schedule.schedule_data || '{}')
       return res.json({
         id: schedule.id,
-        scheduleData: JSON.parse(schedule.schedule_data || '{}'),
+        ...scheduleData,
         createdAt: schedule.created_at,
         updatedAt: schedule.updated_at
       })
@@ -120,12 +121,15 @@ router.get('/schedules', ...isEditor, (req, res) => {
     const schedules = db.prepare(`SELECT * FROM nursing_schedules ORDER BY id DESC`).all()
     db.close()
 
-    res.json(schedules.map(s => ({
-      id: s.id,
-      scheduleData: JSON.parse(s.schedule_data || '{}'),
-      createdAt: s.created_at,
-      updatedAt: s.updated_at
-    })))
+    res.json(schedules.map(s => {
+      const scheduleData = JSON.parse(s.schedule_data || '{}')
+      return {
+        id: s.id,
+        ...scheduleData,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at
+      }
+    }))
 
   } catch (error) {
     console.error('取得護理排班錯誤:', error)
