@@ -174,7 +174,15 @@ const resourceApiMap: Record<string, any> = {
       console.log('[LocalApiManager] physician_schedules.fetchAll: 返回空陣列')
       return []
     },
-    fetchById: (id: string) => systemApi.fetchPhysicianSchedule(id),
+    fetchById: async (id: string) => {
+      // 取得班表並展開 scheduleData 到頂層
+      const result = await systemApi.fetchPhysicianSchedule(id)
+      if (!result) return null
+      // 後端返回 { id, scheduleData: {...}, createdAt, updatedAt }
+      // 前端期望 { id, schedule: {...}, consultationSchedule: {...}, notes: "...", ... }
+      const { scheduleData, ...rest } = result
+      return { ...rest, ...(scheduleData || {}) }
+    },
     save: (id: string, data: any) => systemApi.updatePhysicianSchedule(id, data),
     update: (id: string, data: any) => systemApi.updatePhysicianSchedule(id, data),
   },

@@ -637,7 +637,13 @@ router.get('/physicians', authenticate, (req, res) => {
   try {
     const db = getDatabase()
 
-    const physicians = db.prepare(`SELECT * FROM physicians WHERE is_active = 1 ORDER BY name`).all()
+    // 依名稱分組避免重複（若有同名取最新更新的）
+    const physicians = db.prepare(`
+      SELECT * FROM physicians
+      WHERE is_active = 1
+      GROUP BY name
+      ORDER BY name
+    `).all()
     db.close()
 
     res.json(physicians.map(p => ({
