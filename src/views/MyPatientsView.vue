@@ -217,17 +217,16 @@ const INJECTION_MEDS_MASTER = [
   { code: 'ICAC', tradeName: 'Cacare', unit: 'amp' },
   { code: 'IPAR1', tradeName: 'Parsabiv', unit: 'mg' },
 ]
-const injectionTradeNameMap = new Map(INJECTION_MEDS_MASTER.map((med) => [med.code, med.tradeName]))
+const injectionMasterMap = new Map(INJECTION_MEDS_MASTER.map((med) => [med.code, med]))
 
 function formatInjection(injection) {
-  const displayName =
-    injectionTradeNameMap.get(injection.orderCode) || injection.orderName || '未知藥品'
-  const parts = [
-    displayName,
-    `${injection.dose || ''} ${injection.unit || ''}`.trim(),
-    injection.note || '',
-  ]
-  return parts.filter((part) => part).join(' / ')
+  const masterInfo = injectionMasterMap.get(injection.orderCode)
+  const displayName = masterInfo?.tradeName || injection.orderName || '未知藥品'
+  const unit = masterInfo?.unit || ''
+  const doseStr = injection.dose ? `${injection.dose}${unit ? ' ' + unit : ''}` : ''
+
+  const parts = [displayName, doseStr].filter(Boolean)
+  return parts.join(' ')
 }
 
 // --- Dialog 狀態管理 ---
