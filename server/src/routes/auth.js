@@ -218,21 +218,42 @@ router.get('/users', ...isAdmin, (req, res) => {
     FROM users ORDER BY created_at DESC
   `).all()
 
+  // 取得所有醫師資料
+  const physicians = db.prepare(`SELECT * FROM physicians`).all()
+  const physicianMap = {}
+  physicians.forEach(p => {
+    physicianMap[p.id] = p
+  })
+
   db.close()
 
-  // 轉換為 camelCase 格式
-  res.json(users.map(u => ({
-    id: u.id,
-    username: u.username,
-    name: u.name,
-    title: u.title,
-    role: u.role,
-    email: u.email,
-    isActive: u.is_active === 1,
-    lastLogin: u.last_login,
-    createdAt: u.created_at,
-    updatedAt: u.updated_at
-  })))
+  // 轉換為 camelCase 格式，並合併醫師資料
+  res.json(users.map(u => {
+    const result = {
+      id: u.id,
+      username: u.username,
+      name: u.name,
+      title: u.title,
+      role: u.role,
+      email: u.email,
+      isActive: u.is_active === 1,
+      lastLogin: u.last_login,
+      createdAt: u.created_at,
+      updatedAt: u.updated_at
+    }
+
+    // 如果是主治醫師，合併 physician 資料
+    if (u.title === '主治醫師' && physicianMap[u.id]) {
+      const p = physicianMap[u.id]
+      result.staffId = p.staff_id
+      result.phone = p.phone
+      result.clinicHours = JSON.parse(p.clinic_hours || '[]')
+      result.defaultSchedules = JSON.parse(p.default_schedules || '[]')
+      result.defaultConsultationSchedules = JSON.parse(p.default_consultation_schedules || '[]')
+    }
+
+    return result
+  }))
 })
 
 /**
