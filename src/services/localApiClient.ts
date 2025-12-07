@@ -808,6 +808,21 @@ export const nursingApi = {
       body: JSON.stringify(config),
     })
   },
+
+  /**
+   * 上傳護理班表 Excel
+   */
+  async uploadSchedule(base64Data: string, fileName: string) {
+    return apiRequest<{
+      success: boolean
+      documentId: string
+      title: string
+      nurseCount: number
+    }>('/nursing/schedules/upload', {
+      method: 'POST',
+      body: JSON.stringify({ base64Data, fileName }),
+    })
+  },
 }
 
 // ========================================
