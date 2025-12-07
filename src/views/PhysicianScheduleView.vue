@@ -1096,6 +1096,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useAuth } from '@/composables/useAuth' // ✨ 1. 引入 useAuth
 import ApiManager from '@/services/api_manager'
+import { systemApi } from '@/services/localApiClient'
 import AlertDialog from '@/components/AlertDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { usePatientStore } from '@/stores/patientStore'
@@ -1554,7 +1555,8 @@ function saveScheduleOnly() {
 
 async function fetchPhysicians() {
   try {
-    const physicians = await usersApi.fetchAll([where('title', '==', '主治醫師')])
+    // 使用 systemApi.fetchPhysicians() 從 physicians 表讀取
+    const physicians = await systemApi.fetchPhysicians()
     const desiredOrder = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政', '林天佑']
     physicians.sort((a, b) => {
       const indexA = desiredOrder.indexOf(a.name)
@@ -1573,7 +1575,7 @@ async function fetchPhysicians() {
     availablePhysicians.value = physicians
   } catch (error) {
     console.error('讀取主治醫師列表失敗:', error)
-    showAlert('錯誤', '無法從使用者列表讀取主治醫師資料。')
+    showAlert('錯誤', '無法讀取主治醫師資料。')
   }
 }
 
@@ -1770,13 +1772,15 @@ function getShiftCellClass(day) {
 
 async function fetchAllYearSchedules(year, endMonth) {
   try {
-    const schedules = await physicianSchedulesApi.fetchAll([
-      where('year', '==', year),
-      where('month', '<=', endMonth),
-    ])
+    // Standalone 模式：取得所有排班後在前端過濾
+    const allSchedules = await physicianSchedulesApi.fetchAll()
     const data = {}
-    schedules.forEach((doc) => {
-      data[doc.id] = doc
+    allSchedules.forEach((doc) => {
+      // 從 id 解析 year 和 month (格式: YYYY-MM)
+      const [docYear, docMonth] = doc.id.split('-').map(Number)
+      if (docYear === year && docMonth <= endMonth) {
+        data[doc.id] = doc
+      }
     })
     yearScheduleData.value = data
   } catch (error) {
