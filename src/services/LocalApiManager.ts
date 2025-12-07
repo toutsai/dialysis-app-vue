@@ -135,6 +135,11 @@ const resourceApiMap: Record<string, any> = {
     fetchAll: () => nursingApi.fetchGroupConfig(),
     update: (id: string, data: any) => nursingApi.updateGroupConfig(id, data),
   },
+  nursing_schedules: {
+    fetchAll: () => nursingApi.fetchSchedules(),
+    fetchById: (id: string) => nursingApi.fetchScheduleById(id),
+    update: (id: string, data: any) => nursingApi.updateSchedule(id, data),
+  },
 
   // 系統相關
   tasks: {

@@ -823,6 +823,30 @@ export const nursingApi = {
       body: JSON.stringify({ fileContentBase64: base64Data, fileName }),
     })
   },
+
+  /**
+   * 取得所有護理班表
+   */
+  async fetchSchedules() {
+    return apiRequest<any[]>('/nursing/schedules')
+  },
+
+  /**
+   * 取得單一護理班表
+   */
+  async fetchScheduleById(id: string) {
+    return apiRequest<any>(`/nursing/schedules?id=${id}`)
+  },
+
+  /**
+   * 更新護理班表
+   */
+  async updateSchedule(id: string, data: any) {
+    return apiRequest<any>(`/nursing/schedules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
 }
 
 // ========================================
