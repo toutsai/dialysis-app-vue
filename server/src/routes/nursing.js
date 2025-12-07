@@ -501,6 +501,12 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
     const { date } = req.params
     const { patientMovements, announcements, notes, vascularAccessLog, stats, leader, otherNotes } = req.body
 
+    // 將可能是物件的欄位轉成可儲存的字串，避免 SQLite 綁定錯誤
+    const safeNotes =
+      notes == null ? null : typeof notes === 'string' ? notes : JSON.stringify(notes)
+    const safeOtherNotes =
+      otherNotes == null ? null : typeof otherNotes === 'string' ? otherNotes : JSON.stringify(otherNotes)
+
     const db = getDatabase()
 
     db.prepare(`
@@ -520,11 +526,11 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
       date,
       JSON.stringify(patientMovements || []),
       JSON.stringify(announcements || []),
-      notes,
+      safeNotes,
       JSON.stringify(vascularAccessLog || []),
       JSON.stringify(stats || {}),
       JSON.stringify(leader || {}),
-      otherNotes || null,
+      safeOtherNotes,
     )
 
     db.close()
