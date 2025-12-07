@@ -335,7 +335,7 @@
           </section>
 
           <!-- 週班表內容 (根據頁籤切換顯示) -->
-          <div class="weekly-schedule-container">
+          <div class="weekly-schedule-container" :key="`weekly-config-${groupConfigKey}`">
             <template v-for="(weekData, weekIndex) in weeklyData" :key="`week-${weekIndex}`">
               <div v-if="activeWeekTab === weekIndex + 1" class="week-section">
                 <h4 class="week-title">
@@ -854,6 +854,7 @@ const lastModifiedInfo = ref({ date: '', user: '' })
 const groupConfig = ref(getDefaultConfig())
 const configSourceMonth = ref(null) // 配置來源月份
 const showGroupConfigDialog = ref(false)
+const groupConfigKey = ref(0) // 用於強制刷新組別相關元件
 
 // --- 組別衝突提示 ---
 const showGroupConflictAlert = ref(false)
@@ -1948,6 +1949,7 @@ const loadGroupConfig = async () => {
 const onGroupConfigSaved = (newConfig) => {
   groupConfig.value = newConfig
   configSourceMonth.value = selectedMonth.value // 更新來源月份
+  groupConfigKey.value++ // 強制刷新組別相關元件
   uploadStatus.value = `${selectedMonth.value} 組別配置已更新`
 }
 
