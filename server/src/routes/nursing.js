@@ -3,7 +3,13 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isEditor, isAdmin, logAudit } from '../middleware/auth.js'
-import { syncEventsToKiditLogbook, getKiditLogbook, updateKiditEvent } from '../services/kiditSync.js'
+import {
+  syncEventsToKiditLogbook,
+  getKiditLogbook,
+  updateKiditEvent,
+  updateKiditEvents,
+  listKiditLogbooks,
+} from '../services/kiditSync.js'
 
 const router = Router()
 
@@ -458,15 +464,14 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       return res.json({
         id: date,
         date,
-        isNew: true,  // 標記這是新的日誌，前端應該從排程計算統計
+        isNew: true, // 標記這是新的日誌，前端應該從排程計算統計
         patientMovements: [],
         vascularAccessLog: [],
         announcements: [],
-        vascularAccessLog: [],
         stats: {},
         leader: {},
         otherNotes: null,
-        notes: null
+        notes: null,
       })
     }
 
@@ -476,16 +481,12 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       patientMovements: JSON.parse(log.patient_movements || '[]'),
       vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       announcements: JSON.parse(log.announcements || '[]'),
-      vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       stats: JSON.parse(log.stats || '{}'),
       leader: JSON.parse(log.leader || '{}'),
       otherNotes: log.other_notes,
       notes: log.notes,
-      otherNotes: log.other_notes,
-      stats: JSON.parse(log.stats || '{}'),
-      leader: JSON.parse(log.leader || '{}'),
       createdAt: log.created_at,
-      updatedAt: log.updated_at
+      updatedAt: log.updated_at,
     })
 
   } catch (error) {
@@ -506,6 +507,12 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
     const { date } = req.params
     const { patientMovements, announcements, notes, vascularAccessLog, stats, leader, otherNotes } = req.body
 
+    // 將可能是物件的欄位轉成可儲存的字串，避免 SQLite 綁定錯誤
+    const safeNotes =
+      notes == null ? null : typeof notes === 'string' ? notes : JSON.stringify(notes)
+    const safeOtherNotes =
+      otherNotes == null ? null : typeof otherNotes === 'string' ? otherNotes : JSON.stringify(otherNotes)
+
     const db = getDatabase()
 
     db.prepare(`
@@ -516,7 +523,6 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
         vascular_access_log = excluded.vascular_access_log,
         announcements = excluded.announcements,
         notes = excluded.notes,
-        vascular_access_log = excluded.vascular_access_log,
         stats = excluded.stats,
         leader = excluded.leader,
         other_notes = excluded.other_notes,
@@ -525,13 +531,12 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
       date,
       date,
       JSON.stringify(patientMovements || []),
-      JSON.stringify(vascularAccessLog || []),
       JSON.stringify(announcements || []),
-      notes,
+      safeNotes,
       JSON.stringify(vascularAccessLog || []),
       JSON.stringify(stats || {}),
       JSON.stringify(leader || {}),
-      otherNotes || null
+      safeOtherNotes,
     )
 
     db.close()
@@ -570,6 +575,40 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
  * GET /api/nursing/kidit-logbook/:date
  * 取得特定日期的 Kidit 日誌本
  */
+router.get('/kidit-logbook', authenticate, (req, res) => {
+  try {
+    const { year, month, startDate, endDate } = req.query
+
+    let rangeStart = startDate
+    let rangeEnd = endDate
+
+    if (year && month) {
+      const start = `${year}-${String(month).padStart(2, '0')}-01`
+      const nextDate = new Date(Number(year), Number(month), 1)
+      const end = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}-01`
+      rangeStart = start
+      rangeEnd = end
+    }
+
+    if (!rangeStart || !rangeEnd) {
+      return res.status(400).json({ error: true, message: '請提供 year/month 或 startDate 與 endDate' })
+    }
+
+    const logbooks = listKiditLogbooks({ startDate: rangeStart, endDate: rangeEnd })
+    res.json(logbooks)
+  } catch (error) {
+    console.error('取得 Kidit 日誌本列表錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: '取得 Kidit 日誌本列表失敗',
+    })
+  }
+})
+
+/**
+ * GET /api/nursing/kidit-logbook/:date
+ * 取得特定日期的 Kidit 日誌本
+ */
 router.get('/kidit-logbook/:date', authenticate, (req, res) => {
   try {
     const { date } = req.params
@@ -593,12 +632,9 @@ router.get('/kidit-logbook/:date', authenticate, (req, res) => {
 router.put('/kidit-logbook/:date/events/:eventId', ...isEditor, async (req, res) => {
   try {
     const { date, eventId } = req.params
-    const { isRegistered, transferOutHospital } = req.body
+    const updates = req.body || {}
 
-    const result = updateKiditEvent(date, eventId, {
-      isRegistered,
-      transferOutHospital
-    })
+    const result = updateKiditEvent(date, eventId, updates)
 
     res.json({
       success: true,
@@ -610,6 +646,30 @@ router.put('/kidit-logbook/:date/events/:eventId', ...isEditor, async (req, res)
     res.status(500).json({
       error: true,
       message: error.message || '更新 Kidit 事件失敗'
+    })
+  }
+})
+
+/**
+ * PUT /api/nursing/kidit-logbook/:date/events
+ * 取代整日的 Kidit 事件列表
+ */
+router.put('/kidit-logbook/:date/events', ...isEditor, (req, res) => {
+  try {
+    const { date } = req.params
+    const { events } = req.body
+
+    const result = updateKiditEvents(date, events || [])
+
+    res.json({
+      success: true,
+      ...result,
+    })
+  } catch (error) {
+    console.error('更新 Kidit 事件列表錯誤:', error)
+    res.status(500).json({
+      error: true,
+      message: error.message || '更新 Kidit 事件列表失敗',
     })
   }
 })

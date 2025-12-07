@@ -255,8 +255,65 @@ export function updateKiditEvent(dateStr, eventId, updates) {
   }
 }
 
+export function updateKiditEvents(dateStr, events = []) {
+  const db = getDatabase()
+
+  try {
+    const safeEvents = Array.isArray(events) ? events : []
+
+    db.prepare(
+      `
+      INSERT INTO kidit_logbook (id, date, events, updated_at)
+      VALUES (?, ?, ?, datetime('now', 'localtime'))
+      ON CONFLICT(id) DO UPDATE SET
+        events = excluded.events,
+        updated_at = datetime('now', 'localtime')
+    `,
+    ).run(dateStr, dateStr, JSON.stringify(safeEvents))
+
+    db.close()
+    return { success: true, count: safeEvents.length }
+  } catch (error) {
+    console.error(`[KIDIT] 更新事件列表失敗:`, error)
+    db.close()
+    throw error
+  }
+}
+
+export function listKiditLogbooks({ startDate, endDate }) {
+  const db = getDatabase()
+
+  try {
+    const rows = db
+      .prepare(
+        `
+        SELECT * FROM kidit_logbook
+        WHERE date >= ? AND date < ?
+        ORDER BY date
+      `,
+      )
+      .all(startDate, endDate)
+
+    db.close()
+
+    return rows.map(row => ({
+      id: row.id,
+      date: row.date,
+      events: JSON.parse(row.events || '[]'),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+  } catch (error) {
+    console.error(`[KIDIT] 取得區間日誌本失敗:`, error)
+    db.close()
+    throw error
+  }
+}
+
 export default {
   syncEventsToKiditLogbook,
   getKiditLogbook,
   updateKiditEvent,
+  updateKiditEvents,
+  listKiditLogbooks,
 }
