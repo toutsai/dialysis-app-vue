@@ -158,6 +158,12 @@ export const authApi = {
     title?: string
     role: string
     email?: string
+    // 醫師專屬欄位
+    staffId?: string
+    phone?: string
+    clinicHours?: string[]
+    defaultSchedules?: string[]
+    defaultConsultationSchedules?: string[]
   }) {
     return apiRequest<{ success: boolean; id: string }>('/auth/users', {
       method: 'POST',
@@ -177,6 +183,12 @@ export const authApi = {
       email: string
       is_active: boolean
       password: string
+      // 醫師專屬欄位
+      staffId: string
+      phone: string
+      clinicHours: string[]
+      defaultSchedules: string[]
+      defaultConsultationSchedules: string[]
     }>,
   ) {
     return apiRequest<{ success: boolean }>(`/auth/users/${id}`, {

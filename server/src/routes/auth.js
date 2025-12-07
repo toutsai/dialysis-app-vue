@@ -429,9 +429,13 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
     const finalTitle = title !== undefined ? title : existing.title
     const finalName = name !== undefined ? name : existing.name
 
+    console.log(`[UserUpdate] 使用者 ${id} 職稱: ${finalTitle}`)
+    console.log(`[UserUpdate] 收到的醫師欄位:`, { staffId, phone, clinicHours, defaultSchedules, defaultConsultationSchedules })
+
     if (finalTitle === '主治醫師') {
       // 先讀取現有的 physician 資料
       const existingPhysician = db.prepare(`SELECT * FROM physicians WHERE id = ?`).get(id)
+      console.log(`[UserUpdate] 現有 physician 資料:`, existingPhysician ? '存在' : '不存在')
 
       // 合併現有資料與新資料（只更新有傳送的欄位）
       const mergedData = {
@@ -441,6 +445,7 @@ router.put('/users/:id', ...isAdmin, async (req, res) => {
         defaultSchedules: defaultSchedules !== undefined ? defaultSchedules : (existingPhysician ? JSON.parse(existingPhysician.default_schedules || '[]') : []),
         defaultConsultationSchedules: defaultConsultationSchedules !== undefined ? defaultConsultationSchedules : (existingPhysician ? JSON.parse(existingPhysician.default_consultation_schedules || '[]') : [])
       }
+      console.log(`[UserUpdate] 合併後的資料:`, mergedData)
 
       // 新增或更新 physicians 記錄
       db.prepare(`
