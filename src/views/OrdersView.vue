@@ -198,6 +198,7 @@ import { usePatientStore } from '@/stores/patientStore'
 import { storeToRefs } from 'pinia'
 import { useMedicationStore } from '@/stores/medicationStore'
 import { formatDateToYYYYMM } from '@/utils/dateUtils.js'
+import { ordersApi as localOrdersApi } from '@/services/localApiClient'
 
 // --- Stores and APIs ---
 const patientStore = usePatientStore()
@@ -205,6 +206,9 @@ const { opdPatients } = storeToRefs(patientStore)
 const medicationStore = useMedicationStore()
 const baseSchedulesApi = ApiManager('base_schedules')
 const ordersApi = ApiManager('medication_orders')
+
+// 判斷是否為單機版模式
+const isStandaloneMode = import.meta.env.MODE === 'standalone'
 
 // --- Component State & Parameters ---
 const activeTab = ref('query')
@@ -535,10 +539,48 @@ async function handleUpload() {
     return
   }
 
-  uploadResult.value = {
-    message: '離線模式下暫不支援上傳功能，請使用線上模式進行批次上傳。',
-    errorCount: 1,
-    errors: [],
+  isUploading.value = true
+  uploadResult.value = null
+
+  try {
+    const base64Data = await toBase64(selectedFile.value)
+    const fileName = selectedFile.value.name
+
+    let result
+
+    if (isStandaloneMode) {
+      // 單機版：呼叫本地 API
+      result = await localOrdersApi.uploadMedications(base64Data, fileName)
+    } else {
+      // 線上版：呼叫 Firebase Cloud Functions
+      uploadResult.value = {
+        message: '線上模式請使用 Firebase Cloud Functions 上傳功能。',
+        errorCount: 1,
+        errors: [],
+      }
+      return
+    }
+
+    uploadResult.value = {
+      message: result.message,
+      processedCount: result.processedCount,
+      errorCount: result.errorCount,
+      errors: result.errors || [],
+    }
+
+    // 上傳成功後清除選擇的檔案
+    if (result.success && result.errorCount === 0) {
+      selectedFile.value = null
+    }
+  } catch (error) {
+    console.error('上傳藥囑 Excel 失敗:', error)
+    uploadResult.value = {
+      message: `上傳失敗：${error.message || '未知錯誤'}`,
+      errorCount: 1,
+      errors: [],
+    }
+  } finally {
+    isUploading.value = false
   }
 }
 </script>
