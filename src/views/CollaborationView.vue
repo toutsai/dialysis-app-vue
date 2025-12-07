@@ -861,7 +861,7 @@ const filteredFeedMessages = computed(() => {
 
   // (A) 根據新的核取方塊狀態，決定是否過濾系統訊息
   if (!showSystemMessages.value) {
-    messagesToDisplay = messagesToDisplay.filter((msg) => !msg.content.startsWith('【'))
+    messagesToDisplay = messagesToDisplay.filter((msg) => msg.content && !msg.content.startsWith('【'))
   }
 
   // (B) 根據病人下拉選單進行篩選
@@ -876,7 +876,7 @@ const filteredFeedMessages = computed(() => {
 const messagePatientOptions = computed(() => {
   const patientSet = new Map()
   // 這裡的關鍵是，不論篩選器狀態如何，下拉選單都只應顯示有 "非系統訊息" 的病人
-  const userMessages = baseMessages.value.filter((msg) => !msg.content.startsWith('【'))
+  const userMessages = baseMessages.value.filter((msg) => msg.content && !msg.content.startsWith('【'))
 
   userMessages.forEach((msg) => {
     if (msg.patientId && msg.patientName && !patientSet.has(msg.patientId)) {
