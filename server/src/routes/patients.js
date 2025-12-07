@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDatabase } from '../db/init.js'
 import { authenticate, isContributor, isEditor, logAudit } from '../middleware/auth.js'
+import { syncEventsToKiditLogbook } from '../services/kiditSync.js'
 
 const router = Router()
 
@@ -56,6 +57,14 @@ function recordPatientHistory(db, patientId, patientName, eventType, eventDetail
  */
 function addMovementToDailyLog(db, movementData) {
   const todayStr = getTaipeiTodayString()
+  const movement = {
+    ...movementData,
+    timestamp: movementData.timestamp || new Date().toISOString(),
+  }
+
+  let vascularAccessLog = []
+  let createdAt = new Date().toISOString()
+  let patientMovementsForSync = []
 
   try {
     // 取得現有日誌
@@ -63,6 +72,8 @@ function addMovementToDailyLog(db, movementData) {
 
     if (dailyLog) {
       const movements = JSON.parse(dailyLog.patient_movements || '[]')
+      vascularAccessLog = JSON.parse(dailyLog.vascular_access_log || '[]')
+      createdAt = dailyLog.created_at || createdAt
 
       // 檢查是否已存在相同 ID 的記錄（避免重複）
       const existingIndex = movements.findIndex(m => m.id === movementData.id)
@@ -73,10 +84,10 @@ function addMovementToDailyLog(db, movementData) {
           return
         }
         // 更新現有記錄
-        movements[existingIndex] = movementData
+        movements[existingIndex] = movement
       } else {
         // 新增記錄
-        movements.push(movementData)
+        movements.push(movement)
       }
 
       db.prepare(`
@@ -84,12 +95,28 @@ function addMovementToDailyLog(db, movementData) {
         SET patient_movements = ?, updated_at = datetime('now', 'localtime')
         WHERE date = ?
       `).run(JSON.stringify(movements), todayStr)
+
+      patientMovementsForSync = movements
     } else {
+      const movements = [movement]
       // 建立新的日誌
       db.prepare(`
         INSERT INTO daily_logs (id, date, patient_movements, announcements, created_at, updated_at)
         VALUES (?, ?, ?, '[]', datetime('now', 'localtime'), datetime('now', 'localtime'))
-      `).run(todayStr, todayStr, JSON.stringify([movementData]))
+      `).run(todayStr, todayStr, JSON.stringify(movements))
+
+      patientMovementsForSync = movements
+    }
+
+    // 將最新動態同步至 Kidit 日誌本（若失敗不影響主流程）
+    try {
+      syncEventsToKiditLogbook(todayStr, {
+        patientMovements: patientMovementsForSync,
+        vascularAccessLog,
+        createdAt,
+      }).catch(err => console.error('[Kidit Sync] 病人動態同步失敗：', err))
+    } catch (syncErr) {
+      console.error('[Kidit Sync] 病人動態同步失敗：', syncErr)
     }
 
     console.log(`[DailyLog] 已記錄動態: ${movementData.type} - ${movementData.name}`)
@@ -573,7 +600,7 @@ router.put('/:id', ...isContributor, async (req, res) => {
 
         addMovementToDailyLog(db, {
           id: `auto_transfer_in_${id}_${Date.now()}`,
-          type: '轉入',
+          type: '轉移',
           name: existing.name,
           patientId: id,
           medicalRecordNumber: existing.medical_record_number,
@@ -590,7 +617,7 @@ router.put('/:id', ...isContributor, async (req, res) => {
 
         addMovementToDailyLog(db, {
           id: `auto_transfer_out_${id}_${Date.now()}`,
-          type: '轉出',
+          type: '轉移',
           name: existing.name,
           patientId: id,
           medicalRecordNumber: existing.medical_record_number,

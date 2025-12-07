@@ -480,6 +480,7 @@ CREATE TABLE IF NOT EXISTS kidit_logbook (
     id TEXT PRIMARY KEY,  -- 日期作為 ID
     date TEXT UNIQUE NOT NULL,
     log_data TEXT DEFAULT '{}',  -- JSON
+    events TEXT DEFAULT '[]',
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     updated_at TEXT DEFAULT (datetime('now', 'localtime'))
 );
