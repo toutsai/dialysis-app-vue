@@ -47,11 +47,13 @@ router.post('/daily-injections', authenticate, async (req, res) => {
       return res.json([])
     }
 
-    console.log(`[Medications] 查詢每日針劑: targetDate=${targetDate}, patientIds=${patientIds.length}人`)
+    // 計算目標月份 (格式: YYYY-MM)
+    const targetMonth = targetDate.substring(0, 7)
+    console.log(`[Medications] 查詢每日針劑: targetDate=${targetDate}, targetMonth=${targetMonth}, patientIds=${patientIds.length}人`)
 
     const db = getDatabase()
 
-    // 步驟 1: 查詢這些病人的針劑藥囑
+    // 步驟 1: 查詢這些病人的針劑藥囑（只查詢目標月份，排除已停用的）
     let injectionOrders = []
 
     try {
@@ -61,9 +63,11 @@ router.post('/daily-injections', authenticate, async (req, res) => {
         SELECT * FROM injection_orders
         WHERE patient_id IN (${placeholders})
           AND order_type = 'injection'
-        ORDER BY upload_month DESC, change_date DESC
-      `).all(...patientIds)
-      console.log(`[Medications] 從 injection_orders 查到 ${injectionOrders.length} 筆針劑記錄`)
+          AND upload_month = ?
+          AND (action IS NULL OR action NOT IN ('CANCEL', 'STOP', 'DELETE'))
+        ORDER BY change_date DESC
+      `).all(...patientIds, targetMonth)
+      console.log(`[Medications] 從 injection_orders 查到 ${injectionOrders.length} 筆針劑記錄 (月份: ${targetMonth})`)
     } catch (e) {
       console.log('[Medications] injection_orders 表查詢失敗，嘗試 medication_orders:', e.message)
       // 如果表不存在，嘗試 medication_orders
@@ -116,7 +120,19 @@ router.post('/daily-injections', authenticate, async (req, res) => {
     }
 
     const patientHistory = Array.from(patientLatestOrders.values())
-    console.log(`[Medications] 聚合後共 ${patientHistory.length} 筆不重複的針劑記錄`)
+
+    // 詳細日誌：列出每位病人的藥物
+    const patientDrugSummary = {}
+    for (const order of patientHistory) {
+      if (!patientDrugSummary[order.patient_name]) {
+        patientDrugSummary[order.patient_name] = []
+      }
+      patientDrugSummary[order.patient_name].push(`${order.order_code}(${order.note || '無備註'})`)
+    }
+    console.log(`[Medications] 聚合後共 ${patientHistory.length} 筆不重複的針劑記錄:`)
+    for (const [name, drugs] of Object.entries(patientDrugSummary)) {
+      console.log(`  - ${name}: ${drugs.join(', ')}`)
+    }
 
     // 步驟 3: 取得排班資料
     const schedule = db.prepare(`SELECT * FROM schedules WHERE date = ?`).get(targetDate)
