@@ -731,6 +731,91 @@ router.post('/lab-reports', authenticate, async (req, res) => {
 })
 
 // ========================================
+// 檢驗警示分析 API
+// ========================================
+
+/**
+ * GET /api/orders/lab-alert-analyses
+ * 取得檢驗警示分析列表
+ */
+router.get('/lab-alert-analyses', authenticate, (req, res) => {
+  try {
+    const { patientId, monthRange } = req.query
+    const db = getDatabase()
+
+    let query = 'SELECT * FROM lab_alert_analyses WHERE 1=1'
+    const params = []
+
+    if (patientId) {
+      query += ' AND patient_id = ?'
+      params.push(patientId)
+    }
+
+    if (monthRange) {
+      query += ' AND month_range = ?'
+      params.push(monthRange)
+    }
+
+    query += ' ORDER BY updated_at DESC'
+
+    const analyses = db.prepare(query).all(...params)
+    db.close()
+
+    res.json(analyses.map(a => ({
+      id: a.id,
+      patientId: a.patient_id,
+      monthRange: a.month_range,
+      abnormalityKey: a.abnormality_key,
+      analysis: a.analysis,
+      suggestion: a.suggestion,
+      updatedAt: a.updated_at,
+      createdAt: a.created_at
+    })))
+
+  } catch (error) {
+    console.error('取得檢驗警示分析錯誤:', error)
+    res.status(500).json({ error: true, message: '取得檢驗警示分析失敗' })
+  }
+})
+
+/**
+ * PUT /api/orders/lab-alert-analyses/:id
+ * 新增或更新檢驗警示分析 (upsert)
+ */
+router.put('/lab-alert-analyses/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params
+    const { patientId, monthRange, abnormalityKey, analysis, suggestion } = req.body
+    const db = getDatabase()
+
+    // 檢查是否已存在
+    const existing = db.prepare('SELECT id FROM lab_alert_analyses WHERE id = ?').get(id)
+
+    if (existing) {
+      // 更新
+      db.prepare(`
+        UPDATE lab_alert_analyses
+        SET analysis = ?, suggestion = ?, updated_at = datetime('now', 'localtime')
+        WHERE id = ?
+      `).run(analysis || '', suggestion || '', id)
+    } else {
+      // 新增
+      db.prepare(`
+        INSERT INTO lab_alert_analyses (id, patient_id, month_range, abnormality_key, analysis, suggestion)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(id, patientId, monthRange, abnormalityKey, analysis || '', suggestion || '')
+    }
+
+    db.close()
+    res.json({ success: true, id })
+
+  } catch (error) {
+    console.error('儲存檢驗警示分析錯誤:', error)
+    res.status(500).json({ error: true, message: '儲存檢驗警示分析失敗' })
+  }
+})
+
+// ========================================
 // 病情記錄 API
 // ========================================
 

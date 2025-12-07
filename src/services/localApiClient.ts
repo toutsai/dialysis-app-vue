@@ -752,6 +752,83 @@ export const medicationsApi = {
 }
 
 // ========================================
+// 檢驗報告 API
+// ========================================
+
+export const labReportsApi = {
+  /**
+   * 取得檢驗報告列表
+   * @param params.patientId - 病人 ID (可選)
+   * @param params.startDate - 開始日期 YYYY-MM-DD (可選)
+   * @param params.endDate - 結束日期 YYYY-MM-DD (可選)
+   */
+  async fetchAll(params?: { patientId?: string; startDate?: string; endDate?: string }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.startDate) query.set('startDate', params.startDate)
+    if (params?.endDate) query.set('endDate', params.endDate)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/lab-reports${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 新增檢驗報告
+   */
+  async create(data: { patientId: string; reportDate: string; reportType?: string; results: any }) {
+    return apiRequest<any>('/orders/lab-reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  },
+
+  /**
+   * 批次新增檢驗報告
+   */
+  async createBatch(reports: Array<{ patientId: string; reportDate: string; data: any }>) {
+    return apiRequest<{ success: boolean; processedCount: number }>('/orders/lab-reports/batch', {
+      method: 'POST',
+      body: JSON.stringify({ reports }),
+    })
+  },
+}
+
+// ========================================
+// 檢驗警示分析 API
+// ========================================
+
+export const labAnalysesApi = {
+  /**
+   * 取得檢驗警示分析列表
+   */
+  async fetchAll(params?: { patientId?: string; monthRange?: string }) {
+    const query = new URLSearchParams()
+    if (params?.patientId) query.set('patientId', params.patientId)
+    if (params?.monthRange) query.set('monthRange', params.monthRange)
+    const queryStr = query.toString()
+    return apiRequest<any[]>(`/orders/lab-alert-analyses${queryStr ? `?${queryStr}` : ''}`)
+  },
+
+  /**
+   * 新增或更新檢驗警示分析 (upsert)
+   */
+  async save(
+    id: string,
+    data: {
+      patientId: string
+      monthRange: string
+      abnormalityKey: string
+      analysis?: string
+      suggestion?: string
+    },
+  ) {
+    return apiRequest<{ success: boolean; id: string }>(`/orders/lab-alert-analyses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  },
+}
+
+// ========================================
 // 護理 API
 // ========================================
 
@@ -1222,6 +1299,8 @@ export const localApi = {
   memos: memosApi,
   orders: ordersApi,
   medications: medicationsApi,
+  labReports: labReportsApi,
+  labAnalyses: labAnalysesApi,
   nursing: nursingApi,
   kidit: kiditApi,
   system: systemApi,
