@@ -91,7 +91,7 @@ function toJsonArray(arr) {
 }
 
 function normalizeStatus(status) {
-  const validStatuses = ['opd', 'ipd', 'er']
+  const validStatuses = ['opd', 'ipd', 'er', 'deleted']
   if (!status) return 'opd'
   const normalized = String(status).toLowerCase()
   if (validStatuses.includes(normalized)) {
@@ -104,6 +104,21 @@ function normalizeStatus(status) {
   // 預設為 opd
   console.log(`   ⚠️ 未知的 status 值: "${status}"，設為 opd`)
   return 'opd'
+}
+
+function normalizeExceptionStatus(status) {
+  const validStatuses = ['pending', 'applied', 'cancelled', 'conflict_requires_resolution', 'processing']
+  if (!status) return 'pending'
+  const normalized = String(status).toLowerCase()
+  if (validStatuses.includes(normalized)) {
+    return normalized
+  }
+  // 嘗試映射
+  if (normalized === 'completed' || normalized === 'done') return 'applied'
+  if (normalized === 'canceled') return 'cancelled'
+  // 預設為 pending
+  console.log(`   ⚠️ 未知的 exception status 值: "${status}"，設為 pending`)
+  return 'pending'
 }
 
 // ========================================
@@ -157,6 +172,56 @@ async function migratePatients() {
     console.log('   ⚠️ patients 集合為空')
     return 0
   }
+
+  // 重建 patients 表以支援 'deleted' status
+  console.log('   🔧 重建 patients 表以支援 deleted 狀態...')
+  db.exec(`
+    -- 備份現有資料
+    CREATE TABLE IF NOT EXISTS patients_backup AS SELECT * FROM patients;
+    -- 刪除原表
+    DROP TABLE IF EXISTS patients;
+    -- 重建表 (包含 deleted 狀態)
+    CREATE TABLE patients (
+      id TEXT PRIMARY KEY,
+      medical_record_number TEXT NOT NULL,
+      name TEXT NOT NULL,
+      status TEXT DEFAULT 'opd' CHECK (status IN ('opd', 'ipd', 'er', 'deleted')),
+      is_deleted INTEGER DEFAULT 0,
+      delete_reason TEXT,
+      dialysis_orders TEXT DEFAULT '{}',
+      birth_date TEXT,
+      gender TEXT,
+      id_number TEXT,
+      phone TEXT,
+      address TEXT,
+      emergency_contact TEXT,
+      emergency_phone TEXT,
+      physician TEXT,
+      first_dialysis_date TEXT,
+      vasc_access TEXT,
+      access_creation_date TEXT,
+      ward_number TEXT,
+      bed_number TEXT,
+      hospital_info TEXT DEFAULT '{}',
+      inpatient_reason TEXT,
+      dialysis_reason TEXT,
+      notes TEXT,
+      patient_category TEXT DEFAULT 'opd_regular',
+      diseases TEXT DEFAULT '[]',
+      patient_status TEXT DEFAULT '{}',
+      is_hepatitis INTEGER DEFAULT 0,
+      schedule_rule TEXT DEFAULT '{}',
+      last_modified_by TEXT DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_patients_mrn ON patients(medical_record_number);
+    CREATE INDEX IF NOT EXISTS idx_patients_status ON patients(status);
+    CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(name);
+    CREATE INDEX IF NOT EXISTS idx_patients_deleted ON patients(is_deleted);
+    -- 刪除備份
+    DROP TABLE IF EXISTS patients_backup;
+  `)
 
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO patients (
@@ -308,7 +373,7 @@ async function migrateScheduleExceptions() {
       stmt.run(
         doc.id,
         data.type || 'MOVE',
-        data.status || 'pending',
+        normalizeExceptionStatus(data.status),
         data.patientId || null,
         data.patientName || null,
         toJson(data.fromData || data.from),
