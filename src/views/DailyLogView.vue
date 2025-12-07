@@ -671,20 +671,23 @@
                     class="action-text-btn edit-btn"
                     title="修正或更新簽核"
                   >
-                    修正
+                    <i class="fas fa-pen"></i>
+                    <span class="btn-text">修正</span>
                   </button>
                   <button
                     @click="unsignLeader('early')"
                     class="action-text-btn unsign-btn"
                     title="撤銷簽核"
                   >
-                    撤銷
+                    <i class="fas fa-undo-alt"></i>
+                    <span class="btn-text">撤銷</span>
                   </button>
                 </div>
               </div>
               <!-- ✨ 修改：隱藏簽核按鈕 -->
               <button v-else-if="!isPageLocked" @click="signAsLeader('early')" class="sign-btn">
-                簽核
+                <i class="fas fa-signature"></i>
+                <span class="btn-text">簽核</span>
               </button>
             </div>
             <div class="signature-slot">
@@ -702,19 +705,22 @@
                     class="action-text-btn edit-btn"
                     title="修正或更新簽核"
                   >
-                    修正
+                    <i class="fas fa-pen"></i>
+                    <span class="btn-text">修正</span>
                   </button>
                   <button
                     @click="unsignLeader('noon')"
                     class="action-text-btn unsign-btn"
                     title="撤銷簽核"
                   >
-                    撤銷
+                    <i class="fas fa-undo-alt"></i>
+                    <span class="btn-text">撤銷</span>
                   </button>
                 </div>
               </div>
               <button v-else-if="!isPageLocked" @click="signAsLeader('noon')" class="sign-btn">
-                簽核
+                <i class="fas fa-signature"></i>
+                <span class="btn-text">簽核</span>
               </button>
             </div>
             <div class="signature-slot">
@@ -730,19 +736,22 @@
                     class="action-text-btn edit-btn"
                     title="修正或更新簽核"
                   >
-                    修正
+                    <i class="fas fa-pen"></i>
+                    <span class="btn-text">修正</span>
                   </button>
                   <button
                     @click="unsignLeader('late')"
                     class="action-text-btn unsign-btn"
                     title="撤銷簽核"
                   >
-                    撤銷
+                    <i class="fas fa-undo-alt"></i>
+                    <span class="btn-text">撤銷</span>
                   </button>
                 </div>
               </div>
               <button v-else-if="!isPageLocked" @click="signAsLeader('late')" class="sign-btn">
-                簽核
+                <i class="fas fa-signature"></i>
+                <span class="btn-text">簽核</span>
               </button>
             </div>
           </div>
@@ -2623,6 +2632,9 @@ h1 {
   border: none;
   padding: 0.2rem 0.5rem;
   font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   cursor: pointer;
   border-radius: 4px;
   transition: background-color 0.2s;

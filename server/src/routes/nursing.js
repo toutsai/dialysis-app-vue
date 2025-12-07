@@ -458,15 +458,14 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       return res.json({
         id: date,
         date,
-        isNew: true,  // 標記這是新的日誌，前端應該從排程計算統計
+        isNew: true, // 標記這是新的日誌，前端應該從排程計算統計
         patientMovements: [],
         vascularAccessLog: [],
         announcements: [],
-        vascularAccessLog: [],
         stats: {},
         leader: {},
         otherNotes: null,
-        notes: null
+        notes: null,
       })
     }
 
@@ -476,16 +475,12 @@ router.get('/daily-logs/:date', authenticate, (req, res) => {
       patientMovements: JSON.parse(log.patient_movements || '[]'),
       vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       announcements: JSON.parse(log.announcements || '[]'),
-      vascularAccessLog: JSON.parse(log.vascular_access_log || '[]'),
       stats: JSON.parse(log.stats || '{}'),
       leader: JSON.parse(log.leader || '{}'),
       otherNotes: log.other_notes,
       notes: log.notes,
-      otherNotes: log.other_notes,
-      stats: JSON.parse(log.stats || '{}'),
-      leader: JSON.parse(log.leader || '{}'),
       createdAt: log.created_at,
-      updatedAt: log.updated_at
+      updatedAt: log.updated_at,
     })
 
   } catch (error) {
@@ -516,7 +511,6 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
         vascular_access_log = excluded.vascular_access_log,
         announcements = excluded.announcements,
         notes = excluded.notes,
-        vascular_access_log = excluded.vascular_access_log,
         stats = excluded.stats,
         leader = excluded.leader,
         other_notes = excluded.other_notes,
@@ -525,13 +519,12 @@ router.put('/daily-logs/:date', ...isEditor, async (req, res) => {
       date,
       date,
       JSON.stringify(patientMovements || []),
-      JSON.stringify(vascularAccessLog || []),
       JSON.stringify(announcements || []),
       notes,
       JSON.stringify(vascularAccessLog || []),
       JSON.stringify(stats || {}),
       JSON.stringify(leader || {}),
-      otherNotes || null
+      otherNotes || null,
     )
 
     db.close()
