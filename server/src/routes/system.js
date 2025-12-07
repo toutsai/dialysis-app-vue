@@ -712,15 +712,21 @@ router.post('/physicians', ...isAdmin, async (req, res) => {
 router.get('/physician-schedules/:date', authenticate, (req, res) => {
   try {
     const { date } = req.params
+    console.log(`[PhysicianSchedule] 查詢 id=${date}`)
     const db = getDatabase()
 
     const schedule = db.prepare(`
       SELECT * FROM physician_schedules WHERE id = ?
     `).get(date)
 
+    // 檢查資料表中有多少筆資料
+    const count = db.prepare(`SELECT COUNT(*) as count FROM physician_schedules`).get()
+    console.log(`[PhysicianSchedule] 資料表共有 ${count.count} 筆資料`)
+
     db.close()
 
     if (!schedule) {
+      console.log(`[PhysicianSchedule] 找不到 id=${date} 的資料，回傳空班表`)
       return res.json({
         id: date,
         scheduleData: {},
@@ -729,6 +735,7 @@ router.get('/physician-schedules/:date', authenticate, (req, res) => {
       })
     }
 
+    console.log(`[PhysicianSchedule] 找到資料，schedule_data 長度: ${(schedule.schedule_data || '').length}`)
     res.json({
       id: schedule.id,
       scheduleData: JSON.parse(schedule.schedule_data || '{}'),

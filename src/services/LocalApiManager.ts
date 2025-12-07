@@ -176,12 +176,16 @@ const resourceApiMap: Record<string, any> = {
     },
     fetchById: async (id: string) => {
       // 取得班表並展開 scheduleData 到頂層
+      console.log(`[LocalApiManager] physician_schedules.fetchById: 請求 id=${id}`)
       const result = await systemApi.fetchPhysicianSchedule(id)
+      console.log(`[LocalApiManager] physician_schedules.fetchById: 後端回傳`, result)
       if (!result) return null
       // 後端返回 { id, scheduleData: {...}, createdAt, updatedAt }
       // 前端期望 { id, schedule: {...}, consultationSchedule: {...}, notes: "...", ... }
       const { scheduleData, ...rest } = result
-      return { ...rest, ...(scheduleData || {}) }
+      const transformed = { ...rest, ...(scheduleData || {}) }
+      console.log(`[LocalApiManager] physician_schedules.fetchById: 轉換後`, transformed)
+      return transformed
     },
     save: (id: string, data: any) => systemApi.updatePhysicianSchedule(id, data),
     update: (id: string, data: any) => systemApi.updatePhysicianSchedule(id, data),
