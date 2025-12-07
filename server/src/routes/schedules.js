@@ -72,45 +72,7 @@ function getScheduleKey(bedNum, shiftCode) {
   return `${prefix}${bedNum}-${shiftCode}`
 }
 
-/**
- * 根據總表規則產生當日排程
- */
-function generateDailyScheduleFromRules(masterRules, dateStr, patientsMap = null) {
-  const dailySchedule = {}
-  const targetDate = new Date(dateStr + 'T00:00:00Z')
-
-  if (isNaN(targetDate.getTime())) {
-    return {}
-  }
-
-  const dayIndex = getTaipeiDayIndex(targetDate)
-
-  for (const patientId in masterRules) {
-    const rule = masterRules[patientId]
-    if (!rule || !rule.freq) continue
-
-    const freqDays = FREQ_MAP_TO_DAY_INDEX[rule.freq] || []
-    if (freqDays.includes(dayIndex)) {
-      const { bedNum, shiftIndex } = rule
-      if (bedNum === undefined || shiftIndex === undefined) continue
-
-      const shiftCode = SHIFTS[shiftIndex]
-      if (!shiftCode) continue
-
-      const key = getScheduleKey(bedNum, shiftCode)
-
-      dailySchedule[key] = {
-        patientId: patientId,
-        patientName: rule.patientName || '',
-        shiftId: shiftCode,
-        autoNote: rule.autoNote || '',
-        manualNote: rule.manualNote || '',
-        baseRuleId: patientId,
-      }
-    }
-  }
-  return dailySchedule
-}
+// generateDailyScheduleFromRules 已從 scheduleSync.js 導入
 
 /**
  * 將單一調班應用到排程
