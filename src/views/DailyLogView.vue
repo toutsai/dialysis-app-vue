@@ -419,8 +419,11 @@
                       <option value="轉常規門診">轉常規門診</option>
                       <option value="其他">其他</option>
                     </select>
-                    <span v-else :class="['movement-type-badge', `type-${item.type || '手動'}`]">
-                      {{ item.type || '手動' }}
+                    <span
+                      v-else
+                      :class="['movement-type-badge', `type-${normalizeMovementType(item.type)}`]"
+                    >
+                      {{ normalizeMovementType(item.type) }}
                     </span>
                   </td>
                   <td class="col-name">
@@ -857,8 +860,11 @@
             <div v-for="item in dailyLog.patientMovements" :key="item.id" class="log-entry-card">
               <div class="entry-header">
                 <strong>{{ item.name }}</strong> ({{ item.medicalRecordNumber }})
-                <span v-if="item.type" :class="['movement-type-badge', `type-${item.type}`]">
-                  {{ item.type }}
+                <span
+                  v-if="item.type"
+                  :class="['movement-type-badge', `type-${normalizeMovementType(item.type)}`]"
+                >
+                  {{ normalizeMovementType(item.type) }}
                 </span>
               </div>
               <div class="entry-body">
@@ -2120,6 +2126,12 @@ watch(
 // ===================================================================
 // 8. Utility Functions
 // ===================================================================
+function normalizeMovementType(type) {
+  if (!type) return '手動'
+  const transferLabels = ['轉入', '轉出', '轉門診', '轉急診', '轉住院']
+  return transferLabels.includes(type) ? '轉移' : type
+}
+
 function formatDate(date) {
   const d = new Date(date)
   const year = d.getFullYear()
@@ -2950,6 +2962,12 @@ h1 {
 }
 .movement-type-badge.type-轉移 {
   background-color: #17a2b8;
+}
+.movement-type-badge.type-轉入 {
+  background-color: #17a2b8;
+}
+.movement-type-badge.type-轉出 {
+  background-color: #20c997;
 }
 .movement-type-badge.type-復原 {
   background-color: #ffc107;
