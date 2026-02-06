@@ -174,4 +174,7 @@ my-dialysis-app-develop-key.json
 .runtimeconfig.json
 
 # Custom credentials
-gdrive-credentials.json.angular/
+gdrive-credentials.json
+
+# Angular build cache
+.angular/
