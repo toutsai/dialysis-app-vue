@@ -1,0 +1,91 @@
+.page-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.page-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.page-description {
+  margin: 0 0 24px;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.content {
+  flex: 1;
+}
+
+.guide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guide-section {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+
+.guide-section.expanded {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.section-header:hover {
+  background: #f9fafb;
+}
+
+.section-title {
+  flex: 1;
+}
+
+.section-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 18px;
+  font-weight: 400;
+  color: #1abc9c;
+  background: #ecfdf5;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.section-body {
+  padding: 0 20px 16px;
+  border-top: 1px solid #f3f4f6;
+}
+
+.section-body p {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #4b5563;
+}

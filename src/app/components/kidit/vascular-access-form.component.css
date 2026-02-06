@@ -1,0 +1,262 @@
+.vascular-access-form {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.form-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #e67e22;
+  color: #fff;
+}
+
+.form-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.form-date {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.form-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e67e22;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #fff3e0;
+}
+
+.section-header .section-title {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.fields-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+}
+
+.form-field input,
+.form-field select,
+.form-field textarea {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+  resize: vertical;
+}
+
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+  border-color: #e67e22;
+}
+
+.chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 12px;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  background: #fff;
+  font-size: 12px;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.chip:hover {
+  border-color: #e67e22;
+  color: #e67e22;
+}
+
+.chip.active {
+  background: #e67e22;
+  color: #fff;
+  border-color: #e67e22;
+}
+
+.add-intervention-btn {
+  background: #e67e22;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.add-intervention-btn:hover {
+  background: #d35400;
+}
+
+.add-intervention-form {
+  background: #fef9f4;
+  border: 1px solid #f0d9c2;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.intervention-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn {
+  padding: 5px 14px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-save {
+  background: #e67e22;
+  color: #fff;
+}
+
+.btn-save:hover {
+  background: #d35400;
+}
+
+.btn-cancel {
+  background: #e0e0e0;
+  color: #555;
+}
+
+.btn-cancel:hover {
+  background: #d0d0d0;
+}
+
+.interventions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.intervention-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid #f0f0f0;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.intervention-row:hover {
+  background: #fafafa;
+}
+
+.intervention-date {
+  font-family: monospace;
+  color: #888;
+  min-width: 90px;
+}
+
+.intervention-type {
+  font-weight: 600;
+  color: #e67e22;
+  min-width: 120px;
+}
+
+.intervention-detail {
+  flex: 1;
+  color: #555;
+}
+
+.intervention-outcome {
+  color: #888;
+  font-size: 11px;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #ccc;
+  padding: 0 4px;
+  transition: color 0.15s;
+}
+
+.remove-btn:hover {
+  color: #dc3545;
+}
+
+.empty-interventions {
+  text-align: center;
+  color: #ccc;
+  padding: 12px 0;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.notes-input {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.notes-input:focus {
+  border-color: #e67e22;
+}

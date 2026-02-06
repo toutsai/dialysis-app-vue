@@ -1,0 +1,75 @@
+@if (isVisible && alert) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container" [class.critical]="isCritical()">
+      <div class="modal-header">
+        <h3>檢驗警示詳情</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="modal-body">
+        @if (isCritical()) {
+          <div class="critical-banner">
+            危險值警示 - 請立即處理
+          </div>
+        }
+
+        <div class="patient-info">
+          <span class="patient-name">{{ alert.patientName }}</span>
+          <span class="patient-mrn">{{ alert.medicalRecordNumber }}</span>
+        </div>
+
+        <div class="result-card">
+          <div class="result-header">
+            <span class="test-name">{{ alert.testName }}</span>
+            <span class="status-badge" [ngClass]="getStatusClass(alert.status)">
+              {{ getStatusLabel(alert.status) }}
+            </span>
+          </div>
+          <div class="result-value">
+            <span class="value">{{ alert.value }}</span>
+            <span class="unit">{{ alert.unit }}</span>
+          </div>
+          <div class="reference-range">
+            參考範圍: {{ alert.referenceRange }}
+          </div>
+        </div>
+
+        @if (alert.previousValue) {
+          <div class="comparison-section">
+            <h4>前次數值比較</h4>
+            <div class="comparison-row">
+              <div class="comparison-item">
+                <span class="comp-label">前次數值</span>
+                <span class="comp-value">{{ alert.previousValue }} {{ alert.unit }}</span>
+              </div>
+              <div class="comparison-item">
+                <span class="comp-label">前次日期</span>
+                <span class="comp-value">{{ alert.previousDate }}</span>
+              </div>
+            </div>
+          </div>
+        }
+
+        <div class="detail-grid">
+          <div class="detail-item">
+            <span class="detail-label">採集時間</span>
+            <span class="detail-value">{{ alert.collectedAt }}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">報告時間</span>
+            <span class="detail-value">{{ alert.reportedAt }}</span>
+          </div>
+        </div>
+
+        @if (alert.notes) {
+          <div class="notes-section">
+            <h4>備註</h4>
+            <p>{{ alert.notes }}</p>
+          </div>
+        }
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

@@ -1,0 +1,29 @@
+@if (isVisible && patient) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="patient-info">
+          <h3>{{ patient.name }}</h3>
+          @if (patient.bedNumber) {
+            <span class="bed-badge">床號: {{ patient.bedNumber }}</span>
+          }
+        </div>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="actions-grid">
+          @for (action of actions; track action.key) {
+            <button
+              class="action-btn"
+              (click)="onAction(action.key)"
+              [style.border-color]="action.color"
+            >
+              <span class="action-icon">{{ action.icon }}</span>
+              <span class="action-label">{{ action.label }}</span>
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+}

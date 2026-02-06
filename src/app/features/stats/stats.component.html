@@ -1,0 +1,19 @@
+<div class="page-container">
+  <h1 class="page-title">護理分組檢視</h1>
+  <div class="toolbar">
+    <button class="toolbar-btn">今日</button>
+    <button class="toolbar-btn">本週</button>
+  </div>
+  <div class="content">
+    <div class="group-grid">
+      @for (group of groups; track group) {
+        <div class="group-card">
+          <div class="group-header">{{ group }}</div>
+          <div class="group-body">
+            <p class="placeholder-text">尚無分組資料</p>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

@@ -1,28 +1,41 @@
-import { initializeApp, type FirebaseApp } from 'firebase/app'
-import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth'
-import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase/firestore'
-import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions'
+// src/firebase.ts
+//
+// Compatibility shim for existing framework-agnostic services and utilities
+// under src/services/ and src/utils/ that import from '@/firebase'.
+//
+// These modules (api_manager.ts, optimizedApiService.js, firestoreUtils.js,
+// taskHandlers.js, scheduleService.js, nurseAssignmentsService.js, etc.)
+// rely on bare `app`, `auth`, `db`, and `functions` exports.
+//
+// In the Angular app the canonical source of truth is FirebaseService
+// (src/app/core/services/firebase.service.ts), but because the legacy
+// modules are plain JS/TS files outside Angular's DI container they cannot
+// use `inject()`.  This file initialises the same Firebase instances with
+// the same configuration so that both worlds share the same project /
+// emulator setup.
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+import { initializeApp } from 'firebase/app';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getFirestore, connectFirestoreEmulator } from 'firebase/firestore';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
+import { environment } from './environments/environment';
+
+const app = initializeApp(environment.firebase);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const functions = getFunctions(app, 'asia-east1');
+
+if (environment.useEmulators) {
+  try {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', {
+      disableWarnings: true,
+    });
+    connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  } catch (e) {
+    // Emulators may already be connected if FirebaseService initialised first
+    console.warn('[firebase shim] Emulator connection skipped:', e);
+  }
 }
 
-const app: FirebaseApp = initializeApp(firebaseConfig)
-const auth: Auth = getAuth(app)
-const db: Firestore = getFirestore(app)
-const functions: Functions = getFunctions(app, 'asia-east1')
-
-if (import.meta.env.VITE_APP_ENV === 'emulator') {
-  console.log('[Firebase] Connecting to local emulators...')
-  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true })
-  connectFirestoreEmulator(db, 'localhost', 8080)
-  connectFunctionsEmulator(functions, 'localhost', 5001)
-  console.log('[Firebase] Emulators connected successfully.')
-}
-
-export { app, auth, db, functions }
+export { app, auth, db, functions };

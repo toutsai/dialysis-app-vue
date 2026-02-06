@@ -1,0 +1,129 @@
+<div class="condition-record-panel" *ngIf="patient">
+  <div class="panel-header">
+    <h4 class="panel-title">透析狀況記錄</h4>
+    <span class="panel-date">{{ currentDate }}</span>
+  </div>
+
+  <div class="panel-body">
+    <div class="form-section">
+      <label class="section-label">體重 (kg)</label>
+      <div class="weight-row">
+        <div class="form-group">
+          <label class="field-label">透析前</label>
+          <input
+            type="number"
+            class="form-input"
+            [(ngModel)]="record.preWeight"
+            placeholder="0.0"
+            step="0.1"
+          />
+        </div>
+        <div class="form-group">
+          <label class="field-label">透析後</label>
+          <input
+            type="number"
+            class="form-input"
+            [(ngModel)]="record.postWeight"
+            placeholder="0.0"
+            step="0.1"
+          />
+        </div>
+        <div class="form-group">
+          <label class="field-label">變化</label>
+          <span class="computed-value" [class.negative]="weightChange.startsWith('-')">
+            {{ weightChange }} kg
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <label class="section-label">血壓 (mmHg)</label>
+      <div class="bp-row">
+        <div class="form-group">
+          <label class="field-label">透析前</label>
+          <input
+            type="text"
+            class="form-input"
+            [(ngModel)]="record.preBP"
+            placeholder="120/80"
+          />
+        </div>
+        <div class="form-group">
+          <label class="field-label">透析後</label>
+          <input
+            type="text"
+            class="form-input"
+            [(ngModel)]="record.postBP"
+            placeholder="120/80"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <label class="section-label">透析參數</label>
+      <div class="params-row">
+        <div class="form-group">
+          <label class="field-label">脫水目標 (kg)</label>
+          <input
+            type="number"
+            class="form-input"
+            [(ngModel)]="record.ufGoal"
+            placeholder="0.0"
+            step="0.1"
+          />
+        </div>
+        <div class="form-group">
+          <label class="field-label">通路流量 (ml/min)</label>
+          <input
+            type="number"
+            class="form-input"
+            [(ngModel)]="record.accessFlow"
+            placeholder="0"
+          />
+        </div>
+        <div class="form-group">
+          <label class="field-label">Kt/V</label>
+          <input
+            type="number"
+            class="form-input"
+            [(ngModel)]="record.ktv"
+            placeholder="0.00"
+            step="0.01"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <label class="section-label">症狀</label>
+      <div class="symptoms-grid">
+        <button
+          *ngFor="let symptom of commonSymptoms"
+          class="symptom-btn"
+          [class.active]="isSymptomActive(symptom)"
+          (click)="toggleSymptom(symptom)"
+          type="button"
+        >
+          {{ symptom }}
+        </button>
+      </div>
+    </div>
+
+    <div class="form-section">
+      <label class="section-label">備註</label>
+      <textarea
+        class="form-textarea"
+        [(ngModel)]="record.notes"
+        rows="3"
+        placeholder="其他觀察記錄..."
+      ></textarea>
+    </div>
+  </div>
+
+  <div class="panel-footer">
+    <button class="btn btn-secondary" (click)="onReset()" type="button">重設</button>
+    <button class="btn btn-primary" (click)="onSave()" type="button">儲存</button>
+  </div>
+</div>

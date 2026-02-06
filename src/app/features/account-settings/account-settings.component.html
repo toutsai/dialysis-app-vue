@@ -1,0 +1,143 @@
+<div class="page-container">
+  <h1 class="page-title">帳號設定</h1>
+
+  <div class="settings-card">
+    <div class="card-header">
+      <h2 class="card-title">變更密碼</h2>
+      <p class="card-description">定期更換密碼以確保帳號安全</p>
+    </div>
+
+    <form class="password-form" (submit)="onSubmit($event)">
+      <div class="form-group">
+        <label class="form-label" for="currentPassword">目前密碼</label>
+        <div class="input-wrapper">
+          <input
+            id="currentPassword"
+            [type]="showCurrentPassword() ? 'text' : 'password'"
+            class="form-input"
+            placeholder="請輸入目前密碼"
+            [value]="currentPassword()"
+            (input)="onInput('current', $event)"
+            [disabled]="isSubmitting()"
+            autocomplete="current-password"
+          />
+          <button
+            type="button"
+            class="toggle-btn"
+            (click)="toggleVisibility('current')"
+          >
+            {{ showCurrentPassword() ? '隱藏' : '顯示' }}
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="newPassword">新密碼</label>
+        <div class="input-wrapper">
+          <input
+            id="newPassword"
+            [type]="showNewPassword() ? 'text' : 'password'"
+            class="form-input"
+            [class.input-error]="passwordTooShort"
+            placeholder="請輸入新密碼（至少 6 個字元）"
+            [value]="newPassword()"
+            (input)="onInput('new', $event)"
+            [disabled]="isSubmitting()"
+            autocomplete="new-password"
+          />
+          <button
+            type="button"
+            class="toggle-btn"
+            (click)="toggleVisibility('new')"
+          >
+            {{ showNewPassword() ? '隱藏' : '顯示' }}
+          </button>
+        </div>
+        @if (passwordTooShort) {
+          <p class="field-error">密碼至少需要 6 個字元</p>
+        }
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="confirmPassword">確認新密碼</label>
+        <div class="input-wrapper">
+          <input
+            id="confirmPassword"
+            [type]="showConfirmPassword() ? 'text' : 'password'"
+            class="form-input"
+            [class.input-error]="passwordMismatch"
+            placeholder="請再次輸入新密碼"
+            [value]="confirmPassword()"
+            (input)="onInput('confirm', $event)"
+            [disabled]="isSubmitting()"
+            autocomplete="new-password"
+          />
+          <button
+            type="button"
+            class="toggle-btn"
+            (click)="toggleVisibility('confirm')"
+          >
+            {{ showConfirmPassword() ? '隱藏' : '顯示' }}
+          </button>
+        </div>
+        @if (passwordMismatch) {
+          <p class="field-error">密碼不一致</p>
+        }
+      </div>
+
+      @if (errorMessage()) {
+        <div class="message error-message">
+          <span class="message-icon error-icon">!</span>
+          <span>{{ errorMessage() }}</span>
+        </div>
+      }
+
+      @if (successMessage()) {
+        <div class="message success-message">
+          <span class="message-icon success-icon">&#10003;</span>
+          <span>{{ successMessage() }}</span>
+        </div>
+      }
+
+      <div class="form-actions">
+        <button
+          type="submit"
+          class="submit-btn"
+          [disabled]="!isFormValid || isSubmitting()"
+          [class.loading]="isSubmitting()"
+        >
+          @if (isSubmitting()) {
+            <span class="spinner"></span>
+            <span>變更中...</span>
+          } @else {
+            <span>變更密碼</span>
+          }
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div class="settings-card info-card">
+    <div class="card-header">
+      <h2 class="card-title">帳號資訊</h2>
+    </div>
+    <div class="info-grid">
+      <div class="info-row">
+        <span class="info-label">帳號名稱</span>
+        <span class="info-value">{{ authService.currentUser()?.name ?? '--' }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">電子信箱</span>
+        <span class="info-value">{{ authService.currentUser()?.email ?? '--' }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">角色</span>
+        <span class="info-value">{{ authService.currentUser()?.role ?? '--' }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">職稱</span>
+        <span class="info-value">{{ authService.currentUser()?.title ?? '--' }}</span>
+      </div>
+    </div>
+  </div>
+</div>

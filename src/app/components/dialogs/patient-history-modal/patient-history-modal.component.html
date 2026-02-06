@@ -1,0 +1,60 @@
+@if (isVisible) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3>{{ patientName }} - 歷史紀錄</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="filter-bar">
+        @for (type of eventTypes; track type.value) {
+          <button
+            class="filter-btn"
+            [class.active]="filterType === type.value"
+            (click)="setFilter(type.value)"
+          >
+            {{ type.label }}
+          </button>
+        }
+      </div>
+
+      <div class="modal-body">
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (filteredEvents.length === 0) {
+          <div class="empty-state">
+            <p>尚無歷史紀錄</p>
+          </div>
+        } @else {
+          <div class="timeline">
+            @for (event of filteredEvents; track event.id) {
+              <div class="timeline-item">
+                <div class="timeline-dot" [ngClass]="getEventTypeClass(event.type)"></div>
+                <div class="timeline-content">
+                  <div class="timeline-header">
+                    <span class="event-type-badge" [ngClass]="getEventTypeClass(event.type)">
+                      {{ getEventTypeLabel(event.type) }}
+                    </span>
+                    <span class="event-date">{{ event.date }}</span>
+                  </div>
+                  <h4 class="event-title">{{ event.title }}</h4>
+                  <p class="event-desc">{{ event.description }}</p>
+                  @if (event.createdBy) {
+                    <span class="event-author">{{ event.createdBy }}</span>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

@@ -1,0 +1,30 @@
+<div class="page-container">
+  <h1 class="page-title">我的今日病人</h1>
+  <div class="toolbar">
+    <span class="toolbar-date">{{ formattedDate }}</span>
+    <span class="toolbar-info">負責護理師：{{ authService.currentUser()?.name ?? '--' }}</span>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>床號</th>
+              <th>病歷號</th>
+              <th>姓名</th>
+              <th>班別</th>
+              <th>透析模式</th>
+              <th>狀態</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="6" class="empty-row">今日尚無分配病人</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>

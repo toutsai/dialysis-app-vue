@@ -1,0 +1,28 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>{{ title }}</h3>
+        <button class="close-btn" (click)="onCancel()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="form-group">
+          <label for="wardInput">床號 / 病房號</label>
+          <input
+            id="wardInput"
+            type="text"
+            class="form-input"
+            [(ngModel)]="inputValue"
+            (keydown)="onKeydown($event)"
+            placeholder="請輸入床號"
+            autofocus
+          />
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onCancel()">取消</button>
+        <button class="btn btn-primary" (click)="onConfirm()" [disabled]="!inputValue.trim()">確定</button>
+      </div>
+    </div>
+  </div>
+}

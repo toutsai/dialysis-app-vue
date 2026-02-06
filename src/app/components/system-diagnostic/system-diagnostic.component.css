@@ -1,0 +1,161 @@
+.system-diagnostic {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 13px;
+  max-width: 500px;
+}
+
+.diag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.diag-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.run-btn {
+  background: #1abc9c;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.run-btn:hover:not(:disabled) {
+  background: #16a085;
+}
+
+.run-btn:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+.diag-summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.summary-time {
+  font-size: 11px;
+  color: #888;
+}
+
+.summary-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.summary-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-pass {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.badge-warn {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.badge-fail {
+  background: #fce4ec;
+  color: #c62828;
+}
+
+.checks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #f0f0f0;
+  transition: background 0.15s;
+}
+
+.check-item:hover {
+  background: #fafafa;
+}
+
+.check-icon {
+  font-size: 16px;
+  font-weight: 700;
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.check-pass .check-icon {
+  color: #28a745;
+}
+
+.check-fail .check-icon {
+  color: #dc3545;
+}
+
+.check-warn .check-icon {
+  color: #ffc107;
+}
+
+.check-checking .check-icon {
+  color: #ccc;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.check-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.check-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.check-message {
+  font-size: 11px;
+  color: #888;
+}
+
+.check-fail .check-message {
+  color: #dc3545;
+}
+
+.check-duration {
+  font-size: 11px;
+  color: #aaa;
+  flex-shrink: 0;
+}

@@ -1,0 +1,82 @@
+<div class="modal-backdrop" *ngIf="visible" (click)="onBackdropClick($event)">
+  <div class="movement-modal">
+    <div class="modal-header">
+      <h4 class="modal-title">病人異動明細</h4>
+      <span class="modal-date">{{ date }}</span>
+      <button class="refresh-btn" (click)="onRefresh()" title="重新整理" type="button">
+        &#8635;
+      </button>
+      <button class="close-btn" (click)="close()" type="button">&times;</button>
+    </div>
+
+    <div class="modal-tabs">
+      <button
+        *ngFor="let tab of tabs"
+        class="tab-btn"
+        [class.active]="activeTab === tab.key"
+        (click)="selectTab(tab.key)"
+        type="button"
+      >
+        {{ tab.label }}
+        <span class="tab-count" *ngIf="countByType[tab.key]">
+          {{ countByType[tab.key] || 0 }}
+        </span>
+      </button>
+    </div>
+
+    <div class="modal-search">
+      <input
+        type="text"
+        class="search-input"
+        [(ngModel)]="searchQuery"
+        placeholder="搜尋病人姓名或病歷號..."
+      />
+    </div>
+
+    <div class="modal-body">
+      <div class="events-list" *ngIf="filteredEvents.length > 0">
+        <div
+          *ngFor="let event of filteredEvents; trackBy: trackByEvent"
+          class="event-card"
+          [ngClass]="getTypeClass(event.type)"
+        >
+          <div class="event-header">
+            <span class="event-type-badge" [ngClass]="getTypeClass(event.type)">
+              {{ getTypeLabel(event.type) }}
+            </span>
+            <span class="event-patient">{{ event.patientName }}</span>
+            <span class="event-pid">{{ event.patientId }}</span>
+            <span class="event-time">{{ event.time }}</span>
+          </div>
+
+          <div class="event-details">
+            <div class="event-movement" *ngIf="event.fromUnit || event.toUnit">
+              <span class="from-unit" *ngIf="event.fromUnit">{{ event.fromUnit }}</span>
+              <span class="arrow" *ngIf="event.fromUnit && event.toUnit">&rarr;</span>
+              <span class="to-unit" *ngIf="event.toUnit">{{ event.toUnit }}</span>
+            </div>
+            <div class="event-reason" *ngIf="event.reason">
+              原因: {{ event.reason }}
+            </div>
+            <div class="event-order" *ngIf="event.orderBy">
+              醫囑: {{ event.orderBy }}
+            </div>
+          </div>
+
+          <div class="event-footer" *ngIf="event.notes">
+            <span class="event-notes">{{ event.notes }}</span>
+          </div>
+
+          <div class="event-status" [ngClass]="getStatusClass(event.status)">
+            {{ event.status }}
+          </div>
+        </div>
+      </div>
+
+      <div class="empty-state" *ngIf="filteredEvents.length === 0">
+        <p *ngIf="searchQuery">找不到符合「{{ searchQuery }}」的記錄</p>
+        <p *ngIf="!searchQuery">目前無異動記錄</p>
+      </div>
+    </div>
+  </div>
+</div>

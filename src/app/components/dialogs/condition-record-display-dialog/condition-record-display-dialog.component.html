@@ -1,0 +1,66 @@
+@if (isVisible && patient) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <div class="header-info">
+          <h3>病情紀錄</h3>
+          <span class="patient-badge">{{ patient.name }} ({{ patient.medicalRecordNumber }})</span>
+        </div>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="dialog-body">
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (records.length === 0) {
+          <div class="empty-state">
+            <p>尚無病情紀錄</p>
+          </div>
+        } @else {
+          <div class="records-list">
+            @for (record of records; track record.id) {
+              <div class="record-card">
+                <div class="record-header">
+                  <div class="record-datetime">
+                    <span class="record-date">{{ record.date }}</span>
+                    <span class="record-time">{{ record.time }}</span>
+                  </div>
+                  <span class="severity-badge" [ngClass]="getSeverityClass(record.severity)">
+                    {{ getSeverityLabel(record.severity) }}
+                  </span>
+                </div>
+                <div class="record-category">{{ record.category }}</div>
+                <div class="record-section">
+                  <strong>描述:</strong>
+                  <p>{{ record.description }}</p>
+                </div>
+                @if (record.interventions) {
+                  <div class="record-section">
+                    <strong>處置:</strong>
+                    <p>{{ record.interventions }}</p>
+                  </div>
+                }
+                @if (record.outcome) {
+                  <div class="record-section">
+                    <strong>結果:</strong>
+                    <p>{{ record.outcome }}</p>
+                  </div>
+                }
+                <div class="record-footer">
+                  <span class="record-author">記錄者: {{ record.recordedBy }}</span>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

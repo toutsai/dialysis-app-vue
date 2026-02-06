@@ -1,0 +1,203 @@
+.patient-image-uploader {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.uploader-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.uploader-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.patient-info {
+  font-size: 13px;
+  color: #666;
+}
+
+.uploader-body {
+  padding: 16px;
+}
+
+.camera-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.camera-video {
+  width: 100%;
+  max-width: 480px;
+  border-radius: 6px;
+  background: #000;
+}
+
+.camera-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.preview-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 6px;
+  border: 1px solid #eee;
+  object-fit: contain;
+}
+
+.preview-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.progress-bar {
+  width: 100%;
+  max-width: 300px;
+  height: 6px;
+  background: #e0e0e0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #1abc9c;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.action-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 0;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 16px;
+}
+
+.source-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 30px;
+  border: 2px dashed #ddd;
+  border-radius: 8px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.source-btn:hover {
+  border-color: #1abc9c;
+  background: #f0faf5;
+}
+
+.source-icon {
+  font-size: 28px;
+}
+
+.source-label {
+  font-size: 13px;
+  color: #555;
+  font-weight: 500;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.hidden-canvas {
+  display: none;
+}
+
+.upload-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #aaa;
+}
+
+.btn {
+  padding: 8px 20px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-capture {
+  background: #1abc9c;
+  color: #fff;
+}
+
+.btn-capture:hover {
+  background: #16a085;
+}
+
+.btn-upload {
+  background: #1abc9c;
+  color: #fff;
+}
+
+.btn-upload:hover:not(:disabled) {
+  background: #16a085;
+}
+
+.btn-upload:disabled {
+  background: #95a5a6;
+  cursor: not-allowed;
+}
+
+.btn-cancel {
+  background: #e0e0e0;
+  color: #555;
+}
+
+.btn-cancel:hover {
+  background: #d0d0d0;
+}
+
+.btn-clear {
+  background: #e0e0e0;
+  color: #555;
+}
+
+.btn-clear:hover {
+  background: #d0d0d0;
+}
+
+.error-message {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fce4ec;
+  color: #c62828;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+}

@@ -1,0 +1,77 @@
+<div class="memo-panel">
+  <div class="panel-header">
+    <h4 class="panel-title">備忘錄</h4>
+    <button class="add-btn" (click)="startAdding()" *ngIf="!isAdding" type="button">
+      + 新增
+    </button>
+  </div>
+
+  <div class="add-form" *ngIf="isAdding">
+    <textarea
+      class="memo-input"
+      [(ngModel)]="newMemoContent"
+      placeholder="輸入備忘內容..."
+      rows="2"
+    ></textarea>
+    <div class="add-form-actions">
+      <select class="priority-select" [(ngModel)]="newMemoPriority">
+        <option value="high">高優先</option>
+        <option value="normal">一般</option>
+        <option value="low">低優先</option>
+      </select>
+      <div class="action-buttons">
+        <button class="btn btn-cancel" (click)="cancelAdding()" type="button">取消</button>
+        <button class="btn btn-save" (click)="addMemo()" type="button">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="memos-list" *ngIf="pendingMemos.length > 0">
+    <div class="section-label">待處理 ({{ pendingMemos.length }})</div>
+    <div
+      *ngFor="let memo of pendingMemos"
+      class="memo-item"
+      [ngClass]="getPriorityClass(memo.priority)"
+    >
+      <button
+        class="check-btn"
+        (click)="toggleMemo(memo)"
+        title="標記完成"
+        type="button"
+      >&#9744;</button>
+      <span class="memo-content">{{ memo.content }}</span>
+      <button
+        class="delete-btn"
+        (click)="deleteMemo(memo)"
+        title="刪除"
+        type="button"
+      >&times;</button>
+    </div>
+  </div>
+
+  <div class="memos-list completed-list" *ngIf="completedMemos.length > 0">
+    <div class="section-label">已完成 ({{ completedMemos.length }})</div>
+    <div
+      *ngFor="let memo of completedMemos"
+      class="memo-item done"
+    >
+      <button
+        class="check-btn"
+        (click)="toggleMemo(memo)"
+        title="標記未完成"
+        type="button"
+      >&#9745;</button>
+      <span class="memo-content">{{ memo.content }}</span>
+      <button
+        class="delete-btn"
+        (click)="deleteMemo(memo)"
+        title="刪除"
+        type="button"
+      >&times;</button>
+    </div>
+  </div>
+
+  <div class="empty-state" *ngIf="memos.length === 0 && !isAdding">
+    暫無備忘錄
+  </div>
+</div>

@@ -1,0 +1,53 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>選擇異動類型</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="type-grid">
+          @for (type of updateTypes; track type.value) {
+            <div
+              class="type-card"
+              [class.selected]="selectedType === type.value"
+              (click)="selectType(type.value)"
+            >
+              <span class="type-icon">{{ type.icon }}</span>
+              <span class="type-label">{{ type.label }}</span>
+              <span class="type-desc">{{ type.description }}</span>
+            </div>
+          }
+        </div>
+
+        @if (needsPatientSelection) {
+          <div class="patient-selection">
+            <h4>選擇病患</h4>
+            <input
+              type="text"
+              class="search-input"
+              [(ngModel)]="searchQuery"
+              placeholder="搜尋病患..."
+            />
+            <div class="patient-list">
+              @for (patient of filteredPatients; track patient.id) {
+                <div
+                  class="patient-item"
+                  [class.selected]="selectedPatientId === patient.id"
+                  (click)="selectedPatientId = patient.id"
+                >
+                  <span class="patient-name">{{ patient.name }}</span>
+                  <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onContinue()" [disabled]="!canContinue">繼續</button>
+      </div>
+    </div>
+  </div>
+}

@@ -1,0 +1,27 @@
+<div class="page-container">
+  <h1 class="page-title">協作訊息中心</h1>
+  <div class="tabs">
+    @for (tab of tabs; track tab.key) {
+      <button
+        class="tab-btn"
+        [class.active]="activeTab() === tab.key"
+        (click)="setTab(tab.key)"
+      >
+        {{ tab.label }}
+      </button>
+    }
+  </div>
+  <div class="toolbar">
+    <button class="toolbar-btn primary-btn">新增訊息</button>
+    <button class="toolbar-btn">重新整理</button>
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="message-list">
+        <div class="empty-state">
+          <p>{{ tabLabel }}中沒有訊息</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

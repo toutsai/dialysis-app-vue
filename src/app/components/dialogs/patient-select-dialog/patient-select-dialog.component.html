@@ -1,0 +1,49 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>{{ title }}</h3>
+        <button class="close-btn" (click)="onCancel()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="search-bar">
+          <input
+            type="text"
+            class="search-input"
+            [(ngModel)]="searchQuery"
+            (ngModelChange)="onSearchChange()"
+            placeholder="搜尋病患姓名、病歷號、床號..."
+            autofocus
+          />
+        </div>
+        <div class="patient-list">
+          @for (patient of filteredPatients; track patient.id) {
+            <div class="patient-item" (click)="selectPatient(patient)">
+              <div class="patient-info">
+                <span class="patient-name">{{ patient.name }}</span>
+                @if (patient.medicalRecordNumber) {
+                  <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+                }
+              </div>
+              @if (patient.bedNumber) {
+                <span class="patient-bed">床號: {{ patient.bedNumber }}</span>
+              }
+            </div>
+          }
+          @if (filteredPatients.length === 0) {
+            <div class="empty-state">
+              @if (searchQuery) {
+                <p>找不到符合「{{ searchQuery }}」的病患</p>
+              } @else {
+                <p>沒有可選擇的病患</p>
+              }
+            </div>
+          }
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onCancel()">取消</button>
+      </div>
+    </div>
+  </div>
+}

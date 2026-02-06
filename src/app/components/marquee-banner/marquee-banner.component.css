@@ -1,0 +1,42 @@
+.marquee-banner {
+  display: flex;
+  align-items: center;
+  background: linear-gradient(135deg, #1abc9c, #16a085);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 14px;
+  gap: 8px;
+}
+
+.marquee-icon {
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.marquee-track {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+}
+
+.marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee-scroll 30s linear infinite;
+}
+
+.marquee-text.paused {
+  animation-play-state: paused;
+}
+
+@keyframes marquee-scroll {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}

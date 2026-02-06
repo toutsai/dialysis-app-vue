@@ -1,0 +1,138 @@
+.schedule-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.schedule-table th,
+.schedule-table td {
+  border: 1px solid #e8e8e8;
+  padding: 4px 6px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.bed-header {
+  width: 60px;
+  background: #f5f5f5;
+  font-weight: 600;
+  color: #555;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.day-shift-header {
+  min-width: 80px;
+  font-size: 11px;
+  padding: 4px;
+}
+
+.header-day {
+  font-weight: 600;
+  color: #333;
+}
+
+.header-shift {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.header-date {
+  font-size: 10px;
+  color: #999;
+}
+
+.bed-cell {
+  background: #f9f9f9;
+  font-weight: 600;
+  color: #333;
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.bed-number {
+  margin-right: 4px;
+}
+
+.hepatitis-tag {
+  font-size: 9px;
+  background: #fff3cd;
+  color: #856404;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.hepatitis-row .bed-cell {
+  background: #fff8e1;
+}
+
+.schedule-cell {
+  cursor: pointer;
+  min-height: 36px;
+  transition: background 0.15s;
+  position: relative;
+}
+
+.schedule-cell:hover {
+  background: #e8f5e9;
+}
+
+.schedule-cell.occupied {
+  background: #f0faf5;
+}
+
+.schedule-cell.empty {
+  background: transparent;
+}
+
+.schedule-cell.occupied:hover {
+  background: #d4edda;
+}
+
+.cell-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.patient-name {
+  font-size: 12px;
+  color: #333;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70px;
+}
+
+.memo-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.schedule-cell:hover .memo-btn {
+  opacity: 1;
+}
+
+.memo-btn:hover {
+  transform: scale(1.2);
+}

@@ -1,0 +1,133 @@
+@if (isVisible) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3>{{ isEditing ? '編輯透析醫囑' : '新增透析醫囑' }}</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="modal-body">
+        @if (patient) {
+          <div class="patient-banner">
+            <span class="patient-name">{{ patient.name }}</span>
+            <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+          </div>
+        }
+
+        <div class="form-section">
+          <h4 class="section-title">透析設定</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>透析模式 <span class="required">*</span></label>
+              <select class="form-select" [(ngModel)]="formData.dialysisMode">
+                @for (mode of dialysisModes; track mode.value) {
+                  <option [value]="mode.value">{{ mode.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label>透析器 <span class="required">*</span></label>
+              <select class="form-select" [(ngModel)]="formData.dialyzerType">
+                @for (type of dialyzerTypes; track type.value) {
+                  <option [value]="type.value">{{ type.label }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>血液流速 (mL/min) <span class="required">*</span></label>
+              <input type="number" class="form-input" [(ngModel)]="formData.bloodFlowRate" min="100" max="500" />
+            </div>
+            <div class="form-group">
+              <label>透析液流速 (mL/min)</label>
+              <input type="number" class="form-input" [(ngModel)]="formData.dialysateFlowRate" min="300" max="800" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>透析時間 (分鐘) <span class="required">*</span></label>
+              <input type="number" class="form-input" [(ngModel)]="formData.duration" min="60" max="480" />
+            </div>
+            <div class="form-group">
+              <label>乾體重 (kg)</label>
+              <input type="number" class="form-input" [(ngModel)]="formData.dryWeight" min="0" step="0.1" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>脫水目標 (mL)</label>
+            <input type="number" class="form-input" [(ngModel)]="formData.ultrafiltrationGoal" min="0" step="100" />
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">抗凝劑</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>抗凝劑種類</label>
+              <select class="form-select" [(ngModel)]="formData.anticoagulant">
+                @for (ac of anticoagulants; track ac.value) {
+                  <option [value]="ac.value">{{ ac.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label>劑量</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.anticoagulantDose" placeholder="如: 首劑 1000U, 維持 500U/hr" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">透析液組成</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>鈣 (mEq/L)</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.dialysateCalcium" />
+            </div>
+            <div class="form-group">
+              <label>鉀 (mEq/L)</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.dialysatePotassium" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">血管通路</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>通路類型</label>
+              <select class="form-select" [(ngModel)]="formData.vascularAccess">
+                @for (at of accessTypes; track at.value) {
+                  <option [value]="at.value">{{ at.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label>穿刺針號</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.needleGauge" placeholder="如: 16G" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>特殊指示</label>
+          <textarea
+            class="form-textarea"
+            [(ngModel)]="formData.specialInstructions"
+            placeholder="輸入特殊醫囑指示"
+            rows="3"
+          ></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onSave()" [disabled]="!isFormValid">
+          {{ isEditing ? '更新醫囑' : '開立醫囑' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

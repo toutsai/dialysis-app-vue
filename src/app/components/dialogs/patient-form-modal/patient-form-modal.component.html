@@ -1,0 +1,121 @@
+@if (isVisible) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3>{{ isEditing ? '編輯病患資料' : '新增病患' }}</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-section">
+          <h4 class="section-title">基本資料</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="patientName">姓名 <span class="required">*</span></label>
+              <input id="patientName" type="text" class="form-input" [(ngModel)]="formData.name" placeholder="請輸入姓名" />
+            </div>
+            <div class="form-group">
+              <label for="mrn">病歷號 <span class="required">*</span></label>
+              <input id="mrn" type="text" class="form-input" [(ngModel)]="formData.medicalRecordNumber" placeholder="請輸入病歷號" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="idNumber">身分證號</label>
+              <input id="idNumber" type="text" class="form-input" [(ngModel)]="formData.idNumber" placeholder="請輸入身分證號" />
+            </div>
+            <div class="form-group">
+              <label for="birthDate">出生日期</label>
+              <input id="birthDate" type="date" class="form-input" [(ngModel)]="formData.birthDate" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="gender">性別 <span class="required">*</span></label>
+              <select id="gender" class="form-select" [(ngModel)]="formData.gender">
+                @for (option of genderOptions; track option.value) {
+                  <option [value]="option.value">{{ option.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="bloodType">血型</label>
+              <select id="bloodType" class="form-select" [(ngModel)]="formData.bloodType">
+                @for (bt of bloodTypeOptions; track bt) {
+                  <option [value]="bt">{{ bt }}</option>
+                }
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">聯絡資訊</h4>
+
+          <div class="form-group">
+            <label for="phone">聯絡電話</label>
+            <input id="phone" type="tel" class="form-input" [(ngModel)]="formData.phone" placeholder="請輸入電話" />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="emergencyContact">緊急聯絡人</label>
+              <input id="emergencyContact" type="text" class="form-input" [(ngModel)]="formData.emergencyContact" placeholder="姓名" />
+            </div>
+            <div class="form-group">
+              <label for="emergencyPhone">緊急聯絡電話</label>
+              <input id="emergencyPhone" type="tel" class="form-input" [(ngModel)]="formData.emergencyPhone" placeholder="電話" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="address">地址</label>
+            <input id="address" type="text" class="form-input" [(ngModel)]="formData.address" placeholder="請輸入地址" />
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">透析資訊</h4>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="dialysisStartDate">開始透析日期</label>
+              <input id="dialysisStartDate" type="date" class="form-input" [(ngModel)]="formData.dialysisStartDate" />
+            </div>
+            <div class="form-group">
+              <label for="vascularAccess">血管通路</label>
+              <select id="vascularAccess" class="form-select" [(ngModel)]="formData.vascularAccess">
+                @for (va of vascularAccessOptions; track va.value) {
+                  <option [value]="va.value">{{ va.label }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="primaryDiagnosis">主要診斷</label>
+            <input id="primaryDiagnosis" type="text" class="form-input" [(ngModel)]="formData.primaryDiagnosis" placeholder="請輸入診斷" />
+          </div>
+
+          <div class="form-group">
+            <label for="allergies">過敏史</label>
+            <textarea id="allergies" class="form-textarea" [(ngModel)]="formData.allergies" placeholder="請輸入過敏藥物或食物" rows="2"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="notes">備註</label>
+            <textarea id="notes" class="form-textarea" [(ngModel)]="formData.notes" placeholder="其他備註事項" rows="3"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onSave()" [disabled]="!isFormValid">
+          {{ isEditing ? '更新' : '建立' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

@@ -1,0 +1,39 @@
+<div class="system-diagnostic">
+  <div class="diag-header">
+    <h4 class="diag-title">系統診斷工具</h4>
+    <button
+      class="run-btn"
+      (click)="runDiagnostics()"
+      [disabled]="isRunning"
+      type="button"
+    >
+      {{ isRunning ? '檢測中...' : '執行診斷' }}
+    </button>
+  </div>
+
+  <div class="diag-summary" *ngIf="lastRunTime">
+    <span class="summary-time">最後執行: {{ lastRunTime }}</span>
+    <div class="summary-badges">
+      <span class="summary-badge badge-pass">通過 {{ passCount }}</span>
+      <span class="summary-badge badge-warn" *ngIf="warnCount > 0">警告 {{ warnCount }}</span>
+      <span class="summary-badge badge-fail" *ngIf="failCount > 0">失敗 {{ failCount }}</span>
+    </div>
+  </div>
+
+  <div class="checks-list">
+    <div
+      *ngFor="let check of checks"
+      class="check-item"
+      [ngClass]="'check-' + check.status"
+    >
+      <span class="check-icon">{{ getStatusIcon(check.status) }}</span>
+      <div class="check-info">
+        <span class="check-name">{{ check.name }}</span>
+        <span class="check-message">{{ check.message }}</span>
+      </div>
+      <span class="check-duration" *ngIf="check.duration > 0">
+        {{ check.duration }}ms
+      </span>
+    </div>
+  </div>
+</div>

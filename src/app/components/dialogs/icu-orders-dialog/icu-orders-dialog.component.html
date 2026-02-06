@@ -1,0 +1,111 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>ICU 醫囑</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        @if (patient) {
+          <div class="patient-banner">
+            <span class="bed-num">{{ patient.bedNumber }}</span>
+            <span class="patient-name">{{ patient.name }}</span>
+            <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+          </div>
+        }
+
+        <div class="section-header">
+          <h4>現有醫囑</h4>
+          <button class="add-btn" (click)="toggleNewOrderForm()">
+            {{ showNewOrderForm ? '取消' : '+ 新增醫囑' }}
+          </button>
+        </div>
+
+        @if (showNewOrderForm) {
+          <div class="new-order-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label>類別</label>
+                <select class="form-select" [(ngModel)]="newOrder.category">
+                  @for (cat of categories; track cat.value) {
+                    <option [value]="cat.value">{{ cat.label }}</option>
+                  }
+                </select>
+              </div>
+              <div class="form-group">
+                <label>頻率</label>
+                <select class="form-select" [(ngModel)]="newOrder.frequency">
+                  @for (freq of frequencies; track freq.value) {
+                    <option [value]="freq.value">{{ freq.label }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>醫囑內容 <span class="required">*</span></label>
+              <textarea
+                class="form-textarea"
+                [(ngModel)]="newOrder.orderContent"
+                placeholder="輸入醫囑內容"
+                rows="3"
+              ></textarea>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label>開始日期</label>
+                <input type="date" class="form-input" [(ngModel)]="newOrder.startDate" />
+              </div>
+              <div class="form-group">
+                <label>持續時間</label>
+                <input type="text" class="form-input" [(ngModel)]="newOrder.duration" placeholder="如: 3天, 持續" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>備註</label>
+              <input type="text" class="form-input" [(ngModel)]="newOrder.notes" placeholder="其他備註" />
+            </div>
+
+            <div class="form-actions">
+              <button class="btn btn-primary" (click)="onSaveOrder()" [disabled]="!isNewOrderValid">儲存醫囑</button>
+            </div>
+          </div>
+        }
+
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (existingOrders.length === 0 && !showNewOrderForm) {
+          <div class="empty-state">
+            <p>尚無醫囑紀錄</p>
+          </div>
+        } @else {
+          <div class="orders-list">
+            @for (order of existingOrders; track order.id) {
+              <div class="order-item">
+                <div class="order-header">
+                  <span class="order-category">{{ getCategoryLabel(order.category) }}</span>
+                  <span class="order-frequency">{{ order.frequency }}</span>
+                  <span class="order-status" [class]="'status-' + order.status">{{ order.status }}</span>
+                </div>
+                <p class="order-content">{{ order.orderContent }}</p>
+                <div class="order-footer">
+                  <span>開始: {{ order.startDate }}</span>
+                  <span>醫師: {{ order.orderedBy }}</span>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

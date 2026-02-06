@@ -1,0 +1,106 @@
+.page-container {
+  padding: 24px 16px;
+}
+
+.page-title {
+  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 0;
+}
+
+.tab-btn {
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-btn:hover {
+  color: #1abc9c;
+}
+
+.tab-btn.active {
+  color: #1abc9c;
+  border-bottom-color: #1abc9c;
+  font-weight: 600;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.toolbar-btn {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.toolbar-btn:hover {
+  background: #f3f4f6;
+  border-color: #1abc9c;
+  color: #1abc9c;
+}
+
+.primary-btn {
+  color: #ffffff;
+  background: #1abc9c;
+  border-color: #1abc9c;
+}
+
+.primary-btn:hover {
+  background: #16a085;
+  color: #ffffff;
+}
+
+.content {
+  flex: 1;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.message-list {
+  padding: 16px;
+  min-height: 300px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 64px 16px;
+}
+
+.empty-state p {
+  margin: 0;
+  color: #9ca3af;
+  font-size: 14px;
+}

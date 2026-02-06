@@ -1,0 +1,20 @@
+<span class="ward-number-badge" *ngIf="!isEditing" (dblclick)="startEdit()">
+  <span class="badge-value" *ngIf="value; else showPlaceholder">{{ value }}</span>
+  <ng-template #showPlaceholder>
+    <span class="badge-placeholder">{{ placeholder }}</span>
+  </ng-template>
+  <span class="edit-hint" title="雙擊編輯">&#9998;</span>
+</span>
+
+<span class="ward-number-badge editing" *ngIf="isEditing">
+  <input
+    #inputRef
+    type="text"
+    class="badge-input"
+    [(ngModel)]="editValue"
+    [placeholder]="placeholder"
+    (blur)="confirmEdit()"
+    (keydown)="onKeydown($event)"
+    maxlength="10"
+  />
+</span>

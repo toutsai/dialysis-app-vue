@@ -1,0 +1,71 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>排程變更</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        @if (patient) {
+          <div class="patient-banner">
+            <span class="patient-name">{{ patient.name }}</span>
+            <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+          </div>
+        }
+
+        <div class="form-group">
+          <label>生效日期 <span class="required">*</span></label>
+          <input type="date" class="form-input" [(ngModel)]="formData.effectiveDate" />
+        </div>
+
+        <div class="form-group">
+          <label>新排程 <span class="required">*</span></label>
+          <div class="schedule-grid">
+            <div class="grid-header">
+              <div class="grid-corner"></div>
+              @for (shift of shifts; track shift.value) {
+                <div class="grid-shift-label">{{ shift.label }}</div>
+              }
+            </div>
+            @for (day of days; track day.value) {
+              <div class="grid-row">
+                <div class="grid-day-label">{{ day.label }}</div>
+                @for (shift of shifts; track shift.value) {
+                  <div
+                    class="grid-cell"
+                    [class.selected]="isEntrySelected(day.value, shift.value)"
+                    (click)="toggleEntry(day.value, shift.value)"
+                  ></div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>變更原因 <span class="required">*</span></label>
+          <textarea
+            class="form-textarea"
+            [(ngModel)]="formData.reason"
+            placeholder="請輸入排程變更原因"
+            rows="3"
+          ></textarea>
+        </div>
+
+        <div class="form-group">
+          <label>備註</label>
+          <textarea
+            class="form-textarea"
+            [(ngModel)]="formData.notes"
+            placeholder="其他備註（選填）"
+            rows="2"
+          ></textarea>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onSubmit()" [disabled]="!isFormValid">確定變更</button>
+      </div>
+    </div>
+  </div>
+}

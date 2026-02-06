@@ -1,0 +1,32 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>{{ title }}</h3>
+        <button class="close-btn" (click)="onCancel()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <ul class="options-list">
+          @for (option of options; track option.value) {
+            <li
+              class="option-item"
+              [class.disabled]="option.disabled"
+              (click)="onSelect(option)"
+            >
+              @if (option.icon) {
+                <span class="option-icon">{{ option.icon }}</span>
+              }
+              <span class="option-label">{{ option.label }}</span>
+            </li>
+          }
+        </ul>
+        @if (options.length === 0) {
+          <p class="empty-message">沒有可用選項</p>
+        }
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onCancel()">取消</button>
+      </div>
+    </div>
+  </div>
+}

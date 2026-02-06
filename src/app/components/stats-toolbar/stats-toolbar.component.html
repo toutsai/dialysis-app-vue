@@ -1,0 +1,44 @@
+<div class="stats-toolbar">
+  <div class="stats-header">
+    <span class="stats-label">人數統計</span>
+    <span class="stats-total">合計: {{ grandTotal }}</span>
+  </div>
+
+  <div class="stats-table" *ngIf="statsData.length > 0">
+    <div class="stats-row header-row">
+      <span class="stats-cell shift-cell">班別</span>
+      <span
+        *ngFor="let day of weekdays; let i = index"
+        class="stats-cell day-cell"
+        [ngStyle]="getColumnStyle(i)"
+      >
+        {{ day }}
+      </span>
+      <span class="stats-cell total-cell">小計</span>
+    </div>
+
+    <div
+      *ngFor="let row of statsData"
+      class="stats-row data-row"
+    >
+      <span
+        class="stats-cell shift-cell"
+        [style.color]="getShiftColor(row.shift)"
+      >
+        {{ row.label }}
+      </span>
+      <span
+        *ngFor="let count of row.counts; let i = index"
+        class="stats-cell day-cell"
+        [ngStyle]="getColumnStyle(i)"
+      >
+        {{ count }}
+      </span>
+      <span class="stats-cell total-cell">{{ row.total }}</span>
+    </div>
+  </div>
+
+  <div class="stats-empty" *ngIf="statsData.length === 0">
+    無統計資料
+  </div>
+</div>

@@ -1,0 +1,52 @@
+<div class="lab-summary-panel" *ngIf="patient">
+  <div class="panel-header">
+    <h4 class="panel-title">檢驗數值</h4>
+    <span class="patient-name">{{ patient.name }}</span>
+  </div>
+
+  <div class="category-tabs">
+    <button
+      *ngFor="let cat of categories"
+      class="tab-btn"
+      [class.active]="selectedCategory === cat.label"
+      (click)="selectCategory(cat.label)"
+      type="button"
+    >
+      {{ cat.label }}
+    </button>
+  </div>
+
+  <div class="lab-table">
+    <div class="lab-row header-row">
+      <span class="lab-cell name-cell">項目</span>
+      <span class="lab-cell value-cell">數值</span>
+      <span class="lab-cell unit-cell">單位</span>
+      <span class="lab-cell ref-cell">參考值</span>
+      <span class="lab-cell status-cell">狀態</span>
+      <span class="lab-cell date-cell">日期</span>
+    </div>
+
+    <div
+      *ngFor="let item of getSelectedItems()"
+      class="lab-row data-row"
+      [ngClass]="'status-' + getStatus(item)"
+    >
+      <span class="lab-cell name-cell">{{ item.name }}</span>
+      <span class="lab-cell value-cell">
+        <strong>{{ item.value }}</strong>
+      </span>
+      <span class="lab-cell unit-cell">{{ item.unit }}</span>
+      <span class="lab-cell ref-cell">{{ getRefRange(item) }}</span>
+      <span class="lab-cell status-cell">
+        <span class="status-badge" [ngClass]="'badge-' + getStatus(item)">
+          {{ getStatusLabel(item) }}
+        </span>
+      </span>
+      <span class="lab-cell date-cell">{{ item.date }}</span>
+    </div>
+  </div>
+
+  <div class="panel-empty" *ngIf="getSelectedItems().length === 0">
+    無檢驗資料
+  </div>
+</div>

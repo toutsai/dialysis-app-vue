@@ -1,0 +1,84 @@
+@if (isVisible && patient) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="header-info">
+          <h3>{{ patient.name }} - 檢驗摘要</h3>
+          <span class="mrn-badge">{{ patient.medicalRecordNumber }}</span>
+          @if (abnormalCount > 0) {
+            <span class="abnormal-badge">{{ abnormalCount }} 項異常</span>
+          }
+        </div>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="modal-body">
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入檢驗資料中...</p>
+          </div>
+        } @else if (categories.length === 0) {
+          <div class="empty-state">
+            <p>尚無檢驗資料</p>
+          </div>
+        } @else {
+          @for (category of categories; track category.name) {
+            <div class="lab-category">
+              <div
+                class="category-header"
+                (click)="toggleCategory(category.name)"
+              >
+                <span class="toggle-icon">{{ isCategoryExpanded(category.name) ? '\u25BC' : '\u25B6' }}</span>
+                <span class="category-name">{{ category.name }}</span>
+                <span class="category-count">{{ category.items.length }} 項</span>
+              </div>
+              @if (isCategoryExpanded(category.name)) {
+                <table class="lab-table">
+                  <thead>
+                    <tr>
+                      <th>項目</th>
+                      <th>數值</th>
+                      <th>參考範圍</th>
+                      <th>趨勢</th>
+                      <th>狀態</th>
+                      <th>日期</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (item of category.items; track item.id) {
+                      <tr [class.abnormal-row]="item.status !== 'normal'">
+                        <td class="test-name-cell">{{ item.testName }}</td>
+                        <td class="value-cell">
+                          <strong>{{ item.value }}</strong>
+                          <span class="unit">{{ item.unit }}</span>
+                        </td>
+                        <td class="ref-cell">{{ item.referenceRange }}</td>
+                        <td class="trend-cell">
+                          @if (item.trend) {
+                            <span [ngClass]="getTrendClass(item.trend)">{{ getTrendIcon(item.trend) }}</span>
+                          }
+                        </td>
+                        <td>
+                          <span class="status-badge" [ngClass]="getStatusClass(item.status)">
+                            {{ getStatusLabel(item.status) }}
+                          </span>
+                        </td>
+                        <td class="date-cell">{{ item.date }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </div>
+          }
+        }
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-outline" (click)="onSaveRecord()">匯出紀錄</button>
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

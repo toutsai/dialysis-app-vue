@@ -1,0 +1,29 @@
+<div class="daily-staff-display">
+  <div class="staff-header">
+    <span class="staff-date">{{ date }}</span>
+    <span class="staff-title">值班人員</span>
+  </div>
+
+  <div class="staff-body" *ngIf="staff.length > 0; else noStaff">
+    <div
+      *ngFor="let role of roleKeys"
+      class="staff-role-group"
+      [ngClass]="getRoleClass(role)"
+    >
+      <span class="role-label">{{ getRoleLabel(role) }}</span>
+      <div class="role-members">
+        <span
+          *ngFor="let member of groupedByRole[role]"
+          class="staff-member"
+          [title]="member.shift"
+        >
+          {{ member.name }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <ng-template #noStaff>
+    <div class="no-staff">尚無排班資料</div>
+  </ng-template>
+</div>

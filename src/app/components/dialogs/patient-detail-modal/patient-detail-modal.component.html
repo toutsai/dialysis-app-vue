@@ -1,0 +1,176 @@
+@if (isVisible && patient) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="header-info">
+          <h3>{{ patient.name }}</h3>
+          <span class="mrn-badge">{{ patient.medicalRecordNumber }}</span>
+        </div>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="tab-bar">
+        @for (tab of tabs; track tab.key) {
+          <button
+            class="tab-btn"
+            [class.active]="activeTab === tab.key"
+            (click)="switchTab(tab.key)"
+          >
+            {{ tab.label }}
+          </button>
+        }
+      </div>
+
+      <div class="modal-body">
+        @if (activeTab === 'info') {
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">姓名</span>
+              <span class="detail-value">{{ patient.name }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">病歷號</span>
+              <span class="detail-value">{{ patient.medicalRecordNumber }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">性別</span>
+              <span class="detail-value">{{ getGenderLabel(patient.gender) }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">出生日期</span>
+              <span class="detail-value">{{ patient.birthDate }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">血型</span>
+              <span class="detail-value">{{ patient.bloodType }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">聯絡電話</span>
+              <span class="detail-value">{{ patient.phone || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">緊急聯絡人</span>
+              <span class="detail-value">{{ patient.emergencyContact || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">緊急聯絡電話</span>
+              <span class="detail-value">{{ patient.emergencyPhone || '-' }}</span>
+            </div>
+            <div class="detail-item full-width">
+              <span class="detail-label">地址</span>
+              <span class="detail-value">{{ patient.address || '-' }}</span>
+            </div>
+          </div>
+        }
+
+        @if (activeTab === 'dialysis') {
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">開始透析日期</span>
+              <span class="detail-value">{{ patient.dialysisStartDate || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">血管通路</span>
+              <span class="detail-value">{{ getAccessLabel(patient.vascularAccess) }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">主治醫師</span>
+              <span class="detail-value">{{ patient.doctor || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">責任護理師</span>
+              <span class="detail-value">{{ patient.nurse || '-' }}</span>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">床號</span>
+              <span class="detail-value">{{ patient.bedNumber || '-' }}</span>
+            </div>
+            <div class="detail-item full-width">
+              <span class="detail-label">主要診斷</span>
+              <span class="detail-value">{{ patient.primaryDiagnosis || '-' }}</span>
+            </div>
+          </div>
+          @if (patient.schedule && patient.schedule.length > 0) {
+            <div class="schedule-section">
+              <h4>透析時段</h4>
+              <div class="schedule-list">
+                @for (s of patient.schedule; track s.day) {
+                  <span class="schedule-tag">{{ s.day }} {{ s.shift }}</span>
+                }
+              </div>
+            </div>
+          }
+        }
+
+        @if (activeTab === 'lab') {
+          @if (patient.labResults && patient.labResults.length > 0) {
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>檢驗項目</th>
+                  <th>數值</th>
+                  <th>日期</th>
+                  <th>狀態</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (lab of patient.labResults; track lab.name + lab.date) {
+                  <tr>
+                    <td>{{ lab.name }}</td>
+                    <td>{{ lab.value }}</td>
+                    <td>{{ lab.date }}</td>
+                    <td><span class="status-badge" [ngClass]="getLabStatusClass(lab.status)">{{ lab.status }}</span></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <p class="empty-text">尚無檢驗資料</p>
+          }
+        }
+
+        @if (activeTab === 'medications') {
+          @if (patient.medications && patient.medications.length > 0) {
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>藥品名稱</th>
+                  <th>劑量</th>
+                  <th>頻率</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (med of patient.medications; track med.name) {
+                  <tr>
+                    <td>{{ med.name }}</td>
+                    <td>{{ med.dose }}</td>
+                    <td>{{ med.frequency }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <p class="empty-text">尚無用藥紀錄</p>
+          }
+        }
+
+        @if (activeTab === 'notes') {
+          <div class="notes-section">
+            <div class="notes-block">
+              <h4>過敏史</h4>
+              <p>{{ patient.allergies || '無' }}</p>
+            </div>
+            <div class="notes-block">
+              <h4>備註</h4>
+              <p>{{ patient.notes || '無' }}</p>
+            </div>
+          </div>
+        }
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

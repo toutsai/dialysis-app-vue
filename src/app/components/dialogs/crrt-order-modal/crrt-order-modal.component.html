@@ -1,0 +1,130 @@
+@if (isVisible) {
+  <div class="modal-overlay" (click)="onOverlayClick($event)">
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3>CRRT 醫囑</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="modal-body">
+        @if (patient) {
+          <div class="patient-banner">
+            <span class="patient-name">{{ patient.name }}</span>
+            <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+          </div>
+        }
+
+        <div class="form-section">
+          <h4 class="section-title">CRRT 設定</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>CRRT 模式 <span class="required">*</span></label>
+              <select class="form-select" [(ngModel)]="formData.crrtMode">
+                @for (mode of crrtModes; track mode.value) {
+                  <option [value]="mode.value">{{ mode.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label>濾器 <span class="required">*</span></label>
+              <select class="form-select" [(ngModel)]="formData.filterType">
+                @for (f of filterTypes; track f.value) {
+                  <option [value]="f.value">{{ f.label }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>血液流速 (mL/min) <span class="required">*</span></label>
+              <input type="number" class="form-input" [(ngModel)]="formData.bloodFlowRate" min="50" max="300" />
+            </div>
+            <div class="form-group">
+              <label>超濾速率 (mL/hr)</label>
+              <input type="number" class="form-input" [(ngModel)]="formData.ultrafiltrationRate" min="0" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">置換液與透析液</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>置換液流速 (mL/hr)</label>
+              <input type="number" class="form-input" [(ngModel)]="formData.replacementFluidRate" min="0" />
+            </div>
+            <div class="form-group">
+              <label>透析液流速 (mL/hr)</label>
+              <input type="number" class="form-input" [(ngModel)]="formData.dialysateRate" min="0" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>置換液位置</label>
+              <select class="form-select" [(ngModel)]="formData.replacementFluidLocation">
+                @for (loc of fluidLocations; track loc.value) {
+                  <option [value]="loc.value">{{ loc.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label>目標液體平衡 (mL/hr)</label>
+              <input type="number" class="form-input" [(ngModel)]="formData.targetFluidBalance" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">抗凝劑</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>抗凝方式</label>
+              <select class="form-select" [(ngModel)]="formData.anticoagulant">
+                @for (ac of anticoagulants; track ac.value) {
+                  <option [value]="ac.value">{{ ac.label }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-group">
+              <label>劑量</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.anticoagulantDose" placeholder="劑量說明" />
+            </div>
+          </div>
+          <div class="form-group">
+            <label>鈣補充</label>
+            <input type="text" class="form-input" [(ngModel)]="formData.calciumReplacement" placeholder="如: CaCl2 10% 回路後補充" />
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h4 class="section-title">血管通路</h4>
+          <div class="form-row">
+            <div class="form-group">
+              <label>通路類型</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.vascularAccess" placeholder="如: 臨時雙腔導管" />
+            </div>
+            <div class="form-group">
+              <label>置入位置</label>
+              <input type="text" class="form-input" [(ngModel)]="formData.accessSite" placeholder="如: 右頸內靜脈" />
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>特殊指示</label>
+          <textarea
+            class="form-textarea"
+            [(ngModel)]="formData.specialInstructions"
+            placeholder="特殊醫囑指示"
+            rows="3"
+          ></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onSave()" [disabled]="!isFormValid">儲存醫囑</button>
+      </div>
+    </div>
+  </div>
+}

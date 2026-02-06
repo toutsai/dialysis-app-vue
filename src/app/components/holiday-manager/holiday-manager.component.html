@@ -1,0 +1,92 @@
+<div class="holiday-manager">
+  <div class="manager-header">
+    <h4 class="manager-title">假日管理</h4>
+    <div class="header-actions">
+      <select class="year-select" [(ngModel)]="filterYear">
+        <option *ngFor="let year of availableYears" [ngValue]="year">
+          {{ year }} 年
+        </option>
+      </select>
+      <button class="add-btn" (click)="startAdding()" *ngIf="!isAdding" type="button">
+        + 新增假日
+      </button>
+    </div>
+  </div>
+
+  <div class="add-form" *ngIf="isAdding">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="field-label">日期</label>
+        <input
+          type="date"
+          class="form-input"
+          [(ngModel)]="newHoliday.date"
+        />
+      </div>
+      <div class="form-group">
+        <label class="field-label">名稱</label>
+        <input
+          type="text"
+          class="form-input"
+          [(ngModel)]="newHoliday.name"
+          placeholder="假日名稱"
+        />
+      </div>
+      <div class="form-group">
+        <label class="field-label">類型</label>
+        <select class="form-input" [(ngModel)]="newHoliday.type">
+          <option value="national">國定假日</option>
+          <option value="custom">自訂休假</option>
+          <option value="makeup">補班日</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group full-width">
+        <label class="field-label">說明</label>
+        <input
+          type="text"
+          class="form-input"
+          [(ngModel)]="newHoliday.description"
+          placeholder="說明 (選填)"
+        />
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-cancel" (click)="cancelAdding()" type="button">取消</button>
+      <button class="btn btn-save" (click)="saveHoliday()" type="button">
+        {{ editingId ? '更新' : '儲存' }}
+      </button>
+    </div>
+  </div>
+
+  <div class="holidays-body" *ngIf="filteredHolidays.length > 0">
+    <div *ngFor="let month of monthKeys" class="month-group">
+      <div class="month-label">{{ getMonthLabel(month) }}</div>
+      <div class="holiday-list">
+        <div
+          *ngFor="let holiday of groupedByMonth[month]"
+          class="holiday-item"
+          [ngClass]="getTypeClass(holiday.type)"
+        >
+          <span class="holiday-date">{{ holiday.date }}</span>
+          <span class="holiday-name">{{ holiday.name }}</span>
+          <span class="holiday-type">{{ getTypeLabel(holiday.type) }}</span>
+          <span class="holiday-desc" *ngIf="holiday.description">{{ holiday.description }}</span>
+          <div class="holiday-actions">
+            <button class="action-btn edit-btn" (click)="editHoliday(holiday)" title="編輯" type="button">
+              &#9998;
+            </button>
+            <button class="action-btn delete-btn" (click)="deleteHoliday(holiday)" title="刪除" type="button">
+              &times;
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="empty-state" *ngIf="filteredHolidays.length === 0 && !isAdding">
+    {{ filterYear }} 年無假日資料
+  </div>
+</div>

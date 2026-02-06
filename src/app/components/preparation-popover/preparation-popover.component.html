@@ -1,0 +1,54 @@
+<div class="popover-backdrop" *ngIf="isVisible" (click)="onBackdropClick($event)">
+  <div class="preparation-popover" [ngStyle]="positionStyle">
+    <div class="popover-header">
+      <h4 class="popover-title">透析準備狀況</h4>
+      <div class="header-stats">
+        <span class="stat-ready">已備妥 {{ allReadyCount }}/{{ patients.length }}</span>
+      </div>
+      <button class="close-btn" (click)="close()" type="button">&times;</button>
+    </div>
+
+    <div class="popover-body">
+      <div class="missing-alert" *ngIf="patientsWithMissing.length > 0">
+        <span class="alert-icon">&#9888;</span>
+        <span>{{ patientsWithMissing.length }} 位病人有缺少項目</span>
+      </div>
+
+      <div class="patient-list">
+        <div
+          *ngFor="let patient of patients"
+          class="patient-prep-card"
+        >
+          <div class="prep-card-header">
+            <span class="prep-bed">{{ patient.bed }}</span>
+            <span class="prep-name">{{ patient.name }}</span>
+            <span class="prep-chart">{{ patient.chartNo }}</span>
+            <button
+              class="order-btn"
+              (click)="onOpenOrder(patient.id)"
+              title="開立醫囑"
+              type="button"
+            >
+              醫囑
+            </button>
+          </div>
+          <div class="prep-items">
+            <div
+              *ngFor="let prep of patient.preparations"
+              class="prep-item"
+              [ngClass]="getStatusClass(prep.status)"
+            >
+              <span class="prep-status-icon">{{ getStatusIcon(prep.status) }}</span>
+              <span class="prep-label">{{ prep.label }}</span>
+              <span class="prep-detail">{{ prep.detail }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="empty-state" *ngIf="patients.length === 0">
+        無準備項目資料
+      </div>
+    </div>
+  </div>
+</div>

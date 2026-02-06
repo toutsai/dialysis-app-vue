@@ -1,0 +1,47 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>草稿清單</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="dialog-body">
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (drafts.length === 0) {
+          <div class="empty-state">
+            <p>無草稿紀錄</p>
+          </div>
+        } @else {
+          <div class="draft-list">
+            @for (draft of drafts; track draft.id) {
+              <div class="draft-item">
+                <div class="draft-header">
+                  <span class="draft-type">{{ getTypeLabel(draft.type) }}</span>
+                  <span class="draft-date">最後更新: {{ draft.updatedAt }}</span>
+                </div>
+                <h4 class="draft-title">{{ draft.title }}</h4>
+                <p class="draft-preview">{{ draft.content }}</p>
+                <div class="draft-footer">
+                  <span class="draft-author">{{ draft.author }}</span>
+                  <div class="draft-actions">
+                    <button class="action-btn edit-btn">編輯</button>
+                    <button class="action-btn delete-btn" (click)="deleteDraft(draft)">刪除</button>
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

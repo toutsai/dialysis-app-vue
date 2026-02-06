@@ -1,0 +1,74 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>交班紀錄</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="shift-bar">
+        @for (shift of shifts; track shift.value) {
+          <button
+            class="shift-btn"
+            [class.active]="activeShift === shift.value"
+            (click)="setShift(shift.value)"
+          >
+            {{ shift.label }}
+          </button>
+        }
+      </div>
+
+      <div class="dialog-body">
+        <div class="add-note-section">
+          <div class="add-note-row">
+            <select class="category-select" [(ngModel)]="selectedCategory">
+              @for (cat of categories; track cat.value) {
+                <option [value]="cat.value">{{ cat.label }}</option>
+              }
+            </select>
+            <input
+              type="text"
+              class="note-input"
+              [(ngModel)]="newNote"
+              placeholder="輸入交班內容..."
+              (keydown.enter)="addNote()"
+            />
+            <button class="add-btn" (click)="addNote()" [disabled]="!newNote.trim()">新增</button>
+          </div>
+        </div>
+
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (filteredNotes.length === 0) {
+          <div class="empty-state">
+            <p>尚無交班紀錄</p>
+          </div>
+        } @else {
+          <div class="notes-list">
+            @for (note of filteredNotes; track note.id) {
+              <div class="note-item" [class.resolved]="note.isResolved">
+                <div class="note-header">
+                  <span class="note-category">{{ getCategoryLabel(note.category) }}</span>
+                  <span class="note-meta">{{ note.date }} | {{ note.author }}</span>
+                </div>
+                <p class="note-content">{{ note.content }}</p>
+                <div class="note-actions">
+                  <button class="resolve-btn" (click)="toggleResolved(note)">
+                    {{ note.isResolved ? '標為未處理' : '標為已處理' }}
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

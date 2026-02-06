@@ -1,0 +1,88 @@
+.daily-staff-display {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 13px;
+}
+
+.staff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eee;
+}
+
+.staff-date {
+  color: #888;
+  font-size: 12px;
+}
+
+.staff-title {
+  font-weight: 600;
+  color: #333;
+}
+
+.staff-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.staff-role-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.role-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #f0f0f0;
+  color: #555;
+  min-width: 56px;
+  text-align: center;
+}
+
+.role-doctor .role-label {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.role-nurse .role-label {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.role-technician .role-label {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.role-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.staff-member {
+  padding: 2px 8px;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #333;
+  cursor: default;
+}
+
+.no-staff {
+  text-align: center;
+  color: #aaa;
+  padding: 12px 0;
+  font-size: 13px;
+}

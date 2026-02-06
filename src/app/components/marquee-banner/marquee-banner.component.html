@@ -1,0 +1,16 @@
+<div
+  class="marquee-banner"
+  *ngIf="messages.length > 0"
+  (mouseenter)="onMouseEnter()"
+  (mouseleave)="onMouseLeave()"
+>
+  <span class="marquee-icon">&#128227;</span>
+  <div class="marquee-track">
+    <span
+      class="marquee-text"
+      [class.paused]="isPaused"
+    >
+      {{ combinedText }}
+    </span>
+  </div>
+</div>

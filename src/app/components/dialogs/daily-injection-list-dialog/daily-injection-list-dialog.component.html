@@ -1,0 +1,59 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>每日注射紀錄</h3>
+        @if (date) {
+          <span class="date-badge">{{ date }}</span>
+        }
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="dialog-body">
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (injections.length === 0) {
+          <div class="empty-state">
+            <p>無注射紀錄</p>
+          </div>
+        } @else {
+          <table class="injection-table">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th>藥品名稱</th>
+                <th>劑量</th>
+                <th>途徑</th>
+                <th>執行者</th>
+                <th>狀態</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (inj of injections; track inj.id) {
+                <tr>
+                  <td class="time-cell">{{ inj.time }}</td>
+                  <td class="med-name">{{ inj.medicationName }}</td>
+                  <td>{{ inj.dose }}</td>
+                  <td>{{ inj.route }}</td>
+                  <td>{{ inj.administeredBy }}</td>
+                  <td>
+                    <span class="status-badge" [ngClass]="getStatusClass(inj.status)">
+                      {{ getStatusLabel(inj.status) }}
+                    </span>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

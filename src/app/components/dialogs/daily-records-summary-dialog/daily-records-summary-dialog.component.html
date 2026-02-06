@@ -1,0 +1,59 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>每日紀錄摘要</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="date-bar">
+        <input
+          type="date"
+          class="date-input"
+          [value]="selectedDate"
+          (change)="onDateChange($event)"
+        />
+      </div>
+
+      <div class="dialog-body">
+        @if (isLoading) {
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p>載入中...</p>
+          </div>
+        } @else if (records.length === 0) {
+          <div class="empty-state">
+            <p>此日期無紀錄</p>
+          </div>
+        } @else {
+          <table class="records-table">
+            <thead>
+              <tr>
+                <th>時間</th>
+                <th>類型</th>
+                <th>內容</th>
+                <th>記錄者</th>
+                <th>狀態</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (record of records; track record.id) {
+                <tr>
+                  <td class="time-cell">{{ record.time }}</td>
+                  <td><span class="type-badge">{{ getTypeLabel(record.type) }}</span></td>
+                  <td class="content-cell">{{ record.content }}</td>
+                  <td>{{ record.author }}</td>
+                  <td><span class="status-dot" [ngClass]="getStatusClass(record.status)"></span></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

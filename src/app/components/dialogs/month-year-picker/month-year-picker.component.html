@@ -1,0 +1,32 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>選擇年月</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="year-selector">
+          <button class="nav-btn" (click)="prevYear()">&lsaquo;</button>
+          <span class="year-display">{{ selectedYear }} 年</span>
+          <button class="nav-btn" (click)="nextYear()">&rsaquo;</button>
+        </div>
+        <div class="month-grid">
+          @for (month of months; track month.value) {
+            <button
+              class="month-btn"
+              [class.active]="selectedMonth === month.value"
+              (click)="selectMonth(month.value)"
+            >
+              {{ month.label }}
+            </button>
+          }
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onConfirm()">確定</button>
+      </div>
+    </div>
+  </div>
+}

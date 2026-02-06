@@ -1,0 +1,20 @@
+<div class="page-container">
+  <h1 class="page-title">週排班表</h1>
+  <div class="toolbar">
+    <button class="toolbar-btn">上一週</button>
+    <button class="toolbar-btn">本週</button>
+    <button class="toolbar-btn">下一週</button>
+  </div>
+  <div class="content">
+    <div class="week-grid">
+      @for (day of weekdays; track day) {
+        <div class="day-column">
+          <div class="day-header">{{ day }}</div>
+          <div class="day-body">
+            <p class="placeholder-text">尚無排班資料</p>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

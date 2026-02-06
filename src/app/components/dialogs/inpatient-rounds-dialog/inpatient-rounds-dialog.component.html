@@ -1,0 +1,77 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>巡房紀錄</h3>
+        <span class="progress-badge">{{ completedCount }} / {{ patients.length }} 完成</span>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+
+      <div class="dialog-content">
+        <div class="patient-sidebar">
+          <div class="sidebar-title">病患清單</div>
+          @for (patient of patients; track patient.id; let i = $index) {
+            <div
+              class="sidebar-item"
+              [class.active]="currentPatientIndex === i"
+              [class.completed]="isPatientCompleted(patient.id)"
+              (click)="goToPatient(i)"
+            >
+              <span class="sidebar-bed">{{ patient.bedNumber }}</span>
+              <span class="sidebar-name">{{ patient.name }}</span>
+              @if (isPatientCompleted(patient.id)) {
+                <span class="check-mark">&#10003;</span>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="rounds-form">
+          @if (currentPatient && currentRecord) {
+            <div class="patient-banner">
+              <span class="bed-num">{{ currentPatient.bedNumber }}</span>
+              <span class="patient-name">{{ currentPatient.name }}</span>
+              <span class="patient-mrn">{{ currentPatient.medicalRecordNumber }}</span>
+            </div>
+            <div class="diagnosis-row">
+              <span class="diag-label">診斷:</span>
+              <span class="diag-value">{{ currentPatient.diagnosis }}</span>
+            </div>
+
+            <div class="form-group">
+              <label>生命徵象</label>
+              <textarea class="form-textarea" [(ngModel)]="currentRecord.vitalSigns" placeholder="BP, HR, RR, BT, SpO2..." rows="2"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>評估 (Assessment)</label>
+              <textarea class="form-textarea" [(ngModel)]="currentRecord.assessment" placeholder="病情評估" rows="3"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>計畫 (Plan)</label>
+              <textarea class="form-textarea" [(ngModel)]="currentRecord.plan" placeholder="治療計畫" rows="3"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label>備註</label>
+              <textarea class="form-textarea" [(ngModel)]="currentRecord.notes" placeholder="其他備註" rows="2"></textarea>
+            </div>
+
+            <div class="form-actions">
+              <button class="btn btn-secondary" (click)="prevPatient()" [disabled]="currentPatientIndex === 0">上一位</button>
+              <button class="btn btn-primary" (click)="markCompleted()">
+                {{ currentRecord.isCompleted ? '已完成' : '完成此病患' }}
+              </button>
+              <button class="btn btn-secondary" (click)="nextPatient()" [disabled]="currentPatientIndex === patients.length - 1">下一位</button>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+      </div>
+    </div>
+  </div>
+}

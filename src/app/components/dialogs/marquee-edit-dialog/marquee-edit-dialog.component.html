@@ -1,0 +1,30 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>編輯跑馬燈訊息</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="editor-wrapper">
+          <quill-editor
+            [(ngModel)]="editorContent"
+            [modules]="quillModules"
+            [styles]="{ height: '200px' }"
+            placeholder="輸入跑馬燈內容..."
+          ></quill-editor>
+        </div>
+        <div class="preview-section">
+          <h4>預覽</h4>
+          <div class="marquee-preview">
+            <div class="marquee-content" [innerHTML]="editorContent"></div>
+          </div>
+        </div>
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onSave()">儲存</button>
+      </div>
+    </div>
+  </div>
+}

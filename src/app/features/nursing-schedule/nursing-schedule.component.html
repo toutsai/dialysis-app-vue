@@ -1,0 +1,20 @@
+<div class="page-container">
+  <h1 class="page-title">護理班表與職責</h1>
+  <div class="toolbar">
+    <button class="toolbar-btn">本月</button>
+    <button class="toolbar-btn">下月</button>
+    <button class="toolbar-btn">匯出</button>
+  </div>
+  <div class="content">
+    <div class="shift-grid">
+      @for (shift of shifts; track shift) {
+        <div class="shift-card">
+          <div class="shift-header">{{ shift }}</div>
+          <div class="shift-body">
+            <p class="placeholder-text">尚無排班資料</p>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

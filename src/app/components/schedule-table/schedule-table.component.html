@@ -1,0 +1,55 @@
+<div class="schedule-table-wrapper">
+  <table class="schedule-table">
+    <thead>
+      <tr>
+        <th class="bed-header">床號</th>
+        <ng-container *ngFor="let day of weekdays; let di = index">
+          <th
+            *ngFor="let shift of shifts; trackBy: trackByShift"
+            class="day-shift-header"
+            [style.background]="shift.color + '15'"
+          >
+            <div class="header-day">{{ day }}</div>
+            <div class="header-shift" [style.color]="shift.color">{{ shift.label }}</div>
+            <div class="header-date">{{ weekDates[di] }}</div>
+          </th>
+        </ng-container>
+      </tr>
+    </thead>
+    <tbody>
+      <tr
+        *ngFor="let bed of bedNumbers; trackBy: trackByBed"
+        [class.hepatitis-row]="isHepatitisRow(bed)"
+      >
+        <td class="bed-cell">
+          <span class="bed-number">{{ bed }}</span>
+          <span class="hepatitis-tag" *ngIf="isHepatitisRow(bed)">B/C</span>
+        </td>
+        <ng-container *ngFor="let day of weekdays; let di = index">
+          <td
+            *ngFor="let shift of shifts; trackBy: trackByShift"
+            class="schedule-cell"
+            [class.occupied]="getCell(bed, shift.key, di).patientId"
+            [class.empty]="!getCell(bed, shift.key, di).patientId"
+            [attr.draggable]="getCell(bed, shift.key, di).patientId ? true : null"
+            (click)="onCellClick(getCell(bed, shift.key, di), $event)"
+            (dragstart)="onDragStart(getCell(bed, shift.key, di), $event)"
+            (dragover)="onDragOver($event)"
+            (drop)="onDrop(getCell(bed, shift.key, di), $event)"
+          >
+            <div class="cell-content" *ngIf="getCell(bed, shift.key, di).patientId as pid">
+              <span class="patient-name">{{ getPatientName(pid) }}</span>
+              <button
+                class="memo-btn"
+                (click)="onShowMemos(pid); $event.stopPropagation()"
+                title="查看備註"
+              >
+                &#128221;
+              </button>
+            </div>
+          </td>
+        </ng-container>
+      </tr>
+    </tbody>
+  </table>
+</div>

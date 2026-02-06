@@ -1,0 +1,43 @@
+<div class="page-container">
+  <h1 class="page-title">病人管理</h1>
+  <div class="toolbar">
+    <input type="text" class="search-input" placeholder="搜尋病人姓名或病歷號..." />
+    <button class="toolbar-btn primary-btn">新增病人</button>
+  </div>
+  <div class="tabs">
+    @for (tab of tabs; track tab.key) {
+      <button
+        class="tab-btn"
+        [class.active]="activeTab() === tab.key"
+        (click)="setTab(tab.key)"
+      >
+        {{ tab.label }}
+      </button>
+    }
+  </div>
+  <div class="content">
+    <div class="card">
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>病歷號</th>
+              <th>姓名</th>
+              <th>性別</th>
+              <th>床號</th>
+              <th>主治醫師</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="6" class="empty-row">
+                目前 {{ activeTab() }} 類別無病人資料
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,72 @@
+<div class="patient-image-uploader" *ngIf="patient">
+  <div class="uploader-header">
+    <h4 class="uploader-title">影像上傳</h4>
+    <span class="patient-info">{{ patient.name }}</span>
+  </div>
+
+  <div class="uploader-body">
+    <div class="camera-area" *ngIf="isCameraActive">
+      <video
+        #videoElement
+        class="camera-video"
+        autoplay
+        playsinline
+      ></video>
+      <div class="camera-controls">
+        <button class="btn btn-capture" (click)="capturePhoto()" type="button">
+          拍照
+        </button>
+        <button class="btn btn-cancel" (click)="stopCamera()" type="button">
+          取消
+        </button>
+      </div>
+    </div>
+
+    <div class="preview-area" *ngIf="previewUrl && !isCameraActive">
+      <img [src]="previewUrl" alt="Preview" class="preview-image" />
+      <div class="preview-controls">
+        <button class="btn btn-clear" (click)="clearPreview()" type="button">
+          清除
+        </button>
+        <button
+          class="btn btn-upload"
+          (click)="uploadImage()"
+          [disabled]="isUploading"
+          type="button"
+        >
+          {{ isUploading ? '上傳中...' : '確認上傳' }}
+        </button>
+      </div>
+      <div class="progress-bar" *ngIf="isUploading">
+        <div class="progress-fill" [style.width.%]="uploadProgress"></div>
+      </div>
+    </div>
+
+    <div class="action-area" *ngIf="!isCameraActive && !previewUrl">
+      <div class="action-buttons">
+        <button class="source-btn" (click)="startCamera()" type="button">
+          <span class="source-icon">&#128247;</span>
+          <span class="source-label">開啟相機</span>
+        </button>
+        <button class="source-btn" (click)="triggerFileInput()" type="button">
+          <span class="source-icon">&#128193;</span>
+          <span class="source-label">選擇檔案</span>
+        </button>
+      </div>
+      <input
+        #fileInput
+        type="file"
+        accept="image/*"
+        class="hidden-input"
+        (change)="onFileSelect($event)"
+      />
+      <p class="upload-hint">支援 JPG、PNG 格式，最大 10MB</p>
+    </div>
+
+    <div class="error-message" *ngIf="errorMessage">
+      {{ errorMessage }}
+    </div>
+  </div>
+
+  <canvas #canvasElement class="hidden-canvas"></canvas>
+</div>

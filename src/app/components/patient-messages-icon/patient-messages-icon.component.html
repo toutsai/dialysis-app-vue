@@ -1,0 +1,16 @@
+<div class="patient-messages-icon" *ngIf="hasMessages">
+  <div class="indicators">
+    <span
+      *ngFor="let indicator of visibleIndicators"
+      class="indicator-badge"
+      [style.background]="indicator.color"
+      [title]="indicator.type + ': ' + indicator.count"
+    >
+      <span class="indicator-icon">{{ indicator.icon }}</span>
+      <span class="indicator-count" *ngIf="indicator.count > 1">{{ indicator.count }}</span>
+    </span>
+  </div>
+  <span class="pending-badge" *ngIf="pendingCount > 0">
+    {{ pendingCount }}
+  </span>
+</div>

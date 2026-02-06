@@ -1,0 +1,172 @@
+.lab-summary-panel {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 13px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333;
+}
+
+.patient-name {
+  font-size: 13px;
+  color: #666;
+}
+
+.category-tabs {
+  display: flex;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 0 8px;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #666;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  color: #333;
+  background: #f5f5f5;
+}
+
+.tab-btn.active {
+  color: #1abc9c;
+  border-bottom-color: #1abc9c;
+  font-weight: 600;
+}
+
+.lab-table {
+  padding: 8px 16px;
+}
+
+.lab-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.header-row {
+  font-weight: 600;
+  color: #666;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+
+.data-row {
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.data-row:last-child {
+  border-bottom: none;
+}
+
+.data-row:hover {
+  background: #f9f9f9;
+  border-radius: 4px;
+}
+
+.lab-cell {
+  padding: 2px 4px;
+}
+
+.name-cell {
+  flex: 2;
+  min-width: 80px;
+}
+
+.value-cell {
+  flex: 1.5;
+  text-align: center;
+}
+
+.unit-cell {
+  flex: 1.5;
+  color: #888;
+  font-size: 12px;
+}
+
+.ref-cell {
+  flex: 2;
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+}
+
+.status-cell {
+  flex: 1;
+  text-align: center;
+}
+
+.date-cell {
+  flex: 1.5;
+  color: #999;
+  font-size: 11px;
+  text-align: right;
+}
+
+.status-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-normal {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.badge-high {
+  background: #fce4ec;
+  color: #c62828;
+}
+
+.badge-low {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.badge-unknown {
+  background: #f5f5f5;
+  color: #999;
+}
+
+.status-high .value-cell strong {
+  color: #c62828;
+}
+
+.status-low .value-cell strong {
+  color: #e65100;
+}
+
+.status-normal .value-cell strong {
+  color: #2e7d32;
+}
+
+.panel-empty {
+  text-align: center;
+  color: #aaa;
+  padding: 20px;
+}

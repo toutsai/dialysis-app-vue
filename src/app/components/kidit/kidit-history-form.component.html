@@ -1,0 +1,185 @@
+<div class="kidit-history-form">
+  <div class="form-header">
+    <h4 class="form-title">病史記錄</h4>
+    <span class="form-date">{{ date }}</span>
+  </div>
+
+  <div class="form-body">
+    <section class="form-section">
+      <h5 class="section-title">主訴與現病史</h5>
+      <div class="form-field full-width">
+        <label>主訴</label>
+        <input
+          type="text"
+          [(ngModel)]="formData.chiefComplaint"
+          (ngModelChange)="onFieldChange()"
+          placeholder="主要症狀及持續時間"
+        />
+      </div>
+      <div class="form-field full-width">
+        <label>現病史</label>
+        <textarea
+          [(ngModel)]="formData.presentIllness"
+          (ngModelChange)="onFieldChange()"
+          rows="3"
+          placeholder="疾病經過描述..."
+        ></textarea>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">過去病史</h5>
+      <div class="chip-grid">
+        <button
+          *ngFor="let item of commonPastHistory"
+          class="chip"
+          [class.active]="isItemActive(formData.pastHistory, item)"
+          (click)="toggleArrayItem(formData.pastHistory, item)"
+          type="button"
+        >
+          {{ item }}
+        </button>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">過敏史</h5>
+      <div class="chip-grid">
+        <button
+          *ngFor="let item of commonAllergies"
+          class="chip allergy-chip"
+          [class.active]="isItemActive(formData.allergies, item)"
+          (click)="toggleArrayItem(formData.allergies, item)"
+          type="button"
+        >
+          {{ item }}
+        </button>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">透析史</h5>
+      <div class="fields-grid">
+        <div class="form-field">
+          <label>開始透析日期</label>
+          <input
+            type="date"
+            [(ngModel)]="formData.dialysisHistory.startDate"
+            (ngModelChange)="onFieldChange()"
+          />
+        </div>
+        <div class="form-field">
+          <label>導致透析原因</label>
+          <select
+            [(ngModel)]="formData.dialysisHistory.initialCause"
+            (ngModelChange)="onFieldChange()"
+          >
+            <option value="">請選擇</option>
+            <option *ngFor="let opt of causeOptions" [value]="opt">{{ opt }}</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>先前透析方式</label>
+          <select
+            [(ngModel)]="formData.dialysisHistory.previousModality"
+            (ngModelChange)="onFieldChange()"
+          >
+            <option *ngFor="let opt of modalityOptions" [value]="opt">{{ opt }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-field full-width">
+        <label>過去血管通路史</label>
+        <textarea
+          [(ngModel)]="formData.dialysisHistory.previousAccessHistory"
+          (ngModelChange)="onFieldChange()"
+          rows="2"
+          placeholder="過去通路手術或更換記錄..."
+        ></textarea>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">共病症</h5>
+      <div class="chip-grid">
+        <button
+          *ngFor="let item of commonComorbidities"
+          class="chip"
+          [class.active]="isItemActive(formData.comorbidities, item)"
+          (click)="toggleArrayItem(formData.comorbidities, item)"
+          type="button"
+        >
+          {{ item }}
+        </button>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">家族史 / 手術史</h5>
+      <div class="fields-grid">
+        <div class="form-field">
+          <label>家族史</label>
+          <textarea
+            [(ngModel)]="formData.familyHistory"
+            (ngModelChange)="onFieldChange()"
+            rows="2"
+            placeholder="家族疾病史..."
+          ></textarea>
+        </div>
+        <div class="form-field">
+          <label>手術史</label>
+          <textarea
+            [(ngModel)]="formData.surgicalHistory"
+            (ngModelChange)="onFieldChange()"
+            rows="2"
+            placeholder="過去手術記錄..."
+          ></textarea>
+        </div>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">社會史</h5>
+      <div class="fields-grid">
+        <div class="form-field">
+          <label>吸菸</label>
+          <select
+            [(ngModel)]="formData.socialHistory.smoking"
+            (ngModelChange)="onFieldChange()"
+          >
+            <option *ngFor="let opt of smokingOptions" [value]="opt">{{ opt }}</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>飲酒</label>
+          <select
+            [(ngModel)]="formData.socialHistory.alcohol"
+            (ngModelChange)="onFieldChange()"
+          >
+            <option *ngFor="let opt of alcoholOptions" [value]="opt">{{ opt }}</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>職業</label>
+          <input
+            type="text"
+            [(ngModel)]="formData.socialHistory.occupation"
+            (ngModelChange)="onFieldChange()"
+            placeholder="職業"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="form-section">
+      <h5 class="section-title">目前用藥</h5>
+      <textarea
+        class="full-textarea"
+        [(ngModel)]="formData.medications"
+        (ngModelChange)="onFieldChange()"
+        rows="4"
+        placeholder="目前用藥清單..."
+      ></textarea>
+    </section>
+  </div>
+</div>

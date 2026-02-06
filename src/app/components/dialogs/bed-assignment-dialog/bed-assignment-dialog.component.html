@@ -1,0 +1,73 @@
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+    <div class="dialog-container">
+      <div class="dialog-header">
+        <h3>指派床位</h3>
+        <button class="close-btn" (click)="onClose()">&times;</button>
+      </div>
+      <div class="dialog-body">
+        <div class="assignment-panels">
+          <div class="panel patient-panel">
+            <h4>選擇病患</h4>
+            <div class="search-bar">
+              <input
+                type="text"
+                class="search-input"
+                [(ngModel)]="searchQuery"
+                (ngModelChange)="onSearchChange()"
+                placeholder="搜尋病患..."
+              />
+            </div>
+            <div class="patient-list">
+              @for (patient of filteredPatients; track patient.id) {
+                <div
+                  class="patient-item"
+                  [class.selected]="selectedPatientId === patient.id"
+                  (click)="selectPatient(patient)"
+                >
+                  <span class="patient-name">{{ patient.name }}</span>
+                  <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+                </div>
+              }
+              @if (filteredPatients.length === 0) {
+                <p class="empty-text">沒有符合的病患</p>
+              }
+            </div>
+          </div>
+
+          <div class="panel bed-panel">
+            <h4>選擇床位</h4>
+            <div class="bed-grid">
+              @for (bed of bedLayout; track bed.bedNumber) {
+                <div
+                  class="bed-slot"
+                  [class.occupied]="bed.isOccupied"
+                  [class.selected]="selectedBed === bed.bedNumber"
+                  [class.available]="!bed.isOccupied"
+                  (click)="selectBed(bed)"
+                >
+                  <span class="bed-number">{{ bed.bedNumber }}</span>
+                  @if (bed.isOccupied) {
+                    <span class="bed-patient">{{ bed.patientName }}</span>
+                  } @else {
+                    <span class="bed-status">空床</span>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        @if (selectedPatientId && selectedBed) {
+          <div class="assignment-summary">
+            <p>將 <strong>{{ getSelectedPatientName() }}</strong> 指派至床位 <strong>{{ selectedBed }}</strong></p>
+          </div>
+        }
+      </div>
+      <div class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">取消</button>
+        <button class="btn btn-primary" (click)="onAssign()" [disabled]="!canAssign">確定指派</button>
+      </div>
+    </div>
+  </div>
+}

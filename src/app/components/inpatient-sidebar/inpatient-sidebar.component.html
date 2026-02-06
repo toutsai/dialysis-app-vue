@@ -1,0 +1,53 @@
+<aside class="inpatient-sidebar">
+  <div class="sidebar-header">
+    <h3 class="sidebar-title">住院/急診病人</h3>
+    <span class="patient-count">{{ filteredPatients.length }}</span>
+  </div>
+
+  <div class="patient-section" *ngIf="ipdPatients.length > 0">
+    <div class="section-label ipd-label">住院 ({{ ipdPatients.length }})</div>
+    <div
+      *ngFor="let patient of ipdPatients; trackBy: trackByPatient"
+      class="patient-card"
+      [class.scheduled]="isScheduled(patient.id)"
+      draggable="true"
+      (dragstart)="onDragStart(patient, $event)"
+    >
+      <div class="card-header">
+        <span class="patient-name">{{ patient.name }}</span>
+        <span class="chart-no">{{ patient.chartNo }}</span>
+      </div>
+      <div class="card-body">
+        <span class="ward-info">{{ patient.ward }}-{{ patient.bed }}</span>
+        <span class="scheduled-badge" *ngIf="isScheduled(patient.id)">已排</span>
+      </div>
+      <div class="card-diagnosis" *ngIf="patient.diagnosis">
+        {{ patient.diagnosis }}
+      </div>
+    </div>
+  </div>
+
+  <div class="patient-section" *ngIf="erPatients.length > 0">
+    <div class="section-label er-label">急診 ({{ erPatients.length }})</div>
+    <div
+      *ngFor="let patient of erPatients; trackBy: trackByPatient"
+      class="patient-card er-card"
+      [class.scheduled]="isScheduled(patient.id)"
+      draggable="true"
+      (dragstart)="onDragStart(patient, $event)"
+    >
+      <div class="card-header">
+        <span class="patient-name">{{ patient.name }}</span>
+        <span class="chart-no">{{ patient.chartNo }}</span>
+      </div>
+      <div class="card-body">
+        <span class="ward-info">{{ patient.ward }}-{{ patient.bed }}</span>
+        <span class="scheduled-badge" *ngIf="isScheduled(patient.id)">已排</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="empty-state" *ngIf="filteredPatients.length === 0">
+    目前無住院/急診透析病人
+  </div>
+</aside>
