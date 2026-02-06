@@ -1,9 +1,13 @@
-// 檔案路徑: src/stores/medicationStore.ts (v2 - 修正快取累加問題)
+// src/stores/medicationStore.ts
+// Zustand store for daily injection / medication record management (migrated from Pinia)
 
-import { defineStore } from 'pinia'
-import { ref, computed, type Ref } from 'vue'
+import { create } from 'zustand'
+import { functions } from '@/firebase'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/composables/useFirebase'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export interface InjectionRecord {
   patientId: string
@@ -11,111 +15,129 @@ export interface InjectionRecord {
   [key: string]: unknown
 }
 
-export const useMedicationStore = defineStore('medication', () => {
-  const dailyInjectionsCache: Ref<Record<string, InjectionRecord[]>> = ref({})
-  const isLoading = ref(false)
-  const error = ref<unknown>(null)
+interface MedicationState {
+  // State
+  dailyInjectionsCache: Record<string, InjectionRecord[]>
+  isLoading: boolean
+  error: string | null
 
-  const getInjectionsForDate = computed(() => {
-    return (targetDate: string) => dailyInjectionsCache.value[targetDate] || null
-  })
+  // Actions
+  fetchDailyInjections: (
+    targetDate: string,
+    patientIds: string[]
+  ) => Promise<InjectionRecord[]>
+  clearCache: (targetDate?: string) => void
+  getInjectionsForDate: (targetDate: string) => InjectionRecord[] | null
+}
 
-  async function fetchDailyInjections(targetDate: string, patientIds: string[]) {
-    console.log(`[Store] 接到請求: 日期=${targetDate}, 病人數=${patientIds.length}`)
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-    if (!patientIds || patientIds.length === 0) {
-      return [] as InjectionRecord[]
-    }
+/** Maximum number of patient IDs per Cloud Function call */
+const BATCH_SIZE = 30
 
-    isLoading.value = true
-    error.value = null
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+export const useMedicationStore = create<MedicationState>((set, get) => ({
+  dailyInjectionsCache: {},
+  isLoading: false,
+  error: null,
+
+  // -------------------------------------------------------------------------
+  // Actions
+  // -------------------------------------------------------------------------
+
+  fetchDailyInjections: async (
+    targetDate: string,
+    patientIds: string[]
+  ): Promise<InjectionRecord[]> => {
+    // Return cached data if available
+    const cached = get().dailyInjectionsCache[targetDate]
+    if (cached) return cached
+
+    if (!patientIds || patientIds.length === 0) return []
+
+    set({ isLoading: true, error: null })
 
     try {
-      if (!dailyInjectionsCache.value[targetDate]) {
-        dailyInjectionsCache.value[targetDate] = []
+      const getDailyInjections = httpsCallable<
+        { targetDate: string; patientIds: string[] },
+        InjectionRecord[]
+      >(functions, 'getDailyInjections')
+
+      // Split patientIds into batches of BATCH_SIZE
+      const batches: string[][] = []
+      for (let i = 0; i < patientIds.length; i += BATCH_SIZE) {
+        batches.push(patientIds.slice(i, i + BATCH_SIZE))
       }
 
-      const cachedPatientIds = new Set(
-        dailyInjectionsCache.value[targetDate].map((inj) => inj.patientId),
+      // Execute all batches in parallel
+      const batchResults = await Promise.all(
+        batches.map((batchIds) =>
+          getDailyInjections({ targetDate, patientIds: batchIds })
+        )
       )
-      const idsToFetch = patientIds.filter((id) => !cachedPatientIds.has(id))
 
-      if (idsToFetch.length > 0) {
-        console.log(
-          `[Store] ❌ 快取不完整，需為 ${idsToFetch.length} 位新病人請求資料。`,
-          idsToFetch,
-        )
-
-        const getDailyInjections = httpsCallable<
-          { targetDate: string; patientIds: string[] },
-          { success: boolean; injections: InjectionRecord[] }
-        >(functions, 'getDailyInjections')
-        const CHUNK_SIZE = 30
-        const promises: Array<Promise<{ data: { success: boolean; injections: InjectionRecord[] } }>> = []
-        for (let i = 0; i < idsToFetch.length; i += CHUNK_SIZE) {
-          const chunk = idsToFetch.slice(i, i + CHUNK_SIZE)
-          promises.push(getDailyInjections({ targetDate, patientIds: chunk }))
+      // Flatten results from all batches
+      const allRecords: InjectionRecord[] = []
+      for (const result of batchResults) {
+        if (Array.isArray(result.data)) {
+          allRecords.push(...result.data)
         }
-
-        const results = await Promise.all(promises)
-        let newlyFetchedInjections: InjectionRecord[] = []
-        for (const result of results) {
-          if (result.data && result.data.success) {
-            newlyFetchedInjections = newlyFetchedInjections.concat(result.data.injections)
-          }
-        }
-
-        // ✨✨✨【核心修正】✨✨✨
-        // 將新抓到的資料轉換成以 'patientId-orderCode' 為 key 的 Map，自動去重
-        const newInjectionsMap = new Map(
-          newlyFetchedInjections.map((inj) => [`${inj.patientId}-${inj.orderCode}`, inj]),
-        )
-
-        // 過濾掉快取中已存在的、且這次新資料中也有的項目
-        const updatedCache = dailyInjectionsCache.value[targetDate].filter(
-          (inj) => !newInjectionsMap.has(`${inj.patientId}-${inj.orderCode}`),
-        )
-
-        // 將新資料加入，完成去重合併
-        updatedCache.push(...newInjectionsMap.values())
-
-        // 用全新的、去重後的陣列來「覆蓋」舊的快取
-        dailyInjectionsCache.value[targetDate] = updatedCache
-
-        console.log(
-          `[Store] 💾 快取已更新 (去重合併)，${targetDate} 現在共有 ${dailyInjectionsCache.value[targetDate].length} 筆資料。`,
-        )
-      } else {
-        console.log(`[Store] ✅ 快取完整！本次請求的所有病人資料都已存在。`)
       }
 
-      const patientIdSet = new Set(patientIds)
-      return dailyInjectionsCache.value[targetDate].filter((inj) => patientIdSet.has(inj.patientId))
-    } catch (e) {
-      console.error('[Store] 獲取每日應打針劑時發生嚴重錯誤:', e)
-      error.value = e
+      // Deduplicate using a Map keyed by `${patientId}-${orderCode}`
+      const deduplicationMap = new Map<string, InjectionRecord>()
+      for (const record of allRecords) {
+        const key = `${record.patientId}-${record.orderCode}`
+        if (!deduplicationMap.has(key)) {
+          deduplicationMap.set(key, record)
+        }
+      }
+      const deduplicated = Array.from(deduplicationMap.values())
+
+      // Cache by date
+      set((state) => ({
+        dailyInjectionsCache: {
+          ...state.dailyInjectionsCache,
+          [targetDate]: deduplicated,
+        },
+        isLoading: false,
+      }))
+
+      return deduplicated
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to fetch daily injections'
+      console.error('[MedicationStore] fetchDailyInjections error:', err)
+      set({ error: message, isLoading: false })
       return []
-    } finally {
-      isLoading.value = false
     }
-  }
+  },
 
-  function clearCache(targetDate: string | null = null) {
+  clearCache: (targetDate?: string) => {
     if (targetDate) {
-      console.log(`[MedicationStore] 🗑️ 清除 ${targetDate} 的快取。`)
-      delete dailyInjectionsCache.value[targetDate]
+      set((state) => {
+        const newCache = { ...state.dailyInjectionsCache }
+        delete newCache[targetDate]
+        return { dailyInjectionsCache: newCache }
+      })
     } else {
-      console.log('[MedicationStore] 🗑️ 清除所有針劑快取。')
-      dailyInjectionsCache.value = {}
+      set({ dailyInjectionsCache: {} })
     }
-  }
+  },
 
-  return {
-    dailyInjectionsCache,
-    isLoading,
-    error,
-    getInjectionsForDate,
-    fetchDailyInjections,
-    clearCache,
-  }
-})
+  getInjectionsForDate: (targetDate: string): InjectionRecord[] | null => {
+    return get().dailyInjectionsCache[targetDate] ?? null
+  },
+}))
+
+// ---------------------------------------------------------------------------
+// Standalone selectors
+// ---------------------------------------------------------------------------
+
+export const selectIsLoading = (state: MedicationState) => state.isLoading
+export const selectError = (state: MedicationState) => state.error

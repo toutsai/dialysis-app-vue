@@ -1,7 +1,7 @@
 // 檔案路徑: src/utils/firestoreUtils.js
 
 import { collection, query, where, getDocs } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 
 /**
  * 【增強版】解決 Firestore 'IN' 查詢最多只能有 30 個值的限制，並支援額外的 where 條件。

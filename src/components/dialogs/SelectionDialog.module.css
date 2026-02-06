@@ -1,0 +1,132 @@
+/* SelectionDialog.module.css */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal {
+  background: white;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 420px;
+  width: 90%;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.25s ease-out;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #343a40;
+  margin: 0;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6c757d;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.closeButton:hover {
+  color: #343a40;
+}
+
+.optionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.optionButton {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #343a40;
+  background-color: #f8f9fa;
+  border: 1px solid var(--border-color, #dee2e6);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.optionButton:hover {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.optionButton:focus-visible {
+  outline: 2px solid var(--primary-color, #007bff);
+  outline-offset: 2px;
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cancelButton {
+  padding: 8px 20px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #fff;
+  background-color: #6c757d;
+  border: 1px solid #6c757d;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cancelButton:hover {
+  background-color: #5a6268;
+  border-color: #545b62;
+}
+
+.cancelButton:focus-visible {
+  outline: 2px solid #6c757d;
+  outline-offset: 2px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

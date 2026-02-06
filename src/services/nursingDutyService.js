@@ -2,7 +2,7 @@
 
 import ApiManager from './api_manager' // 確保您有這個共用的 ApiManager
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 
 const dutiesApi = ApiManager('nursing_duties')
 const DUTY_DOC_ID = 'main' // 我們使用一個固定的文件 ID

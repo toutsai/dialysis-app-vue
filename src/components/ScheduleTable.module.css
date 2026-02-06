@@ -1,0 +1,238 @@
+/* src/components/ScheduleTable.module.css */
+
+.tableWrapper {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.scheduleTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.78rem;
+  min-width: 900px;
+}
+
+/* ---- Header ---- */
+
+.bedHeader {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: #37474f;
+  color: #fff;
+  text-align: center;
+  padding: 6px 4px;
+  width: 56px;
+  min-width: 56px;
+  font-weight: 700;
+  border-right: 2px solid #263238;
+}
+
+.dayHeader {
+  background: #eceff1;
+  text-align: center;
+  padding: 4px 2px 2px;
+  border-bottom: 1px solid #cfd8dc;
+  border-left: 2px solid #cfd8dc;
+  font-weight: 700;
+  color: #37474f;
+}
+
+.dayHeader.pastDay {
+  background: #f5f5f5;
+  color: #aaa;
+}
+
+.dayLabel {
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.dateSubLabel {
+  font-size: 0.65rem;
+  font-weight: 400;
+  color: #90a4ae;
+}
+
+.shiftHeader {
+  text-align: center;
+  padding: 3px 2px;
+  font-weight: 600;
+  font-size: 0.7rem;
+  color: #fff;
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.shift_early {
+  background: #43a047;
+}
+
+.shift_noon {
+  background: #fb8c00;
+}
+
+.shift_late {
+  background: #5c6bc0;
+}
+
+/* ---- Body rows ---- */
+
+.bedRow {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.bedRow:hover {
+  background: rgba(227, 242, 253, 0.3);
+}
+
+.hepatitisRow {
+  background: #fff8e1;
+}
+
+.hepatitisRow:hover {
+  background: #fff3c4;
+}
+
+/* Bed label cell */
+.bedLabelCell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fafafa;
+  text-align: center;
+  padding: 4px 2px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  border-right: 2px solid #e0e0e0;
+  white-space: nowrap;
+}
+
+.hepatitisBedLabel {
+  background: #fff3e0;
+}
+
+.bedNumber {
+  color: #37474f;
+}
+
+.hepBadge {
+  display: inline-block;
+  margin-left: 2px;
+  font-size: 0.6rem;
+  background: #ff8f00;
+  color: #fff;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* ---- Slot cells ---- */
+
+.slotCell {
+  padding: 3px 2px;
+  border-left: 1px solid #eee;
+  vertical-align: top;
+  min-height: 42px;
+  cursor: pointer;
+  transition: background 0.1s;
+  position: relative;
+}
+
+.slotCell:hover {
+  outline: 2px solid #42a5f5;
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.emptySlot {
+  background: transparent;
+}
+
+.filledSlot {
+  /* Default filled background; actual color overridden by status classes */
+}
+
+.pastCell {
+  opacity: 0.6;
+}
+
+.lockedCell {
+  cursor: default;
+}
+
+.lockedCell:hover {
+  outline: none;
+}
+
+/* ---- Cell content ---- */
+
+.cellContent {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 36px;
+}
+
+.emptyCellContent {
+  min-height: 36px;
+}
+
+.patientNameRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.patientName {
+  font-weight: 600;
+  color: #212121;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+  cursor: pointer;
+  font-size: 0.76rem;
+  line-height: 1.3;
+}
+
+.patientName:hover {
+  text-decoration: underline;
+  color: #1565c0;
+}
+
+.noteRow {
+  font-size: 0.65rem;
+  color: #666;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.nurseTeam {
+  font-size: 0.6rem;
+  color: #888;
+  background: #f5f5f5;
+  padding: 0 3px;
+  border-radius: 2px;
+  display: inline-block;
+  margin-top: 1px;
+  max-width: fit-content;
+}
+
+/* ---- Drag states ---- */
+
+.slotCell[draggable='true'] {
+  cursor: grab;
+}
+
+.slotCell[draggable='true']:active {
+  cursor: grabbing;
+  opacity: 0.7;
+}

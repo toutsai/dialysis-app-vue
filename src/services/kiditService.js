@@ -1,4 +1,4 @@
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 import {
   collection,
   query,

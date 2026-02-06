@@ -1,0 +1,151 @@
+/* src/components/StatsToolbar.module.css */
+
+.toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+/* Size variants */
+.sizeSm {
+  font-size: 0.72rem;
+  padding: 6px 8px;
+  gap: 2px;
+}
+
+.sizeMd {
+  font-size: 0.8rem;
+}
+
+.sizeLg {
+  font-size: 0.9rem;
+  padding: 12px 16px;
+  gap: 6px;
+}
+
+/* Weekday header row */
+.weekdayRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 4px;
+}
+
+.labelCell {
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.weekdayCell {
+  flex: 1;
+  text-align: center;
+  font-weight: 600;
+  color: #666;
+  font-size: 0.75rem;
+}
+
+/* Shift rows */
+.shiftRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.shiftLabel {
+  width: 48px;
+  flex-shrink: 0;
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  color: #fff;
+}
+
+.shift_early {
+  background: #43a047;
+}
+
+.shift_noon {
+  background: #fb8c00;
+}
+
+.shift_late {
+  background: #5c6bc0;
+}
+
+.grandTotalRow {
+  border-top: 2px solid #ccc;
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+.grandTotalLabel {
+  background: #424242;
+}
+
+/* Stats group */
+.statsGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.statChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.statLabel {
+  opacity: 0.85;
+}
+
+.statValue {
+  font-weight: 700;
+}
+
+/* Status color chips */
+.statTotal {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.statOpd {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.statIpd {
+  background: #ffebee;
+  color: #c62828;
+}
+
+.statEr {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.statBiweekly {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.statNew {
+  background: #fffde7;
+  color: #f57f17;
+}

@@ -1,343 +1,450 @@
-// 檔案路徑: src/stores/taskStore.ts
+// src/stores/taskStore.ts
+// Zustand store for tasks and feed messages with real-time Firestore listeners
+// (migrated from Pinia)
 
-import { ref, computed, watch, type Ref } from 'vue'
-import { defineStore } from 'pinia'
-import { collection, query, where, onSnapshot, type Unsubscribe } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
-import { useAuth } from '@/composables/useAuth'
+import { create } from 'zustand'
+import {
+  collection,
+  query,
+  where,
+  onSnapshot,
+  type Unsubscribe,
+} from 'firebase/firestore'
+import { db } from '@/firebase'
+import { useAuthStore } from '@/stores/authStore'
 import { formatDateToYYYYMMDD } from '@/utils/dateUtils'
 
-export type TaskItem = {
-  id?: string
-  category?: string
-  status?: string
-  type?: string
-  patientId?: string
-  createdAt?: unknown
-  resolvedAt?: unknown
-  targetDate?: string
-  content?: string
-  assignee?: any // 因為現在可能是物件 { role: string, value: string ... }
-  creator?: any // 因為現在可能是物件 { uid: string, name: string ... }
-  roles?: string[]
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface Assignee {
+  role?: string
+  value?: string
   [key: string]: unknown
 }
 
-function getSafeDate(timestamp: unknown) {
-  if (!timestamp) return new Date(0)
-  if (timestamp instanceof Date) return timestamp
-  if (typeof (timestamp as { toDate?: () => Date }).toDate === 'function') {
-    return (timestamp as { toDate: () => Date }).toDate()
-  }
-  const date = new Date(timestamp as string)
-  return isNaN(date.getTime()) ? new Date(0) : date
+interface Creator {
+  uid?: string
+  [key: string]: unknown
 }
 
-export const useTaskStore = defineStore('task', () => {
-  const { currentUser } = useAuth()
-  const myTasks: Ref<TaskItem[]> = ref([])
-  const mySentTasks: Ref<TaskItem[]> = ref([])
-  const feedMessages: Ref<TaskItem[]> = ref([])
-  const feedMessagesVersion = ref(0)
-  const isLoading = ref(true) // 初始為 true
-  let unsubscribes: Unsubscribe[] = []
-  const conditionRecordPatientIds: Ref<Set<string>> = ref(new Set())
+export interface TaskRecord {
+  id: string
+  status?: string
+  category?: string
+  type?: string
+  createdAt?: string | { toDate: () => Date } | Date
+  targetDate?: string
+  patientId?: string
+  assignee?: Assignee
+  creator?: Creator
+  [key: string]: unknown
+}
 
-  const SEVEN_DAYS_IN_MS = 7 * 24 * 60 * 60 * 1000
+interface TaskState {
+  // State
+  myTasks: TaskRecord[]
+  mySentTasks: TaskRecord[]
+  feedMessages: TaskRecord[]
+  feedMessagesVersion: number
+  isLoading: boolean
+  conditionRecordPatientIds: Set<string>
 
-  const isWithinSevenDays = (dateValue: unknown) => {
-    const date = getSafeDate(dateValue)
-    const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_IN_MS)
-    return date.getTime() >= sevenDaysAgo.getTime()
-  }
+  // Derived selectors
+  getSortedFeedMessages: () => TaskRecord[]
+  getPatientMessageTypesMapForDate: (
+    targetDate?: string
+  ) => Map<string, string[]>
+  getAllPendingPatientMessageTypesMap: () => Map<string, string[]>
+  getTodayTaskCount: (todayAssignedPatientIds?: string[]) => number
+  getTodayRelevantMemosCount: (patientIdArray?: string[]) => number
 
-  // 檢查 targetDate 字串是否在 7 天內（從 targetDate 往後算 7 天）
-  const isTargetDateWithinSevenDays = (targetDateStr: string | undefined) => {
-    if (!targetDateStr) return false
-    const targetDate = new Date(targetDateStr)
-    if (isNaN(targetDate.getTime())) return false
-    const sevenDaysAgo = new Date(Date.now() - SEVEN_DAYS_IN_MS)
-    return targetDate.getTime() >= sevenDaysAgo.getTime()
-  }
+  // Actions
+  startRealtimeUpdates: (uid: string) => void
+  stopRealtimeUpdates: () => void
+  updateTasksFromConditionRecords: (patientIdSet: Set<string>) => void
+  cleanupListeners: () => void
+  $reset: () => void
+}
 
-  const applyRetentionPolicy = (items: TaskItem[]) =>
-    items
-      .map((item) => ({ ...item, type: item.type || '常規' }))
-      .filter((item) => {
-        if (item.status === 'deleted') return false
+// ---------------------------------------------------------------------------
+// Module-level listener references (not part of reactive state)
+// ---------------------------------------------------------------------------
 
-        if (item.category === 'message') {
-          if (item.type === '衛教') return true
-          // 保留條件：createdAt 在 7 天內，或 targetDate 在 7 天內
-          return isWithinSevenDays(item.createdAt) || isTargetDateWithinSevenDays(item.targetDate)
-        }
+let _unsubscribers: Unsubscribe[] = []
 
-        if (item.category === 'task') {
-          return isWithinSevenDays(item.createdAt)
-        }
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-        return true
-      })
+/** Normalise various Firestore timestamp shapes into a JS Date */
+function toDate(
+  value: string | { toDate: () => Date } | Date | undefined | null
+): Date | null {
+  if (!value) return null
+  if (value instanceof Date) return value
+  if (typeof value === 'string') return new Date(value)
+  if (typeof (value as { toDate: () => Date }).toDate === 'function')
+    return (value as { toDate: () => Date }).toDate()
+  return null
+}
 
-  // --- Getters ---
-  const sortedFeedMessages = computed(() => {
-    const standardizedMessages = feedMessages.value.map((msg) => ({
-      ...msg,
-      createdAt: getSafeDate(msg.createdAt),
-      resolvedAt: getSafeDate(msg.resolvedAt),
-    }))
-    return standardizedMessages.sort((a, b) => {
-      const aIsDone = a.status === 'completed'
-      const bIsDone = b.status === 'completed'
-      if (aIsDone !== bIsDone) return aIsDone ? 1 : -1
-      const dateA = aIsDone ? (a.resolvedAt as Date) : (a.createdAt as Date)
-      const dateB = bIsDone ? (b.resolvedAt as Date) : (b.createdAt as Date)
-      return dateB.getTime() - dateA.getTime()
-    })
-  })
+/** Check whether a date string or Firestore timestamp falls within the last N days */
+function isWithinDays(
+  value: string | { toDate: () => Date } | Date | undefined | null,
+  days: number
+): boolean {
+  const d = toDate(value)
+  if (!d) return false
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - days)
+  return d >= cutoff
+}
 
-  const getPatientMessageTypesMapForDate = computed(() => {
-    return (targetDate?: string) => {
-      const dateToCompare = targetDate ? new Date(targetDate) : new Date()
-      const dateStr = formatDateToYYYYMMDD(dateToCompare)
-      const map = new Map<string, Set<string>>()
-      const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
-      for (const msg of pendingMessages) {
-        if (!msg.patientId) continue
-        let shouldDisplayIcon = false
-        if (!msg.targetDate || (msg.targetDate as string) <= dateStr) {
-          shouldDisplayIcon = true
-        }
-        if (shouldDisplayIcon) {
-          if (!map.has(msg.patientId)) {
-            map.set(msg.patientId, new Set())
-          }
-          map.get(msg.patientId)?.add(msg.type === '常規' ? 'memo' : (msg.type as string))
-        }
-      }
-      conditionRecordPatientIds.value.forEach((patientId) => {
-        if (!map.has(patientId)) {
-          map.set(patientId, new Set())
-        }
-        map.get(patientId)?.add('record')
-      })
-      const finalMap = new Map<string, string[]>()
-      for (const [patientId, typeSet] of map.entries()) {
-        finalMap.set(patientId, Array.from(typeSet))
-      }
-      return finalMap
-    }
-  })
-
-  const allPendingPatientMessageTypesMap = computed(() => {
-    const map = new Map<string, Set<string>>()
-    const pendingMessages = feedMessages.value.filter((msg) => msg.status === 'pending')
-    for (const msg of pendingMessages) {
-      if (!msg.patientId) continue
-      if (!map.has(msg.patientId)) {
-        map.set(msg.patientId, new Set())
-      }
-      map.get(msg.patientId)?.add((msg.type as string) || '常規')
-    }
-    const finalMap = new Map<string, string[]>()
-    for (const [patientId, typeSet] of map.entries()) {
-      finalMap.set(patientId, Array.from(typeSet))
-    }
-    return finalMap
-  })
-
-  const todayTaskCount = computed(() => (todayAssignedPatientIds?: string[]) => {
-    if (!currentUser.value) return 0
-    const myPendingTasksCount = myTasks.value.filter((t) => t.status === 'pending').length
-    if (!todayAssignedPatientIds || todayAssignedPatientIds.length === 0) {
-      return myPendingTasksCount
-    }
-    const patientIdSet = new Set(todayAssignedPatientIds)
-    const myPendingMemosCount = feedMessages.value.filter(
-      (item) => item.status === 'pending' && item.patientId && patientIdSet.has(item.patientId),
-    ).length
-    return myPendingTasksCount + myPendingMemosCount
-  })
-
-  const todayRelevantMemosCount = computed(() => {
-    return (patientIdArray?: string[]) => {
-      if (!patientIdArray || patientIdArray.length === 0) return 0
-      const todayStr = formatDateToYYYYMMDD()
-      const patientIdSet = new Set(patientIdArray)
-      return feedMessages.value.filter((item) => {
-        const isTargetDateRelevant = !item.targetDate || (item.targetDate as string) <= todayStr
-        return (
-          item.status === 'pending' &&
-          item.patientId &&
-          patientIdSet.has(item.patientId) &&
-          isTargetDateRelevant &&
-          item.content &&
-          !(item.content as string).startsWith('【')
-        )
-      }).length
-    }
-  })
-
-  // --- Actions ---
-  function updateTasksFromConditionRecords(patientIdSet: Set<string>) {
-    conditionRecordPatientIds.value = patientIdSet
-  }
-
-  function startRealtimeUpdates(uid?: string) {
-    if (unsubscribes.length > 0) return
-    if (!uid || !currentUser.value) {
-      isLoading.value = false
-      return
-    }
-
-    isLoading.value = true
-    let listenersInitialized = 0
-    // 定義我們總共需要幾個 listener 回來才算 ready
-    // myTasksByRole, myTasksByUser, mySentTasks, messages = 4 個
-    const totalListeners = 4
-    let roleAssignedTasks: TaskItem[] = []
-    let userAssignedTasks: TaskItem[] = []
-
-    const refreshMyTasks = () => {
-      // ✨ 修正：合併陣列後，使用 Map 根據 id 進行去重複
-      const allRawTasks = [...roleAssignedTasks, ...userAssignedTasks]
-
-      // 利用 Map 的特性，相同的 key (id) 會被覆蓋，只保留一個
-      const uniqueTasks = Array.from(new Map(allRawTasks.map((item) => [item.id, item])).values())
-
-      myTasks.value = applyRetentionPolicy(uniqueTasks)
-    }
-
-    const checkLoadingState = () => {
-      listenersInitialized++
-      if (listenersInitialized >= totalListeners) {
-        isLoading.value = false
-      }
-    }
-
-    const user = currentUser.value
-    const titleToRoleValue: Record<string, string> = {
-      書記: 'clerk',
-      主治醫師: 'doctor',
-      專科護理師: 'np',
-      護理師組長: 'editor',
-    }
-    const myTargetAssigneeValues = new Set<string>()
-    const titleBasedRole = user.title && titleToRoleValue[user.title]
-    if (titleBasedRole) myTargetAssigneeValues.add(titleBasedRole)
-    if (user.role) myTargetAssigneeValues.add(user.role)
-
-    // 1. Role tasks (依角色指派)
-    // 修正：查詢 assignee.role 欄位
-    if (myTargetAssigneeValues.size > 0) {
-      const myTasksQuery = query(
-        collection(db, 'tasks'),
-        where('category', '==', 'task'),
-        where('status', 'in', ['pending', 'completed']),
-        where('assignee.role', 'in', Array.from(myTargetAssigneeValues)),
-      )
-
-      const unsubscribeRoleTasks = onSnapshot(myTasksQuery, (snapshot) => {
-        roleAssignedTasks = snapshot.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }))
-          .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
-        refreshMyTasks()
-        checkLoadingState()
-      })
-      unsubscribes.push(unsubscribeRoleTasks)
-    } else {
-      // 如果沒有 role listener，手動增加計數以免 loading 卡住
-      checkLoadingState()
-    }
-
-    // 2. User specific tasks (依特定人員指派)
-    // 修正：查詢 assignee.value 欄位 (UID)
-    const myTasksQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'task'),
-      where('status', 'in', ['pending', 'completed']),
-      where('assignee.value', '==', user.uid),
-    )
-
-    const unsubscribeUserTasks = onSnapshot(myTasksQuery, (snapshot) => {
-      userAssignedTasks = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
-      refreshMyTasks()
-      checkLoadingState()
-    })
-    unsubscribes.push(unsubscribeUserTasks)
-
-    // 3. Tasks sent by me (我寄出的)
-    // 修正：查詢 creator.uid 欄位 (取代舊的 createdBy.uid)
-    const mySentTasksQuery = query(
-      collection(db, 'tasks'),
-      where('category', '==', 'task'),
-      where('creator.uid', '==', user.uid),
-      where('status', 'in', ['pending', 'completed']),
-    )
-
-    const unsubscribeMySentTasks = onSnapshot(mySentTasksQuery, (snapshot) => {
-      mySentTasks.value = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((task) => task.status === 'pending' || isWithinSevenDays(task.createdAt))
-      checkLoadingState()
-    })
-    unsubscribes.push(unsubscribeMySentTasks)
-
-    // 4. Messages (病人留言)
-    const myMessagesQuery = query(collection(db, 'tasks'), where('category', '==', 'message'))
-
-    const unsubscribeMessages = onSnapshot(myMessagesQuery, (snapshot) => {
-      const messages = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((msg) => msg.status === 'pending' || isWithinSevenDays(msg.createdAt))
-      feedMessages.value = applyRetentionPolicy(messages)
-      feedMessagesVersion.value++
-      checkLoadingState()
-    })
-    unsubscribes.push(unsubscribeMessages)
-  }
-
-  function stopRealtimeUpdates() {
-    unsubscribes.forEach((unsub) => unsub())
-    unsubscribes = []
-    isLoading.value = false
-  }
-
-  // 定義 cleanupListeners 作為 stopRealtimeUpdates 的別名
-  const cleanupListeners = stopRealtimeUpdates
-
-  watch(
-    () => currentUser.value?.id,
-    (newUserId, oldUserId) => {
-      if (newUserId !== oldUserId) {
-        stopRealtimeUpdates()
-        if (newUserId) startRealtimeUpdates(newUserId)
-      }
-    },
+/**
+ * 7-day retention policy for messages:
+ *   - status !== 'deleted'
+ *   - 衛教 (health-education) type messages are always kept
+ *   - Otherwise, kept if createdAt within 7 days OR targetDate within 7 days
+ */
+function shouldKeepMessage(item: TaskRecord): boolean {
+  if (item.status === 'deleted') return false
+  if (item.type === '衛教') return true
+  return (
+    isWithinDays(item.createdAt, 7) || isWithinDays(item.targetDate, 7)
   )
+}
 
-  return {
-    // State
-    myTasks,
-    mySentTasks,
-    feedMessages,
-    feedMessagesVersion,
-    isLoading,
-    conditionRecordPatientIds,
+/**
+ * 7-day retention policy for tasks:
+ *   - status !== 'deleted'
+ *   - Kept if createdAt within 7 days
+ */
+function shouldKeepTask(item: TaskRecord): boolean {
+  if (item.status === 'deleted') return false
+  return isWithinDays(item.createdAt, 7)
+}
 
-    // Getters
-    sortedFeedMessages,
-    getPatientMessageTypesMapForDate,
-    allPendingPatientMessageTypesMap,
-    todayTaskCount,
-    todayRelevantMemosCount,
+/** Compare for sorting: pending first, then by date descending */
+function compareFeedMessages(a: TaskRecord, b: TaskRecord): number {
+  const aIsPending = a.status === 'pending' ? 0 : 1
+  const bIsPending = b.status === 'pending' ? 0 : 1
+  if (aIsPending !== bIsPending) return aIsPending - bIsPending
 
-    // Actions
-    startRealtimeUpdates,
-    stopRealtimeUpdates,
-    updateTasksFromConditionRecords,
-    cleanupListeners,
-  }
-})
+  const aDate = toDate(a.createdAt)?.getTime() ?? 0
+  const bDate = toDate(b.createdAt)?.getTime() ?? 0
+  return bDate - aDate // descending
+}
+
+// ---------------------------------------------------------------------------
+// Initial state
+// ---------------------------------------------------------------------------
+
+const initialState = {
+  myTasks: [] as TaskRecord[],
+  mySentTasks: [] as TaskRecord[],
+  feedMessages: [] as TaskRecord[],
+  feedMessagesVersion: 0,
+  isLoading: false,
+  conditionRecordPatientIds: new Set<string>(),
+}
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
+
+export const useTaskStore = create<TaskState>((set, get) => ({
+  ...initialState,
+
+  // -------------------------------------------------------------------------
+  // Derived selectors
+  // -------------------------------------------------------------------------
+
+  getSortedFeedMessages: (): TaskRecord[] => {
+    return [...get().feedMessages].sort(compareFeedMessages)
+  },
+
+  getPatientMessageTypesMapForDate: (
+    targetDate?: string
+  ): Map<string, string[]> => {
+    const date = targetDate ?? formatDateToYYYYMMDD(new Date())
+    const map = new Map<string, string[]>()
+
+    for (const msg of get().feedMessages) {
+      if (
+        msg.category === 'message' &&
+        msg.targetDate === date &&
+        msg.patientId &&
+        msg.type
+      ) {
+        const existing = map.get(msg.patientId) ?? []
+        if (!existing.includes(msg.type)) {
+          existing.push(msg.type)
+        }
+        map.set(msg.patientId, existing)
+      }
+    }
+
+    return map
+  },
+
+  getAllPendingPatientMessageTypesMap: (): Map<string, string[]> => {
+    const map = new Map<string, string[]>()
+
+    for (const msg of get().feedMessages) {
+      if (
+        msg.category === 'message' &&
+        msg.status === 'pending' &&
+        msg.patientId &&
+        msg.type
+      ) {
+        const existing = map.get(msg.patientId) ?? []
+        if (!existing.includes(msg.type)) {
+          existing.push(msg.type)
+        }
+        map.set(msg.patientId, existing)
+      }
+    }
+
+    return map
+  },
+
+  getTodayTaskCount: (todayAssignedPatientIds?: string[]): number => {
+    const today = formatDateToYYYYMMDD(new Date())
+    const { myTasks, feedMessages } = get()
+
+    // Count pending tasks targeted for today
+    const pendingTasks = myTasks.filter(
+      (t) => t.status === 'pending' && t.targetDate === today
+    ).length
+
+    // Count relevant pending memos (messages targeted at today's assigned patients)
+    let relevantMemos = 0
+    if (todayAssignedPatientIds && todayAssignedPatientIds.length > 0) {
+      const patientIdSet = new Set(todayAssignedPatientIds)
+      relevantMemos = feedMessages.filter(
+        (m) =>
+          m.category === 'message' &&
+          m.status === 'pending' &&
+          m.patientId &&
+          patientIdSet.has(m.patientId)
+      ).length
+    }
+
+    return pendingTasks + relevantMemos
+  },
+
+  getTodayRelevantMemosCount: (patientIdArray?: string[]): number => {
+    if (!patientIdArray || patientIdArray.length === 0) return 0
+
+    const patientIdSet = new Set(patientIdArray)
+    return get().feedMessages.filter(
+      (m) =>
+        m.category === 'message' &&
+        m.status === 'pending' &&
+        m.patientId &&
+        patientIdSet.has(m.patientId)
+    ).length
+  },
+
+  // -------------------------------------------------------------------------
+  // Actions
+  // -------------------------------------------------------------------------
+
+  startRealtimeUpdates: (uid: string) => {
+    // Clean up any existing listeners first
+    get().stopRealtimeUpdates()
+
+    set({ isLoading: true })
+
+    const currentUser = useAuthStore.getState().currentUser
+    const userRoles: string[] = currentUser?.roles ?? []
+
+    const tasksCol = collection(db, 'tasks')
+
+    // -----------------------------------------------------------------------
+    // Listener 1: Role-assigned tasks (assignee.role matches one of user's roles)
+    // -----------------------------------------------------------------------
+    if (userRoles.length > 0) {
+      // Firestore 'in' queries support up to 30 values
+      const roleChunks: string[][] = []
+      for (let i = 0; i < userRoles.length; i += 30) {
+        roleChunks.push(userRoles.slice(i, i + 30))
+      }
+
+      for (const chunk of roleChunks) {
+        const roleQuery = query(
+          tasksCol,
+          where('assignee.role', 'in', chunk),
+          where('category', '==', 'task')
+        )
+        const unsub = onSnapshot(
+          roleQuery,
+          (snapshot) => {
+            const roleTasks: TaskRecord[] = []
+            snapshot.forEach((docSnap) => {
+              const data = { id: docSnap.id, ...docSnap.data() } as TaskRecord
+              if (shouldKeepTask(data)) {
+                roleTasks.push(data)
+              }
+            })
+            set((state) => {
+              // Merge: remove old role-assigned tasks, add new ones
+              const nonRoleTasks = state.myTasks.filter(
+                (t) => !roleTasks.some((rt) => rt.id === t.id) && t.assignee?.value === uid
+              )
+              // Deduplicate in case a task appears in both role and user queries
+              const merged = new Map<string, TaskRecord>()
+              for (const t of [...nonRoleTasks, ...roleTasks]) {
+                merged.set(t.id, t)
+              }
+              return {
+                myTasks: Array.from(merged.values()),
+                isLoading: false,
+              }
+            })
+          },
+          (err) => {
+            console.error('[TaskStore] Role-assigned tasks listener error:', err)
+            set({ isLoading: false })
+          }
+        )
+        _unsubscribers.push(unsub)
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // Listener 2: User-specific tasks (assignee.value === uid)
+    // -----------------------------------------------------------------------
+    const userTaskQuery = query(
+      tasksCol,
+      where('assignee.value', '==', uid),
+      where('category', '==', 'task')
+    )
+    const unsubUserTasks = onSnapshot(
+      userTaskQuery,
+      (snapshot) => {
+        const userTasks: TaskRecord[] = []
+        snapshot.forEach((docSnap) => {
+          const data = { id: docSnap.id, ...docSnap.data() } as TaskRecord
+          if (shouldKeepTask(data)) {
+            userTasks.push(data)
+          }
+        })
+        set((state) => {
+          // Merge: keep role-assigned tasks that are NOT user-specific, add new user tasks
+          const roleOnlyTasks = state.myTasks.filter(
+            (t) => t.assignee?.value !== uid
+          )
+          const merged = new Map<string, TaskRecord>()
+          for (const t of [...roleOnlyTasks, ...userTasks]) {
+            merged.set(t.id, t)
+          }
+          return {
+            myTasks: Array.from(merged.values()),
+            isLoading: false,
+          }
+        })
+      },
+      (err) => {
+        console.error('[TaskStore] User tasks listener error:', err)
+        set({ isLoading: false })
+      }
+    )
+    _unsubscribers.push(unsubUserTasks)
+
+    // -----------------------------------------------------------------------
+    // Listener 3: Tasks sent by me (creator.uid === uid)
+    // -----------------------------------------------------------------------
+    const sentTaskQuery = query(
+      tasksCol,
+      where('creator.uid', '==', uid),
+      where('category', '==', 'task')
+    )
+    const unsubSentTasks = onSnapshot(
+      sentTaskQuery,
+      (snapshot) => {
+        const sentTasks: TaskRecord[] = []
+        snapshot.forEach((docSnap) => {
+          const data = { id: docSnap.id, ...docSnap.data() } as TaskRecord
+          if (shouldKeepTask(data)) {
+            sentTasks.push(data)
+          }
+        })
+        set({ mySentTasks: sentTasks })
+      },
+      (err) => {
+        console.error('[TaskStore] Sent tasks listener error:', err)
+      }
+    )
+    _unsubscribers.push(unsubSentTasks)
+
+    // -----------------------------------------------------------------------
+    // Listener 4: Messages (category === 'message')
+    // -----------------------------------------------------------------------
+    const messagesQuery = query(
+      tasksCol,
+      where('category', '==', 'message')
+    )
+    const unsubMessages = onSnapshot(
+      messagesQuery,
+      (snapshot) => {
+        const messages: TaskRecord[] = []
+        snapshot.forEach((docSnap) => {
+          const data = { id: docSnap.id, ...docSnap.data() } as TaskRecord
+          if (shouldKeepMessage(data)) {
+            messages.push(data)
+          }
+        })
+        set((state) => ({
+          feedMessages: messages,
+          feedMessagesVersion: state.feedMessagesVersion + 1,
+          isLoading: false,
+        }))
+      },
+      (err) => {
+        console.error('[TaskStore] Messages listener error:', err)
+        set({ isLoading: false })
+      }
+    )
+    _unsubscribers.push(unsubMessages)
+  },
+
+  stopRealtimeUpdates: () => {
+    for (const unsub of _unsubscribers) {
+      try {
+        unsub()
+      } catch (err) {
+        console.error('[TaskStore] Error unsubscribing listener:', err)
+      }
+    }
+    _unsubscribers = []
+  },
+
+  updateTasksFromConditionRecords: (patientIdSet: Set<string>) => {
+    set({ conditionRecordPatientIds: new Set(patientIdSet) })
+  },
+
+  cleanupListeners: () => {
+    get().stopRealtimeUpdates()
+  },
+
+  $reset: () => {
+    get().stopRealtimeUpdates()
+    set({ ...initialState, conditionRecordPatientIds: new Set<string>() })
+  },
+}))
+
+// ---------------------------------------------------------------------------
+// Standalone selectors
+// ---------------------------------------------------------------------------
+
+export const selectMyTasks = (state: TaskState) => state.myTasks
+export const selectMySentTasks = (state: TaskState) => state.mySentTasks
+export const selectFeedMessages = (state: TaskState) => state.feedMessages
+export const selectIsLoading = (state: TaskState) => state.isLoading
+export const selectFeedMessagesVersion = (state: TaskState) =>
+  state.feedMessagesVersion
+export const selectConditionRecordPatientIds = (state: TaskState) =>
+  state.conditionRecordPatientIds

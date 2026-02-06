@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore'
 
 // 2. 導入您的 Firebase db 實例
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 
 type FirestoreRecord = { id?: string; [key: string]: unknown }
 

@@ -1,0 +1,268 @@
+/* PatientHistoryModal.module.css */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal {
+  background: #fff;
+  border-radius: 10px;
+  width: 94%;
+  max-width: 720px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  animation: slideIn 0.25s ease-out;
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 18px 24px;
+  border-bottom: 1px solid #e9ecef;
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #212529;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: #6c757d;
+  margin-top: 2px;
+  display: block;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #6c757d;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+  transition: color 0.15s;
+}
+
+.closeButton:hover {
+  color: #212529;
+}
+
+/* ---- Filter Bar ---- */
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 24px;
+  border-bottom: 1px solid #f1f3f5;
+  flex-shrink: 0;
+}
+
+.filterChip {
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  color: #495057;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.filterChip:hover {
+  background: #e9ecef;
+}
+
+.filterChipActive {
+  background: var(--primary-color, #007bff);
+  color: #fff;
+  border-color: var(--primary-color, #007bff);
+}
+
+.filterChipActive:hover {
+  background: #0069d9;
+}
+
+/* ---- Content ---- */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+/* ---- Timeline ---- */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dateGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dateLabel {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #343a40;
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.dateEvents {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding-left: 12px;
+}
+
+/* ---- Event Card ---- */
+.eventCard {
+  display: flex;
+  position: relative;
+  padding: 8px 0 8px 24px;
+  min-height: 48px;
+}
+
+.eventDot {
+  position: absolute;
+  left: 0;
+  top: 16px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  z-index: 2;
+}
+
+.eventLine {
+  position: absolute;
+  left: 4px;
+  top: 26px;
+  width: 2px;
+  bottom: -8px;
+  background: #dee2e6;
+}
+
+.eventCard:last-child .eventLine {
+  display: none;
+}
+
+.eventBody {
+  flex: 1;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.eventHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.eventTypeBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.eventTime {
+  font-size: 0.76rem;
+  color: #868e96;
+}
+
+.eventTitle {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #212529;
+  margin-bottom: 2px;
+}
+
+.eventDescription {
+  font-size: 0.84rem;
+  color: #495057;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.eventAuthor {
+  font-size: 0.78rem;
+  color: #868e96;
+  margin-top: 4px;
+}
+
+.eventStatus {
+  font-size: 0.8rem;
+  color: #495057;
+  margin-top: 4px;
+}
+
+.eventDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.detailItem {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 0.74rem;
+  background: #e9ecef;
+  border-radius: 8px;
+  color: #495057;
+}
+
+/* ---- States ---- */
+.loadingState,
+.emptyState,
+.errorState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  font-size: 0.92rem;
+  color: #868e96;
+}
+
+.errorState {
+  color: #dc3545;
+}
+
+/* ---- Animations ---- */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

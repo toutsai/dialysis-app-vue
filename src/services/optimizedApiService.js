@@ -1,7 +1,7 @@
 // 檔案路徑: src/services/optimizedApiService.js (✨ 最終功能增強版 ✨)
 import ApiManager from '@/services/api_manager'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 import { getNowISO, formatDateToYYYYMMDD } from '@/utils/dateUtils'
 
 // 快取系統... (保持不變)

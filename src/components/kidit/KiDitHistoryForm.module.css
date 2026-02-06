@@ -1,0 +1,141 @@
+/* src/components/kidit/KiDitHistoryForm.module.css */
+
+.form {
+  padding: 1rem 0;
+}
+
+.sectionTitle {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin: 1.25rem 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.sectionTitle:first-child {
+  margin-top: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.label {
+  font-size: 0.775rem;
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.input,
+.select {
+  padding: 0.4375rem 0.625rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+  font-size: 0.85rem;
+  outline: none;
+  background: #ffffff;
+  color: #2d3748;
+  transition: border-color 0.15s;
+}
+
+.input:focus,
+.select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+
+.input:disabled,
+.select:disabled {
+  background: #f7fafc;
+  color: #a0aec0;
+  cursor: not-allowed;
+}
+
+.checkboxGroup {
+  margin: 0.75rem 0;
+}
+
+.groupLabel {
+  display: block;
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #4a5568;
+  margin-bottom: 0.5rem;
+}
+
+.checkboxGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.375rem;
+}
+
+.checkboxItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.375rem;
+  font-size: 0.825rem;
+  color: #4a5568;
+  cursor: pointer;
+  padding: 0.25rem 0;
+}
+
+.checkboxItem input[type='checkbox'] {
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+
+.checkboxLabel {
+  line-height: 1.35;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.saveButton {
+  padding: 0.5rem 1.25rem;
+  background-color: #667eea;
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.saveButton:hover {
+  background-color: #5a6fd6;
+}
+
+.cancelButton {
+  padding: 0.5rem 1.25rem;
+  background-color: #ffffff;
+  color: #718096;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cancelButton:hover {
+  background-color: #f7fafc;
+  border-color: #cbd5e0;
+}

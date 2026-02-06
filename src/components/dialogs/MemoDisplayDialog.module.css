@@ -1,0 +1,347 @@
+/* MemoDisplayDialog.module.css */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1050;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal {
+  background: white;
+  border-radius: 10px;
+  max-width: 640px;
+  width: 94%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  animation: slideIn 0.25s ease-out;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  border-bottom: 1px solid #e9ecef;
+  flex-shrink: 0;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #343a40;
+  margin: 0;
+}
+
+.patientBadge {
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: #e3f2fd;
+  color: #1565c0;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.unreadBadge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: #ff6b6b;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.markAllButton {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--primary-color, #007bff);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  transition: color 0.15s;
+}
+
+.markAllButton:hover {
+  color: #0056b3;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #868e96;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.closeButton:hover {
+  color: #343a40;
+}
+
+/* Body */
+
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  color: #868e96;
+  font-size: 0.95rem;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+  color: #868e96;
+}
+
+.emptyIcon {
+  font-size: 2.5rem;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.empty p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.memoList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.memoCard {
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 14px 16px;
+  transition: box-shadow 0.15s;
+  border-left: 4px solid #dee2e6;
+}
+
+.memoCard:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.unread {
+  background: #f8f9ff;
+}
+
+.priority_urgent {
+  border-left-color: #ff6b6b;
+}
+
+.priority_high {
+  border-left-color: #fcc419;
+}
+
+.priority_normal {
+  border-left-color: #4dabf7;
+}
+
+.priority_low {
+  border-left-color: #adb5bd;
+}
+
+.memoHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.memoHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.priorityDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot_urgent {
+  background: #ff6b6b;
+}
+
+.dot_high {
+  background: #fcc419;
+}
+
+.dot_normal {
+  background: #4dabf7;
+}
+
+.dot_low {
+  background: #adb5bd;
+}
+
+.memoTitle {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #343a40;
+}
+
+.priorityTag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.tag_urgent {
+  background: #ffe3e3;
+  color: #c92a2a;
+}
+
+.tag_high {
+  background: #fff3bf;
+  color: #e67700;
+}
+
+.tag_normal {
+  background: #d0ebff;
+  color: #1971c2;
+}
+
+.tag_low {
+  background: #e9ecef;
+  color: #868e96;
+}
+
+.memoTime {
+  font-size: 0.75rem;
+  color: #adb5bd;
+  white-space: nowrap;
+}
+
+.memoContent {
+  font-size: 0.88rem;
+  color: #495057;
+  line-height: 1.6;
+  margin: 0 0 10px 0;
+  white-space: pre-wrap;
+}
+
+.memoFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.memoMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.categoryBadge {
+  font-size: 0.72rem;
+  padding: 1px 6px;
+  background: #f1f3f5;
+  color: #495057;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.authorText {
+  font-size: 0.75rem;
+  color: #adb5bd;
+}
+
+.expiresText {
+  font-size: 0.72rem;
+  color: #e67700;
+}
+
+.markReadButton {
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  background: #e7f5ff;
+  color: #1971c2;
+  border: 1px solid #a5d8ff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.markReadButton:hover {
+  background: #d0ebff;
+}
+
+/* Footer */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-top: 1px solid #e9ecef;
+  flex-shrink: 0;
+}
+
+.footerInfo {
+  font-size: 0.82rem;
+  color: #868e96;
+}
+
+.cancelButton {
+  padding: 8px 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #495057;
+  background: #f8f9fa;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cancelButton:hover {
+  background: #e9ecef;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

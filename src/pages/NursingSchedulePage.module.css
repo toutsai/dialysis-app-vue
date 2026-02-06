@@ -1,0 +1,222 @@
+/* src/pages/NursingSchedulePage.module.css */
+/* 護理班表與職責 */
+
+.pageContainer {
+  padding: 1.5rem;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.editButton {
+  padding: 0.5rem 1rem;
+  background-color: #667eea;
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.editButton:hover {
+  background-color: #5a6fd6;
+}
+
+/* Tab bar */
+.tabBar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #e2e8f0;
+  margin-bottom: 1.25rem;
+}
+
+.tab {
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #718096;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.tab:hover {
+  color: #4a5568;
+}
+
+.tabActive {
+  color: #667eea;
+  font-weight: 600;
+  border-bottom-color: #667eea;
+}
+
+.loadingOverlay {
+  text-align: center;
+  padding: 2rem;
+  color: #718096;
+}
+
+.tabContent {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 1.25rem;
+  min-height: 300px;
+}
+
+.emptyState {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 250px;
+  color: #a0aec0;
+  font-size: 0.95rem;
+}
+
+/* Monthly filter */
+.filterBar {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.monthInput {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #2d3748;
+  outline: none;
+}
+
+.monthInput:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
+}
+
+/* Calendar grid (monthly) */
+.calendarGrid {
+  min-height: 200px;
+}
+
+.scheduleTable {
+  width: 100%;
+}
+
+.placeholderText {
+  color: #a0aec0;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* Weekly view */
+.weeklyView {
+  min-height: 200px;
+}
+
+.weekGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .weekGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.weekDay {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.weekDayHeader {
+  background-color: #edf2f7;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2d3748;
+  text-align: center;
+}
+
+.weekDayBody {
+  padding: 0.75rem 0.5rem;
+  min-height: 80px;
+  font-size: 0.8rem;
+  color: #4a5568;
+  text-align: center;
+}
+
+/* Responsibilities */
+.responsibilityList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.responsibilityCard {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.875rem;
+  transition: box-shadow 0.15s;
+}
+
+.responsibilityCard:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.respHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.respTitle {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #2d3748;
+}
+
+.respCategory {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.125rem 0.5rem;
+  background-color: #ebf4ff;
+  color: #2b6cb0;
+  border-radius: 4px;
+}
+
+.respBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.respAssignee {
+  font-size: 0.825rem;
+  font-weight: 600;
+  color: #4a5568;
+}
+
+.respDescription {
+  font-size: 0.8rem;
+  color: #718096;
+  margin: 0;
+  line-height: 1.4;
+}

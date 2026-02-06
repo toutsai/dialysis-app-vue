@@ -1,7 +1,7 @@
 // 檔案路徑: src/services/nursingGroupConfigService.js
 
 import { doc, getDoc, setDoc, getDocs, collection, query, orderBy, limit, serverTimestamp } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 
 const CONFIG_COLLECTION = 'nursing_group_config'
 
