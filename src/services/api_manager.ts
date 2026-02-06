@@ -121,7 +121,7 @@ const ApiManager = <T extends FirestoreRecord>(resourceType: string): ApiManager
 
     try {
       const docRef = doc(db, resourceType, id)
-      await updateDoc(docRef, data)
+      await updateDoc(docRef, data as any)
       console.log(`[ApiManager] Successfully updated document with ID: ${id} in ${resourceType}`)
       return { id, ...(data as T) }
     } catch (error) {

@@ -107,8 +107,8 @@ export class MedicationStoreService {
         snapshot.forEach((doc) => {
           records.push({
             id: doc.id,
-            ...(doc.data() as Omit<InjectionRecord, 'id'>),
-          });
+            ...doc.data(),
+          } as InjectionRecord);
         });
         return records;
       });

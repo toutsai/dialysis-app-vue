@@ -99,7 +99,7 @@ export class MainLayoutComponent implements OnInit, OnDestroy {
   // Environment tag
   // -------------------------------------------------------------------------
   readonly environmentTag = computed<EnvironmentTag | null>(() => {
-    const env = environment.appEnv;
+    const env = environment.appEnv as string;
     switch (env) {
       case 'emulator':
         return { text: '模擬器', class: 'tag-emulator' };

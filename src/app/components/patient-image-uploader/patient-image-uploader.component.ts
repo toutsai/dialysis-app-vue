@@ -1,7 +1,8 @@
-import { Component, Input, Output, EventEmitter, ViewChild, ElementRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Storage, ref, uploadBytes, getDownloadURL } from '@angular/fire/storage';
-import { inject } from '@angular/core';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage } from 'firebase/storage';
+import { FirebaseService } from '@services/firebase.service';
 
 @Component({
   selector: 'app-patient-image-uploader',
@@ -19,7 +20,7 @@ export class PatientImageUploaderComponent {
   @ViewChild('videoElement') videoElement!: ElementRef<HTMLVideoElement>;
   @ViewChild('canvasElement') canvasElement!: ElementRef<HTMLCanvasElement>;
 
-  private storage = inject(Storage);
+  private firebase = inject(FirebaseService);
   private stream: MediaStream | null = null;
 
   isUploading = false;
@@ -116,9 +117,10 @@ export class PatientImageUploaderComponent {
     this.errorMessage = '';
 
     try {
+      const storage = getStorage(this.firebase.app);
       const timestamp = Date.now();
       const path = `patients/${this.patient.id}/images/${timestamp}.jpg`;
-      const storageRef = ref(this.storage, path);
+      const storageRef = ref(storage, path);
 
       await uploadBytes(storageRef, this.capturedBlob, {
         contentType: 'image/jpeg',

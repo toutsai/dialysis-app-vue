@@ -172,7 +172,7 @@ export class TaskStoreService implements OnDestroy {
       onSnapshot(myTasksQuery, (snapshot) => {
         const tasks: TaskItem[] = [];
         snapshot.forEach((doc) =>
-          tasks.push({ id: doc.id, ...(doc.data() as Omit<TaskItem, 'id'>) }),
+          tasks.push({ id: doc.id, ...doc.data() } as TaskItem),
         );
         this.myTasks.set(tasks);
         this.isLoading.set(false);
@@ -193,7 +193,7 @@ export class TaskStoreService implements OnDestroy {
       onSnapshot(sentTasksQuery, (snapshot) => {
         const tasks: TaskItem[] = [];
         snapshot.forEach((doc) =>
-          tasks.push({ id: doc.id, ...(doc.data() as Omit<TaskItem, 'id'>) }),
+          tasks.push({ id: doc.id, ...doc.data() } as TaskItem),
         );
         this.mySentTasks.set(tasks);
       }, (error) => {
@@ -213,8 +213,8 @@ export class TaskStoreService implements OnDestroy {
         snapshot.forEach((doc) =>
           messages.push({
             id: doc.id,
-            ...(doc.data() as Omit<FeedMessage, 'id'>),
-          }),
+            ...doc.data(),
+          } as FeedMessage),
         );
         this.feedMessages.set(messages);
         this.feedMessagesVersion.update((v) => v + 1);

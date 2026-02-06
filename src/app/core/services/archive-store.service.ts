@@ -103,11 +103,11 @@ export class ArchiveStoreService {
         return null;
       }
 
-      const doc = snapshot.docs[0];
-      const schedule: ArchivedSchedule = {
-        id: doc.id,
-        ...(doc.data() as Omit<ArchivedSchedule, 'id'>),
-      };
+      const docSnap = snapshot.docs[0];
+      const schedule = {
+        id: docSnap.id,
+        ...docSnap.data(),
+      } as ArchivedSchedule;
 
       this.setCache(dateStr, schedule);
 

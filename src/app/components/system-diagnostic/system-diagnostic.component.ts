@@ -1,7 +1,7 @@
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Firestore, collection, getDocs, doc, getDoc } from '@angular/fire/firestore';
-import { Auth } from '@angular/fire/auth';
+import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
+import { FirebaseService } from '@services/firebase.service';
 
 interface DiagnosticCheck {
   name: string;
@@ -18,8 +18,7 @@ interface DiagnosticCheck {
   styleUrl: './system-diagnostic.component.css'
 })
 export class SystemDiagnosticComponent implements OnInit {
-  private firestore = inject(Firestore);
-  private auth = inject(Auth);
+  private firebase = inject(FirebaseService);
 
   checks: DiagnosticCheck[] = [];
   isRunning = false;
@@ -58,7 +57,7 @@ export class SystemDiagnosticComponent implements OnInit {
   private async checkFirebaseConnection(): Promise<void> {
     const start = performance.now();
     try {
-      const testRef = doc(this.firestore, '_diagnostics', 'ping');
+      const testRef = doc(this.firebase.db, '_diagnostics', 'ping');
       await getDoc(testRef);
       this.updateCheck('Firebase 連線', 'pass', '連線正常', performance.now() - start);
     } catch (err: any) {
@@ -69,7 +68,7 @@ export class SystemDiagnosticComponent implements OnInit {
   private async checkFirestoreRead(): Promise<void> {
     const start = performance.now();
     try {
-      const colRef = collection(this.firestore, 'patients');
+      const colRef = collection(this.firebase.db, 'patients');
       const snapshot = await getDocs(colRef);
       this.updateCheck(
         'Firestore 讀取',
@@ -84,7 +83,7 @@ export class SystemDiagnosticComponent implements OnInit {
 
   private async checkAuth(): Promise<void> {
     const start = performance.now();
-    const user = this.auth.currentUser;
+    const user = this.firebase.auth.currentUser;
     if (user) {
       this.updateCheck('使用者驗證', 'pass', `已登入: ${user.email}`, performance.now() - start);
     } else {

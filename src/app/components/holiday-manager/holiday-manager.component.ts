@@ -1,8 +1,11 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Firestore, collection, collectionData, query, orderBy, doc, setDoc, deleteDoc, Timestamp } from '@angular/fire/firestore';
-import { Subscription } from 'rxjs';
+import {
+  collection, query, orderBy, doc, setDoc, deleteDoc,
+  onSnapshot, Timestamp, type Unsubscribe
+} from 'firebase/firestore';
+import { FirebaseService } from '@services/firebase.service';
 
 interface Holiday {
   id: string;
@@ -10,7 +13,7 @@ interface Holiday {
   name: string;
   type: 'national' | 'custom' | 'makeup';
   description: string;
-  createdAt: any;
+  createdAt: unknown;
 }
 
 @Component({
@@ -20,9 +23,9 @@ interface Holiday {
   templateUrl: './holiday-manager.component.html',
   styleUrl: './holiday-manager.component.css'
 })
-export class HolidayManagerComponent implements OnInit {
-  private firestore = inject(Firestore);
-  private subscription: Subscription | null = null;
+export class HolidayManagerComponent implements OnInit, OnDestroy {
+  private firebase = inject(FirebaseService);
+  private unsubscribe: Unsubscribe | null = null;
 
   holidays: Holiday[] = [];
   isAdding = false;
@@ -59,16 +62,16 @@ export class HolidayManagerComponent implements OnInit {
   }
 
   loadHolidays(): void {
-    const holidaysRef = collection(this.firestore, 'holidays');
+    const holidaysRef = collection(this.firebase.db, 'holidays');
     const q = query(holidaysRef, orderBy('date', 'asc'));
 
-    this.subscription = collectionData(q, { idField: 'id' }).subscribe({
-      next: (items: Holiday[]) => {
-        this.holidays = items;
-      },
-      error: (err) => {
-        console.error('Failed to load holidays:', err);
-      }
+    this.unsubscribe = onSnapshot(q, (snapshot) => {
+      this.holidays = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      } as Holiday));
+    }, (err: Error) => {
+      console.error('Failed to load holidays:', err);
     });
   }
 
@@ -95,7 +98,7 @@ export class HolidayManagerComponent implements OnInit {
     if (!this.newHoliday.date || !this.newHoliday.name) return;
 
     const id = this.editingId || this.newHoliday.date.replace(/-/g, '');
-    const holidayRef = doc(this.firestore, 'holidays', id);
+    const holidayRef = doc(this.firebase.db, 'holidays', id);
 
     await setDoc(holidayRef, {
       date: this.newHoliday.date,
@@ -122,7 +125,7 @@ export class HolidayManagerComponent implements OnInit {
   }
 
   async deleteHoliday(holiday: Holiday): Promise<void> {
-    const holidayRef = doc(this.firestore, 'holidays', holiday.id);
+    const holidayRef = doc(this.firebase.db, 'holidays', holiday.id);
     await deleteDoc(holidayRef);
   }
 
@@ -145,6 +148,6 @@ export class HolidayManagerComponent implements OnInit {
   }
 
   ngOnDestroy(): void {
-    this.subscription?.unsubscribe();
+    this.unsubscribe?.();
   }
 }

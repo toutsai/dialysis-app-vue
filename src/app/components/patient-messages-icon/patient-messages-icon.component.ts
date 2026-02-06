@@ -1,14 +1,16 @@
 import { Component, Input, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Firestore, collection, collectionData, query, where } from '@angular/fire/firestore';
-import { Subscription } from 'rxjs';
+import {
+  collection, query, where, onSnapshot, type Unsubscribe
+} from 'firebase/firestore';
+import { FirebaseService } from '@services/firebase.service';
 
 interface TaskMessage {
   id: string;
   type: string;
   status: string;
   content: string;
-  createdAt: any;
+  createdAt: unknown;
 }
 
 @Component({
@@ -23,8 +25,8 @@ export class PatientMessagesIconComponent implements OnInit, OnDestroy {
   @Input() context: string = 'schedule';
   @Input() typesMap: Record<string, { icon: string; color: string; label: string }> = {};
 
-  private firestore = inject(Firestore);
-  private subscription: Subscription | null = null;
+  private firebase = inject(FirebaseService);
+  private unsubscribe: Unsubscribe | null = null;
 
   messages: TaskMessage[] = [];
 
@@ -51,25 +53,25 @@ export class PatientMessagesIconComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     if (!this.patientId) return;
 
-    const tasksRef = collection(this.firestore, 'tasks');
+    const tasksRef = collection(this.firebase.db, 'tasks');
     const q = query(
       tasksRef,
       where('patientId', '==', this.patientId),
       where('status', 'in', ['pending', 'in-progress'])
     );
 
-    this.subscription = collectionData(q, { idField: 'id' }).subscribe({
-      next: (tasks: TaskMessage[]) => {
-        this.messages = tasks;
-      },
-      error: (err) => {
-        console.error('Failed to load patient messages:', err);
-        this.messages = [];
-      }
+    this.unsubscribe = onSnapshot(q, (snapshot) => {
+      this.messages = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      } as TaskMessage));
+    }, (err: Error) => {
+      console.error('Failed to load patient messages:', err);
+      this.messages = [];
     });
   }
 
   ngOnDestroy(): void {
-    this.subscription?.unsubscribe();
+    this.unsubscribe?.();
   }
 }

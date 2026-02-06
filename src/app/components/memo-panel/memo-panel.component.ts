@@ -1,8 +1,11 @@
 import { Component, Input, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Firestore, collection, collectionData, query, where, orderBy, doc, updateDoc, addDoc, deleteDoc, Timestamp } from '@angular/fire/firestore';
-import { Subscription } from 'rxjs';
+import {
+  collection, query, where, orderBy, doc, updateDoc, addDoc, deleteDoc,
+  onSnapshot, Timestamp, type Unsubscribe
+} from 'firebase/firestore';
+import { FirebaseService } from '@services/firebase.service';
 
 interface Memo {
   id: string;
@@ -10,8 +13,8 @@ interface Memo {
   content: string;
   status: 'pending' | 'done';
   priority: 'high' | 'normal' | 'low';
-  createdAt: any;
-  completedAt: any;
+  createdAt: unknown;
+  completedAt: unknown;
 }
 
 @Component({
@@ -24,8 +27,8 @@ interface Memo {
 export class MemoPanelComponent implements OnInit, OnDestroy {
   @Input() patientId: string = '';
 
-  private firestore = inject(Firestore);
-  private subscription: Subscription | null = null;
+  private firebase = inject(FirebaseService);
+  private unsubscribe: Unsubscribe | null = null;
 
   memos: Memo[] = [];
   newMemoContent: string = '';
@@ -43,7 +46,7 @@ export class MemoPanelComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     if (!this.patientId) return;
 
-    const memosRef = collection(this.firestore, 'tasks');
+    const memosRef = collection(this.firebase.db, 'tasks');
     const q = query(
       memosRef,
       where('patientId', '==', this.patientId),
@@ -51,25 +54,25 @@ export class MemoPanelComponent implements OnInit, OnDestroy {
       orderBy('createdAt', 'desc')
     );
 
-    this.subscription = collectionData(q, { idField: 'id' }).subscribe({
-      next: (items: Memo[]) => {
-        this.memos = items;
-      },
-      error: (err) => {
-        console.error('Failed to load memos:', err);
-      }
+    this.unsubscribe = onSnapshot(q, (snapshot) => {
+      this.memos = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      } as Memo));
+    }, (err: Error) => {
+      console.error('Failed to load memos:', err);
     });
   }
 
   ngOnDestroy(): void {
-    this.subscription?.unsubscribe();
+    this.unsubscribe?.();
   }
 
   async addMemo(): Promise<void> {
     const content = this.newMemoContent.trim();
     if (!content || !this.patientId) return;
 
-    const memosRef = collection(this.firestore, 'tasks');
+    const memosRef = collection(this.firebase.db, 'tasks');
     await addDoc(memosRef, {
       patientId: this.patientId,
       type: 'memo',
@@ -86,7 +89,7 @@ export class MemoPanelComponent implements OnInit, OnDestroy {
   }
 
   async toggleMemo(memo: Memo): Promise<void> {
-    const memoRef = doc(this.firestore, 'tasks', memo.id);
+    const memoRef = doc(this.firebase.db, 'tasks', memo.id);
     const newStatus = memo.status === 'pending' ? 'done' : 'pending';
     await updateDoc(memoRef, {
       status: newStatus,
@@ -95,7 +98,7 @@ export class MemoPanelComponent implements OnInit, OnDestroy {
   }
 
   async deleteMemo(memo: Memo): Promise<void> {
-    const memoRef = doc(this.firestore, 'tasks', memo.id);
+    const memoRef = doc(this.firebase.db, 'tasks', memo.id);
     await deleteDoc(memoRef);
   }
 
