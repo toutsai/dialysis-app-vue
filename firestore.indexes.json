@@ -1,4 +1,28 @@
 {
-  "indexes": [],
+  "indexes": [
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "assignee.uid", "order": "ASCENDING" },
+        { "fieldPath": "targetDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "creator.uid", "order": "ASCENDING" },
+        { "fieldPath": "targetDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "memos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "targetDate", "order": "DESCENDING" }
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

@@ -87,6 +87,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /global_notifications/{notificationId} {
+      allow read: if isViewer();
+      allow create: if isViewer();
+      allow update, delete: if false;
+    }
+
     match /dialysis_orders_history/{historyId} {
       allow read: if isViewer();
       allow create: if isContributor();
