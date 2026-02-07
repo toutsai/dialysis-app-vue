@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { AuthService } from '@app/core/services/auth.service';
 
 @Component({
@@ -8,113 +9,83 @@ import { AuthService } from '@app/core/services/auth.service';
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './account-settings.component.html',
-  styleUrl: './account-settings.component.css'
+  styleUrl: './account-settings.component.css',
 })
 export class AccountSettingsComponent {
-  protected authService = inject(AuthService);
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
-  currentPassword = signal('');
+  readonly currentUser = this.authService.currentUser;
+
+  oldPassword = signal('');
   newPassword = signal('');
   confirmPassword = signal('');
-  showCurrentPassword = signal(false);
-  showNewPassword = signal(false);
-  showConfirmPassword = signal(false);
-  isSubmitting = signal(false);
-  successMessage = signal<string | null>(null);
-  errorMessage = signal<string | null>(null);
+  message = signal('');
+  messageType = signal(''); // 'success' or 'error'
+  isLoading = signal(false);
 
-  get isFormValid(): boolean {
-    return (
-      this.currentPassword().length > 0 &&
-      this.newPassword().length >= 6 &&
-      this.newPassword() === this.confirmPassword()
-    );
-  }
+  isOldPasswordVisible = signal(false);
+  isNewPasswordVisible = signal(false);
+  isConfirmPasswordVisible = signal(false);
 
-  get passwordMismatch(): boolean {
-    return (
-      this.confirmPassword().length > 0 &&
-      this.newPassword() !== this.confirmPassword()
-    );
-  }
-
-  get passwordTooShort(): boolean {
-    return this.newPassword().length > 0 && this.newPassword().length < 6;
-  }
-
-  toggleVisibility(field: 'current' | 'new' | 'confirm'): void {
-    switch (field) {
-      case 'current':
-        this.showCurrentPassword.set(!this.showCurrentPassword());
-        break;
-      case 'new':
-        this.showNewPassword.set(!this.showNewPassword());
-        break;
-      case 'confirm':
-        this.showConfirmPassword.set(!this.showConfirmPassword());
-        break;
+  togglePasswordVisibility(field: string): void {
+    if (field === 'old') {
+      this.isOldPasswordVisible.update((v) => !v);
+    } else if (field === 'new') {
+      this.isNewPasswordVisible.update((v) => !v);
+    } else if (field === 'confirm') {
+      this.isConfirmPasswordVisible.update((v) => !v);
     }
   }
 
-  onInput(field: 'current' | 'new' | 'confirm', event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this.successMessage.set(null);
-    this.errorMessage.set(null);
-
-    switch (field) {
-      case 'current':
-        this.currentPassword.set(value);
-        break;
-      case 'new':
-        this.newPassword.set(value);
-        break;
-      case 'confirm':
-        this.confirmPassword.set(value);
-        break;
-    }
-  }
-
-  async onSubmit(event: Event): Promise<void> {
-    event.preventDefault();
-    this.successMessage.set(null);
-    this.errorMessage.set(null);
-
-    if (!this.currentPassword()) {
-      this.errorMessage.set('請輸入目前密碼');
-      return;
-    }
-
-    if (this.newPassword().length < 6) {
-      this.errorMessage.set('新密碼至少需要 6 個字元');
-      return;
-    }
+  async handleChangePassword(): Promise<void> {
+    this.message.set('');
+    this.isLoading.set(true);
 
     if (this.newPassword() !== this.confirmPassword()) {
-      this.errorMessage.set('新密碼與確認密碼不一致');
+      this.message.set('新密碼與確認密碼不相符。');
+      this.messageType.set('error');
+      this.isLoading.set(false);
       return;
     }
 
-    if (this.currentPassword() === this.newPassword()) {
-      this.errorMessage.set('新密碼不能與目前密碼相同');
+    // 強化密碼複雜度驗證：至少 8 字元，包含大小寫和數字
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{8,}$/;
+    if (!passwordRegex.test(this.newPassword())) {
+      this.message.set('新密碼需至少 8 個字元，並包含大寫字母、小寫字母和數字。');
+      this.messageType.set('error');
+      this.isLoading.set(false);
       return;
     }
 
-    this.isSubmitting.set(true);
-
-    const result = await this.authService.updatePassword(
-      this.currentPassword(),
-      this.newPassword()
-    );
-
-    this.isSubmitting.set(false);
-
-    if (result.success) {
-      this.successMessage.set('密碼已成功變更');
-      this.currentPassword.set('');
-      this.newPassword.set('');
-      this.confirmPassword.set('');
-    } else {
-      this.errorMessage.set(result.error ?? '密碼變更失敗');
+    try {
+      const result = await this.authService.updatePassword(
+        this.oldPassword(),
+        this.newPassword(),
+      );
+      if (result.success) {
+        this.message.set('密碼已成功更新！');
+        this.messageType.set('success');
+        this.oldPassword.set('');
+        this.newPassword.set('');
+        this.confirmPassword.set('');
+      } else {
+        throw { code: 'functions/unknown', message: result.error };
+      }
+    } catch (error: any) {
+      // 檢查從 Cloud Function 回傳的正確錯誤代碼
+      if (error.code === 'functions/unauthenticated') {
+        this.message.set('舊密碼不正確，請重新輸入。');
+      } else {
+        this.message.set(error.message || '發生未知錯誤，請稍後再試。');
+      }
+      this.messageType.set('error');
+    } finally {
+      this.isLoading.set(false);
     }
+  }
+
+  handleCancel(): void {
+    this.router.navigate(['/']);
   }
 }

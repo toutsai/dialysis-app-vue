@@ -1,30 +1,25 @@
 @if (isVisible) {
-  <div class="dialog-overlay" (click)="onOverlayClick($event)">
+  <div class="dialog-overlay">
     <div class="dialog-container">
-      <div class="dialog-header">
-        <h3>編輯跑馬燈訊息</h3>
-        <button class="close-btn" (click)="onClose()">&times;</button>
-      </div>
-      <div class="dialog-body">
-        <div class="editor-wrapper">
-          <quill-editor
-            [(ngModel)]="editorContent"
-            [modules]="quillModules"
-            [styles]="{ height: '200px' }"
-            placeholder="輸入跑馬燈內容..."
-          ></quill-editor>
-        </div>
-        <div class="preview-section">
-          <h4>預覽</h4>
-          <div class="marquee-preview">
-            <div class="marquee-content" [innerHTML]="editorContent"></div>
-          </div>
-        </div>
-      </div>
-      <div class="dialog-footer">
-        <button class="btn btn-secondary" (click)="onClose()">取消</button>
-        <button class="btn btn-primary" (click)="onSave()">儲存</button>
-      </div>
+      <header class="dialog-header">
+        <h2>設定全域跑馬燈公告</h2>
+        <button (click)="onClose()" class="close-btn">&times;</button>
+      </header>
+      <main class="dialog-body">
+        <quill-editor
+          [(ngModel)]="editableContent"
+          [modules]="{ toolbar: toolbarOptions }"
+          format="html"
+          placeholder="在此輸入並編輯公告內容..."
+          [styles]="{ height: '200px' }"
+        ></quill-editor>
+      </main>
+      <footer class="dialog-footer">
+        <button (click)="onClose()" class="btn btn-secondary">取消</button>
+        <button (click)="handleSave()" class="btn btn-primary" [disabled]="isSaving">
+          {{ isSaving ? '儲存中...' : '儲存公告' }}
+        </button>
+      </footer>
     </div>
   </div>
 }

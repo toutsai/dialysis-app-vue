@@ -1,61 +1,25 @@
-.ward-number-badge {
+.ward-badge {
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: #e8f5e9;
-  color: #2e7d32;
-  font-weight: 600;
-  font-size: 13px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  cursor: default;
-  min-width: 36px;
-  text-align: center;
-  user-select: none;
-  border: 1px solid transparent;
-  transition: border-color 0.2s;
-}
-
-.ward-number-badge:hover {
-  border-color: #a5d6a7;
-}
-
-.badge-value {
-  line-height: 1.4;
-}
-
-.badge-placeholder {
-  color: #aaa;
-  font-weight: 400;
-  font-style: italic;
-}
-
-.edit-hint {
-  font-size: 11px;
-  opacity: 0;
-  transition: opacity 0.2s;
-  color: #888;
-}
-
-.ward-number-badge:hover .edit-hint {
-  opacity: 1;
-}
-
-.ward-number-badge.editing {
-  padding: 0;
+  justify-content: center;
+  border-radius: 11px;
+  border: 1px dashed #bbb;
   background: #fff;
-  border-color: #1abc9c;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
 }
-
-.badge-input {
-  width: 60px;
-  border: none;
-  outline: none;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 2px 8px;
-  background: transparent;
-  color: #333;
-  text-align: center;
+.ward-badge:hover {
+  border-color: #888;
+}
+.ward-input {
+  width: 76px;
+  height: 20px;
+  border: 1px solid #ccc;
   border-radius: 4px;
+  font-size: 12px;
+  padding: 0 4px;
 }

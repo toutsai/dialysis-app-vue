@@ -1,128 +1,70 @@
-.dialog-overlay {
+:host-context(body.modal-open) {
+  overflow: hidden;
+}
+
+.selection-dialog-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.5);
+  background-color: rgba(0, 0, 0, 0.5);
   display: flex;
-  align-items: center;
   justify-content: center;
-  z-index: 1000;
+  align-items: center;
+  z-index: 2000;
 }
 
-.dialog-container {
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  min-width: 320px;
-  max-width: 480px;
+.selection-dialog-content {
+  background: white;
+  padding: 25px 30px;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
   width: 90%;
-  overflow: hidden;
-}
-
-.dialog-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #eee;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.dialog-header h3 {
-  margin: 0;
-  font-size: 18px;
-  color: #333;
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-}
-
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 24px;
-  color: #999;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.close-btn:hover {
-  color: #333;
-}
-
-.dialog-body {
-  padding: 8px 0;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.options-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.option-item {
-  display: flex;
-  align-items: center;
-  padding: 12px 20px;
-  cursor: pointer;
-  transition: background-color 0.15s;
-  font-size: 14px;
-  color: #333;
-}
-
-.option-item:hover {
-  background-color: #f5f5f5;
-}
-
-.option-item.disabled {
-  color: #ccc;
-  cursor: not-allowed;
-}
-
-.option-item.disabled:hover {
-  background-color: transparent;
-}
-
-.option-icon {
-  margin-right: 12px;
-  font-size: 18px;
-}
-
-.option-label {
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-}
-
-.empty-message {
+  max-width: 400px;
   text-align: center;
-  color: #999;
-  padding: 20px;
-  font-size: 14px;
 }
 
-.dialog-footer {
-  padding: 12px 20px;
-  display: flex;
-  justify-content: flex-end;
-  border-top: 1px solid #eee;
-}
-
-.btn {
-  padding: 8px 20px;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-  transition: background-color 0.2s;
-}
-
-.btn-secondary {
-  background-color: #e0e0e0;
+.selection-dialog-content h3 {
+  margin-top: 0;
+  margin-bottom: 25px;
+  font-size: 1.5em;
   color: #333;
 }
 
-.btn-secondary:hover {
-  background-color: #d0d0d0;
+.button-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.button-group button {
+  width: 100%;
+  padding: 12px 20px;
+  font-size: 1.1em;
+  cursor: pointer;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  background-color: #f8f9fa;
+  color: #333;
+  transition: all 0.2s ease-in-out;
+}
+
+.button-group button:hover {
+  border-color: #007bff;
+  background-color: #e3f2fd;
+  color: #007bff;
+}
+
+.button-group button.cancel-btn {
+  background-color: transparent;
+  color: #6c757d;
+  border-color: #ced4da;
+  margin-top: 10px;
+}
+.button-group button.cancel-btn:hover {
+  background-color: #e9ecef;
+  border-color: #adb5bd;
+  color: #495057;
 }

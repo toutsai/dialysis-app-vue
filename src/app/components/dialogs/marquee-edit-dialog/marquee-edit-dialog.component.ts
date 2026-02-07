@@ -13,39 +13,30 @@ import { QuillModule } from 'ngx-quill';
 export class MarqueeEditDialogComponent implements OnChanges {
   @Input() isVisible = false;
   @Input() initialContent = '';
-  @Output() closed = new EventEmitter<void>();
-  @Output() saved = new EventEmitter<string>();
+  @Output() closeEvent = new EventEmitter<void>();
+  @Output() saveEvent = new EventEmitter<string>();
 
-  editorContent = '';
+  editableContent = '';
+  isSaving = false;
 
-  quillModules = {
-    toolbar: [
-      ['bold', 'italic', 'underline', 'strike'],
-      [{ color: [] }, { background: [] }],
-      [{ size: ['small', false, 'large', 'huge'] }],
-      [{ align: [] }],
-      ['clean']
-    ]
-  };
+  toolbarOptions = [
+    ['bold', 'italic'],
+    [{ size: ['small', false, 'large', 'huge'] }],
+    [{ color: [] }],
+    ['clean'],
+  ];
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['isVisible'] && this.isVisible) {
-      this.editorContent = this.initialContent || '';
+      this.editableContent = this.initialContent || '';
     }
   }
 
-  onSave(): void {
-    this.saved.emit(this.editorContent);
-    this.closed.emit();
+  handleSave(): void {
+    this.saveEvent.emit(this.editableContent);
   }
 
   onClose(): void {
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onClose();
-    }
+    this.closeEvent.emit();
   }
 }

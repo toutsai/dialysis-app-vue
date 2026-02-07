@@ -1,28 +1,6 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-
-interface HistoryFormData {
-  chiefComplaint: string;
-  presentIllness: string;
-  pastHistory: string[];
-  familyHistory: string;
-  allergies: string[];
-  medications: string;
-  dialysisHistory: {
-    startDate: string;
-    initialCause: string;
-    previousModality: string;
-    previousAccessHistory: string;
-  };
-  comorbidities: string[];
-  surgicalHistory: string;
-  socialHistory: {
-    smoking: string;
-    alcohol: string;
-    occupation: string;
-  };
-}
 
 @Component({
   selector: 'app-kidit-history-form',
@@ -31,105 +9,81 @@ interface HistoryFormData {
   templateUrl: './kidit-history-form.component.html',
   styleUrl: './kidit-history-form.component.css'
 })
-export class KiditHistoryFormComponent implements OnInit, OnChanges {
-  @Input() date: string = '';
-  @Input() eventId: string = '';
-  @Input() initialData: Partial<HistoryFormData> = {};
+export class KiditHistoryFormComponent implements OnChanges {
+  @Input() date = '';
+  @Input() eventId = '';
+  @Input() initialData: any = null;
   @Input() masterPatient: any = null;
-  @Output() updated = new EventEmitter<HistoryFormData>();
+  @Output() updated = new EventEmitter<any>();
 
-  formData: HistoryFormData = this.getDefaultFormData();
+  isSaving = false;
+  formData: any = {};
 
-  commonPastHistory = [
-    '高血壓', '糖尿病', '心臟病', '腦中風', 'B型肝炎',
-    'C型肝炎', '痛風', '甲狀腺疾病', '腎結石', '多囊腎'
-  ];
-
-  commonAllergies = ['Penicillin', 'Sulfa', 'NSAID', 'Contrast', 'Latex', 'Shellfish'];
-
-  commonComorbidities = [
-    '冠心病', '心衰竭', '周邊血管疾病', '糖尿病視網膜病變',
-    '糖尿病神經病變', '繼發性副甲狀腺亢進', '腎性骨病變'
-  ];
-
-  smokingOptions = ['從未', '已戒菸', '目前吸菸'];
-  alcoholOptions = ['無', '偶爾', '經常'];
-  modalityOptions = ['HD', 'PD (CAPD)', 'PD (APD)', '腎移植', '無'];
-
-  causeOptions = [
-    '糖尿病腎病變', '高血壓腎硬化', '慢性腎絲球腎炎',
-    '多囊腎', '阻塞性腎病變', '狼瘡腎炎', '其他'
-  ];
-
-  ngOnInit(): void {
-    this.applyInitialData();
-  }
+  // Options would be imported from kiditHelpers
+  readonly opts: any = {};
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['initialData'] || changes['masterPatient']) {
-      this.applyInitialData();
+      this.initData();
     }
   }
 
-  private applyInitialData(): void {
-    const defaults = this.getDefaultFormData();
-    this.formData = {
-      ...defaults,
-      ...this.initialData,
-      pastHistory: this.initialData.pastHistory || defaults.pastHistory,
-      allergies: this.initialData.allergies || defaults.allergies,
-      comorbidities: this.initialData.comorbidities || defaults.comorbidities,
-      dialysisHistory: { ...defaults.dialysisHistory, ...this.initialData.dialysisHistory },
-      socialHistory: { ...defaults.socialHistory, ...this.initialData.socialHistory }
-    };
-  }
-
-  getDefaultFormData(): HistoryFormData {
-    return {
-      chiefComplaint: '',
-      presentIllness: '',
-      pastHistory: [],
-      familyHistory: '',
-      allergies: [],
-      medications: '',
-      dialysisHistory: {
-        startDate: '',
-        initialCause: '',
-        previousModality: '',
-        previousAccessHistory: ''
-      },
-      comorbidities: [],
-      surgicalHistory: '',
-      socialHistory: {
-        smoking: '從未',
-        alcohol: '無',
-        occupation: ''
-      }
-    };
-  }
-
-  toggleArrayItem(arr: string[], item: string): void {
-    const idx = arr.indexOf(item);
-    if (idx >= 0) {
-      arr.splice(idx, 1);
+  private initData(): void {
+    if (this.initialData) {
+      this.formData = JSON.parse(JSON.stringify(this.initialData));
+    } else if (this.masterPatient) {
+      const h = this.masterPatient.kiditProfile?.history || {};
+      this.formData = {
+        transferFromName: h.transferFromName || '',
+        transferFromCode: h.transferFromCode || '',
+        startHDDate: h.startHDDate || '',
+        isStartHDHere: h.isStartHDHere || 'N',
+        startHDHospital: h.startHDHospital || '',
+        startPDDate: h.startPDDate || '',
+        isStartPDHere: h.isStartPDHere || 'N',
+        startPDHospital: h.startPDHospital || '',
+        transplantDate: h.transplantDate || '',
+        isTransplantHere: h.isTransplantHere || 'N',
+        transplantHospital: h.transplantHospital || '',
+        isKnownCKD: h.isKnownCKD || 'N',
+        isBUNCreatAbnormal: h.isBUNCreatAbnormal || 'N',
+        abnormalLabDate: h.abnormalLabDate || '',
+        initialBUN: h.initialBUN || '',
+        initialCr: h.initialCr || '',
+        selectedSystemicDiseases: h.selectedSystemicDiseases || [],
+        otherSystemicDescription: h.otherSystemicDescription || '',
+        dmType: h.dmType || '3',
+        initialLabDate: h.initialLabDate || '',
+        initialHct: h.initialHct || '',
+        initialHb: h.initialHb || '',
+        initialK: h.initialK || '',
+        initialAlb: h.initialAlb || '',
+        initialWeight: h.initialWeight || '',
+        initialHeight: h.initialHeight || '',
+        initialEGFR: h.initialEGFR || '',
+        hbsag: h.hbsag || 'O',
+        antihcv: h.antihcv || 'O',
+        indicationType: h.indicationType || '1',
+        selectedSymptoms: h.selectedSymptoms || [],
+        selectedEmergencyReasons: h.selectedEmergencyReasons || [],
+        emergencyLabDate: h.emergencyLabDate || '',
+        isFirstCatastrophic: h.isFirstCatastrophic || 'N',
+      };
     } else {
-      arr.push(item);
+      this.formData = {};
     }
-    this.onFieldChange();
   }
 
-  isItemActive(arr: string[], item: string): boolean {
-    return arr.includes(item);
-  }
-
-  onFieldChange(): void {
-    this.updated.emit({
-      ...this.formData,
-      pastHistory: [...this.formData.pastHistory],
-      allergies: [...this.formData.allergies],
-      comorbidities: [...this.formData.comorbidities],
-      dialysisHistory: { ...this.formData.dialysisHistory },
-      socialHistory: { ...this.formData.socialHistory }
-    });
+  async saveData(): Promise<void> {
+    this.isSaving = true;
+    try {
+      // kiditService.updateEventKiDitData would be called here
+      this.updated.emit(this.formData);
+    } catch (error) {
+      console.error('儲存失敗:', error);
+      alert('儲存失敗');
+    } finally {
+      this.isSaving = false;
+    }
   }
 }

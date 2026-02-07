@@ -1,16 +1,23 @@
 @if (isVisible) {
-  <div class="dialog-overlay" (click)="onOverlayClick($event)">
-    <div class="dialog-container">
-      <div class="dialog-header">
-        <h3>{{ title }}</h3>
-      </div>
-      <div class="dialog-body">
-        <p>{{ message }}</p>
-      </div>
-      <div class="dialog-footer">
-        <button class="btn btn-secondary" (click)="onCancel()">{{ cancelText }}</button>
-        <button class="btn btn-primary" (click)="onConfirm()">{{ confirmText }}</button>
-      </div>
-    </div>
+  <div class="dialog-backdrop">
+    <dialog [open]="true" class="confirm-dialog">
+      @if (title) {
+        <header class="dialog-header">
+          <h3>{{ title }}</h3>
+        </header>
+      }
+      <main class="dialog-content">
+        <pre>{{ message }}</pre>
+      </main>
+
+      @if (hasCustomFooter) {
+        <ng-content select="[footer]"></ng-content>
+      } @else {
+        <footer class="dialog-footer">
+          <button [ngClass]="cancelClass" (click)="onCancel()">{{ cancelText }}</button>
+          <button [ngClass]="confirmClass" (click)="onConfirm()">{{ confirmText }}</button>
+        </footer>
+      }
+    </dialog>
   </div>
 }

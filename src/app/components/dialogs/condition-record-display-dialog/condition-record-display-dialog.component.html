@@ -1,66 +1,32 @@
-@if (isVisible && patient) {
-  <div class="dialog-overlay" (click)="onOverlayClick($event)">
-    <div class="dialog-container">
-      <div class="dialog-header">
-        <div class="header-info">
-          <h3>病情紀錄</h3>
-          <span class="patient-badge">{{ patient.name }} ({{ patient.medicalRecordNumber }})</span>
-        </div>
-        <button class="close-btn" (click)="onClose()">&times;</button>
-      </div>
-
-      <div class="dialog-body">
+@if (isVisible) {
+  <div class="dialog-backdrop">
+    <div class="condition-record-dialog">
+      <header class="dialog-header">
+        <h3>{{ patientName }} 的近期病情紀錄</h3>
+        <button class="close-btn" (click)="close()" title="關閉">&times;</button>
+      </header>
+      <main class="dialog-content">
         @if (isLoading) {
-          <div class="loading-state">
-            <div class="spinner"></div>
-            <p>載入中...</p>
-          </div>
-        } @else if (records.length === 0) {
-          <div class="empty-state">
-            <p>尚無病情紀錄</p>
-          </div>
-        } @else {
-          <div class="records-list">
+          <div class="empty-state">載入中...</div>
+        } @else if (records.length > 0) {
+          <ul class="record-list">
             @for (record of records; track record.id) {
-              <div class="record-card">
-                <div class="record-header">
-                  <div class="record-datetime">
-                    <span class="record-date">{{ record.date }}</span>
-                    <span class="record-time">{{ record.time }}</span>
-                  </div>
-                  <span class="severity-badge" [ngClass]="getSeverityClass(record.severity)">
-                    {{ getSeverityLabel(record.severity) }}
-                  </span>
+              <li class="record-item">
+                <p class="record-content">{{ record.content }}</p>
+                <div class="record-meta">
+                  <span class="author">紀錄者: {{ record.authorName || '未知' }}</span>
+                  <span class="timestamp">{{ formatTimestamp(record.createdAt) }}</span>
                 </div>
-                <div class="record-category">{{ record.category }}</div>
-                <div class="record-section">
-                  <strong>描述:</strong>
-                  <p>{{ record.description }}</p>
-                </div>
-                @if (record.interventions) {
-                  <div class="record-section">
-                    <strong>處置:</strong>
-                    <p>{{ record.interventions }}</p>
-                  </div>
-                }
-                @if (record.outcome) {
-                  <div class="record-section">
-                    <strong>結果:</strong>
-                    <p>{{ record.outcome }}</p>
-                  </div>
-                }
-                <div class="record-footer">
-                  <span class="record-author">記錄者: {{ record.recordedBy }}</span>
-                </div>
-              </div>
+              </li>
             }
-          </div>
+          </ul>
+        } @else {
+          <div class="empty-state">該病人近 7 天內沒有病情紀錄。</div>
         }
-      </div>
-
-      <div class="dialog-footer">
-        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
-      </div>
+      </main>
+      <footer class="dialog-footer">
+        <button class="btn-primary" (click)="close()">關閉</button>
+      </footer>
     </div>
   </div>
 }

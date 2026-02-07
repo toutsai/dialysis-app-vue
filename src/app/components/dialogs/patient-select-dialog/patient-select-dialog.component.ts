@@ -2,14 +2,6 @@ import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
-export interface PatientOption {
-  id: string;
-  name: string;
-  medicalRecordNumber?: string;
-  bedNumber?: string;
-  wardNumber?: string;
-}
-
 @Component({
   selector: 'app-patient-select-dialog',
   standalone: true,
@@ -19,56 +11,88 @@ export interface PatientOption {
 })
 export class PatientSelectDialogComponent implements OnChanges {
   @Input() isVisible = false;
-  @Input() title = '選擇病患';
-  @Input() patients: PatientOption[] = [];
-  @Output() closed = new EventEmitter<void>();
-  @Output() confirmed = new EventEmitter<PatientOption>();
-  @Output() cancelled = new EventEmitter<void>();
+  @Input() title = '選擇項目';
+  @Input() patients: any[] = [];
+  @Input() showFillOptions = false;
+  @Input() patientStatusFilter = 'active';
+  @Output() confirmEvent = new EventEmitter<any>();
+  @Output() cancelEvent = new EventEmitter<void>();
 
-  searchQuery = '';
-  filteredPatients: PatientOption[] = [];
+  searchTerm = '';
+  filterFreq = '';
+  filterStatus = 'all';
+  selectedPatientId: string | null = null;
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['patients'] || changes['isVisible']) {
-      this.filterPatients();
-      if (this.isVisible) {
-        this.searchQuery = '';
-        this.filterPatients();
+  readonly FREQ_OPTIONS = [
+    '一三五', '二四六', '一四', '二五', '三六',
+    '一五', '二六', '每周一次', '臨時',
+  ];
+  readonly STATUS_OPTIONS = [
+    { value: 'all', text: '全部' },
+    { value: 'er', text: '急診' },
+    { value: 'ipd', text: '住院' },
+    { value: 'opd', text: '門診' },
+  ];
+  readonly statusMap: Record<string, string> = { er: '急', ipd: '住', opd: '門' };
+
+  get filteredPatients(): any[] {
+    let result: any[];
+
+    if (this.patientStatusFilter === 'deleted') {
+      result = (this.patients || []).filter((p: any) => p.isDeleted);
+    } else {
+      result = (this.patients || []).filter((p: any) => !p.isDeleted && !p.isDiscontinued);
+    }
+
+    if (this.patientStatusFilter === 'active') {
+      if (this.filterStatus !== 'all') {
+        result = result.filter((p: any) => p.status === this.filterStatus);
+      }
+      if (this.filterFreq) {
+        result = result.filter((p: any) => p.freq === this.filterFreq);
       }
     }
-  }
 
-  filterPatients(): void {
-    if (!this.searchQuery.trim()) {
-      this.filteredPatients = [...this.patients];
-      return;
+    if (this.searchTerm) {
+      const term = this.searchTerm.toLowerCase();
+      result = result.filter(
+        (p: any) =>
+          p.name.toLowerCase().includes(term) ||
+          (p.medicalRecordNumber && p.medicalRecordNumber.includes(term))
+      );
     }
-    const query = this.searchQuery.trim().toLowerCase();
-    this.filteredPatients = this.patients.filter(
-      p =>
-        p.name.toLowerCase().includes(query) ||
-        (p.medicalRecordNumber && p.medicalRecordNumber.toLowerCase().includes(query)) ||
-        (p.bedNumber && p.bedNumber.toLowerCase().includes(query))
-    );
+
+    if (this.patientStatusFilter === 'deleted') {
+      return result.sort((a: any, b: any) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+    } else {
+      return result.sort((a: any, b: any) => a.name.localeCompare(b.name, 'zh-Hant'));
+    }
   }
 
-  onSearchChange(): void {
-    this.filterPatients();
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isVisible'] && this.isVisible) {
+      this.searchTerm = '';
+      this.filterFreq = '';
+      this.filterStatus = 'all';
+      this.selectedPatientId = null;
+    }
   }
 
-  selectPatient(patient: PatientOption): void {
-    this.confirmed.emit(patient);
-    this.closed.emit();
+  selectPatient(patientId: string): void {
+    this.selectedPatientId = patientId;
+  }
+
+  onConfirm(fillType: string | null = null): void {
+    if (this.selectedPatientId) {
+      const payload: any = { patientId: this.selectedPatientId };
+      if (fillType) {
+        payload.fillType = fillType;
+      }
+      this.confirmEvent.emit(payload);
+    }
   }
 
   onCancel(): void {
-    this.cancelled.emit();
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onCancel();
-    }
+    this.cancelEvent.emit();
   }
 }

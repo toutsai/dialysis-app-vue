@@ -1,27 +1,114 @@
-<div class="page-container">
-  <h1 class="page-title">門急住床位總表</h1>
-  <div class="toolbar">
-    <button class="toolbar-btn">門診 (OPD)</button>
-    <button class="toolbar-btn">急診 (ER)</button>
-    <button class="toolbar-btn">住院 (IPD)</button>
-  </div>
-  <div class="content">
-    <div class="table-wrapper">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>床號</th>
-            <th>類別</th>
-            <th>狀態</th>
-            <th>備註</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td colspan="4" class="empty-row">此頁面正在建構中...</td>
-          </tr>
-        </tbody>
-      </table>
+<div class="page-container" [ngClass]="{ 'is-locked': isPageLocked() }">
+  <header class="page-header">
+    <div class="header-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">床位總表</h1>
+        <button class="btn btn-warning" (click)="handleScheduleCheck()">排程檢視</button>
+        <button class="btn btn-info" (click)="openBaseAssignmentDialog()" [disabled]="isPageLocked()">
+          智慧排床
+        </button>
+
+        <div class="search-container">
+          <input
+            type="text"
+            [(ngModel)]="searchQueryValue"
+            class="patient-search-input"
+            placeholder="搜尋病人姓名/病歷號..."
+            (focus)="isSearchFocused.set(true)"
+            (blur)="handleSearchBlur()"
+          />
+          <ul *ngIf="searchResults().length > 0 && isSearchFocused()" class="search-results">
+            <li
+              *ngFor="let patient of searchResults()"
+              (click)="locatePatientOnGrid(patient.id)"
+            >
+              {{ patient.name }} - {{ patient.medicalRecordNumber }}
+            </li>
+          </ul>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <span class="status-text">{{ statusText() }}</span>
+        <button class="btn btn-secondary" (click)="exportBaseScheduleToExcel()">匯出總表</button>
+      </div>
     </div>
-  </div>
+  </header>
+
+  <main class="page-main-content">
+    <div class="schedule-area">
+      <div class="stats-toolbar-wrapper" [style.paddingLeft.px]="leftOffset()">
+        <app-stats-toolbar
+          [statsData]="statsToolbarData()"
+          [weekdays]="statsToolbarWeekdays()"
+          [columnWidths]="columnWidths()"
+          size="normal"
+          [showPatientNumbers]="true"
+        ></app-stats-toolbar>
+      </div>
+      <app-schedule-table
+        *ngIf="masterRecord()"
+        class="schedule-table-component"
+        [layout]="bedLayout"
+        [scheduleData]="weekScheduleMap()"
+        [patientMap]="patientStore.patientMap()"
+        [shifts]="SHIFTS"
+        [weekdays]="WEEKDAYS"
+        [weekDates]="[]"
+        [hepatitisBeds]="hepatitisBeds"
+        [getStyleFunc]="getBaseCellStyle"
+        [isPageLocked]="isPageLocked()"
+        (gridClick)="handleGridClick($event)"
+        (drop)="onDrop($event.event, $event.targetSlotId)"
+        (dragStart)="onDragStart($event.event, $event.slotId)"
+        (dragOver)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (columnWidthsChange)="updateColumnWidths($event)"
+        (leftOffsetChange)="updateLeftOffset($event)"
+      ></app-schedule-table>
+      <div *ngIf="!masterRecord()" class="loading-state">正在載入總床位表資料...</div>
+    </div>
+  </main>
+
+  <!-- Dialogs -->
+  <app-selection-dialog
+    [isVisible]="isActionDialogVisible()"
+    [title]="'操作病人：' + actionTarget().patientName"
+    [options]="ACTION_OPTIONS"
+    (select)="handleActionSelect($event)"
+    (cancel)="isActionDialogVisible.set(false)"
+  ></app-selection-dialog>
+  <app-bed-assignment-dialog
+    [isVisible]="isAssignmentDialogVisible()"
+    [allPatients]="patientStore.allPatients()"
+    [bedLayout]="bedLayout"
+    [scheduleData]="weekScheduleMap()"
+    [shifts]="SHIFTS"
+    [freqMap]="FREQ_MAP_TO_DAY_INDEX"
+    [context]="assignmentContext()"
+    [isPageLocked]="isPageLocked()"
+    (close)="isAssignmentDialogVisible.set(false)"
+    (assignBed)="handleBedAssigned($event)"
+  ></app-bed-assignment-dialog>
+  <app-patient-select-dialog
+    [isVisible]="isPatientSelectDialogVisible()"
+    title="選擇病人排班 (總表)"
+    [patients]="filteredPatientsForSelect()"
+    [showFillOptions]="false"
+    [isPageLocked]="isPageLocked()"
+    (confirm)="handlePatientSelect($event)"
+    (cancel)="isPatientSelectDialogVisible.set(false)"
+  ></app-patient-select-dialog>
+  <app-alert-dialog
+    [isVisible]="isAlertDialogVisible()"
+    [title]="alertDialogTitle()"
+    [message]="alertDialogMessage()"
+    (confirm)="isAlertDialogVisible.set(false)"
+  ></app-alert-dialog>
+  <app-confirm-dialog
+    [isVisible]="isConfirmDialogVisible()"
+    [title]="confirmDialogTitle()"
+    [message]="confirmDialogMessage()"
+    (confirm)="handleConfirm()"
+    (cancel)="handleCancel()"
+  ></app-confirm-dialog>
 </div>

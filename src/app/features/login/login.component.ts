@@ -1,3 +1,4 @@
+// src/app/features/login/login.component.ts
 import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,54 +10,53 @@ import { AuthService } from '@app/core/services/auth.service';
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './login.component.html',
-  styleUrl: './login.component.css'
+  styleUrl: './login.component.css',
 })
 export class LoginComponent {
-  protected authService = inject(AuthService);
-  private router = inject(Router);
+  private readonly authService = inject(AuthService);
+  private readonly router = inject(Router);
 
   username = signal('');
   password = signal('');
-  showPassword = signal(false);
-  errorMessage = signal<string | null>(null);
-
-  get isFormValid(): boolean {
-    return this.username().trim().length > 0 && this.password().trim().length > 0;
-  }
+  errorMessage = signal('');
+  isLoading = signal(false);
+  isPasswordVisible = signal(false);
 
   togglePasswordVisibility(): void {
-    this.showPassword.set(!this.showPassword());
+    this.isPasswordVisible.update((v) => !v);
   }
 
-  async onSubmit(event: Event): Promise<void> {
-    event.preventDefault();
-    this.errorMessage.set(null);
+  async handleLogin(): Promise<void> {
+    if (this.isLoading()) return;
 
-    if (!this.isFormValid) {
-      return;
-    }
+    this.isLoading.set(true);
+    this.errorMessage.set('');
 
-    const result = await this.authService.login(
-      this.username().trim(),
-      this.password()
-    );
-
-    if (result.success) {
-      this.router.navigate(['/schedule']);
-    } else {
-      this.errorMessage.set(result.error ?? '登入失敗，請稍後再試');
+    try {
+      const result = await this.authService.login(
+        this.username(),
+        this.password(),
+      );
+      if (!result.success) {
+        this.errorMessage.set(result.error || '登入發生錯誤');
+        this.isLoading.set(false);
+      }
+      // On success, do NOT set isLoading to false to avoid flicker during route transition
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : '登入發生錯誤';
+      this.errorMessage.set(message);
+      this.isLoading.set(false);
     }
   }
 
   onUsernameInput(event: Event): void {
     const target = event.target as HTMLInputElement;
     this.username.set(target.value);
-    this.errorMessage.set(null);
   }
 
   onPasswordInput(event: Event): void {
     const target = event.target as HTMLInputElement;
     this.password.set(target.value);
-    this.errorMessage.set(null);
   }
 }

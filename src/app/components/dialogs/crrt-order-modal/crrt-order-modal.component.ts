@@ -1,29 +1,7 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-
-export interface CrrtPatient {
-  id: string;
-  name: string;
-  medicalRecordNumber: string;
-}
-
-export interface CrrtOrderData {
-  crrtMode: string;
-  filterType: string;
-  bloodFlowRate: number;
-  replacementFluidRate: number;
-  dialysateRate: number;
-  ultrafiltrationRate: number;
-  anticoagulant: string;
-  anticoagulantDose: string;
-  replacementFluidLocation: string;
-  calciumReplacement: string;
-  targetFluidBalance: number;
-  vascularAccess: string;
-  accessSite: string;
-  specialInstructions: string;
-}
+import { AuthService } from '@app/core/services/auth.service';
 
 @Component({
   selector: 'app-crrt-order-modal',
@@ -33,94 +11,102 @@ export interface CrrtOrderData {
   styleUrl: './crrt-order-modal.component.css'
 })
 export class CrrtOrderModalComponent implements OnChanges {
+  private readonly auth = inject(AuthService);
+
   @Input() isVisible = false;
-  @Input() patient: CrrtPatient | null = null;
-  @Input() initialData: Partial<CrrtOrderData> | null = null;
-  @Output() closed = new EventEmitter<void>();
-  @Output() saved = new EventEmitter<CrrtOrderData>();
+  @Input() patientData: any = null;
+  @Input() orderHistory: any[] = [];
+  @Input() physicianList: any[] = [];
+  @Output() closeEvent = new EventEmitter<void>();
+  @Output() saveEvent = new EventEmitter<any>();
 
-  formData: CrrtOrderData = this.getDefaultForm();
-
-  crrtModes = [
-    { value: 'CVVH', label: 'CVVH (持續靜脈-靜脈血液過濾)' },
-    { value: 'CVVHD', label: 'CVVHD (持續靜脈-靜脈血液透析)' },
-    { value: 'CVVHDF', label: 'CVVHDF (持續靜脈-靜脈血液透析過濾)' },
-    { value: 'SCUF', label: 'SCUF (緩慢連續超濾)' }
-  ];
-
-  filterTypes = [
-    { value: 'AN69', label: 'AN69' },
-    { value: 'M100', label: 'M100' },
-    { value: 'M150', label: 'M150' },
-    { value: 'HF1400', label: 'HF1400' },
-    { value: 'ST100', label: 'ST100' },
-    { value: 'ST150', label: 'ST150' }
-  ];
-
-  anticoagulants = [
-    { value: 'citrate', label: '枸橼酸抗凝' },
-    { value: 'heparin', label: 'Heparin' },
-    { value: 'none', label: '無抗凝劑' },
-    { value: 'nafamostat', label: 'Nafamostat' }
-  ];
-
-  fluidLocations = [
-    { value: 'pre', label: '前稀釋' },
-    { value: 'post', label: '後稀釋' },
-    { value: 'both', label: '前後稀釋' }
-  ];
-
-  private getDefaultForm(): CrrtOrderData {
-    return {
-      crrtMode: 'CVVHDF',
-      filterType: 'M150',
-      bloodFlowRate: 150,
-      replacementFluidRate: 1000,
-      dialysateRate: 1000,
-      ultrafiltrationRate: 100,
-      anticoagulant: 'citrate',
-      anticoagulantDose: '',
-      replacementFluidLocation: 'pre',
-      calciumReplacement: '',
-      targetFluidBalance: 0,
-      vascularAccess: 'temp_cath',
-      accessSite: '',
-      specialInstructions: ''
-    };
-  }
+  formData = this.createDefaultFormData();
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['isVisible'] && this.isVisible) {
-      if (this.initialData) {
-        this.formData = { ...this.getDefaultForm(), ...this.initialData };
-      } else {
-        this.formData = this.getDefaultForm();
-      }
+      this.initializeForm();
     }
+  }
+
+  private createDefaultFormData(): any {
+    return {
+      mode: '',
+      weight: null,
+      bloodFlow: null,
+      pbp: null,
+      dialysateFlowRate: null,
+      replacementFlowRate: null,
+      dilutionRatio: '',
+      heparin: '',
+      dehydrationRateLower: null,
+      dehydrationRateUpper: null,
+      addKCL: false,
+      physician: this.auth?.currentUser()?.name || '',
+      notes: '',
+    };
+  }
+
+  get totalFluidRemoval(): number {
+    const pbp = this.formData.pbp || 0;
+    const dialysate = this.formData.dialysateFlowRate || 0;
+    const replacement = this.formData.replacementFlowRate || 0;
+    const dehydration = this.formData.dehydrationRateUpper || 0;
+    return pbp + dialysate + replacement + dehydration;
+  }
+
+  get dosePerKg(): string {
+    if (!this.formData.weight || this.formData.weight <= 0) return 'N/A';
+    const dose = this.totalFluidRemoval / this.formData.weight;
+    return `${dose.toFixed(1)} ml/kg/hr`;
   }
 
   get isFormValid(): boolean {
-    return !!(
-      this.formData.crrtMode &&
-      this.formData.filterType &&
-      this.formData.bloodFlowRate > 0
-    );
+    return !!(this.formData.mode && this.formData.weight > 0 && this.formData.physician);
   }
 
-  onSave(): void {
-    if (this.isFormValid) {
-      this.saved.emit({ ...this.formData });
-      this.closed.emit();
+  calculateAge(dateOfBirth: string): string {
+    if (!dateOfBirth) return 'N/A';
+    const birth = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+    return String(age);
+  }
+
+  formatDateTime(timestamp: any): string {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
+  closeModal(): void {
+    this.closeEvent.emit();
+  }
+
+  handleSave(): void {
+    if (!this.isFormValid) {
+      alert('請填寫必要欄位');
+      return;
     }
+    const orderData = {
+      ...this.formData,
+      timestamp: new Date(),
+      isModified: !!this.patientData?.crrtOrders,
+    };
+    this.saveEvent.emit(orderData);
   }
 
-  onClose(): void {
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('modal-overlay')) {
-      this.onClose();
+  private initializeForm(): void {
+    const defaultValues = this.createDefaultFormData();
+    if (this.patientData?.crrtOrders) {
+      this.formData = {
+        ...defaultValues,
+        ...this.patientData.crrtOrders,
+        physician: this.auth.currentUser()?.name || '',
+      };
+    } else {
+      this.formData = defaultValues;
     }
   }
 }

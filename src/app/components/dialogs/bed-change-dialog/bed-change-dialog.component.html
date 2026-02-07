@@ -1,60 +1,53 @@
-@if (isVisible && patient) {
-  <div class="dialog-overlay" (click)="onOverlayClick($event)">
-    <div class="dialog-container">
+@if (isVisible) {
+  <div class="dialog-overlay" (click)="cancelDialog()">
+    <div class="dialog-content" (click)="$event.stopPropagation()">
       <div class="dialog-header">
-        <h3>換床作業</h3>
-        <button class="close-btn" (click)="onClose()">&times;</button>
+        <h3>{{ dialogTitle }}</h3>
+        <button (click)="cancelDialog()" class="close-btn">&times;</button>
       </div>
+
       <div class="dialog-body">
-        <div class="current-info">
-          <span class="info-label">病患:</span>
-          <span class="info-value">{{ patient.name }}</span>
-          <span class="info-label">目前床號:</span>
-          <span class="info-value bed-badge">{{ patient.bedNumber }}</span>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input type="checkbox" [(ngModel)]="isSwap" />
-            <span>與其他病患互換床位</span>
-          </label>
-        </div>
-
-        @if (isSwap) {
-          <div class="form-group">
-            <label>選擇互換對象</label>
-            <select class="form-select" [(ngModel)]="swapTargetId">
-              <option value="">請選擇...</option>
-              @for (p of occupiedBeds; track p.id) {
-                <option [value]="p.id">{{ p.name }} (床號: {{ p.bedNumber }})</option>
-              }
-            </select>
-          </div>
-        } @else {
-          <div class="form-group">
-            <label>新床號</label>
-            <input
-              type="text"
-              class="form-input"
-              [(ngModel)]="newBedNumber"
-              placeholder="請輸入新床號"
-            />
+        @if (patientInfoDisplay) {
+          <div class="patient-info">
+            <span><strong>病人:</strong> {{ patientInfoDisplay.name }}</span>
+            @if (patientInfoDisplay.targetShift) {
+              <span><strong>目標班次:</strong> {{ patientInfoDisplay.targetShift }}</span>
+            } @else {
+              <span><strong>目前床位:</strong> {{ patientInfoDisplay.shiftId }}</span>
+            }
           </div>
         }
 
-        <div class="form-group">
-          <label>換床原因</label>
-          <textarea
-            class="form-textarea"
-            [(ngModel)]="reason"
-            placeholder="請輸入換床原因（選填）"
-            rows="3"
-          ></textarea>
+        <div class="beds-container">
+          @for (entry of getShiftEntries(); track entry.key) {
+            <div class="shift-group">
+              <h4>{{ getShiftDisplayName(entry.key) }}</h4>
+              @if (entry.value.length > 0) {
+                <div class="bed-grid">
+                  @for (bed of entry.value; track bed) {
+                    <div
+                      class="bed-item"
+                      [class.hepatitis-bed]="isHepatitisBed(bed)"
+                      [class.selected]="isSelectedBed(bed, entry.key)"
+                      (click)="handleBedClick(bed, entry.key)"
+                    >
+                      {{ getBedDisplay(bed) }}
+                    </div>
+                  }
+                </div>
+              } @else {
+                <p class="no-beds-message">此班次已無可用空床</p>
+              }
+            </div>
+          }
         </div>
       </div>
-      <div class="dialog-footer">
-        <button class="btn btn-secondary" (click)="onClose()">取消</button>
-        <button class="btn btn-primary" (click)="onSubmit()" [disabled]="!canSubmit">確定換床</button>
+
+      <div class="dialog-actions">
+        <button (click)="cancelDialog()" class="btn-cancel">取消</button>
+        <button (click)="confirmChange()" [disabled]="!selectedNewBedId" class="btn-confirm">
+          確定更換
+        </button>
       </div>
     </div>
   </div>

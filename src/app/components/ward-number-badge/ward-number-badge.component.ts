@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, ViewChild, ElementRef } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -9,43 +9,43 @@ import { FormsModule } from '@angular/forms';
   templateUrl: './ward-number-badge.component.html',
   styleUrl: './ward-number-badge.component.css'
 })
-export class WardNumberBadgeComponent {
-  @Input() value: string = '';
-  @Input() placeholder: string = '床號';
-  @Output() updated = new EventEmitter<string>();
+export class WardNumberBadgeComponent implements OnChanges {
+  @Input() value = '';
+  @Input() placeholder = '床號';
+  @Output() update = new EventEmitter<string | null>();
 
-  @ViewChild('inputRef') inputRef!: ElementRef<HTMLInputElement>;
+  @ViewChild('inp') inp!: ElementRef<HTMLInputElement>;
 
-  isEditing = false;
-  editValue = '';
+  editing = false;
+  local = '';
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['value']) {
+      this.local = this.value;
+    }
+  }
+
+  get title(): string {
+    return this.value ? `床號：${this.value}（點擊編輯）` : '新增床號';
+  }
 
   startEdit(): void {
-    this.isEditing = true;
-    this.editValue = this.value;
-    setTimeout(() => {
-      this.inputRef?.nativeElement?.focus();
-      this.inputRef?.nativeElement?.select();
-    });
+    this.editing = true;
+    setTimeout(() => this.inp?.nativeElement?.focus(), 0);
   }
 
-  confirmEdit(): void {
-    const trimmed = this.editValue.trim();
-    if (trimmed !== this.value) {
-      this.updated.emit(trimmed);
+  save(): void {
+    if (!this.editing) return;
+    this.editing = false;
+
+    const ok = /^[-A-Z0-9]+$/i.test(this.local) || this.local === '';
+    if (!ok) {
+      this.local = this.value;
+      return;
     }
-    this.isEditing = false;
-  }
 
-  cancelEdit(): void {
-    this.isEditing = false;
-    this.editValue = this.value;
-  }
-
-  onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      this.confirmEdit();
-    } else if (event.key === 'Escape') {
-      this.cancelEdit();
+    if (this.local !== this.value) {
+      this.update.emit(this.local || null);
     }
   }
 }

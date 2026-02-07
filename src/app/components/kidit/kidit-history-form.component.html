@@ -1,185 +1,252 @@
-<div class="kidit-history-form">
-  <div class="form-header">
-    <h4 class="form-title">病史記錄</h4>
-    <span class="form-date">{{ date }}</span>
+@if (formData) {
+  <div class="kidit-form-container">
+    <!-- 1. 轉入與透析史 -->
+    <div class="form-section">
+      <h4 class="section-title">轉入與透析史</h4>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>03 轉入院所名稱</label>
+          <input type="text" [(ngModel)]="formData.transferFromName" />
+        </div>
+        <div class="form-group">
+          <label>04 轉入院所醫事代號</label>
+          <input type="text" [(ngModel)]="formData.transferFromCode" />
+        </div>
+
+        <!-- HD 區塊 -->
+        <div class="form-group border-l pl-2">
+          <label>05 開始HD日期</label>
+          <input type="date" [(ngModel)]="formData.startHDDate" />
+        </div>
+        <div class="form-group">
+          <label>06 本院開始HD</label>
+          <select [(ngModel)]="formData.isStartHDHere">
+            @for (opt of opts.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>07 開始HD院所</label>
+          <input type="text" [(ngModel)]="formData.startHDHospital" />
+        </div>
+
+        <!-- PD 區塊 -->
+        <div class="form-group border-l pl-2">
+          <label>08 開始PD日期</label>
+          <input type="date" [(ngModel)]="formData.startPDDate" />
+        </div>
+        <div class="form-group">
+          <label>09 本院開始PD</label>
+          <select [(ngModel)]="formData.isStartPDHere">
+            @for (opt of opts.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>10 開始PD院所</label>
+          <input type="text" [(ngModel)]="formData.startPDHospital" />
+        </div>
+
+        <!-- 移植 區塊 -->
+        <div class="form-group border-l pl-2">
+          <label>11 腎移植日期</label>
+          <input type="date" [(ngModel)]="formData.transplantDate" />
+        </div>
+        <div class="form-group">
+          <label>12 本院移植</label>
+          <select [(ngModel)]="formData.isTransplantHere">
+            @for (opt of opts.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>13 移植院所</label>
+          <input type="text" [(ngModel)]="formData.transplantHospital" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 初始評估與慢性病 -->
+    <div class="form-section">
+      <h4 class="section-title">初始評估與系統性疾病</h4>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>14 知為慢性腎衰竭</label>
+          <select [(ngModel)]="formData.isKnownCKD">
+            @for (opt of opts.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>15 BUN/Cr異常</label>
+          <select [(ngModel)]="formData.isBUNCreatAbnormal">
+            @for (opt of opts.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>16 檢驗日期</label>
+          <input type="date" [(ngModel)]="formData.abnormalLabDate" />
+        </div>
+        <div class="form-group">
+          <label>17 BUN</label>
+          <input type="number" [(ngModel)]="formData.initialBUN" step="0.1" />
+        </div>
+        <div class="form-group">
+          <label>18 Creatinine</label>
+          <input type="number" [(ngModel)]="formData.initialCr" step="0.1" />
+        </div>
+
+        <div class="form-group full-width">
+          <label>22 其他系統性疾病 (複選)</label>
+          <div class="checkbox-grid">
+            @for (item of opts.systemicDiseases; track item.index) {
+  <label class="checkbox-label">
+              <input
+                type="checkbox"
+                [value]="item.index"
+                [(ngModel)]="formData.selectedSystemicDiseases"
+              />
+              {{ item.label }}
+            </label>
+          </div>
+        </div>
+        <div class="form-group full-width">
+          <label>23 其他說明</label>
+          <input type="text" [(ngModel)]="formData.otherSystemicDescription" />
+        </div>
+        <div class="form-group">
+          <label>24 DM型式</label>
+          <select [(ngModel)]="formData.dmType">
+            @for (opt of opts.dmType; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. 初始檢驗數值 (Row 25-34) -->
+    <div class="form-section">
+      <h4 class="section-title">初始檢驗數值</h4>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>25 檢驗日期</label>
+          <input type="date" [(ngModel)]="formData.initialLabDate" />
+        </div>
+        <div class="form-group">
+          <label>26 Hct</label><input type="number" [(ngModel)]="formData.initialHct" />
+        </div>
+        <div class="form-group">
+          <label>27 Hb</label><input type="number" [(ngModel)]="formData.initialHb" />
+        </div>
+        <div class="form-group">
+          <label>30 K</label><input type="number" [(ngModel)]="formData.initialK" />
+        </div>
+        <div class="form-group">
+          <label>32 Albumin</label><input type="number" [(ngModel)]="formData.initialAlb" />
+        </div>
+        <div class="form-group">
+          <label>體重</label><input type="number" [(ngModel)]="formData.initialWeight" />
+        </div>
+        <div class="form-group">
+          <label>身高</label><input type="number" [(ngModel)]="formData.initialHeight" />
+        </div>
+        <div class="form-group">
+          <label>eGFR</label><input type="number" [(ngModel)]="formData.initialEGFR" />
+        </div>
+        <div class="form-group">
+          <label>33 HBsAg</label>
+          <select [(ngModel)]="formData.hbsag">
+            @for (opt of opts.hepatitis; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>34 Anti-HCV</label>
+          <select [(ngModel)]="formData.antihcv">
+            @for (opt of opts.hepatitis; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. 症狀與緊急透析 (Row 35-50) -->
+    <div class="form-section">
+      <h4 class="section-title">症狀與緊急透析</h4>
+      <div class="form-grid">
+        <div class="form-group full-width">
+          <label>35 適應症種類</label>
+          <select [(ngModel)]="formData.indicationType">
+            @for (opt of opts.indicationType; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group full-width">
+          <label>36 其他症狀 (複選)</label>
+          <div class="checkbox-grid">
+            @for (item of opts.otherSymptoms; track item.index) {
+  <label class="checkbox-label">
+              <input type="checkbox" [value]="item.index" [(ngModel)]="formData.selectedSymptoms" />
+              {{ item.label }}
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group full-width">
+          <label>38 緊急透析原因 (複選)</label>
+          <div class="checkbox-grid">
+            @for (item of opts.emergencyReasons; track item.index) {
+  <label class="checkbox-label">
+              <input
+                type="checkbox"
+                [value]="item.index"
+                [(ngModel)]="formData.selectedEmergencyReasons"
+              />
+              {{ item.label }}
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>40 緊急檢驗日期</label>
+          <input type="date" [(ngModel)]="formData.emergencyLabDate" />
+        </div>
+        <!-- 41-49 是緊急透析的 Lab，可依需求加入，這裡簡化示範 -->
+        <div class="form-group">
+          <label>50 初次重大傷病</label>
+          <select [(ngModel)]="formData.isFirstCatastrophic">
+            @for (opt of opts.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="save-btn" (click)="saveData" [disabled]="isSaving">
+        <i class="fas fa-save"></i> {{ isSaving ? '儲存中...' : '儲存病史資料' }}
+      </button>
+    </div>
   </div>
-
-  <div class="form-body">
-    <section class="form-section">
-      <h5 class="section-title">主訴與現病史</h5>
-      <div class="form-field full-width">
-        <label>主訴</label>
-        <input
-          type="text"
-          [(ngModel)]="formData.chiefComplaint"
-          (ngModelChange)="onFieldChange()"
-          placeholder="主要症狀及持續時間"
-        />
-      </div>
-      <div class="form-field full-width">
-        <label>現病史</label>
-        <textarea
-          [(ngModel)]="formData.presentIllness"
-          (ngModelChange)="onFieldChange()"
-          rows="3"
-          placeholder="疾病經過描述..."
-        ></textarea>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">過去病史</h5>
-      <div class="chip-grid">
-        <button
-          *ngFor="let item of commonPastHistory"
-          class="chip"
-          [class.active]="isItemActive(formData.pastHistory, item)"
-          (click)="toggleArrayItem(formData.pastHistory, item)"
-          type="button"
-        >
-          {{ item }}
-        </button>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">過敏史</h5>
-      <div class="chip-grid">
-        <button
-          *ngFor="let item of commonAllergies"
-          class="chip allergy-chip"
-          [class.active]="isItemActive(formData.allergies, item)"
-          (click)="toggleArrayItem(formData.allergies, item)"
-          type="button"
-        >
-          {{ item }}
-        </button>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">透析史</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>開始透析日期</label>
-          <input
-            type="date"
-            [(ngModel)]="formData.dialysisHistory.startDate"
-            (ngModelChange)="onFieldChange()"
-          />
-        </div>
-        <div class="form-field">
-          <label>導致透析原因</label>
-          <select
-            [(ngModel)]="formData.dialysisHistory.initialCause"
-            (ngModelChange)="onFieldChange()"
-          >
-            <option value="">請選擇</option>
-            <option *ngFor="let opt of causeOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>先前透析方式</label>
-          <select
-            [(ngModel)]="formData.dialysisHistory.previousModality"
-            (ngModelChange)="onFieldChange()"
-          >
-            <option *ngFor="let opt of modalityOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-field full-width">
-        <label>過去血管通路史</label>
-        <textarea
-          [(ngModel)]="formData.dialysisHistory.previousAccessHistory"
-          (ngModelChange)="onFieldChange()"
-          rows="2"
-          placeholder="過去通路手術或更換記錄..."
-        ></textarea>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">共病症</h5>
-      <div class="chip-grid">
-        <button
-          *ngFor="let item of commonComorbidities"
-          class="chip"
-          [class.active]="isItemActive(formData.comorbidities, item)"
-          (click)="toggleArrayItem(formData.comorbidities, item)"
-          type="button"
-        >
-          {{ item }}
-        </button>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">家族史 / 手術史</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>家族史</label>
-          <textarea
-            [(ngModel)]="formData.familyHistory"
-            (ngModelChange)="onFieldChange()"
-            rows="2"
-            placeholder="家族疾病史..."
-          ></textarea>
-        </div>
-        <div class="form-field">
-          <label>手術史</label>
-          <textarea
-            [(ngModel)]="formData.surgicalHistory"
-            (ngModelChange)="onFieldChange()"
-            rows="2"
-            placeholder="過去手術記錄..."
-          ></textarea>
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">社會史</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>吸菸</label>
-          <select
-            [(ngModel)]="formData.socialHistory.smoking"
-            (ngModelChange)="onFieldChange()"
-          >
-            <option *ngFor="let opt of smokingOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>飲酒</label>
-          <select
-            [(ngModel)]="formData.socialHistory.alcohol"
-            (ngModelChange)="onFieldChange()"
-          >
-            <option *ngFor="let opt of alcoholOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>職業</label>
-          <input
-            type="text"
-            [(ngModel)]="formData.socialHistory.occupation"
-            (ngModelChange)="onFieldChange()"
-            placeholder="職業"
-          />
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">目前用藥</h5>
-      <textarea
-        class="full-textarea"
-        [(ngModel)]="formData.medications"
-        (ngModelChange)="onFieldChange()"
-        rows="4"
-        placeholder="目前用藥清單..."
-      ></textarea>
-    </section>
-  </div>
-</div>

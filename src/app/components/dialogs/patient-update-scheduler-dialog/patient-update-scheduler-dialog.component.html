@@ -1,71 +1,115 @@
 @if (isVisible) {
-  <div class="dialog-overlay" (click)="onOverlayClick($event)">
-    <div class="dialog-container">
-      <div class="dialog-header">
-        <h3>排程變更</h3>
-        <button class="close-btn" (click)="onClose()">&times;</button>
-      </div>
-      <div class="dialog-body">
-        @if (patient) {
-          <div class="patient-banner">
-            <span class="patient-name">{{ patient.name }}</span>
-            <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
+  <div class="dialog-overlay" (click)="onClose()">
+    <div class="dialog-content" (click)="$event.stopPropagation()">
+      <header class="dialog-header">
+        <h2>{{ dialogTitle }}</h2>
+        <button class="close-button" (click)="onClose()">\u00D7</button>
+      </header>
+      <main class="dialog-body">
+        <fieldset class="step-group">
+          <legend>\u75C5\u4EBA\u8CC7\u8A0A</legend>
+          <div class="patient-display-content" [innerHTML]="selectedPatientDisplay"></div>
+        </fieldset>
+
+        <fieldset class="step-group">
+          <legend>\u8A2D\u5B9A\u8B8A\u66F4\u5167\u5BB9</legend>
+          <div class="form-group">
+            <label for="effectiveDate">\u751F\u6548\u65E5\u671F</label>
+            <input type="date" id="effectiveDate" [(ngModel)]="formData.effectiveDate" />
           </div>
-        }
 
-        <div class="form-group">
-          <label>生效日期 <span class="required">*</span></label>
-          <input type="date" class="form-input" [(ngModel)]="formData.effectiveDate" />
-        </div>
-
-        <div class="form-group">
-          <label>新排程 <span class="required">*</span></label>
-          <div class="schedule-grid">
-            <div class="grid-header">
-              <div class="grid-corner"></div>
-              @for (shift of shifts; track shift.value) {
-                <div class="grid-shift-label">{{ shift.label }}</div>
+          @if (changeType === 'UPDATE_STATUS' || changeType === 'RESTORE_PATIENT') {
+            <div class="form-group">
+              <label for="newStatus">
+                {{ changeType === 'RESTORE_PATIENT' ? '\u5FA9\u539F\u81F3' : '\u65B0\u8EAB\u5206' }}
+              </label>
+              <select id="newStatus" [(ngModel)]="formData.payload.status" (ngModelChange)="onStatusChange()">
+                <option value="opd">\u9580\u8A3A</option>
+                <option value="ipd">\u4F4F\u9662</option>
+                <option value="er">\u6025\u8A3A</option>
+              </select>
+              @if (formData.payload.status === 'ipd' || formData.payload.status === 'er') {
+                <input type="text" [(ngModel)]="formData.payload.wardNumber"
+                  placeholder="\u8ACB\u8F38\u5165\u4F4F\u9662\u5E8A\u865F (\u53EF\u9078)" class="ward-number-input" />
               }
             </div>
-            @for (day of days; track day.value) {
-              <div class="grid-row">
-                <div class="grid-day-label">{{ day.label }}</div>
-                @for (shift of shifts; track shift.value) {
-                  <div
-                    class="grid-cell"
-                    [class.selected]="isEntrySelected(day.value, shift.value)"
-                    (click)="toggleEntry(day.value, shift.value)"
-                  ></div>
+          }
+
+          @if (changeType === 'UPDATE_MODE') {
+            <div class="form-group">
+              <label for="newMode">\u65B0\u900F\u6790\u6A21\u5F0F</label>
+              <select id="newMode" [(ngModel)]="formData.payload.mode">
+                <option value="HD">HD</option>
+                <option value="SLED">SLED</option>
+                <option value="CVVHDF">CVVHDF</option>
+                <option value="PP">PP</option>
+                <option value="DFPP">DFPP</option>
+              </select>
+            </div>
+          }
+
+          @if (changeType === 'UPDATE_FREQ') {
+            <div class="form-group">
+              <label for="newFreq">\u65B0\u900F\u6790\u983B\u7387</label>
+              <select id="newFreq" [(ngModel)]="formData.payload.freq">
+                @for (freq of FREQ_OPTIONS; track freq) {
+                  <option [value]="freq">{{ freq }}</option>
                 }
+              </select>
+            </div>
+          }
+
+          @if (changeType === 'UPDATE_BASE_SCHEDULE_RULE') {
+            <div class="details-section">
+              <div class="form-group">
+                <label>\u65B0\u7E3D\u8868\u898F\u5247</label>
+                <button class="select-btn" (click)="openBedAssignmentDialog()">
+                  {{ baseRuleDisplay }}
+                </button>
               </div>
-            }
-          </div>
-        </div>
+            </div>
+          }
 
-        <div class="form-group">
-          <label>變更原因 <span class="required">*</span></label>
-          <textarea
-            class="form-textarea"
-            [(ngModel)]="formData.reason"
-            placeholder="請輸入排程變更原因"
-            rows="3"
-          ></textarea>
-        </div>
-
-        <div class="form-group">
-          <label>備註</label>
-          <textarea
-            class="form-textarea"
-            [(ngModel)]="formData.notes"
-            placeholder="其他備註（選填）"
-            rows="2"
-          ></textarea>
-        </div>
-      </div>
-      <div class="dialog-footer">
-        <button class="btn btn-secondary" (click)="onClose()">取消</button>
-        <button class="btn btn-primary" (click)="onSubmit()" [disabled]="!isFormValid">確定變更</button>
-      </div>
+          @if (changeType === 'DELETE_PATIENT') {
+            <div class="details-section">
+              <div class="form-group">
+                <label for="deleteReason">\u522A\u9664\u539F\u56E0</label>
+                <select id="deleteReason" [(ngModel)]="formData.payload.deleteReason">
+                  @for (reason of DELETE_REASONS; track reason.value) {
+                    <option [value]="reason.value">{{ reason.text }}</option>
+                  }
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="deleteRemarks">\u5099\u8A3B</label>
+                <textarea id="deleteRemarks" [(ngModel)]="formData.payload.remarks" rows="2"
+                  placeholder="\u8ACB\u7C21\u8981\u8AAA\u660E (\u53EF\u9078)"></textarea>
+              </div>
+            </div>
+          }
+        </fieldset>
+      </main>
+      <footer class="dialog-footer">
+        <button class="btn btn-secondary" (click)="onClose()">\u53D6\u6D88</button>
+        <button class="btn btn-primary" (click)="submitForm()" [disabled]="!isFormValid || isSubmitting">
+          {{ isSubmitting ? '\u63D0\u4EA4\u4E2D...' : '\u63D0\u4EA4\u9810\u7D04' }}
+        </button>
+      </footer>
     </div>
+
+    @if (isBedAssignmentVisible) {
+      <app-bed-assignment-dialog
+        [isVisible]="isBedAssignmentVisible"
+        [allPatients]="allPatients"
+        [bedLayout]="bedLayout"
+        [scheduleData]="bedAssignmentScheduleData"
+        [shifts]="shifts"
+        [freqMap]="freqMap"
+        [context]="{ mode: 'change_freq_and_bed', patient: patient }"
+        [hidePatientList]="false"
+        (closeEvent)="isBedAssignmentVisible = false"
+        (assignBedEvent)="handleBedAssigned($event)"
+      ></app-bed-assignment-dialog>
+    }
   </div>
 }

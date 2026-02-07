@@ -1,16 +1,13 @@
-<div class="patient-messages-icon" *ngIf="hasMessages">
-  <div class="indicators">
-    <span
-      *ngFor="let indicator of visibleIndicators"
-      class="indicator-badge"
-      [style.background]="indicator.color"
-      [title]="indicator.type + ': ' + indicator.count"
-    >
-      <span class="indicator-icon">{{ indicator.icon }}</span>
-      <span class="indicator-count" *ngIf="indicator.count > 1">{{ indicator.count }}</span>
-    </span>
+@if (computedMessageTypes.length > 0) {
+  <div class="messages-icon-container">
+    @for (type of computedMessageTypes; track type) {
+      <span
+        class="message-icon-wrapper"
+        [title]="getTooltipText(type)"
+        (click)="handleClick(type); $event.stopPropagation()"
+      >
+        {{ getMessageTypeIcon(type) }}
+      </span>
+    }
   </div>
-  <span class="pending-badge" *ngIf="pendingCount > 0">
-    {{ pendingCount }}
-  </span>
-</div>
+}

@@ -1,199 +1,165 @@
+.dialog-container.large {
+  max-width: 95%;
+  width: 1400px;
+}
 .dialog-overlay {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1050;
 }
-
 .dialog-container {
-  background: #fff;
+  background: white;
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  width: 90%;
-  max-width: 600px;
-  max-height: 85vh;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  max-height: 90vh;
 }
-
 .dialog-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #eee;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  flex-shrink: 0;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #dee2e6;
 }
-
 .dialog-header h3 {
   margin: 0;
-  font-size: 18px;
-  color: #333;
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+  font-size: 1.5rem;
 }
-
 .close-btn {
   background: none;
   border: none;
-  font-size: 24px;
-  color: #999;
+  font-size: 2rem;
   cursor: pointer;
-  padding: 0;
-  line-height: 1;
 }
-
-.close-btn:hover {
-  color: #333;
+.dialog-controls {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #dee2e6;
+  text-align: right;
 }
-
+.btn-primary {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  background-color: #198754;
+  color: white;
+}
+.btn-primary:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
 .dialog-body {
-  padding: 16px 20px;
-  overflow-y: auto;
-  flex: 1;
+  overflow: auto;
+  padding: 0;
 }
-
 .loading-state,
 .empty-state {
   text-align: center;
-  padding: 40px 0;
-  color: #999;
+  padding: 2rem;
+  color: #6c757d;
 }
-
 .spinner {
-  width: 28px;
-  height: 28px;
-  border: 3px solid #eee;
-  border-top-color: #1abc9c;
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto 10px;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 1rem;
 }
-
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
-.draft-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.table-wrapper {
+  width: 100%;
 }
-
-.draft-item {
-  border: 1px solid #eee;
-  border-radius: 6px;
-  padding: 14px 16px;
-  transition: box-shadow 0.15s;
+.draft-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  /* ✨ 核心修改 1: 讓表格佈局由內容決定 */
+  table-layout: auto;
 }
-
-.draft-item:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.draft-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.draft-type {
-  font-size: 11px;
-  background: #fef3e2;
-  color: #e67e22;
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-.draft-date {
-  font-size: 12px;
-  color: #999;
-}
-
-.draft-title {
-  margin: 0 0 4px 0;
-  font-size: 14px;
-  color: #333;
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-}
-
-.draft-preview {
-  margin: 0 0 8px 0;
-  font-size: 13px;
-  color: #888;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.draft-table th,
+.draft-table td {
+  border-bottom: 1px solid #dee2e6;
+  border-right: 1px solid #e9ecef;
+  padding: 0.75rem 0.6rem; /* 微調左右內距，讓表格更緊湊 */
+  text-align: center;
   white-space: nowrap;
 }
-
-.draft-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.draft-table th {
+  background-color: #f8f9fa;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+.draft-table .group-header-row th {
+  top: 0;
+  background-color: #e9ecef;
+  font-weight: bold;
+}
+.draft-table .med-header-row th {
+  top: 45px;
+  font-size: 0.9em;
+  /* ✨ 核心修改 2: 為藥物欄位設定一個最小寬度，避免過窄 */
+  min-width: 110px;
+}
+.draft-table .sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: #f8f9fa;
+  border-right: 2px solid #ced4da;
+}
+.draft-table thead .sticky-col {
+  z-index: 3;
 }
 
-.draft-author {
-  font-size: 12px;
-  color: #999;
+/* ✨ 核心修改 3: 明確設定固定欄的寬度和位置 */
+.draft-table .sticky-col.name-col:nth-child(1) {
+  width: 80px;
+  min-width: 80px;
+  left: 0;
+}
+.draft-table .sticky-col.name-col:nth-child(2) {
+  width: 100px;
+  min-width: 100px;
+  left: 80px; /* 等於第一欄的寬度 */
 }
 
-.draft-actions {
-  display: flex;
-  gap: 6px;
+.empty-cell {
+  color: #adb5bd;
 }
-
-.action-btn {
-  padding: 4px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: #fff;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+.has-data {
+  background-color: #e8f5e9;
+  font-weight: bold;
 }
-
-.edit-btn:hover {
-  border-color: #1abc9c;
-  color: #1abc9c;
+.unit {
+  font-size: 0.8em;
+  color: #6c757d;
+  font-weight: normal;
+  margin-left: 2px;
 }
-
-.delete-btn:hover {
-  border-color: #dc3545;
-  color: #dc3545;
-}
-
-.dialog-footer {
-  padding: 12px 20px;
-  display: flex;
-  justify-content: flex-end;
-  border-top: 1px solid #eee;
-  flex-shrink: 0;
-}
-
-.btn {
-  padding: 8px 20px;
-  border: none;
-  border-radius: 4px;
-  font-size: 14px;
-  cursor: pointer;
-  font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif;
-  transition: background-color 0.2s;
-}
-
-.btn-secondary {
-  background-color: #e0e0e0;
-  color: #333;
-}
-
-.btn-secondary:hover {
-  background-color: #d0d0d0;
+.freq-note {
+  font-size: 0.8em;
+  color: #6c757d;
+  font-weight: normal;
+  margin-left: 4px;
+  white-space: nowrap;
 }

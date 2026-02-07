@@ -1,82 +1,235 @@
-<div class="modal-backdrop" *ngIf="visible" (click)="onBackdropClick($event)">
-  <div class="movement-modal">
-    <div class="modal-header">
-      <h4 class="modal-title">病人異動明細</h4>
-      <span class="modal-date">{{ date }}</span>
-      <button class="refresh-btn" (click)="onRefresh()" title="重新整理" type="button">
-        &#8635;
-      </button>
-      <button class="close-btn" (click)="close()" type="button">&times;</button>
-    </div>
+@if (visible) {
+  <div class="modal-overlay" (click)="close">
+    <div class="modal-content">
+      <!-- 標題區 -->
+      <header class="modal-header">
+        <div class="header-title">
+          <i class="fas fa-clipboard-list icon"></i>
+          <h3>{{ date }} 工作日誌詳情</h3>
+        </div>
+        <button class="close-btn" (click)="close">
+          <i class="fas fa-times"></i>
+        </button>
+      </header>
 
-    <div class="modal-tabs">
-      <button
-        *ngFor="let tab of tabs"
-        class="tab-btn"
-        [class.active]="activeTab === tab.key"
-        (click)="selectTab(tab.key)"
-        type="button"
-      >
-        {{ tab.label }}
-        <span class="tab-count" *ngIf="countByType[tab.key]">
-          {{ countByType[tab.key] || 0 }}
-        </span>
-      </button>
-    </div>
-
-    <div class="modal-search">
-      <input
-        type="text"
-        class="search-input"
-        [(ngModel)]="searchQuery"
-        placeholder="搜尋病人姓名或病歷號..."
-      />
-    </div>
-
-    <div class="modal-body">
-      <div class="events-list" *ngIf="filteredEvents.length > 0">
-        <div
-          *ngFor="let event of filteredEvents; trackBy: trackByEvent"
-          class="event-card"
-          [ngClass]="getTypeClass(event.type)"
+      <!-- 頁籤導航 -->
+      <div class="tabs-header">
+        @for (tab of tabs; track tab.key) {
+  <button
+         
+         
+          [ngClass]="['tab-btn', { active: activeTab === tab.key }]"
+          (click)="handleTabClick(tab.key)"
+          [title]="tab.requiresSelection && !selectedPatient ? '請先點選一位病人' : ''"
         >
-          <div class="event-header">
-            <span class="event-type-badge" [ngClass]="getTypeClass(event.type)">
-              {{ getTypeLabel(event.type) }}
-            </span>
-            <span class="event-patient">{{ event.patientName }}</span>
-            <span class="event-pid">{{ event.patientId }}</span>
-            <span class="event-time">{{ event.time }}</span>
+          {{ tab.label }}
+          @if (tab.key !== 'movement' && selectedPatient) {
+  <span class="patient-tag">
+            {{ selectedPatient.name }}
+          </span>
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <!-- 頁籤 1: 當日病患動態 -->
+        <div [style.display]="activeTab === 'movement' ? '' : 'none'" class="tab-pane">
+          <div class="action-bar">
+            <p class="hint-text">
+              <i class="fas fa-info-circle"></i>
+              點擊列表中的病人以編輯詳細資料。若該項目無需申報，可點擊垃圾桶刪除。
+            </p>
           </div>
 
-          <div class="event-details">
-            <div class="event-movement" *ngIf="event.fromUnit || event.toUnit">
-              <span class="from-unit" *ngIf="event.fromUnit">{{ event.fromUnit }}</span>
-              <span class="arrow" *ngIf="event.fromUnit && event.toUnit">&rarr;</span>
-              <span class="to-unit" *ngIf="event.toUnit">{{ event.toUnit }}</span>
-            </div>
-            <div class="event-reason" *ngIf="event.reason">
-              原因: {{ event.reason }}
-            </div>
-            <div class="event-order" *ngIf="event.orderBy">
-              醫囑: {{ event.orderBy }}
-            </div>
+          <div class="table-responsive">
+            <table class="modern-table">
+              <thead>
+                <tr>
+                  <th width="10%">類型</th>
+                  <th width="12%">姓名</th>
+                  <th width="12%">病歷號</th>
+                  <th width="26%">詳細內容</th>
+                  <th width="20%">轉出院所</th>
+                  <th width="10%" class="text-center">KiDit 登錄</th>
+                  <th width="10%" class="text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (event of localEvents; track event.id; let index = $index) {
+  <tr
+                 
+                 
+                  [ngClass]="{ 'is-selected': selectedPatientId === event.patientId }"
+                  (click)="selectPatient(event)"
+                >
+                  <td>
+                    <span class="status-badge" [ngClass]="getBadgeClass(event.type)">
+                      {{ translateType(event.type) }}
+                    </span>
+                  </td>
+                  <td class="font-medium">{{ event.patientName }}</td>
+                  <td class="text-gray-600">{{ event.medicalRecordNumber || '-' }}</td>
+                  <td class="text-gray-600">{{ event.details }}</td>
+                  <td>
+                    <input
+                      type="text"
+                      [(ngModel)]="event.transferOutHospital"
+                      placeholder="輸入院所..."
+                      class="form-input"
+                      @click.stop
+                    />
+                  </td>
+                  <!-- KiDit 登錄欄位 -->
+                  <td class="text-center" @click.stop>
+                    <label class="checkbox-container">
+                      <input type="checkbox" [(ngModel)]="event.isRegistered" />
+                      <span class="checkmark"></span>
+                    </label>
+                  </td>
+
+                  <!-- 操作欄位 -->
+                  <td class="text-center action-cell">
+                    <!-- 刪除按鈕 -->
+                    <button
+                      class="icon-btn delete-btn"
+                      (click)="deleteEvent(index); $event.stopPropagation()"
+                      title="從列表中移除"
+                    >
+                      <i class="fas fa-trash-alt"></i>
+                    </button>
+
+                    <!-- 資料完整性提示 -->
+                    <div class="status-indicator" @click.stop>
+                      <!-- 如果資料完整 -> 綠色勾勾 -->
+                      @if (isKiDitDataComplete(event)) {
+  <i
+                       
+                        class="fas fa-check-circle text-green-500"
+                        title="KiDit 資料已完整"
+                      ></i>
+
+                      <!-- 如果資料不全 -> 紅色驚嘆號 (點擊可切換到資料頁籤) -->
+                      } @else {
+  <button
+                       
+                        class="icon-btn warning-btn"
+                        (click)="handleIncompleteClick(event); $event.stopPropagation()"
+                        title="KiDit 資料尚未填寫完整，點擊填寫"
+                      >
+                        <i class="fas fa-exclamation-triangle"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                @if (localEvents.length === 0) {
+  <tr>
+                  <td colspan="7" class="empty-row">本日無相關動態紀錄</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <div class="event-footer" *ngIf="event.notes">
-            <span class="event-notes">{{ event.notes }}</span>
+          <div class="footer-actions">
+            <button class="btn-primary" (click)="saveAllEvents">
+              <i class="fas fa-save"></i> 儲存動態列表變更
+            </button>
+          </div>
+        </div>
+
+        <!-- 其他頁籤 -->
+        <div [style.display]="activeTab !== 'movement' ? '' : 'none'" class="tab-pane details-pane">
+          @if (!selectedPatient) {
+  <div class="empty-state">
+            <i class="fas fa-hand-point-left bounce-icon"></i>
+            <p>請先回到「當日病患動態」頁籤，點選一位病人。</p>
           </div>
 
-          <div class="event-status" [ngClass]="getStatusClass(event.status)">
-            {{ event.status }}
+          } @else {
+  <div class="details-content">
+            <!-- 頁籤 2: 血管通路處置 -->
+            @if (activeTab === 'vascular') {
+  <div class="vascular-container">
+              <div class="sub-tabs">
+                <button [ngClass]="{ active: subTab === 'current' }" (click)="subTab = 'current'">
+                  目前使用
+                </button>
+                <button [ngClass]="{ active: subTab === 'unused' }" (click)="subTab = 'unused'">
+                  其他未使用
+                </button>
+                <button [ngClass]="{ active: subTab === 'events' }" (click)="subTab = 'events'">
+                  當日事件
+                </button>
+              </div>
+
+              <div class="sub-content">
+                @if (subTab === 'current' || subTab === 'unused') {
+  <VascularAccessForm
+                 
+                  [type]="subTab"
+                  [date]="date"
+                  [event-id]="selectedEvent.id"
+                  [initial-data]="getEventData('kidit_vascular')"
+                  [master-patient]="selectedPatientData"
+                  @updated="handleDataUpdated"
+                />
+                @if (subTab === 'events') {
+  <div class="event-list-container">
+                  <ul class="event-list">
+                    @for (ev of selectedPatientVascularEvents; track ev.id) {
+  <li>
+                      <span class="time-badge">{{ formatTime(ev.timestamp) }}</span>
+                      <span class="event-text">{{ ev.details }}</span>
+                    </li>
+                    @if (selectedPatientVascularEvents.length === 0) {
+  <li class="no-data">
+                      本日無紀錄
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <!-- 頁籤 3: KiDit病患資料 -->
+            @if (activeTab === 'profile') {
+  <KiDitPatientForm
+             
+              [date]="date"
+              [event-id]="selectedEvent.id"
+              [initial-data]="getEventData('kidit_profile')"
+              [master-patient]="selectedPatientData"
+              @updated="handleDataUpdated"
+            />
+
+            <!-- 頁籤 4: 病史原發病 -->
+            @if (activeTab === 'history') {
+  <KiDitHistoryForm
+             
+              [date]="date"
+              [event-id]="selectedEvent.id"
+              [initial-data]="getEventData('kidit_history')"
+              [master-patient]="selectedPatientData"
+              @updated="handleDataUpdated"
+            />
           </div>
         </div>
       </div>
-
-      <div class="empty-state" *ngIf="filteredEvents.length === 0">
-        <p *ngIf="searchQuery">找不到符合「{{ searchQuery }}」的記錄</p>
-        <p *ngIf="!searchQuery">目前無異動記錄</p>
-      </div>
     </div>
+
+    <!-- ✨ 整合 Alert Dialog (提示訊息) ✨ -->
+    <AlertDialog
+      [is-visible]="isAlertDialogVisible"
+      [title]="alertDialogTitle"
+      [message]="alertDialogMessage"
+      @confirm="isAlertDialogVisible = false"
+    />
+
+    <!-- ✨ 整合 Confirm Dialog (刪除確認) ✨ -->
+    <ConfirmDialog
+      [is-visible]="isConfirmDialogVisible"
+      [title]="confirmDialogTitle"
+      [message]="confirmDialogMessage"
+      confirm-text="刪除"
+      confirm-class="btn-danger"
+      @confirm="executeDelete"
+      @cancel="isConfirmDialogVisible = false"
+    />
   </div>
-</div>

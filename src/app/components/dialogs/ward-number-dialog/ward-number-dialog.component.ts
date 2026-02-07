@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewChecked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -11,42 +11,37 @@ import { FormsModule } from '@angular/forms';
 })
 export class WardNumberDialogComponent implements OnChanges {
   @Input() isVisible = false;
-  @Input() title = '輸入床號';
+  @Input() title = '';
+  @Input() message = '';
   @Input() currentValue = '';
-  @Output() closed = new EventEmitter<void>();
-  @Output() confirmed = new EventEmitter<string>();
-  @Output() cancelled = new EventEmitter<void>();
+  @Output() confirmEvent = new EventEmitter<string>();
+  @Output() cancelEvent = new EventEmitter<void>();
 
-  inputValue = '';
+  @ViewChild('inputRef') inputRef!: ElementRef<HTMLInputElement>;
+
+  localValue = '';
+  private shouldFocus = false;
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['isVisible'] && this.isVisible) {
-      this.inputValue = this.currentValue;
+      this.localValue = this.currentValue || '';
+      this.shouldFocus = true;
+    }
+  }
+
+  ngAfterViewChecked(): void {
+    if (this.shouldFocus && this.inputRef) {
+      this.inputRef.nativeElement.focus();
+      this.inputRef.nativeElement.select();
+      this.shouldFocus = false;
     }
   }
 
   onConfirm(): void {
-    const trimmed = this.inputValue.trim();
-    if (trimmed) {
-      this.confirmed.emit(trimmed);
-      this.closed.emit();
-    }
+    this.confirmEvent.emit(this.localValue.trim());
   }
 
   onCancel(): void {
-    this.cancelled.emit();
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onCancel();
-    }
-  }
-
-  onKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter') {
-      this.onConfirm();
-    }
+    this.cancelEvent.emit();
   }
 }

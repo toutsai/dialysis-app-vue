@@ -10,19 +10,11 @@ import { CommonModule } from '@angular/common';
 })
 export class AlertDialogComponent {
   @Input() isVisible = false;
-  @Input() title = '提示';
+  @Input() title = '';
   @Input() message = '';
-  @Output() closed = new EventEmitter<void>();
-  @Output() confirmed = new EventEmitter<void>();
+  @Output() confirm = new EventEmitter<void>();
 
-  onConfirm(): void {
-    this.confirmed.emit();
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.closed.emit();
-    }
+  handleConfirm(): void {
+    this.confirm.emit();
   }
 }

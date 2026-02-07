@@ -1,11 +1,9 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 export interface SelectionOption {
-  label: string;
   value: string;
-  icon?: string;
-  disabled?: boolean;
+  text: string;
 }
 
 @Component({
@@ -15,28 +13,36 @@ export interface SelectionOption {
   templateUrl: './selection-dialog.component.html',
   styleUrl: './selection-dialog.component.css'
 })
-export class SelectionDialogComponent {
+export class SelectionDialogComponent implements OnChanges {
   @Input() isVisible = false;
-  @Input() title = '請選擇';
+  @Input() title = '';
   @Input() options: SelectionOption[] = [];
-  @Output() closed = new EventEmitter<void>();
-  @Output() selected = new EventEmitter<string>();
-  @Output() cancelled = new EventEmitter<void>();
+  @Output() select = new EventEmitter<string>();
+  @Output() cancel = new EventEmitter<void>();
 
-  onSelect(option: SelectionOption): void {
-    if (option.disabled) return;
-    this.selected.emit(option.value);
-    this.closed.emit();
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isVisible']) {
+      if (typeof document !== 'undefined') {
+        if (this.isVisible) {
+          document.body.classList.add('modal-open');
+        } else {
+          document.body.classList.remove('modal-open');
+        }
+      }
+    }
   }
 
-  onCancel(): void {
-    this.cancelled.emit();
-    this.closed.emit();
+  handleSelect(selectedValue: string): void {
+    this.select.emit(selectedValue);
+  }
+
+  handleCancel(): void {
+    this.cancel.emit();
   }
 
   onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onCancel();
+    if ((event.target as HTMLElement).classList.contains('selection-dialog-overlay')) {
+      this.handleCancel();
     }
   }
 }

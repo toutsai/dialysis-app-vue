@@ -1,14 +1,6 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, OnInit, OnDestroy, ViewChild, ElementRef, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-export interface Memo {
-  id: string;
-  content: string;
-  createdAt: string;
-  author: string;
-  priority: 'normal' | 'important' | 'urgent';
-  isRead: boolean;
-}
+import { TaskStoreService } from '@services/task-store.service';
 
 @Component({
   selector: 'app-memo-display-dialog',
@@ -17,40 +9,61 @@ export interface Memo {
   templateUrl: './memo-display-dialog.component.html',
   styleUrl: './memo-display-dialog.component.css'
 })
-export class MemoDisplayDialogComponent {
+export class MemoDisplayDialogComponent implements OnChanges, OnInit, OnDestroy {
+  readonly taskStore = inject(TaskStoreService);
+
   @Input() isVisible = false;
+  @Input() patientId = '';
   @Input() patientName = '';
-  @Input() memos: Memo[] = [];
-  @Output() closed = new EventEmitter<void>();
+  @Output() closeEvent = new EventEmitter<void>();
 
-  getPriorityLabel(priority: string): string {
-    const map: Record<string, string> = {
-      normal: '一般',
-      important: '重要',
-      urgent: '緊急'
-    };
-    return map[priority] || priority;
+  @ViewChild('dialogRef') dialogRef!: ElementRef<HTMLDialogElement>;
+
+  private dialogCloseHandler = () => this.closeEvent.emit();
+
+  get pendingMessages(): any[] {
+    if (!this.patientId) return [];
+    return this.taskStore.sortedFeedMessages().filter(
+      (msg: any) => msg.patientId === this.patientId && msg.status === 'pending'
+    );
   }
 
-  getPriorityClass(priority: string): string {
-    return `priority-${priority}`;
+  getMessageTypeIcon(type: string): string {
+    switch (type) {
+      case '抽血': return '🩸';
+      case '衛教': return '🎓';
+      case '常規':
+      default: return '📝';
+    }
   }
 
-  markAsRead(memo: Memo): void {
-    memo.isRead = true;
+  ngOnInit(): void {
+    // Event listener will be added after view init
   }
 
-  get unreadCount(): number {
-    return this.memos.filter(m => !m.isRead).length;
+  ngOnDestroy(): void {
+    if (this.dialogRef?.nativeElement) {
+      this.dialogRef.nativeElement.removeEventListener('close', this.dialogCloseHandler);
+    }
+  }
+
+  ngAfterViewInit(): void {
+    if (this.dialogRef?.nativeElement) {
+      this.dialogRef.nativeElement.addEventListener('close', this.dialogCloseHandler);
+    }
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isVisible'] && this.dialogRef?.nativeElement) {
+      if (this.isVisible) {
+        this.dialogRef.nativeElement.showModal();
+      } else {
+        this.dialogRef.nativeElement.close();
+      }
+    }
   }
 
   onClose(): void {
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onClose();
-    }
+    this.closeEvent.emit();
   }
 }

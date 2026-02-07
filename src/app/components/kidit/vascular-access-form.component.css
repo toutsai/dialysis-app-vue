@@ -1,262 +1,97 @@
-.vascular-access-form {
-  background: #fff;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  overflow: hidden;
-  font-size: 13px;
-}
-
-.form-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: #e67e22;
-  color: #fff;
-}
-
-.form-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.form-date {
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-.form-body {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.access-form {
+  padding: 10px;
 }
 
 .form-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 15px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .section-title {
-  margin: 0;
-  font-size: 13px;
+  margin: 0 0 15px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #9b59b6; /* 紫色系，區分血管通路 */
+  color: #2c3e50;
+  font-size: 1.1rem;
   font-weight: 600;
-  color: #e67e22;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #fff3e0;
 }
 
-.section-header .section-title {
+.form-row {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #eee;
+}
+
+.form-row:last-child {
   border-bottom: none;
-  padding-bottom: 0;
 }
 
-.fields-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
-}
-
-.form-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.form-field label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #888;
-}
-
-.form-field input,
-.form-field select,
-.form-field textarea {
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  padding: 6px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.2s;
-  resize: vertical;
-}
-
-.form-field input:focus,
-.form-field select:focus,
-.form-field textarea:focus {
-  border-color: #e67e22;
-}
-
-.chip-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.chip {
-  padding: 4px 12px;
-  border: 1px solid #ddd;
-  border-radius: 16px;
-  background: #fff;
-  font-size: 12px;
-  color: #555;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.chip:hover {
-  border-color: #e67e22;
-  color: #e67e22;
-}
-
-.chip.active {
-  background: #e67e22;
-  color: #fff;
-  border-color: #e67e22;
-}
-
-.add-intervention-btn {
-  background: #e67e22;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.add-intervention-btn:hover {
-  background: #d35400;
-}
-
-.add-intervention-form {
-  background: #fef9f4;
-  border: 1px solid #f0d9c2;
-  border-radius: 6px;
-  padding: 12px;
-}
-
-.intervention-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.btn {
-  padding: 5px 14px;
-  border: none;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.btn-save {
-  background: #e67e22;
-  color: #fff;
-}
-
-.btn-save:hover {
-  background: #d35400;
-}
-
-.btn-cancel {
-  background: #e0e0e0;
-  color: #555;
-}
-
-.btn-cancel:hover {
-  background: #d0d0d0;
-}
-
-.interventions-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.intervention-row {
+.checkbox-label {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border: 1px solid #f0f0f0;
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.intervention-row:hover {
-  background: #fafafa;
-}
-
-.intervention-date {
-  font-family: monospace;
-  color: #888;
-  min-width: 90px;
-}
-
-.intervention-type {
-  font-weight: 600;
-  color: #e67e22;
-  min-width: 120px;
-}
-
-.intervention-detail {
-  flex: 1;
-  color: #555;
-}
-
-.intervention-outcome {
-  color: #888;
-  font-size: 11px;
-}
-
-.remove-btn {
-  background: none;
-  border: none;
   cursor: pointer;
-  font-size: 16px;
-  color: #ccc;
-  padding: 0 4px;
-  transition: color 0.15s;
+  font-weight: 500;
+  color: #333;
 }
 
-.remove-btn:hover {
-  color: #dc3545;
+.checkbox-label input {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
 }
 
-.empty-interventions {
-  text-align: center;
-  color: #ccc;
-  padding: 12px 0;
-  font-size: 12px;
-  font-style: italic;
+.sub-options {
+  margin-left: 28px;
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.notes-input {
-  width: 100%;
+select {
+  padding: 6px 10px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  padding: 8px 10px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: vertical;
-  outline: none;
-  box-sizing: border-box;
-  transition: border-color 0.2s;
+  background-color: #fff;
+  font-size: 0.9rem;
+  min-width: 100px;
 }
 
-.notes-input:focus {
-  border-color: #e67e22;
+select:focus {
+  border-color: #9b59b6;
+  outline: none;
+}
+
+.actions {
+  margin-top: 20px;
+  text-align: right;
+  border-top: 1px solid #eee;
+  padding-top: 10px;
+}
+
+.save-btn {
+  background: #27ae60;
+  color: white;
+  border: none;
+  padding: 10px 25px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.2s;
+}
+
+.save-btn:hover {
+  background: #219150;
+}
+
+.save-btn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }

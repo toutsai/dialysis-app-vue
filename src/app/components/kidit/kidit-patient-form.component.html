@@ -1,201 +1,219 @@
-<div class="kidit-patient-form">
-  <div class="form-header">
-    <h4 class="form-title">透析處方</h4>
-    <span class="form-date">{{ date }}</span>
+@if (formData) {
+  <div class="kidit-form-container">
+    <!-- 區塊 1: 身分與基本資料 -->
+    <div class="form-section">
+      <h4 class="section-title">基本身分資料</h4>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>01 姓名</label>
+          <!-- 從 Master Data 讀取的姓名通常不允許修改，以保持一致性 -->
+          <input type="text" [(ngModel)]="formData.name" disabled class="input-disabled" />
+        </div>
+
+        <div class="form-group">
+          <label>04 身分證號</label>
+          <input type="text" [(ngModel)]="formData.idNumber" placeholder="10碼" />
+        </div>
+
+        <div class="form-group">
+          <label>08 病歷號</label>
+          <input type="text" [(ngModel)]="formData.medicalRecordNumber" placeholder="10碼" />
+        </div>
+
+        <div class="form-group">
+          <label>02 病患類別</label>
+          <select [(ngModel)]="formData.patientCategory">
+            @for (opt of KIDIT_OPTIONS.patientCategory; track opt) {
+  <option
+             
+             
+              [value]="opt"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>03 生日 (西元)</label>
+          <input type="date" [(ngModel)]="formData.birthDate" />
+          @if (formData.birthDate) {
+  <small class="roc-date">
+            民國: {{ toRocDate(formData.birthDate) }}
+          </small>
+        </div>
+
+        <div class="form-group">
+          <label>05 性別</label>
+          <select [(ngModel)]="formData.gender">
+            @for (opt of KIDIT_OPTIONS.gender; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>15 血型</label>
+          <select [(ngModel)]="formData.bloodType">
+            @for (opt of KIDIT_OPTIONS.bloodType; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>17 原住民</label>
+          <select [(ngModel)]="formData.isIndigenous">
+            @for (opt of KIDIT_OPTIONS.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>18 福保身分</label>
+          <select [(ngModel)]="formData.isWelfare">
+            @for (opt of KIDIT_OPTIONS.yesNo; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>16 重大傷病卡號</label>
+          <input type="text" [(ngModel)]="formData.catastrophicCardNo" placeholder="10碼" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 區塊 2: 聯絡與社會資料 -->
+    <div class="form-section">
+      <h4 class="section-title">聯絡與社會資料</h4>
+      <div class="form-grid">
+        <div class="form-group full-width">
+          <label>10 地址</label>
+          <input type="text" [(ngModel)]="formData.address" placeholder="最多80字" />
+        </div>
+
+        <div class="form-group">
+          <label>07 電話</label>
+          <input type="text" [(ngModel)]="formData.phone" placeholder="最多25碼" />
+        </div>
+
+        <div class="form-group">
+          <label>06 婚姻</label>
+          <select [(ngModel)]="formData.maritalStatus">
+            @for (opt of KIDIT_OPTIONS.maritalStatus; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>11 教育程度</label>
+          <select [(ngModel)]="formData.education">
+            @for (opt of KIDIT_OPTIONS.education; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>12 職業</label>
+          <select [(ngModel)]="formData.occupation">
+            @for (opt of KIDIT_OPTIONS.occupation; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>13 連絡人</label>
+          <input type="text" [(ngModel)]="formData.contactPerson" placeholder="姓名" />
+        </div>
+
+        <div class="form-group">
+          <label>14 關係</label>
+          <select [(ngModel)]="formData.relationship">
+            @for (opt of KIDIT_OPTIONS.relation; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 區塊 3: 透析與病史資料 -->
+    <div class="form-section">
+      <h4 class="section-title">透析與病史資料</h4>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>09 透析代號</label>
+          <input type="text" [(ngModel)]="formData.dialysisCode" placeholder="10碼" />
+        </div>
+
+        <div class="form-group span-2">
+          <label>19 狀態</label>
+          <select [(ngModel)]="formData.status">
+            @for (opt of KIDIT_OPTIONS.status; track opt) {
+  <option [value]="opt">
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>20 首次治療日期</label>
+          <input type="date" [(ngModel)]="formData.firstDialysisDate" />
+        </div>
+
+        <div class="form-group">
+          <label>21 本院開始治療日期</label>
+          <input type="date" [(ngModel)]="formData.hospitalStartDate" />
+        </div>
+
+        <div class="form-group">
+          <label>22 原發病大類</label>
+          <select [(ngModel)]="formData.diagnosisCategory">
+            @for (opt of KIDIT_OPTIONS.diagnosisCategory; track opt) {
+  <option
+             
+             
+              [value]="opt"
+            >
+              {{ opt.label }}
+            </option>
+          </select>
+        </div>
+
+        <div class="form-group span-2">
+          <label>23 原發病細類</label>
+          <select [(ngModel)]="formData.diagnosisSubcategory">
+            <option value="">請選擇</option>
+            @for (opt of KIDIT_OPTIONS.diagnosisSubcategory; track opt) {
+  <option
+             
+             
+              [value]="opt"
+            >
+              {{ opt }} - {{ opt.label }}
+            </option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="save-btn" (click)="saveData" [disabled]="isSaving">
+        <i class="fas fa-save"></i> {{ isSaving ? '儲存中...' : '儲存 KiDit 資料' }}
+      </button>
+    </div>
   </div>
-
-  <div class="form-body">
-    <section class="form-section">
-      <h5 class="section-title">基本參數</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>乾體重 (kg)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.dryWeight"
-            (ngModelChange)="onPreWeightChange()"
-            placeholder="0.0"
-            step="0.1"
-          />
-        </div>
-        <div class="form-field">
-          <label>透析前體重 (kg)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.preWeight"
-            (ngModelChange)="onPreWeightChange()"
-            placeholder="0.0"
-            step="0.1"
-          />
-        </div>
-        <div class="form-field">
-          <label>預估脫水 (kg)</label>
-          <span class="computed">{{ estimatedUF }}</span>
-        </div>
-        <div class="form-field">
-          <label>目標脫水 (kg)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.targetUF"
-            (ngModelChange)="onFieldChange()"
-            placeholder="0.0"
-            step="0.1"
-          />
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">透析設定</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>人工腎臟</label>
-          <select [(ngModel)]="formData.dialyzerType" (ngModelChange)="onFieldChange()">
-            <option value="">請選擇</option>
-            <option *ngFor="let opt of dialyzerOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>透析時間 (hr)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.dialysisTime"
-            (ngModelChange)="onFieldChange()"
-            min="1"
-            max="8"
-            step="0.5"
-          />
-        </div>
-        <div class="form-field">
-          <label>血液流速 (ml/min)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.bloodFlowRate"
-            (ngModelChange)="onFieldChange()"
-            min="100"
-            max="500"
-            step="10"
-          />
-        </div>
-        <div class="form-field">
-          <label>透析液流速 (ml/min)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.dialysateFlowRate"
-            (ngModelChange)="onFieldChange()"
-            min="300"
-            max="800"
-            step="50"
-          />
-        </div>
-        <div class="form-field">
-          <label>透析液 Ca</label>
-          <select [(ngModel)]="formData.dialysateCa" (ngModelChange)="onFieldChange()">
-            <option *ngFor="let opt of dialysateCaOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>透析液 K</label>
-          <select [(ngModel)]="formData.dialysateK" (ngModelChange)="onFieldChange()">
-            <option *ngFor="let opt of dialysateKOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">抗凝血</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>抗凝血劑</label>
-          <select [(ngModel)]="formData.anticoagulant" (ngModelChange)="onFieldChange()">
-            <option value="">請選擇</option>
-            <option *ngFor="let opt of anticoagulantOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>劑量</label>
-          <input
-            type="text"
-            [(ngModel)]="formData.anticoagulantDose"
-            (ngModelChange)="onFieldChange()"
-            placeholder="如 1000U loading + 500U/hr"
-          />
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">血管通路</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>通路類型</label>
-          <select [(ngModel)]="formData.vascularAccess" (ngModelChange)="onFieldChange()">
-            <option value="">請選擇</option>
-            <option *ngFor="let opt of accessOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label>針號</label>
-          <select [(ngModel)]="formData.needleSize" (ngModelChange)="onFieldChange()">
-            <option *ngFor="let opt of needleSizeOptions" [value]="opt">{{ opt }}</option>
-          </select>
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">透析前生命徵象</h5>
-      <div class="fields-grid">
-        <div class="form-field">
-          <label>收縮壓 (mmHg)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.preBPSys"
-            (ngModelChange)="onFieldChange()"
-            placeholder="120"
-          />
-        </div>
-        <div class="form-field">
-          <label>舒張壓 (mmHg)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.preBPDia"
-            (ngModelChange)="onFieldChange()"
-            placeholder="80"
-          />
-        </div>
-        <div class="form-field">
-          <label>心率 (bpm)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.preHR"
-            (ngModelChange)="onFieldChange()"
-            placeholder="72"
-          />
-        </div>
-        <div class="form-field">
-          <label>體溫 (°C)</label>
-          <input
-            type="number"
-            [(ngModel)]="formData.preTemp"
-            (ngModelChange)="onFieldChange()"
-            placeholder="36.5"
-            step="0.1"
-          />
-        </div>
-      </div>
-    </section>
-
-    <section class="form-section">
-      <h5 class="section-title">備註</h5>
-      <textarea
-        class="notes-input"
-        [(ngModel)]="formData.notes"
-        (ngModelChange)="onFieldChange()"
-        rows="3"
-        placeholder="其他注意事項..."
-      ></textarea>
-    </section>
-  </div>
-</div>

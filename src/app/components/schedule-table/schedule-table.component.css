@@ -1,138 +1,145 @@
-.schedule-table-wrapper {
-  overflow-x: auto;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  background: #fff;
+/* Style 區塊保持不變 */
+.schedule-table-container {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
 }
-
 .schedule-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
   table-layout: fixed;
 }
-
 .schedule-table th,
 .schedule-table td {
-  border: 1px solid #e8e8e8;
-  padding: 4px 6px;
+  border: 1px solid #dee2e6;
   text-align: center;
   vertical-align: middle;
+  padding: 0;
+  height: 60px;
 }
-
-.bed-header {
-  width: 60px;
-  background: #f5f5f5;
-  font-weight: 600;
-  color: #555;
+.schedule-table thead th {
+  position: sticky;
+  top: 0;
+  background-color: #f8f9fa;
+  z-index: 10;
+  padding: 8px 4px;
+}
+.date-display {
+  font-size: 0.8em;
+  color: #6c757d;
+  display: block;
+}
+.bed-header-cell {
+  width: 80px;
+}
+.shift-header-cell {
+  width: 70px;
+}
+.bed-number-cell {
   position: sticky;
   left: 0;
-  z-index: 2;
+  background-color: #f8f9fa;
+  z-index: 5;
+  font-weight: bold;
 }
-
-.day-shift-header {
-  min-width: 80px;
-  font-size: 11px;
-  padding: 4px;
+.hepatitis-bed {
+  background-color: var(--hepatitis-bg, #fff9c4);
 }
-
-.header-day {
-  font-weight: 600;
-  color: #333;
+.shift-name-cell {
+  background-color: #f8f9fa;
+  font-size: 0.9em;
 }
-
-.header-shift {
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.header-date {
-  font-size: 10px;
-  color: #999;
-}
-
-.bed-cell {
-  background: #f9f9f9;
-  font-weight: 600;
-  color: #333;
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  white-space: nowrap;
-}
-
-.bed-number {
-  margin-right: 4px;
-}
-
-.hepatitis-tag {
-  font-size: 9px;
-  background: #fff3cd;
-  color: #856404;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-weight: 600;
-}
-
-.hepatitis-row .bed-cell {
-  background: #fff8e1;
-}
-
-.schedule-cell {
-  cursor: pointer;
-  min-height: 36px;
-  transition: background 0.15s;
-  position: relative;
-}
-
-.schedule-cell:hover {
-  background: #e8f5e9;
-}
-
-.schedule-cell.occupied {
-  background: #f0faf5;
-}
-
-.schedule-cell.empty {
-  background: transparent;
-}
-
-.schedule-cell.occupied:hover {
-  background: #d4edda;
-}
-
-.cell-content {
+.schedule-slot {
+  width: 100%;
+  height: 100%;
   display: flex;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+}
+.patient-details {
+  padding: 4px;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   justify-content: center;
   gap: 2px;
 }
-
 .patient-name {
-  font-size: 12px;
-  color: #333;
-  font-weight: 500;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  font-weight: bold;
+  font-size: 0.95em;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 70px;
 }
-
-.memo-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 11px;
-  padding: 0 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
+.patient-mrn {
+  font-size: 0.8em;
+  color: #555;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.disease-tag-in-table {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 2px 6px;
   line-height: 1;
+  background-color: transparent;
+  border: 2px solid #dc3545;
+  color: #dc3545;
+  border-radius: 6px;
+  font-size: 0.85em;
+  font-weight: bold;
 }
-
-.schedule-cell:hover .memo-btn {
+.empty-slot-placeholder {
+  color: #adb5bd;
+  font-size: 1.5rem;
+  user-select: none;
+}
+.schedule-slot:hover .empty-slot-placeholder {
+  color: #007bff;
+}
+.special-dialysis-label {
+  font-weight: bold;
+  color: #c53929;
+  font-size: 1em;
+}
+.schedule-slot.is-past {
+  cursor: not-allowed;
+  opacity: 0.85;
+}
+.schedule-slot.is-past:not([class*='status-']):not([class*='tag-']) {
+  background-color: #f5f5f5 !important;
   opacity: 1;
 }
-
-.memo-btn:hover {
-  transform: scale(1.2);
+.patient-name-past {
+  font-weight: normal;
+  color: #333;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.schedule-slot.drag-over {
+  background-color: #c8e6c9 !important;
+  border: 2px dashed #4caf50;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+}
+.schedule-slot[draggable='true'] {
+  cursor: grab;
+}
+.schedule-slot[draggable='true']:active {
+  cursor: grabbing;
+  transform: scale(0.98);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  z-index: 20;
 }

@@ -1,61 +1,125 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-export interface LabAlertData {
-  id: string;
-  patientName: string;
-  patientId: string;
-  medicalRecordNumber: string;
-  testName: string;
-  value: string;
-  unit: string;
-  referenceRange: string;
-  status: 'high' | 'low' | 'critical_high' | 'critical_low';
-  collectedAt: string;
-  reportedAt: string;
-  previousValue?: string;
-  previousDate?: string;
-  notes?: string;
-}
+import { FormsModule } from '@angular/forms';
+import { ALERT_CAUSES, ALERT_SUGGESTIONS, LAB_ITEM_DISPLAY_NAMES } from '@/constants/labAlertConstants.js';
+import { PatientLabSummaryPanelComponent } from '../../patient-lab-summary-panel/patient-lab-summary-panel.component';
+import { LabMedCorrelationViewComponent } from '../../lab-med-correlation-view/lab-med-correlation-view.component';
 
 @Component({
   selector: 'app-lab-alert-detail-modal',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule, PatientLabSummaryPanelComponent, LabMedCorrelationViewComponent],
   templateUrl: './lab-alert-detail-modal.component.html',
   styleUrl: './lab-alert-detail-modal.component.css'
 })
-export class LabAlertDetailModalComponent {
+export class LabAlertDetailModalComponent implements OnChanges {
   @Input() isVisible = false;
-  @Input() alert: LabAlertData | null = null;
-  @Output() closed = new EventEmitter<void>();
+  @Input() patient: any = null;
+  @Input() abnormalityKey = '';
+  @Input() initialAnalysis = '';
+  @Input() initialSuggestion = '';
+  @Output() closeEvent = new EventEmitter<void>();
+  @Output() confirmEvent = new EventEmitter<{ analysisText: string; suggestionText: string }>();
 
-  getStatusLabel(status: string): string {
-    const map: Record<string, string> = {
-      high: '偏高',
-      low: '偏低',
-      critical_high: '危險值偏高',
-      critical_low: '危險值偏低'
-    };
-    return map[status] || status;
+  activeTab = 'analysis';
+  selectedCauses: string[] = [];
+  otherCauseText = '';
+  selectedSuggestions: string[] = [];
+  otherSuggestionText = '';
+  labItemDisplayNames: Record<string, string> = LAB_ITEM_DISPLAY_NAMES;
+
+  get groupedCauses(): Record<string, any[]> {
+    const causes = ALERT_CAUSES[this.abnormalityKey] || [];
+    return causes.reduce((acc: Record<string, any[]>, cause: any) => {
+      (acc[cause.category] = acc[cause.category] || []).push(cause);
+      return acc;
+    }, {});
   }
 
-  getStatusClass(status: string): string {
-    if (status.startsWith('critical')) return 'status-critical';
-    return `status-${status}`;
+  get groupedSuggestions(): Record<string, any[]> {
+    const suggestions = ALERT_SUGGESTIONS[this.abnormalityKey] || [];
+    return suggestions.reduce((acc: Record<string, any[]>, suggestion: any) => {
+      (acc[suggestion.category] = acc[suggestion.category] || []).push(suggestion);
+      return acc;
+    }, {});
   }
 
-  isCritical(): boolean {
-    return !!this.alert?.status.startsWith('critical');
+  get groupedCausesEntries(): [string, any[]][] {
+    return Object.entries(this.groupedCauses);
   }
 
-  onClose(): void {
-    this.closed.emit();
+  get groupedSuggestionsEntries(): [string, any[]][] {
+    return Object.entries(this.groupedSuggestions);
   }
 
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('modal-overlay')) {
-      this.onClose();
+  private parseInitialText(text: string): { selected: string[]; other: string } {
+    if (!text) return { selected: [], other: '' };
+    const items = text.split('; ').filter(Boolean);
+    const predefinedCauses = (ALERT_CAUSES[this.abnormalityKey] || []).map((c: any) => c.text);
+    const predefinedSuggestions = (ALERT_SUGGESTIONS[this.abnormalityKey] || []).map((s: any) => s.text);
+    const predefined = [...predefinedCauses, ...predefinedSuggestions];
+
+    const selected = items.filter(item => predefined.includes(item));
+    const other = items.filter(item => !predefined.includes(item)).join('; ');
+    return { selected, other };
+  }
+
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['isVisible'] && this.isVisible) {
+      const analysisParsed = this.parseInitialText(this.initialAnalysis);
+      this.selectedCauses = analysisParsed.selected;
+      this.otherCauseText = analysisParsed.other;
+
+      const suggestionParsed = this.parseInitialText(this.initialSuggestion);
+      this.selectedSuggestions = suggestionParsed.selected;
+      this.otherSuggestionText = suggestionParsed.other;
+
+      this.activeTab = 'analysis';
     }
+  }
+
+  isCauseSelected(causeText: string): boolean {
+    return this.selectedCauses.includes(causeText);
+  }
+
+  toggleCause(causeText: string): void {
+    const index = this.selectedCauses.indexOf(causeText);
+    if (index > -1) {
+      this.selectedCauses.splice(index, 1);
+    } else {
+      this.selectedCauses.push(causeText);
+    }
+  }
+
+  isSuggestionSelected(suggestionText: string): boolean {
+    return this.selectedSuggestions.includes(suggestionText);
+  }
+
+  toggleSuggestion(suggestionText: string): void {
+    const index = this.selectedSuggestions.indexOf(suggestionText);
+    if (index > -1) {
+      this.selectedSuggestions.splice(index, 1);
+    } else {
+      this.selectedSuggestions.push(suggestionText);
+    }
+  }
+
+  handleConfirm(): void {
+    const finalAnalysisText = [...this.selectedCauses, this.otherCauseText.trim()]
+      .filter(Boolean)
+      .join('; ');
+    const finalSuggestionText = [...this.selectedSuggestions, this.otherSuggestionText.trim()]
+      .filter(Boolean)
+      .join('; ');
+
+    this.confirmEvent.emit({
+      analysisText: finalAnalysisText,
+      suggestionText: finalSuggestionText,
+    });
+    this.handleClose();
+  }
+
+  handleClose(): void {
+    this.closeEvent.emit();
   }
 }

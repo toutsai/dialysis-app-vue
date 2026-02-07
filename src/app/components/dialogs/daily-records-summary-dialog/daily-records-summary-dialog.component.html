@@ -1,59 +1,56 @@
 @if (isVisible) {
-  <div class="dialog-overlay" (click)="onOverlayClick($event)">
-    <div class="dialog-container">
+  <div class="dialog-overlay">
+    <div class="dialog-content">
       <div class="dialog-header">
-        <h3>每日紀錄摘要</h3>
-        <button class="close-btn" (click)="onClose()">&times;</button>
+        <h3>{{ dialogTitle }}</h3>
+        <button (click)="closeDialog" class="close-btn" title="關閉">×</button>
       </div>
-
-      <div class="date-bar">
-        <input
-          type="date"
-          class="date-input"
-          [value]="selectedDate"
-          (change)="onDateChange($event)"
-        />
-      </div>
-
       <div class="dialog-body">
         @if (isLoading) {
-          <div class="loading-state">
-            <div class="spinner"></div>
-            <p>載入中...</p>
-          </div>
-        } @else if (records.length === 0) {
-          <div class="empty-state">
-            <p>此日期無紀錄</p>
-          </div>
-        } @else {
-          <table class="records-table">
-            <thead>
-              <tr>
-                <th>時間</th>
-                <th>類型</th>
-                <th>內容</th>
-                <th>記錄者</th>
-                <th>狀態</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (record of records; track record.id) {
+  <div class="panel-loading">
+          <div class="loading-spinner"></div>
+          <span>正在載入病情紀錄...</span>
+        </div>
+        <!-- ✨ 邏輯更新：現在直接檢查 allRecords 的長度 -->
+        } @else if (allRecords.length > 0) {
+  <div>
+          <!-- 不再需要按班別分組 -->
+          <div class="shift-section">
+            <table class="records-table">
+              <thead>
                 <tr>
-                  <td class="time-cell">{{ record.time }}</td>
-                  <td><span class="type-badge">{{ getTypeLabel(record.type) }}</span></td>
-                  <td class="content-cell">{{ record.content }}</td>
-                  <td>{{ record.author }}</td>
-                  <td><span class="status-dot" [ngClass]="getStatusClass(record.status)"></span></td>
+                  <th class="col-bed">床號</th>
+                  <th class="col-mrn">病歷號</th>
+                  <th class="col-name">病人</th>
+                  <th class="col-time">紀錄時間</th>
+                  <th class="col-content">紀錄內容</th>
                 </tr>
-              }
-            </tbody>
-          </table>
-        }
-      </div>
-
-      <div class="dialog-footer">
-        <button class="btn btn-secondary" (click)="onClose()">關閉</button>
+              </thead>
+              <tbody>
+                @for (record of sortedRecords; track record.id) {
+  <tr>
+                  <td class="col-bed">{{ getPatientInfo(record.patientId).bedNum }}</td>
+                  <td class="col-mrn">
+                    <span
+                      class="mrn-clickable"
+                      (click)="copyMedicalRecordNumber(getPatientInfo(record.patientId).medicalRecordNumber)"
+                      [title]="getPatientInfo(record.patientId).medicalRecordNumber ? '點擊以複製病歷號' : ''"
+                    >
+                      {{ getPatientInfo(record.patientId).medicalRecordNumber || '-' }}
+                    </span>
+                  </td>
+                  <td class="col-name">{{ record.patientName }}</td>
+                  <td class="col-time">{{ formatTime(record.createdAt) }}</td>
+                  <td class="col-content">{{ record.content }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        } @else {
+  <div class="panel-empty">
+          <p><i class="fas fa-check-circle"></i> 此班別尚無任何病情紀錄</p>
+        </div>
       </div>
     </div>
   </div>
-}

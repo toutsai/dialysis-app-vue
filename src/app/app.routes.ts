@@ -188,6 +188,14 @@ export const routes: Routes = [
           ),
         data: { title: '平台使用說明' },
       },
+      {
+        path: 'consumables',
+        loadComponent: () =>
+          import('./features/consumables/consumables.component').then(
+            (m) => m.ConsumablesComponent
+          ),
+        data: { title: '每月耗材總表' },
+      },
     ],
   },
   { path: '**', redirectTo: '' },

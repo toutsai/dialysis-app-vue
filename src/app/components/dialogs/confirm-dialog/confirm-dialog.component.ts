@@ -10,27 +10,21 @@ import { CommonModule } from '@angular/common';
 })
 export class ConfirmDialogComponent {
   @Input() isVisible = false;
-  @Input() title = '確認';
+  @Input() title = '';
   @Input() message = '';
-  @Input() confirmText = '確定';
+  @Input() confirmText = '確認';
   @Input() cancelText = '取消';
-  @Output() closed = new EventEmitter<void>();
-  @Output() confirmed = new EventEmitter<void>();
-  @Output() cancelled = new EventEmitter<void>();
+  @Input() confirmClass = 'btn-primary';
+  @Input() cancelClass = 'btn-secondary';
+  @Input() hasCustomFooter = false;
+  @Output() confirmEvent = new EventEmitter<void>();
+  @Output() cancelEvent = new EventEmitter<void>();
 
   onConfirm(): void {
-    this.confirmed.emit();
-    this.closed.emit();
+    this.confirmEvent.emit();
   }
 
   onCancel(): void {
-    this.cancelled.emit();
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onCancel();
-    }
+    this.cancelEvent.emit();
   }
 }

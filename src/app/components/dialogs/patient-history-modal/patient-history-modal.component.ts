@@ -1,14 +1,8 @@
 import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-export interface HistoryEvent {
-  id: string;
-  date: string;
-  type: string;
-  title: string;
-  description: string;
-  createdBy?: string;
-}
+import ApiManager from '@/services/api_manager';
+import { where, orderBy } from 'firebase/firestore';
+import { escapeHtml } from '@/utils/sanitize.js';
 
 @Component({
   selector: 'app-patient-history-modal',
@@ -21,62 +15,131 @@ export class PatientHistoryModalComponent implements OnChanges {
   @Input() isVisible = false;
   @Input() patientId = '';
   @Input() patientName = '';
-  @Output() closed = new EventEmitter<void>();
+  @Output() closeEvent = new EventEmitter<void>();
 
-  historyEvents: HistoryEvent[] = [];
+  private historyApi = ApiManager('patient_history');
+  history: any[] = [];
   isLoading = false;
-  filterType = 'all';
 
-  eventTypes = [
-    { value: 'all', label: '全部' },
-    { value: 'dialysis', label: '透析紀錄' },
-    { value: 'lab', label: '檢驗報告' },
-    { value: 'medication', label: '用藥變更' },
-    { value: 'admission', label: '住院/出院' },
-    { value: 'schedule', label: '排程變更' },
-    { value: 'note', label: '備註' }
-  ];
+  private statusMap: Record<string, string> = {
+    ipd: '住院',
+    opd: '門診',
+    er: '急診',
+  };
+
+  get groupedHistory(): any[][] {
+    if (!this.history || this.history.length === 0) return [];
+
+    const episodes: any[][] = [];
+    let currentEpisode: any[] = [];
+
+    const sortedHistory = [...this.history].sort((a, b) => {
+      const timeA = a.timestamp?.toDate
+        ? a.timestamp.toDate().getTime()
+        : new Date(a.timestamp).getTime();
+      const timeB = b.timestamp?.toDate
+        ? b.timestamp.toDate().getTime()
+        : new Date(b.timestamp).getTime();
+      return timeA - timeB;
+    });
+
+    sortedHistory.forEach((entry: any) => {
+      const isStartEvent = entry.eventType === 'CREATE' || entry.eventType === 'RESTORE_AND_TRANSFER';
+
+      if (isStartEvent && currentEpisode.length > 0) {
+        episodes.push(currentEpisode);
+        currentEpisode = [];
+      }
+
+      currentEpisode.push(entry);
+
+      if (entry.eventType === 'DELETE') {
+        episodes.push(currentEpisode);
+        currentEpisode = [];
+      }
+    });
+
+    if (currentEpisode.length > 0) {
+      episodes.push(currentEpisode);
+    }
+
+    return episodes.reverse();
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
-    if (changes['isVisible'] && this.isVisible && this.patientId) {
-      this.loadHistory();
+    if (changes['isVisible']) {
+      if (this.isVisible && this.patientId) {
+        this.fetchHistory();
+      } else {
+        this.history = [];
+      }
     }
   }
 
-  private loadHistory(): void {
+  async fetchHistory(): Promise<void> {
     this.isLoading = true;
-    this.historyEvents = [];
-    setTimeout(() => {
+    try {
+      const queryConstraints = [
+        where('patientId', '==', this.patientId),
+        orderBy('timestamp', 'asc'),
+      ];
+      this.history = await this.historyApi.fetchAll(queryConstraints);
+    } catch (error) {
+      console.error('讀取歷史紀錄失敗:', error);
+      this.history = [];
+    } finally {
       this.isLoading = false;
-    }, 500);
+    }
   }
 
-  get filteredEvents(): HistoryEvent[] {
-    if (this.filterType === 'all') return this.historyEvents;
-    return this.historyEvents.filter(e => e.type === this.filterType);
+  formatTimestamp(timestampInput: any): string {
+    if (!timestampInput) return 'Invalid Date';
+
+    let date: Date;
+
+    if (timestampInput && typeof timestampInput.toDate === 'function') {
+      date = timestampInput.toDate();
+    } else if (typeof timestampInput === 'string') {
+      date = new Date(timestampInput);
+    } else {
+      date = new Date(timestampInput);
+    }
+
+    if (isNaN(date.getTime())) {
+      return 'Invalid Date';
+    }
+
+    return date.toLocaleString('zh-TW', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   }
 
-  setFilter(type: string): void {
-    this.filterType = type;
-  }
+  formatEvent(entry: any): string {
+    const details = entry.eventDetails;
+    const getStatus = (s: string) => `<strong>${escapeHtml(this.statusMap[s] || s)}</strong>`;
 
-  getEventTypeLabel(type: string): string {
-    const found = this.eventTypes.find(t => t.value === type);
-    return found ? found.label : type;
-  }
-
-  getEventTypeClass(type: string): string {
-    return `event-type-${type}`;
+    switch (entry.eventType) {
+      case 'CREATE':
+        return `建立資料 ➝ ${getStatus(details.status)}`;
+      case 'TRANSFER':
+        if (details.note) {
+          return `衝突轉入 ➝ ${getStatus(details.to)}`;
+        }
+        return `${getStatus(details.from)} ➝ ${getStatus(details.to)}`;
+      case 'DELETE':
+        return `<strong>結案 (${escapeHtml(details.reason || '未說明')})</strong>`;
+      case 'RESTORE_AND_TRANSFER':
+        return `資料復原 ➝ ${getStatus(details.restoredTo)}`;
+      default:
+        return `未知操作: ${escapeHtml(entry.eventType)}`;
+    }
   }
 
   onClose(): void {
-    this.filterType = 'all';
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('modal-overlay')) {
-      this.onClose();
-    }
+    this.closeEvent.emit();
   }
 }

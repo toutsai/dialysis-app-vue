@@ -1,133 +1,360 @@
-@if (isVisible) {
-  <div class="modal-overlay" (click)="onOverlayClick($event)">
-    <div class="modal-container">
-      <div class="modal-header">
-        <h3>{{ isEditing ? '編輯透析醫囑' : '新增透析醫囑' }}</h3>
-        <button class="close-btn" (click)="onClose()">&times;</button>
-      </div>
-      <div class="modal-body">
-        @if (patient) {
-          <div class="patient-banner">
-            <span class="patient-name">{{ patient.name }}</span>
-            <span class="patient-mrn">{{ patient.medicalRecordNumber }}</span>
-          </div>
-        }
+<div>
+    @if (isVisible) {
+  <div class="dialog-overlay">
+      <div class="dialog-content">
+        <div class="dialog-header">
+          <h2>{{ patientData?.name }} - 透析醫囑</h2>
+          <button (click)="handleClose" class="close-btn">×</button>
+        </div>
 
-        <div class="form-section">
-          <h4 class="section-title">透析設定</h4>
-          <div class="form-row">
-            <div class="form-group">
-              <label>透析模式 <span class="required">*</span></label>
-              <select class="form-select" [(ngModel)]="formData.dialysisMode">
-                @for (mode of dialysisModes; track mode.value) {
-                  <option [value]="mode.value">{{ mode.label }}</option>
-                }
-              </select>
-            </div>
-            <div class="form-group">
-              <label>透析器 <span class="required">*</span></label>
-              <select class="form-select" [(ngModel)]="formData.dialyzerType">
-                @for (type of dialyzerTypes; track type.value) {
-                  <option [value]="type.value">{{ type.label }}</option>
-                }
-              </select>
-            </div>
+        <div class="modal-body">
+          <div class="form-section">
+            <form (ngSubmit)="handleSave" class="order-form">
+              <div class="form-grid">
+                <!-- Group 1: 生效日期與血管通路 -->
+                <div class="form-group">
+                  <label for="effectiveDate">醫囑生效日期</label>
+                  <input id="effectiveDate" [(ngModel)]="localOrderData.effectiveDate" type="date" />
+                </div>
+                <div class="form-group">
+                  <label for="vascAccess">血管通路</label>
+                  <select id="vascAccess" [(ngModel)]="localOrderData.vascAccess">
+                    <option disabled value="">請選擇...</option>
+                    @for (option of vascAccessOptions; track option) {
+  <option [value]="option">
+                      {{ option }}
+                    </option>
+                  </select>
+                </div>
+                @if (shouldShowNeedleSize) {
+  <div class="form-group needle-group-inline">
+                  <div class="sub-group">
+                    <label for="arterialNeedle">動/靜脈穿刺針</label>
+                    <div class="needle-inputs">
+                      <select id="arterialNeedle" [(ngModel)]="localOrderData.arterialNeedle">
+                        <option disabled value="">A...</option>
+                        @for (size of needleSizeOptions; track `a-${size}`) {
+  <option [value]="size">
+                          {{ size }}
+                        </option>
+                      </select>
+                      <select id="venousNeedle" [(ngModel)]="localOrderData.venousNeedle">
+                        <option disabled value="">V...</option>
+                        @for (size of needleSizeOptions; track `v-${size}`) {
+  <option [value]="size">
+                          {{ size }}
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                } @else {
+  <div class="form-group"></div>
+
+                <!-- Group 2: 病人基本設定 -->
+                <div class="form-group">
+                  <label for="physician">會診醫師</label>
+                  <input id="physician" [(ngModel)]="localOrderData.physician" type="text" />
+                </div>
+                <div class="form-group">
+                  <label for="mode">透析模式</label>
+                  <select id="mode" [(ngModel)]="localOrderData.mode">
+                    <option value="">請選擇...</option>
+                    <option value="HD">HD</option>
+                    <option value="SLED">SLED</option>
+                    <option value="CVVHDF">CVVHDF</option>
+                    <option value="PP">PP</option>
+                    <option value="DFPP">DFPP</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="freq">頻次</label>
+                  <input id="freq" [(ngModel)]="localOrderData.freq" type="text" />
+                </div>
+
+                <!-- Group 3: 核心醫囑 -->
+                <div class="form-group ak-dynamic-group">
+                  <label>人工腎臟 (AK)</label>
+                  @for (ak of localOrderData.aks; track index; let index = $index) {
+  <div
+                   
+                   
+                    class="ak-select-wrapper"
+                  >
+                    <select [(ngModel)]="localOrderData.aks[index]">
+                      <option disabled value="">請選擇...</option>
+                      @for (option of akOptions; track option) {
+  <option [value]="option">
+                        {{ option }}
+                      </option>
+                    </select>
+                    @if (localOrderData.aks.length > 1) {
+  <button
+                     
+                      type="button"
+                      class="btn-ak-action remove"
+                      (click)="removeAkSelect(index)"
+                    >
+                      –
+                    </button>
+                  </div>
+                  @if (localOrderData.aks.length < 3) {
+  <button
+                   
+                    type="button"
+                    class="btn-ak-action add"
+                    (click)="addAkSelect"
+                  >
+                    +
+                  </button>
+                </div>
+                <div class="form-group">
+                  <label for="dialysateCa">透析液鈣離子 (Ca)</label>
+                  <select id="dialysateCa" [(ngModel)]="localOrderData.dialysateCa">
+                    <option disabled value="">請選擇...</option>
+                    @for (option of caOptions; track option) {
+  <option [value]="option">
+                      {{ option }}
+                    </option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="dialysisHours">透析時間 (hr)</label>
+                  <input
+                    id="dialysisHours"
+                    [(ngModel)]="localOrderData.dialysisHours"
+                    type="number"
+                    placeholder="小時"
+                  />
+                </div>
+
+                <!-- Group 4: 體重與脫水 -->
+                <div class="form-group">
+                  <label for="dryWeight">乾體重 (DW)</label>
+                  <input
+                    id="dryWeight"
+                    [(ngModel)]="localOrderData.dryWeight"
+                    type="text"
+                    placeholder="單位: kg"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="dehydration">脫水量</label>
+                  <input
+                    id="dehydration"
+                    [(ngModel)]="localOrderData.dehydration"
+                    type="text"
+                    placeholder="e.g., 100ml/hr 或 2.5KG"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="mannitol">Mannitol</label>
+                  <select id="mannitol" [(ngModel)]="localOrderData.mannitol">
+                    <option value="不用">不用</option>
+                    <option value="用">用</option>
+                  </select>
+                </div>
+
+                <!-- Group 5: 流速設定 -->
+                <div class="form-group">
+                  <label for="bloodFlow">血液流速 (BF)</label>
+                  <input
+                    id="bloodFlow"
+                    [(ngModel)]="localOrderData.bloodFlow"
+                    type="number"
+                    placeholder="ml/min"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="dialysateFlow">透析液流速 (DF)</label>
+                  <input
+                    id="dialysateFlow"
+                    [(ngModel)]="localOrderData.dialysateFlow"
+                    type="number"
+                    placeholder="ml/hr"
+                  />
+                </div>
+                <div class="form-group">
+                  <label>補充液流速 (RF)</label>
+                  <input
+                    type="number"
+                    placeholder="ml/hr"
+                    [(ngModel)]="localOrderData.replacementFlow"
+                  />
+                </div>
+
+                <!-- Group 6: Heparin 設定 -->
+                <div class="form-group">
+                  <label for="heparinInitial">Heparin 初劑量</label>
+                  <input
+                    id="heparinInitial"
+                    [(ngModel)]="localOrderData.heparinInitial"
+                    type="text"
+                    placeholder="單位: u"
+                  />
+                </div>
+                <div class="form-group">
+                  <label for="heparinMaintenance">Heparin 維持劑量</label>
+                  <input
+                    id="heparinMaintenance"
+                    [(ngModel)]="localOrderData.heparinMaintenance"
+                    type="text"
+                    placeholder="單位: u/hr"
+                  />
+                </div>
+                <div class="form-group heparin-rinse-group">
+                  <label>Heparin Rinse</label>
+                  <div class="radio-group">
+                    <label
+                      ><input type="radio" [(ngModel)]="localOrderData.heparinRinse" value="可" />
+                      可</label
+                    >
+                    <label
+                      ><input type="radio" [(ngModel)]="localOrderData.heparinRinse" value="不可" />
+                      不可</label
+                    >
+                  </div>
+                </div>
+              </div>
+            </form>
           </div>
 
-          <div class="form-row">
-            <div class="form-group">
-              <label>血液流速 (mL/min) <span class="required">*</span></label>
-              <input type="number" class="form-input" [(ngModel)]="formData.bloodFlowRate" min="100" max="500" />
+          <div class="history-section">
+            <h3 class="history-title">醫囑歷史</h3>
+            <div class="history-table-wrapper">
+              @if (isLoadingHistory) {
+  <div class="loading-state">載入中...</div>
+              } @else if (orderHistory.length > 0) {
+  <table>
+                <!-- ✅ 4. [核心修改] 擴充歷史表格，顯示所有關鍵欄位 -->
+                <thead>
+                  <tr>
+                    <th class="col-action">操作</th>
+                    <th>狀態</th>
+                    <th>修改日期</th>
+                    <th>生效日</th>
+                    <th>通路/穿刺針</th>
+                    <th>DW</th>
+                    <th>脫水</th>
+                    <th>BF/DF/RF</th>
+                    <th>時間</th>
+                    <th>AK</th>
+                    <th>Ca</th>
+                    <th>Heparin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @if (activeOrder) {
+  <tr class="active-order">
+                    <td class="col-action">
+                      <button (click)="requestDeleteOrder(activeOrder)" class="btn-delete">×</button>
+                    </td>
+                    <td><span class="status-tag active">最新</span></td>
+                    <td>{{ formatDate(activeOrder.updatedAt) }}</td>
+                    <td>{{ formatDate(activeOrder.orders.effectiveDate) }}</td>
+                    <td>
+                      {{ activeOrder.orders.vascAccess || '–' }}
+                      @if (activeOrder.orders.arterialNeedle || activeOrder.orders.venousNeedle) {
+  <span
+                       
+                      >
+                        ({{ activeOrder.orders.arterialNeedle || 'N/A' }}/{{ activeOrder.orders.venousNeedle || 'N/A' }})
+                      </span>
+                    </td>
+                    <td>{{ activeOrder.orders.dryWeight || '–' }}</td>
+                    <td>{{ activeOrder.orders.dehydration || '–' }}</td>
+                    <td>
+                      {{ activeOrder.orders.bloodFlow || '–' }}/{{ activeOrder.orders.dialysateFlow || '–' }}/{{ activeOrder.orders.replacementFlow || '–' }}
+                    </td>
+                    <td>{{ activeOrder.orders.dialysisHours || '–' }}</td>
+                    <td>{{ activeOrder.orders.ak || '–' }}</td>
+                    <td>{{ activeOrder.orders.dialysateCa || '–' }}</td>
+                    <td>
+                      {{ activeOrder.orders.heparinInitial ??
+                        activeOrder.orders.heparinLM?.split('/')[0] ??
+                        '–' }}/{{ activeOrder.orders.heparinMaintenance ??
+                        activeOrder.orders.heparinLM?.split('/')[1] ??
+                        '–' }}
+                    </td>
+                  </tr>
+                  @for (record of pendingOrders; track `pending-${record.id}`) {
+  <tr
+                   
+                   
+                    class="pending-order"
+                  >
+                    <td class="col-action">
+                      <button (click)="requestDeleteOrder(record)" class="btn-delete">×</button>
+                    </td>
+                    <td><span class="status-tag pending">未生效</span></td>
+                    <td>{{ formatDate(record.updatedAt) }}</td>
+                    <td>{{ formatDate(record.orders.effectiveDate) }}</td>
+                    <td>
+                      {{ record.orders.vascAccess || '–' }}
+                      @if (record.orders.arterialNeedle || record.orders.venousNeedle) {
+  <span>
+                        ({{ record.orders.arterialNeedle || 'N/A' }}/{{ record.orders.venousNeedle || 'N/A' }})
+                      </span>
+                    </td>
+                    <td>{{ record.orders.dryWeight || '–' }}</td>
+                    <td>{{ record.orders.dehydration || '–' }}</td>
+                    <td>
+                      {{ record.orders.bloodFlow || '–' }}/{{ record.orders.dialysateFlow || '–' }}/{{ record.orders.replacementFlow || '–' }}
+                    </td>
+                    <td>{{ record.orders.dialysisHours || '–' }}</td>
+                    <td>{{ record.orders.ak || '–' }}</td>
+                    <td>{{ record.orders.dialysateCa || '–' }}</td>
+                    <td>
+                      {{ record.orders.heparinInitial || '–' }}/{{ record.orders.heparinMaintenance || '–' }}
+                    </td>
+                  </tr>
+                  @for (record of archivedOrders; track `archived-${record.id}`) {
+  <tr>
+                    <td class="col-action">
+                      <button (click)="requestDeleteOrder(record)" class="btn-delete">×</button>
+                    </td>
+                    <td><span class="status-tag history">歷史</span></td>
+                    <td>{{ formatDate(record.updatedAt) }}</td>
+                    <td>{{ formatDate(record.orders.effectiveDate) }}</td>
+                    <td>
+                      {{ record.orders.vascAccess || '–' }}
+                      @if (record.orders.arterialNeedle || record.orders.venousNeedle) {
+  <span>
+                        ({{ record.orders.arterialNeedle || 'N/A' }}/{{ record.orders.venousNeedle || 'N/A' }})
+                      </span>
+                    </td>
+                    <td>{{ record.orders.dryWeight || '–' }}</td>
+                    <td>{{ record.orders.dehydration || '–' }}</td>
+                    <td>
+                      {{ record.orders.bloodFlow || '–' }}/{{ record.orders.dialysateFlow || '–' }}/{{ record.orders.replacementFlow || '–' }}
+                    </td>
+                    <td>{{ record.orders.dialysisHours || '–' }}</td>
+                    <td>{{ record.orders.ak || '–' }}</td>
+                    <td>{{ record.orders.dialysateCa || '–' }}</td>
+                    <td>
+                      {{ record.orders.heparinInitial || '–' }}/{{ record.orders.heparinMaintenance || '–' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              } @else {
+  <div class="empty-state">無歷史紀錄</div>
             </div>
-            <div class="form-group">
-              <label>透析液流速 (mL/min)</label>
-              <input type="number" class="form-input" [(ngModel)]="formData.dialysateFlowRate" min="300" max="800" />
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label>透析時間 (分鐘) <span class="required">*</span></label>
-              <input type="number" class="form-input" [(ngModel)]="formData.duration" min="60" max="480" />
-            </div>
-            <div class="form-group">
-              <label>乾體重 (kg)</label>
-              <input type="number" class="form-input" [(ngModel)]="formData.dryWeight" min="0" step="0.1" />
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label>脫水目標 (mL)</label>
-            <input type="number" class="form-input" [(ngModel)]="formData.ultrafiltrationGoal" min="0" step="100" />
           </div>
         </div>
 
-        <div class="form-section">
-          <h4 class="section-title">抗凝劑</h4>
-          <div class="form-row">
-            <div class="form-group">
-              <label>抗凝劑種類</label>
-              <select class="form-select" [(ngModel)]="formData.anticoagulant">
-                @for (ac of anticoagulants; track ac.value) {
-                  <option [value]="ac.value">{{ ac.label }}</option>
-                }
-              </select>
-            </div>
-            <div class="form-group">
-              <label>劑量</label>
-              <input type="text" class="form-input" [(ngModel)]="formData.anticoagulantDose" placeholder="如: 首劑 1000U, 維持 500U/hr" />
-            </div>
-          </div>
+        <div class="dialog-footer">
+          <button (click)="handleSave" class="btn-save">儲存醫囑</button>
+          <button (click)="handleClose" class="btn-cancel">取消</button>
         </div>
-
-        <div class="form-section">
-          <h4 class="section-title">透析液組成</h4>
-          <div class="form-row">
-            <div class="form-group">
-              <label>鈣 (mEq/L)</label>
-              <input type="text" class="form-input" [(ngModel)]="formData.dialysateCalcium" />
-            </div>
-            <div class="form-group">
-              <label>鉀 (mEq/L)</label>
-              <input type="text" class="form-input" [(ngModel)]="formData.dialysatePotassium" />
-            </div>
-          </div>
-        </div>
-
-        <div class="form-section">
-          <h4 class="section-title">血管通路</h4>
-          <div class="form-row">
-            <div class="form-group">
-              <label>通路類型</label>
-              <select class="form-select" [(ngModel)]="formData.vascularAccess">
-                @for (at of accessTypes; track at.value) {
-                  <option [value]="at.value">{{ at.label }}</option>
-                }
-              </select>
-            </div>
-            <div class="form-group">
-              <label>穿刺針號</label>
-              <input type="text" class="form-input" [(ngModel)]="formData.needleGauge" placeholder="如: 16G" />
-            </div>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label>特殊指示</label>
-          <textarea
-            class="form-textarea"
-            [(ngModel)]="formData.specialInstructions"
-            placeholder="輸入特殊醫囑指示"
-            rows="3"
-          ></textarea>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" (click)="onClose()">取消</button>
-        <button class="btn btn-primary" (click)="onSave()" [disabled]="!isFormValid">
-          {{ isEditing ? '更新醫囑' : '開立醫囑' }}
-        </button>
       </div>
     </div>
+
+    <ConfirmDialog
+      [is-visible]="isConfirmDeleteVisible"
+      title="確認刪除"
+      message="您確定要永久刪除這筆醫囑歷史紀錄嗎？此操作無法復原。"
+      @confirm="confirmDelete"
+      @cancel="isConfirmDeleteVisible = false"
+    />
   </div>
-}

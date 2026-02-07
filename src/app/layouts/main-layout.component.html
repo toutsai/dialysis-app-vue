@@ -1,76 +1,95 @@
 <div class="dashboard-container" [class.sidebar-open]="isSidebarOpen()">
-  <!-- ===================================================================== -->
-  <!-- Sidebar                                                                -->
-  <!-- ===================================================================== -->
   <aside class="sidebar" [class.is-open]="isSidebarOpen()">
-    <!-- Main navigation section (scrollable) -->
+    <!-- 1. 固定的頂部導覽 -->
     <div class="main-nav-section">
-      <!-- Header -->
       <div class="sidebar-header">
         <span class="platform-title">部北透析管理平台</span>
         @if (environmentTag(); as tag) {
           <span class="environment-tag" [ngClass]="tag.class">{{ tag.text }}</span>
         }
       </div>
-
-      <!-- Primary navigation -->
       <ul class="sidebar-nav">
+        <!-- 共用功能 -->
         <li>
-          <a routerLink="/schedule" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-            <span class="nav-title">每日排程</span>
+          <a routerLink="/schedule" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+            <div class="nav-item-content">
+              <span class="nav-title">每日排程</span>
+            </div>
           </a>
         </li>
         <li>
-          <a routerLink="/stats" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-            <span class="nav-title">護理分組</span>
+          <a routerLink="/stats" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+            <div class="nav-item-content">
+              <span class="nav-title">護理分組</span>
+            </div>
           </a>
         </li>
         <li>
-          <a routerLink="/my-patients" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-            <span class="nav-title">我的今日病人</span>
+          <a routerLink="/my-patients" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+            <div class="nav-item-content">
+              <span class="nav-title">我的今日病人</span>
+            </div>
           </a>
         </li>
 
-        <!-- Editor+ only, desktop only -->
+        <!-- 只有 Admin 和 Editor (護理師) 可見的功能 -->
         @if (authService.isAdmin() || authService.isEditor()) {
-          <li class="desktop-only">
-            <a routerLink="/weekly" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-              <span class="nav-title">週排班</span>
+          <li class="desktop-only-nav-item">
+            <a routerLink="/weekly" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">週排班</span>
+              </div>
             </a>
           </li>
-          <li class="desktop-only">
-            <a routerLink="/base-schedule" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-              <span class="nav-title">床位總表</span>
+          <li class="desktop-only-nav-item">
+            <a routerLink="/base-schedule" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">床位總表</span>
+              </div>
             </a>
           </li>
-          <li class="desktop-only">
-            <a routerLink="/exception-manager" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-              <span class="nav-title">調班換床</span>
+          <li class="desktop-only-nav-item">
+            <a routerLink="/exception-manager" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">調班換床</span>
+                <span class="nav-hint">(單次/區間)</span>
+              </div>
               @if (conflictCount() > 0) {
-                <span class="alert-badge" [title]="'有 ' + conflictCount() + ' 個衝突待解決'">&#9888;</span>
+                <span
+                  class="alert-badge"
+                  [title]="'有 ' + conflictCount() + ' 個衝突待解決'"
+                >
+                  <i class="fas fa-exclamation-triangle"></i>
+                </span>
               }
             </a>
           </li>
-          <li class="desktop-only">
-            <a routerLink="/update-scheduler" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-              <span class="nav-title">預約變更</span>
+          <li class="desktop-only-nav-item">
+            <a routerLink="/update-scheduler" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">預約變更</span>
+                <span class="nav-hint">(長期)</span>
+              </div>
             </a>
           </li>
         }
 
-        <!-- Contributor+ only -->
+        <!-- 病人清單: Admin, Editor, Contributor 可見 (Viewer 不可見) -->
         @if (authService.isAdmin() || authService.isEditor() || authService.isContributor()) {
           <li>
-            <a routerLink="/patients" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-              <span class="nav-title">病人清單</span>
+            <a routerLink="/patients" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+              <div class="nav-item-content">
+                <span class="nav-title">病人清單</span>
+              </div>
             </a>
           </li>
         }
 
-        <!-- All authenticated users -->
         <li>
-          <a routerLink="/collaboration" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-            <span class="nav-title">訊息中心</span>
+          <a routerLink="/collaboration" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+            <div class="nav-item-content">
+              <span class="nav-title">訊息中心</span>
+            </div>
             @if (notificationCount() > 0) {
               <span class="notification-badge">{{ notificationCount() }}</span>
             }
@@ -79,133 +98,156 @@
       </ul>
     </div>
 
-    <!-- Notification area -->
+    <!-- 通知區域 -->
     <div class="notification-area">
       @if (notificationService.notifications().length > 0) {
         <h3 class="section-title">即時動態</h3>
       }
-      @for (notif of notificationService.notifications(); track notif.id) {
-        <div
-          class="notification-item"
-          [style.backgroundColor]="notif.config.bgColor"
-          [style.color]="notif.config.textColor"
-        >
-          <div class="notification-content">
-            <span class="notification-icon">{{ notif.config.icon }}</span>
-            <p class="notification-message">{{ notif.message }}</p>
+      <div class="notification-list">
+        @for (notif of notificationService.notifications(); track notif.id) {
+          <div
+            class="notification-item"
+            [class.is-clickable]="!!notif['action']"
+            [style.backgroundColor]="notif.config.bgColor"
+            [style.color]="notif.config.textColor"
+            (click)="handleNotificationClick(notif)"
+          >
+            <div class="notification-content">
+              <span class="notification-icon">{{ notif.config.icon }}</span>
+              <p class="notification-message">{{ notif.message }}</p>
+            </div>
+            <div class="notification-footer-item">
+              <span class="notification-user">by {{ notif.createdByName }}</span>
+              <span class="notification-time">{{ notif.time }}</span>
+            </div>
           </div>
-          <div class="notification-footer-item">
-            <span class="notification-user">by {{ notif.createdByName }}</span>
-            <span class="notification-time">{{ notif.time }}</span>
-          </div>
-        </div>
-      }
+        }
+      </div>
     </div>
 
-    <!-- Bottom fixed section: management nav + logout -->
+    <!-- 固定的底部容器 -->
     <div class="bottom-fixed-section">
-      <!-- Management section -->
       <div class="management-section">
         <h3
           class="section-title is-collapsible"
           (click)="toggleManagement()"
-          [class.is-collapsed]="isManagementCollapsed()"
+          [class.is-collapsed]="isManagementSectionCollapsed()"
         >
           <span>後臺管理</span>
-          <i class="chevron">&#9660;</i>
+          <i class="fas fa-chevron-down"></i>
         </h3>
-        @if (!isManagementCollapsed()) {
+
+        @if (!isManagementSectionCollapsed()) {
           <ul class="sidebar-nav">
-            <!-- All authenticated users: 工作日誌 -->
-            <li>
-              <a routerLink="/daily-log" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                <span class="nav-title">工作日誌</span>
-              </a>
-            </li>
-
-            <!-- Editor+ only: 護理班表 -->
-            @if (authService.isAdmin() || authService.isEditor()) {
+            <!-- 1. [工作日誌] Admin, Editor (Nurse), Viewer -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'editor' || authService.currentUser()?.role === 'viewer') {
               <li>
-                <a routerLink="/nursing-schedule" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">護理班表</span>
+                <a routerLink="/daily-log" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">工作日誌</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Contributor+ only: KiDit -->
-            @if (authService.isAdmin() || authService.isEditor() || authService.isContributor()) {
+            <!-- 2. [護理班表與職責] Admin, Editor (Nurse) -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'editor') {
               <li>
-                <a routerLink="/kidit-report" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">KiDit</span>
+                <a routerLink="/nursing-schedule" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">護理班表與職責</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Editor+ only: 醫師班表 -->
-            @if (authService.isAdmin() || authService.isEditor()) {
+            <!-- 3. [KiDit 申報] Admin, Editor (Nurse) -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'editor') {
               <li>
-                <a routerLink="/physician-schedule" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">醫師班表</span>
+                <a routerLink="/kidit-report" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">KiDit 申報</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Contributor+ only: 檢驗報告 -->
-            @if (authService.isAdmin() || authService.isEditor() || authService.isContributor()) {
+            <!-- 4. [醫師班表] Admin, Contributor (Doc), Viewer -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'contributor' || authService.currentUser()?.role === 'viewer') {
               <li>
-                <a routerLink="/lab-reports" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">檢驗報告</span>
+                <a routerLink="/physician-schedule" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">醫師班表</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Editor+ only: 庫存管理 -->
-            @if (authService.isAdmin() || authService.isEditor()) {
+            <!-- 5. [檢驗報告] Admin, Contributor (Doc) -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'contributor') {
               <li>
-                <a routerLink="/inventory" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">庫存管理</span>
+                <a routerLink="/lab-reports" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">檢驗報告</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Contributor+ only: 藥囑管理 -->
-            @if (authService.isAdmin() || authService.isEditor() || authService.isContributor()) {
+            <!-- 6. [庫存管理] Admin, Viewer -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'viewer') {
               <li>
-                <a routerLink="/orders" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">藥囑管理</span>
+                <a routerLink="/inventory" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">庫存管理</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Editor+ only: 統計報表 -->
-            @if (authService.isAdmin() || authService.isEditor()) {
+            <!-- 7. [藥囑管理] Admin, Contributor (Doc) -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'contributor') {
               <li>
-                <a routerLink="/reporting" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">統計報表</span>
+                <a routerLink="/orders" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">藥囑管理</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- Admin only: 使用者管理 -->
+            <!-- 8. [統計報表] Admin, Editor, Contributor -->
+            @if (authService.isAdmin() || authService.currentUser()?.role === 'editor' || authService.currentUser()?.role === 'contributor') {
+              <li>
+                <a routerLink="/reporting" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">統計報表</span>
+                  </div>
+                </a>
+              </li>
+            }
+
+            <!-- 9. [使用者管理] Admin Only -->
             @if (authService.isAdmin()) {
               <li>
-                <a routerLink="/user-management" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                  <span class="nav-title">使用者管理</span>
+                <a routerLink="/user-management" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                  <div class="nav-item-content">
+                    <span class="nav-title">使用者管理</span>
+                  </div>
                 </a>
               </li>
             }
 
-            <!-- All authenticated users: 使用說明 -->
             <li>
-              <a routerLink="/usage-guide" routerLinkActive="active" class="nav-link" (click)="closeSidebar()">
-                <span class="nav-title">使用說明</span>
+              <a routerLink="/usage-guide" routerLinkActive="router-link-exact-active" [routerLinkActiveOptions]="{exact: true}" class="nav-link">
+                <div class="nav-item-content">
+                  <span class="nav-title">使用說明</span>
+                </div>
               </a>
             </li>
           </ul>
         }
       </div>
-
-      <!-- Footer: user info + logout -->
       <div class="nav-footer">
         @if (authService.currentUser(); as user) {
           <div class="user-info">
@@ -213,41 +255,34 @@
           </div>
         }
         <div class="button-group">
-          <a
-            routerLink="/account-settings"
-            class="action-button btn-secondary"
-            (click)="closeSidebar()"
-          >更改密碼</a>
-          <button
-            (click)="handleLogout()"
-            class="action-button btn-logout"
-          >登出</button>
+          <a routerLink="/account-settings" class="action-button btn-secondary">更改密碼</a>
+          <button (click)="handleLogout()" class="action-button btn-logout">登出</button>
         </div>
       </div>
     </div>
   </aside>
 
-  <!-- ===================================================================== -->
-  <!-- Sidebar overlay (mobile)                                               -->
-  <!-- ===================================================================== -->
   @if (isSidebarOpen()) {
     <div class="sidebar-overlay" (click)="closeSidebar()"></div>
   }
 
-  <!-- ===================================================================== -->
-  <!-- Main content area                                                      -->
-  <!-- ===================================================================== -->
   <main class="content-area">
     <header class="main-header">
-      <button class="sidebar-toggle" (click)="toggleSidebar()" aria-label="Toggle sidebar">
+      <button class="sidebar-toggle" (click)="toggleSidebar()">
         <span></span>
         <span></span>
         <span></span>
       </button>
-      <h2 class="current-page-title">{{ currentPageTitle() }}</h2>
+      <h2 class="current-page-title">{{ currentPageTitle() || '透析管理' }}</h2>
     </header>
     <div class="content-wrapper">
       <router-outlet />
     </div>
   </main>
+
+  <app-memo-display-dialog
+    [isVisible]="isMemoDialogVisible()"
+    [patientName]="patientNameForDialog()"
+    (close)="closeMemoDialog()"
+  />
 </div>

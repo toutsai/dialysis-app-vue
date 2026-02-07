@@ -1,13 +1,6 @@
 import { Component, Input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
-interface ShiftStats {
-  shift: string;
-  label: string;
-  counts: number[];
-  total: number;
-}
-
 @Component({
   selector: 'app-stats-toolbar',
   standalone: true,
@@ -16,27 +9,26 @@ interface ShiftStats {
   styleUrl: './stats-toolbar.component.css'
 })
 export class StatsToolbarComponent {
-  @Input() statsData: ShiftStats[] = [];
-  @Input() weekdays: string[] = [];
-  @Input() columnWidths: number[] = [];
+  @Input() stats: any = null;
+  @Input() shiftStats: any = null;
 
-  getColumnStyle(index: number): Record<string, string> {
-    if (this.columnWidths.length > index) {
-      return { 'min-width': this.columnWidths[index] + 'px' };
-    }
-    return {};
+  get totalPatients(): number {
+    return this.stats?.total || 0;
   }
 
-  getShiftColor(shift: string): string {
-    const colors: Record<string, string> = {
-      morning: '#1abc9c',
-      afternoon: '#3498db',
-      evening: '#9b59b6'
+  get scheduledCount(): number {
+    return this.stats?.scheduled || 0;
+  }
+
+  get unscheduledCount(): number {
+    return this.stats?.unscheduled || 0;
+  }
+
+  get shiftCounts(): { early: number; noon: number; late: number } {
+    return {
+      early: this.shiftStats?.early || 0,
+      noon: this.shiftStats?.noon || 0,
+      late: this.shiftStats?.late || 0,
     };
-    return colors[shift] || '#95a5a6';
-  }
-
-  get grandTotal(): number {
-    return this.statsData.reduce((sum, s) => sum + s.total, 0);
   }
 }

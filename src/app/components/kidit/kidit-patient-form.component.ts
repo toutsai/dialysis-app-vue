@@ -1,27 +1,6 @@
-import { Component, Input, Output, EventEmitter, OnInit, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-
-interface PatientFormData {
-  dryWeight: number | null;
-  targetUF: number | null;
-  dialyzerType: string;
-  dialysisTime: number | null;
-  bloodFlowRate: number | null;
-  dialysateFlowRate: number | null;
-  dialysateCa: string;
-  dialysateK: string;
-  anticoagulant: string;
-  anticoagulantDose: string;
-  vascularAccess: string;
-  needleSize: string;
-  preWeight: number | null;
-  preBPSys: number | null;
-  preBPDia: number | null;
-  preHR: number | null;
-  preTemp: number | null;
-  notes: string;
-}
 
 @Component({
   selector: 'app-kidit-patient-form',
@@ -30,92 +9,78 @@ interface PatientFormData {
   templateUrl: './kidit-patient-form.component.html',
   styleUrl: './kidit-patient-form.component.css'
 })
-export class KiditPatientFormComponent implements OnInit, OnChanges {
-  @Input() date: string = '';
-  @Input() eventId: string = '';
-  @Input() initialData: Partial<PatientFormData> = {};
+export class KiditPatientFormComponent implements OnChanges {
+  @Input() date = '';
+  @Input() eventId = '';
+  @Input() initialData: any = null;
   @Input() masterPatient: any = null;
-  @Output() updated = new EventEmitter<PatientFormData>();
+  @Output() updated = new EventEmitter<any>();
 
-  formData: PatientFormData = this.getDefaultFormData();
+  isSaving = false;
+  formData: any = {};
 
-  dialyzerOptions = ['FX60', 'FX80', 'FX100', 'APS-15SA', 'APS-18SA', 'APS-21SA', 'PES-150', 'PES-170', 'PES-210'];
-  anticoagulantOptions = ['Heparin', 'LMWH', 'Nafamostat', '無'];
-  dialysateCaOptions = ['2.5', '3.0', '3.5'];
-  dialysateKOptions = ['1.0', '2.0', '3.0'];
-  accessOptions = ['AVF', 'AVG', 'DLC', 'Perm-cath'];
-  needleSizeOptions = ['15G', '16G', '17G'];
-
-  get estimatedUF(): string {
-    if (this.formData.preWeight != null && this.formData.dryWeight != null) {
-      const uf = this.formData.preWeight - this.formData.dryWeight;
-      return uf > 0 ? uf.toFixed(1) : '0.0';
-    }
-    return '-';
-  }
-
-  ngOnInit(): void {
-    this.applyInitialData();
-  }
+  // Options would be imported from kiditHelpers
+  readonly KIDIT_OPTIONS: any = {};
 
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['initialData'] || changes['masterPatient']) {
-      this.applyInitialData();
+      this.initData();
     }
   }
 
-  private applyInitialData(): void {
-    const defaults = this.getDefaultFormData();
-    this.formData = { ...defaults, ...this.initialData };
-
-    if (this.masterPatient) {
-      if (!this.formData.dryWeight && this.masterPatient.dryWeight) {
-        this.formData.dryWeight = this.masterPatient.dryWeight;
-      }
-      if (!this.formData.dialyzerType && this.masterPatient.dialyzerType) {
-        this.formData.dialyzerType = this.masterPatient.dialyzerType;
-      }
-      if (!this.formData.vascularAccess && this.masterPatient.vascularAccess) {
-        this.formData.vascularAccess = this.masterPatient.vascularAccess;
-      }
-      if (!this.formData.anticoagulant && this.masterPatient.anticoagulant) {
-        this.formData.anticoagulant = this.masterPatient.anticoagulant;
-      }
+  private initData(): void {
+    if (this.initialData) {
+      this.formData = JSON.parse(JSON.stringify(this.initialData));
+    } else if (this.masterPatient) {
+      const p = this.masterPatient;
+      const k = p.kiditProfile || {};
+      this.formData = {
+        name: p.name || '',
+        idNumber: k.idNumber || p.idNumber || '',
+        medicalRecordNumber: k.medicalRecordNumber || p.medicalRecordNumber || '',
+        patientCategory: k.patientCategory || '00',
+        birthDate: k.birthDate || p.birthDate || '',
+        gender: k.gender || (p.gender === '男' ? '1' : '2'),
+        bloodType: k.bloodType || '',
+        isIndigenous: k.isIndigenous || 'N',
+        isWelfare: k.isWelfare || 'N',
+        catastrophicCardNo: k.catastrophicCardNo || '',
+        address: k.address || '',
+        phone: k.phone || '',
+        maritalStatus: k.maritalStatus || '',
+        education: k.education || '',
+        occupation: k.occupation || '',
+        contactPerson: k.contactPerson || '',
+        relationship: k.relationship || '',
+        dialysisCode: k.dialysisCode || '',
+        status: k.status || '1',
+        firstDialysisDate: k.firstDialysisDate || '',
+        hospitalStartDate: k.hospitalStartDate || '',
+        diagnosisCategory: k.diagnosisCategory || '',
+        diagnosisSubcategory: k.diagnosisSubcategory || '',
+      };
+    } else {
+      this.formData = {};
     }
   }
 
-  getDefaultFormData(): PatientFormData {
-    return {
-      dryWeight: null,
-      targetUF: null,
-      dialyzerType: '',
-      dialysisTime: 4,
-      bloodFlowRate: 250,
-      dialysateFlowRate: 500,
-      dialysateCa: '3.0',
-      dialysateK: '2.0',
-      anticoagulant: '',
-      anticoagulantDose: '',
-      vascularAccess: '',
-      needleSize: '16G',
-      preWeight: null,
-      preBPSys: null,
-      preBPDia: null,
-      preHR: null,
-      preTemp: null,
-      notes: ''
-    };
+  toRocDate(dateStr: string): string {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const rocYear = date.getFullYear() - 1911;
+    return `${rocYear}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
   }
 
-  onFieldChange(): void {
-    this.updated.emit({ ...this.formData });
-  }
-
-  onPreWeightChange(): void {
-    if (this.formData.preWeight != null && this.formData.dryWeight != null) {
-      const uf = this.formData.preWeight - this.formData.dryWeight;
-      this.formData.targetUF = uf > 0 ? parseFloat(uf.toFixed(1)) : 0;
+  async saveData(): Promise<void> {
+    this.isSaving = true;
+    try {
+      // kiditService.updateEventKiDitData would be called here
+      this.updated.emit(this.formData);
+    } catch (error) {
+      console.error('儲存失敗:', error);
+      alert('儲存失敗');
+    } finally {
+      this.isSaving = false;
     }
-    this.onFieldChange();
   }
 }

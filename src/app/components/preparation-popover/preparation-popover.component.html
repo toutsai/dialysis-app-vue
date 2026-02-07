@@ -1,54 +1,49 @@
-<div class="popover-backdrop" *ngIf="isVisible" (click)="onBackdropClick($event)">
-  <div class="preparation-popover" [ngStyle]="positionStyle">
-    <div class="popover-header">
-      <h4 class="popover-title">透析準備狀況</h4>
-      <div class="header-stats">
-        <span class="stat-ready">已備妥 {{ allReadyCount }}/{{ patients.length }}</span>
+
+    @if (isVisible) {
+  <div #popoverRef class="preparation-popover" [ngStyle]="popoverStyle">
+      @if (hasPatients) {
+  <div class="popover-content">
+        <table>
+          <thead>
+            <tr>
+              <!-- ✨ 修改：調整欄位順序和內容 -->
+              <th>姓名</th>
+              <th>AK</th>
+              <th>Ca</th>
+              <th>Heparin</th>
+              <th>BF</th>
+              <th>通路/穿刺針</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (patient of patients; track patient.id) {
+  <tr>
+              <!-- ✨ 核心修改：讓姓名可以點擊，並觸發事件 -->
+              <td class="name-cell" (click)="handleNameClick(patient)" title="點擊以編輯此病人醫囑">
+                {{ patient.name }}
+              </td>
+              <td>{{ patient.dialysisOrders?.ak || '–' }}</td>
+              <td>{{ patient.dialysisOrders?.dialysateCa || '–' }}</td>
+              <td>
+                {{ patient.dialysisOrders?.heparinInitial ?? '–' }}/{{ patient.dialysisOrders?.heparinMaintenance ?? '–' }}
+              </td>
+              <td>{{ patient.dialysisOrders?.bloodFlow ?? '–' }}</td>
+              <td>
+                {{ patient.dialysisOrders?.vascAccess || '–' }}
+                @if (
+                    patient.dialysisOrders?.arterialNeedle || patient.dialysisOrders?.venousNeedle
+                  ) {
+  <span
+                 
+                >
+                  ({{ patient.dialysisOrders?.arterialNeedle || 'N/A' }}/{{ patient.dialysisOrders?.venousNeedle || 'N/A' }})
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <button class="close-btn" (click)="close()" type="button">&times;</button>
+      } @else {
+  <div class="empty-state">沒有需要備物的病人</div>
     </div>
-
-    <div class="popover-body">
-      <div class="missing-alert" *ngIf="patientsWithMissing.length > 0">
-        <span class="alert-icon">&#9888;</span>
-        <span>{{ patientsWithMissing.length }} 位病人有缺少項目</span>
-      </div>
-
-      <div class="patient-list">
-        <div
-          *ngFor="let patient of patients"
-          class="patient-prep-card"
-        >
-          <div class="prep-card-header">
-            <span class="prep-bed">{{ patient.bed }}</span>
-            <span class="prep-name">{{ patient.name }}</span>
-            <span class="prep-chart">{{ patient.chartNo }}</span>
-            <button
-              class="order-btn"
-              (click)="onOpenOrder(patient.id)"
-              title="開立醫囑"
-              type="button"
-            >
-              醫囑
-            </button>
-          </div>
-          <div class="prep-items">
-            <div
-              *ngFor="let prep of patient.preparations"
-              class="prep-item"
-              [ngClass]="getStatusClass(prep.status)"
-            >
-              <span class="prep-status-icon">{{ getStatusIcon(prep.status) }}</span>
-              <span class="prep-label">{{ prep.label }}</span>
-              <span class="prep-detail">{{ prep.detail }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="empty-state" *ngIf="patients.length === 0">
-        無準備項目資料
-      </div>
-    </div>
-  </div>
-</div>
+  

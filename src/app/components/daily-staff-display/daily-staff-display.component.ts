@@ -1,12 +1,5 @@
-import { Component, Input } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-interface StaffMember {
-  id: string;
-  name: string;
-  role: string;
-  shift: string;
-}
 
 @Component({
   selector: 'app-daily-staff-display',
@@ -15,37 +8,52 @@ interface StaffMember {
   templateUrl: './daily-staff-display.component.html',
   styleUrl: './daily-staff-display.component.css'
 })
-export class DailyStaffDisplayComponent {
-  @Input() staff: StaffMember[] = [];
-  @Input() date: string = '';
+export class DailyStaffDisplayComponent implements OnInit, OnDestroy {
+  @Input() physicians: any[] = [];
+  @Input() consultants: any[] = [];
+  @Input() scheduleData: any = null;
+  @Input() targetDate = '';
 
-  get groupedByRole(): Record<string, StaffMember[]> {
-    const groups: Record<string, StaffMember[]> = {};
-    for (const member of this.staff) {
-      const role = member.role || 'other';
-      if (!groups[role]) {
-        groups[role] = [];
-      }
-      groups[role].push(member);
+  currentTime = new Date();
+  private intervalId: any = null;
+
+  ngOnInit(): void {
+    this.intervalId = setInterval(() => {
+      this.currentTime = new Date();
+    }, 60000);
+  }
+
+  ngOnDestroy(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
     }
-    return groups;
   }
 
-  get roleKeys(): string[] {
-    return Object.keys(this.groupedByRole);
+  get currentShift(): string {
+    const hour = this.currentTime.getHours();
+    if (hour < 12) return 'early';
+    if (hour < 18) return 'noon';
+    return 'late';
   }
 
-  getRoleLabel(role: string): string {
-    const labels: Record<string, string> = {
-      doctor: '醫師',
-      nurse: '護理師',
-      technician: '技術員',
-      other: '其他'
-    };
-    return labels[role] || role;
+  get currentPhysicians(): any[] {
+    if (!this.scheduleData || !this.physicians) return [];
+    return this.physicians.filter(p => {
+      const schedules = p.defaultSchedules || [];
+      return schedules.some((s: string) => s.includes(this.currentShift));
+    });
   }
 
-  getRoleClass(role: string): string {
-    return `role-${role}`;
+  get currentConsultants(): any[] {
+    if (!this.scheduleData || !this.consultants) return [];
+    return this.consultants.filter(c => {
+      const schedules = c.defaultConsultationSchedules || [];
+      return schedules.some((s: string) => s.includes(this.currentShift));
+    });
+  }
+
+  getShiftDisplayName(shift: string): string {
+    const map: Record<string, string> = { early: '早班', noon: '午班', late: '晚班' };
+    return map[shift] || shift;
   }
 }

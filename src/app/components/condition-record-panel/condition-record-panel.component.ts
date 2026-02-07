@@ -1,20 +1,9 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-
-interface ConditionRecord {
-  id?: string;
-  date: string;
-  preWeight: number | null;
-  postWeight: number | null;
-  preBP: string;
-  postBP: string;
-  ufGoal: number | null;
-  accessFlow: number | null;
-  ktv: number | null;
-  notes: string;
-  symptoms: string[];
-}
+import { FirebaseService } from '@services/firebase.service';
+import { AuthService } from '@app/core/services/auth.service';
+import { collection, query, where, orderBy, getDocs, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
 @Component({
   selector: 'app-condition-record-panel',
@@ -23,60 +12,98 @@ interface ConditionRecord {
   templateUrl: './condition-record-panel.component.html',
   styleUrl: './condition-record-panel.component.css'
 })
-export class ConditionRecordPanelComponent {
-  @Input() patient: any = null;
-  @Input() currentDate: string = '';
-  @Output() saveRecord = new EventEmitter<ConditionRecord>();
+export class ConditionRecordPanelComponent implements OnChanges {
+  private readonly firebase = inject(FirebaseService);
+  private readonly auth = inject(AuthService);
 
-  record: ConditionRecord = this.createEmptyRecord();
+  @Input() patientId = '';
+  @Input() patientName = '';
+  @Input() targetDate = '';
+  @Output() recordsChanged = new EventEmitter<void>();
 
-  commonSymptoms: string[] = [
-    '低血壓', '噁心', '嘔吐', '頭痛', '肌肉痙攣',
-    '胸痛', '搔癢', '發燒', '血管通路問題', '出血'
-  ];
+  records: any[] = [];
+  newContent = '';
+  isLoading = false;
+  isSaving = false;
 
-  get weightChange(): string {
-    if (this.record.preWeight != null && this.record.postWeight != null) {
-      const diff = this.record.postWeight - this.record.preWeight;
-      return diff.toFixed(1);
-    }
-    return '-';
-  }
-
-  createEmptyRecord(): ConditionRecord {
-    return {
-      date: this.currentDate || '',
-      preWeight: null,
-      postWeight: null,
-      preBP: '',
-      postBP: '',
-      ufGoal: null,
-      accessFlow: null,
-      ktv: null,
-      notes: '',
-      symptoms: []
-    };
-  }
-
-  toggleSymptom(symptom: string): void {
-    const idx = this.record.symptoms.indexOf(symptom);
-    if (idx >= 0) {
-      this.record.symptoms.splice(idx, 1);
-    } else {
-      this.record.symptoms.push(symptom);
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['patientId'] || changes['targetDate']) {
+      this.fetchRecords();
     }
   }
 
-  isSymptomActive(symptom: string): boolean {
-    return this.record.symptoms.includes(symptom);
+  async fetchRecords(): Promise<void> {
+    if (!this.patientId) {
+      this.records = [];
+      return;
+    }
+    this.isLoading = true;
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const q = query(
+        collection(this.firebase.db, 'condition_records'),
+        where('patientId', '==', this.patientId),
+        where('createdAt', '>=', sevenDaysAgo),
+        orderBy('createdAt', 'desc')
+      );
+      const snapshot = await getDocs(q);
+      this.records = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.error('讀取病情紀錄失敗:', err);
+      this.records = [];
+    } finally {
+      this.isLoading = false;
+    }
   }
 
-  onSave(): void {
-    this.record.date = this.currentDate;
-    this.saveRecord.emit({ ...this.record, symptoms: [...this.record.symptoms] });
+  async addRecord(): Promise<void> {
+    const content = this.newContent.trim();
+    if (!content || !this.patientId) return;
+
+    const currentUser = this.auth.currentUser();
+    if (!currentUser) return;
+
+    this.isSaving = true;
+    try {
+      await addDoc(collection(this.firebase.db, 'condition_records'), {
+        patientId: this.patientId,
+        patientName: this.patientName,
+        content,
+        authorName: currentUser.name,
+        authorId: currentUser.uid,
+        recordDate: this.targetDate || new Date().toISOString().split('T')[0],
+        createdAt: serverTimestamp(),
+      });
+      this.newContent = '';
+      await this.fetchRecords();
+      this.recordsChanged.emit();
+    } catch (err) {
+      console.error('新增病情紀錄失敗:', err);
+      alert('新增失敗，請稍後再試');
+    } finally {
+      this.isSaving = false;
+    }
   }
 
-  onReset(): void {
-    this.record = this.createEmptyRecord();
+  async deleteRecord(recordId: string): Promise<void> {
+    if (!confirm('確定要刪除此紀錄？')) return;
+    try {
+      await deleteDoc(doc(this.firebase.db, 'condition_records', recordId));
+      await this.fetchRecords();
+      this.recordsChanged.emit();
+    } catch (err) {
+      console.error('刪除紀錄失敗:', err);
+    }
+  }
+
+  formatTimestamp(ts: any): string {
+    if (!ts) return '未知時間';
+    const date = ts.toDate ? ts.toDate() : new Date(ts);
+    return date.toLocaleString('zh-TW', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    });
   }
 }

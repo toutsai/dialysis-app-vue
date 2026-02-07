@@ -1,15 +1,5 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
-
-export interface DraftRecord {
-  id: string;
-  type: string;
-  title: string;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-  author: string;
-}
 
 @Component({
   selector: 'app-daily-draft-list-dialog',
@@ -18,50 +8,59 @@ export interface DraftRecord {
   templateUrl: './daily-draft-list-dialog.component.html',
   styleUrl: './daily-draft-list-dialog.component.css'
 })
-export class DailyDraftListDialogComponent implements OnChanges {
+export class DailyDraftListDialogComponent {
   @Input() isVisible = false;
-  @Input() patientId = '';
-  @Output() closed = new EventEmitter<void>();
+  @Input() isLoading = false;
+  @Input() drafts: any[] = [];
+  @Input() patientsInShift: any[] = [];
+  @Input() targetDate = '';
+  @Output() closeEvent = new EventEmitter<void>();
 
-  drafts: DraftRecord[] = [];
-  isLoading = false;
+  // These would be imported from constants
+  readonly medicationGroups: any[] = [];
+  readonly allMeds: any[] = [];
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['isVisible'] && this.isVisible && this.patientId) {
-      this.loadDrafts();
-    }
+  get shiftDisplayName(): string {
+    if (this.patientsInShift.length === 0) return '全日';
+    const shiftCode = this.patientsInShift[0]?.shift;
+    const map: Record<string, string> = { early: '早班', noon: '午班', late: '晚班' };
+    return map[shiftCode] || '未知班別';
   }
 
-  private loadDrafts(): void {
-    this.isLoading = true;
-    this.drafts = [];
-    setTimeout(() => {
-      this.isLoading = false;
-    }, 500);
+  get checklistData(): any[] {
+    if (this.isLoading || this.patientsInShift.length === 0) return [];
+
+    const draftsMap = new Map<string, any>();
+    this.drafts.forEach((draft: any) => {
+      const key = `${draft.patientId}-${draft.orderCode}`;
+      draftsMap.set(key, draft);
+    });
+
+    return this.patientsInShift.map((patient: any) => {
+      const patientMeds: Record<string, any> = {};
+      this.allMeds.forEach((med: any) => {
+        const key = `${patient.id}-${med.code}`;
+        const draft = draftsMap.get(key);
+        if (draft) {
+          patientMeds[med.code] = {
+            dose: draft.dose,
+            unit: draft.unit,
+            freqOrNote: draft.orderType === 'injection' ? draft.note : draft.frequency,
+          };
+        } else {
+          patientMeds[med.code] = null;
+        }
+      });
+      return { patient, meds: patientMeds };
+    });
   }
 
-  getTypeLabel(type: string): string {
-    const map: Record<string, string> = {
-      nursing: '護理紀錄',
-      dialysis: '透析紀錄',
-      progress: '病程紀錄',
-      order: '醫囑草稿',
-      assessment: '評估表'
-    };
-    return map[type] || type;
+  closeDialog(): void {
+    this.closeEvent.emit();
   }
 
-  deleteDraft(draft: DraftRecord): void {
-    this.drafts = this.drafts.filter(d => d.id !== draft.id);
-  }
-
-  onClose(): void {
-    this.closed.emit();
-  }
-
-  onOverlayClick(event: MouseEvent): void {
-    if ((event.target as HTMLElement).classList.contains('dialog-overlay')) {
-      this.onClose();
-    }
+  exportToExcel(): void {
+    // XLSX export logic would go here
+    console.log('Export to Excel');
   }
 }
