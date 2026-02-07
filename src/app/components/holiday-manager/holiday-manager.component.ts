@@ -14,6 +14,20 @@ export class HolidayManagerComponent {
   @Output() update = new EventEmitter<string[]>();
 
   newDate = '';
+  selectedHolidayName = '';
+  selectedDate = '';
+  customHolidayName = '';
+
+  readonly holidays2025: any[] = [
+    { name: '元旦', date: '2025-01-01' },
+    { name: '農曆除夕', date: '2025-01-28' },
+    { name: '春節', date: '2025-01-29' },
+    { name: '和平紀念日', date: '2025-02-28' },
+    { name: '兒童節/清明節', date: '2025-04-04' },
+    { name: '勞動節', date: '2025-05-01' },
+    { name: '端午節', date: '2025-05-31' },
+    { name: '國慶日', date: '2025-10-10' },
+  ];
 
   readonly taiwanHolidays2025 = [
     '2025-01-01', '2025-01-27', '2025-01-28', '2025-01-29',

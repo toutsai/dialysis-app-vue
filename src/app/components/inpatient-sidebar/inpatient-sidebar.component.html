@@ -4,16 +4,20 @@
     <div class="filter-group" [ngClass]="{ 'daily-filter-layout': useDailyFilter }">
       <!-- 每日篩選模式的按鈕 -->
       @if (useDailyFilter) {
-  <template>
-        <button (click)="inpatientFilter = 'all'" [ngClass]="{ active: inpatientFilter === 'all' }">
-          全部
-        </button>
-        <button (click)="inpatientFilter = 'today'" [ngClass]="{ active: inpatientFilter === 'today' }">
-          當日應排
-        </button>
-        <button
-          (click)="inpatientFilter = 'other_day'"
-          [ngClass]="{ active: inpatientFilter === 'other_day' }"
-        >
-          非當日(臨洗)
-        </button>
+        <ng-container>
+          <button (click)="inpatientFilter = 'all'" [ngClass]="{ active: inpatientFilter === 'all' }">
+            全部
+          </button>
+          <button (click)="inpatientFilter = 'today'" [ngClass]="{ active: inpatientFilter === 'today' }">
+            當日應排
+          </button>
+          <button
+            (click)="inpatientFilter = 'other_day'"
+            [ngClass]="{ active: inpatientFilter === 'other_day' }"
+          >
+            非當日(臨洗)
+          </button>
+        </ng-container>
+      }
+    </div>
+</aside>

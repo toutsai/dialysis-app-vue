@@ -14,6 +14,12 @@ export class MemoPanelComponent implements OnChanges {
 
   filteredMessages: any[] = [];
 
+  taskStore = { isLoading: false };
+
+  get pendingMemos(): any[] {
+    return this.filteredMessages;
+  }
+
   ngOnChanges(changes: SimpleChanges): void {
     if (changes['patientId'] || changes['messages']) {
       this.filterMessages();
@@ -28,6 +34,13 @@ export class MemoPanelComponent implements OnChanges {
     this.filteredMessages = this.messages.filter(
       (m: any) => m.patientId === this.patientId && m.category === 'message'
     );
+  }
+
+  getMessageTypeIcon(type: string): string {
+    const icons: Record<string, string> = {
+      '交班': '📋', '提醒': '⏰', '緊急': '🚨', '一般': '📝',
+    };
+    return icons[type] || '📝';
   }
 
   formatTime(timestamp: any): string {

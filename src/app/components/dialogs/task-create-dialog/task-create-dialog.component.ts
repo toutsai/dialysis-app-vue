@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { serverTimestamp } from 'firebase/firestore';
 import { AuthService } from '@services/auth.service';
-import { NotificationService } from '@services/notification.service';
+import { NotificationService, type NotificationType } from '@services/notification.service';
 import { UserDirectoryService, DirectoryUser } from '@services/user-directory.service';
 import ApiManager from '@/services/api_manager';
 import { getToday } from '@/utils/dateUtils';
@@ -281,7 +281,7 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
       try {
         const savedDoc = await this.tasksApi.save(dataToSave);
         let notifMessage = '';
-        let notifType = 'info';
+        let notifType: NotificationType = 'info';
         if (dataToSave.category === 'message') {
           const typeLabel = this.messageTypeOptions.find(opt => opt.value === dataToSave.type)?.label || '新留言';
           const patientPart = dataToSave.patientName ? `給 ${dataToSave.patientName}` : '';
@@ -293,7 +293,7 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
           notifMessage = `新交辦: 給 ${assigneeLabel} - ${dataToSave.content.substring(0, 20)}...`;
           notifType = 'task';
         }
-        this.notificationService.createGlobalNotification(notifMessage, notifType, { documentId: savedDoc.id });
+        this.notificationService.createGlobalNotification(notifMessage, notifType, { documentId: savedDoc.id } as any);
         this.submitEvent.emit({ ...dataToSave, id: savedDoc.id });
         this.close();
       } catch (error) {

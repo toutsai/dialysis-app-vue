@@ -29,6 +29,29 @@ export class DailyStaffDisplayComponent implements OnInit, OnDestroy {
     }
   }
 
+  get dailyPhysicians(): any {
+    const result: any = { early: null, noon: null, late: null };
+    if (!this.physicians) return result;
+    for (const p of this.physicians) {
+      const schedules = p.defaultSchedules || [];
+      if (schedules.some((s: string) => s.includes('early')) && !result.early) result.early = p;
+      if (schedules.some((s: string) => s.includes('noon')) && !result.noon) result.noon = p;
+      if (schedules.some((s: string) => s.includes('late')) && !result.late) result.late = p;
+    }
+    return result;
+  }
+
+  get displayedConsultPhysician(): any {
+    const shift = this.currentShift;
+    const shiftLabels: Record<string, string> = { early: '早班', noon: '午班', late: '晚班' };
+    const consultant = this.currentConsultants?.[0] || null;
+    return {
+      key: shift,
+      shiftLabel: shiftLabels[shift] || shift,
+      data: consultant,
+    };
+  }
+
   get currentShift(): string {
     const hour = this.currentTime.getHours();
     if (hour < 12) return 'early';

@@ -23,6 +23,9 @@ export class ConditionRecordPanelComponent implements OnChanges {
 
   records: any[] = [];
   newContent = '';
+  newRecordContent = '';
+  editingRecordId: string | null = null;
+  error: string | null = null;
   isLoading = false;
   isSaving = false;
 
@@ -96,6 +99,33 @@ export class ConditionRecordPanelComponent implements OnChanges {
     } catch (err) {
       console.error('刪除紀錄失敗:', err);
     }
+  }
+
+  get history(): any[] {
+    return this.records;
+  }
+
+  handleSave(): void {
+    if (this.editingRecordId) {
+      // TODO: implement update
+    } else {
+      this.newContent = this.newRecordContent;
+      this.addRecord();
+    }
+  }
+
+  cancelEditing(): void {
+    this.editingRecordId = null;
+    this.newRecordContent = '';
+  }
+
+  startEditing(record: any): void {
+    this.editingRecordId = record.id;
+    this.newRecordContent = record.content;
+  }
+
+  handleDelete(recordId: string): void {
+    this.deleteRecord(recordId);
   }
 
   formatTimestamp(ts: any): string {

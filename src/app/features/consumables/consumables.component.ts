@@ -108,7 +108,7 @@ export class ConsumablesComponent implements OnInit {
       const reportIdsForMonth = allPatientIdsInGroup.map((id: string) => `${reportMonth}_${id}`);
       const monthlyReports: any[] = await queryWithInChunks(
         'consumables_reports',
-        documentId(),
+        documentId() as any,
         reportIdsForMonth,
       );
       this.rawConsumablesData.set(monthlyReports);
@@ -237,7 +237,7 @@ export class ConsumablesComponent implements OnInit {
 
       // Step 3: Combine all data
       const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows];
-      const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true });
+      const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true } as any);
 
       // Step 4: Set merged cells
       ws['!merges'] = [];

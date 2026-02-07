@@ -28,7 +28,7 @@ export class NursingGroupConfigDialogComponent implements OnChanges, OnInit {
 
   @Input() modelValue = false;
   @Input() yearMonth = '';
-  @Output() updateModelValue = new EventEmitter<boolean>();
+  @Output() visibilityChange = new EventEmitter<boolean>();
   @Output() saved = new EventEmitter<any>();
 
   isLoading = true;
@@ -307,7 +307,7 @@ export class NursingGroupConfigDialogComponent implements OnChanges, OnInit {
   }
 
   closeDialog(): void {
-    this.updateModelValue.emit(false);
+    this.visibilityChange.emit(false);
     this.statusMessage = null;
   }
 

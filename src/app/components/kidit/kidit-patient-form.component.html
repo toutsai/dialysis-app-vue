@@ -24,13 +24,10 @@
           <label>02 病患類別</label>
           <select [(ngModel)]="formData.patientCategory">
             @for (opt of KIDIT_OPTIONS.patientCategory; track opt) {
-  <option
-             
-             
-              [value]="opt"
-            >
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -38,18 +35,20 @@
           <label>03 生日 (西元)</label>
           <input type="date" [(ngModel)]="formData.birthDate" />
           @if (formData.birthDate) {
-  <small class="roc-date">
-            民國: {{ toRocDate(formData.birthDate) }}
-          </small>
+            <small class="roc-date">
+              民國: {{ toRocDate(formData.birthDate) }}
+            </small>
+          }
         </div>
 
         <div class="form-group">
           <label>05 性別</label>
           <select [(ngModel)]="formData.gender">
             @for (opt of KIDIT_OPTIONS.gender; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -57,9 +56,10 @@
           <label>15 血型</label>
           <select [(ngModel)]="formData.bloodType">
             @for (opt of KIDIT_OPTIONS.bloodType; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -67,9 +67,10 @@
           <label>17 原住民</label>
           <select [(ngModel)]="formData.isIndigenous">
             @for (opt of KIDIT_OPTIONS.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -77,9 +78,10 @@
           <label>18 福保身分</label>
           <select [(ngModel)]="formData.isWelfare">
             @for (opt of KIDIT_OPTIONS.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -108,9 +110,10 @@
           <label>06 婚姻</label>
           <select [(ngModel)]="formData.maritalStatus">
             @for (opt of KIDIT_OPTIONS.maritalStatus; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -118,9 +121,10 @@
           <label>11 教育程度</label>
           <select [(ngModel)]="formData.education">
             @for (opt of KIDIT_OPTIONS.education; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -128,9 +132,10 @@
           <label>12 職業</label>
           <select [(ngModel)]="formData.occupation">
             @for (opt of KIDIT_OPTIONS.occupation; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -143,9 +148,10 @@
           <label>14 關係</label>
           <select [(ngModel)]="formData.relationship">
             @for (opt of KIDIT_OPTIONS.relation; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
       </div>
@@ -164,9 +170,10 @@
           <label>19 狀態</label>
           <select [(ngModel)]="formData.status">
             @for (opt of KIDIT_OPTIONS.status; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -184,13 +191,10 @@
           <label>22 原發病大類</label>
           <select [(ngModel)]="formData.diagnosisCategory">
             @for (opt of KIDIT_OPTIONS.diagnosisCategory; track opt) {
-  <option
-             
-             
-              [value]="opt"
-            >
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -199,13 +203,10 @@
           <select [(ngModel)]="formData.diagnosisSubcategory">
             <option value="">請選擇</option>
             @for (opt of KIDIT_OPTIONS.diagnosisSubcategory; track opt) {
-  <option
-             
-             
-              [value]="opt"
-            >
-              {{ opt }} - {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt }} - {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
       </div>
@@ -217,3 +218,4 @@
       </button>
     </div>
   </div>
+}

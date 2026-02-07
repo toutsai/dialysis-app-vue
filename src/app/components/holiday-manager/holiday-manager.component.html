@@ -9,6 +9,7 @@
   <option [value]="holiday.name">
           {{ holiday.name }}
         </option>
+        }
         <option value="custom">-- 自訂假日 --</option>
       </select>
 
@@ -20,6 +21,7 @@
         [(ngModel)]="customHolidayName"
         placeholder="請輸入假日名稱"
       />
+    }
     </div>
 
     <div class="holiday-item">

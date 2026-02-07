@@ -280,7 +280,7 @@ export class StatsComponent implements OnInit, OnDestroy {
       const patientDetails = this.patientMap.get(shiftDetails.patientId);
       if (!patientInfo || !patientDetails) continue;
 
-      const messageTypesForPatient = messagesMap.get(patientDetails.id) || [];
+      const messageTypesForPatient = [...(messagesMap.get(patientDetails.id) || [])];
       const cellStyles = getUnifiedCellStyle(shiftDetails, patientInfo, null, messageTypesForPatient);
 
       const detail: any = {

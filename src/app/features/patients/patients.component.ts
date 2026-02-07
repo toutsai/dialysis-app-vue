@@ -663,10 +663,10 @@ export class PatientsComponent implements OnInit, OnDestroy {
       const savedPatient = await patientsApi.save(dataToCreate);
 
       const automatedTaskPromises: Promise<any>[] = [];
-      if (savedPatient.patientStatus?.isFirstDialysis?.active) {
+      if ((savedPatient as any).patientStatus?.isFirstDialysis?.active) {
         automatedTaskPromises.push(this.createAutomatedTask(savedPatient, '衛教', creatorInfo));
       }
-      if (savedPatient.patientStatus?.hasBloodDraw?.active) {
+      if ((savedPatient as any).patientStatus?.hasBloodDraw?.active) {
         automatedTaskPromises.push(this.createAutomatedTask(savedPatient, '抽血', creatorInfo));
       }
       if (automatedTaskPromises.length > 0) {

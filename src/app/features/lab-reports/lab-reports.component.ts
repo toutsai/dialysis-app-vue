@@ -174,7 +174,7 @@ export class LabReportsComponent implements OnInit, OnDestroy {
       this.setActiveTab('query');
       this.searchType.set('individual');
       this.isSearchVisible.set(true);
-      const patient = this.patientStore.patientMap.get(patientIdFromQuery);
+      const patient = this.patientStore.patientMap().get(patientIdFromQuery);
       if (patient) {
         this.individualSearchQuery.set(patient.name);
         this.handleSearch();
@@ -579,7 +579,7 @@ export class LabReportsComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const patientMap = this.patientStore.patientMap;
+    const patientMap = this.patientStore.patientMap();
     const patientList = patientIdsInGroup
       .map((id) => {
         const info = patientMap.get(id);
@@ -828,7 +828,7 @@ export class LabReportsComponent implements OnInit, OnDestroy {
       if (missingIds.length === 0) {
         return;
       }
-      const missingPatientDetails: any[] = await queryWithInChunks('patients', documentId(), missingIds);
+      const missingPatientDetails: any[] = await queryWithInChunks('patients', documentId() as any, missingIds);
       this.missingPatients.set(
         missingPatientDetails.map((patientData) => {
           const labData: Record<string, string> = {};

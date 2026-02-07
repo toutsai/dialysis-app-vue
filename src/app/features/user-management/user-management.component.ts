@@ -166,7 +166,7 @@ export class UserManagementComponent implements OnInit {
   formatDate(timestamp: any): string {
     if (!timestamp) return 'N/A';
     const date = parseFirestoreTimestamp(timestamp);
-    if (isNaN(date)) return '無效日期';
+    if (isNaN(date as any)) return '無效日期';
     return formatDateToChinese(date);
   }
 

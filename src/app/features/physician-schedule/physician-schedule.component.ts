@@ -28,8 +28,8 @@ export class PhysicianScheduleComponent implements OnInit, OnDestroy {
   private readonly apiManagerService = inject(ApiManagerService);
   private readonly patientStore = inject(PatientStoreService);
 
-  private usersApi!: ApiManager;
-  private physicianSchedulesApi!: ApiManager;
+  private usersApi!: ApiManager<any>;
+  private physicianSchedulesApi!: ApiManager<any>;
 
   // Page state
   isLoading = signal(true);

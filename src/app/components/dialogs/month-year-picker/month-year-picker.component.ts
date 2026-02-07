@@ -12,8 +12,16 @@ export class MonthYearPickerComponent implements OnChanges {
   @Input() isVisible = false;
   @Input() currentYear = new Date().getFullYear();
   @Input() currentMonth = new Date().getMonth() + 1;
+  @Input() set initialDate(val: any) {
+    if (val instanceof Date) {
+      this.currentYear = val.getFullYear();
+      this.currentMonth = val.getMonth() + 1;
+    }
+  }
   @Output() select = new EventEmitter<{ year: number; month: number }>();
   @Output() cancel = new EventEmitter<void>();
+  @Output() close = new EventEmitter<void>();
+  @Output() dateSelected = new EventEmitter<{ year: number; month: number }>();
 
   selectedYear = new Date().getFullYear();
   selectedMonth = new Date().getMonth() + 1;
@@ -36,11 +44,14 @@ export class MonthYearPickerComponent implements OnChanges {
 
   selectMonth(month: number): void {
     this.selectedMonth = month;
-    this.select.emit({ year: this.selectedYear, month: this.selectedMonth });
+    const payload = { year: this.selectedYear, month: this.selectedMonth };
+    this.select.emit(payload);
+    this.dateSelected.emit(payload);
   }
 
   onCancel(): void {
     this.cancel.emit();
+    this.close.emit();
   }
 
   onOverlayClick(event: MouseEvent): void {

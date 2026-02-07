@@ -26,10 +26,12 @@ export interface AppUser {
   id: string;
   uid: string;
   name: string;
+  displayName?: string;
   role: UserRole;
   title: string;
   email: string;
   lastLogin: string;
+  [key: string]: unknown;
 }
 
 export type UserRole = 'admin' | 'editor' | 'contributor' | 'viewer';

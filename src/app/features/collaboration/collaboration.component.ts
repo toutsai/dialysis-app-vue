@@ -203,15 +203,15 @@ export class CollaborationComponent implements OnInit, OnDestroy {
   });
 
   readonly sortedMyTasks = computed(() =>
-    this.sortItems(this.taskStore.myTasks() as TaskItem[]),
+    this.sortItems(this.taskStore.myTasks() as unknown as TaskItem[]),
   );
 
   readonly sortedMySentTasks = computed(() =>
-    this.sortItems(this.taskStore.mySentTasks() as TaskItem[]),
+    this.sortItems(this.taskStore.mySentTasks() as unknown as TaskItem[]),
   );
 
   readonly baseMessages = computed(() => {
-    const sorted = this.taskStore.sortedFeedMessages() as TaskItem[];
+    const sorted = this.taskStore.sortedFeedMessages() as unknown as TaskItem[];
     if (this.mainPatientViewTab() === 'all') return sorted;
     const myPatientIds = new Set(this.patientsForList().map((p) => p.id));
     return sorted.filter((msg) => myPatientIds.has(msg.patientId || ''));

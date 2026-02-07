@@ -70,6 +70,11 @@ export class ExceptionCreateDialogComponent implements OnChanges {
     }
   }
 
+  get selectedPatientAsArray(): any[] {
+    const p = this.allPatients.find(pt => pt.id === this.formData.patientId);
+    return p ? [p] : [];
+  }
+
   get isEditingMode(): boolean {
     return !!this.initialData;
   }

@@ -11,12 +11,25 @@ import { CommonModule } from '@angular/common';
 export class ScheduleTableComponent {
   @Input() scheduleData: any = null;
   @Input() bedLayout: any[] = [];
+  @Input() layout: any[] = [];
   @Input() shifts: string[] = [];
   @Input() targetDate = '';
   @Input() isEditable = false;
+  @Input() patientMap: any = null;
+  @Input() weekdays: string[] = [];
+  @Input() weekDates: any[] = [];
+  @Input() hepatitisBeds: any[] = [];
+  @Input() getStyleFunc: ((slotId: string) => Record<string, string>) | null = null;
+  @Input() isDateInPast: ((dayIndex: number) => boolean) | null = null;
+  @Input() typesMap: any = null;
+  @Input() isPageLocked = false;
   @Output() cellClick = new EventEmitter<any>();
   @Output() cellDrop = new EventEmitter<any>();
   @Output() cellContextMenu = new EventEmitter<any>();
+  @Output() gridClick = new EventEmitter<any>();
+  @Output() showMemos = new EventEmitter<any>();
+  @Output() columnWidthsChange = new EventEmitter<number[]>();
+  @Output() leftOffsetChange = new EventEmitter<number>();
 
   readonly shiftDisplayNames: Record<string, string> = { early: '早班', noon: '午班', late: '晚班' };
   readonly hepatitisBedNumbers = [31, 32, 33, 35, 36];

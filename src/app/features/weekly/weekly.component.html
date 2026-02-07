@@ -73,7 +73,7 @@
           [patientMap]="patientStore.patientMap()"
           [shifts]="SHIFTS"
           [weekdays]="WEEKDAYS"
-          [weekDates]="weekDatesForTable()"
+          [weekDates]="weekDates()"
           [hepatitisBeds]="hepatitisBeds"
           [getStyleFunc]="getWeeklyCellStyle"
           [isDateInPast]="isDateInPast"
@@ -103,7 +103,7 @@
     [isVisible]="isMemoDialogVisible()"
     [patientId]="patientIdForDialog()"
     [patientName]="patientNameForDialog()"
-    (close)="isMemoDialogVisible.set(false)"
+    (closeEvent)="isMemoDialogVisible.set(false)"
   ></app-memo-display-dialog>
   <app-bed-assignment-dialog
     [isVisible]="isProblemSolverDialogVisible()"
@@ -115,18 +115,16 @@
     [freqMap]="FREQ_MAP_TO_DAY_INDEX"
     [predefinedPatientGroups]="problemsToSolve()"
     assignmentMode="frequency"
-    [isPageLocked]="isPageLocked()"
-    (close)="isProblemSolverDialogVisible.set(false)"
-    (assignBed)="handleAssignBed($event)"
+    (closeEvent)="isProblemSolverDialogVisible.set(false)"
+    (assignBedEvent)="handleAssignBed($event)"
   ></app-bed-assignment-dialog>
   <app-patient-select-dialog
     [isVisible]="isPatientSelectDialogVisible()"
     title="選擇病人排班"
     [patients]="patientStore.allPatients()"
     [showFillOptions]="true"
-    [isPageLocked]="isPageLocked()"
-    (confirm)="handlePatientSelect($event)"
-    (cancel)="isPatientSelectDialogVisible.set(false)"
+    (confirmEvent)="handlePatientSelect($event)"
+    (cancelEvent)="isPatientSelectDialogVisible.set(false)"
   ></app-patient-select-dialog>
   <app-selection-dialog
     [isVisible]="isClearDialogVisible()"
@@ -145,7 +143,7 @@
     [isVisible]="isConfirmDialogVisible()"
     [title]="confirmDialogTitle()"
     [message]="confirmDialogMessage()"
-    (confirm)="handleConfirm()"
-    (cancel)="handleCancel()"
+    (confirmEvent)="handleConfirm()"
+    (cancelEvent)="handleCancel()"
   ></app-confirm-dialog>
 </div>

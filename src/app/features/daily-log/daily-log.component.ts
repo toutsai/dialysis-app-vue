@@ -186,7 +186,7 @@ export class DailyLogComponent implements OnInit, OnDestroy {
   get wardDialogCurrentValue(): string {
     if (this.currentEditingMovementIndex > -1) {
       const patientId = this.dailyLog.patientMovements[this.currentEditingMovementIndex]?.patientId;
-      return this.patientStore.patientMap().get(patientId)?.wardNumber || '';
+      return (this.patientStore.patientMap().get(patientId) as any)?.wardNumber || '';
     }
     return '';
   }
@@ -309,8 +309,9 @@ export class DailyLogComponent implements OnInit, OnDestroy {
         }
         delete mergedLog.handoverNotes;
 
-        if (logResult.stats && (!logResult.stats.staffing || !logResult.stats.staffing.details)) {
-          const oldStaffingData = logResult.stats.staffing || {};
+        const logStats = (logResult as any).stats;
+        if (logStats && (!logStats.staffing || !logStats.staffing.details)) {
+          const oldStaffingData = logStats.staffing || {};
           const newStaffingStructure = this.initialLogState().stats.staffing;
           const oldTotal =
             (oldStaffingData.early || 0) + (oldStaffingData.noon || 0) + (oldStaffingData.late || 0);
@@ -328,15 +329,15 @@ export class DailyLogComponent implements OnInit, OnDestroy {
           } else {
             newStaffingStructure.details = this.initialLogState().stats.staffing.details;
           }
-          logResult.stats.staffing = newStaffingStructure;
+          logStats.staffing = newStaffingStructure;
         }
 
-        if (logResult.stats?.staffing) {
-          if (logResult.stats.staffing.deductions && !logResult.stats.staffing.adjustments) {
-            logResult.stats.staffing.adjustments = logResult.stats.staffing.deductions;
+        if (logStats?.staffing) {
+          if (logStats.staffing.deductions && !logStats.staffing.adjustments) {
+            logStats.staffing.adjustments = logStats.staffing.deductions;
           }
-          if (!logResult.stats.staffing.adjustments) {
-            logResult.stats.staffing.adjustments = { shift1: null, shift2: null, shift3: null };
+          if (!logStats.staffing.adjustments) {
+            logStats.staffing.adjustments = { shift1: null, shift2: null, shift3: null };
           }
         }
 

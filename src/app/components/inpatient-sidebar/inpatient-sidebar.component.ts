@@ -13,11 +13,20 @@ export class InpatientSidebarComponent implements OnChanges {
   @Input() patients: any[] = [];
   @Input() freqMap: Record<string, number[]> = {};
   @Input() targetDate = '';
+  @Input() scheduledIds: Set<string> = new Set();
   @Output() patientClick = new EventEmitter<any>();
   @Output() dragStart = new EventEmitter<any>();
 
   filterMode: 'daily' | 'frequency' = 'daily';
   selectedFreq = 'all';
+  inpatientFilter = 'all';
+
+  get useDailyFilter(): boolean {
+    return this.filterMode === 'daily';
+  }
+  set useDailyFilter(val: boolean) {
+    this.filterMode = val ? 'daily' : 'frequency';
+  }
 
   ngOnChanges(changes: SimpleChanges): void {
     // Reset filter when patients change

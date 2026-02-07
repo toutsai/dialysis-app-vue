@@ -157,7 +157,7 @@ export class PatientUpdateSchedulerDialogComponent implements OnChanges {
       const scheduleData = masterScheduleDoc ? masterScheduleDoc.schedule : {};
       const weeklyScheduleMap: any = {};
       if (scheduleData) {
-        for (const patientId in scheduleData) {
+        for (const patientId in scheduleData as any) {
           const rule = scheduleData[patientId];
           if (rule.freq && rule.bedNum !== undefined && rule.shiftIndex !== undefined) {
             const dayIndices = this.freqMap[rule.freq] || [];
@@ -193,7 +193,7 @@ export class PatientUpdateSchedulerDialogComponent implements OnChanges {
       changeType: this.changeType,
       payload: JSON.parse(JSON.stringify(this.formData.payload)),
       status: 'pending',
-      createdBy: { uid: user?.uid, name: user?.displayName || user?.email },
+      createdBy: { uid: user?.uid, name: (user as any)?.displayName || user?.email },
       createdAt: new Date(),
     };
     try {

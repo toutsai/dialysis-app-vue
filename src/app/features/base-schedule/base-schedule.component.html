@@ -17,14 +17,15 @@
             (focus)="isSearchFocused.set(true)"
             (blur)="handleSearchBlur()"
           />
-          <ul *ngIf="searchResults().length > 0 && isSearchFocused()" class="search-results">
-            <li
-              *ngFor="let patient of searchResults()"
-              (click)="locatePatientOnGrid(patient.id)"
-            >
-              {{ patient.name }} - {{ patient.medicalRecordNumber }}
-            </li>
+          @if (searchResults().length > 0 && isSearchFocused()) {
+          <ul class="search-results">
+            @for (patient of searchResults(); track patient.id) {
+              <li (click)="locatePatientOnGrid(patient.id)">
+                {{ patient.name }} - {{ patient.medicalRecordNumber }}
+              </li>
+            }
           </ul>
+        }
         </div>
       </div>
       <div class="toolbar-right">
@@ -45,27 +46,29 @@
           [showPatientNumbers]="true"
         ></app-stats-toolbar>
       </div>
-      <app-schedule-table
-        *ngIf="masterRecord()"
-        class="schedule-table-component"
-        [layout]="bedLayout"
-        [scheduleData]="weekScheduleMap()"
-        [patientMap]="patientStore.patientMap()"
-        [shifts]="SHIFTS"
-        [weekdays]="WEEKDAYS"
-        [weekDates]="[]"
-        [hepatitisBeds]="hepatitisBeds"
-        [getStyleFunc]="getBaseCellStyle"
-        [isPageLocked]="isPageLocked()"
-        (gridClick)="handleGridClick($event)"
-        (drop)="onDrop($event.event, $event.targetSlotId)"
-        (dragStart)="onDragStart($event.event, $event.slotId)"
-        (dragOver)="onDragOver($event)"
-        (dragleave)="onDragLeave($event)"
-        (columnWidthsChange)="updateColumnWidths($event)"
-        (leftOffsetChange)="updateLeftOffset($event)"
-      ></app-schedule-table>
-      <div *ngIf="!masterRecord()" class="loading-state">正在載入總床位表資料...</div>
+      @if (masterRecord()) {
+        <app-schedule-table
+          class="schedule-table-component"
+          [layout]="bedLayout"
+          [scheduleData]="weekScheduleMap()"
+          [patientMap]="patientStore.patientMap()"
+          [shifts]="SHIFTS"
+          [weekdays]="WEEKDAYS"
+          [weekDates]="[]"
+          [hepatitisBeds]="hepatitisBeds"
+          [getStyleFunc]="getBaseCellStyle"
+          [isPageLocked]="isPageLocked()"
+          (gridClick)="handleGridClick($event)"
+          (drop)="onDrop($event.event, $event.targetSlotId)"
+          (dragStart)="onDragStart($event.event, $event.slotId)"
+          (dragOver)="onDragOver($event)"
+          (dragleave)="onDragLeave($event)"
+          (columnWidthsChange)="updateColumnWidths($event)"
+          (leftOffsetChange)="updateLeftOffset($event)"
+        ></app-schedule-table>
+      } @else {
+        <div class="loading-state">正在載入總床位表資料...</div>
+      }
     </div>
   </main>
 
@@ -85,7 +88,6 @@
     [shifts]="SHIFTS"
     [freqMap]="FREQ_MAP_TO_DAY_INDEX"
     [context]="assignmentContext()"
-    [isPageLocked]="isPageLocked()"
     (close)="isAssignmentDialogVisible.set(false)"
     (assignBed)="handleBedAssigned($event)"
   ></app-bed-assignment-dialog>
@@ -94,9 +96,8 @@
     title="選擇病人排班 (總表)"
     [patients]="filteredPatientsForSelect()"
     [showFillOptions]="false"
-    [isPageLocked]="isPageLocked()"
-    (confirm)="handlePatientSelect($event)"
-    (cancel)="isPatientSelectDialogVisible.set(false)"
+    (confirmEvent)="handlePatientSelect($event)"
+    (cancelEvent)="isPatientSelectDialogVisible.set(false)"
   ></app-patient-select-dialog>
   <app-alert-dialog
     [isVisible]="isAlertDialogVisible()"

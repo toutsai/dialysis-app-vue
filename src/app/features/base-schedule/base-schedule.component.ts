@@ -45,7 +45,7 @@ export class BaseScheduleComponent implements OnInit, OnDestroy {
   private readonly apiManagerService = inject(ApiManagerService);
   readonly patientStore = inject(PatientStoreService);
 
-  private baseSchedulesApi!: ApiManager;
+  private baseSchedulesApi!: ApiManager<any>;
 
   readonly SHIFTS = ORDERED_SHIFT_CODES;
   readonly WEEKDAYS = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];

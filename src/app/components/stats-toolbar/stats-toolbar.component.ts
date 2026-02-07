@@ -11,6 +11,11 @@ import { CommonModule } from '@angular/common';
 export class StatsToolbarComponent {
   @Input() stats: any = null;
   @Input() shiftStats: any = null;
+  @Input() statsData: any = null;
+  @Input() weekdays: string[] = [];
+  @Input() columnWidths: number[] = [];
+  @Input() showPatientNumbers = false;
+  @Input() size = '';
 
   get totalPatients(): number {
     return this.stats?.total || 0;

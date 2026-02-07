@@ -99,7 +99,7 @@ export class MemoComponent implements OnInit, OnDestroy {
         }
         return false;
       })
-      .sort((a: any, b: any) => parseFirestoreTimestamp(b.createdAt) - parseFirestoreTimestamp(a.createdAt));
+      .sort((a: any, b: any) => Number(parseFirestoreTimestamp(b.createdAt)) - Number(parseFirestoreTimestamp(a.createdAt)));
   });
 
   expiredList = computed(() => {
@@ -116,7 +116,7 @@ export class MemoComponent implements OnInit, OnDestroy {
         }
         return false;
       })
-      .sort((a: any, b: any) => parseFirestoreTimestamp(b.createdAt) - parseFirestoreTimestamp(a.createdAt));
+      .sort((a: any, b: any) => Number(parseFirestoreTimestamp(b.createdAt)) - Number(parseFirestoreTimestamp(a.createdAt)));
   });
 
   memoStats = computed(() => ({

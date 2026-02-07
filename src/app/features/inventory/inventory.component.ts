@@ -559,7 +559,7 @@ export class InventoryComponent implements OnInit {
 
       const reportMonth = this.groupSearchParams.month;
       const reportIdsForMonth = allPatientIdsInGroup.map((id: string) => `${reportMonth}_${id}`);
-      const monthlyReports = await queryWithInChunks('consumables_reports', documentId(), reportIdsForMonth);
+      const monthlyReports = await queryWithInChunks('consumables_reports', documentId() as any, reportIdsForMonth);
       this.rawConsumptionData.set(monthlyReports);
 
       const reportsMap = new Map(monthlyReports.map((r: any) => [r.patientId, r]));
@@ -685,7 +685,7 @@ export class InventoryComponent implements OnInit {
       });
 
       const sheetData = [[title], [], headerRow1, headerRow2, ...dataRows];
-      const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true });
+      const ws = XLSX.utils.aoa_to_sheet(sheetData, { skipHidden: true } as any);
 
       ws['!merges'] = [];
       const totalColumnCount = headers.length + 5;

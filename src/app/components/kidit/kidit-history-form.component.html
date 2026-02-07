@@ -22,9 +22,10 @@
           <label>06 本院開始HD</label>
           <select [(ngModel)]="formData.isStartHDHere">
             @for (opt of opts.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
         <div class="form-group">
@@ -41,9 +42,10 @@
           <label>09 本院開始PD</label>
           <select [(ngModel)]="formData.isStartPDHere">
             @for (opt of opts.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
         <div class="form-group">
@@ -60,9 +62,10 @@
           <label>12 本院移植</label>
           <select [(ngModel)]="formData.isTransplantHere">
             @for (opt of opts.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
         <div class="form-group">
@@ -80,18 +83,20 @@
           <label>14 知為慢性腎衰竭</label>
           <select [(ngModel)]="formData.isKnownCKD">
             @for (opt of opts.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
         <div class="form-group">
           <label>15 BUN/Cr異常</label>
           <select [(ngModel)]="formData.isBUNCreatAbnormal">
             @for (opt of opts.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
         <div class="form-group">
@@ -111,14 +116,15 @@
           <label>22 其他系統性疾病 (複選)</label>
           <div class="checkbox-grid">
             @for (item of opts.systemicDiseases; track item.index) {
-  <label class="checkbox-label">
-              <input
-                type="checkbox"
-                [value]="item.index"
-                [(ngModel)]="formData.selectedSystemicDiseases"
-              />
-              {{ item.label }}
-            </label>
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  [value]="item.index"
+                  [(ngModel)]="formData.selectedSystemicDiseases"
+                />
+                {{ item.label }}
+              </label>
+            }
           </div>
         </div>
         <div class="form-group full-width">
@@ -129,9 +135,10 @@
           <label>24 DM型式</label>
           <select [(ngModel)]="formData.dmType">
             @for (opt of opts.dmType; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
       </div>
@@ -170,18 +177,20 @@
           <label>33 HBsAg</label>
           <select [(ngModel)]="formData.hbsag">
             @for (opt of opts.hepatitis; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
         <div class="form-group">
           <label>34 Anti-HCV</label>
           <select [(ngModel)]="formData.antihcv">
             @for (opt of opts.hepatitis; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
       </div>
@@ -195,9 +204,10 @@
           <label>35 適應症種類</label>
           <select [(ngModel)]="formData.indicationType">
             @for (opt of opts.indicationType; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
 
@@ -205,10 +215,11 @@
           <label>36 其他症狀 (複選)</label>
           <div class="checkbox-grid">
             @for (item of opts.otherSymptoms; track item.index) {
-  <label class="checkbox-label">
-              <input type="checkbox" [value]="item.index" [(ngModel)]="formData.selectedSymptoms" />
-              {{ item.label }}
-            </label>
+              <label class="checkbox-label">
+                <input type="checkbox" [value]="item.index" [(ngModel)]="formData.selectedSymptoms" />
+                {{ item.label }}
+              </label>
+            }
           </div>
         </div>
 
@@ -216,14 +227,15 @@
           <label>38 緊急透析原因 (複選)</label>
           <div class="checkbox-grid">
             @for (item of opts.emergencyReasons; track item.index) {
-  <label class="checkbox-label">
-              <input
-                type="checkbox"
-                [value]="item.index"
-                [(ngModel)]="formData.selectedEmergencyReasons"
-              />
-              {{ item.label }}
-            </label>
+              <label class="checkbox-label">
+                <input
+                  type="checkbox"
+                  [value]="item.index"
+                  [(ngModel)]="formData.selectedEmergencyReasons"
+                />
+                {{ item.label }}
+              </label>
+            }
           </div>
         </div>
 
@@ -236,9 +248,10 @@
           <label>50 初次重大傷病</label>
           <select [(ngModel)]="formData.isFirstCatastrophic">
             @for (opt of opts.yesNo; track opt) {
-  <option [value]="opt">
-              {{ opt.label }}
-            </option>
+              <option [value]="opt">
+                {{ opt.label }}
+              </option>
+            }
           </select>
         </div>
       </div>
@@ -250,3 +263,4 @@
       </button>
     </div>
   </div>
+}

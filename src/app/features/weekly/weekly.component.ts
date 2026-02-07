@@ -53,7 +53,7 @@ export class WeeklyComponent implements OnInit, OnDestroy {
   private readonly firebaseService = inject(FirebaseService);
   private readonly authService = inject(AuthService);
   private readonly apiManagerService = inject(ApiManagerService);
-  private readonly patientStore = inject(PatientStoreService);
+  readonly patientStore = inject(PatientStoreService);
   private readonly taskStore = inject(TaskStoreService);
   private readonly archiveStore = inject(ArchiveStoreService);
   private readonly destroyRef = inject(DestroyRef);
@@ -106,6 +106,9 @@ export class WeeklyComponent implements OnInit, OnDestroy {
   patientNameForDialog = signal('');
   searchQuery = signal('');
   isSearchFocused = signal(false);
+
+  get searchQueryValue(): string { return this.searchQuery(); }
+  set searchQueryValue(value: string) { this.searchQuery.set(value); }
 
   isPageLocked = computed(() => !this.authService.canEditSchedules());
   allPatients = computed(() => this.patientStore.allPatients());

@@ -24,7 +24,15 @@ export class PatientImageUploaderComponent {
   isCameraActive = false;
   isUploading = false;
   capturedImage: string | null = null;
+  errorMessage: string | null = null;
   private stream: MediaStream | null = null;
+
+  get currentState(): string {
+    if (this.isUploading) return 'uploading';
+    if (this.capturedImage) return 'captured';
+    if (this.isCameraActive) return 'streaming';
+    return 'idle';
+  }
 
   async startCamera(): Promise<void> {
     try {
@@ -87,5 +95,18 @@ export class PatientImageUploaderComponent {
 
   clearCapture(): void {
     this.capturedImage = null;
+  }
+
+  captureImage(): void {
+    this.capturePhoto();
+  }
+
+  retakePhoto(): void {
+    this.capturedImage = null;
+    this.startCamera();
+  }
+
+  async uploadToDrive(): Promise<void> {
+    await this.uploadImage();
   }
 }

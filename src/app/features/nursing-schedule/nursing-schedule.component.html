@@ -677,7 +677,7 @@
   <app-nursing-group-config-dialog
     [modelValue]="showGroupConfigDialog()"
     [yearMonth]="selectedMonth"
-    (update:modelValue)="showGroupConfigDialog.set($event)"
+    (visibilityChange)="showGroupConfigDialog.set($event)"
     (saved)="onGroupConfigSaved($event)"
   ></app-nursing-group-config-dialog>
 

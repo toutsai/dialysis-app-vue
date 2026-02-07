@@ -39,6 +39,7 @@ export type NotificationType =
   | 'success'
   | 'warning'
   | 'info'
+  | 'team'
   | 'default';
 
 export interface NotificationConfig {
@@ -290,6 +291,24 @@ export class NotificationService implements OnDestroy {
       );
       throw error;
     }
+  }
+
+  /**
+   * Backward-compatible alias for createGlobalNotification().
+   */
+  async createNotification(
+    title: string,
+    type: NotificationType = 'info',
+    message?: string,
+  ): Promise<void> {
+    return this.createGlobalNotification(title, type, message);
+  }
+
+  /**
+   * Show a simple notification (backward-compatible convenience method).
+   */
+  async show(message: string, type: NotificationType = 'info'): Promise<void> {
+    return this.createGlobalNotification(message, type);
   }
 
   /**

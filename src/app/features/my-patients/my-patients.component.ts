@@ -273,7 +273,7 @@ export class MyPatientsComponent implements OnInit, OnDestroy {
     }
 
     try {
-      await this.userDirectory.ensureUsersLoaded(force);
+      await this.userDirectory.ensureUsersLoaded();
       const allUsers = this.userDirectory.allUsers();
       const filteredUsers = allUsers
         .filter(

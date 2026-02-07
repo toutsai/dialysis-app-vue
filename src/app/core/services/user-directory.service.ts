@@ -11,6 +11,7 @@ export interface DirectoryUser {
   id: string;
   uid: string;
   name: string;
+  displayName?: string;
   role: string;
   title: string;
   email: string;
@@ -123,6 +124,27 @@ export class UserDirectoryService {
   getDisplayName(idOrUid: string): string {
     const user = this.getUserById(idOrUid);
     return user?.name || idOrUid;
+  }
+
+  /**
+   * Backward-compatible alias for fetchUsersIfNeeded().
+   */
+  async ensureUsersLoaded(): Promise<void> {
+    return this.fetchUsersIfNeeded();
+  }
+
+  /**
+   * Backward-compatible alias for allUsers signal.
+   */
+  get users() {
+    return this.allUsers;
+  }
+
+  /**
+   * Backward-compatible alias for refresh().
+   */
+  async clearCache(): Promise<void> {
+    return this.refresh();
   }
 
   // -----------------------------------------------------------------------

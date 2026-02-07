@@ -429,7 +429,7 @@ export class ScheduleComponent implements OnInit, OnDestroy {
     const patientId = slotData?.patientId;
     if (!patientId) return getUnifiedCellStyle(slotData, patientForStyle, null, []);
     const messageTypesForPatient =
-      this.taskStore.getPatientMessageTypesMapForDate(this.currentDate()).get(patientId) || [];
+      [...(this.taskStore.getPatientMessageTypesMapForDate(this.formatDate(this.currentDate())).get(patientId) || [])];
     return getUnifiedCellStyle(slotData, patientForStyle, null, messageTypesForPatient);
   }
 
@@ -1098,16 +1098,16 @@ export class ScheduleComponent implements OnInit, OnDestroy {
         const schedule = doc['schedule'] as Record<string, Record<string, Record<string, unknown>>>;
         const daySchedule = schedule?.[dayOfMonth];
         if (daySchedule) {
-          dialysisPhysiciansData['early'] = userMap.get(daySchedule['early']?.['physicianId']) || null;
-          dialysisPhysiciansData['noon'] = userMap.get(daySchedule['noon']?.['physicianId']) || null;
-          dialysisPhysiciansData['late'] = userMap.get(daySchedule['late']?.['physicianId']) || null;
+          dialysisPhysiciansData['early'] = userMap.get(daySchedule['early']?.['physicianId'] as string) || null;
+          dialysisPhysiciansData['noon'] = userMap.get(daySchedule['noon']?.['physicianId'] as string) || null;
+          dialysisPhysiciansData['late'] = userMap.get(daySchedule['late']?.['physicianId'] as string) || null;
         }
         const consultationSchedule = doc['consultationSchedule'] as Record<string, Record<string, Record<string, unknown>>>;
         const consultationDaySchedule = consultationSchedule?.[dayOfMonth];
         if (consultationDaySchedule) {
-          consultPhysiciansData['morning'] = userMap.get(consultationDaySchedule['morning']?.['physicianId']) || null;
-          consultPhysiciansData['afternoon'] = userMap.get(consultationDaySchedule['afternoon']?.['physicianId']) || null;
-          consultPhysiciansData['night'] = userMap.get(consultationDaySchedule['night']?.['physicianId']) || null;
+          consultPhysiciansData['morning'] = userMap.get(consultationDaySchedule['morning']?.['physicianId'] as string) || null;
+          consultPhysiciansData['afternoon'] = userMap.get(consultationDaySchedule['afternoon']?.['physicianId'] as string) || null;
+          consultPhysiciansData['night'] = userMap.get(consultationDaySchedule['night']?.['physicianId'] as string) || null;
         }
       }
       this.dailyPhysicians.set(dialysisPhysiciansData);
