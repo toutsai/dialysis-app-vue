@@ -16,7 +16,7 @@ import {
 } from 'firebase/firestore'
 
 // 2. 導入您的 Firebase db 實例
-import { db } from '@/composables/useFirebase'
+import { db } from '@/firebase'
 
 type FirestoreRecord = { id?: string; [key: string]: unknown }
 
@@ -121,7 +121,7 @@ const ApiManager = <T extends FirestoreRecord>(resourceType: string): ApiManager
 
     try {
       const docRef = doc(db, resourceType, id)
-      await updateDoc(docRef, data)
+      await updateDoc(docRef, data as any)
       console.log(`[ApiManager] Successfully updated document with ID: ${id} in ${resourceType}`)
       return { id, ...(data as T) }
     } catch (error) {

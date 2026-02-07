@@ -1,0 +1,263 @@
+<div class="page-container memo-view">
+  <h1 class="page-title">
+    交班備忘錄
+    <span *ngIf="!isLoading() && memoStats().total > 0" class="title-stats">
+      ({{ filterPatientId() ? selectedPatient()?.name + ': ' : '' }}待辦{{ memoStats().pending }}筆)
+    </span>
+  </h1>
+
+  <div *ngIf="error()" class="error-banner">
+    <span>{{ error() }}</span>
+    <button (click)="retryLoadData()" class="retry-btn">重試</button>
+  </div>
+
+  <div *ngIf="isLoading()" class="loading-container">
+    <div class="loading-spinner"></div>
+    <p>正在載入備忘錄資料...</p>
+  </div>
+
+  <div *ngIf="!isLoading()" class="memo-layout-grid">
+    <!-- 新增備忘卡片只在桌面顯示 -->
+    <div class="memo-card form-card desktop-only">
+      <h2 class="card-title">
+        <span *ngIf="filterPatientId()">{{ selectedPatient()?.name }} 的備忘</span>
+        <span *ngIf="!filterPatientId()">新增備忘</span>
+      </h2>
+      <div class="memo-form">
+        <div class="textarea-wrapper">
+          <textarea
+            [ngModel]="contentInput()"
+            (ngModelChange)="contentInput.set($event)"
+            placeholder="請輸入交班事項或備註..."
+            [disabled]="isSubmitting()"
+          ></textarea>
+          <div class="char-count">{{ contentInput().length }}/500</div>
+        </div>
+        <div class="form-actions">
+          <div class="option-item">
+            <label>關聯病人</label>
+            <div *ngIf="selectedPatient()" class="selected-patient-display">
+              <span>{{ selectedPatient().name }}</span>
+              <button
+                (click)="clearPatientSelection()"
+                class="clear-btn"
+                title="清除選擇與篩選"
+                [disabled]="isSubmitting()"
+              >
+                &times;
+              </button>
+            </div>
+            <button
+              *ngIf="!selectedPatient()"
+              (click)="openPatientDialog()"
+              class="select-btn"
+              [disabled]="isSubmitting() || isPatientsLoading"
+            >
+              <span>{{ isPatientsLoading ? '載入中...' : '選擇病人' }}</span>
+            </button>
+          </div>
+          <div class="option-item">
+            <label for="memo-date-input">到期日</label>
+            <input
+              [ngModel]="dateInput()"
+              (ngModelChange)="dateInput.set($event)"
+              type="date"
+              id="memo-date-input"
+              [disabled]="isSubmitting()"
+            />
+          </div>
+        </div>
+        <button (click)="addMemo()" class="add-btn" [disabled]="isSubmitting() || !contentInput().trim()">
+          <span>{{ isSubmitting() ? '新增中...' : '新增備忘' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 待辦事項卡片 -->
+    <div class="memo-card pending-card">
+      <h2 class="card-title">
+        {{ filterPatientId() ? '待處理事項' : '所有待處理事項' }}
+        <span *ngIf="memoStats().pending > 0" class="title-count">{{ memoStats().pending }}</span>
+      </h2>
+      <div *ngIf="isMemosLoading()" class="card-loading">
+        <div class="loading-spinner"></div>
+        <p>載入待處理事項...</p>
+      </div>
+      <ul *ngIf="!isMemosLoading()" class="memo-list">
+        <li *ngFor="let memo of pendingList()" class="memo-item">
+          <div class="memo-content">
+            <p [innerHTML]="getMemoDisplayContent(memo)"></p>
+            <div class="memo-meta">
+              <span>建立於: {{ formatDateToChinese(parseFirestoreTimestamp(memo.createdAt)) }}</span>
+              <span *ngIf="memo.targetDate"
+                >| 到期日: <strong class="date-highlight">{{ memo.targetDate }}</strong></span
+              >
+            </div>
+          </div>
+          <div class="memo-actions">
+            <button class="resolve-btn" (click)="updateMemoStatus(memo.id, true)">
+              標為已處理
+            </button>
+            <button class="delete-btn" (click)="deleteMemo(memo.id)">刪除</button>
+          </div>
+        </li>
+        <li *ngIf="pendingList().length === 0" class="empty-state">
+          {{ filterPatientId() ? '該病人無待辦事項' : '太棒了，沒有待辦事項！' }}
+        </li>
+      </ul>
+    </div>
+
+    <!-- 歷史/已處理卡片 -->
+    <div class="memo-card history-card">
+      <div class="tabs">
+        <button
+          class="tab-btn"
+          [ngClass]="{ active: activeTab() === 'expired' }"
+          (click)="activeTab.set('expired')"
+        >
+          已到期事項 (最近7天)
+          <span *ngIf="memoStats().expired > 0" class="tab-count expired-count">{{ memoStats().expired }}</span>
+        </button>
+        <button
+          class="tab-btn"
+          [ngClass]="{ active: activeTab() === 'resolved' }"
+          (click)="activeTab.set('resolved')"
+        >
+          已處理事項 (最近90天)
+          <span *ngIf="memoStats().resolved > 0" class="tab-count resolved-count">{{ memoStats().resolved }}</span>
+        </button>
+      </div>
+      <div class="tab-content">
+        <div *ngIf="isMemosLoading()" class="tab-loading">
+          <div class="loading-spinner small"></div>
+          <span>載入中...</span>
+        </div>
+        <ul *ngIf="!isMemosLoading() && activeTab() === 'expired'" class="memo-list">
+          <li *ngFor="let memo of expiredList()" class="memo-item expired">
+            <div class="memo-content">
+              <p [innerHTML]="getMemoDisplayContent(memo)"></p>
+              <div class="memo-meta">
+                <span>建立於: {{ formatDateToChinese(parseFirestoreTimestamp(memo.createdAt)) }}</span>
+                <span *ngIf="memo.targetDate"
+                  >| 到期於: <strong>{{ memo.targetDate }}</strong></span
+                >
+              </div>
+            </div>
+            <div class="memo-actions">
+              <button class="revert-btn" (click)="updateMemoStatus(memo.id, false)">
+                移回待辦
+              </button>
+              <button class="delete-btn" (click)="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li *ngIf="expiredList().length === 0" class="empty-state">沒有已到期的事項。</li>
+        </ul>
+        <ul *ngIf="!isMemosLoading() && activeTab() === 'resolved'" class="memo-list">
+          <li *ngFor="let memo of resolvedList()" class="memo-item resolved">
+            <div class="memo-content">
+              <p [innerHTML]="getMemoDisplayContent(memo)"></p>
+              <div class="memo-meta">
+                <span>建立於: {{ formatDateToChinese(parseFirestoreTimestamp(memo.createdAt)) }}</span>
+              </div>
+            </div>
+            <div class="memo-actions">
+              <button class="revert-btn" (click)="updateMemoStatus(memo.id, false)">
+                移回待辦
+              </button>
+              <button class="delete-btn" (click)="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li *ngIf="resolvedList().length === 0" class="empty-state">
+            {{ filterPatientId() ? '最近90天該病人無已處理事項' : '最近90天沒有已處理事項。' }}
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手機版專用的 FAB 按鈕 -->
+  <button class="fab mobile-only" (click)="openFormModal()">+</button>
+
+  <!-- 手機版專用的新增表單 Modal -->
+  <div *ngIf="isFormModalVisible()" class="form-modal-overlay" (click)="closeFormModal()">
+    <div class="memo-card form-card" (click)="$event.stopPropagation()">
+      <h2 class="card-title">
+        <span *ngIf="filterPatientId()">{{ selectedPatient()?.name }} 的備忘</span>
+        <span *ngIf="!filterPatientId()">新增備忘</span>
+        <button (click)="closeFormModal()" class="close-modal-btn">&times;</button>
+      </h2>
+      <div class="memo-form">
+        <div class="textarea-wrapper">
+          <textarea
+            [ngModel]="contentInput()"
+            (ngModelChange)="contentInput.set($event)"
+            placeholder="請輸入交班事項或備註..."
+            [disabled]="isSubmitting()"
+          ></textarea>
+          <div class="char-count">{{ contentInput().length }}/500</div>
+        </div>
+        <div class="form-actions">
+          <div class="option-item">
+            <label>關聯病人</label>
+            <div *ngIf="selectedPatient()" class="selected-patient-display">
+              <span>{{ selectedPatient().name }}</span>
+              <button
+                (click)="clearPatientSelection()"
+                class="clear-btn"
+                title="清除選擇與篩選"
+                [disabled]="isSubmitting()"
+              >
+                &times;
+              </button>
+            </div>
+            <button
+              *ngIf="!selectedPatient()"
+              (click)="openPatientDialog()"
+              class="select-btn"
+              [disabled]="isSubmitting() || isPatientsLoading"
+            >
+              <span>{{ isPatientsLoading ? '載入中...' : '選擇病人' }}</span>
+            </button>
+          </div>
+          <div class="option-item">
+            <label for="memo-date-input-mobile">到期日</label>
+            <input
+              [ngModel]="dateInput()"
+              (ngModelChange)="dateInput.set($event)"
+              type="date"
+              id="memo-date-input-mobile"
+              [disabled]="isSubmitting()"
+            />
+          </div>
+        </div>
+        <button (click)="addMemo()" class="add-btn" [disabled]="isSubmitting() || !contentInput().trim()">
+          <span>{{ isSubmitting() ? '新增中...' : '新增備忘' }}</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<app-patient-select-dialog
+  [isVisible]="isPatientDialogVisible()"
+  title="選擇關聯病人"
+  [patients]="allPatients"
+  [showFillOptions]="false"
+  (confirm)="handlePatientSelected($event)"
+  (cancel)="isPatientDialogVisible.set(false)"
+></app-patient-select-dialog>
+
+<app-alert-dialog
+  [isVisible]="isAlertDialogVisible()"
+  [title]="alertDialogTitle()"
+  [message]="alertDialogMessage()"
+  (confirm)="isAlertDialogVisible.set(false)"
+></app-alert-dialog>
+
+<app-confirm-dialog
+  [isVisible]="isConfirmDialogVisible()"
+  [title]="confirmDialogTitle()"
+  [message]="confirmDialogMessage()"
+  (confirm)="handleConfirm()"
+  (cancel)="handleCancel()"
+></app-confirm-dialog>

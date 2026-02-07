@@ -1,0 +1,273 @@
+<div class="user-management-container">
+  <header class="page-header">
+    <div class="header-top">
+      <h1>使用者帳號管理</h1>
+      <div *ngIf="!isLoading() && userStats().total > 0" class="user-stats">
+        <span class="stats-total">總計: {{ userStats().total }}</span>
+        <span *ngIf="userStats().filtered !== userStats().total" class="stats-filtered">
+          顯示: {{ userStats().filtered }}
+        </span>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div class="search-filters">
+        <div class="search-group">
+          <input
+            type="text"
+            [ngModel]="searchTerm()"
+            (ngModelChange)="searchTerm.set($event)"
+            placeholder="搜尋姓名/帳號/Email/職稱..."
+            class="search-input"
+          />
+          <button
+            *ngIf="searchTerm() || selectedRole() !== 'all'"
+            (click)="clearSearch()"
+            class="clear-search-btn"
+            title="清除搜尋"
+          >
+            &times;
+          </button>
+        </div>
+        <select [ngModel]="selectedRole()" (ngModelChange)="selectedRole.set($event)" class="role-filter">
+          <option *ngFor="let option of roleOptions" [value]="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <div class="sort-group">
+          <select [ngModel]="sortBy()" (ngModelChange)="sortBy.set($event)" class="sort-select">
+            <option *ngFor="let option of sortOptions" [value]="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+          <button
+            (click)="toggleSortOrder()"
+            class="sort-order-btn"
+          >
+            {{ sortOrder() === 'asc' ? '↑' : '↓' }}
+          </button>
+        </div>
+      </div>
+      <div class="header-actions">
+        <!-- 強制同步排程按鈕 -->
+        <button
+          *ngIf="isAdmin"
+          class="btn btn-danger"
+          (click)="triggerForceResync()"
+          [disabled]="isResyncLoading()"
+          title="強制使用總床位表重新生成未來60天的排程，用於修復資料錯亂。"
+        >
+          <i *ngIf="isResyncLoading()" class="fas fa-spinner fa-spin"></i>
+          {{ isResyncLoading() ? '同步中...' : '🚨 強制同步排程' }}
+        </button>
+
+        <!-- 遷移歷史排班按鈕 -->
+        <button
+          *ngIf="isAdmin"
+          class="btn btn-warning"
+          (click)="triggerMigration()"
+          [disabled]="isMigrationLoading()"
+          title="這是一個一次性的資料庫維護操作"
+        >
+          <i *ngIf="isMigrationLoading()" class="fas fa-spinner fa-spin"></i>
+          {{ isMigrationLoading() ? '遷移中...' : '遷移歷史排班' }}
+        </button>
+
+        <!-- 手動更新過期留言按鈕 -->
+        <button
+          *ngIf="isAdmin"
+          class="btn btn-info"
+          (click)="triggerManualExpire()"
+          [disabled]="isExpireLoading()"
+          title="手動將已過期的留言標記為 'expired' 狀態"
+        >
+          <i *ngIf="isExpireLoading()" class="fas fa-spinner fa-spin"></i>
+          {{ isExpireLoading() ? '更新中...' : '更新過期留言' }}
+        </button>
+
+        <!-- Google Drive 上傳測試區塊 -->
+        <div *ngIf="isAdmin" class="gdrive-upload-group">
+          <input type="file" (change)="handleFileSelectForDrive($event)" class="file-input-drive" />
+          <button
+            class="btn btn-info"
+            (click)="triggerUploadToDrive()"
+            [disabled]="!selectedFileForDrive() || isUploadingToDrive()"
+          >
+            <i *ngIf="isUploadingToDrive()" class="fas fa-spinner fa-spin"></i>
+            {{ isUploadingToDrive() ? '上傳中...' : '上傳至雲端硬碟' }}
+          </button>
+        </div>
+
+        <!-- 新增使用者按鈕 -->
+        <button
+          *ngIf="isAdmin"
+          class="btn btn-primary"
+          (click)="handleAddUser()"
+          [disabled]="isSubmitting()"
+        >
+          <span *ngIf="isSubmitting()">處理中...</span>
+          <span *ngIf="!isSubmitting()">+ 新增使用者</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div *ngIf="isLoading()" class="loading-container">
+    <div class="loading-spinner"></div>
+    <p>正在載入用戶列表...</p>
+  </div>
+
+  <div *ngIf="!isLoading() && filteredUsers().length > 0" class="user-table-container">
+    <!-- 桌機版表格 -->
+    <table class="user-table desktop-only">
+      <thead>
+        <tr>
+          <th>姓名</th>
+          <th>帳號</th>
+          <th>職稱</th>
+          <th>角色</th>
+          <th>異動日期</th>
+          <th *ngIf="isAdmin">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr
+          *ngFor="let user of filteredUsers()"
+          [class.deleting-row]="isDeletingUser() === user.id"
+        >
+          <td data-label="姓名">
+            {{ user.name }}
+            <span *ngIf="user.role === 'admin'" class="admin-badge">管理員</span>
+          </td>
+          <td data-label="帳號">{{ user.username }}</td>
+          <td data-label="職稱">{{ user.title || '-' }}</td>
+          <td data-label="角色">
+            <span class="role-badge" [ngClass]="'role-' + user.role">{{ user.role }}</span>
+          </td>
+          <td data-label="異動日期">{{ formatDate(user.updatedAt || user.createdAt) }}</td>
+          <td *ngIf="isAdmin" data-label="操作" class="action-buttons-cell">
+            <div class="action-buttons">
+              <button
+                *ngIf="user.email"
+                class="btn-icon"
+                (click)="copyEmail(user.email!)"
+                [title]="'複製 Email: ' + user.email"
+                [disabled]="isSubmitting() || isDeletingUser() === user.id"
+              >
+                📧
+              </button>
+              <button
+                class="btn-icon"
+                (click)="handleEditUser(user)"
+                title="編輯"
+                [disabled]="isSubmitting() || isDeletingUser() === user.id"
+              >
+                ✏️
+              </button>
+              <button
+                class="btn-icon"
+                (click)="handleDeleteUser(user.id!, user.name!)"
+                title="刪除"
+                [disabled]="isSubmitting() || isDeletingUser() === user.id"
+              >
+                <span *ngIf="isDeletingUser() === user.id" class="deleting-spinner">⏳</span>
+                <span *ngIf="isDeletingUser() !== user.id">🗑️</span>
+              </button>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- 手機版卡片列表 -->
+    <div class="user-cards-container mobile-only">
+      <div
+        *ngFor="let user of filteredUsers()"
+        class="user-card"
+        [class.deleting-row]="isDeletingUser() === user.id"
+      >
+        <div class="card-header">
+          <span class="user-name">{{ user.name }}</span>
+          <span class="role-badge" [ngClass]="'role-' + user.role">{{ user.role }}</span>
+        </div>
+        <div class="card-body">
+          <div class="info-row">
+            <span class="info-label">帳號</span>
+            <span class="info-value">{{ user.username }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">職稱</span>
+            <span class="info-value">{{ user.title || '-' }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">異動日期</span>
+            <span class="info-value">{{ formatDate(user.updatedAt || user.createdAt) }}</span>
+          </div>
+        </div>
+        <div *ngIf="isAdmin" class="card-footer">
+          <div class="action-buttons">
+            <button
+              *ngIf="user.email"
+              class="btn-icon"
+              (click)="copyEmail(user.email!)"
+              [title]="'複製 Email: ' + user.email"
+              [disabled]="isSubmitting() || isDeletingUser() === user.id"
+            >
+              📧
+            </button>
+            <button
+              class="btn-icon"
+              (click)="handleEditUser(user)"
+              title="編輯"
+              [disabled]="isSubmitting() || isDeletingUser() === user.id"
+            >
+              ✏️
+            </button>
+            <button
+              class="btn-icon"
+              (click)="handleDeleteUser(user.id!, user.name!)"
+              title="刪除"
+              [disabled]="isSubmitting() || isDeletingUser() === user.id"
+            >
+              <span *ngIf="isDeletingUser() === user.id" class="deleting-spinner">⏳</span>
+              <span *ngIf="isDeletingUser() !== user.id">🗑️</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="!isLoading() && filteredUsers().length === 0" class="empty-state">
+    <div class="empty-icon">👥</div>
+    <h3>{{ (searchTerm() || selectedRole() !== 'all') ? '沒有符合條件的使用者' : '尚無使用者' }}</h3>
+    <p *ngIf="searchTerm() || selectedRole() !== 'all'">嘗試調整搜尋條件或篩選器</p>
+    <button *ngIf="!searchTerm() && selectedRole() === 'all' && isAdmin" (click)="handleAddUser()" class="btn btn-primary">
+      新增第一個使用者
+    </button>
+  </div>
+
+  <app-user-form-modal
+    [isVisible]="isModalVisible()"
+    [isEditing]="isEditing()"
+    [user]="userToEdit()"
+    (closed)="isModalVisible.set(false)"
+    (saved)="handleSaveUser($event)"
+  ></app-user-form-modal>
+
+  <app-alert-dialog
+    [isVisible]="alertInfo().isVisible"
+    [title]="alertInfo().title"
+    [message]="alertInfo().message"
+    (confirm)="handleAlertConfirm()"
+  ></app-alert-dialog>
+
+  <app-confirm-dialog
+    [isVisible]="confirmInfo().isVisible"
+    [title]="confirmInfo().title"
+    [message]="confirmInfo().message"
+    [confirmText]="confirmInfo().confirmText"
+    [cancelText]="confirmInfo().cancelText"
+    (confirmed)="confirmInfo().onConfirm()"
+    (cancelled)="confirmInfo().onCancel()"
+  ></app-confirm-dialog>
+</div>

@@ -1,0 +1,86 @@
+<div class="report-container">
+  <!-- 標題區 -->
+  <header class="page-header">
+    <div class="header-left">
+      <h2 class="page-title"><i class="fas fa-file-medical-alt icon"></i> KiDit 申報工作站</h2>
+    </div>
+
+    <!-- 月份導航 -->
+    <div class="month-navigator">
+      <button class="nav-btn" (click)="changeMonth(-1)">
+        <i class="fas fa-chevron-left"></i>
+      </button>
+      <span class="current-month">
+        {{ currentYear() }} 年 <span class="month-number">{{ currentMonth() }}</span> 月
+      </span>
+      <button class="nav-btn" (click)="changeMonth(1)">
+        <i class="fas fa-chevron-right"></i>
+      </button>
+    </div>
+
+    <!-- 右側功能區 -->
+    <div class="header-right">
+      <button class="action-btn export-btn" (click)="exportToCSV()" [disabled]="isLoading()">
+        <i class="fas fa-file-export"></i> 匯出本月資料
+      </button>
+    </div>
+  </header>
+
+  <!-- 月曆主體 -->
+  <div class="calendar-wrapper" *ngIf="!isLoading()">
+    <div class="weekdays-header">
+      <div *ngFor="let day of weekDays" class="weekday">{{ day }}</div>
+    </div>
+
+    <div class="calendar-grid">
+      <div *ngFor="let n of firstDayOffsetArray" class="day-cell empty"></div>
+
+      <div
+        *ngFor="let day of daysData()"
+        class="day-cell"
+        [ngClass]="{
+          'has-data': day.events.length > 0,
+          'is-today': isToday(day.dateStr),
+          'has-alert': day.unregistered > 0
+        }"
+        (click)="openModal(day)"
+      >
+        <div class="cell-header">
+          <span class="day-number">{{ day.dayNum }}</span>
+          <span *ngIf="isToday(day.dateStr)" class="today-badge">今天</span>
+        </div>
+
+        <div class="cell-content">
+          <div *ngIf="day.events.length > 0" class="event-indicator">
+            <div class="stat-row">
+              <span class="count-badge primary">
+                <i class="fas fa-list-ul"></i> {{ day.events.length }} 筆
+              </span>
+            </div>
+            <div class="stat-row" *ngIf="day.unregistered > 0">
+              <span class="count-badge danger">
+                <i class="fas fa-exclamation-circle"></i> {{ day.unregistered }} 未
+              </span>
+            </div>
+          </div>
+          <div *ngIf="day.events.length === 0" class="no-event">
+            <span class="dot"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="isLoading()" class="loading-container">
+    <div class="spinner"></div>
+    <p>正在讀取申報資料...</p>
+  </div>
+
+  <app-movement-detail-modal
+    [visible]="showModal()"
+    [date]="selectedDate()"
+    [events]="selectedEvents()"
+    (close)="onModalClose()"
+    (refresh)="onModalRefresh()"
+  ></app-movement-detail-modal>
+</div>

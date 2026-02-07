@@ -1,0 +1,274 @@
+@if (isVisible) {
+  <div class="modal-overlay">
+    <div class="modal-container large">
+      <div class="modal-body-wrapper">
+        @if (isLockedForThisUser) {
+          <div class="readonly-overlay"></div>
+        }
+
+        <div class="modal-header">
+          <div class="header-title-area">
+            <h2>{{ patient?.name }} - 詳細資料</h2>
+          </div>
+
+          @if (slotList.length > 1) {
+            <div class="patient-navigator">
+              <button
+                (click)="switchToPatient(currentIndex - 1)"
+                [disabled]="currentIndex === 0"
+                class="nav-btn"
+                title="前一床病人"
+              >
+                <i class="fas fa-chevron-left"></i> 前一床
+              </button>
+              <span class="nav-counter">{{ currentSlotInfo.shift }} / {{ currentSlotInfo.bedNum }}</span>
+              <button
+                (click)="switchToPatient(currentIndex + 1)"
+                [disabled]="currentIndex >= slotList.length - 1"
+                class="nav-btn"
+                title="後一床病人"
+              >
+                後一床 <i class="fas fa-chevron-right"></i>
+              </button>
+            </div>
+          }
+
+          <button (click)="handleClose()" class="close-btn">&times;</button>
+        </div>
+
+        <!-- Tabs navigation -->
+        <div class="tabs-navigation">
+          <button [class.active]="activeTab === 'records'" (click)="activeTab = 'records'">
+            紀錄
+          </button>
+          <button [class.active]="activeTab === 'memos'" (click)="activeTab = 'memos'">
+            @if (hasPendingMemosForPatient) {
+              <span class="memo-indicator"></span>
+            }
+            備忘
+          </button>
+          <button [class.active]="activeTab === 'labs'" (click)="activeTab = 'labs'">
+            檢驗
+          </button>
+          <button [class.active]="activeTab === 'correlation'" (click)="activeTab = 'correlation'">
+            開藥
+          </button>
+          <button [class.active]="activeTab === 'imaging'" (click)="activeTab = 'imaging'; fetchDriveFiles()">
+            影像
+          </button>
+        </div>
+
+        <!-- Tab content -->
+        <div class="modal-body">
+          <!-- Records tab -->
+          <div [style.display]="activeTab === 'records' ? '' : 'none'" class="tab-panel">
+            @if (patient) {
+              <app-condition-record-panel
+                [patientId]="patient.id"
+                [patientName]="patient.name"
+                [targetDate]="currentDate"
+                (recordsChanged)="recordUpdated.emit()"
+              ></app-condition-record-panel>
+            }
+          </div>
+
+          <!-- Memos tab -->
+          <div [style.display]="activeTab === 'memos' ? '' : 'none'" class="tab-panel">
+            @if (patient) {
+              <app-memo-panel [patientId]="patient.id"></app-memo-panel>
+            }
+          </div>
+
+          <!-- Labs tab -->
+          <div [style.display]="activeTab === 'labs' ? '' : 'none'" class="tab-panel">
+            @if (patient) {
+              <app-patient-lab-summary-panel
+                [patient]="patient"
+                (saveRecord)="handleSaveLabSummaryAsRecord($event)"
+              ></app-patient-lab-summary-panel>
+            }
+          </div>
+
+          <!-- Correlation tab -->
+          <div [style.display]="activeTab === 'correlation' ? '' : 'none'" class="tab-panel">
+            @if (patient && activeTab === 'correlation') {
+              <app-lab-med-correlation-view
+                [patient]="patient"
+              ></app-lab-med-correlation-view>
+            }
+          </div>
+
+          <!-- Imaging tab -->
+          <div [style.display]="activeTab === 'imaging' ? '' : 'none'" class="tab-panel imaging-panel">
+            <!-- Upload section -->
+            <div class="image-uploader">
+              @if (cameraState === 'idle') {
+                <div class="idle-buttons">
+                  <button (click)="startCamera()" class="btn-primary">
+                    <i class="fas fa-camera"></i> 開啟相機拍照
+                  </button>
+                  <a
+                    href="https://ulite.tph.mohw.gov.tw:8080"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="btn-pacs"
+                  >
+                    <i class="fas fa-x-ray"></i> 手機版PACS連結
+                  </a>
+                </div>
+              }
+
+              @if (cameraState === 'streaming') {
+                <div class="camera-view">
+                  <video #videoPlayer autoplay playsinline class="video-preview"></video>
+                  <div class="camera-controls">
+                    <button (click)="captureImage()" class="btn-capture" title="拍照">
+                      <i class="fas fa-circle"></i>
+                    </button>
+                    <button (click)="stopCamera()" class="btn-cancel">取消</button>
+                  </div>
+                </div>
+              }
+
+              @if (cameraState === 'captured' || cameraState === 'uploading') {
+                <div class="preview-view">
+                  <img [src]="capturedImage" alt="Captured image preview" class="image-preview" />
+                  <div class="preview-controls">
+                    <button (click)="uploadToDrive()" [disabled]="isUploading" class="btn-success">
+                      @if (isUploading) {
+                        <i class="fas fa-spinner fa-spin"></i>
+                      }
+                      {{ isUploading ? '上傳中...' : '確認上傳' }}
+                    </button>
+                    <button (click)="retakePhoto()" [disabled]="isUploading" class="btn-secondary">
+                      重新拍照
+                    </button>
+                  </div>
+                </div>
+              }
+
+              @if (cameraErrorMessage) {
+                <div class="error-message">{{ cameraErrorMessage }}</div>
+              }
+            </div>
+
+            <hr class="panel-divider" />
+
+            <!-- Image viewer section -->
+            <div class="image-viewer">
+              <div class="viewer-header">
+                <h3>歷史影像紀錄</h3>
+                <button (click)="fetchDriveFiles()" [disabled]="isFetchingFiles" class="btn-secondary">
+                  @if (isFetchingFiles) {
+                    <i class="fas fa-spinner fa-spin"></i>
+                  }
+                  {{ isFetchingFiles ? '查詢中...' : '重新整理影像' }}
+                </button>
+              </div>
+
+              <!-- Date filter -->
+              <div class="date-filter">
+                <div class="filter-mode-selector">
+                  <label>
+                    <input type="radio" [(ngModel)]="dateFilterMode" value="recent" />
+                    近6個月
+                  </label>
+                  <label>
+                    <input type="radio" [(ngModel)]="dateFilterMode" value="custom" />
+                    自訂區間
+                  </label>
+                  <label>
+                    <input type="radio" [(ngModel)]="dateFilterMode" value="all" />
+                    全部
+                  </label>
+                </div>
+                @if (dateFilterMode === 'custom') {
+                  <div class="custom-date-range">
+                    <input type="date" [(ngModel)]="customStartDate" placeholder="開始日期" />
+                    <span>至</span>
+                    <input type="date" [(ngModel)]="customEndDate" placeholder="結束日期" />
+                  </div>
+                }
+                @if (hasSearched && driveFiles.length > 0) {
+                  <div class="filter-summary">
+                    顯示 {{ filteredDriveFiles.length }} / {{ driveFiles.length }} 筆影像
+                  </div>
+                }
+              </div>
+
+              <!-- States -->
+              @if (isFetchingFiles) {
+                <div class="loading-state">正在從雲端硬碟讀取資料...</div>
+              } @else if (fetchError) {
+                <div class="error-message">{{ fetchError }}</div>
+              } @else if (driveFiles.length === 0 && hasSearched) {
+                <div class="empty-state">找不到此病人的相關影像紀錄。</div>
+              } @else if (filteredDriveFiles.length === 0 && driveFiles.length > 0) {
+                <div class="empty-state">在選取的日期區間內沒有影像紀錄。</div>
+              } @else if (filteredDriveFiles.length > 0) {
+                <div class="image-grid">
+                  @for (file of filteredDriveFiles; track file.id) {
+                    <div class="image-card">
+                      <a [href]="file.webViewLink" target="_blank" title="點擊在新分頁中開啟原始圖片">
+                        <img [src]="file.thumbnailLink" [alt]="file.name" class="thumbnail-img" />
+                      </a>
+                      <div class="image-info">
+                        <div class="file-name-row">
+                          <p class="file-name" [title]="file.name">{{ file.name }}</p>
+                          <button
+                            (click)="startEditFileName(file)"
+                            class="btn-edit-name"
+                            title="編輯檔名"
+                          >
+                            <i class="fas fa-pencil-alt"></i>
+                          </button>
+                        </div>
+                        <p class="created-time">{{ formatDateTime(file.createdTime) }}</p>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rename file modal -->
+    @if (isEditingFileName) {
+      <div class="rename-modal-overlay" (click)="cancelEditFileName()">
+        <div class="rename-modal" (click)="$event.stopPropagation()">
+          <h4>編輯檔案名稱</h4>
+          <div class="rename-input-group">
+            <input
+              [(ngModel)]="newFileName"
+              type="text"
+              class="rename-input"
+              placeholder="輸入新檔名"
+              (keyup.enter)="saveFileName()"
+              (keyup.escape)="cancelEditFileName()"
+            />
+            @if (editingFile?.extension) {
+              <span class="file-extension">.{{ editingFile.extension }}</span>
+            }
+          </div>
+          @if (renameError) {
+            <div class="error-message">{{ renameError }}</div>
+          }
+          <div class="rename-actions">
+            <button (click)="saveFileName()" [disabled]="isRenaming" class="btn-success">
+              @if (isRenaming) {
+                <i class="fas fa-spinner fa-spin"></i>
+              }
+              {{ isRenaming ? '儲存中...' : '儲存' }}
+            </button>
+            <button (click)="cancelEditFileName()" [disabled]="isRenaming" class="btn-secondary">
+              取消
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+  </div>
+}

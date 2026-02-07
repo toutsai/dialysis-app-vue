@@ -1,0 +1,60 @@
+<div class="stats-toolbar" [ngClass]="`size-${size}`">
+  @for (dayData of statsData; track index; let index = $index) {
+    <div
+      class="stat-item"
+      [ngStyle]="{ width: columnWidths[index] ? `${columnWidths[index]}px` : 'auto' }"
+    >
+      <div class="day-summary">
+        <strong>{{ weekdays[index] }}</strong>
+        <!-- 🔥 條件顯示：只有不是數字模式才顯示總人數 -->
+        @if (!showPatientNumbers) {
+          <span class="day-total-count">{{ dayData.total }}</span>
+        }
+      </div>
+
+      <div class="stat-shift-group">
+        @for (shift of shiftOrder; track shift.code) {
+          <div class="shift-tag">
+            <div class="shift-info">
+              {{ shift.display }} {{ dayData.counts[shift.code]?.total || 0 }}
+            </div>
+
+            <!-- 🔥 條件顯示：數字模式 vs 色條模式 -->
+            @if (showPatientNumbers) {
+              <div
+                class="patient-counts"
+                [style.display]="dayData.counts[shift.code]?.total > 0 ? '' : 'none'"
+              >
+                @for (item of formatPatientCounts(dayData.counts[shift.code]); track idx; let idx = $index) {
+                  <span
+                    [ngClass]="{ 'opd-number': item.type === 'opd' }"
+                  >
+                    {{ item.text }}{{ idx < formatPatientCounts(dayData.counts[shift.code]).length - 1 ? ' ' : '' }}
+                  </span>
+                }
+              </div>
+            } @else {
+              <div class="ratio-bar">
+                <div
+                  class="bar-segment er-bar"
+                  [ngStyle]="getBarStyles(dayData.counts[shift.code]).erStyle"
+                  [title]="`急診: ${dayData.counts[shift.code]?.er || 0}`"
+                ></div>
+                <div
+                  class="bar-segment ipd-bar"
+                  [ngStyle]="getBarStyles(dayData.counts[shift.code]).ipdStyle"
+                  [title]="`住院: ${dayData.counts[shift.code]?.ipd || 0}`"
+                ></div>
+                <div
+                  class="bar-segment opd-bar"
+                  [ngStyle]="getBarStyles(dayData.counts[shift.code]).opdStyle"
+                  [title]="`門診: ${dayData.counts[shift.code]?.opd || 0}`"
+                ></div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>

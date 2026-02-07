@@ -10,7 +10,7 @@ import {
   where,
   serverTimestamp,
 } from 'firebase/firestore'
-import { db } from '@/composables/useFirebase' // ← 修正這裡！
+import { db } from '@/firebase' // ← 修正這裡！
 
 const COLLECTION_NAME = 'nurse_assignments'
 
