@@ -15,8 +15,8 @@ export class PatientSelectDialogComponent implements OnChanges {
   @Input() patients: any[] = [];
   @Input() showFillOptions = false;
   @Input() patientStatusFilter = 'active';
-  @Output() confirmEvent = new EventEmitter<any>();
-  @Output() cancelEvent = new EventEmitter<void>();
+  @Output() confirm = new EventEmitter<any>();
+  @Output() cancel = new EventEmitter<void>();
 
   searchTerm = '';
   filterFreq = '';
@@ -88,11 +88,11 @@ export class PatientSelectDialogComponent implements OnChanges {
       if (fillType) {
         payload.fillType = fillType;
       }
-      this.confirmEvent.emit(payload);
+      this.confirm.emit(payload);
     }
   }
 
   onCancel(): void {
-    this.cancelEvent.emit();
+    this.cancel.emit();
   }
 }

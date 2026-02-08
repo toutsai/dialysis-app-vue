@@ -20,14 +20,14 @@ export class PatientUpdateSchedulerDialogComponent implements OnChanges {
   private schedulesApi = ApiManager('schedules');
   private baseSchedulesApi = ApiManager('base_schedules');
 
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() patient: any = null;
   @Input() changeType = '';
   @Input() allPatients: any[] = [];
   @Input() isEditing = false;
   @Input() initialData: any = null;
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() submitEvent = new EventEmitter<any>();
+  @Output() close = new EventEmitter<void>();
+  @Output() submit = new EventEmitter<any>();
 
   isSubmitting = false;
   isBedAssignmentVisible = false;
@@ -142,7 +142,7 @@ export class PatientUpdateSchedulerDialogComponent implements OnChanges {
   }
 
   onClose(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 
   onStatusChange(): void {
@@ -197,7 +197,7 @@ export class PatientUpdateSchedulerDialogComponent implements OnChanges {
       createdAt: new Date(),
     };
     try {
-      this.submitEvent.emit(dataToSubmit);
+      this.submit.emit(dataToSubmit);
     } catch (error) {
       console.error('\u63D0\u4EA4\u9810\u7D04\u5931\u6557:', error);
     } finally {

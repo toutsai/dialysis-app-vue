@@ -32,8 +32,8 @@ export class BedAssignmentDialogComponent implements OnChanges, OnInit, OnDestro
   @Input() dayOfWeek = 1;
   @Input() context: any = null;
   @Input() hidePatientList = false;
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() assignBedEvent = new EventEmitter<any>();
+  @Output() close = new EventEmitter<void>();
+  @Output() assignBed = new EventEmitter<any>();
 
   selectedFreq = 'all';
   selectedShiftFilter = 'all';
@@ -262,7 +262,7 @@ export class BedAssignmentDialogComponent implements OnChanges, OnInit, OnDestro
 
   closeDialog() {
     if (!this.isComponentMounted) return;
-    this.closeEvent.emit();
+    this.close.emit();
   }
 
   getStatusText(status: string): string {
@@ -295,7 +295,7 @@ export class BedAssignmentDialogComponent implements OnChanges, OnInit, OnDestro
     const bedIdPart = typeof bedNum === 'string' && (bedNum as string).startsWith('peripheral-') ? bedNum : `bed-${bedNum}`;
     const shiftId = `${bedIdPart}-${shiftCode}`;
     if (this.isEditMode || this.hidePatientList) {
-      this.assignBedEvent.emit({
+      this.assignBed.emit({
         patientId: patientIdToAssign, bedNum, shiftCode, shiftId,
         newFreq: this.isEditMode && this.context?.mode === 'change_freq_and_bed' ? finalFreq : undefined
       });
@@ -333,7 +333,7 @@ export class BedAssignmentDialogComponent implements OnChanges, OnInit, OnDestro
 
   confirmAllAssignments() {
     if (this.pendingAssignments.length === 0 || !this.isComponentMounted) return;
-    this.pendingAssignments.forEach(a => this.assignBedEvent.emit(a));
+    this.pendingAssignments.forEach(a => this.assignBed.emit(a));
     this.alertInfo = { isVisible: true, title: '批量排床成功', message: `總共排入 ${this.pendingAssignments.length} 位病人，請記得點選右上角"儲存床位"。` };
     this.pendingAssignments = [];
   }

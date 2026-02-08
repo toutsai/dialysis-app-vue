@@ -63,7 +63,7 @@
     [isVisible]="isActionDialogVisible()"
     [title]="actionDialogTitle()"
     [message]="actionDialogMessage()"
-    (cancelled)="closeActionDialog()"
+    (cancel)="closeActionDialog()"
   >
     <div class="dialog-footer-custom">
       <button class="btn btn-secondary" (click)="closeActionDialog()">關閉</button>
@@ -102,8 +102,8 @@
     [message]="mergeDialogMessage()"
     confirmText="整併"
     cancelText="取消"
-    (confirmed)="handleMergeConfirm()"
-    (cancelled)="handleMergeCancel()"
+    (confirm)="handleMergeConfirm()"
+    (cancel)="handleMergeCancel()"
   ></app-confirm-dialog>
 
   <app-month-year-picker

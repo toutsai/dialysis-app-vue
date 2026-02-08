@@ -14,10 +14,10 @@ import { collection, query, where, orderBy, limit, getDocs, deleteDoc, doc } fro
 export class DialysisOrderModalComponent implements OnChanges {
   private readonly firebase = inject(FirebaseService);
 
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() patientData: any = null;
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() saveEvent = new EventEmitter<any>();
+  @Output() close = new EventEmitter<void>();
+  @Output() save = new EventEmitter<any>();
 
   orderHistory: any[] = [];
   isLoadingHistory = false;
@@ -190,11 +190,11 @@ export class DialysisOrderModalComponent implements OnChanges {
       }
     });
 
-    this.saveEvent.emit(dataToSave);
+    this.save.emit(dataToSave);
   }
 
   handleClose(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 
   requestDeleteOrder(record: any): void {

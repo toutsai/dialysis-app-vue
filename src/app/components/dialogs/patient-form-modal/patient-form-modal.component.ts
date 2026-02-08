@@ -10,11 +10,11 @@ import { FormsModule } from '@angular/forms';
   styleUrl: './patient-form-modal.component.css'
 })
 export class PatientFormModalComponent implements OnChanges {
-  @Input() isModalVisible = false;
+  @Input() isModalVisible = true;
   @Input() patientData: any = {};
   @Input() patientType = '';
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() saveEvent = new EventEmitter<any>();
+  @Output() close = new EventEmitter<void>();
+  @Output() save = new EventEmitter<any>();
 
   form: any = {};
 
@@ -82,7 +82,7 @@ export class PatientFormModalComponent implements OnChanges {
   }
 
   closeModal(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 
   handleSave(): void {
@@ -90,6 +90,6 @@ export class PatientFormModalComponent implements OnChanges {
       alert('\u59D3\u540D\u548C\u75C5\u6B77\u865F\u70BA\u5FC5\u586B\u9805\uFF01');
       return;
     }
-    this.saveEvent.emit(this.form);
+    this.save.emit(this.form);
   }
 }

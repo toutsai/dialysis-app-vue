@@ -14,13 +14,13 @@ import { deleteDoc, doc } from 'firebase/firestore';
 export class ExceptionCreateDialogComponent implements OnChanges {
   private readonly firebase = inject(FirebaseService);
 
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() allPatients: any[] = [];
   @Input() isPageLocked = false;
   @Input() initialData: any = null;
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() submitEvent = new EventEmitter<any>();
-  @Output() deleteEvent = new EventEmitter<string>();
+  @Output() close = new EventEmitter<void>();
+  @Output() submit = new EventEmitter<any>();
+  @Output() delete = new EventEmitter<string>();
 
   isPatientDialogVisible = false;
   isBedAssignmentVisible = false;
@@ -116,8 +116,8 @@ export class ExceptionCreateDialogComponent implements OnChanges {
     }
   }
 
-  close(): void {
-    this.closeEvent.emit();
+  onClose(): void {
+    this.close.emit();
   }
 
   handlePatientSelected(event: any): void {
@@ -132,7 +132,7 @@ export class ExceptionCreateDialogComponent implements OnChanges {
   submitForm(): void {
     if (!this.isFormValid) return;
     const dataToSubmit = JSON.parse(JSON.stringify(this.formData));
-    this.submitEvent.emit(dataToSubmit);
+    this.submit.emit(dataToSubmit);
   }
 
   async handleDelete(): Promise<void> {
@@ -140,12 +140,12 @@ export class ExceptionCreateDialogComponent implements OnChanges {
     this.isSubmitting = true;
     try {
       await deleteDoc(doc(this.firebase.db, 'schedule_exceptions', this.initialData.id));
-      this.deleteEvent.emit(this.initialData.id);
+      this.delete.emit(this.initialData.id);
     } catch (error) {
       console.error('撤銷申請失敗:', error);
     } finally {
       this.isSubmitting = false;
-      this.close();
+      this.onClose();
     }
   }
 

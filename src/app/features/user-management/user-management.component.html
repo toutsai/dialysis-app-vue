@@ -267,7 +267,7 @@
     [message]="confirmInfo().message"
     [confirmText]="confirmInfo().confirmText"
     [cancelText]="confirmInfo().cancelText"
-    (confirmed)="confirmInfo().onConfirm()"
-    (cancelled)="confirmInfo().onCancel()"
+    (confirm)="confirmInfo().onConfirm()"
+    (cancel)="confirmInfo().onCancel()"
   ></app-confirm-dialog>
 </div>

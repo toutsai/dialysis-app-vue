@@ -3,7 +3,7 @@
     <div class="dialog-content">
       <header class="dialog-header">
         <h2>{{ dialogTitle }}</h2>
-        <button class="close-button" (click)="close">×</button>
+        <button class="close-button" (click)="onClose()">×</button>
       </header>
       <main class="dialog-body">
         <!-- 步驟 1: 選擇病人 -->
@@ -223,7 +223,7 @@
               撤銷此申請
             </button>
             <div>
-              <button class="btn btn-secondary" (click)="close">取消修改</button>
+              <button class="btn btn-secondary" (click)="onClose()">取消修改</button>
               <button
                 class="btn btn-primary"
                 (click)="submitForm"
@@ -236,7 +236,7 @@
         <!-- 否則，顯示正常的兩個按鈕 -->
         } @else {
           <div class="footer-normal-mode">
-            <button class="btn btn-secondary" (click)="close">取消</button>
+            <button class="btn btn-secondary" (click)="onClose()">取消</button>
             <button
               class="btn btn-primary"
               (click)="submitForm"

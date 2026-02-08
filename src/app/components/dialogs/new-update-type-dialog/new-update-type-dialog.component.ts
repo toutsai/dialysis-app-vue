@@ -13,8 +13,8 @@ import { PatientSelectDialogComponent } from '../patient-select-dialog/patient-s
 export class NewUpdateTypeDialogComponent implements OnChanges {
   @Input() isVisible = false;
   @Input() allPatients: any[] = [];
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() continueEvent = new EventEmitter<{ patient: any; changeType: string }>();
+  @Output() close = new EventEmitter<void>();
+  @Output('continue') continueEvent = new EventEmitter<{ patient: any; changeType: string }>();
 
   isPatientDialogVisible = false;
   selectedPatient: any = null;
@@ -44,7 +44,7 @@ export class NewUpdateTypeDialogComponent implements OnChanges {
   }
 
   onClose(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 
   handlePatientSelected(event: { patientId: string }): void {

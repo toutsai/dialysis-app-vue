@@ -13,8 +13,8 @@ import { QuillModule } from 'ngx-quill';
 export class MarqueeEditDialogComponent implements OnChanges {
   @Input() isVisible = false;
   @Input() initialContent = '';
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() saveEvent = new EventEmitter<string>();
+  @Output() close = new EventEmitter<void>();
+  @Output() save = new EventEmitter<string>();
 
   editableContent = '';
   isSaving = false;
@@ -33,10 +33,10 @@ export class MarqueeEditDialogComponent implements OnChanges {
   }
 
   handleSave(): void {
-    this.saveEvent.emit(this.editableContent);
+    this.save.emit(this.editableContent);
   }
 
   onClose(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 }

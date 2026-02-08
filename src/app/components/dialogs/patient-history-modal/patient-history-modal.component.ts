@@ -12,10 +12,10 @@ import { escapeHtml } from '@/utils/sanitize.js';
   styleUrl: './patient-history-modal.component.css'
 })
 export class PatientHistoryModalComponent implements OnChanges {
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() patientId = '';
   @Input() patientName = '';
-  @Output() closeEvent = new EventEmitter<void>();
+  @Output() close = new EventEmitter<void>();
 
   private historyApi = ApiManager('patient_history');
   history: any[] = [];
@@ -140,6 +140,6 @@ export class PatientHistoryModalComponent implements OnChanges {
   }
 
   onClose(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 }

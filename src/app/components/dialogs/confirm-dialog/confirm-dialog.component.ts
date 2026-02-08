@@ -9,7 +9,7 @@ import { CommonModule } from '@angular/common';
   styleUrl: './confirm-dialog.component.css'
 })
 export class ConfirmDialogComponent {
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() title = '';
   @Input() message = '';
   @Input() confirmText = '確認';
@@ -17,14 +17,14 @@ export class ConfirmDialogComponent {
   @Input() confirmClass = 'btn-primary';
   @Input() cancelClass = 'btn-secondary';
   @Input() hasCustomFooter = false;
-  @Output() confirmEvent = new EventEmitter<void>();
-  @Output() cancelEvent = new EventEmitter<void>();
+  @Output() confirm = new EventEmitter<void>();
+  @Output() cancel = new EventEmitter<void>();
 
   onConfirm(): void {
-    this.confirmEvent.emit();
+    this.confirm.emit();
   }
 
   onCancel(): void {
-    this.cancelEvent.emit();
+    this.cancel.emit();
   }
 }

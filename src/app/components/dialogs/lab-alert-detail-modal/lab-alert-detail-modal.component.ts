@@ -13,13 +13,13 @@ import { LabMedCorrelationViewComponent } from '../../lab-med-correlation-view/l
   styleUrl: './lab-alert-detail-modal.component.css'
 })
 export class LabAlertDetailModalComponent implements OnChanges {
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() patient: any = null;
   @Input() abnormalityKey = '';
   @Input() initialAnalysis = '';
   @Input() initialSuggestion = '';
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() confirmEvent = new EventEmitter<{ analysisText: string; suggestionText: string }>();
+  @Output() close = new EventEmitter<void>();
+  @Output() confirm = new EventEmitter<{ analysisText: string; suggestionText: string }>();
 
   activeTab = 'analysis';
   selectedCauses: string[] = [];
@@ -112,7 +112,7 @@ export class LabAlertDetailModalComponent implements OnChanges {
       .filter(Boolean)
       .join('; ');
 
-    this.confirmEvent.emit({
+    this.confirm.emit({
       analysisText: finalAnalysisText,
       suggestionText: finalSuggestionText,
     });
@@ -120,6 +120,6 @@ export class LabAlertDetailModalComponent implements OnChanges {
   }
 
   handleClose(): void {
-    this.closeEvent.emit();
+    this.close.emit();
   }
 }
