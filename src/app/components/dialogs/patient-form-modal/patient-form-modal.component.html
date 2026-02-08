@@ -1,178 +1,176 @@
-@if (isModalVisible) {
-  <div class="modal-overlay" (click)="closeModal()">
-    <div class="modal-content" (click)="$event.stopPropagation()">
-      <div class="modal-header">
-        <h2>{{ isEditing ? '\u7DE8\u8F2F' : '\u65B0\u589E' }} {{ patientTypeText }}\u75C5\u4EBA</h2>
-        <button class="close-button" (click)="closeModal()" aria-label="\u95DC\u9589\u5F48\u7A97">\u00D7</button>
-      </div>
-      <form class="modal-body" (ngSubmit)="handleSave()">
-        <div class="form-section">
-          <div class="form-grid-3-col">
-            <div class="form-field">
-              <label for="name">\u59D3\u540D</label>
-              <input type="text" id="name" [(ngModel)]="form.name" name="name" required />
-            </div>
-            <div class="form-field">
-              <label for="medical-record-number">\u75C5\u6B77\u865F</label>
-              <input type="text" id="medical-record-number" [(ngModel)]="form.medicalRecordNumber" name="mrn" required />
-            </div>
-            <div class="form-field">
-              <label>{{ patientType === 'opd' ? '\u6536\u6848\u91AB\u5E2B' : '\u6703\u8A3A\u91AB\u5E2B' }}</label>
-              <select [(ngModel)]="form.physician" name="physician">
-                <option disabled value="">\u8ACB\u9078\u64C7</option>
-                @for (p of PHYSICIANS; track p) {
-                  <option [value]="p">{{ p }}</option>
-                }
-              </select>
-            </div>
-            <div class="form-field">
-              <label for="freq">\u900F\u6790\u983B\u7387</label>
-              <select id="freq" [(ngModel)]="form.freq" name="freq">
-                <option disabled value="">\u8ACB\u9078\u64C7</option>
-                @for (f of FREQ_OPTIONS; track f) {
-                  <option [value]="f">{{ f }}</option>
-                }
-              </select>
-            </div>
-            <div class="form-field">
-              <label for="mode">\u900F\u6790\u6A21\u5F0F</label>
-              <select id="mode" [(ngModel)]="form.mode" name="mode">
-                <option disabled value="">\u8ACB\u9078\u64C7</option>
-                @for (m of MODES; track m) {
-                  <option [value]="m">{{ m }}</option>
-                }
-              </select>
-            </div>
-            <div class="form-field">
-              <label for="status">\u75C5\u4EBA\u72C0\u614B</label>
-              <select id="status" [(ngModel)]="form.status" name="status" [disabled]="isEditing">
-                <option value="er">\u6025\u8A3A</option>
-                <option value="ipd">\u4F4F\u9662</option>
-                <option value="opd">\u9580\u8A3A</option>
-              </select>
-            </div>
-            <div class="form-field">
-              <label>\u75C5\u4EBA\u8EAB\u4EFD</label>
-              <div class="radio-group">
-                <label><input type="radio" [(ngModel)]="form.patientCategory" name="patientCategory" value="opd_regular" /><span>\u5E38\u898F\u9580\u8A3A\u75C5\u4EBA</span></label>
-                <label><input type="radio" [(ngModel)]="form.patientCategory" name="patientCategory" value="non_regular" /><span>\u975E\u56FA\u5B9A\u75C5\u4EBA</span></label>
-              </div>
+<div class="modal-overlay" (click)="closeModal()">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>{{ isEditing ? '編輯' : '新增' }} {{ patientTypeText }}病人</h2>
+      <button class="close-button" (click)="closeModal()" aria-label="關閉彈窗">&times;</button>
+    </div>
+    <form class="modal-body" (ngSubmit)="handleSave()">
+      <div class="form-section">
+        <div class="form-grid-3-col">
+          <div class="form-field">
+            <label for="name">姓名</label>
+            <input type="text" id="name" [(ngModel)]="form.name" name="name" required />
+          </div>
+          <div class="form-field">
+            <label for="medical-record-number">病歷號</label>
+            <input type="text" id="medical-record-number" [(ngModel)]="form.medicalRecordNumber" name="mrn" required />
+          </div>
+          <div class="form-field">
+            <label>{{ patientType === 'opd' ? '收案醫師' : '會診醫師' }}</label>
+            <select [(ngModel)]="form.physician" name="physician">
+              <option disabled value="">請選擇</option>
+              @for (p of PHYSICIANS; track p) {
+                <option [value]="p">{{ p }}</option>
+              }
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="freq">透析頻率</label>
+            <select id="freq" [(ngModel)]="form.freq" name="freq">
+              <option disabled value="">請選擇</option>
+              @for (f of FREQ_OPTIONS; track f) {
+                <option [value]="f">{{ f }}</option>
+              }
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="mode">透析模式</label>
+            <select id="mode" [(ngModel)]="form.mode" name="mode">
+              <option disabled value="">請選擇</option>
+              @for (m of MODES; track m) {
+                <option [value]="m">{{ m }}</option>
+              }
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="status">病人狀態</label>
+            <select id="status" [(ngModel)]="form.status" name="status" [disabled]="isEditing">
+              <option value="er">急診</option>
+              <option value="ipd">住院</option>
+              <option value="opd">門診</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>病人身份</label>
+            <div class="radio-group">
+              <label><input type="radio" [(ngModel)]="form.patientCategory" name="patientCategory" value="opd_regular" /><span>常規門診病人</span></label>
+              <label><input type="radio" [(ngModel)]="form.patientCategory" name="patientCategory" value="non_regular" /><span>非固定病人</span></label>
             </div>
           </div>
         </div>
+      </div>
 
-        @if (patientType === 'opd') {
-          <div class="form-section">
-            <div class="opd-extra-grid">
-              <div class="form-field">
-                <label for="vasc-access">\u76EE\u524D\u8840\u7BA1\u901A\u8DEF</label>
-                <select id="vasc-access" [(ngModel)]="form.vascAccess" name="vascAccess">
-                  <option disabled value="">\u8ACB\u9078\u64C7</option>
-                  @for (va of VASC_ACCESSES; track va) {
-                    <option [value]="va">{{ va }}</option>
-                  }
-                </select>
-              </div>
-              <div class="form-field">
-                <label for="first-dialysis-date">\u9996\u6B21\u900F\u6790\u65E5\u671F</label>
-                <input type="date" id="first-dialysis-date" [(ngModel)]="form.firstDialysisDate" name="firstDialysisDate" />
-              </div>
-              <div class="form-field">
-                <label for="access-creation-date">\u901A\u8DEF\u5EFA\u7ACB\u65E5\u671F</label>
-                <input type="date" id="access-creation-date" [(ngModel)]="form.accessCreationDate" name="accessCreationDate" />
-              </div>
-              <div class="form-field">
-                <label>\u900F\u6790\u9662\u6240</label>
-                <div class="hospital-input-group">
-                  <input type="text" [(ngModel)]="form.hospitalInfo.source" name="hospitalSource" placeholder="\u539F\u900F\u6790\u9662\u6240" />
-                  <div class="divider-line"></div>
-                  <input type="text" [(ngModel)]="form.hospitalInfo.transferOut" name="hospitalTransferOut" placeholder="\u8F49\u51FA\u9662\u6240" />
-                </div>
-              </div>
-              <div class="form-field dialysis-reason-opd">
-                <label for="dialysis-reason">\u900F\u6790\u539F\u56E0</label>
-                <input type="text" id="dialysis-reason" [(ngModel)]="form.dialysisReason" name="dialysisReason" />
-              </div>
-              <div class="form-field remarks-opd">
-                <label for="remarks">\u5099\u8A3B</label>
-                <textarea id="remarks" rows="2" [(ngModel)]="form.remarks" name="remarks"></textarea>
-              </div>
-            </div>
-          </div>
-        } @else {
-          <div class="form-section">
+      @if (patientType === 'opd') {
+        <div class="form-section">
+          <div class="opd-extra-grid">
             <div class="form-field">
-              <label>\u900F\u6790\u9662\u6240</label>
+              <label for="vasc-access">目前血管通路</label>
+              <select id="vasc-access" [(ngModel)]="form.vascAccess" name="vascAccess">
+                <option disabled value="">請選擇</option>
+                @for (va of VASC_ACCESSES; track va) {
+                  <option [value]="va">{{ va }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-field">
+              <label for="first-dialysis-date">首次透析日期</label>
+              <input type="date" id="first-dialysis-date" [(ngModel)]="form.firstDialysisDate" name="firstDialysisDate" />
+            </div>
+            <div class="form-field">
+              <label for="access-creation-date">通路建立日期</label>
+              <input type="date" id="access-creation-date" [(ngModel)]="form.accessCreationDate" name="accessCreationDate" />
+            </div>
+            <div class="form-field">
+              <label>透析院所</label>
               <div class="hospital-input-group">
-                <input type="text" [(ngModel)]="form.hospitalInfo.source" name="hospitalSource" placeholder="\u539F\u900F\u6790\u9662\u6240" />
+                <input type="text" [(ngModel)]="form.hospitalInfo.source" name="hospitalSource" placeholder="原透析院所" />
                 <div class="divider-line"></div>
-                <input type="text" [(ngModel)]="form.hospitalInfo.transferOut" name="hospitalTransferOut" placeholder="\u8F49\u51FA\u9662\u6240" />
+                <input type="text" [(ngModel)]="form.hospitalInfo.transferOut" name="hospitalTransferOut" placeholder="轉出院所" />
               </div>
             </div>
-          </div>
-          <div class="form-section">
-            <div class="form-grid-2-col">
-              <div class="form-field">
-                <label for="inpatient-reason">\u4F4F\u9662\u539F\u56E0</label>
-                <input type="text" id="inpatient-reason" [(ngModel)]="form.inpatientReason" name="inpatientReason" />
-              </div>
-              <div class="form-field">
-                <label for="dialysis-reason">\u900F\u6790\u539F\u56E0</label>
-                <input type="text" id="dialysis-reason" [(ngModel)]="form.dialysisReason" name="dialysisReason" />
-              </div>
+            <div class="form-field dialysis-reason-opd">
+              <label for="dialysis-reason">透析原因</label>
+              <input type="text" id="dialysis-reason" [(ngModel)]="form.dialysisReason" name="dialysisReason" />
             </div>
-            <div class="form-field">
-              <label for="remarks">\u5099\u8A3B</label>
+            <div class="form-field remarks-opd">
+              <label for="remarks">備註</label>
               <textarea id="remarks" rows="2" [(ngModel)]="form.remarks" name="remarks"></textarea>
             </div>
           </div>
-        }
-
+        </div>
+      } @else {
         <div class="form-section">
+          <div class="form-field">
+            <label>透析院所</label>
+            <div class="hospital-input-group">
+              <input type="text" [(ngModel)]="form.hospitalInfo.source" name="hospitalSource" placeholder="原透析院所" />
+              <div class="divider-line"></div>
+              <input type="text" [(ngModel)]="form.hospitalInfo.transferOut" name="hospitalTransferOut" placeholder="轉出院所" />
+            </div>
+          </div>
+        </div>
+        <div class="form-section">
+          <div class="form-grid-2-col">
+            <div class="form-field">
+              <label for="inpatient-reason">住院原因</label>
+              <input type="text" id="inpatient-reason" [(ngModel)]="form.inpatientReason" name="inpatientReason" />
+            </div>
+            <div class="form-field">
+              <label for="dialysis-reason">透析原因</label>
+              <input type="text" id="dialysis-reason" [(ngModel)]="form.dialysisReason" name="dialysisReason" />
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="remarks">備註</label>
+            <textarea id="remarks" rows="2" [(ngModel)]="form.remarks" name="remarks"></textarea>
+          </div>
+        </div>
+      }
+
+      <div class="form-section">
+        <fieldset class="form-group">
+          <legend>須注意疾病</legend>
+          <div class="custom-checkbox-container">
+            @for (d of DISEASES; track d) {
+              <div class="custom-checkbox" [class.selected]="isDiseaseSelected(d)" (click)="toggleDisease(d)">
+                {{ d }}
+              </div>
+            }
+          </div>
+        </fieldset>
+        @if (form.patientStatus) {
           <fieldset class="form-group">
-            <legend>\u9808\u6CE8\u610F\u75BE\u75C5</legend>
+            <legend>狀態標記</legend>
             <div class="custom-checkbox-container">
-              @for (d of DISEASES; track d) {
-                <div class="custom-checkbox" [class.selected]="isDiseaseSelected(d)" (click)="toggleDisease(d)">
-                  {{ d }}
+              <div class="status-date-tag" [class.active]="form.patientStatus.isFirstDialysis?.active" (click)="toggleStatus('isFirstDialysis')">
+                <span>首透</span>
+                @if (form.patientStatus.isFirstDialysis?.active) {
+                  <input type="date" [(ngModel)]="form.patientStatus.isFirstDialysis.date" name="firstDialysisStatusDate" (click)="$event.stopPropagation()" />
+                }
+              </div>
+              <div class="status-date-tag" [class.active]="form.patientStatus.isPaused?.active" (click)="toggleStatus('isPaused')">
+                <span>暫停透析</span>
+                @if (form.patientStatus.isPaused?.active) {
+                  <input type="date" [(ngModel)]="form.patientStatus.isPaused.date" name="pausedStatusDate" (click)="$event.stopPropagation()" />
+                }
+              </div>
+              @if (patientType !== 'opd') {
+                <div class="status-date-tag" [class.active]="form.patientStatus.hasBloodDraw?.active" (click)="toggleStatus('hasBloodDraw')">
+                  <span>已抽血</span>
+                  @if (form.patientStatus.hasBloodDraw?.active) {
+                    <input type="date" [(ngModel)]="form.patientStatus.hasBloodDraw.date" name="bloodDrawStatusDate" (click)="$event.stopPropagation()" />
+                  }
                 </div>
               }
             </div>
           </fieldset>
-          @if (form.patientStatus) {
-            <fieldset class="form-group">
-              <legend>\u72C0\u614B\u6A19\u8A18</legend>
-              <div class="custom-checkbox-container">
-                <div class="status-date-tag" [class.active]="form.patientStatus.isFirstDialysis.active" (click)="toggleStatus('isFirstDialysis')">
-                  <span>\u9996\u900F</span>
-                  @if (form.patientStatus.isFirstDialysis.active) {
-                    <input type="date" [(ngModel)]="form.patientStatus.isFirstDialysis.date" name="firstDialysisStatusDate" (click)="$event.stopPropagation()" />
-                  }
-                </div>
-                <div class="status-date-tag" [class.active]="form.patientStatus.isPaused.active" (click)="toggleStatus('isPaused')">
-                  <span>\u66AB\u505C\u900F\u6790</span>
-                  @if (form.patientStatus.isPaused.active) {
-                    <input type="date" [(ngModel)]="form.patientStatus.isPaused.date" name="pausedStatusDate" (click)="$event.stopPropagation()" />
-                  }
-                </div>
-                @if (patientType !== 'opd') {
-                  <div class="status-date-tag" [class.active]="form.patientStatus.hasBloodDraw.active" (click)="toggleStatus('hasBloodDraw')">
-                    <span>\u5DF2\u62BD\u8840</span>
-                    @if (form.patientStatus.hasBloodDraw.active) {
-                      <input type="date" [(ngModel)]="form.patientStatus.hasBloodDraw.date" name="bloodDrawStatusDate" (click)="$event.stopPropagation()" />
-                    }
-                  </div>
-                }
-              </div>
-            </fieldset>
-          }
-        </div>
+        }
+      </div>
 
-        <div class="modal-footer">
-          <button type="button" class="btn-secondary" (click)="closeModal()">\u53D6\u6D88</button>
-          <button type="submit" class="btn-primary">\u5132\u5B58</button>
-        </div>
-      </form>
-    </div>
+      <div class="modal-footer">
+        <button type="button" class="btn-secondary" (click)="closeModal()">取消</button>
+        <button type="submit" class="btn-primary">儲存</button>
+      </div>
+    </form>
   </div>
-}
+</div>

@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -9,8 +9,7 @@ import { FormsModule } from '@angular/forms';
   templateUrl: './patient-form-modal.component.html',
   styleUrl: './patient-form-modal.component.css'
 })
-export class PatientFormModalComponent implements OnChanges {
-  @Input() isModalVisible = true;
+export class PatientFormModalComponent implements OnInit {
   @Input() patientData: any = {};
   @Input() patientType = '';
   @Output() close = new EventEmitter<void>();
@@ -18,46 +17,42 @@ export class PatientFormModalComponent implements OnChanges {
 
   form: any = {};
 
-  readonly PHYSICIANS = ['\u5ED6\u4E01\u7469', '\u8521\u5B9C\u6F54', '\u8607\u54F2\u5F18', '\u8521\u4EA8\u653F'];
+  readonly PHYSICIANS = ['廖丁瑩', '蔡宜潔', '蘇哲弘', '蔡亨政'];
   readonly FREQ_OPTIONS = [
-    '\u4E00\u4E09\u4E94', '\u4E8C\u56DB\u516D', '\u4E00\u56DB', '\u4E8C\u4E94', '\u4E09\u516D',
-    '\u4E00\u4E94', '\u4E8C\u516D', '\u6BCF\u65E5',
-    '\u6BCF\u5468\u4E00', '\u6BCF\u5468\u4E8C', '\u6BCF\u5468\u4E09', '\u6BCF\u5468\u56DB', '\u6BCF\u5468\u4E94', '\u6BCF\u5468\u516D',
-    '\u81E8\u6642',
+    '一三五', '二四六', '一四', '二五', '三六',
+    '一五', '二六', '每日',
+    '每周一', '每周二', '每周三', '每周四', '每周五', '每周六',
+    '臨時',
   ];
   readonly MODES = ['HD', 'SLED', 'CVVHDF', 'PP', 'DFPP', 'Lipid'];
-  readonly VASC_ACCESSES = ['Double lumen', 'PERM', '\u5DE6\u624BAVF', '\u53F3\u624BAVF', '\u5DE6\u624BAVG', '\u53F3\u624BAVG'];
-  readonly DISEASES = ['HIV', 'RPR', 'BC\u809D?', 'HBV', 'HCV', 'C\u809D\u6CBB\u7652', 'COVID', '\u9694\u96E2'];
+  readonly VASC_ACCESSES = ['Double lumen', 'PERM', '左臂AVF', '右臂AVF', '左臂AVG', '右臂AVG'];
+  readonly DISEASES = ['HIV', 'RPR', 'BC肝?', 'HBV', 'HCV', 'C肝治癒', 'COVID', '隔離'];
 
   get isEditing(): boolean {
     return !!(this.form && this.form.id);
   }
 
   get patientTypeText(): string {
-    const map: Record<string, string> = { ipd: '\u4F4F\u9662', opd: '\u9580\u8A3A', er: '\u6025\u8A3A' };
+    const map: Record<string, string> = { ipd: '住院', opd: '門診', er: '急診' };
     return map[this.patientType] || '';
   }
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['isModalVisible'] && this.isModalVisible) {
-      document.body.classList.add('modal-open');
-      const data = JSON.parse(JSON.stringify(this.patientData || {}));
-      if (!data.id) {
-        data.status = this.patientType;
-        data.patientCategory = this.patientType === 'opd' ? 'opd_regular' : 'non_regular';
-      }
-      if (!data.patientCategory) data.patientCategory = 'opd_regular';
-      data.diseases = data.diseases || [];
-      data.patientStatus = data.patientStatus || {
-        isFirstDialysis: { active: false, date: null },
-        isPaused: { active: false, date: null },
-        hasBloodDraw: { active: false, date: null },
-      };
-      data.hospitalInfo = data.hospitalInfo || { source: '', transferOut: '' };
-      this.form = data;
-    } else if (changes['isModalVisible'] && !this.isModalVisible) {
-      document.body.classList.remove('modal-open');
+  ngOnInit(): void {
+    document.body.classList.add('modal-open');
+    const data = JSON.parse(JSON.stringify(this.patientData || {}));
+    if (!data.id) {
+      data.status = this.patientType;
+      data.patientCategory = this.patientType === 'opd' ? 'opd_regular' : 'non_regular';
     }
+    if (!data.patientCategory) data.patientCategory = 'opd_regular';
+    data.diseases = data.diseases || [];
+    data.patientStatus = data.patientStatus || {
+      isFirstDialysis: { active: false, date: null },
+      isPaused: { active: false, date: null },
+      hasBloodDraw: { active: false, date: null },
+    };
+    data.hospitalInfo = data.hospitalInfo || { source: '', transferOut: '' };
+    this.form = data;
   }
 
   toggleDisease(disease: string): void {
@@ -82,12 +77,13 @@ export class PatientFormModalComponent implements OnChanges {
   }
 
   closeModal(): void {
+    document.body.classList.remove('modal-open');
     this.close.emit();
   }
 
   handleSave(): void {
     if (!this.form.name || !this.form.medicalRecordNumber) {
-      alert('\u59D3\u540D\u548C\u75C5\u6B77\u865F\u70BA\u5FC5\u586B\u9805\uFF01');
+      alert('姓名和病歷號為必填項！');
       return;
     }
     this.save.emit(this.form);

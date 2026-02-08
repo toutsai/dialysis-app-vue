@@ -562,8 +562,8 @@
     [isVisible]="isConfirmDialogVisible"
     title="請確認"
     [message]="confirmDialogMessage"
-    (confirmEvent)="handleConfirm()"
-    (cancelEvent)="handleCancel()"
+    (confirm)="handleConfirm()"
+    (cancel)="handleCancel()"
   ></app-confirm-dialog>
 
   <app-preparation-popover
@@ -582,10 +582,10 @@
   ></app-daily-injection-list-dialog>
 
   <app-dialysis-order-modal
-    [isVisible]="isOrderModalVisible"
+    *ngIf="isOrderModalVisible"
     [patientData]="editingPatientForOrder"
-    (closeEvent)="isOrderModalVisible = false"
-    (saveEvent)="handleSaveOrder($event)"
+    (close)="isOrderModalVisible = false"
+    (save)="handleSaveOrder($event)"
   ></app-dialysis-order-modal>
 
   <app-exception-create-dialog
@@ -593,15 +593,15 @@
     [allPatients]="allPatients"
     [isPageLocked]="isPageLocked"
     [initialData]="exceptionToEdit"
-    (closeEvent)="isExceptionDialogVisible = false"
-    (submitEvent)="handleCreateException($event)"
+    (close)="isExceptionDialogVisible = false"
+    (submit)="handleCreateException($event)"
   ></app-exception-create-dialog>
 
   <app-new-update-type-dialog
     [isVisible]="isNewUpdateTypeDialogVisible"
     [allPatients]="allPatients"
-    (closeEvent)="isNewUpdateTypeDialogVisible = false"
-    (continueEvent)="handleNewUpdateTypeSelected($event)"
+    (close)="isNewUpdateTypeDialogVisible = false"
+    (continue)="handleNewUpdateTypeSelected($event)"
   ></app-new-update-type-dialog>
 
   <app-patient-update-scheduler-dialog
@@ -610,8 +610,8 @@
     [changeType]="changeTypeForScheduler"
     [allPatients]="allPatients"
     [isEditing]="false"
-    (closeEvent)="isSchedulerDialogVisible = false"
-    (submitEvent)="handleScheduledUpdate($event)"
+    (close)="isSchedulerDialogVisible = false"
+    (submit)="handleScheduledUpdate($event)"
   ></app-patient-update-scheduler-dialog>
 
   <!-- Mobile FAB -->

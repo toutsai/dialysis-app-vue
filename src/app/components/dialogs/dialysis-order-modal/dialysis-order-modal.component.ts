@@ -1,20 +1,21 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, inject } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FirebaseService } from '@services/firebase.service';
+import { ConfirmDialogComponent } from '../confirm-dialog/confirm-dialog.component';
 import { collection, query, where, orderBy, limit, getDocs, deleteDoc, doc } from 'firebase/firestore';
 
 @Component({
   selector: 'app-dialysis-order-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, ConfirmDialogComponent],
   templateUrl: './dialysis-order-modal.component.html',
   styleUrl: './dialysis-order-modal.component.css'
 })
-export class DialysisOrderModalComponent implements OnChanges {
+export class DialysisOrderModalComponent implements OnInit, OnDestroy {
   private readonly firebase = inject(FirebaseService);
 
-  @Input() isVisible = true;
+  @Input() patient: any = null;
   @Input() patientData: any = null;
   @Output() close = new EventEmitter<void>();
   @Output() save = new EventEmitter<any>();
@@ -55,8 +56,15 @@ export class DialysisOrderModalComponent implements OnChanges {
     };
   }
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['isVisible'] && this.isVisible && this.patientData) {
+  ngOnInit(): void {
+    document.body.classList.add('modal-open');
+
+    // Parent passes [patient], map to patientData for internal use
+    if (this.patient && !this.patientData) {
+      this.patientData = this.patient;
+    }
+
+    if (this.patientData) {
       const orders = this.patientData.dialysisOrders || {};
       const patient = this.patientData;
 
@@ -89,10 +97,11 @@ export class DialysisOrderModalComponent implements OnChanges {
       });
 
       this.fetchOrderHistory(this.patientData.id);
-    } else if (changes['isVisible'] && !this.isVisible) {
-      this.localOrderData = this.createFormState();
-      this.orderHistory = [];
     }
+  }
+
+  ngOnDestroy(): void {
+    document.body.classList.remove('modal-open');
   }
 
   get shouldShowNeedleSize(): boolean {
@@ -105,7 +114,7 @@ export class DialysisOrderModalComponent implements OnChanges {
 
   get activeOrder(): any {
     const effectiveOrders = this.orderHistory
-      .filter((o: any) => o.orders.effectiveDate <= this.todayStr)
+      .filter((o: any) => o.orders?.effectiveDate <= this.todayStr)
       .sort((a: any, b: any) => {
         const dateA = this.getDate(b.updatedAt);
         const dateB = this.getDate(a.updatedAt);
@@ -116,10 +125,10 @@ export class DialysisOrderModalComponent implements OnChanges {
 
   get pendingOrders(): any[] {
     return this.orderHistory
-      .filter((o: any) => o.orders.effectiveDate > this.todayStr)
+      .filter((o: any) => o.orders?.effectiveDate > this.todayStr)
       .sort((a: any, b: any) => {
-        const dateA = this.getDate(a.orders.effectiveDate);
-        const dateB = this.getDate(b.orders.effectiveDate);
+        const dateA = this.getDate(a.orders?.effectiveDate);
+        const dateB = this.getDate(b.orders?.effectiveDate);
         return (dateA?.getTime() || 0) - (dateB?.getTime() || 0);
       });
   }
@@ -194,6 +203,7 @@ export class DialysisOrderModalComponent implements OnChanges {
   }
 
   handleClose(): void {
+    document.body.classList.remove('modal-open');
     this.close.emit();
   }
 
