@@ -512,18 +512,18 @@
 
   <!-- Dialogs -->
   <app-ward-number-dialog
-    [isVisible]="isWardDialogVisible"
+    *ngIf="isWardDialogVisible"
     [currentValue]="wardDialogCurrentValue"
-    (confirmEvent)="handleWardNumberConfirm($event)"
-    (cancelEvent)="handleWardNumberCancel()">
+    (confirm)="handleWardNumberConfirm($event)"
+    (cancel)="handleWardNumberCancel()">
   </app-ward-number-dialog>
 
   <app-confirm-dialog
     [isVisible]="isConfirmDialogVisible"
     [title]="confirmDialogTitle"
     [message]="confirmDialogMessage"
-    (confirmEvent)="handleConfirm()"
-    (cancelEvent)="handleCancel()">
+    (confirm)="handleConfirm()"
+    (cancel)="handleCancel()">
   </app-confirm-dialog>
 
   <app-alert-dialog

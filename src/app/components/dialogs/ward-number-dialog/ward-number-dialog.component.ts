@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, ViewChild, ElementRef, AfterViewChecked } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, ViewChild, ElementRef, AfterViewChecked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -9,24 +9,22 @@ import { FormsModule } from '@angular/forms';
   templateUrl: './ward-number-dialog.component.html',
   styleUrl: './ward-number-dialog.component.css'
 })
-export class WardNumberDialogComponent implements OnChanges {
-  @Input() isVisible = false;
+export class WardNumberDialogComponent implements OnInit, AfterViewChecked {
   @Input() title = '';
   @Input() message = '';
   @Input() currentValue = '';
-  @Output() confirmEvent = new EventEmitter<string>();
-  @Output() cancelEvent = new EventEmitter<void>();
+  @Output() confirm = new EventEmitter<string>();
+  @Output() cancel = new EventEmitter<void>();
 
   @ViewChild('inputRef') inputRef!: ElementRef<HTMLInputElement>;
 
   localValue = '';
   private shouldFocus = false;
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['isVisible'] && this.isVisible) {
-      this.localValue = this.currentValue || '';
-      this.shouldFocus = true;
-    }
+  ngOnInit(): void {
+    document.body.classList.add('modal-open');
+    this.localValue = this.currentValue || '';
+    this.shouldFocus = true;
   }
 
   ngAfterViewChecked(): void {
@@ -38,10 +36,12 @@ export class WardNumberDialogComponent implements OnChanges {
   }
 
   onConfirm(): void {
-    this.confirmEvent.emit(this.localValue.trim());
+    document.body.classList.remove('modal-open');
+    this.confirm.emit(this.localValue.trim());
   }
 
   onCancel(): void {
-    this.cancelEvent.emit();
+    document.body.classList.remove('modal-open');
+    this.cancel.emit();
   }
 }

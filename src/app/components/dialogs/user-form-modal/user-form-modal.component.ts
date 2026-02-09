@@ -13,8 +13,8 @@ export class UserFormModalComponent implements OnChanges {
   @Input() isVisible = false;
   @Input() isEditing = false;
   @Input() user: any = null;
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() saveEvent = new EventEmitter<any>();
+  @Output() closed = new EventEmitter<void>();
+  @Output() saved = new EventEmitter<any>();
 
   readonly titles = ['主治醫師', '護理長', '護理師', '專科護理師', '管理員', '書記'];
   readonly roles = [
@@ -121,11 +121,11 @@ export class UserFormModalComponent implements OnChanges {
       delete dataToSave.defaultSchedules;
       delete dataToSave.defaultConsultationSchedules;
     }
-    this.saveEvent.emit(dataToSave);
+    this.saved.emit(dataToSave);
   }
 
   closeModal(): void {
-    this.closeEvent.emit();
+    this.closed.emit();
   }
 
   isScheduleChecked(scheduleList: string[], value: string): boolean {

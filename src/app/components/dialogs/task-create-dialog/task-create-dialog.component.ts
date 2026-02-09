@@ -28,8 +28,8 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
   @Input() preselectedPatient: any = null;
   @Input() allPatients: any[] = [];
   @Input() initialData: any = null;
-  @Output() closeEvent = new EventEmitter<void>();
-  @Output() submitEvent = new EventEmitter<any>();
+  @Output() close = new EventEmitter<void>();
+  @Output() submit = new EventEmitter<any>();
 
   private authService = inject(AuthService);
   private notificationService = inject(NotificationService);
@@ -294,8 +294,8 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
           notifType = 'task';
         }
         this.notificationService.createGlobalNotification(notifMessage, notifType, { documentId: savedDoc.id } as any);
-        this.submitEvent.emit({ ...dataToSave, id: savedDoc.id });
-        this.close();
+        this.submit.emit({ ...dataToSave, id: savedDoc.id });
+        this.handleClose();
       } catch (error) {
         console.error('Failed to create:', error);
       } finally {
@@ -311,12 +311,12 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
         dataToUpdate.type = this.formData.messageType;
         dataToUpdate.targetDate = this.formData.targetDate;
       }
-      this.submitEvent.emit({ id: this.formData.id, ...dataToUpdate });
+      this.submit.emit({ id: this.formData.id, ...dataToUpdate });
       this.isSubmitting = false;
     }
   }
 
-  close() {
-    this.closeEvent.emit();
+  handleClose(): void {
+    this.close.emit();
   }
 }

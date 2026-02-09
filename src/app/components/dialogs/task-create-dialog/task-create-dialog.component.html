@@ -1,9 +1,9 @@
 @if (isVisible) {
-  <div class="modal-overlay" (click)="close()">
+  <div class="modal-overlay" (click)="handleClose()">
     <div class="modal-container" (click)="$event.stopPropagation()">
       <header class="modal-header">
         <h2>{{ isEditMode ? '修改交辦 / 留言' : '新增交辦 / 留言' }}</h2>
-        <button class="close-btn" (click)="close()">&times;</button>
+        <button class="close-btn" (click)="handleClose()">&times;</button>
       </header>
       <main class="modal-body">
         <!-- Category -->
@@ -177,7 +177,7 @@
         </div>
       </main>
       <footer class="modal-footer">
-        <button class="btn btn-secondary" (click)="close()">取消</button>
+        <button class="btn btn-secondary" (click)="handleClose()">取消</button>
         <button class="btn btn-primary" (click)="handleSubmit()" [disabled]="!isFormValid || isSubmitting">
           {{ isSubmitting ? '處理中...' : isEditMode ? '更新' : '送出' }}
         </button>
