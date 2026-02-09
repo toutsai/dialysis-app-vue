@@ -1,85 +1,106 @@
 <div class="schedule-table-container">
-    <table class="schedule-table">
-      <thead #theadRef>
-        <tr>
-          <th class="bed-header-cell">床位</th>
-          <th class="shift-header-cell">班次</th>
-          @for (day of weekdays; track index; let index = $index) {
-            <th class="day-header-cell">
-              {{ day }}
-              @if (weekDates[index]) {
-                <span class="date-display">{{ weekDates[index] }}</span>
-              }
-            </th>
-          }
-        </tr>
-      </thead>
-      <tbody>
-        @for (bedNum of layout; track `bed-${bedNum}`) {
-          <ng-container>
-            <tr class="bed-row">
-              <td
-                class="bed-number-cell"
-                [rowspan]="shifts.length"
-                [ngClass]="{ 'hepatitis-bed': hepatitisBeds.includes(bedNum) }"
-              >
-                {{ getBedDisplayName(bedNum) }}
+  <table class="schedule-table">
+    <thead #theadRef>
+      <tr>
+        <th class="bed-header-cell">床位</th>
+        <th class="shift-header-cell">班次</th>
+        @for (day of weekdays; track $index; let dayIndex = $index) {
+          <th class="day-header-cell">
+            {{ day }}
+            @if (weekDates[dayIndex]) {
+              <span class="date-display">{{ weekDates[dayIndex] }}</span>
+            }
+          </th>
+        }
+      </tr>
+    </thead>
+    <tbody>
+      @for (bedNum of layout; track bedNum) {
+        <ng-container>
+          <!-- First shift row (includes bed number cell with rowspan) -->
+          <tr class="bed-row">
+            <td
+              class="bed-number-cell"
+              [rowspan]="shifts.length"
+              [ngClass]="{ 'hepatitis-bed': hepatitisBeds.includes(bedNum) }"
+            >
+              {{ getBedDisplay(bedNum) }}
+            </td>
+            <td class="shift-name-cell">{{ shiftDisplayNames[shifts[0]] || shifts[0] }}</td>
+            @for (day of weekdays; track $index; let dayIndex = $index) {
+              <td>
+                <div
+                  class="schedule-slot"
+                  [attr.data-slot-id]="getSlotId(bedNum, 0, dayIndex)"
+                  [ngClass]="getCellStyle(bedNum, 0, dayIndex)"
+                  [class.is-past]="isPast(dayIndex)"
+                  [draggable]="isDraggable(getSlotId(bedNum, 0, dayIndex), dayIndex)"
+                  (click)="onSlotClick(bedNum, 0, dayIndex)"
+                  (drop)="onSlotDrop($event, bedNum, 0, dayIndex)"
+                  (dragstart)="onSlotDragStart($event, bedNum, 0, dayIndex)"
+                  (dragover)="onSlotDragOver($event, dayIndex)"
+                  (dragleave)="onSlotDragLeave($event)"
+                >
+                  @if (getPatientDetails(getSlotId(bedNum, 0, dayIndex)); as details) {
+                    <div class="patient-details">
+                      <div class="patient-name">
+                        {{ details.name }}
+                        <app-patient-messages-icon
+                          [patientId]="details.patientId"
+                          [typesMap]="typesMap"
+                        ></app-patient-messages-icon>
+                        @for (disease of details.diseases; track disease) {
+                          <span class="disease-tag-in-table">{{ disease }}</span>
+                        }
+                      </div>
+                      <div class="patient-mrn">
+                        {{ details.medicalRecordNumber }}
+                        @if (details.patient?.mode && details.patient.mode !== 'HD') {
+                          <span class="special-dialysis-label">({{ details.patient.mode }})</span>
+                        }
+                      </div>
+                    </div>
+                  } @else if (isSlotInteractive(dayIndex)) {
+                    <div class="empty-slot-placeholder">+</div>
+                  }
+                </div>
               </td>
-              <td class="shift-name-cell">{{ getShiftDisplayName(shifts[0]) }}</td>
-              @for (day of weekdays; track `slot-${bedNum}-0-${dayIndex}`; let dayIndex = $index) {
+            }
+          </tr>
+          <!-- Remaining shift rows -->
+          @for (shift of remainingShifts; track $index; let si = $index) {
+            <tr>
+              <td class="shift-name-cell">{{ shiftDisplayNames[shift] || shift }}</td>
+              @for (day of weekdays; track $index; let dayIndex = $index) {
                 <td>
                   <div
                     class="schedule-slot"
-                    [data-slot-id]="`${bedNum}-0-${dayIndex}`"
-                    [ngClass]="[
-                      getStyleFunc(`${bedNum}-0-${dayIndex}`),
-                      { 'is-past': !isSlotInteractive(dayIndex) && props.isDateInPast(dayIndex) },
-                    ]"
-                    [draggable]="
-                      getPatientDetails(`${bedNum}-0-${dayIndex}`) && isSlotInteractive(dayIndex)
-                        ? 'true'
-                        : 'false'
-                    "
-                    (click)="
-                      isSlotInteractive(dayIndex) && emit('grid-click', `${bedNum}-0-${dayIndex}`)
-                    "
-                    (drop)="
-                      isSlotInteractive(dayIndex) && emit('drop', $event, `${bedNum}-0-${dayIndex}`)
-                    "
-                    (dragstart)="
-                      isSlotInteractive(dayIndex) &&
-                      emit('drag-start', $event, `${bedNum}-0-${dayIndex}`)
-                    "
-                    (dragover)="isSlotInteractive(dayIndex) && emit('drag-over', $event); $event.preventDefault()"
-                    (dragleave)="emit('drag-leave', $event)"
+                    [attr.data-slot-id]="getSlotId(bedNum, si + 1, dayIndex)"
+                    [ngClass]="getCellStyle(bedNum, si + 1, dayIndex)"
+                    [class.is-past]="isPast(dayIndex)"
+                    [draggable]="isDraggable(getSlotId(bedNum, si + 1, dayIndex), dayIndex)"
+                    (click)="onSlotClick(bedNum, si + 1, dayIndex)"
+                    (drop)="onSlotDrop($event, bedNum, si + 1, dayIndex)"
+                    (dragstart)="onSlotDragStart($event, bedNum, si + 1, dayIndex)"
+                    (dragover)="onSlotDragOver($event, dayIndex)"
+                    (dragleave)="onSlotDragLeave($event)"
                   >
-                    @if (getPatientDetails(`${bedNum}-0-${dayIndex}`)) {
+                    @if (getPatientDetails(getSlotId(bedNum, si + 1, dayIndex)); as details) {
                       <div class="patient-details">
                         <div class="patient-name">
-                          {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).name }}
-
-                          <!-- 核心修改 #1: 將 typesMap 傳遞給 PatientMessagesIcon -->
-                          <PatientMessagesIcon
-                            [patient-id]="scheduleData[`${bedNum}-0-${dayIndex}`]?.patientId"
-                            [typesMap]="props.typesMap"
-                          />
-
-                          @for (disease of getPatientDetails(`${bedNum}-0-${dayIndex}`).diseases; track disease) {
-                            <span
-                              class="disease-tag-in-table"
-                              >{{ disease }}</span
-                            >
+                          {{ details.name }}
+                          <app-patient-messages-icon
+                            [patientId]="details.patientId"
+                            [typesMap]="typesMap"
+                          ></app-patient-messages-icon>
+                          @for (disease of details.diseases; track disease) {
+                            <span class="disease-tag-in-table">{{ disease }}</span>
                           }
                         </div>
                         <div class="patient-mrn">
-                          {{ getPatientDetails(`${bedNum}-0-${dayIndex}`).medicalRecordNumber }}
-                          @if (
-                              getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode &&
-                              getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode !== 'HD'
-                            ) {
-                            <span class="special-dialysis-label">
-                              ({{ getPatientDetails(`${bedNum}-0-${dayIndex}`).patient.mode }})
-                            </span>
+                          {{ details.medicalRecordNumber }}
+                          @if (details.patient?.mode && details.patient.mode !== 'HD') {
+                            <span class="special-dialysis-label">({{ details.patient.mode }})</span>
                           }
                         </div>
                       </div>
@@ -90,82 +111,9 @@
                 </td>
               }
             </tr>
-            @for (shiftIndex of shifts.length - 1; track `shift-row-${bedNum}-${shiftIndex}`) {
-              <tr>
-                <td class="shift-name-cell">{{ getShiftDisplayName(shifts[shiftIndex]) }}</td>
-                @for (day of weekdays; track `slot-${bedNum}-${shiftIndex}-${dayIndex}`; let dayIndex = $index) {
-                  <td>
-                    <div
-                      class="schedule-slot"
-                      [data-slot-id]="`${bedNum}-${shiftIndex}-${dayIndex}`"
-                      [ngClass]="[
-                        getStyleFunc(`${bedNum}-${shiftIndex}-${dayIndex}`),
-                        { 'is-past': !isSlotInteractive(dayIndex) && props.isDateInPast(dayIndex) },
-                      ]"
-                      [draggable]="
-                        getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`) &&
-                        isSlotInteractive(dayIndex)
-                          ? 'true'
-                          : 'false'
-                      "
-                      (click)="
-                        isSlotInteractive(dayIndex) &&
-                        emit('grid-click', `${bedNum}-${shiftIndex}-${dayIndex}`)
-                      "
-                      (drop)="
-                        isSlotInteractive(dayIndex) &&
-                        emit('drop', $event, `${bedNum}-${shiftIndex}-${dayIndex}`)
-                      "
-                      (dragstart)="
-                        isSlotInteractive(dayIndex) &&
-                        emit('drag-start', $event, `${bedNum}-${shiftIndex}-${dayIndex}`)
-                      "
-                      (dragover)="isSlotInteractive(dayIndex) && emit('drag-over', $event); $event.preventDefault()"
-                      (dragleave)="emit('drag-leave', $event)"
-                    >
-                      @if (getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`)) {
-                        <div class="patient-details">
-                          <div class="patient-name">
-                            {{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).name }}
-
-                            <!-- 核心修改 #1 (重複): 將 typesMap 傳遞給 PatientMessagesIcon -->
-                            <PatientMessagesIcon
-                              [patient-id]="scheduleData[`${bedNum}-${shiftIndex}-${dayIndex}`]?.patientId"
-                              [typesMap]="props.typesMap"
-                            />
-
-                            @for (disease of getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`); track disease) {
-                              <span
-                                class="disease-tag-in-table"
-                                >{{ disease }}</span
-                              >
-                            }
-                          </div>
-                          <div class="patient-mrn">
-                            {{
-                              getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).medicalRecordNumber
-                            }}
-                            @if (
-                                getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode &&
-                                getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode !==
-                                  'HD'
-                              ) {
-                              <span class="special-dialysis-label">
-                                ({{ getPatientDetails(`${bedNum}-${shiftIndex}-${dayIndex}`).patient.mode }})
-                              </span>
-                            }
-                          </div>
-                        </div>
-                      } @else if (isSlotInteractive(dayIndex)) {
-                        <div class="empty-slot-placeholder">+</div>
-                      }
-                    </div>
-                  </td>
-                }
-              </tr>
-            }
-          </ng-container>
-        }
-      </tbody>
-    </table>
+          }
+        </ng-container>
+      }
+    </tbody>
+  </table>
 </div>
