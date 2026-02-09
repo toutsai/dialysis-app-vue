@@ -300,7 +300,7 @@ export async function createDialysisOrderAndUpdatePatient(patientId, patientName
     await Promise.all([
       // ✅ [核心修正 2] 呼叫 saveDialysisOrderHistory 時傳入正確的參數
       saveDialysisOrderHistory(historyRecord),
-      updatePatient(patientId, { dialysisOrders: latestOrdersForPatient }),
+      updatePatient(patientId, { dialysisOrders: latestOrdersForPatient, updatedAt: now }),
     ])
     console.log(`✅ [API] 成功為 ${patientName} 創建並同步醫囑。`)
     clearCacheByPattern('patients')

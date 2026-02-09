@@ -890,7 +890,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
       async () => {
         try {
           const db = this.firebaseService.db;
-          const updateData: any = { status: newStatus };
+          const updateData: any = { status: newStatus, updatedAt: new Date().toISOString() };
           if ((patient.status === 'ipd' || patient.status === 'er') && newStatus === 'opd') {
             updateData.wardNumber = null;
           }
@@ -961,6 +961,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
         originalStatus: patient.status,
         deleteReason: reason,
         deletedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
       await this.patientStore.removeRuleFromMasterSchedule(patientId);
       await this.refreshAllData();
@@ -1012,6 +1013,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
         deletedAt: null,
         originalStatus: null,
         patientCategory: newPatientCategory,
+        updatedAt: new Date().toISOString(),
       });
       await this.refreshAllData();
       this.notificationService.createNotification(
@@ -1050,7 +1052,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
     try {
       const db = this.firebaseService.db;
       const patientRef = doc(db, 'patients', patient.id);
-      await updateDoc(patientRef, { dialysisOrders: orderData });
+      await updateDoc(patientRef, { dialysisOrders: orderData, updatedAt: new Date().toISOString() });
       await this.refreshAllData();
       this.isOrderModalVisible.set(false);
       this.notificationService.createNotification(`更新醫囑：${patient.name}`, 'patient');
@@ -1081,7 +1083,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
     try {
       const db = this.firebaseService.db;
       const patientRef = doc(db, 'patients', patient.id);
-      await updateDoc(patientRef, { wardNumber: trimmedValue });
+      await updateDoc(patientRef, { wardNumber: trimmedValue, updatedAt: new Date().toISOString() });
       await this.refreshAllData();
       this.notificationService.createNotification(
         `更新床號：${patient.name} -> ${trimmedValue || '無'}`,
