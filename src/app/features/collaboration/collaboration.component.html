@@ -171,7 +171,7 @@
                     <div class="item-actions">
                       <button
                         class="btn-action btn-complete"
-                        (click)="updateTaskStatus(msg.id, 'completed')"
+                        (click)="updateTaskStatus(msg.id, 'completed', 'memos')"
                         [disabled]="displayDate() < (msg.targetDate || '')"
                         [title]="displayDate() < (msg.targetDate || '') ? '此留言需在 ' + msg.targetDate + ' 才能標示已讀' : '標示為已讀'"
                       >
@@ -188,7 +188,7 @@
                     <div class="item-actions">
                       <button
                         class="btn-action btn-revert"
-                        (click)="updateTaskStatus(msg.id, 'pending')"
+                        (click)="updateTaskStatus(msg.id, 'pending', 'memos')"
                         title="將此事項移回待辦清單"
                       >
                         <i class="fas fa-undo"></i> 移回待辦
@@ -477,7 +477,7 @@
                       <div class="item-actions">
                         <button
                           class="btn-action btn-complete"
-                          (click)="updateTaskStatus(msg.id, 'completed')"
+                          (click)="updateTaskStatus(msg.id, 'completed', 'memos')"
                           [disabled]="displayDate() < (msg.targetDate || '')"
                         >
                           <i class="fas fa-check"></i> 已讀
@@ -485,7 +485,7 @@
                       </div>
                     } @else if (msg.status === 'expired') {
                       <div class="item-actions">
-                        <button class="btn-action btn-revert" (click)="updateTaskStatus(msg.id, 'pending')">
+                        <button class="btn-action btn-revert" (click)="updateTaskStatus(msg.id, 'pending', 'memos')">
                           <i class="fas fa-undo"></i> 移回待辦
                         </button>
                       </div>

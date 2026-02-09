@@ -65,6 +65,7 @@ export class ExceptionManagerComponent implements OnInit, OnDestroy {
 
   private readonly exceptionsApi = this.apiManager.create<FirestoreRecord>('schedule_exceptions');
   private readonly tasksApi = this.apiManager.create<FirestoreRecord>('tasks');
+  private readonly memosApi = this.apiManager.create<FirestoreRecord>('memos');
 
   readonly allPatients = this.patientStore.allPatients;
   readonly currentUser = this.authService.currentUser;
@@ -630,13 +631,13 @@ export class ExceptionManagerComponent implements OnInit, OnDestroy {
             id: formData.patient2.patientId,
             name: formData.patient2.patientName,
           });
-          await Promise.all([this.tasksApi.save(task1), this.tasksApi.save(task2)]);
+          await Promise.all([this.memosApi.save(task1), this.memosApi.save(task2)]);
         } else {
           const task = createMessageTask({
             id: formData.patientId,
             name: formData.patientName,
           });
-          await this.tasksApi.save(task);
+          await this.memosApi.save(task);
         }
       }
     } catch (error: any) {
@@ -648,13 +649,13 @@ export class ExceptionManagerComponent implements OnInit, OnDestroy {
     try {
       const targetDate = existingEx.date || existingEx.startDate;
       if (!targetDate) return;
-      const tasksQuery = query(
-        collection(this.firebase.db, 'tasks'),
+      const memosQuery = query(
+        collection(this.firebase.db, 'memos'),
         where('category', '==', 'message'),
         where('patientId', '==', existingEx.patientId),
         where('targetDate', '==', targetDate),
       );
-      const snapshot = await getDocs(tasksQuery);
+      const snapshot = await getDocs(memosQuery);
       const typeKeywords: Record<string, string> = {
         MOVE: '臨時調班',
         SUSPEND: '區間暫停',
@@ -666,7 +667,7 @@ export class ExceptionManagerComponent implements OnInit, OnDestroy {
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
         if (data['content'] && keyword && data['content'].includes(keyword)) {
-          deletePromises.push(deleteDoc(doc(this.firebase.db, 'tasks', docSnap.id)));
+          deletePromises.push(deleteDoc(doc(this.firebase.db, 'memos', docSnap.id)));
         }
       });
       if (deletePromises.length > 0) {

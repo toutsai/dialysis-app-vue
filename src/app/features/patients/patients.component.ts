@@ -72,6 +72,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
   private readonly apiManagerService = inject(ApiManagerService);
 
   private readonly tasksApi: ApiManager<FirestoreRecord>;
+  private readonly memosApi: ApiManager<FirestoreRecord>;
   private readonly schedulesApi: ApiManager<FirestoreRecord>;
   private readonly scheduledChangesApi: ApiManager<FirestoreRecord>;
   private readonly patientHistoryApi: ApiManager<FirestoreRecord>;
@@ -257,6 +258,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
 
   constructor() {
     this.tasksApi = this.apiManagerService.create<FirestoreRecord>('tasks');
+    this.memosApi = this.apiManagerService.create<FirestoreRecord>('memos');
     this.schedulesApi = this.apiManagerService.create<FirestoreRecord>('schedules');
     this.scheduledChangesApi = this.apiManagerService.create<FirestoreRecord>('scheduled_changes');
     this.patientHistoryApi = this.apiManagerService.create<FirestoreRecord>('patient_history');
@@ -719,7 +721,7 @@ export class PatientsComponent implements OnInit, OnDestroy {
     }
 
     if (taskPayload) {
-      await this.tasksApi.save(taskPayload);
+      await this.memosApi.save(taskPayload);
     }
   }
 

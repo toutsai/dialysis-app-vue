@@ -203,13 +203,17 @@ export class CollaborationComponent implements OnInit, OnDestroy {
     return map;
   });
 
-  readonly sortedMyTasks = computed(() =>
-    this.sortItems(this.taskStore.myTasks() as unknown as TaskItem[]),
-  );
+  readonly sortedMyTasks = computed(() => {
+    const tasks = (this.taskStore.myTasks() as unknown as TaskItem[])
+      .filter((t) => t.category === 'task' || t.assignee);
+    return this.sortItems(tasks);
+  });
 
-  readonly sortedMySentTasks = computed(() =>
-    this.sortItems(this.taskStore.mySentTasks() as unknown as TaskItem[]),
-  );
+  readonly sortedMySentTasks = computed(() => {
+    const tasks = (this.taskStore.mySentTasks() as unknown as TaskItem[])
+      .filter((t) => t.category === 'task' || t.assignee);
+    return this.sortItems(tasks);
+  });
 
   readonly baseMessages = computed(() => {
     const sorted = this.taskStore.sortedFeedMessages() as unknown as TaskItem[];
@@ -341,19 +345,21 @@ export class CollaborationComponent implements OnInit, OnDestroy {
   }
 
   async handleTaskSubmit(data: TaskItem): Promise<void> {
-    if (data.id) {
+    if (this.editingItem()) {
+      // Edit mode: dialog emitted update data, we need to save it
       await this.updateTask(data);
     } else {
+      // New creation: dialog already saved to Firestore
       this.handleTaskCreated();
     }
     this.closeCreateModal();
   }
 
-  async updateTaskStatus(taskId: string, newStatus: string): Promise<void> {
+  async updateTaskStatus(taskId: string, newStatus: string, collectionName = 'tasks'): Promise<void> {
     const user = this.auth.currentUser();
     if (!user) return;
     try {
-      const taskRef = doc(this.firebaseService.db, 'tasks', taskId);
+      const taskRef = doc(this.firebaseService.db, collectionName, taskId);
       await updateDoc(taskRef, {
         status: newStatus,
         resolvedBy: {
@@ -433,11 +439,13 @@ export class CollaborationComponent implements OnInit, OnDestroy {
   }
 
   private async updateTask(data: TaskItem): Promise<void> {
-    const taskRef = doc(this.firebaseService.db, 'tasks', data.id);
+    const editItem = this.editingItem();
+    const collectionName = editItem?.assignee ? 'tasks' : 'memos';
+    const taskRef = doc(this.firebaseService.db, collectionName, data.id);
     const { id, ...updateData } = data;
     try {
       await updateDoc(taskRef, updateData);
-      console.log(`[CollaborationView] Task/Memo ${id} updated successfully.`);
+      console.log(`[CollaborationView] Task/Memo ${id} updated in ${collectionName}.`);
     } catch (error: unknown) {
       console.error('\u66F4\u65B0\u9805\u76EE\u5931\u6557:', error);
       alert('\u66F4\u65B0\u5931\u6557\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66\u3002');
@@ -445,8 +453,10 @@ export class CollaborationComponent implements OnInit, OnDestroy {
   }
 
   private async deleteTask(taskId: string): Promise<void> {
+    const toDelete = this.itemToDelete();
+    const collectionName = toDelete?.assignee ? 'tasks' : 'memos';
     try {
-      const taskRef = doc(this.firebaseService.db, 'tasks', taskId);
+      const taskRef = doc(this.firebaseService.db, collectionName, taskId);
       await deleteDoc(taskRef);
       this.notificationService.show('\u8A0A\u606F\u5DF2\u522A\u9664', 'info');
     } catch (error: unknown) {

@@ -35,6 +35,7 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
   private notificationService = inject(NotificationService);
   private userDirectoryService = inject(UserDirectoryService);
   private tasksApi = ApiManager('tasks');
+  private memosApi = ApiManager('memos');
 
   isSubmitting = false;
   isPatientDialogVisible = false;
@@ -279,7 +280,8 @@ export class TaskCreateDialogComponent implements OnChanges, OnInit {
       }
 
       try {
-        const savedDoc = await this.tasksApi.save(dataToSave);
+        const api = dataToSave.category === 'message' ? this.memosApi : this.tasksApi;
+        const savedDoc = await api.save(dataToSave);
         let notifMessage = '';
         let notifType: NotificationType = 'info';
         if (dataToSave.category === 'message') {
