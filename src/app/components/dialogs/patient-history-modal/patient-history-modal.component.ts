@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges } from '@angular/core';
+import { Component, Input, Output, EventEmitter, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import ApiManager from '@/services/api_manager';
 import { where, orderBy } from 'firebase/firestore';
@@ -11,7 +11,7 @@ import { escapeHtml } from '@/utils/sanitize.js';
   templateUrl: './patient-history-modal.component.html',
   styleUrl: './patient-history-modal.component.css'
 })
-export class PatientHistoryModalComponent implements OnChanges {
+export class PatientHistoryModalComponent implements OnInit, OnDestroy {
   @Input() isVisible = true;
   @Input() patientId = '';
   @Input() patientName = '';
@@ -66,14 +66,15 @@ export class PatientHistoryModalComponent implements OnChanges {
     return episodes.reverse();
   }
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['isVisible']) {
-      if (this.isVisible && this.patientId) {
-        this.fetchHistory();
-      } else {
-        this.history = [];
-      }
+  ngOnInit(): void {
+    document.body.classList.add('modal-open');
+    if (this.patientId) {
+      this.fetchHistory();
     }
+  }
+
+  ngOnDestroy(): void {
+    document.body.classList.remove('modal-open');
   }
 
   async fetchHistory(): Promise<void> {

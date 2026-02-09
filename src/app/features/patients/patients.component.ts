@@ -1098,7 +1098,9 @@ export class PatientsComponent implements OnInit, OnDestroy {
 
   // --- History ---
   openHistoryModal(patientId: string): void {
-    this.selectedPatientForHistory.set({ id: patientId });
+    const allPatients = this.patientStore.allPatients();
+    const patient = allPatients.find((p: any) => p.id === patientId);
+    this.selectedPatientForHistory.set({ id: patientId, name: patient?.name || '' });
     this.isHistoryModalVisible.set(true);
   }
 

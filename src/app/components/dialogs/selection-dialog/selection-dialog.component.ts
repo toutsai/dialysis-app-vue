@@ -14,7 +14,7 @@ export interface SelectionOption {
   styleUrl: './selection-dialog.component.css'
 })
 export class SelectionDialogComponent implements OnChanges {
-  @Input() isVisible = false;
+  @Input() isVisible = true;
   @Input() title = '';
   @Input() options: SelectionOption[] = [];
   @Output() select = new EventEmitter<string>();
