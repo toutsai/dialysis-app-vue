@@ -349,18 +349,21 @@ export class BaseScheduleComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const pMap = this.patientStore.patientMap();
     for (const pId in record.schedule) {
       if (pId === patientId) continue;
       const rule = record.schedule[pId];
+      if (!rule || !rule.freq) continue;
+      const existingPatient = pMap.get(pId) as any;
+      if (!existingPatient || existingPatient.isDeleted) continue;
       if (
         rule.bedNum == bedNum &&
         rule.shiftIndex == newShiftIndex &&
         hasFrequencyConflict(finalFreq, rule.freq)
       ) {
-        const conflictPatient = this.patientStore.patientMap().get(pId);
         this.showAlert(
           '排班衝突',
-          `此床位已有 ${(conflictPatient as any)?.name || '其他病人'} (${rule.freq})，與您選擇的頻率 (${finalFreq}) 有時間衝突。`
+          `此床位已有 ${existingPatient.name || '其他病人'} (${rule.freq})，與您選擇的頻率 (${finalFreq}) 有時間衝突。`
         );
         return;
       }
@@ -406,6 +409,7 @@ export class BaseScheduleComponent implements OnInit, OnDestroy {
 
   async onDrop(event: DragEvent, targetSlotId: string): Promise<void> {
     if (this.isPageLocked()) return;
+    if (!event || !targetSlotId) return;
     event.preventDefault();
     document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
 
@@ -440,18 +444,22 @@ export class BaseScheduleComponent implements OnInit, OnDestroy {
 
     const draggedPatientFreq = sourceRuleData.freq;
     const currentSchedule = record.schedule;
+    const pMap = this.patientStore.patientMap();
     for (const patientId in currentSchedule) {
       if (patientId === sourcePatientId) continue;
       const rule = currentSchedule[patientId];
+      if (!rule || !rule.freq) continue;
+      // Skip deleted or non-existent patients
+      const existingPatient = pMap.get(patientId) as any;
+      if (!existingPatient || existingPatient.isDeleted) continue;
       if (
         rule.bedNum == bedNum &&
         rule.shiftIndex == shiftIndex &&
         hasFrequencyConflict(draggedPatientFreq, rule.freq)
       ) {
-        const conflictPatient = this.patientStore.patientMap().get(patientId);
         this.showAlert(
           '排班衝突',
-          `無法放置！目標床位的 ${(conflictPatient as any)?.name || '未知病人'} (${rule.freq}) 與您拖曳的病人的頻率 (${draggedPatientFreq}) 有時間衝突。`
+          `無法放置！目標床位的 ${existingPatient.name || '未知病人'} (${rule.freq}) 與您拖曳的病人的頻率 (${draggedPatientFreq}) 有時間衝突。`
         );
         this.draggedItem.set(null);
         return;

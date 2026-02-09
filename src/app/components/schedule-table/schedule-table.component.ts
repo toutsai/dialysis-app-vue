@@ -128,6 +128,7 @@ export class ScheduleTableComponent implements AfterViewInit, OnDestroy {
   onSlotDrop(event: DragEvent, bedNum: any, shiftIndex: number, dayIndex: number): void {
     if (!this.isSlotInteractive(dayIndex)) return;
     event.preventDefault();
+    event.stopPropagation();
     const targetSlotId = this.getSlotId(bedNum, shiftIndex, dayIndex);
     this.drop.emit({ event, targetSlotId });
   }
@@ -137,6 +138,7 @@ export class ScheduleTableComponent implements AfterViewInit, OnDestroy {
       event.preventDefault();
       return;
     }
+    event.stopPropagation();
     const slotId = this.getSlotId(bedNum, shiftIndex, dayIndex);
     this.dragStart.emit({ event, slotId });
   }
@@ -144,10 +146,12 @@ export class ScheduleTableComponent implements AfterViewInit, OnDestroy {
   onSlotDragOver(event: DragEvent, dayIndex: number): void {
     if (!this.isSlotInteractive(dayIndex)) return;
     event.preventDefault();
+    event.stopPropagation();
     this.dragOver.emit(event);
   }
 
   onSlotDragLeave(event: DragEvent): void {
+    event.stopPropagation();
     this.dragleave.emit(event);
   }
 

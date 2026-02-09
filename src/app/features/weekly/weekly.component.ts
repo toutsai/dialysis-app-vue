@@ -523,6 +523,7 @@ export class WeeklyComponent implements OnInit, OnDestroy {
 
   onDrop(event: DragEvent, targetWeeklySlotId: string): void {
     if (this.isPageLocked()) return;
+    if (!event || !targetWeeklySlotId) return;
     event.preventDefault();
     document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
     const dragged = this.draggedItem();
