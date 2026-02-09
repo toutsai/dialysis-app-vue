@@ -18,6 +18,7 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 import { FirebaseService } from './firebase.service';
+import { AuthService } from './auth.service';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,6 +164,7 @@ const COLLECTION_NAME = 'global_notifications';
 @Injectable({ providedIn: 'root' })
 export class NotificationService implements OnDestroy {
   private readonly firebase = inject(FirebaseService);
+  private readonly authService = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
 
   // -----------------------------------------------------------------------
@@ -274,10 +276,13 @@ export class NotificationService implements OnDestroy {
   ): Promise<void> {
     try {
       const db = this.firebase.db;
+      const currentUser = this.authService.currentUser();
       await addDoc(collection(db, COLLECTION_NAME), {
         title,
         type,
         message: message || '',
+        createdBy: currentUser?.uid || '',
+        createdByName: currentUser?.name || '',
         createdAt: serverTimestamp(),
         read: false,
       });

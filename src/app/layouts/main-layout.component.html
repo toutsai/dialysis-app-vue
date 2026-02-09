@@ -113,8 +113,8 @@
             (click)="handleNotificationClick(notif)"
           >
             <div class="notification-content">
-              <span class="notification-icon">{{ notif.config.icon }}</span>
-              <p class="notification-message">{{ notif.message }}</p>
+              <span class="material-icons notification-icon">{{ notif.config.icon }}</span>
+              <p class="notification-message">{{ notif.title || notif.message }}</p>
             </div>
             <div class="notification-footer-item">
               <span class="notification-user">by {{ notif.createdByName }}</span>
