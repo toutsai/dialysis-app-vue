@@ -12,7 +12,9 @@
       "collectionGroup": "memos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "targetDate", "order": "DESCENDING" }
+        { "fieldPath": "patientId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
@@ -188,6 +190,14 @@
       "fields": [
         { "fieldPath": "patientId", "order": "ASCENDING" },
         { "fieldPath": "timestamp", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
     }
   ],
