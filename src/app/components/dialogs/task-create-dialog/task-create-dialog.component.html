@@ -189,8 +189,8 @@
       title="選擇關聯病人"
       [patients]="allPatients"
       [showFillOptions]="false"
-      (confirmEvent)="handlePatientSelected($event)"
-      (cancelEvent)="isPatientDialogVisible = false"
+      (confirm)="handlePatientSelected($event)"
+      (cancel)="isPatientDialogVisible = false"
     ></app-patient-select-dialog>
   </div>
 }

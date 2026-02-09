@@ -28,6 +28,7 @@ import { PatientStoreService } from '@app/core/services/patient-store.service';
 import { TaskStoreService } from '@app/core/services/task-store.service';
 import { ApiManagerService, type ApiManager, type FirestoreRecord } from '@app/core/services/api-manager.service';
 import { NotificationService } from '@app/core/services/notification.service';
+import { TaskCreateDialogComponent } from '@app/components/dialogs/task-create-dialog/task-create-dialog.component';
 
 import {
   formatDateToYYYYMMDD,
@@ -82,7 +83,7 @@ interface PatientOption {
 @Component({
   selector: 'app-collaboration',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TaskCreateDialogComponent],
   templateUrl: './collaboration.component.html',
   styleUrl: './collaboration.component.css',
 })

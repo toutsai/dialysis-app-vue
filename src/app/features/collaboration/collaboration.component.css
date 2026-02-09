@@ -1,3 +1,5 @@
+:host { display: block; height: 100%; overflow: hidden; }
+
 /* Font Awesome imported globally in styles.css or index.html */
 
 /* Filter & header */
@@ -83,8 +85,9 @@
 
 /* Desktop layout */
 @media (min-width: 993px) {
-  .collaboration-container { display: grid; grid-template-columns: 280px 2fr 1.5fr; gap: 1.5rem; flex-grow: 1; min-height: 0; }
-  .patient-list-panel, .message-panel, .task-panel { display: flex !important; flex-direction: column; overflow: hidden; background-color: #ffffff; }
+  .collaboration-container { display: grid; grid-template-columns: 280px 2fr 1.5fr; grid-template-rows: minmax(0, 1fr); gap: 1.5rem; flex-grow: 1; min-height: 0; overflow: hidden; }
+  .patient-list-panel, .message-panel, .task-panel { display: flex !important; flex-direction: column; overflow: hidden; background-color: #ffffff; min-height: 0; }
+  .patient-list-panel { border: 1px solid #dee2e6; border-radius: 8px; }
   .message-list, .task-list { flex-grow: 1; overflow-y: auto; }
   .patient-list { padding: 0.5rem 0; }
   .message-panel { padding: 0; background-color: transparent; border: none; }

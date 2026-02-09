@@ -603,4 +603,13 @@
   <button class="fab-mobile mobile-only" (click)="openCreateModal(null)" [disabled]="isPageLocked()">
     <i class="fas fa-plus"></i>
   </button>
+
+  <app-task-create-dialog
+    [isVisible]="isCreateModalVisible()"
+    [preselectedPatient]="selectedPatient()"
+    [allPatients]="allPatientsFromStore()"
+    [initialData]="editingItem()"
+    (close)="closeCreateModal()"
+    (submit)="handleTaskSubmit($event)"
+  ></app-task-create-dialog>
 </div>
