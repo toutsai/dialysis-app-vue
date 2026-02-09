@@ -687,36 +687,35 @@ export class PatientsComponent implements OnInit, OnDestroy {
 
   private async createAutomatedTask(patientData: any, taskType: string, creatorInfo: any): Promise<void> {
     if (!patientData || !taskType || !creatorInfo) return;
+    const today = new Date().toISOString().split('T')[0];
     let taskPayload: any;
 
     if (taskType === '衛教') {
-      const firstDialysisDate = patientData.patientStatus?.isFirstDialysis?.date;
+      const firstDialysisDate = patientData.patientStatus?.isFirstDialysis?.date || today;
       taskPayload = {
         patientId: patientData.id,
         patientName: patientData.name,
         creator: creatorInfo,
-        content: `首透衛教 (首透日期: ${firstDialysisDate || '未指定'})`,
+        content: `首透衛教 (首透日期: ${firstDialysisDate})`,
         type: '衛教',
         category: 'message',
         status: 'pending',
         createdAt: new Date(),
-        targetDate: null,
+        targetDate: firstDialysisDate,
       };
     } else if (taskType === '抽血') {
-      const bloodDrawDate = patientData.patientStatus?.hasBloodDraw?.date;
-      if (bloodDrawDate) {
-        taskPayload = {
-          patientId: patientData.id,
-          patientName: patientData.name,
-          creator: creatorInfo,
-          content: '抽血',
-          type: '抽血',
-          category: 'message',
-          status: 'pending',
-          createdAt: new Date(),
-          targetDate: bloodDrawDate,
-        };
-      }
+      const bloodDrawDate = patientData.patientStatus?.hasBloodDraw?.date || today;
+      taskPayload = {
+        patientId: patientData.id,
+        patientName: patientData.name,
+        creator: creatorInfo,
+        content: '抽血',
+        type: '抽血',
+        category: 'message',
+        status: 'pending',
+        createdAt: new Date(),
+        targetDate: bloodDrawDate,
+      };
     }
 
     if (taskPayload) {
