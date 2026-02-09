@@ -1,4 +1,4 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, ViewChild, ElementRef, AfterViewInit, OnDestroy, NgZone } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PatientMessagesIconComponent } from '../patient-messages-icon/patient-messages-icon.component';
 
@@ -9,7 +9,9 @@ import { PatientMessagesIconComponent } from '../patient-messages-icon/patient-m
   templateUrl: './schedule-table.component.html',
   styleUrl: './schedule-table.component.css'
 })
-export class ScheduleTableComponent {
+export class ScheduleTableComponent implements AfterViewInit, OnDestroy {
+  @ViewChild('theadRef') theadRef!: ElementRef<HTMLTableSectionElement>;
+  private resizeObserver: ResizeObserver | null = null;
   @Input() scheduleData: any = null;
   @Input() bedLayout: any[] = [];
   @Input() layout: any[] = [];
@@ -39,6 +41,41 @@ export class ScheduleTableComponent {
 
   readonly shiftDisplayNames: Record<string, string> = { early: '早班', noon: '午班', late: '晚班' };
   readonly hepatitisBedNumbers = [31, 32, 33, 35, 36];
+
+  constructor(private ngZone: NgZone) {}
+
+  ngAfterViewInit(): void {
+    this.measureColumnWidths();
+    this.resizeObserver = new ResizeObserver(() => {
+      this.ngZone.run(() => this.measureColumnWidths());
+    });
+    if (this.theadRef?.nativeElement) {
+      this.resizeObserver.observe(this.theadRef.nativeElement);
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.resizeObserver?.disconnect();
+  }
+
+  private measureColumnWidths(): void {
+    if (!this.theadRef?.nativeElement) return;
+    const headerRow = this.theadRef.nativeElement.querySelector('tr');
+    if (!headerRow) return;
+    const cells = headerRow.querySelectorAll('th');
+    // First 2 cells are bed + shift, remaining are weekday columns
+    if (cells.length < 3) return;
+    const widths: number[] = [];
+    let leftOffset = 0;
+    for (let i = 0; i < 2; i++) {
+      leftOffset += cells[i].offsetWidth;
+    }
+    for (let i = 2; i < cells.length; i++) {
+      widths.push(cells[i].offsetWidth);
+    }
+    this.columnWidthsChange.emit(widths);
+    this.leftOffsetChange.emit(leftOffset);
+  }
 
   getBedDisplay(bedNum: any): string {
     if (typeof bedNum === 'string' && bedNum.startsWith('peripheral-')) {

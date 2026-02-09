@@ -31,9 +31,15 @@
 }
 .bed-header-cell {
   width: 80px;
+  position: sticky;
+  left: 0;
+  z-index: 15;
 }
 .shift-header-cell {
   width: 70px;
+  position: sticky;
+  left: 80px;
+  z-index: 15;
 }
 .bed-number-cell {
   position: sticky;
@@ -46,7 +52,10 @@
   background-color: var(--hepatitis-bg, #fff9c4);
 }
 .shift-name-cell {
+  position: sticky;
+  left: 80px;
   background-color: #f8f9fa;
+  z-index: 5;
   font-size: 0.9em;
 }
 .schedule-slot {

@@ -38,17 +38,17 @@
                 <div
                   class="bar-segment er-bar"
                   [ngStyle]="getBarStyles(dayData.counts[shift.code]).erStyle"
-                  [title]="`急診: ${dayData.counts[shift.code]?.er || 0}`"
+                  [title]="'急診: ' + (dayData.counts[shift.code]?.er || 0)"
                 ></div>
                 <div
                   class="bar-segment ipd-bar"
                   [ngStyle]="getBarStyles(dayData.counts[shift.code]).ipdStyle"
-                  [title]="`住院: ${dayData.counts[shift.code]?.ipd || 0}`"
+                  [title]="'住院: ' + (dayData.counts[shift.code]?.ipd || 0)"
                 ></div>
                 <div
                   class="bar-segment opd-bar"
                   [ngStyle]="getBarStyles(dayData.counts[shift.code]).opdStyle"
-                  [title]="`門診: ${dayData.counts[shift.code]?.opd || 0}`"
+                  [title]="'門診: ' + (dayData.counts[shift.code]?.opd || 0)"
                 ></div>
               </div>
             }
