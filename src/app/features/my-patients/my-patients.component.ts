@@ -439,7 +439,7 @@ export class MyPatientsComponent implements OnInit, OnDestroy {
 
     const db = this.firebaseService.db;
     const patientRef = doc(db, 'patients', patient.id);
-    const historyRef = collection(db, 'dialysis_order_history');
+    const historyRef = collection(db, 'dialysis_orders_history');
     const user = this.currentUser();
 
     try {

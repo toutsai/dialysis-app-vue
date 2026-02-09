@@ -220,7 +220,7 @@ export class DialysisOrderModalComponent implements OnInit, OnDestroy {
     if (!this.orderToDelete?.id) return;
     const recordId = this.orderToDelete.id;
     try {
-      await deleteDoc(doc(this.firebase.db, 'dialysis_order_history', recordId));
+      await deleteDoc(doc(this.firebase.db, 'dialysis_orders_history', recordId));
       this.orderHistory = this.orderHistory.filter((item: any) => item.id !== recordId);
       alert('刪除成功');
     } catch (error) {
@@ -252,7 +252,7 @@ export class DialysisOrderModalComponent implements OnInit, OnDestroy {
     this.orderHistory = [];
     try {
       const q = query(
-        collection(this.firebase.db, 'dialysis_order_history'),
+        collection(this.firebase.db, 'dialysis_orders_history'),
         where('patientId', '==', patientId),
         orderBy('updatedAt', 'desc'),
         limit(20)
