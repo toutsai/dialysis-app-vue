@@ -18,7 +18,11 @@
     "// --- 部署指令 (生產環境) ---": "",
     "deploy:hosting:prod": "firebase deploy --project production --only hosting",
     "deploy:functions:prod": "firebase deploy --project production --only functions",
-    "deploy:rules:prod": "firebase deploy --project production --only firestore:rules"
+    "deploy:rules:prod": "firebase deploy --project production --only firestore:rules",
+    "// --- 測試 ---": "",
+    "test": "npx jest --verbose",
+    "test:coverage": "npx jest --coverage",
+    "test:parity": "npx jest --testPathPattern=migration-parity --verbose"
   },
   "dependencies": {
     "@angular/animations": "^19.0.0",
@@ -52,9 +56,12 @@
     "@angular/compiler-cli": "^19.0.0",
     "@faker-js/faker": "^9.9.0",
     "@types/dompurify": "^3.0.5",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.17.10",
     "dotenv": "^17.2.1",
     "firebase-admin": "^13.4.0",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
     "typescript": "~5.6.3"
   }
 }

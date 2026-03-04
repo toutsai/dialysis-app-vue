@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { FirebaseService } from '@services/firebase.service';
 import { AuthService } from '@app/core/services/auth.service';
-import { collection, query, where, orderBy, getDocs, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, addDoc, deleteDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 
 @Component({
   selector: 'app-condition-record-panel',
@@ -70,6 +70,10 @@ export class ConditionRecordPanelComponent implements OnChanges {
 
     this.isSaving = true;
     try {
+      const createdAtDate = new Date();
+      const expireAtDate = new Date(createdAtDate);
+      expireAtDate.setMonth(expireAtDate.getMonth() + 6);
+
       await addDoc(collection(this.firebase.db, 'condition_records'), {
         patientId: this.patientId,
         patientName: this.patientName,
@@ -77,7 +81,8 @@ export class ConditionRecordPanelComponent implements OnChanges {
         authorName: currentUser.name,
         authorId: currentUser.uid,
         recordDate: this.targetDate || new Date().toISOString().split('T')[0],
-        createdAt: serverTimestamp(),
+        createdAt: createdAtDate,
+        expireAt: expireAtDate,
       });
       this.newContent = '';
       await this.fetchRecords();
@@ -107,10 +112,29 @@ export class ConditionRecordPanelComponent implements OnChanges {
 
   handleSave(): void {
     if (this.editingRecordId) {
-      // TODO: implement update
+      this.updateRecord(this.editingRecordId, this.newRecordContent.trim());
     } else {
       this.newContent = this.newRecordContent;
       this.addRecord();
+    }
+  }
+
+  async updateRecord(recordId: string, content: string): Promise<void> {
+    if (!content) return;
+    this.isSaving = true;
+    try {
+      await updateDoc(doc(this.firebase.db, 'condition_records', recordId), {
+        content,
+        updatedAt: serverTimestamp(),
+      });
+      this.cancelEditing();
+      await this.fetchRecords();
+      this.recordsChanged.emit();
+    } catch (err) {
+      console.error('更新病情紀錄失敗:', err);
+      alert('更新失敗，請稍後再試');
+    } finally {
+      this.isSaving = false;
     }
   }
 
