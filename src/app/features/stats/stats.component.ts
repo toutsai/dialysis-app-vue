@@ -14,6 +14,7 @@ import { SHIFT_CODES } from '@/constants/scheduleConstants.js';
 import { generateAutoNote, getUnifiedCellStyle } from '@/utils/scheduleUtils.js';
 import { fetchTeamsByDate, saveTeams, updateTeams } from '@/services/nurseAssignmentsService.js';
 import { createDialysisOrderAndUpdatePatient } from '@/services/optimizedApiService.js';
+import ApiManagerFactory from '@/services/api_manager';
 import * as XLSX from 'xlsx';
 
 // Dialog components
@@ -540,6 +541,9 @@ export class StatsComponent implements OnInit, OnDestroy {
       Object.assign(this.currentRecord, scheduleRecord);
       this.currentTeamsRecord = teamsData || { id: null, date: dateStr, teams: {}, names: {} };
 
+      // 自動帶入護理師姓名（從月班表）
+      await this.autoFillNurseNames(dateStr);
+
       const patientIdsInSchedule = [
         ...new Set(
           Object.values(this.currentRecord.schedule)
@@ -587,6 +591,83 @@ export class StatsComponent implements OnInit, OnDestroy {
       return slotData.archivedPatientInfo;
     }
     return this.patientMap.get(slotData.patientId) || null;
+  }
+
+  // --- Nurse Name Auto-fill (from useNurseGroupSync) ---
+
+  private nursingSchedulesApi = ApiManagerFactory('nursing_schedules');
+
+  /**
+   * 從護理月班表中取得特定日期的護理師組別對應，並自動填入 currentTeamsRecord.names
+   */
+  private async autoFillNurseNames(dateStr: string): Promise<void> {
+    try {
+      const [year, month, day] = dateStr.split('-');
+      const yearMonth = `${year}-${month}`;
+      const dayIndex = parseInt(day) - 1;
+
+      // 載入該月份的護理班表
+      const monthlySchedule = await this.nursingSchedulesApi.fetchById(yearMonth);
+      if (!monthlySchedule || !monthlySchedule.scheduleByNurse) return;
+
+      // 建立組別對應表
+      const assignments: Record<string, string> = {};
+
+      const EARLY_SHIFTS = ['74', '75', '84', '74/L', '816', '815'];
+      const LATE_SHIFTS = ['3-11', '311', '311C'];
+
+      Object.entries(monthlySchedule.scheduleByNurse).forEach(([_nurseId, nurseData]: [string, any]) => {
+        const nurseName = nurseData.nurseName;
+        const shift = nurseData.shifts?.[dayIndex];
+        const group = nurseData.groups?.[dayIndex];
+
+        if (!nurseName || !shift || !group) return;
+
+        const shiftStr = String(shift).trim();
+
+        if (EARLY_SHIFTS.some((s) => shiftStr.includes(s))) {
+          assignments[`早${group}`] = nurseName;
+        } else if (LATE_SHIFTS.some((s) => shiftStr.includes(s))) {
+          assignments[`晚${group}`] = nurseName;
+        }
+      });
+
+      // 如果沒有任何分配結果，不更新
+      if (Object.keys(assignments).length === 0) return;
+
+      // 比較是否有差異
+      const oldNames = this.currentTeamsRecord.names || {};
+      const allPossibleTeams = [
+        '早A', '早B', '早C', '早D', '早E', '早F', '早G', '早H', '早I', '早J', '早K', '早外圍',
+        '晚A', '晚B', '晚C', '晚D', '晚E', '晚F', '晚G', '晚H', '晚I', '晚J', '晚K', '晚外圍',
+      ];
+
+      // 先清除所有組別的護理師姓名
+      if (!this.currentTeamsRecord.names) {
+        this.currentTeamsRecord.names = {};
+      }
+      allPossibleTeams.forEach((teamKey) => {
+        delete this.currentTeamsRecord.names[teamKey];
+      });
+
+      // 填入新的組別姓名
+      Object.entries(assignments).forEach(([teamKey, nurseName]) => {
+        this.currentTeamsRecord.names[teamKey] = nurseName;
+      });
+
+      // 若有差異，自動儲存 names
+      const newNames = this.currentTeamsRecord.names;
+      const hasChanges = allPossibleTeams.some((k) => (oldNames[k] || '') !== (newNames[k] || ''));
+      if (hasChanges && this.currentTeamsRecord.id) {
+        await updateTeams(this.currentTeamsRecord.id, {
+          date: this.currentTeamsRecord.date,
+          teams: this.currentTeamsRecord.teams || {},
+          names: this.currentTeamsRecord.names,
+        });
+      }
+    } catch (error) {
+      console.error('自動填入護理師姓名失敗:', error);
+    }
   }
 
   // --- Save ---

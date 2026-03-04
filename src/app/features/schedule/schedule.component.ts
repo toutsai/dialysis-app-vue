@@ -28,6 +28,7 @@ import {
   SHIFT_CODES,
   ORDERED_SHIFT_CODES,
   getShiftDisplayName,
+  baseTeams,
   earlyTeams,
   lateTeams,
   allTeams,
@@ -265,6 +266,57 @@ export class ScheduleComponent implements OnInit, OnDestroy {
       }
     }
     return ids;
+  });
+
+  // --- Schedule Analysis (from useScheduleAnalysis) ---
+
+  private shouldPatientBeScheduled(patient: any, dayOfWeek: number): boolean {
+    if (patient.freq === '臨時') return true;
+    if (!patient.freq || !this.freqToDays) return false;
+    const scheduledDays = this.freqToDays[patient.freq];
+    return scheduledDays ? scheduledDays.includes(dayOfWeek) : false;
+  }
+
+  readonly dailyUnassignedPatients = computed(() => {
+    const today = this.dayOfWeek();
+    if (!today) return [];
+    const allPatients = this.allPatients() || [];
+    return allPatients.filter((p: any) => {
+      if (p.isDeleted || p.isDiscontinued || this.scheduledPatientIds().has(p.id)) return false;
+      return this.shouldPatientBeScheduled(p, today);
+    });
+  });
+
+  readonly dailyTemporaryPatients = computed(() => {
+    const today = this.dayOfWeek();
+    if (!today) return [];
+    const allPatients = this.allPatients() || [];
+    return allPatients.filter((p: any) => {
+      if (p.isDeleted || p.isDiscontinued || this.scheduledPatientIds().has(p.id)) return false;
+      return !this.shouldPatientBeScheduled(p, today);
+    });
+  });
+
+  readonly patientGroupsForDialog = computed(() => {
+    const groups: Record<string, any[]> = {
+      '今日應排 - 急診': [],
+      '今日應排 - 住院': [],
+      '今日應排 - 門診': [],
+      '今日非排 (臨洗) - 急診': [],
+      '今日非排 (臨洗) - 住院': [],
+      '今日非排 (臨洗) - 門診': [],
+    };
+    this.dailyUnassignedPatients().forEach((p: any) => {
+      if (p.status === 'er') groups['今日應排 - 急診'].push(p);
+      else if (p.status === 'ipd') groups['今日應排 - 住院'].push(p);
+      else if (p.status === 'opd') groups['今日應排 - 門診'].push(p);
+    });
+    this.dailyTemporaryPatients().forEach((p: any) => {
+      if (p.status === 'er') groups['今日非排 (臨洗) - 急診'].push(p);
+      else if (p.status === 'ipd') groups['今日非排 (臨洗) - 住院'].push(p);
+      else if (p.status === 'opd') groups['今日非排 (臨洗) - 門診'].push(p);
+    });
+    return groups;
   });
 
   readonly statsToolbarData = computed(() => {
@@ -1119,9 +1171,239 @@ export class ScheduleComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * distributePatients — 核心分配引擎 (移植自 useTeamAssigner.js v4)
+   * 根據臨床規則將病人分配到護理組別。
+   */
+  private distributePatients(
+    allPatients: { id: string; shiftId: string; shiftCode: string; status: string; isHepatitis: boolean; isPeripheral: boolean }[],
+    teams: string[],
+    rules: {
+      priorityTeams: { hepatitis: string | null; inPatientTeams?: string[]; inPatientCapacity?: Record<string, number> };
+      mainDistribution: { specialTeam: { name: string; capacity: number } | null; regularTeams: string[] };
+    },
+  ): Record<string, typeof allPatients> {
+    const assignments: Record<string, typeof allPatients> = {};
+    teams.forEach((t) => { assignments[t] = []; });
+
+    const assignedPatientIds = new Set<string>();
+    const addPatient = (team: string, patient: typeof allPatients[0]): boolean => {
+      if (team && team.includes('K')) return false;
+      if (patient && assignments[team] && !assignedPatientIds.has(patient.id)) {
+        assignments[team].push(patient);
+        assignedPatientIds.add(patient.id);
+        return true;
+      }
+      return false;
+    };
+
+    const isInPatientOrER = (p: typeof allPatients[0]) => p.status === 'ipd' || p.status === 'er';
+
+    // --- 步驟一：優先分配 ---
+    const { hepatitis, inPatientTeams, inPatientCapacity } = rules.priorityTeams;
+
+    // B肝病人優先分配
+    if (hepatitis) {
+      allPatients.filter((p) => p.isHepatitis).forEach((p) => addPatient(hepatitis, p));
+    }
+
+    // 住院/急診病人輪流分配
+    if (inPatientTeams && inPatientCapacity) {
+      const unassignedInPatients = allPatients.filter(
+        (p) => isInPatientOrER(p) && !assignedPatientIds.has(p.id),
+      );
+      let priorityTeamIndex = 0;
+      unassignedInPatients.forEach((patient) => {
+        for (let i = 0; i < inPatientTeams.length; i++) {
+          const teamIndex = (priorityTeamIndex + i) % inPatientTeams.length;
+          const team = inPatientTeams[teamIndex];
+          if (assignments[team].length < (inPatientCapacity[team] || 0)) {
+            if (addPatient(team, patient)) {
+              priorityTeamIndex = (teamIndex + 1) % inPatientTeams.length;
+              break;
+            }
+          }
+        }
+      });
+    }
+
+    // --- 步驟二：處理特殊組 (A組) ---
+    const { specialTeam, regularTeams } = rules.mainDistribution;
+    if (specialTeam) {
+      const availableOpdPatients = allPatients.filter(
+        (p) => !assignedPatientIds.has(p.id) && p.status === 'opd' && !p.isHepatitis,
+      );
+      availableOpdPatients.slice(0, specialTeam.capacity).forEach((p) => addPatient(specialTeam.name, p));
+    }
+
+    // --- 步驟三：為常規組計算最終目標人數並填充 ---
+    const participatingTeams = regularTeams.filter((team) => !team.includes('K'));
+    const remainingPatients = allPatients.filter((p) => !assignedPatientIds.has(p.id));
+
+    let totalWorkload = remainingPatients.length;
+    participatingTeams.forEach((team) => { totalWorkload += assignments[team]?.length || 0; });
+
+    if (totalWorkload > 0 && participatingTeams.length > 0) {
+      const baseSize = Math.floor(totalWorkload / participatingTeams.length);
+      const remainder = totalWorkload % participatingTeams.length;
+
+      const finalTargetSize: Record<string, number> = {};
+      participatingTeams.forEach((team, index) => {
+        finalTargetSize[team] = baseSize + (index < remainder ? 1 : 0);
+      });
+
+      const neededCounts: Record<string, number> = {};
+      participatingTeams.forEach((team) => {
+        neededCounts[team] = Math.max(0, finalTargetSize[team] - (assignments[team]?.length || 0));
+      });
+
+      let patientIndex = 0;
+      for (const team of participatingTeams) {
+        const needed = neededCounts[team];
+        if (needed > 0) {
+          remainingPatients.slice(patientIndex, patientIndex + needed).forEach((p) => addPatient(team, p));
+          patientIndex += needed;
+        }
+      }
+    }
+
+    return assignments;
+  }
+
+  /**
+   * executeAutoAssignment — 執行四個班次的自動分組 (移植自 ScheduleView.vue)
+   */
   private executeAutoAssignment(): void {
-    // Placeholder: auto assignment logic uses distributePatients from useTeamAssigner
-    // which would need to be converted to an Angular service separately
+    // 清空現有分組
+    this.currentTeamsRecord.update((r) => ({ ...r, teams: {} }));
+
+    const hepatitisBedNums = [31, 32, 33, 35, 36];
+
+    // 取得指定班別的病人清單（帶豐富資訊）
+    const getRichPatientList = (shiftCode: string) => {
+      return Object.entries(this.currentRecord.schedule)
+        .filter(([shiftId, slot]) => slot?.patientId && shiftId.endsWith(shiftCode))
+        .map(([shiftId, slot]) => {
+          const patientData = this.patientMap().get(slot.patientId!) as Record<string, unknown> | undefined;
+          if (!patientData) return null;
+          const bedNumberStr = shiftId.split('-')[1];
+          const bedNumber = parseInt(bedNumberStr, 10);
+          return {
+            id: slot.patientId!,
+            shiftId,
+            shiftCode,
+            status: (patientData['status'] as string) || 'opd',
+            isHepatitis: !isNaN(bedNumber) && hepatitisBedNums.includes(bedNumber),
+            isPeripheral: shiftId.startsWith('peripheral'),
+          };
+        })
+        .filter((p): p is NonNullable<typeof p> => p !== null);
+    };
+
+    const mainArea = (list: ReturnType<typeof getRichPatientList>) => list.filter((p) => !p.isPeripheral);
+    const peripheral = (list: ReturnType<typeof getRichPatientList>) => list.filter((p) => p.isPeripheral);
+    const sortByBed = (list: ReturnType<typeof getRichPatientList>) => {
+      const getSortKey = (shiftId: string) => {
+        const parts = shiftId.split('-');
+        if (parts[0] === 'peripheral') return 100 + parseInt(parts[1], 10);
+        const num = parseInt(parts[1], 10);
+        return isNaN(num) ? 999 : num;
+      };
+      return [...list].sort((a, b) => getSortKey(a.shiftId) - getSortKey(b.shiftId));
+    };
+
+    // 取得各班病人
+    const allEarlyPatients = getRichPatientList(SHIFT_CODES.EARLY);
+    const allNoonPatients = getRichPatientList(SHIFT_CODES.NOON);
+    const allLatePatients = getRichPatientList(SHIFT_CODES.LATE);
+
+    // --- 早班分組 ---
+    const earlyMain = mainArea(allEarlyPatients);
+    const useEarlyTeamA = earlyMain.length > 36;
+    const earlyTeamsToUse = baseTeams.filter((t: string) => t !== 'L' && t !== '外圍').map((t: string) => `早${t}`);
+    const earlyRegularTeams = baseTeams
+      .filter((t: string) => !['A', 'K', 'L', '外圍'].includes(t))
+      .map((t: string) => `早${t}`);
+    const earlyRules = {
+      priorityTeams: {
+        hepatitis: '早G',
+        inPatientTeams: ['早H', '早I', '早J'],
+        inPatientCapacity: { '早H': 2, '早I': 2, '早J': 2 } as Record<string, number>,
+      },
+      mainDistribution: {
+        specialTeam: useEarlyTeamA ? { name: '早A', capacity: 2 } : null,
+        regularTeams: earlyRegularTeams,
+      },
+    };
+    const earlyAssignments = this.distributePatients(sortByBed(earlyMain), earlyTeamsToUse, earlyRules);
+    earlyAssignments['早外圍'] = peripheral(allEarlyPatients);
+
+    // --- 午班上針（同早班規則）---
+    const noonMain = mainArea(allNoonPatients);
+    const useNoonTeamA = noonMain.length > 36;
+    const noonOnRules = {
+      ...earlyRules,
+      mainDistribution: {
+        specialTeam: useNoonTeamA ? { name: '早A', capacity: 2 } : null,
+        regularTeams: earlyRegularTeams,
+      },
+    };
+    const noonOnAssignments = this.distributePatients(sortByBed(noonMain), earlyTeamsToUse, noonOnRules);
+    noonOnAssignments['早外圍'] = peripheral(allNoonPatients);
+
+    // --- 午班收針 & 晚班（使用晚班規則）---
+    const lateTeamsToUse = baseTeams.filter((t: string) => t <= 'H').map((t: string) => `晚${t}`);
+    const lateRules = {
+      priorityTeams: {
+        hepatitis: '晚F',
+        inPatientTeams: ['晚H'],
+        inPatientCapacity: { '晚H': 2 } as Record<string, number>,
+      },
+      mainDistribution: {
+        specialTeam: null,
+        regularTeams: lateTeamsToUse,
+      },
+    };
+    const noonOffAssignments = this.distributePatients(sortByBed(noonMain), lateTeamsToUse, lateRules);
+    noonOffAssignments['晚外圍'] = peripheral(allNoonPatients);
+
+    const lateMain = mainArea(allLatePatients);
+    const lateAssignments = this.distributePatients(sortByBed(lateMain), lateTeamsToUse, lateRules);
+    lateAssignments['晚外圍'] = peripheral(allLatePatients);
+
+    // --- 寫入 currentTeamsRecord ---
+    const teams: Record<string, Record<string, string>> = {};
+
+    for (const team in earlyAssignments) {
+      for (const patient of earlyAssignments[team]) {
+        const key = `${patient.id}-${SHIFT_CODES.EARLY}`;
+        if (!teams[key]) teams[key] = {};
+        teams[key]['nurseTeam'] = team;
+      }
+    }
+    for (const team in noonOnAssignments) {
+      for (const patient of noonOnAssignments[team]) {
+        const key = `${patient.id}-${SHIFT_CODES.NOON}`;
+        if (!teams[key]) teams[key] = {};
+        teams[key]['nurseTeamIn'] = team;
+      }
+    }
+    for (const team in noonOffAssignments) {
+      for (const patient of noonOffAssignments[team]) {
+        const key = `${patient.id}-${SHIFT_CODES.NOON}`;
+        if (!teams[key]) teams[key] = {};
+        teams[key]['nurseTeamOut'] = team;
+      }
+    }
+    for (const team in lateAssignments) {
+      for (const patient of lateAssignments[team]) {
+        const key = `${patient.id}-${SHIFT_CODES.LATE}`;
+        if (!teams[key]) teams[key] = {};
+        teams[key]['nurseTeam'] = team;
+      }
+    }
+
+    this.currentTeamsRecord.update((r) => ({ ...r, teams }));
     this.setTeamChange();
     this.hasUnsavedChanges.set(true);
     this.statusIndicator.set('自動分組完成，請確認並儲存');

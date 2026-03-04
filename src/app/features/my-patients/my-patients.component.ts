@@ -16,10 +16,13 @@ import {
   collection,
   addDoc,
   serverTimestamp,
+  where,
 } from 'firebase/firestore';
 import { FirebaseService } from '@services/firebase.service';
 import { AuthService, type AppUser } from '@services/auth.service';
 import { PatientStoreService } from '@services/patient-store.service';
+import { TaskStoreService } from '@services/task-store.service';
+import { MedicationStoreService } from '@services/medication-store.service';
 import { NotificationService } from '@services/notification.service';
 import { UserDirectoryService } from '@services/user-directory.service';
 import {
@@ -94,9 +97,15 @@ export class MyPatientsComponent implements OnInit, OnDestroy {
   private readonly firebaseService = inject(FirebaseService);
   private readonly authService = inject(AuthService);
   private readonly patientStore = inject(PatientStoreService);
+  private readonly taskStore = inject(TaskStoreService);
+  private readonly medicationStore = inject(MedicationStoreService);
   private readonly notificationService = inject(NotificationService);
   private readonly userDirectory = inject(UserDirectoryService);
   private readonly apiManagerService = inject(ApiManagerService);
+
+  // API managers for nurse_assignments and schedules
+  private readonly assignmentsApi = this.apiManagerService.create<FirestoreRecord>('nurse_assignments');
+  private readonly schedulesApi = this.apiManagerService.create<FirestoreRecord>('schedules');
 
   // --- State ---
   readonly selectedUserId = signal<string | null>(null);
@@ -226,28 +235,177 @@ export class MyPatientsComponent implements OnInit, OnDestroy {
     return this.patientListByShift()[shiftCode] || [];
   }
 
-  // --- Data Loading ---
+  // --- Data Loading (移植自 useMyPatientList.js) ---
   async fetchMyPatientData(date?: string): Promise<void> {
-    // This would typically call a composable/service that fetches
-    // the my-patient-list data. For now, this represents the same
-    // logic as useMyPatientList composable.
     this.isLoading.set(true);
     try {
-      // The actual implementation would use the userId and date
-      // to fetch patient data from Firestore
       const userId = this.selectedUserId();
       const targetDate = date || this.selectedDate();
       if (!userId) {
         this.patientListByShift.set({});
         return;
       }
-      // Placeholder: actual fetch logic from useMyPatientList composable
-      // would be integrated here via a dedicated service
-      console.log(
-        `[MyPatientsComponent] fetchMyPatientData for user=${userId}, date=${targetDate}`
+
+      // 取得目標使用者名稱
+      await this.userDirectory.ensureUsersLoaded();
+      const targetUser = this.userDirectory.allUsers().find((u) => u.uid === userId);
+      if (!targetUser) {
+        this.patientListByShift.set({});
+        return;
+      }
+      const targetUserName = targetUser.name;
+
+      // 同時取得分組和排班資料
+      const [assignmentsSnapshot, schedulesSnapshot] = await Promise.all([
+        this.assignmentsApi.fetchAll([where('date', '==', targetDate)]),
+        this.schedulesApi.fetchAll([where('date', '==', targetDate)]),
+      ]);
+
+      // 找出此護理師負責的病人與角色
+      const myAssignedIds = new Set<string>();
+      const myAssignments = new Map<string, Set<string>>();
+
+      if (assignmentsSnapshot.length > 0) {
+        const record = assignmentsSnapshot[0] as Record<string, any>;
+        const names = record['names'] || {};
+        const teams = record['teams'] || {};
+
+        // 找出此護理師被指派的 teamCode
+        const myTeamCodes = Object.keys(names).filter(
+          (teamCode: string) => (names[teamCode] as string)?.trim() === targetUserName,
+        );
+
+        if (myTeamCodes.length > 0) {
+          for (const teamKey in teams) {
+            const [pId] = teamKey.split('-');
+            const teamAssignment = teams[teamKey] as Record<string, string>;
+            const roles: string[] = [];
+            if (myTeamCodes.includes(teamAssignment['nurseTeam'])) roles.push('main');
+            if (myTeamCodes.includes(teamAssignment['nurseTeamIn'])) roles.push('noonOn');
+            if (myTeamCodes.includes(teamAssignment['nurseTeamOut'])) roles.push('noonOff');
+            if (myTeamCodes.includes(teamAssignment['nurseTeamTakeOff'])) roles.push('lateOff');
+            if (roles.length > 0) {
+              myAssignedIds.add(pId);
+              if (!myAssignments.has(pId)) myAssignments.set(pId, new Set());
+              roles.forEach((role) => myAssignments.get(pId)!.add(role));
+            }
+          }
+        }
+      }
+
+      if (myAssignedIds.size === 0) {
+        this.patientListByShift.set({});
+        return;
+      }
+
+      // 從排班表取得床位資訊
+      const myFinalListWithBedInfo: { patientId: string; shiftKey: string }[] = [];
+      if (schedulesSnapshot.length > 0) {
+        const scheduleData = (schedulesSnapshot[0] as Record<string, any>)['schedule'] || {};
+        for (const shiftKey in scheduleData) {
+          const slot = scheduleData[shiftKey];
+          if (slot?.patientId && myAssignedIds.has(slot.patientId)) {
+            myFinalListWithBedInfo.push({ patientId: slot.patientId, shiftKey });
+          }
+        }
+      }
+
+      // 取得注射藥物資料
+      const allMyPatientIds = Array.from(myAssignedIds);
+      if (allMyPatientIds.length > 0) {
+        await this.medicationStore.fetchDailyInjections(targetDate, allMyPatientIds);
+      }
+
+      // 建立病人清單
+      const allPatients = this.patientStore.allPatients();
+      const patientMap = new Map(allPatients.map((p: any) => [p.id, p]));
+      const allInjections = this.medicationStore.getInjectionsForDate(targetDate) || [];
+      const injectionsMap = new Map<string, any[]>();
+      allInjections.forEach((inj: any) => {
+        if (!injectionsMap.has(inj.patientId)) injectionsMap.set(inj.patientId, []);
+        injectionsMap.get(inj.patientId)!.push(inj);
+      });
+
+      // 取得待辦備忘錄
+      const pendingMemos = (this.taskStore.feedMessages() || []).filter(
+        (msg: any) => msg.status === 'pending' && (!msg.targetDate || msg.targetDate >= targetDate),
       );
+      const memosMap = new Map<string, any[]>();
+      pendingMemos.forEach((memo: any) => {
+        if (memo.patientId) {
+          if (!memosMap.has(memo.patientId)) memosMap.set(memo.patientId, []);
+          memosMap.get(memo.patientId)!.push(memo);
+        }
+      });
+
+      const groupedResults: Record<string, MyPatientItem[]> = {
+        early: [], noonOn: [], noonOff: [], late: [],
+      };
+
+      const getBedNumberFromKey = (shiftId: string): number => {
+        if (!shiftId) return NaN;
+        const parts = shiftId.split('-');
+        if (parts.length < 2) return NaN;
+        if (parts[0] === 'peripheral') return 1000 + parseInt(parts[1], 10);
+        return parseInt(parts[1], 10);
+      };
+
+      myFinalListWithBedInfo.forEach((slot) => {
+        const patientFromStore = patientMap.get(slot.patientId) as Record<string, any> | undefined;
+        if (!patientFromStore) return;
+
+        const shiftCode = slot.shiftKey.split('-').pop()!;
+        const patientRoles = myAssignments.get(slot.patientId) || new Set();
+
+        const createPatientObject = (roleOverride: string | null = null): MyPatientItem => {
+          const dailyBedNum = getBedNumberFromKey(slot.shiftKey);
+          const finalBedNum = !isNaN(dailyBedNum) ? String(dailyBedNum) : (patientFromStore['bed'] || 'N/A');
+          const pOrders = patientFromStore['dialysisOrders'] || {};
+          let vascAccessString = pOrders['vascAccess'] || '–';
+          if (pOrders['arterialNeedle'] && pOrders['venousNeedle']) {
+            vascAccessString += ` (${pOrders['arterialNeedle']}/${pOrders['venousNeedle']})`;
+          }
+
+          return {
+            id: `${slot.patientId}-${roleOverride || shiftCode}`,
+            patientId: slot.patientId,
+            name: patientFromStore['name'] || '未知',
+            bedNum: String(finalBedNum),
+            preparation: {
+              ak: pOrders['ak'] || '–',
+              dialysateCa: pOrders['dialysateCa'] || '–',
+              heparin: `${pOrders['heparinInitial'] ?? '–'}/${pOrders['heparinMaintenance'] ?? '–'}`,
+              bloodFlow: pOrders['bloodFlow'] ?? '–',
+              vascAccess: vascAccessString,
+            },
+            injections: injectionsMap.get(slot.patientId) || [],
+            memos: memosMap.get(slot.patientId) || [],
+          };
+        };
+
+        if (patientRoles.has('main') && shiftCode === 'early')
+          groupedResults['early'].push(createPatientObject());
+        if (patientRoles.has('main') && shiftCode === 'late')
+          groupedResults['late'].push(createPatientObject());
+        if (patientRoles.has('noonOn') && shiftCode === 'noon')
+          groupedResults['noonOn'].push(createPatientObject('noonOn'));
+        if (patientRoles.has('noonOff') && shiftCode === 'noon')
+          groupedResults['noonOff'].push(createPatientObject('noonOff'));
+      });
+
+      // 依床號排序
+      for (const shift in groupedResults) {
+        groupedResults[shift].sort((a, b) => {
+          if (a.bedNum === 'N/A') return 1;
+          if (b.bedNum === 'N/A') return -1;
+          return parseInt(a.bedNum, 10) - parseInt(b.bedNum, 10);
+        });
+      }
+
+      this.patientListByShift.set(groupedResults);
     } catch (error) {
-      console.error('載入今日病人資料失敗:', error);
+      console.error('[MyPatientsComponent] 載入今日病人資料失敗:', error);
+      this.patientListByShift.set({});
     } finally {
       this.isLoading.set(false);
     }

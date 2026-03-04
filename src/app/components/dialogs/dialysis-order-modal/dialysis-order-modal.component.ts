@@ -34,7 +34,7 @@ export class DialysisOrderModalComponent implements OnInit, OnDestroy {
 
   private createFormState(): any {
     return {
-      effectiveDate: new Date().toISOString().split('T')[0],
+      effectiveDate: this.getLocalDateStr(new Date()),
       aks: [''],
       dialysateCa: '',
       dryWeight: '',
@@ -109,7 +109,7 @@ export class DialysisOrderModalComponent implements OnInit, OnDestroy {
   }
 
   get todayStr(): string {
-    return new Date().toISOString().split('T')[0];
+    return this.getLocalDateStr(new Date());
   }
 
   get activeOrder(): any {
@@ -236,7 +236,14 @@ export class DialysisOrderModalComponent implements OnInit, OnDestroy {
     if (!isoString) return 'N/A';
     const date = this.getDate(isoString);
     if (!date) return 'N/A';
-    return date.toISOString().split('T')[0];
+    return this.getLocalDateStr(date);
+  }
+
+  private getLocalDateStr(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   private getDate(dateValue: any): Date | null {

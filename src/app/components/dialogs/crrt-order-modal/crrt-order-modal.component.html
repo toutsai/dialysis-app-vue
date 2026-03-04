@@ -3,7 +3,7 @@
     <div class="modal-container">
       <header class="modal-header">
         <h2>CRRT 醫囑開立</h2>
-        <button (click)="closeModal" class="btn-close">×</button>
+        <button (click)="closeModal()" class="btn-close">×</button>
       </header>
 
       <div class="modal-body">
@@ -224,8 +224,8 @@
       </div>
 
       <footer class="modal-footer">
-        <button (click)="closeModal" class="btn btn-secondary">取消</button>
-        <button (click)="handleSave" class="btn btn-primary" [disabled]="!isFormValid">
+        <button (click)="closeModal()" class="btn btn-secondary">取消</button>
+        <button (click)="handleSave()" class="btn btn-primary" [disabled]="!isFormValid">
           儲存醫囑
         </button>
       </footer>

@@ -212,14 +212,12 @@ describe('Migration Parity: File Structure', () => {
   describe('Services (shared between Vue and Angular)', () => {
     const expectedServices = [
       'src/services/api_manager.ts',
-      'src/services/baseScheduleService.js',
       'src/services/kiditExportService.js',
       'src/services/kiditService.js',
       'src/services/nurseAssignmentsService.js',
       'src/services/nursingDutyService.js',
       'src/services/nursingGroupConfigService.js',
       'src/services/optimizedApiService.js',
-      'src/services/scheduleService.js',
     ];
 
     expectedServices.forEach(service => {
