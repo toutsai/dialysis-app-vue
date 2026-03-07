@@ -1,0 +1,129 @@
+<div class="nursing-schedule-container">
+  <header class="page-header">
+    <h1>護理排班管理</h1>
+    <div class="month-selector">
+      <label>選擇月份：</label>
+      <input type="month" [(ngModel)]="selectedMonth" (change)="onMonthChange()" />
+    </div>
+  </header>
+
+  <div class="tabs-navigation">
+    <button [class.active]="activeTab === 'schedule'" (click)="activeTab = 'schedule'">排班表</button>
+    <button [class.active]="activeTab === 'groups'" (click)="activeTab = 'groups'">護理分組</button>
+    <button [class.active]="activeTab === 'upload'" (click)="activeTab = 'upload'">Excel 上傳</button>
+  </div>
+
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>正在載入 {{ selectedMonth }} 的班表資料...
+  </div>
+
+  <!-- 排班表 Tab -->
+  <div *ngIf="!isLoading && activeTab === 'schedule'" class="tab-panel">
+    <div class="panel-toolbar">
+      <div class="shift-legend">
+        <ng-container *ngFor="let key of shiftKeys">
+          <span *ngIf="key" class="legend-item">
+            <span class="legend-color" [style.background]="getShiftColor(key)"></span>{{ getShiftLabel(key) }}
+          </span>
+        </ng-container>
+      </div>
+      <button class="btn-primary" (click)="saveSchedule()" [disabled]="isSaving || !auth.hasPermission('editor')">
+        {{ isSaving ? '儲存中...' : '💾 儲存班表' }}
+      </button>
+    </div>
+    <div class="schedule-table-wrapper">
+      <table class="schedule-table">
+        <thead>
+          <tr class="weekday-row">
+            <th class="sticky-name-col" rowspan="2">護理師</th>
+            <th *ngFor="let wd of weekdayHeaders; let i = index"
+                class="day-header" [class.weekend]="wd === '六' || wd === '日'">
+              {{ wd }}
+            </th>
+            <th rowspan="2" class="count-header">D</th>
+            <th rowspan="2" class="count-header">A</th>
+            <th rowspan="2" class="count-header">N</th>
+          </tr>
+          <tr class="date-row">
+            <th *ngFor="let day of daysInMonth" class="date-header">{{ day }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let nurse of nurseSchedules; let ni = index">
+            <td class="sticky-name-col name-cell">{{ nurse.nurseName }}</td>
+            <td *ngFor="let day of daysInMonth" class="shift-cell"
+                [style.background]="getShiftColor(nurse.schedule[day] || '')"
+                (click)="cycleShift(ni, day)">
+              {{ getShiftLabel(nurse.schedule[day] || '') }}
+            </td>
+            <td class="count-cell">{{ getShiftCountForNurse(ni, 'D') }}</td>
+            <td class="count-cell">{{ getShiftCountForNurse(ni, 'A') }}</td>
+            <td class="count-cell">{{ getShiftCountForNurse(ni, 'N') }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div *ngIf="nurseSchedules.length === 0" class="empty-state">尚無護理師班表資料。</div>
+  </div>
+
+  <!-- 護理分組 Tab -->
+  <div *ngIf="!isLoading && activeTab === 'groups'" class="tab-panel">
+    <div class="panel-toolbar">
+      <div class="add-group-form">
+        <input type="text" [(ngModel)]="newGroupName" placeholder="新分組名稱" (keyup.enter)="addGroup()" />
+        <button class="btn-primary" (click)="addGroup()" [disabled]="!newGroupName.trim()">+ 新增分組</button>
+      </div>
+      <button class="btn-primary" (click)="saveGroups()" [disabled]="isSaving">
+        {{ isSaving ? '儲存中...' : '💾 儲存分組' }}
+      </button>
+    </div>
+
+    <div *ngIf="groupKeys.length === 0" class="empty-state">尚無分組資料。請使用上方表單新增分組。</div>
+
+    <div class="groups-grid">
+      <div *ngFor="let key of groupKeys" class="group-card">
+        <div class="group-card-header">
+          <h3>{{ key }}</h3>
+          <button class="btn-icon-danger" (click)="removeGroup(key)" title="刪除分組">🗑️</button>
+        </div>
+        <div class="group-nurses">
+          <div *ngFor="let nurseId of groups[key].nurses; let ni = index" class="nurse-chip">
+            <span>{{ getNurseName(nurseId) }}</span>
+            <button class="chip-remove" (click)="removeNurseFromGroup(key, ni)">×</button>
+          </div>
+        </div>
+        <div class="group-add-nurse">
+          <select #nurseSelect class="nurse-select">
+            <option value="">選擇護理師...</option>
+            <option *ngFor="let nurse of allNurses" [value]="nurse.id">{{ nurse.name }}</option>
+          </select>
+          <button class="btn-sm-add" (click)="addNurseToGroup(key, nurseSelect.value); nurseSelect.value = ''">+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Excel上傳 Tab -->
+  <div *ngIf="!isLoading && activeTab === 'upload'" class="tab-panel">
+    <div class="upload-area">
+      <div class="upload-instructions">
+        <h3>📑 上傳 Excel 班表</h3>
+        <p>請上傳符合格式的 Excel 檔案（.xlsx），系統將自動解析並匯入護理班表。</p>
+        <ul class="format-hints">
+          <li>第一列為日期標題</li>
+          <li>第一欄為護理師姓名</li>
+          <li>班別代碼：D(白班)、A(小夜)、N(大夜)、O(公假)、V(休假)</li>
+        </ul>
+      </div>
+      <div class="upload-controls">
+        <input type="file" accept=".xlsx,.xls" (change)="onFileSelected($event)" id="excel-upload-input" />
+        <label for="excel-upload-input" class="upload-label">📁 選擇檔案</label>
+        <button class="btn-primary" (click)="handleExcelUpload()" [disabled]="!uploadFile">🚀 開始匯入</button>
+      </div>
+      <p *ngIf="uploadStatus" class="upload-status">{{ uploadStatus }}</p>
+    </div>
+  </div>
+
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="onAlertConfirm()"></app-alert-dialog>
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage" (confirm)="onConfirmOk()" (cancel)="onConfirmCancel()"></app-confirm-dialog>
+</div>

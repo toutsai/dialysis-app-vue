@@ -1,0 +1,71 @@
+<div class="page-container">
+  <div *ngIf="isLoading" class="loading-overlay"><div class="spinner"></div><p>正在載入醫師與排班資料...</p></div>
+  <header class="page-header">
+    <div class="header-left">
+      <h1 class="page-title">醫師班表</h1>
+      <div class="month-navigator">
+        <button (click)="goToPreviousMonth()">❮</button>
+        <span class="month-display">{{ selectedYear }} 年 {{ selectedMonth }} 月</span>
+        <button (click)="goToNextMonth()">❯</button>
+      </div>
+    </div>
+    <div class="header-right" *ngIf="canManage">
+      <span class="status-text" [class.has-changes]="hasUnsavedChanges">{{ statusText }}</span>
+      <button (click)="saveAllChanges()" class="save-btn" [disabled]="!hasUnsavedChanges">💾 儲存所有變更</button>
+    </div>
+  </header>
+  <div class="tabs-container">
+    <button [class.active]="activeTab === 'dialysis'" (click)="activeTab = 'dialysis'">查房</button>
+    <button [class.active]="activeTab === 'consultation'" (click)="activeTab = 'consultation'">會診</button>
+    <button [class.active]="activeTab === 'emergency'" (click)="activeTab = 'emergency'">緊急出勤</button>
+  </div>
+  <main class="schedule-content">
+    <div *ngIf="activeTab === 'dialysis' || activeTab === 'consultation'">
+      <table *ngIf="!isLoading" class="schedule-table">
+        <thead><tr><th></th><th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th class="weekend">六</th><th class="weekend">日</th></tr></thead>
+        <tbody *ngFor="let week of weeklyData">
+          <tr class="date-row">
+            <td class="shift-header">日期</td>
+            <td *ngFor="let day of week" [class.today]="day.isToday" [class.weekend]="day.isWeekend">
+              <span *ngIf="day.day">{{ selectedMonth }}/{{ day.day }}</span>
+            </td>
+          </tr>
+          <tr class="shift-row">
+            <td class="shift-header">早班</td>
+            <td *ngFor="let day of week">
+              <select *ngIf="day.day && scheduleData[day.day]" [(ngModel)]="scheduleData[day.day]['early'].physicianId"
+                [disabled]="!canManage" class="physician-select" (change)="hasUnsavedChanges = true">
+                <option [ngValue]="null">--</option>
+                <option *ngFor="let doc of availablePhysicians" [ngValue]="doc.id">{{ getDisplayName(doc) }}</option>
+              </select>
+            </td>
+          </tr>
+          <tr class="shift-row">
+            <td class="shift-header">午班</td>
+            <td *ngFor="let day of week">
+              <select *ngIf="day.day && scheduleData[day.day]" [(ngModel)]="scheduleData[day.day]['noon'].physicianId"
+                [disabled]="!canManage" class="physician-select" (change)="hasUnsavedChanges = true">
+                <option [ngValue]="null">--</option>
+                <option *ngFor="let doc of availablePhysicians" [ngValue]="doc.id">{{ getDisplayName(doc) }}</option>
+              </select>
+            </td>
+          </tr>
+          <tr class="shift-row">
+            <td class="shift-header">晚班</td>
+            <td *ngFor="let day of week">
+              <select *ngIf="day.day && scheduleData[day.day]" [(ngModel)]="scheduleData[day.day]['late'].physicianId"
+                [disabled]="!canManage" class="physician-select" (change)="hasUnsavedChanges = true">
+                <option [ngValue]="null">--</option>
+                <option *ngFor="let doc of availablePhysicians" [ngValue]="doc.id">{{ getDisplayName(doc) }}</option>
+              </select>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div *ngIf="activeTab === 'emergency'" class="emergency-section">
+      <p class="placeholder-text">🚨 緊急出勤紀錄將在此顯示</p>
+    </div>
+  </main>
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+</div>

@@ -23,7 +23,7 @@
     "singleProjectMode": false
   },
   "hosting": {
-    "public": "dist",
+    "public": "dist/dialysis-app/browser",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
       {

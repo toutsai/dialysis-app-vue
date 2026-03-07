@@ -1,0 +1,95 @@
+<div class="page-container">
+  <header class="page-header">
+    <h1>檢驗報告管理</h1>
+    <p class="page-description">請從HIS報表產生器＞護理＞個管-CKD＞0240洗腎科檢驗結果病患明細-月報下載原始資料。</p>
+  </header>
+
+  <div class="tabs-navigation">
+    <button [class.active]="activeTab === 'query'" (click)="setActiveTab('query')">報告查詢</button>
+    <button [class.active]="activeTab === 'alert'" (click)="setActiveTab('alert')">警示報告</button>
+    <button [class.active]="activeTab === 'upload'" (click)="setActiveTab('upload')">資料上傳</button>
+  </div>
+
+  <main class="page-main-content">
+    <!-- 報告查詢 -->
+    <div *ngIf="activeTab === 'query'" class="tab-panel query-panel">
+      <div class="search-controls">
+        <div class="search-type-toggle">
+          <button [class.active]="searchType === 'group'" (click)="searchType = 'group'">依群組查詢</button>
+          <button [class.active]="searchType === 'individual'" (click)="searchType = 'individual'">依個人查詢</button>
+        </div>
+        <div *ngIf="searchType === 'group'" class="group-filters">
+          <select [(ngModel)]="groupSearchParams.freq">
+            <option value="一三五">一三五</option><option value="二四六">二四六</option><option value="other">其他</option>
+          </select>
+          <select [(ngModel)]="groupSearchParams.shift" [disabled]="groupSearchParams.freq === 'other'">
+            <option value="early">早班</option><option value="noon">午班</option><option value="late">晚班</option>
+          </select>
+          <input type="month" [(ngModel)]="groupSearchParams.month" />
+        </div>
+        <div *ngIf="searchType === 'individual'" class="individual-filters">
+          <input type="text" [(ngModel)]="individualSearchQuery" placeholder="輸入姓名或病歷號..." (keyup.enter)="handleSearch()" />
+          <div class="year-selector">
+            <button (click)="changeYear(-1)">&lt; 上一年</button>
+            <span>{{ individualSearchYear }} 年</span>
+            <button (click)="changeYear(1)">下一年 &gt;</button>
+          </div>
+        </div>
+        <button (click)="handleSearch()" [disabled]="isLoadingReports" class="search-btn">
+          {{ isLoadingReports ? '查詢中...' : '查詢報告' }}
+        </button>
+      </div>
+      <div class="report-display">
+        <div *ngIf="isLoadingReports" class="loading-state">正在查詢報告...</div>
+        <div *ngIf="!isLoadingReports && !searchPerformed" class="placeholder-text">請選擇條件並點擊查詢。</div>
+        <div *ngIf="!isLoadingReports && searchPerformed && searchType === 'group' && reportData.length === 0" class="empty-state">查無符合條件的報告。</div>
+        <div *ngIf="!isLoadingReports && searchPerformed && reportData.length > 0 && searchType === 'group'" class="table-container">
+          <table>
+            <thead><tr>
+              <th class="sticky-col">頻率</th><th class="sticky-col">班別</th><th class="sticky-col">床號</th><th class="sticky-col">姓名</th>
+              <th *ngFor="let item of prioritizedLabItems">{{ labItemDisplayNames[item] || item }}</th>
+            </tr></thead>
+            <tbody>
+              <tr *ngFor="let row of reportData">
+                <td class="sticky-col">{{ row.freq || '-' }}</td>
+                <td class="sticky-col">{{ formatShift(row.shiftIndex) }}</td>
+                <td class="sticky-col">{{ row.bedNum || '-' }}</td>
+                <td class="sticky-col">{{ row.patientName }}</td>
+                <td *ngFor="let item of prioritizedLabItems">{{ row.labData[item] !== undefined ? row.labData[item] : '-' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 警示報告 -->
+    <div *ngIf="activeTab === 'alert'" class="tab-panel">
+      <div class="alert-section-placeholder">
+        <p>📊 警示報告功能 — 連續不合格報告分析將在此顯示</p>
+      </div>
+    </div>
+
+    <!-- 資料上傳 -->
+    <div *ngIf="activeTab === 'upload'" class="tab-panel upload-panel">
+      <div class="upload-core-panel">
+        <h4>批次上傳報告</h4>
+        <div class="upload-drop-zone" [class.is-dragover]="isDragOver"
+          (dragover)="$event.preventDefault(); isDragOver = true"
+          (dragleave)="$event.preventDefault(); isDragOver = false">
+          <div class="upload-icon">📤</div>
+          <h3 *ngIf="!selectedFile">拖曳 Excel 檔案至此，或點擊按鈕選擇</h3>
+          <h3 *ngIf="selectedFile">已選擇檔案：<strong>{{ selectedFile.name }}</strong></h3>
+          <p class="upload-hint">支援 .xlsx, .xls 格式</p>
+          <input type="file" (change)="handleFileSelect($event)" accept=".xlsx,.xls" [disabled]="isUploading" id="lab-file-input" style="display:none" />
+          <label for="lab-file-input" class="file-input-label">{{ selectedFile ? '重新選擇檔案' : '選擇檔案' }}</label>
+        </div>
+        <button class="upload-btn-main" [disabled]="!selectedFile || isUploading">
+          {{ isUploading ? '處理中...' : '開始上傳' }}
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+</div>

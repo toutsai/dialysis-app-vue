@@ -1,0 +1,25 @@
+<div class="page-container">
+  <header class="page-header">
+    <div class="header-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">週排班表</h1>
+        <div class="date-navigator">
+          <button (click)="changeWeek(-7)">&lt; 上一週</button>
+          <span class="week-display">{{ weekDisplay }}</span>
+          <button (click)="changeWeek(7)">下一週 &gt;</button>
+          <button (click)="goToToday()">回到本週</button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <span class="status-text">{{ statusText }}</span>
+        <button class="btn-save" [disabled]="!hasUnsavedChanges || isPageLocked" (click)="saveChangesToCloud()">儲存變更</button>
+      </div>
+    </div>
+  </header>
+  <main class="page-main-content">
+    <div class="schedule-area">
+      <p class="placeholder-text">📋 週排班表 — 排程表格將在此顯示 (ScheduleTable 子元件待遷移)</p>
+    </div>
+  </main>
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+</div>

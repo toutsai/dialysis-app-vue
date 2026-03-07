@@ -1,0 +1,57 @@
+<div class="page-container collaboration-view">
+  <header class="page-header">
+    <div class="header-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">訊息中心</h1>
+        <button class="btn btn-primary" [disabled]="isPageLocked">＋ 新增交辦/留言</button>
+      </div>
+    </div>
+    <p class="page-description">顯示日期: {{ displayDate }} ({{ weekdayDisplay }})</p>
+  </header>
+
+  <div class="collaboration-container">
+    <div class="task-list-panel">
+      <div class="panel-header">
+        <h2>待處理事項</h2>
+        <input type="text" [(ngModel)]="searchQuery" placeholder="搜尋內容或病人..." class="search-input" />
+      </div>
+      <div *ngIf="isLoading" class="loading-state"><div class="spinner"></div>載入中...</div>
+      <div *ngIf="!isLoading && filteredTasks.length === 0" class="empty-state">目前沒有待處理事項 ✅</div>
+      <div class="task-items">
+        <div *ngFor="let task of filteredTasks" class="task-card">
+          <div class="task-header">
+            <span class="type-icon">{{ getMemoTypeIcon(task.type) }}</span>
+            <span *ngIf="task.patientName" class="patient-badge">{{ task.patientName }}</span>
+            <span class="task-date">{{ formatDate(task.createdAt) }}</span>
+          </div>
+          <p class="task-content">{{ task.content }}</p>
+          <div *ngIf="task.targetDate" class="task-target">到期日: <strong>{{ task.targetDate }}</strong></div>
+          <div class="task-actions">
+            <button (click)="markComplete(task)" class="btn-complete">✓ 已處理</button>
+            <button (click)="confirmDelete(task)" class="btn-delete">刪除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="history-panel">
+      <h2>已完成 (最近50筆)</h2>
+      <div class="completed-items">
+        <div *ngFor="let task of completedTasks" class="task-card completed">
+          <div class="task-header">
+            <span *ngIf="task.patientName" class="patient-badge">{{ task.patientName }}</span>
+            <span class="task-date">{{ formatDate(task.createdAt) }}</span>
+          </div>
+          <p class="task-content">{{ task.content }}</p>
+          <div class="resolved-info" *ngIf="task.resolvedBy">
+            處理者: {{ task.resolvedBy.name }}
+          </div>
+        </div>
+        <div *ngIf="completedTasks.length === 0" class="empty-state">尚無已完成事項</div>
+      </div>
+    </div>
+  </div>
+
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage"
+    (confirm)="executeDelete()" (cancel)="isConfirmVisible = false"></app-confirm-dialog>
+</div>

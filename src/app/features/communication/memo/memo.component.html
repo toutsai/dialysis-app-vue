@@ -1,0 +1,123 @@
+<div class="page-container memo-view">
+  <h1 class="page-title">
+    交班備忘錄
+    <span *ngIf="!isLoading && memoStats.total > 0" class="title-stats">
+      ({{ filterPatientId ? selectedPatient?.name + ': ' : '' }}待辦{{ memoStats.pending }}筆)
+    </span>
+  </h1>
+
+  <div *ngIf="error" class="error-banner">
+    <span>{{ error }}</span>
+    <button (click)="fetchMemos()" class="retry-btn">重試</button>
+  </div>
+
+  <div *ngIf="isLoading" class="loading-container">
+    <div class="loading-spinner"></div>
+    <p>正在載入備忘錄資料...</p>
+  </div>
+
+  <div *ngIf="!isLoading" class="memo-layout-grid">
+    <!-- 新增備忘卡片 -->
+    <div class="memo-card form-card">
+      <h2 class="card-title">
+        <span *ngIf="filterPatientId">{{ selectedPatient?.name }} 的備忘</span>
+        <span *ngIf="!filterPatientId">新增備忘</span>
+      </h2>
+      <div class="memo-form">
+        <div class="textarea-wrapper">
+          <textarea [(ngModel)]="contentInput" placeholder="請輸入交班事項或備註..." [disabled]="isSubmitting"></textarea>
+          <div class="char-count">{{ contentInput.length }}/500</div>
+        </div>
+        <div class="form-actions">
+          <div class="option-item">
+            <label>關聯病人</label>
+            <div *ngIf="selectedPatient" class="selected-patient-display">
+              <span>{{ selectedPatient.name }}</span>
+              <button (click)="clearPatientSelection()" class="clear-btn" [disabled]="isSubmitting">×</button>
+            </div>
+          </div>
+          <div class="option-item">
+            <label>到期日</label>
+            <input type="date" [(ngModel)]="dateInput" [disabled]="isSubmitting" />
+          </div>
+        </div>
+        <button (click)="addMemo()" class="add-btn" [disabled]="isSubmitting || !contentInput.trim()">
+          {{ isSubmitting ? '新增中...' : '新增備忘' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 待辦事項卡片 -->
+    <div class="memo-card pending-card">
+      <h2 class="card-title">
+        {{ filterPatientId ? '待處理事項' : '所有待處理事項' }}
+        <span *ngIf="memoStats.pending > 0" class="title-count">{{ memoStats.pending }}</span>
+      </h2>
+      <ul class="memo-list">
+        <li *ngFor="let memo of pendingList" class="memo-item">
+          <div class="memo-content">
+            <p [innerHTML]="getMemoDisplayContent(memo)"></p>
+            <div class="memo-meta">
+              <span>建立於: {{ formatDate(memo.createdAt) }}</span>
+              <span *ngIf="memo.targetDate"> | 到期日: <strong class="date-highlight">{{ memo.targetDate }}</strong></span>
+            </div>
+          </div>
+          <div class="memo-actions">
+            <button class="resolve-btn" (click)="updateMemoStatus(memo.id, true)">標為已處理</button>
+            <button class="delete-btn" (click)="deleteMemo(memo.id)">刪除</button>
+          </div>
+        </li>
+        <li *ngIf="pendingList.length === 0" class="empty-state">
+          {{ filterPatientId ? '該病人無待辦事項' : '太棒了，沒有待辦事項！' }}
+        </li>
+      </ul>
+    </div>
+
+    <!-- 歷史/已處理卡片 -->
+    <div class="memo-card history-card">
+      <div class="tabs">
+        <button [class.active]="activeTab === 'expired'" (click)="activeTab = 'expired'">
+          已到期事項 (最近7天) <span *ngIf="memoStats.expired > 0" class="tab-count expired-count">{{ memoStats.expired }}</span>
+        </button>
+        <button [class.active]="activeTab === 'resolved'" (click)="activeTab = 'resolved'">
+          已處理事項 (最近90天) <span *ngIf="memoStats.resolved > 0" class="tab-count resolved-count">{{ memoStats.resolved }}</span>
+        </button>
+      </div>
+      <div class="tab-content">
+        <ul *ngIf="activeTab === 'expired'" class="memo-list">
+          <li *ngFor="let memo of expiredList" class="memo-item expired">
+            <div class="memo-content">
+              <p [innerHTML]="getMemoDisplayContent(memo)"></p>
+              <div class="memo-meta">
+                <span>建立於: {{ formatDate(memo.createdAt) }}</span>
+                <span *ngIf="memo.targetDate"> | 到期於: <strong>{{ memo.targetDate }}</strong></span>
+              </div>
+            </div>
+            <div class="memo-actions">
+              <button class="revert-btn" (click)="updateMemoStatus(memo.id, false)">移回待辦</button>
+              <button class="delete-btn" (click)="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li *ngIf="expiredList.length === 0" class="empty-state">沒有已到期的事項。</li>
+        </ul>
+        <ul *ngIf="activeTab === 'resolved'" class="memo-list">
+          <li *ngFor="let memo of resolvedList" class="memo-item resolved">
+            <div class="memo-content">
+              <p [innerHTML]="getMemoDisplayContent(memo)"></p>
+              <div class="memo-meta"><span>建立於: {{ formatDate(memo.createdAt) }}</span></div>
+            </div>
+            <div class="memo-actions">
+              <button class="revert-btn" (click)="updateMemoStatus(memo.id, false)">移回待辦</button>
+              <button class="delete-btn" (click)="deleteMemo(memo.id)">刪除</button>
+            </div>
+          </li>
+          <li *ngIf="resolvedList.length === 0" class="empty-state">最近90天沒有已處理事項。</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage"
+    (confirm)="handleConfirm()" (cancel)="isConfirmVisible = false"></app-confirm-dialog>
+</div>

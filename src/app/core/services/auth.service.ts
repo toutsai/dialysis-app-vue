@@ -1,293 +1,174 @@
-// src/app/core/services/auth.service.ts
-import {
-  Injectable,
-  inject,
-  signal,
-  computed,
-  DestroyRef,
-  OnDestroy,
-} from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { Auth, authState, signInWithCustomToken, signOut, user, getIdTokenResult, IdTokenResult } from '@angular/fire/auth';
+import { Functions, httpsCallable } from '@angular/fire/functions';
 import { Router } from '@angular/router';
-import {
-  onAuthStateChanged,
-  signInWithCustomToken,
-  signOut,
-  type User,
-  type Unsubscribe,
-} from 'firebase/auth';
-import { httpsCallable } from 'firebase/functions';
-import { FirebaseService } from './firebase.service';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { BehaviorSubject, Observable, map, filter, firstValueFrom } from 'rxjs';
 
 export interface AppUser {
   id: string;
   uid: string;
   name: string;
-  displayName?: string;
-  role: UserRole;
+  username: string;
+  role: string;
   title: string;
-  email: string;
+  email: string | null;
   lastLogin: string;
-  [key: string]: unknown;
 }
-
-export type UserRole = 'admin' | 'editor' | 'contributor' | 'viewer';
 
 export interface AuthClaims {
-  role: UserRole;
-  name: string;
-  title: string;
-  email: string;
+  role?: string;
+  title?: string;
+  name?: string;
   [key: string]: unknown;
 }
 
-// ---------------------------------------------------------------------------
-// Permission hierarchy
-// ---------------------------------------------------------------------------
+export interface LoginResult {
+  success: boolean;
+  redirectPath: string;
+}
 
-const ROLE_HIERARCHY: Record<UserRole, number> = {
-  viewer: 1,
-  contributor: 2,
-  editor: 3,
-  admin: 4,
-} as const;
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthService {
+  private auth = inject(Auth);
+  private functions = inject(Functions);
+  private router = inject(Router);
 
-// ---------------------------------------------------------------------------
-// Service
-// ---------------------------------------------------------------------------
+  private currentUserSubject = new BehaviorSubject<AppUser | null>(null);
+  public currentUser$ = this.currentUserSubject.asObservable();
+  
+  private authLoadingSubject = new BehaviorSubject<boolean>(true);
+  public authLoading$ = this.authLoadingSubject.asObservable();
 
-@Injectable({ providedIn: 'root' })
-export class AuthService implements OnDestroy {
-  private readonly firebase = inject(FirebaseService);
-  private readonly router = inject(Router);
-  private readonly destroyRef = inject(DestroyRef);
+  private loginLoadingSubject = new BehaviorSubject<boolean>(false);
+  public loginLoading$ = this.loginLoadingSubject.asObservable();
 
-  // -----------------------------------------------------------------------
-  // State signals
-  // -----------------------------------------------------------------------
-  readonly currentUser = signal<AppUser | null>(null);
-  readonly authLoading = signal<boolean>(true);
-  readonly claims = signal<AuthClaims | null>(null);
-  readonly isAuthReady = signal<boolean>(false);
+  private logoutLoadingSubject = new BehaviorSubject<boolean>(false);
+  public logoutLoading$ = this.logoutLoadingSubject.asObservable();
 
-  // -----------------------------------------------------------------------
-  // Computed signals
-  // -----------------------------------------------------------------------
-  readonly isLoggedIn = computed(() => !!this.currentUser());
-  readonly isAdmin = computed(() => this.hasPermission('admin'));
-  readonly isEditor = computed(() => this.hasPermission('editor'));
-  readonly isContributor = computed(() => this.hasPermission('contributor'));
-  readonly isViewer = computed(() => this.currentUser()?.role === 'viewer');
-
-  readonly canEditSchedules = computed(() => this.hasPermission('editor'));
-  readonly canEditPatients = computed(() => this.hasPermission('editor'));
-  readonly canManageOrders = computed(() => this.hasPermission('contributor'));
-  readonly canManagePhysicianSchedule = computed(() =>
-    this.hasPermission('editor'),
-  );
-  readonly canEditClinicalNotesAndOrders = computed(() =>
-    this.hasPermission('contributor'),
-  );
-
-  // -----------------------------------------------------------------------
-  // Internal
-  // -----------------------------------------------------------------------
-  private authUnsubscribe: Unsubscribe | null = null;
-  private authReadyResolve: (() => void) | null = null;
-  private readonly authReadyPromise: Promise<void>;
+  private claimsSubject = new BehaviorSubject<AuthClaims | null>(null);
+  public claims$ = this.claimsSubject.asObservable();
 
   constructor() {
-    this.authReadyPromise = new Promise<void>((resolve) => {
-      this.authReadyResolve = resolve;
+    authState(this.auth).subscribe(async (firebaseUser) => {
+      this.authLoadingSubject.next(true);
+      if (firebaseUser) {
+        try {
+          const idTokenResult = await firebaseUser.getIdTokenResult();
+          this.claimsSubject.next(idTokenResult.claims);
+
+          const claims = idTokenResult.claims as AuthClaims;
+          const userData: AppUser = {
+            id: firebaseUser.uid,
+            uid: firebaseUser.uid,
+            name: claims.name || '未命名',
+            username: (claims as any)['username'] || firebaseUser.email || '',
+            role: claims.role || 'viewer',
+            title: claims.title || '未知職稱',
+            email: firebaseUser.email,
+            lastLogin: new Date().toISOString()
+          };
+          this.currentUserSubject.next(userData);
+        } catch (error) {
+          console.error('❌ Error getting user token result:', error);
+          this.currentUserSubject.next(null);
+          this.claimsSubject.next(null);
+          await signOut(this.auth);
+        }
+      } else {
+        this.currentUserSubject.next(null);
+        this.claimsSubject.next(null);
+      }
+      this.authLoadingSubject.next(false);
     });
-
-    this.initAuthListener();
-
-    this.destroyRef.onDestroy(() => {
-      this.cleanup();
-    });
   }
 
-  ngOnDestroy(): void {
-    this.cleanup();
+  public get currentUser(): AppUser | null {
+    return this.currentUserSubject.value;
   }
 
-  // -----------------------------------------------------------------------
-  // Public methods
-  // -----------------------------------------------------------------------
+  public get isLoggedIn(): boolean {
+    return !!this.currentUserSubject.value;
+  }
 
-  /**
-   * Login using the custom Cloud Function "customLogin".
-   * The function returns a custom token which is then used to sign in via
-   * Firebase Auth.
-   */
-  async login(
-    username: string,
-    password: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  public async waitForAuthInit(): Promise<void> {
+    if (!this.authLoadingSubject.value) return;
+    await firstValueFrom(this.authLoading$.pipe(filter(loading => !loading)));
+  }
+
+  public async login(username: string, password: string): Promise<LoginResult> {
+    this.loginLoadingSubject.next(true);
     try {
-      this.authLoading.set(true);
+      const customLoginFunction = httpsCallable<{username: string, password: string}, {token: string}>(this.functions, 'customLogin');
+      const response = await customLoginFunction({ username, password });
+      
+      const token = response.data?.token;
+      if (!token) {
+        throw new Error('從伺服器獲取登入憑證(token)失敗。');
+      }
 
-      const customLoginFn = httpsCallable<
-        { username: string; password: string },
-        { token: string }
-      >(this.firebase.functions, 'customLogin');
+      await signInWithCustomToken(this.auth, token);
+      
+      // 等待 currentUser 更新
+      if (!this.currentUser) {
+        await firstValueFrom(this.currentUser$.pipe(filter(user => !!user)));
+      }
 
-      const result = await customLoginFn({ username, password });
-      const { token } = result.data;
-
-      await signInWithCustomToken(this.firebase.auth, token);
-
-      return { success: true };
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : '登入失敗，請稍後再試';
-      console.error('[AuthService] Login failed:', message);
-      return { success: false, error: message };
-    } finally {
-      this.authLoading.set(false);
-    }
-  }
-
-  /**
-   * Sign out and redirect to /login.
-   */
-  async logout(): Promise<void> {
-    try {
-      await signOut(this.firebase.auth);
-      this.currentUser.set(null);
-      this.claims.set(null);
-      this.router.navigate(['/login']);
+      const redirectPath = this.router.routerState.snapshot.url.includes('redirect=') ? 
+        new URLSearchParams(this.router.routerState.snapshot.url.split('?')[1]).get('redirect') || '/schedule' : '/schedule';
+      
+      await this.router.navigateByUrl(redirectPath);
+      return { success: true, redirectPath };
     } catch (error) {
-      console.error('[AuthService] Logout failed:', error);
-      // Force redirect even on error
-      this.router.navigate(['/login']);
+      console.error('[Auth] Login process failed:', error);
+      throw error;
+    } finally {
+      this.loginLoadingSubject.next(false);
     }
   }
 
-  /**
-   * Change the current user's password via a Cloud Function.
-   */
-  async updatePassword(
-    oldPassword: string,
-    newPassword: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  public async logout(): Promise<{success: boolean}> {
+    this.logoutLoadingSubject.next(true);
     try {
-      const changePasswordFn = httpsCallable<
-        { oldPassword: string; newPassword: string },
-        { success: boolean }
-      >(this.firebase.functions, 'changeUserPassword');
-
-      await changePasswordFn({ oldPassword, newPassword });
+      await signOut(this.auth);
+      await this.router.navigate(['/login']);
       return { success: true };
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : '密碼更新失敗';
-      console.error('[AuthService] Password change failed:', message);
-      return { success: false, error: message };
+    } finally {
+      this.logoutLoadingSubject.next(false);
     }
   }
 
-  /**
-   * Check whether the current user has at least the given role level.
-   */
-  hasPermission(requiredRole: UserRole): boolean {
-    const user = this.currentUser();
-    if (!user) return false;
-    const userLevel = ROLE_HIERARCHY[user.role] ?? 0;
-    const requiredLevel = ROLE_HIERARCHY[requiredRole] ?? Infinity;
+  public async updatePassword(oldPassword: string, newPassword: string): Promise<{success: boolean}> {
+    if (!this.auth.currentUser) throw new Error('使用者未登入，無法更改密碼。');
+    
+    const changeUserPasswordFunction = httpsCallable<{oldPassword: string, newPassword: string}, {success: boolean}>(this.functions, 'changeUserPassword');
+    const result = await changeUserPasswordFunction({ oldPassword, newPassword });
+    return result.data;
+  }
+
+  public hasPermission(requiredRole: string): boolean {
+    if (!this.currentUser) return false;
+    const roleHierarchy: Record<string, number> = {
+      viewer: 1,
+      contributor: 2,
+      editor: 3,
+      admin: 4
+    };
+    const userLevel = roleHierarchy[this.currentUser.role] || 0;
+    const requiredLevel = roleHierarchy[requiredRole] || 999;
     return userLevel >= requiredLevel;
   }
 
-  /**
-   * Returns a Promise that resolves once the initial auth state has been
-   * determined (either a user is found or confirmed as null).
-   */
-  waitForAuthInit(): Promise<void> {
-    return this.authReadyPromise;
-  }
+  // Helper getters mimicking computed properties
+  public get isAdmin(): boolean { return this.hasPermission('admin'); }
+  public get isEditor(): boolean { return this.hasPermission('editor'); }
+  public get isContributor(): boolean { return this.hasPermission('contributor'); }
+  public get isViewer(): boolean { return this.currentUser?.role === 'viewer'; }
+  public get isReadOnly(): boolean { return !this.hasPermission('contributor'); }
 
-  /**
-   * Clear any auth error state (convenience for components).
-   */
-  clearError(): void {
-    // Intentionally blank -- errors are returned from methods, not stored
-    // in a signal. Kept for backward compatibility with the old stub.
-  }
-
-  // -----------------------------------------------------------------------
-  // Private methods
-  // -----------------------------------------------------------------------
-
-  private initAuthListener(): void {
-    this.authUnsubscribe = onAuthStateChanged(
-      this.firebase.auth,
-      async (firebaseUser: User | null) => {
-        try {
-          if (firebaseUser) {
-            await this.handleUserSignedIn(firebaseUser);
-          } else {
-            this.handleUserSignedOut();
-          }
-        } catch (error) {
-          console.error(
-            '[AuthService] Error in auth state change handler:',
-            error,
-          );
-          this.handleUserSignedOut();
-        } finally {
-          this.authLoading.set(false);
-          if (!this.isAuthReady()) {
-            this.isAuthReady.set(true);
-            this.authReadyResolve?.();
-          }
-        }
-      },
-    );
-  }
-
-  private async handleUserSignedIn(firebaseUser: User): Promise<void> {
-    // Force-refresh to get latest custom claims
-    const tokenResult = await firebaseUser.getIdTokenResult(true);
-    const customClaims = tokenResult.claims as unknown as AuthClaims;
-
-    const role = (customClaims.role as UserRole) || 'viewer';
-    const name =
-      (customClaims.name as string) || firebaseUser.displayName || '';
-    const title = (customClaims.title as string) || '';
-    const email =
-      (customClaims.email as string) || firebaseUser.email || '';
-
-    const appUser: AppUser = {
-      id: firebaseUser.uid,
-      uid: firebaseUser.uid,
-      name,
-      role,
-      title,
-      email,
-      lastLogin: new Date().toISOString(),
-    };
-
-    this.currentUser.set(appUser);
-    this.claims.set(customClaims);
-
-    console.log(
-      `[AuthService] User signed in: ${name} (${role})`,
-    );
-  }
-
-  private handleUserSignedOut(): void {
-    this.currentUser.set(null);
-    this.claims.set(null);
-  }
-
-  private cleanup(): void {
-    if (this.authUnsubscribe) {
-      this.authUnsubscribe();
-      this.authUnsubscribe = null;
-    }
+  public get canManagePhysicianSchedule(): boolean {
+    if (!this.currentUser) return false;
+    return ['admin', 'contributor'].includes(this.currentUser.role);
   }
 }

@@ -1,0 +1,23 @@
+.kidit-report-container { padding: 10px; min-height: 100vh; background: #f8f9fa; }
+.page-header { margin-bottom: 1.5rem; }
+.page-header h1 { font-size: 2rem; color: #333; margin: 0 0 0.25rem; }
+.page-description { color: #6c757d; margin: 0; font-size: 1rem; }
+.controls-bar { display: flex; align-items: center; gap: 1.5rem; padding: 1.25rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,.05); margin-bottom: 2rem; }
+.control-group { display: flex; align-items: center; gap: 0.75rem; }
+.control-group label { font-weight: 500; color: #495057; }
+.control-group input { padding: 0.5rem 0.75rem; border: 1px solid #ced4da; border-radius: 6px; font-size: 1rem; }
+.btn-primary { padding: 0.5rem 1.5rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; font-size: 1rem; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.loading-state, .placeholder-state { text-align: center; padding: 4rem; color: #6c757d; font-size: 1.1rem; }
+.spinner { width: 30px; height: 30px; border: 3px solid #e9ecef; border-top: 3px solid #007bff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+.summary-card { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,.06); text-align: center; }
+.card-label { font-size: 0.85rem; color: #6c757d; margin-bottom: 0.5rem; }
+.card-value { font-size: 2.5rem; font-weight: 700; color: #333; }
+.table-container { background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,.06); overflow-x: auto; }
+.report-table { width: 100%; border-collapse: collapse; }
+.report-table th, .report-table td { padding: 1rem; text-align: left; border-bottom: 1px solid #e9ecef; }
+.report-table th { background: #f8f9fa; font-weight: 600; color: #495057; }
+.count-col { text-align: center; font-weight: 500; }
+.total-row { font-weight: 700; background: #e9ecef; }

@@ -1,13 +1,12 @@
 export const environment = {
-  production: false,
-  appEnv: 'development' as const,
+  production: true,
   firebase: {
-    apiKey: 'AIzaSyAxngOc1Nbze_fgARZT__1sa_gkrMsnn3I',
-    authDomain: 'my-dialysis-app-develop.firebaseapp.com',
-    projectId: 'my-dialysis-app-develop',
-    storageBucket: 'my-dialysis-app-develop.appspot.com',
-    messagingSenderId: '1013541887371',
-    appId: '1:1013541887371:web:787b5d7db5faa8c853638e',
+    apiKey: 'AIzaSyAqO8PzTVP8ARrcSBJqMGrU0svGgRuzHCU',
+    authDomain: 'dialysis-schedule-cd36c.firebaseapp.com',
+    projectId: 'dialysis-schedule-cd36c',
+    storageBucket: 'dialysis-schedule-cd36c.appspot.com',
+    messagingSenderId: '788045577134',
+    appId: '1:788045577134:web:442ad7e7e59f4e3fdf263f'
   },
-  useEmulators: false,
+  useEmulators: false
 };

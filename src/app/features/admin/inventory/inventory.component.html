@@ -1,0 +1,208 @@
+<div class="inventory-container">
+  <header class="page-header">
+    <h1>庫存管理</h1>
+    <p class="page-description">管理耗材進貨、消耗紀錄、每月盤點與每週訂單。</p>
+  </header>
+
+  <div class="tabs-navigation">
+    <button [class.active]="activeTab === 'items'" (click)="activeTab = 'items'">品項設定</button>
+    <button [class.active]="activeTab === 'purchase'" (click)="activeTab = 'purchase'; fetchPurchases()">進貨紀錄</button>
+    <button [class.active]="activeTab === 'consumption'" (click)="activeTab = 'consumption'">消耗紀錄</button>
+    <button [class.active]="activeTab === 'monthly'" (click)="activeTab = 'monthly'">每月盤點</button>
+    <button [class.active]="activeTab === 'weekly'" (click)="activeTab = 'weekly'">每週訂單</button>
+  </div>
+
+  <main class="page-main-content">
+    <!-- Tab 0: 品項設定 -->
+    <div *ngIf="activeTab === 'items'" class="tab-panel">
+      <div class="panel-header">
+        <h3>庫存品項設定</h3>
+        <button class="btn-primary" (click)="openItemModal()">+ 新增品項</button>
+      </div>
+      <div class="category-filter-bar">
+        <button [class.active]="itemCategoryFilter === ''" (click)="filterByCategory('')">全部</button>
+        <button *ngFor="let cat of categoryKeys" [class.active]="itemCategoryFilter === cat" (click)="filterByCategory(cat)">
+          {{ CATEGORY_NAMES[cat] }}
+        </button>
+      </div>
+      <div class="table-container">
+        <div *ngIf="itemsLoading" class="loading-state">載入中...</div>
+        <div *ngIf="!itemsLoading && filteredItems.length === 0" class="empty-state">尚無品項資料</div>
+        <table *ngIf="!itemsLoading && filteredItems.length > 0">
+          <thead><tr><th>類別</th><th>品項名稱</th><th>院內代碼</th><th>每箱個數</th><th>廠牌</th><th>廠商電話</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr *ngFor="let item of filteredItems">
+              <td>{{ CATEGORY_NAMES[item.category] }}</td>
+              <td>{{ item.name }}</td>
+              <td>{{ item.hospitalCode || '-' }}</td>
+              <td>{{ item.unitsPerBox || '-' }}</td>
+              <td>{{ item.brand || '-' }}</td>
+              <td>{{ item.vendorPhone || '-' }}</td>
+              <td>
+                <button class="btn-sm btn-edit" (click)="openItemModal(item)">編輯</button>
+                <button class="btn-sm btn-delete" (click)="deleteInventoryItem(item.id)">刪除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 1: 進貨紀錄 -->
+    <div *ngIf="activeTab === 'purchase'" class="tab-panel">
+      <div class="panel-header">
+        <h3>進貨紀錄管理</h3>
+        <button class="btn-primary" (click)="openPurchaseModal()">+ 新增進貨</button>
+      </div>
+      <div class="filter-bar">
+        <div class="filter-field"><label>月份</label><input type="month" [(ngModel)]="purchaseFilter.month" (change)="fetchPurchases()" /></div>
+        <div class="filter-field">
+          <label>類別</label>
+          <select [(ngModel)]="purchaseFilter.category" (change)="fetchPurchases()">
+            <option value="">全部</option>
+            <option *ngFor="let cat of categoryKeys" [value]="cat">{{ CATEGORY_NAMES[cat] }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-container">
+        <div *ngIf="purchaseLoading" class="loading-state">載入中...</div>
+        <div *ngIf="!purchaseLoading && purchases.length === 0" class="empty-state">尚無進貨紀錄</div>
+        <table *ngIf="!purchaseLoading && purchases.length > 0">
+          <thead><tr><th>日期</th><th>類別</th><th>品項</th><th>箱數</th><th>個數</th><th>輸入者</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr *ngFor="let item of purchases">
+              <td>{{ formatDate(item.date) }}</td>
+              <td>{{ CATEGORY_NAMES[item.category] }}</td>
+              <td>{{ item.item }}</td>
+              <td>{{ item.boxQuantity || '-' }}</td>
+              <td>{{ item.quantity }}</td>
+              <td>{{ item.createdBy }}</td>
+              <td>
+                <button class="btn-sm btn-edit" (click)="openPurchaseModal(item)">編輯</button>
+                <button class="btn-sm btn-delete" (click)="deletePurchase(item.id)">刪除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Tab 2: 消耗紀錄 -->
+    <div *ngIf="activeTab === 'consumption'" class="tab-panel">
+      <div class="sub-tabs">
+        <button [class.active]="consumptionSubTab === 'query'" (click)="consumptionSubTab = 'query'">耗材查詢</button>
+        <button [class.active]="consumptionSubTab === 'summary'" (click)="consumptionSubTab = 'summary'">當月總量</button>
+        <button [class.active]="consumptionSubTab === 'upload'" (click)="consumptionSubTab = 'upload'">資料上傳</button>
+      </div>
+      <div *ngIf="consumptionSubTab === 'query'" class="sub-panel">
+        <div class="search-controls">
+          <div class="filter-field"><label>頻率</label>
+            <select [(ngModel)]="groupSearchParams.freq"><option value="一三五">一三五</option><option value="二四六">二四六</option></select>
+          </div>
+          <div class="filter-field"><label>班別</label>
+            <select [(ngModel)]="groupSearchParams.shift"><option value="early">早班</option><option value="noon">午班</option><option value="late">晚班</option></select>
+          </div>
+          <div class="filter-field"><label>月份</label><input type="month" [(ngModel)]="groupSearchParams.month" /></div>
+          <button (click)="handleConsumptionSearch()" [disabled]="consumptionLoading" class="btn-primary">
+            {{ consumptionLoading ? '查詢中...' : '查詢耗材' }}
+          </button>
+        </div>
+        <div *ngIf="consumptionLoading" class="loading-state">正在查詢耗材資料...</div>
+        <div *ngIf="!consumptionLoading && !consumptionSearchPerformed" class="placeholder-text">請選擇條件並點擊查詢。</div>
+        <div *ngIf="!consumptionLoading && consumptionSearchPerformed && processedConsumptionData.length === 0" class="empty-state">
+          查無符合條件的耗材資料。
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: 每月盤點 -->
+    <div *ngIf="activeTab === 'monthly'" class="tab-panel">
+      <div class="panel-header"><h3>每月盤點</h3></div>
+      <div class="filter-bar">
+        <div class="filter-field"><label>盤點日</label><input type="date" [(ngModel)]="monthlyFilter.countDate" /></div>
+        <div class="filter-field"><label>起始日</label><input type="date" [(ngModel)]="monthlyFilter.startDate" /></div>
+        <div class="filter-field"><label>結束日</label><input type="date" [(ngModel)]="monthlyFilter.endDate" /></div>
+        <button class="btn-primary" (click)="calculateMonthlyInventory()" [disabled]="monthlyLoading">
+          {{ monthlyLoading ? '計算中...' : '計算庫存' }}
+        </button>
+      </div>
+      <div *ngIf="!monthlyCalculated" class="placeholder-text">請選擇月份並點擊「計算庫存」。</div>
+      <div *ngIf="monthlyCalculated" class="placeholder-text">盤點結果將顯示於此。</div>
+    </div>
+
+    <!-- Tab 4: 每週訂單 -->
+    <div *ngIf="activeTab === 'weekly'" class="tab-panel">
+      <div class="panel-header">
+        <h3>每週訂單計算</h3>
+        <p class="panel-description">訂購量 = 安全庫存(9天) - 週二盤點 + 預估一週消耗</p>
+      </div>
+      <div class="filter-bar">
+        <div class="filter-field"><label>盤點日</label><input type="date" [(ngModel)]="weeklyFilter.countDate" /></div>
+        <div class="filter-field"><label>選擇週次</label><input type="week" [(ngModel)]="weeklyFilter.week" /></div>
+        <button class="btn-primary" (click)="loadWeeklyData()" [disabled]="weeklyLoading">
+          {{ weeklyLoading ? '載入中...' : '載入資料' }}
+        </button>
+      </div>
+      <div *ngIf="!weeklyDataLoaded" class="placeholder-text">請選擇週次並點擊「載入資料」。</div>
+      <div *ngIf="weeklyDataLoaded" class="placeholder-text">訂單建議將顯示於此。</div>
+    </div>
+  </main>
+
+  <!-- 品項設定 Modal -->
+  <div *ngIf="showItemModal" class="modal-overlay" (click)="showItemModal = false">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>{{ editingItem ? '編輯品項' : '新增品項' }}</h3>
+        <button class="modal-close" (click)="showItemModal = false">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field"><label>類別 *</label>
+          <select [(ngModel)]="itemForm['category']"><option value="">請選擇</option>
+            <option *ngFor="let cat of categoryKeys" [value]="cat">{{ CATEGORY_NAMES[cat] }}</option>
+          </select>
+        </div>
+        <div class="form-field"><label>品項名稱 *</label><input type="text" [(ngModel)]="itemForm['name']" placeholder="例如：FX80" /></div>
+        <div class="form-field"><label>院內代碼</label><input type="text" [(ngModel)]="itemForm['hospitalCode']" /></div>
+        <div class="form-field"><label>每箱個數</label><input type="number" [(ngModel)]="itemForm['unitsPerBox']" min="1" /></div>
+        <div class="form-field"><label>廠牌</label><input type="text" [(ngModel)]="itemForm['brand']" /></div>
+        <div class="form-field"><label>廠商聯絡電話</label><input type="tel" [(ngModel)]="itemForm['vendorPhone']" /></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" (click)="showItemModal = false">取消</button>
+        <button class="btn-primary" (click)="saveInventoryItem()" [disabled]="!itemForm['category'] || !itemForm['name']">
+          {{ editingItem ? '更新' : '新增' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 進貨紀錄 Modal -->
+  <div *ngIf="showPurchaseModal" class="modal-overlay" (click)="showPurchaseModal = false">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>{{ editingPurchase ? '編輯進貨紀錄' : '新增進貨紀錄' }}</h3>
+        <button class="modal-close" (click)="showPurchaseModal = false">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field"><label>日期 *</label><input type="date" [(ngModel)]="purchaseForm['date']" /></div>
+        <div class="form-field"><label>類別 *</label>
+          <select [(ngModel)]="purchaseForm['category']"><option value="">請選擇</option>
+            <option *ngFor="let cat of categoryKeys" [value]="cat">{{ CATEGORY_NAMES[cat] }}</option>
+          </select>
+        </div>
+        <div class="form-field"><label>品項 *</label>
+          <select [(ngModel)]="purchaseForm['item']"><option value="">請選擇品項</option>
+            <option *ngFor="let name of getItemSuggestions(purchaseForm['category'])" [value]="name">{{ name }}</option>
+          </select>
+        </div>
+        <div class="form-field"><label>箱數 *</label><input type="number" [(ngModel)]="purchaseForm['boxQuantity']" min="1" /></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" (click)="showPurchaseModal = false">取消</button>
+        <button class="btn-primary" (click)="savePurchase()" [disabled]="!purchaseForm['date'] || !purchaseForm['category'] || !purchaseForm['item']">
+          {{ editingPurchase ? '更新' : '新增' }}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

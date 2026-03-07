@@ -1,0 +1,20 @@
+<div class="page-container">
+  <div *ngIf="isLoading" class="loading-overlay"><div class="spinner"></div><span>正在載入總床位表資料...</span></div>
+  <header class="page-header">
+    <div class="header-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">床位總表</h1>
+        <div class="search-box">
+          <input type="text" [(ngModel)]="searchQuery" placeholder="搜尋病人姓名/病歷號..." class="search-input" />
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <span class="status-text">{{ statusText }}</span>
+      </div>
+    </div>
+  </header>
+  <main class="page-main-content">
+    <p class="placeholder-text">📋 床位總表 — 總排班表格將在此顯示 (ScheduleTable 子元件待遷移)</p>
+  </main>
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+</div>

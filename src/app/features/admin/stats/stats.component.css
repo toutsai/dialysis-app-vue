@@ -1,0 +1,42 @@
+.stats-container { min-height: 100vh; background: #f0f2f5; }
+.page-header-content { background: white; padding: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,.08); }
+.header-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+.toolbar-left { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.page-title { margin: 0; font-size: 1.5rem; font-weight: 600; color: #333; }
+.date-navigator { display: flex; align-items: center; gap: 0.5rem; }
+.date-navigator button { padding: 0.4rem 0.75rem; border: 1px solid #dee2e6; border-radius: 6px; background: white; cursor: pointer; font-size: 0.9rem; }
+.date-display-wrapper { text-align: center; }
+.current-date-text { font-weight: 600; font-size: 1.1rem; }
+.weekday-display { color: #6c757d; margin-left: 0.5rem; }
+.toolbar-right { display: flex; align-items: center; gap: 1rem; }
+.status-indicator { color: #6c757d; font-size: 0.9rem; }
+#save-changes-btn { padding: 0.5rem 1rem; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; }
+#save-changes-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.scrollable-main-content { padding: 1rem; overflow-x: auto; }
+.loading-overlay { display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 4rem; color: #6c757d; }
+.loading-spinner { width: 30px; height: 30px; border: 3px solid #e9ecef; border-top: 3px solid #007bff; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.stats-sections-wrapper { display: flex; flex-direction: column; gap: 2rem; }
+.stats-section { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.stats-section.is-locked { opacity: 0.7; pointer-events: none; }
+.section-header { padding: 0.75rem 1rem; background: #f8f9fa; border-bottom: 1px solid #e9ecef; }
+.section-header h2 { margin: 0; font-size: 1.2rem; color: #333; }
+.grid-container { display: grid; min-width: 600px; }
+.grid-header { display: contents; }
+.grid-header > div { padding: 0.75rem 0.5rem; background: #e9ecef; font-weight: 600; text-align: center; border-bottom: 2px solid #dee2e6; }
+.row-header { padding: 0.5rem; font-weight: 600; color: #495057; font-size: 0.85rem; background: #f8f9fa; display: flex; align-items: center; justify-content: center; border-right: 2px solid #dee2e6; }
+.team-header-cell { font-size: 0.9rem; }
+.unassigned-header { background: #fff3cd !important; }
+.grid-body { display: contents; }
+.grid-row { display: contents; }
+.grid-cell { padding: 0.5rem; border-bottom: 1px solid #e9ecef; min-height: 60px; }
+.name-cell { text-align: center; font-weight: 500; }
+.nurse-name-display { color: #333; }
+.unassigned { color: #adb5bd; font-size: 0.85rem; }
+.patient-list-cell { display: flex; flex-direction: column; gap: 0.25rem; }
+.patient-tag { padding: 0.25rem 0.5rem; background: #e3f2fd; border-radius: 4px; font-size: 0.85rem; color: #333; white-space: nowrap; }
+.mode-tag { color: #d32f2f; font-weight: 600; font-size: 0.8rem; }
+.grid-footer { display: contents; }
+.grid-footer > div { padding: 0.5rem; background: #f8f9fa; font-weight: 600; text-align: center; border-top: 2px solid #dee2e6; font-size: 0.85rem; color: #495057; }
+.total-count-summary { font-size: 0.85rem; }
+.empty-state { text-align: center; padding: 4rem; color: #6c757d; font-size: 1.2rem; }

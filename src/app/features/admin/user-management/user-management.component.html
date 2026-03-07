@@ -1,0 +1,99 @@
+<div class="user-management-container">
+  <header class="page-header">
+    <div class="header-top">
+      <h1>使用者帳號管理</h1>
+      <div *ngIf="!isLoading && userStats.total > 0" class="user-stats">
+        <span class="stats-total">總計: {{ userStats.total }}</span>
+        <span *ngIf="userStats.filtered !== userStats.total" class="stats-filtered">顯示: {{ userStats.filtered }}</span>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div class="search-filters">
+        <div class="search-group">
+          <input type="text" [(ngModel)]="searchTerm" placeholder="搜尋姓名/帳號/Email..." class="search-input" />
+          <button *ngIf="searchTerm || selectedRole !== 'all'" (click)="clearSearch()" class="clear-btn">×</button>
+        </div>
+        <select [(ngModel)]="selectedRole" class="role-filter">
+          <option *ngFor="let opt of roleOptions" [value]="opt.value">{{ opt.label }}</option>
+        </select>
+        <button (click)="toggleSortOrder()" class="sort-btn">{{ sortOrder === 'asc' ? '↑' : '↓' }}</button>
+      </div>
+      <div class="header-actions" *ngIf="isAdminUser()">
+        <button class="btn btn-danger" (click)="triggerForceResync()" [disabled]="isResyncLoading">
+          {{ isResyncLoading ? '同步中...' : '🚨 強制同步排程' }}
+        </button>
+        <button class="btn btn-info" (click)="triggerManualExpire()" [disabled]="isExpireLoading">
+          {{ isExpireLoading ? '更新中...' : '更新過期留言' }}
+        </button>
+        <button class="btn btn-primary" (click)="handleAddUser()" [disabled]="isSubmitting">+ 新增使用者</button>
+      </div>
+    </div>
+  </header>
+
+  <div *ngIf="isLoading" class="loading-container">
+    <div class="loading-spinner"></div>
+    <p>正在載入用戶列表...</p>
+  </div>
+
+  <div *ngIf="!isLoading && filteredUsers.length > 0" class="user-table-container">
+    <table class="user-table">
+      <thead><tr>
+        <th>姓名</th><th>帳號</th><th>職稱</th><th>角色</th><th>異動日期</th>
+        <th *ngIf="isAdminUser()">操作</th>
+      </tr></thead>
+      <tbody>
+        <tr *ngFor="let user of filteredUsers" [class.deleting-row]="isDeletingUser === user.id">
+          <td>{{ user.name }} <span *ngIf="user.role === 'admin'" class="admin-badge">管理員</span></td>
+          <td>{{ user.username }}</td>
+          <td>{{ user.title || '-' }}</td>
+          <td><span class="role-badge" [ngClass]="'role-' + user.role">{{ user.role }}</span></td>
+          <td>{{ formatDate(user.updatedAt || user.createdAt) }}</td>
+          <td *ngIf="isAdminUser()" class="action-cell">
+            <button class="btn-icon" (click)="handleEditUser(user)" [disabled]="isDeletingUser === user.id">✏️</button>
+            <button class="btn-icon" (click)="handleDeleteUser(user.id, user.name)" [disabled]="isDeletingUser === user.id">
+              {{ isDeletingUser === user.id ? '⏳' : '🗑️' }}
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div *ngIf="!isLoading && filteredUsers.length === 0" class="empty-state">
+    <div class="empty-icon">👥</div>
+    <h3>{{ searchTerm || selectedRole !== 'all' ? '沒有符合條件的使用者' : '尚無使用者' }}</h3>
+  </div>
+
+  <!-- User Form Modal -->
+  <div *ngIf="isModalVisible" class="modal-overlay" (click)="isModalVisible = false">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>{{ isEditing ? '編輯使用者' : '新增使用者' }}</h3>
+        <button class="modal-close" (click)="isModalVisible = false">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field"><label>姓名 *</label><input type="text" [(ngModel)]="userForm['name']" required /></div>
+        <div class="form-field"><label>帳號 *</label><input type="text" [(ngModel)]="userForm['username']" [disabled]="isEditing" required /></div>
+        <div class="form-field"><label>Email</label><input type="email" [(ngModel)]="userForm['email']" /></div>
+        <div class="form-field"><label>{{ isEditing ? '新密碼 (留空不變)' : '密碼 *' }}</label><input type="password" [(ngModel)]="userForm['password']" /></div>
+        <div class="form-field"><label>職稱</label><input type="text" [(ngModel)]="userForm['title']" /></div>
+        <div class="form-field">
+          <label>角色 *</label>
+          <select [(ngModel)]="userForm['role']">
+            <option value="admin">管理員</option><option value="editor">編輯者</option>
+            <option value="contributor">貢獻者</option><option value="viewer">查看者</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" (click)="isModalVisible = false">取消</button>
+        <button class="btn btn-primary" (click)="handleSaveUser()" [disabled]="isSubmitting || !userForm['name'] || !userForm['username']">
+          {{ isSubmitting ? '儲存中...' : (isEditing ? '更新' : '新增') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="onAlertConfirm()"></app-alert-dialog>
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage" (confirm)="onConfirmOk()" (cancel)="onConfirmCancel()"></app-confirm-dialog>
+</div>

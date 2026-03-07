@@ -1,0 +1,91 @@
+<div class="usage-guide-container">
+  <header class="guide-header">
+    <h1>📖 平台使用說明</h1>
+    <p class="subtitle">部北透析管理平台完整操作指南</p>
+  </header>
+
+  <div class="guide-content">
+    <nav class="guide-nav">
+      <ul>
+        <li *ngFor="let section of sections"
+            [class.active]="activeSection === section.id"
+            (click)="activeSection = section.id">
+          <span class="nav-icon">{{ section.icon }}</span>
+          <span>{{ section.name }}</span>
+        </li>
+      </ul>
+    </nav>
+
+    <main class="guide-main">
+      <!-- 平台總覽 -->
+      <section *ngIf="activeSection === 'overview'" class="guide-section">
+        <h2>🏠 平台總覽</h2>
+        <div class="overview-card">
+          <h3>關於本平台</h3>
+          <p>部北透析管理平台是專為透析室設計的完整管理系統，提供排班管理、護理分組、病人管理、工作協作等功能，協助團隊提升工作效率與照護品質。</p>
+        </div>
+        <div class="overview-card">
+          <h3>角色與權限</h3>
+          <div class="role-grid">
+            <div *ngFor="let role of roleInfo" class="role-item">
+              <div class="role-badge" [ngClass]="role.cls">{{ role.name }}</div>
+              <p>{{ role.desc }}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 共用功能 -->
+      <section *ngIf="activeSection === 'common'" class="guide-section">
+        <h2>👥 共用功能</h2>
+        <p class="section-desc">所有使用者皆可使用的核心功能</p>
+        <ng-container *ngFor="let key of commonPages">
+          <ng-container *ngTemplateOutlet="pageCard; context: { $implicit: key }"></ng-container>
+        </ng-container>
+      </section>
+
+      <!-- 排班管理 -->
+      <section *ngIf="activeSection === 'admin-editor'" class="guide-section">
+        <h2>📅 排班管理</h2>
+        <p class="section-desc">管理員與編輯者專用的排班管理功能</p>
+        <ng-container *ngFor="let key of adminEditorPages">
+          <ng-container *ngTemplateOutlet="pageCard; context: { $implicit: key }"></ng-container>
+        </ng-container>
+      </section>
+
+      <!-- 後臺管理 -->
+      <section *ngIf="activeSection === 'backend'" class="guide-section">
+        <h2>⚙️ 後臺管理</h2>
+        <p class="section-desc">依角色權限提供的後臺管理功能</p>
+        <ng-container *ngFor="let key of backendPages">
+          <ng-container *ngTemplateOutlet="pageCard; context: { $implicit: key }"></ng-container>
+        </ng-container>
+      </section>
+    </main>
+  </div>
+</div>
+
+<ng-template #pageCard let-key>
+  <div class="page-card" *ngIf="pageGuides[key] as page">
+    <div class="page-header" (click)="togglePage(key)">
+      <div class="page-title-row">
+        <span class="page-icon">{{ page.icon }}</span>
+        <h3>{{ page.name }}</h3>
+        <span class="page-path">{{ page.path }}</span>
+      </div>
+      <div class="page-meta">
+        <span class="role-tag">{{ page.roles }}</span>
+        <span class="toggle-icon">{{ expandedPages[key] ? '▲' : '▼' }}</span>
+      </div>
+    </div>
+    <div *ngIf="expandedPages[key]" class="page-content">
+      <p class="page-desc">{{ page.description }}</p>
+      <div class="feature-list">
+        <div *ngFor="let feature of page.features" class="feature-item">
+          <span class="feature-title">{{ feature.title }}</span>
+          <span class="feature-desc">{{ feature.desc }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</ng-template>
