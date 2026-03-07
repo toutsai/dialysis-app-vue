@@ -1,0 +1,70 @@
+<div class="page-container" [class.is-locked]="isPageLocked">
+  <!-- Loading Overlay -->
+  <div *ngIf="isLoading" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <span>正在載入 {{ currentDateDisplay }} 的資料...</span>
+  </div>
+
+  <!-- Header -->
+  <header class="page-header">
+    <div class="header-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">每日排程</h1>
+        <div class="date-navigator">
+          <button class="btn" (click)="changeDate(-1)">&lt; 上一天</button>
+          <span class="current-date-text">{{ currentDateDisplay }}</span>
+          <span class="weekday-display">{{ weekdayDisplay }}</span>
+          <button class="btn" (click)="changeDate(1)">下一天 &gt;</button>
+          <button class="btn" (click)="goToToday()">回到今日</button>
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <span class="status-indicator">{{ statusIndicator }}</span>
+        <button class="btn btn-success" (click)="saveDataToCloud()" [disabled]="!hasUnsavedChanges || isPageLocked">儲存</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Schedule Table -->
+  <main class="page-main-content">
+    <div class="simplified-view">
+      <table class="simplified-table">
+        <thead>
+          <tr>
+            <th class="col-bed">床號</th>
+            <th *ngFor="let shiftCode of ORDERED_SHIFT_CODES">
+              {{ getShiftDisplayName(shiftCode) }}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let bedNum of sortedBedNumbers">
+            <td class="col-bed">{{ bedNum }}</td>
+            <td *ngFor="let shiftCode of ORDERED_SHIFT_CODES"
+                (click)="handleSlotClick('bed-' + bedNum + '-' + shiftCode)">
+              <div *ngIf="getPatientName('bed-' + bedNum + '-' + shiftCode)" class="patient-info-cell">
+                <span class="patient-name-text">{{ getPatientName('bed-' + bedNum + '-' + shiftCode) }}</span>
+              </div>
+              <span *ngIf="!getPatientName('bed-' + bedNum + '-' + shiftCode)" class="empty-slot">+</span>
+            </td>
+          </tr>
+          <!-- Peripheral beds -->
+          <tr *ngFor="let i of [1,2,3,4,5,6]">
+            <td class="col-bed">外圍 {{ i }}</td>
+            <td *ngFor="let shiftCode of ORDERED_SHIFT_CODES"
+                (click)="handleSlotClick('peripheral-' + i + '-' + shiftCode)">
+              <div *ngIf="getPatientName('peripheral-' + i + '-' + shiftCode)" class="patient-info-cell">
+                <span class="patient-name-text">{{ getPatientName('peripheral-' + i + '-' + shiftCode) }}</span>
+              </div>
+              <span *ngIf="!getPatientName('peripheral-' + i + '-' + shiftCode)" class="empty-slot">+</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- Alert Dialog -->
+  <app-alert-dialog [isVisible]="isAlertDialogVisible" [title]="alertDialogTitle" [message]="alertDialogMessage"
+    (confirm)="isAlertDialogVisible = false"></app-alert-dialog>
+</div>

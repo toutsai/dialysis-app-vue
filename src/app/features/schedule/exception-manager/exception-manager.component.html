@@ -1,0 +1,31 @@
+<div class="page-container">
+  <div class="page-header-section">
+    <div class="header-toolbar">
+      <h1 class="page-title">調班管理(單次或區間調整班別)</h1>
+    </div>
+    <p class="page-description">處理單次或區間調整，如「臨時調班」、「區間暫停」或「臨時加洗」等。</p>
+  </div>
+
+  <main class="page-main-content">
+    <div *ngIf="isLoading" class="loading-state"><div class="spinner"></div>正在載入調班申請資料...</div>
+    <div *ngIf="!isLoading && exceptions.length === 0" class="empty-state">
+      <p>✅ 目前沒有任何待處理或已生效的調班。</p>
+    </div>
+    <div *ngIf="!isLoading && exceptions.length > 0" class="exceptions-list">
+      <div *ngFor="let ex of exceptions" class="exception-card" (click)="showExceptionDetails(ex)">
+        <div class="card-header">
+          <span class="type-badge">{{ typeMap[ex.type] || '未知' }}</span>
+          <span class="status-badge" [ngClass]="getStatusClass(ex.status)">{{ statusMap[ex.status] || '未知' }}</span>
+        </div>
+        <div class="card-body">
+          <strong>{{ ex.patientName }}</strong>
+          <span class="date-range">{{ ex.startDate }} ~ {{ ex.endDate || ex.startDate }}</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage"
+    (confirm)="handleDelete()" (cancel)="isConfirmVisible = false"></app-confirm-dialog>
+</div>

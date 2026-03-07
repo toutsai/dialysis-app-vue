@@ -1,0 +1,45 @@
+.page-container.memo-view { height: 100%; display: flex; flex-direction: column; gap: 16px; padding: 0.5rem; box-sizing: border-box; }
+.page-title { margin: 0; padding-bottom: 1rem; border-bottom: 1px solid #dee2e6; color: #2c3e50; display: flex; align-items: baseline; flex-shrink: 0; font-size: 1.8rem; }
+.title-stats { font-size: 0.9rem; font-weight: 400; color: #6c757d; margin-left: 12px; }
+.error-banner { background: #f8d7da; color: #721c24; padding: 12px 16px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #f5c6cb; flex-shrink: 0; }
+.retry-btn { background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+.loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; color: #6c757d; }
+.loading-spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #007bff; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.memo-layout-grid { display: grid; grid-template-areas: 'form pending' 'history pending'; grid-template-columns: 1fr 1.5fr; grid-template-rows: auto 1fr; gap: 24px; flex-grow: 1; min-height: 0; }
+.form-card { grid-area: form; } .pending-card { grid-area: pending; } .history-card { grid-area: history; }
+.memo-card { background: white; border-radius: 12px; border: 1px solid #e9ecef; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 24px; display: flex; flex-direction: column; overflow: hidden; }
+.card-title { margin: 0 0 20px 0; font-size: 1.4rem; color: #343a40; padding-bottom: 16px; border-bottom: 1px solid #f1f3f5; display: flex; align-items: center; flex-shrink: 0; }
+.title-count { font-size: 0.9rem; background: #dc3545; color: white; margin-left: 8px; padding: 2px 8px; border-radius: 12px; }
+.memo-form { display: flex; flex-direction: column; gap: 16px; }
+.textarea-wrapper { position: relative; }
+.memo-form textarea { width: 100%; min-height: 100px; padding: 12px; border-radius: 8px; border: 1px solid #ced4da; font-size: 1rem; resize: vertical; box-sizing: border-box; }
+.char-count { position: absolute; bottom: 8px; right: 8px; font-size: 0.8rem; color: #6c757d; }
+.form-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.option-item { display: flex; flex-direction: column; gap: 8px; }
+.option-item label { font-weight: 600; color: #495057; font-size: 0.9rem; }
+.option-item input[type='date'] { width: 100%; height: 42px; padding: 6px 12px; border-radius: 6px; border: 1px solid #ced4da; box-sizing: border-box; }
+.selected-patient-display { display: flex; justify-content: space-between; align-items: center; height: 42px; padding: 6px 12px; border-radius: 6px; border: 1px solid #ced4da; background: #e9ecef; box-sizing: border-box; }
+.clear-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; }
+.add-btn { padding: 10px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1rem; }
+.add-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pending-card, .tab-content { overflow-y: auto; flex-grow: 1; }
+.memo-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px; }
+.memo-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px; border: 1px solid #e9ecef; border-radius: 8px; gap: 16px; }
+.memo-item.expired { border-left: 3px solid #ffc107; }
+.memo-item.resolved { border-left: 3px solid #28a745; opacity: 0.7; }
+.memo-content { flex-grow: 1; }
+.memo-content p { margin: 0 0 8px; }
+.memo-meta { font-size: 0.85rem; color: #6c757d; }
+.date-highlight { color: #dc3545; }
+.memo-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.resolve-btn { padding: 6px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+.revert-btn { padding: 6px 12px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+.delete-btn { padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; white-space: nowrap; }
+.empty-state { text-align: center; color: #6c757d; padding: 2rem; }
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid #e2e8f0; margin-bottom: 12px; }
+.tabs button { padding: 10px 16px; border: none; background: none; cursor: pointer; font-weight: 500; color: #718096; border-bottom: 2px solid transparent; margin-bottom: -2px; font-size: 0.9rem; }
+.tabs button.active { color: #3498db; border-bottom-color: #3498db; }
+.tab-count { font-size: 0.8rem; margin-left: 4px; padding: 1px 6px; border-radius: 10px; }
+.expired-count { background: #fff3cd; color: #856404; }
+.resolved-count { background: #d4edda; color: #155724; }

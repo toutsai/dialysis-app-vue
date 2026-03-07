@@ -1,0 +1,48 @@
+.log-page-container { height: 100%; display: flex; flex-direction: column; position: relative; }
+.loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; gap: 12px; }
+.loading-spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #007bff; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.log-page-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: white; border-bottom: 2px solid #dee2e6; flex-shrink: 0; flex-wrap: wrap; gap: 10px; }
+.header-left, .header-right { display: flex; align-items: center; gap: 12px; }
+.header-left h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+.date-navigator { display: flex; align-items: center; gap: 6px; }
+.date-navigator button { padding: 5px 12px; border: 1px solid #cbd5e0; border-radius: 6px; background: white; cursor: pointer; font-size: 0.9rem; }
+.current-date-text { font-weight: 600; font-size: 1rem; cursor: pointer; }
+.weekday-display { color: #6c757d; font-size: 0.9rem; }
+.status-indicator { font-size: 0.9rem; color: #718096; }
+.save-btn { padding: 6px 16px; background: #48bb78; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.log-page-main { flex: 1; overflow: auto; padding: 16px; }
+.log-section { margin-bottom: 2rem; background: white; border-radius: 8px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.section-header h2 { margin: 0; font-size: 1.2rem; font-weight: 600; color: #343a40; }
+.log-section h2 { margin: 0 0 12px; font-size: 1.2rem; font-weight: 600; color: #343a40; }
+.add-row-btn { padding: 6px 14px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr 1fr; gap: 1px; background: #dee2e6; border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; font-size: 0.9rem; }
+.stats-grid > div { background: white; padding: 8px 12px; text-align: center; display: flex; align-items: center; justify-content: center; }
+.grid-header { background: #f0f3f5 !important; font-weight: 600; }
+.cell-item { font-weight: 600; background: #f7fafc !important; }
+.cell-category { background: #fbfcfd !important; font-size: 0.85rem; color: #495057; }
+.cell-total { font-weight: 600; background: #f0f3f5 !important; }
+.total-a { color: #2b6cb0; font-weight: 600; }
+.total-final { color: #c53030; font-weight: 700; }
+.toggle-details-btn { padding: 4px 10px; border: 1px solid #ced4da; border-radius: 4px; background: white; cursor: pointer; font-size: 0.8rem; }
+.dynamic-table-container { overflow-x: auto; }
+.dynamic-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.dynamic-table th, .dynamic-table td { border: 1px solid #dee2e6; padding: 8px 10px; text-align: center; }
+.dynamic-table th { background: #f0f3f5; font-weight: 600; }
+.dynamic-table input[type="text"] { width: 100%; padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.85rem; box-sizing: border-box; }
+.dynamic-table input:disabled { background: #f7fafc; border-color: transparent; }
+.movement-type-badge { padding: 2px 8px; background: #e3f2fd; color: #1565c0; border-radius: 4px; font-size: 0.8rem; font-weight: 500; }
+.delete-btn { padding: 4px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.8rem; }
+.notes-textarea { width: 100%; min-height: 100px; padding: 12px; border: 1px solid #ced4da; border-radius: 8px; font-size: 0.95rem; resize: vertical; box-sizing: border-box; }
+.notes-textarea:disabled { background: #f7fafc; }
+.log-page-footer { margin-top: 1rem; }
+.leader-signature-grid { display: flex; gap: 24px; align-items: center; background: white; padding: 16px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.leader-title { font-weight: 700; font-size: 1.1rem; }
+.signature-slot { display: flex; align-items: center; gap: 8px; }
+.shift-label { font-weight: 500; }
+.signature-display { display: flex; align-items: center; gap: 6px; }
+.leader-name { font-weight: 700; color: #c53030; border: 2px solid #c53030; padding: 2px 10px; border-radius: 4px; }
+.signature-time { font-size: 0.8rem; color: #718096; }
+.sign-btn { padding: 4px 14px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.85rem; }

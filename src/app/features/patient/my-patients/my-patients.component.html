@@ -1,0 +1,88 @@
+<div class="my-patients-container">
+  <div class="page-header">
+    <div class="header-main-row">
+      <h1 class="page-title">今日病人清單</h1>
+      <div class="header-actions">
+        <button (click)="fetchMyPatientData()" [disabled]="isLoading" class="btn-refresh">
+          {{ isLoading ? '載入中...' : '🔄 重新整理' }}
+        </button>
+      </div>
+    </div>
+    <div class="view-filters">
+      <div class="filter-item">
+        <label>檢視日期：</label>
+        <input type="date" [(ngModel)]="selectedDate" (change)="fetchMyPatientData()" />
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="isLoading && !hasAnyPatients" class="status-panel">
+    <div class="spinner"></div>
+    <p>正在為您準備今日的病人照護列表...</p>
+  </div>
+
+  <div *ngIf="!isLoading && !hasAnyPatients" class="status-panel">
+    <p>✅ 您今天沒有被分配到照護病人，或班表尚未更新。</p>
+  </div>
+
+  <div *ngIf="hasAnyPatients" class="tables-container">
+    <ng-container *ngFor="let shiftCode of shiftOrder">
+      <div *ngIf="$any(patientListByShift)[shiftCode]?.length > 0" class="shift-table-section">
+        <h2 class="shift-title">{{ getShiftTitle(shiftCode) }}</h2>
+        <div class="table-wrapper">
+          <table class="patient-table">
+            <thead>
+              <tr>
+                <th class="col-bed">床位</th>
+                <th class="col-name">姓名</th>
+                <th class="col-prep">AK</th>
+                <th class="col-prep">Ca</th>
+                <th class="col-prep">Heparin</th>
+                <th class="col-prep">BF</th>
+                <th class="col-access">通路/穿刺針</th>
+                <th class="col-meds">須施打藥物</th>
+                <th class="col-memos">交班備忘</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let patient of $any(patientListByShift)[shiftCode]">
+                <td>{{ patient.bedNum }}</td>
+                <td class="patient-name"><strong>{{ patient.name }}</strong></td>
+                <td>{{ patient.preparation['ak'] }}</td>
+                <td>{{ patient.preparation['dialysateCa'] }}</td>
+                <td>{{ patient.preparation['heparin'] }}</td>
+                <td>{{ patient.preparation['bloodFlow'] }}</td>
+                <td>{{ patient.preparation['vascAccess'] }}</td>
+                <td>
+                  <ul *ngIf="patient.injections.length > 0" class="info-list">
+                    <li *ngFor="let inj of patient.injections">{{ formatInjection(inj) }}</li>
+                  </ul>
+                  <span *ngIf="patient.injections.length === 0" class="no-data">–</span>
+                </td>
+                <td>
+                  <ul *ngIf="patient.memos.length > 0" class="info-list memo-list">
+                    <li *ngFor="let memo of patient.memos" class="memo-item">
+                      <div class="memo-content">
+                        <span class="memo-icon">{{ getMemoTypeIcon(memo.type) }}</span>
+                        <span *ngIf="memo.targetDate" class="memo-date">[{{ memo.targetDate.slice(5) }}]</span>
+                        {{ memo.content }}
+                      </div>
+                      <div class="memo-actions">
+                        <button (click)="confirmDeleteMemo(memo)" title="刪除">🗑</button>
+                        <button *ngIf="memo.type !== '衛教'" (click)="markMemoRead(memo)" class="btn-complete" title="標示已讀">✓ 已讀</button>
+                      </div>
+                    </li>
+                  </ul>
+                  <span *ngIf="patient.memos.length === 0" class="no-data">–</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ng-container>
+  </div>
+
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage"
+    (confirm)="executeDeleteMemo()" (cancel)="isConfirmVisible = false"></app-confirm-dialog>
+</div>

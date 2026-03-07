@@ -72,6 +72,7 @@ const allowedOrigins = [
   'https://my-dialysis-app-develop.web.app', // 開發版前端網址
   'https://dialysis-schedule-cd36c.web.app', // 正式版前端網址
   'http://localhost:5173', // 本地 Vite 開發伺服器
+  'http://localhost:4200', // 本地 Angular 開發伺服器
 ]
 
 // ===================================================================

@@ -1,0 +1,67 @@
+<div class="kidit-report-container">
+  <header class="page-header">
+    <h1>KIDIT 月報表</h1>
+    <p class="page-description">Key Indicators for Dialysis Treatment</p>
+  </header>
+
+  <div class="controls-bar">
+    <div class="control-group">
+      <label>選擇月份：</label>
+      <input type="month" [(ngModel)]="selectedMonth" />
+    </div>
+    <button class="btn-primary" (click)="generateReport()" [disabled]="isLoading">
+      {{ isLoading ? '生成中...' : '生成報表' }}
+    </button>
+  </div>
+
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    正在生成 {{ selectedMonth }} 的 KIDIT 報表...
+  </div>
+
+  <div *ngIf="!isLoading && !reportGenerated" class="placeholder-state">
+    請選擇月份並點擊「生成報表」。
+  </div>
+
+  <div *ngIf="reportGenerated" class="report-content">
+    <div class="summary-cards">
+      <div class="summary-card">
+        <div class="card-label">月總透析人次</div>
+        <div class="card-value">{{ totalDialysis }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="card-label">不重複病人數</div>
+        <div class="card-value">{{ totalPatients }}</div>
+      </div>
+      <div class="summary-card">
+        <div class="card-label">週數</div>
+        <div class="card-value">{{ weeklyData.length }}</div>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>週次</th><th>日期範圍</th><th>透析人次</th><th>不重複病人數</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let week of weeklyData">
+            <td>第 {{ week.weekNum }} 週</td>
+            <td>{{ week.startDay }} - {{ week.endDay }} 日</td>
+            <td class="count-col">{{ week.dialysisCount }}</td>
+            <td class="count-col">{{ week.patientCount }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="total-row">
+            <td colspan="2">月合計</td>
+            <td class="count-col">{{ totalDialysis }}</td>
+            <td class="count-col">{{ totalPatients }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>

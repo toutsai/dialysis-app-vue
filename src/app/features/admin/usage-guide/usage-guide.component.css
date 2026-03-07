@@ -1,0 +1,48 @@
+.usage-guide-container { min-height: 100%; background-color: #f8fafc; }
+.guide-header { background: linear-gradient(135deg, #2c3e50, #34495e); color: white; padding: 2rem; text-align: center; }
+.guide-header h1 { margin: 0; font-size: 2rem; }
+.guide-header .subtitle { margin: 0.5rem 0 0; opacity: 0.9; font-size: 1.1rem; }
+.guide-content { display: flex; max-width: 1400px; margin: 0 auto; padding: 1.5rem; gap: 1.5rem; }
+.guide-nav { width: 200px; flex-shrink: 0; position: sticky; top: 1.5rem; height: fit-content; }
+.guide-nav ul { list-style: none; padding: 0; margin: 0; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); overflow: hidden; }
+.guide-nav li { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; cursor: pointer; transition: all 0.2s; border-left: 3px solid transparent; }
+.guide-nav li:hover { background-color: #f1f5f9; }
+.guide-nav li.active { background-color: #e0f2fe; border-left-color: #0ea5e9; color: #0ea5e9; font-weight: 600; }
+.nav-icon { font-size: 1.2rem; }
+.guide-main { flex: 1; min-width: 0; }
+.guide-section h2 { margin: 0 0 0.5rem; color: #1e293b; font-size: 1.5rem; }
+.section-desc { color: #64748b; margin: 0 0 1.5rem; }
+.overview-card { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.overview-card h3 { margin: 0 0 1rem; color: #334155; font-size: 1.1rem; }
+.overview-card p { margin: 0; color: #64748b; line-height: 1.7; }
+.role-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+.role-item { padding: 1rem; background: #f8fafc; border-radius: 8px; }
+.role-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.5rem; }
+.role-badge.admin { background: #fef3c7; color: #92400e; }
+.role-badge.editor { background: #dbeafe; color: #1e40af; }
+.role-badge.contributor { background: #d1fae5; color: #065f46; }
+.role-badge.viewer { background: #f3e8ff; color: #6b21a8; }
+.role-item p { margin: 0; font-size: 0.9rem; color: #64748b; }
+.page-card { background: white; border-radius: 12px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,.06); overflow: hidden; }
+.page-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem 1.5rem; cursor: pointer; transition: background-color 0.2s; }
+.page-header:hover { background-color: #f8fafc; }
+.page-title-row { display: flex; align-items: center; gap: 0.75rem; }
+.page-icon { font-size: 1.3rem; }
+.page-title-row h3 { margin: 0; font-size: 1.1rem; color: #1e293b; }
+.page-path { font-size: 0.85rem; color: #94a3b8; font-family: monospace; }
+.page-meta { display: flex; align-items: center; gap: 0.75rem; }
+.role-tag { font-size: 0.8rem; color: #64748b; background: #f1f5f9; padding: 0.25rem 0.75rem; border-radius: 12px; }
+.toggle-icon { font-size: 0.8rem; color: #94a3b8; }
+.page-content { padding: 0 1.5rem 1.5rem; border-top: 1px solid #f1f5f9; }
+.page-desc { color: #64748b; margin: 1rem 0; }
+.feature-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; }
+.feature-item { display: flex; gap: 0.5rem; padding: 0.75rem; background: #f8fafc; border-radius: 8px; }
+.feature-title { font-weight: 600; color: #334155; white-space: nowrap; }
+.feature-title::after { content: '：'; }
+.feature-desc { color: #64748b; font-size: 0.9rem; }
+@media (max-width: 768px) {
+  .guide-content { flex-direction: column; }
+  .guide-nav { width: 100%; position: static; }
+  .guide-nav ul { display: flex; overflow-x: auto; }
+  .guide-nav li { white-space: nowrap; }
+}

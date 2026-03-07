@@ -1,0 +1,51 @@
+<div class="page-container">
+  <div *ngIf="isLoading" class="loading-overlay"><div class="loading-spinner"></div><span>載入病人資料...</span></div>
+
+  <header class="page-header">
+    <div class="header-toolbar">
+      <h1 class="page-title">病人管理</h1>
+      <div class="search-box">
+        <input type="text" [(ngModel)]="searchTerm" placeholder="搜尋姓名或病歷號..." class="search-input" />
+      </div>
+    </div>
+    <div class="tab-bar">
+      <button [class.active]="activeTab === 'opd'" (click)="setTab('opd')">門診 ({{ tabCounts['opd'] }})</button>
+      <button [class.active]="activeTab === 'ipd'" (click)="setTab('ipd')">住院 ({{ tabCounts['ipd'] }})</button>
+      <button [class.active]="activeTab === 'er'" (click)="setTab('er')">急診 ({{ tabCounts['er'] }})</button>
+      <button [class.active]="activeTab === 'deleted'" (click)="setTab('deleted')">已刪除 ({{ tabCounts['deleted'] }})</button>
+    </div>
+  </header>
+
+  <main class="patient-table-wrapper">
+    <table class="patient-table">
+      <thead>
+        <tr>
+          <th>病歷號</th>
+          <th>姓名</th>
+          <th>透析模式</th>
+          <th>頻率</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let patient of displayedPatients">
+          <td>{{ patient.medicalRecordNumber }}</td>
+          <td class="patient-name-cell">{{ patient.name }}</td>
+          <td><span class="mode-badge">{{ patient['mode'] || 'HD' }}</span></td>
+          <td><span [ngClass]="freqColorMap[patient['freq']] || 'freq-grey'" class="freq-badge">{{ patient['freq'] || '未設定' }}</span></td>
+          <td class="actions-cell">
+            <button class="btn-action edit" *ngIf="!isPageLocked" title="編輯">✏️</button>
+            <button class="btn-action delete" *ngIf="!isDeleteLocked && activeTab !== 'deleted'" (click)="openDeleteDialog(patient.id)" title="刪除">🗑️</button>
+          </td>
+        </tr>
+        <tr *ngIf="displayedPatients.length === 0">
+          <td colspan="5" class="empty-state">目前沒有符合條件的病人資料</td>
+        </tr>
+      </tbody>
+    </table>
+  </main>
+
+  <app-alert-dialog [isVisible]="isAlertVisible" [title]="alertTitle" [message]="alertMessage" (confirm)="isAlertVisible = false"></app-alert-dialog>
+  <app-selection-dialog [isVisible]="isDeleteDialogVisible" title="選擇刪除原因" [options]="deleteReasons"
+    (selectEvent)="handleDeleteReasonSelected($event)" (cancelEvent)="isDeleteDialogVisible = false"></app-selection-dialog>
+</div>

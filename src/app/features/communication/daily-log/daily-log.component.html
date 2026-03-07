@@ -1,0 +1,118 @@
+<div class="log-page-container">
+  <div *ngIf="isLoading" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>正在載入 {{ selectedDate }} 的日誌與排班資料...</p>
+  </div>
+
+  <header class="log-page-header">
+    <div class="header-left">
+      <h1>工作日誌</h1>
+      <div class="date-navigator">
+        <button (click)="changeDate(-1)">❮ 上一日</button>
+        <span class="current-date-text">{{ selectedDateDisplay }}</span>
+        <span class="weekday-display">{{ weekdayDisplay }}</span>
+        <button (click)="changeDate(1)">下一日 ❯</button>
+        <button (click)="goToToday()">今日</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="status-indicator">{{ statusText }}</span>
+      <button (click)="saveDailyLog()" class="save-btn" [disabled]="isPageLocked">💾 儲存</button>
+    </div>
+  </header>
+
+  <main class="log-page-main">
+    <!-- 營運統計 -->
+    <section class="log-section">
+      <div class="section-header"><h2>營運統計</h2></div>
+      <div class="stats-grid">
+        <div class="grid-header cell-item">項目</div>
+        <div class="grid-header cell-category">班別</div>
+        <div class="grid-header cell-shift">第一班</div>
+        <div class="grid-header cell-shift">第二班</div>
+        <div class="grid-header cell-shift">第三班</div>
+        <div class="grid-header cell-total">合計</div>
+
+        <div class="cell-item">洗腎中心</div>
+        <div class="cell-category">門診</div>
+        <div class="cell-data">{{ dailyLog.stats.main_beds.early.opd }}</div>
+        <div class="cell-data">{{ dailyLog.stats.main_beds.noon.opd }}</div>
+        <div class="cell-data">{{ dailyLog.stats.main_beds.late.opd }}</div>
+        <div class="cell-total">{{ dailyLog.stats.main_beds.early.opd + dailyLog.stats.main_beds.noon.opd + dailyLog.stats.main_beds.late.opd }}</div>
+
+        <div class="cell-item">HDR開床數</div>
+        <div class="cell-category">合計(A)</div>
+        <div class="cell-data total-a">{{ dailyLog.stats.main_beds.early.total }}</div>
+        <div class="cell-data total-a">{{ dailyLog.stats.main_beds.noon.total }}</div>
+        <div class="cell-data total-a">{{ dailyLog.stats.main_beds.late.total }}</div>
+        <div class="cell-total total-a">{{ dailyLog.stats.main_beds.early.total + dailyLog.stats.main_beds.noon.total + dailyLog.stats.main_beds.late.total }}</div>
+
+        <div class="cell-item">總人次</div>
+        <div class="cell-category">(A)+(B)+(C)</div>
+        <div class="cell-data total-final">{{ totalPatients.early }}</div>
+        <div class="cell-data total-final">{{ totalPatients.noon }}</div>
+        <div class="cell-data total-final">{{ totalPatients.late }}</div>
+        <div class="cell-total total-final">{{ totalPatients.early + totalPatients.noon + totalPatients.late }}</div>
+
+        <div class="cell-item">護理人力</div>
+        <div class="cell-category">
+          <button (click)="toggleStaffingDetails()" class="toggle-details-btn">{{ isStaffingDetailsVisible ? '收合' : '展開' }}</button>
+        </div>
+        <div class="cell-data total-final">{{ calculatedStaffingTotals.early.toFixed(3) }}</div>
+        <div class="cell-data total-final">{{ calculatedStaffingTotals.noon.toFixed(3) }}</div>
+        <div class="cell-data total-final">{{ calculatedStaffingTotals.late.toFixed(3) }}</div>
+        <div class="cell-total total-final">{{ calculatedStaffingTotals.total.toFixed(3) }}</div>
+
+        <div class="cell-item">護病比</div>
+        <div class="cell-category">總人次/護理人力</div>
+        <div class="cell-data">{{ nursePatientRatios.early }}</div>
+        <div class="cell-data">{{ nursePatientRatios.noon }}</div>
+        <div class="cell-data">{{ nursePatientRatios.late }}</div>
+        <div class="cell-total">{{ nursePatientRatios.total }}</div>
+      </div>
+    </section>
+
+    <!-- 病人動態表 -->
+    <section class="log-section">
+      <div class="section-header">
+        <h2>病人動態表</h2>
+        <button *ngIf="!isPageLocked" (click)="addRow('patientMovements')" class="add-row-btn">新增手動動態</button>
+      </div>
+      <div *ngIf="dailyLog.patientMovements.length > 0" class="dynamic-table-container">
+        <table class="dynamic-table">
+          <thead><tr><th>類型</th><th>姓名</th><th>病歷號</th><th>備註</th><th>操作</th></tr></thead>
+          <tbody>
+            <tr *ngFor="let item of dailyLog.patientMovements; let i = index">
+              <td><span class="movement-type-badge">{{ item.type || '手動' }}</span></td>
+              <td><input type="text" [(ngModel)]="item.name" [disabled]="isPageLocked" /></td>
+              <td><input type="text" [(ngModel)]="item.medicalRecordNumber" [disabled]="isPageLocked" /></td>
+              <td><input type="text" [(ngModel)]="item.remarks" [disabled]="isPageLocked" /></td>
+              <td><button *ngIf="!isPageLocked" (click)="deleteRow(i, 'patientMovements')" class="delete-btn">移除</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 其他事項 -->
+    <section class="log-section">
+      <h2>其他事項</h2>
+      <textarea [(ngModel)]="dailyLog.otherNotes" placeholder="請輸入其他事項..." [disabled]="isPageLocked" class="notes-textarea"></textarea>
+    </section>
+
+    <!-- 簽核 -->
+    <footer class="log-page-footer">
+      <div class="leader-signature-grid">
+        <div class="leader-title">組長簽核</div>
+        <div *ngFor="let shift of ['early', 'noon', 'late']" class="signature-slot">
+          <span class="shift-label">{{ shift === 'early' ? '第一班' : shift === 'noon' ? '第二班' : '第三班' }}：</span>
+          <div *ngIf="dailyLog.leader[shift]?.name" class="signature-display">
+            <span class="leader-name">{{ dailyLog.leader[shift].name }}</span>
+            <span class="signature-time">{{ formatSignTime(dailyLog.leader[shift].signedAt) }}</span>
+          </div>
+          <button *ngIf="!dailyLog.leader[shift]?.name && !isPageLocked" (click)="signAsLeader(shift)" class="sign-btn">簽核</button>
+        </div>
+      </div>
+    </footer>
+  </main>
+</div>

@@ -1,0 +1,31 @@
+<div class="page-container">
+  <div class="page-header-section">
+    <div class="header-toolbar">
+      <h1 class="page-title">預約變更(長期變更)</h1>
+      <button class="btn btn-primary" [disabled]="isPageLocked">＋ 新增預約變更</button>
+    </div>
+    <p class="page-description">針對身分、頻率與長期床位的變動，變更將在「生效日期」當天凌晨由系統自動執行。</p>
+  </div>
+
+  <main class="page-main-content">
+    <div *ngIf="isLoading" class="loading-state"><div class="spinner"></div>正在載入預約變更資料...</div>
+    <div *ngIf="!isLoading && scheduledUpdates.length === 0" class="empty-state">
+      <p>📅 目前沒有任何預約變更記錄。</p>
+    </div>
+    <div *ngIf="!isLoading && scheduledUpdates.length > 0" class="updates-list">
+      <div *ngFor="let update of scheduledUpdates" class="update-card" (click)="handleEventClick(update)">
+        <div class="card-header">
+          <span class="type-tag">{{ TYPE_MAP[update.changeType] || '未知' }}</span>
+          <span class="status-tag" [ngClass]="getStatusClass(update.status)">{{ $any(STATUS_MAP)[update.status]?.text ?? '未知' }}</span>
+        </div>
+        <div class="card-body">
+          <strong>{{ update.patientName }}</strong>
+          <span class="effective-date">生效日: {{ update.effectiveDate }}</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage"
+    (confirm)="handleDelete()" (cancel)="isConfirmVisible = false"></app-confirm-dialog>
+</div>

@@ -1,0 +1,109 @@
+<div class="dashboard-container" [class.sidebar-open]="isSidebarOpen">
+  <aside class="sidebar" [class.is-open]="isSidebarOpen">
+    <!-- 1. 固定的頂部導覽 -->
+    <div class="main-nav-section">
+      <div class="sidebar-header">
+        <span class="platform-title">部北透析管理平台</span>
+        <span *ngIf="environmentTag" [ngClass]="['environment-tag', environmentTag.class]">
+          {{ environmentTag.text }}
+        </span>
+      </div>
+      <ul class="sidebar-nav">
+        <!-- 共用功能 -->
+        <li><a routerLink="/schedule" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">每日排程</span></div></a></li>
+        <li><a routerLink="/stats" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">護理分組</span></div></a></li>
+        <li><a routerLink="/my-patients" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">我的今日病人</span></div></a></li>
+
+        <!-- Admin / Editor Only -->
+        <ng-container *ngIf="isAdmin || isEditor">
+          <li class="desktop-only-nav-item"><a routerLink="/weekly" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">週排班</span></div></a></li>
+          <li class="desktop-only-nav-item"><a routerLink="/base-schedule" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">床位總表</span></div></a></li>
+          <li class="desktop-only-nav-item"><a routerLink="/exception-manager" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">調班換床</span><span class="nav-hint">(單次/區間)</span></div></a></li>
+          <li class="desktop-only-nav-item"><a routerLink="/update-scheduler" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">預約變更</span><span class="nav-hint">(長期)</span></div></a></li>
+        </ng-container>
+
+        <!-- 病人清單: Admin, Editor, Contributor -->
+        <li *ngIf="isAdmin || isEditor || isContributor">
+          <a routerLink="/patients" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">病人清單</span></div></a>
+        </li>
+
+        <li><a routerLink="/collaboration" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">訊息中心</span></div></a></li>
+      </ul>
+    </div>
+
+    <!-- 固定的底部容器 -->
+    <div class="bottom-fixed-section">
+      <div class="management-section">
+        <h3 class="section-title is-collapsible" (click)="toggleManagementSection()" [class.is-collapsed]="isManagementSectionCollapsed">
+          <span>後臺管理</span>
+          <i class="chevron-icon">▼</i>
+        </h3>
+
+        <ul *ngIf="!isManagementSectionCollapsed" class="sidebar-nav">
+          <!-- 工作日誌: Admin, Editor, Viewer -->
+          <li *ngIf="isAdmin || currentUser?.role === 'editor' || currentUser?.role === 'viewer'">
+            <a routerLink="/daily-log" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">工作日誌</span></div></a>
+          </li>
+          <!-- 護理班表與職責: Admin, Editor -->
+          <li *ngIf="isAdmin || currentUser?.role === 'editor'">
+            <a routerLink="/nursing-schedule" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">護理班表與職責</span></div></a>
+          </li>
+          <!-- KiDit 申報: Admin, Editor -->
+          <li *ngIf="isAdmin || currentUser?.role === 'editor'">
+            <a routerLink="/kidit-report" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">KiDit 申報</span></div></a>
+          </li>
+          <!-- 醫師班表: Admin, Contributor, Viewer -->
+          <li *ngIf="isAdmin || currentUser?.role === 'contributor' || currentUser?.role === 'viewer'">
+            <a routerLink="/physician-schedule" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">醫師班表</span></div></a>
+          </li>
+          <!-- 檢驗報告: Admin, Contributor -->
+          <li *ngIf="isAdmin || currentUser?.role === 'contributor'">
+            <a routerLink="/lab-reports" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">檢驗報告</span></div></a>
+          </li>
+          <!-- 庫存管理: Admin, Viewer -->
+          <li *ngIf="isAdmin || currentUser?.role === 'viewer'">
+            <a routerLink="/inventory" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">庫存管理</span></div></a>
+          </li>
+          <!-- 藥囑管理: Admin, Contributor -->
+          <li *ngIf="isAdmin || currentUser?.role === 'contributor'">
+            <a routerLink="/orders" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">藥囑管理</span></div></a>
+          </li>
+          <!-- 統計報表: Admin, Editor, Contributor -->
+          <li *ngIf="isAdmin || currentUser?.role === 'editor' || currentUser?.role === 'contributor'">
+            <a routerLink="/reporting" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">統計報表</span></div></a>
+          </li>
+          <!-- 使用者管理: Admin Only -->
+          <li *ngIf="isAdmin">
+            <a routerLink="/user-management" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">使用者管理</span></div></a>
+          </li>
+          <li>
+            <a routerLink="/usage-guide" routerLinkActive="active" class="nav-link"><div class="nav-item-content"><span class="nav-title">使用說明</span></div></a>
+          </li>
+        </ul>
+      </div>
+      <div class="nav-footer">
+        <div *ngIf="currentUser" class="user-info">
+          <span>歡迎, {{ currentUser.name }}</span>
+        </div>
+        <div class="button-group">
+          <a routerLink="/account-settings" class="action-button btn-secondary">更改密碼</a>
+          <button (click)="handleLogout()" class="action-button btn-logout">登出</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="sidebar-overlay" (click)="closeSidebar()" *ngIf="isSidebarOpen"></div>
+
+  <main class="content-area">
+    <header class="main-header">
+      <button class="sidebar-toggle" (click)="toggleSidebar()">
+        <span></span><span></span><span></span>
+      </button>
+      <h2 class="current-page-title">{{ currentPageTitle }}</h2>
+    </header>
+    <div class="content-wrapper">
+      <router-outlet></router-outlet>
+    </div>
+  </main>
+</div>

@@ -1,0 +1,129 @@
+<div class="stats-container">
+  <div class="page-header-content">
+    <div class="header-toolbar">
+      <div class="toolbar-left">
+        <h1 class="page-title">護理分組</h1>
+        <div class="date-navigator">
+          <button (click)="changeDate(-1)">&lt; 上一天</button>
+          <div class="date-display-wrapper">
+            <span class="current-date-text">{{ formatDate(currentDate) }}</span>
+            <span class="weekday-display">{{ weekdayDisplay }}</span>
+          </div>
+          <button (click)="changeDate(1)">下一天 &gt;</button>
+        </div>
+        <button (click)="goToToday()">回到今日</button>
+      </div>
+      <div class="toolbar-right">
+        <span class="status-indicator">{{ statusIndicator }}</span>
+        <button id="save-changes-btn" [disabled]="!hasUnsavedChanges || isPageLocked" (click)="saveChangesToCloud()">儲存變更</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="scrollable-main-content">
+    <div *ngIf="isLoading" class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <span>正在載入 {{ formatDate(currentDate) }} 的資料...</span>
+    </div>
+
+    <div *ngIf="!isLoading" class="stats-sections-wrapper">
+      <!-- 早班區塊 -->
+      <div *ngIf="sortedEarlyTeams.length > 0" class="stats-section" [class.is-locked]="isPageLocked">
+        <div class="section-header"><h2>早班</h2></div>
+        <div class="grid-container" [style.grid-template-columns]="'90px repeat(' + sortedEarlyTeams.length + ', 1fr)'">
+          <div class="grid-header">
+            <div class="row-header section-title-cell">早班</div>
+            <div *ngFor="let team of sortedEarlyTeams" class="team-header-cell" [class.unassigned-header]="team.includes('未分組')">
+              {{ getTeamDisplayName(team, '早') }}
+            </div>
+          </div>
+          <div class="grid-body">
+            <!-- 姓名行 -->
+            <div class="grid-row">
+              <div class="row-header">姓名</div>
+              <div *ngFor="let team of sortedEarlyTeams" class="grid-cell name-cell">
+                <span *ngIf="$any(effectiveStatsData)['early'][team]?.nurseName" class="nurse-name-display">
+                  {{ $any(effectiveStatsData)['early'][team]?.nurseName }}
+                </span>
+                <span *ngIf="!$any(effectiveStatsData)['early'][team]?.nurseName" class="unassigned">-- 未指派 --</span>
+              </div>
+            </div>
+            <!-- 早班病人 -->
+            <div class="grid-row">
+              <div class="row-header">早班</div>
+              <div *ngFor="let team of sortedEarlyTeams" class="grid-cell patient-list-cell">
+                <div *ngFor="let patient of $any(effectiveStatsData)['early'][team]?.earlyShift?.patients || []" class="patient-tag">
+                  {{ patient.dialysisBed }} - {{ patient.name }}
+                  <span *ngIf="patient.mode && patient.mode !== 'HD'" class="mode-tag">({{ patient.mode }})</span>
+                </div>
+              </div>
+            </div>
+            <!-- 午班上針 -->
+            <div class="grid-row">
+              <div class="row-header">午班(上針)</div>
+              <div *ngFor="let team of sortedEarlyTeams" class="grid-cell patient-list-cell">
+                <div *ngFor="let patient of $any(effectiveStatsData)['early'][team]?.noonShiftOn?.patients || []" class="patient-tag">
+                  {{ patient.dialysisBed }} - {{ patient.name }}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
+            <div *ngFor="let team of sortedEarlyTeams" class="total-count-summary">
+              門{{ $any(effectiveStatsData)['early'][team]?.totalOpdCount || 0 }}
+              住{{ $any(effectiveStatsData)['early'][team]?.totalIpdCount || 0 }}
+              急{{ $any(effectiveStatsData)['early'][team]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 晚班區塊 -->
+      <div *ngIf="sortedLateTeams.length > 0" class="stats-section" [class.is-locked]="isPageLocked">
+        <div class="section-header"><h2>晚班</h2></div>
+        <div class="grid-container" [style.grid-template-columns]="'90px repeat(' + sortedLateTeams.length + ', 1fr)'">
+          <div class="grid-header">
+            <div class="row-header section-title-cell">晚班</div>
+            <div *ngFor="let team of sortedLateTeams" class="team-header-cell" [class.unassigned-header]="team.includes('未分組')">
+              {{ getTeamDisplayName(team, '晚') }}
+            </div>
+          </div>
+          <div class="grid-body">
+            <div class="grid-row">
+              <div class="row-header">姓名</div>
+              <div *ngFor="let team of sortedLateTeams" class="grid-cell name-cell">
+                <span *ngIf="$any(effectiveStatsData)['late'][team]?.nurseName">{{ $any(effectiveStatsData)['late'][team]?.nurseName }}</span>
+                <span *ngIf="!$any(effectiveStatsData)['late'][team]?.nurseName" class="unassigned">-- 未指派 --</span>
+              </div>
+            </div>
+            <div class="grid-row">
+              <div class="row-header">晚班</div>
+              <div *ngFor="let team of sortedLateTeams" class="grid-cell patient-list-cell">
+                <div *ngFor="let patient of $any(effectiveStatsData)['late'][team]?.lateShift?.patients || []" class="patient-tag">
+                  {{ patient.dialysisBed }} - {{ patient.name }}
+                  <span *ngIf="patient.mode && patient.mode !== 'HD'" class="mode-tag">({{ patient.mode }})</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid-footer">
+            <div class="row-header">照護人數</div>
+            <div *ngFor="let team of sortedLateTeams" class="total-count-summary">
+              門{{ $any(effectiveStatsData)['late'][team]?.totalOpdCount || 0 }}
+              住{{ $any(effectiveStatsData)['late'][team]?.totalIpdCount || 0 }}
+              急{{ $any(effectiveStatsData)['late'][team]?.totalErCount || 0 }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="sortedEarlyTeams.length === 0 && sortedLateTeams.length === 0 && !isLoading" class="empty-state">
+        <p>本日尚無護理分組資料</p>
+      </div>
+    </div>
+  </div>
+
+  <app-confirm-dialog [isVisible]="isConfirmVisible" [title]="confirmTitle" [message]="confirmMessage"
+    (confirm)="onConfirmOk()" (cancel)="onConfirmCancel()"></app-confirm-dialog>
+</div>
