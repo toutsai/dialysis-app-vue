@@ -4116,11 +4116,50 @@ exports.processOrders = onCall(
       // ✨ --- [核心修正] 使用正確的方式呼叫 serverTimestamp --- ✨
       const uploadTimestamp = FieldValue.serverTimestamp()
 
-      const now = new Date()
-      const year = now.getFullYear()
-      const month = (now.getMonth() + 1).toString().padStart(2, '0')
-      const uploadMonth = `${year}-${month}`
-      logger.info(`[ProcessOrders V1.8] 本次上傳將歸檔至月份: ${uploadMonth}`)
+      // ✨ [改進 v2.0] 從前端傳入或檔名解析目標月份，不再依賴伺服器時間
+      let uploadMonth = request.data.targetMonth || ''
+      if (!uploadMonth) {
+        // 從檔名中解析 6 位數字（如 202603）
+        const monthMatch = fileName.match(/(\d{6})/)
+        if (monthMatch) {
+          const ym = monthMatch[1]
+          const parsedYear = parseInt(ym.substring(0, 4))
+          const parsedMonth = parseInt(ym.substring(4, 6))
+          if (parsedYear >= 2020 && parsedYear <= 2099 && parsedMonth >= 1 && parsedMonth <= 12) {
+            uploadMonth = `${parsedYear}-${String(parsedMonth).padStart(2, '0')}`
+          }
+        }
+      }
+      // 最終 fallback：使用伺服器目前時間
+      if (!uploadMonth || !/^\d{4}-\d{2}$/.test(uploadMonth)) {
+        const now = new Date()
+        uploadMonth = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`
+      }
+      logger.info(`[ProcessOrders V2.0] 本次上傳將歸檔至月份: ${uploadMonth}`)
+
+      // ✨ [改進 v2.0] 先刪除同月份的舊藥囑資料，避免重複上傳產生重複紀錄
+      const existingOrdersSnapshot = await db
+        .collection('medication_orders')
+        .where('uploadMonth', '==', uploadMonth)
+        .get()
+
+      if (!existingOrdersSnapshot.empty) {
+        let deleteBatch = db.batch()
+        let deleteCount = 0
+        existingOrdersSnapshot.forEach((doc) => {
+          deleteBatch.delete(doc.ref)
+          deleteCount++
+          if (deleteCount % 450 === 0) {
+            deleteBatch.commit()
+            deleteBatch = db.batch()
+            deleteCount = 0
+          }
+        })
+        if (deleteCount > 0) {
+          await deleteBatch.commit()
+        }
+        logger.info(`[ProcessOrders V2.0] 已清除 ${existingOrdersSnapshot.size} 筆 ${uploadMonth} 的舊藥囑資料。`)
+      }
 
       const buffer = Buffer.from(fileContent, 'base64')
       const workbook = XLSX.read(buffer, { type: 'buffer' })
